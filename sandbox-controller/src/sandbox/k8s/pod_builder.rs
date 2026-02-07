@@ -92,13 +92,23 @@ pub fn build_pod_from_template(
                 None => vec![],
             };
 
-            let repo_config_value = serde_json::json!({
-                "systemPrompt": rc.system_prompt,
-                "codeExecution": rc.code_execution,
-                "previewConfig": rc.preview_config,
-                "servers": enriched_servers,
-                "pluginIds": rc.plugin_ids,
-            });
+            let mut repo_config_map = serde_json::Map::new();
+            if let Some(ref sp) = rc.system_prompt {
+                repo_config_map.insert("systemPrompt".into(), serde_json::json!(sp));
+            }
+            if let Some(ref ce) = rc.code_execution {
+                repo_config_map.insert("codeExecution".into(), ce.clone());
+            }
+            if let Some(ref pc) = rc.preview_config {
+                repo_config_map.insert("previewConfig".into(), pc.clone());
+            }
+            if !enriched_servers.is_empty() {
+                repo_config_map.insert("servers".into(), serde_json::json!(enriched_servers));
+            }
+            if let Some(ref pi) = rc.plugin_ids {
+                repo_config_map.insert("pluginIds".into(), serde_json::json!(pi));
+            }
+            let repo_config_value = serde_json::Value::Object(repo_config_map);
             task_env.push(serde_json::json!({
                 "name": "REPO_CONFIG",
                 "value": repo_config_value.to_string()

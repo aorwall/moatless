@@ -42,14 +42,29 @@ metrics-exporter-prometheus = "0.16"
 dotenvy = "0.15"
 
 # Database
-sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "postgres", "json"] }
+sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "postgres", "json", "chrono"] }
 
 # Redis
 redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
 
 # UUID + timestamps
 uuid = { version = "1", features = ["v4"] }
-chrono = "0.4"
+chrono = { version = "0.4", features = ["serde"] }
+
+# HTTP client (OAuth token exchange)
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+
+# Crypto (API key hashing)
+sha2 = "0.10"
+rand = "0.9"
+hex = "0.4"
+base64 = "0.22"
+
+# URL encoding
+serde_urlencoded = "0.7"
+
+# Cookie parsing/building
+cookie = "0.18"
 
 # Error handling
 thiserror = "2"

@@ -134,6 +134,20 @@ if [ -n "$GIT_CLONE_URL" ] && [ ! -d "$WORKSPACE_DIR/.git" ]; then
     echo "Repository cloned successfully"
 fi
 
+# Redirect Next.js build cache to tmpfs (avoids EBS I/O contention with Claude Code)
+BUILD_CACHE_DIR="/opt/moatless/build-cache"
+if [ -d "$BUILD_CACHE_DIR" ]; then
+    NEXT_DIR="$WORKSPACE_DIR/.next"
+    if [ ! -e "$NEXT_DIR" ]; then
+        mkdir -p "$BUILD_CACHE_DIR/next"
+        ln -s "$BUILD_CACHE_DIR/next" "$NEXT_DIR"
+        # Node resolves require() from realpath, not symlink path.
+        # Symlink node_modules into tmpfs so chunks can find packages.
+        ln -s "$WORKSPACE_DIR/node_modules" "$BUILD_CACHE_DIR/node_modules" 2>/dev/null || true
+        echo "Linked .next build cache to tmpfs"
+    fi
+fi
+
 # Sync plugins from backend API (blocking - needed for agent execution)
 # Plugins are downloaded via API instead of mounted from shared storage
 if [ -n "$REPO_CONFIG" ]; then

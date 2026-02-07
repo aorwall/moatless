@@ -2,6 +2,7 @@
 //!
 //! Serves a unified API on port 8080. Authenticated via Traefik ForwardAuth.
 
+mod auth;
 mod config;
 mod db;
 mod events;
@@ -16,6 +17,7 @@ use tokio::net::TcpListener;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
+use auth::routes::{AuthState, OAuthProviders};
 use config::Config;
 use events::RedisEventPublisher;
 use sandbox::k8s::client::K8sClient;
@@ -93,6 +95,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Build OAuth providers from config.
+fn build_oauth_providers(config: &Config) -> OAuthProviders {
+    let github = auth::oauth::github::GitHubOAuthProvider::from_config(config).map(|p| {
+        info!("GitHub OAuth provider configured");
+        Arc::new(p) as Arc<dyn auth::oauth::provider::OAuthProvider>
+    });
+
+    let auth0 = auth::oauth::auth0::Auth0OAuthProvider::from_config(config).map(|p| {
+        info!("Auth0 OAuth provider configured");
+        Arc::new(p) as Arc<dyn auth::oauth::provider::OAuthProvider>
+    });
+
+    OAuthProviders { github, auth0 }
+}
+
 /// Start the API server on the configured port.
 async fn start_api_server(
     config: &Config,
@@ -121,15 +138,35 @@ async fn start_api_server(
         k8s,
         status_cache,
         pod_template: Arc::new(pod_template),
-        db_pool,
+        db_pool: db_pool.clone(),
         event_publisher,
     };
 
-    let state = SandboxApiState {
+    let sandbox_state = SandboxApiState {
         provider: Arc::new(provider),
     };
 
-    let router = api_router(state);
+    // Build the combined router: sandbox routes + auth routes
+    let mut router = api_router(sandbox_state);
+
+    // Add auth routes if database is available
+    if let Some(pool) = db_pool {
+        let oauth_providers = build_oauth_providers(config);
+        let auth_state = AuthState {
+            db: pool,
+            config: Arc::new(config.clone()),
+            providers: Arc::new(oauth_providers),
+        };
+        let auth_routes = auth::routes::auth_router(auth_state);
+        router = router.merge(auth_routes);
+        info!(
+            auth_provider = ?config.auth_provider,
+            "Auth routes registered"
+        );
+    } else {
+        info!("Auth routes disabled (no database)");
+    }
+
     let addr = SocketAddr::from(([0, 0, 0, 0], config.port));
     let listener = TcpListener::bind(addr).await?;
     info!(port = config.port, "API server started");

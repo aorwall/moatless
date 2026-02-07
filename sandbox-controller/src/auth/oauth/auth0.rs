@@ -1,0 +1,217 @@
+//! Auth0 OAuth provider implementation.
+
+use std::time::Duration;
+
+use async_trait::async_trait;
+use tracing::{debug, info, warn};
+
+use crate::auth::error::AuthError;
+use crate::auth::types::{OAuthTokens, ProviderUserInfo};
+use crate::config::Config;
+use super::provider::OAuthProvider;
+
+pub struct Auth0OAuthProvider {
+    domain: String,
+    client_id: String,
+    client_secret: String,
+    callback_url: String,
+    audience: Option<String>,
+    groups_claim: String,
+    http: reqwest::Client,
+}
+
+impl Auth0OAuthProvider {
+    /// Create from config. Returns None if Auth0 is not configured.
+    pub fn from_config(config: &Config) -> Option<Self> {
+        let domain = config.auth0_domain.clone()?;
+        let client_id = config.auth0_client_id.clone()?;
+        let client_secret = config.auth0_client_secret.clone()?;
+        let callback_url = config.auth0_callback_url.clone()?;
+        let http = reqwest::Client::builder()
+            .timeout(Duration::from_secs(30))
+            .build()
+            .expect("failed to build reqwest client");
+        Some(Self {
+            domain,
+            client_id,
+            client_secret,
+            callback_url,
+            audience: config.auth0_audience.clone(),
+            groups_claim: config.auth0_groups_claim.clone(),
+            http,
+        })
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct Auth0TokenResponse {
+    access_token: String,
+    id_token: Option<String>,
+    token_type: String,
+    scope: Option<String>,
+    error: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct Auth0UserInfo {
+    sub: String,
+    nickname: Option<String>,
+    email: Option<String>,
+    name: Option<String>,
+    picture: Option<String>,
+}
+
+#[async_trait]
+impl OAuthProvider for Auth0OAuthProvider {
+    fn provider_id(&self) -> &str {
+        "auth0"
+    }
+
+    fn generate_auth_url(&self, state: &str) -> Option<String> {
+        let mut params = vec![
+            ("response_type", "code"),
+            ("client_id", &self.client_id),
+            ("redirect_uri", &self.callback_url),
+            ("state", state),
+            ("scope", "openid profile email"),
+        ];
+
+        // Audience requires owned string for the reference
+        let audience_str;
+        if let Some(ref audience) = self.audience {
+            audience_str = audience.clone();
+            params.push(("audience", &audience_str));
+        }
+
+        let query = serde_urlencoded::to_string(&params).ok()?;
+        Some(format!("https://{}/authorize?{}", self.domain, query))
+    }
+
+    async fn exchange_code_for_tokens(&self, code: &str) -> Result<OAuthTokens, AuthError> {
+        let resp = self
+            .http
+            .post(format!("https://{}/oauth/token", self.domain))
+            .json(&serde_json::json!({
+                "grant_type": "authorization_code",
+                "client_id": self.client_id,
+                "client_secret": self.client_secret,
+                "code": code,
+                "redirect_uri": self.callback_url,
+            }))
+            .send()
+            .await
+            .map_err(|e| AuthError::OAuthError(format!("Auth0 token exchange failed: {}", e)))?;
+
+        if !resp.status().is_success() {
+            return Err(AuthError::OAuthError(format!(
+                "Auth0 token exchange returned {}",
+                resp.status()
+            )));
+        }
+
+        let data: Auth0TokenResponse = resp
+            .json()
+            .await
+            .map_err(|e| AuthError::OAuthError(format!("Failed to parse Auth0 token response: {}", e)))?;
+
+        if let Some(err) = data.error {
+            return Err(AuthError::OAuthError(format!("Auth0 OAuth error: {}", err)));
+        }
+
+        Ok(OAuthTokens {
+            access_token: data.access_token,
+            token_type: data.token_type,
+            scope: data.scope,
+            id_token: data.id_token,
+        })
+    }
+
+    async fn get_user_info(&self, tokens: &OAuthTokens) -> Result<ProviderUserInfo, AuthError> {
+        let resp = self
+            .http
+            .get(format!("https://{}/userinfo", self.domain))
+            .header("Authorization", format!("Bearer {}", tokens.access_token))
+            .send()
+            .await
+            .map_err(|e| AuthError::OAuthError(format!("Auth0 user info request failed: {}", e)))?;
+
+        if !resp.status().is_success() {
+            return Err(AuthError::OAuthError(format!(
+                "Auth0 user info returned {}",
+                resp.status()
+            )));
+        }
+
+        let user: Auth0UserInfo = resp
+            .json()
+            .await
+            .map_err(|e| AuthError::OAuthError(format!("Failed to parse Auth0 user response: {}", e)))?;
+
+        let login = user
+            .nickname
+            .or(user.email.clone())
+            .unwrap_or_else(|| user.sub.clone());
+
+        Ok(ProviderUserInfo {
+            id: user.sub,
+            login,
+            email: user.email,
+            name: user.name,
+            avatar_url: user.picture,
+        })
+    }
+
+    async fn extract_user_group(&self, tokens: &OAuthTokens) -> Option<String> {
+        let id_token = tokens.id_token.as_ref()?;
+
+        // Decode JWT payload without verification (we trust Auth0's signature)
+        let parts: Vec<&str> = id_token.split('.').collect();
+        if parts.len() != 3 {
+            warn!("Invalid JWT format for group extraction");
+            return None;
+        }
+
+        // Base64url-decode the payload
+        use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+        use base64::Engine;
+        let payload_bytes = URL_SAFE_NO_PAD.decode(parts[1]).ok()?;
+        let payload: serde_json::Value = serde_json::from_slice(&payload_bytes).ok()?;
+
+        let groups_claim = payload.get(&self.groups_claim)?;
+
+        let groups: Vec<String> = if let Some(arr) = groups_claim.as_array() {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        } else if let Some(s) = groups_claim.as_str() {
+            vec![s.to_string()]
+        } else {
+            debug!(claim = %self.groups_claim, "No groups claim found");
+            return None;
+        };
+
+        if groups.is_empty() {
+            return None;
+        }
+
+        let primary = groups[0].clone();
+        if groups.len() > 1 {
+            info!(
+                count = groups.len(),
+                primary = %primary,
+                "User has multiple groups, using first as primary"
+            );
+        }
+
+        Some(primary)
+    }
+
+    fn generate_logout_url(&self, return_to: &str) -> Option<String> {
+        let params = [
+            ("client_id", self.client_id.as_str()),
+            ("returnTo", return_to),
+        ];
+        let query = serde_urlencoded::to_string(params).ok()?;
+        Some(format!("https://{}/v2/logout?{}", self.domain, query))
+    }
+}

@@ -230,6 +230,23 @@ config:
 
 # Authentication configuration
 auth:
+  # -- Auth provider: "github", "auth0", or omit to disable auth
+  provider: ""
+  # -- Frontend URL for OAuth redirects
+  frontendUrl: ""
+  # -- Cookie domain for cross-subdomain sharing (e.g., ".moatless.xyz")
+  cookieDomain: ""
+  # -- Session max age in seconds (default: 604800 = 7 days)
+  sessionMaxAge: ""
+  # -- GitHub OAuth settings
+  github:
+    enabled: false
+    callbackUrl: ""
+  # -- Auth0 OAuth settings
+  auth0:
+    enabled: false
+    callbackUrl: ""
+    audience: ""
   # -- List of user IDs that have admin access (for bootstrapping)
   # These users bypass role checks and have full admin privileges
   # Example: ["github|12345", "auth0|abc123"]
@@ -332,6 +349,10 @@ kubernetes:
   # -- Tolerations for worker pods (overrides top-level tolerations)
   # If empty, falls back to top-level tolerations
   workerTolerations: []
+  # Extension hooks for environment-specific worker pod customization
+  workerExtraVolumes: []
+  workerExtraVolumeMounts: []
+  workerExtraEnv: []
   # Image pre-pull configuration (reduces pod startup time)
   imagePrepull:
     # -- Enable DaemonSet to pre-pull worker image on all nodes

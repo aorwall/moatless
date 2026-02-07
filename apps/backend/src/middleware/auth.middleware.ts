@@ -1,147 +1,104 @@
 import type { UserSession } from '@moatless/types'
 import type { Context, Next } from 'hono'
-import { getCookie } from 'hono/cookie'
 import { HTTPException } from 'hono/http-exception'
 import * as jose from 'jose'
-import { appContainer } from '../container/container'
-import { UserRepository } from '../features/auth/db/user.repository'
-import { ApiKeyService } from '../features/auth/services/api-key.service'
-import { AuthService } from '../features/auth/services/auth.service'
-import { SESSION_COOKIE_NAME } from '../features/auth/utils/cookie.utils'
 import { logger } from '../utils/logger'
+
+const SKIP_PATHS = [
+  '/api/v1/auth/', // All auth routes handled by Rust via Traefik routing
+  '/api/v1/channels/email/inbound',
+  '/api/v1/integrations/slack/events',
+]
+
+function sessionFromHeaders(c: Context): UserSession {
+  const userId = c.req.header('X-User-Id') as string
+  return {
+    id: `forwarded-${userId}`,
+    provider: c.req.header('X-User-Provider') || 'unknown',
+    userId,
+    userLogin: c.req.header('X-User-Login') || '',
+    userEmail: null,
+    userName: null,
+    avatarUrl: null,
+    role: (c.req.header('X-User-Role') as 'admin' | 'user') || 'user',
+    accessToken: '',
+    createdAt: new Date(),
+    expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+    ...(c.req.header('X-Group-Id') && { groupId: c.req.header('X-Group-Id') }),
+  }
+}
+
+async function validateTaskToken(c: Context): Promise<void> {
+  const taskToken = c.req.header('X-Task-Token') as string
+  const taskTokenSecret = process.env['TASK_TOKEN_SECRET']
+  if (!taskTokenSecret) {
+    logger.error('TASK_TOKEN_SECRET not configured')
+    throw new HTTPException(500, { message: 'Server configuration error' })
+  }
+
+  const secretKey = new TextEncoder().encode(taskTokenSecret)
+  const { payload } = await jose.jwtVerify(taskToken, secretKey)
+
+  const taskId = payload['taskId']
+  const userId = payload['userId']
+
+  if (typeof taskId !== 'string' || typeof userId !== 'string') {
+    throw new HTTPException(401, { message: 'Invalid token payload' })
+  }
+
+  const routeTaskId = c.req.param('taskId')
+  if (routeTaskId && taskId !== routeTaskId) {
+    logger.warn({ tokenTaskId: taskId, routeTaskId }, 'Token taskId mismatch')
+    throw new HTTPException(403, { message: 'Token not valid for this task' })
+  }
+
+  const syntheticSession: UserSession = {
+    id: `task-token-${taskId}`,
+    provider: 'task-token',
+    userId,
+    userLogin: `task-${taskId}`,
+    userEmail: null,
+    userName: null,
+    avatarUrl: null,
+    role: 'user',
+    accessToken: '',
+    createdAt: new Date(),
+    expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+  }
+
+  c.set('session', syntheticSession)
+  c.set('taskClaims', { taskId, userId })
+  logger.debug({ taskId, userId }, 'Task token authenticated')
+}
 
 /**
  * Authentication middleware
- * Validates session and injects user information into context
- * Active when AUTH_PROVIDER is set to 'github' or 'auth0'
+ *
+ * After the auth migration to Rust (sandbox-controller), this middleware handles:
+ * 1. Task token auth (X-Task-Token) — sandbox containers call Node.js directly, bypassing Traefik
+ * 2. ForwardAuth headers (X-User-*) — set by Traefik after Rust validates session/API key
+ *
+ * Session and API key validation is now done by the Rust service via Traefik ForwardAuth.
+ * The Rust /api/v1/auth/verify endpoint validates and returns user info as response headers,
+ * which Traefik forwards to this backend as request headers.
  */
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Auth middleware requires multiple provider checks
 export const auth = async (c: Context, next: Next) => {
-  // Check if authentication is enabled
-  const authProvider = process.env['AUTH_PROVIDER']
-
-  if (!authProvider) {
+  if (!process.env['AUTH_PROVIDER']) {
     return next()
   }
 
-  // Only require auth for API endpoints
-  // Allow all static files and SPA routes to pass through
   if (!c.req.path.startsWith('/api')) {
     return next()
   }
 
-  // Skip auth for auth endpoints (both GitHub and Auth0)
-  const skipPaths = [
-    '/api/v1/auth/login', // Generic login endpoint
-    '/api/v1/auth/logout', // Logout endpoint (allows clearing expired sessions)
-    '/api/v1/auth/me', // User info endpoint (handles dev mode internally)
-    '/api/v1/auth/verify', // Traefik ForwardAuth endpoint (handles auth internally)
-    '/api/v1/auth/github',
-    '/api/v1/auth/github/callback',
-    '/api/v1/auth/auth0',
-    '/api/v1/auth/auth0/callback',
-    // External channel webhooks (called by SendGrid, Slack, etc.)
-    '/api/v1/channels/email/inbound',
-    '/api/v1/integrations/slack/events',
-  ]
-  if (skipPaths.some((path) => c.req.path === path)) {
+  if (SKIP_PATHS.some((path) => c.req.path.startsWith(path))) {
     return next()
   }
 
-  // Check for API key authentication (Bearer mvk_xxx)
-  // API keys can be used for programmatic access to any API endpoint
-  const authHeader = c.req.header('Authorization')
-  if (authHeader?.startsWith('Bearer mvk_')) {
-    const apiKey = authHeader.slice(7) // Remove 'Bearer ' prefix
-
+  // 1. Task token auth (sandbox containers → Node.js, bypasses Traefik)
+  if (c.req.header('X-Task-Token')) {
     try {
-      const apiKeyService = appContainer.get(ApiKeyService)
-      const keyPayload = await apiKeyService.validateKey(apiKey)
-
-      if (keyPayload) {
-        // Get user role from database
-        const userRepo = appContainer.get(UserRepository)
-        const user = await userRepo.getUser(keyPayload.userId)
-        const userRole = user?.role ?? 'user'
-
-        // Create synthetic session from API key
-        const syntheticSession: UserSession = {
-          id: `apikey-${keyPayload.keyId}`,
-          provider: 'api-key',
-          userId: keyPayload.userId,
-          userLogin: keyPayload.userName || 'api-key',
-          userEmail: null,
-          userName: keyPayload.userName,
-          avatarUrl: null,
-          role: userRole, // Include user role
-          accessToken: '', // No OAuth token for API key sessions
-          createdAt: new Date(),
-          expiresAt: keyPayload.expiresAt || new Date(Date.now() + 24 * 60 * 60 * 1000),
-          ...(keyPayload.groupId && { groupId: keyPayload.groupId }),
-        }
-        c.set('session', syntheticSession)
-        logger.debug(
-          { keyId: keyPayload.keyId, userId: keyPayload.userId },
-          'API key authenticated',
-        )
-        return next()
-      }
-    } catch (error) {
-      logger.warn({ err: error }, 'API key validation error')
-    }
-
-    throw new HTTPException(401, { message: 'Invalid API key' })
-  }
-
-  // Check for task token authentication (X-Task-Token header)
-  // Used by sandbox containers for sandbox-to-backend API calls
-  const taskToken = c.req.header('X-Task-Token')
-  if (taskToken) {
-    const taskTokenSecret = process.env['TASK_TOKEN_SECRET']
-    if (!taskTokenSecret) {
-      logger.error('TASK_TOKEN_SECRET not configured')
-      throw new HTTPException(500, { message: 'Server configuration error' })
-    }
-
-    try {
-      const secretKey = new TextEncoder().encode(taskTokenSecret)
-      const { payload } = await jose.jwtVerify(taskToken, secretKey)
-
-      const taskId = payload['taskId']
-      const userId = payload['userId']
-
-      if (typeof taskId !== 'string' || typeof userId !== 'string') {
-        throw new HTTPException(401, { message: 'Invalid token payload' })
-      }
-
-      // Verify taskId matches route parameter if present
-      const routeTaskId = c.req.param('taskId')
-      if (routeTaskId && taskId !== routeTaskId) {
-        logger.warn({ tokenTaskId: taskId, routeTaskId }, 'Token taskId mismatch')
-        throw new HTTPException(403, {
-          message: 'Token not valid for this task',
-        })
-      }
-
-      // Create synthetic session so SessionContext works transparently
-      const syntheticSession: UserSession = {
-        id: `task-token-${taskId}`,
-        provider: 'task-token',
-        userId,
-        userLogin: `task-${taskId}`,
-        userEmail: null,
-        userName: null,
-        avatarUrl: null,
-        role: 'user',
-        accessToken: '',
-        createdAt: new Date(),
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-      }
-
-      c.set('session', syntheticSession)
-      c.set('taskClaims', { taskId, userId })
-
-      logger.debug({ taskId, userId }, 'Task token authenticated')
+      await validateTaskToken(c)
       return next()
     } catch (error) {
       if (error instanceof HTTPException) {
@@ -158,25 +115,14 @@ export const auth = async (c: Context, next: Next) => {
     }
   }
 
-  const sessionId = getCookie(c, SESSION_COOKIE_NAME)
-
-  if (!sessionId) {
-    throw new HTTPException(401, { message: 'Authentication required' })
+  // 2. ForwardAuth headers (set by Traefik after Rust validates session/API key)
+  if (c.req.header('X-User-Id')) {
+    c.set('session', sessionFromHeaders(c))
+    return next()
   }
 
-  const authService = appContainer.get(AuthService)
-  const session = await authService.getSession(sessionId)
-
-  if (!session) {
-    logger.warn({ sessionId }, 'Invalid session attempt')
-    throw new HTTPException(401, { message: 'Session expired or invalid' })
-  }
-
-  // Inject session into context for use by route handlers
-  c.set('session', session)
-
-  // Continue to next middleware/handler
-  await next()
+  // 3. Fallback: no valid auth found
+  throw new HTTPException(401, { message: 'Authentication required' })
 }
 
 // Export githubAuth as an alias for backward compatibility
@@ -186,28 +132,16 @@ export const githubAuth = auth
  * Optional middleware that only validates session if present
  * Useful for endpoints that work for both authenticated and unauthenticated users
  */
-export const optionalAuth = async (c: Context, next: Next) => {
-  // Skip if no authentication is enabled
-  const authProvider = process.env['AUTH_PROVIDER']
-
-  if (!authProvider) {
+export const optionalAuth = (c: Context, next: Next) => {
+  if (!process.env['AUTH_PROVIDER']) {
     return next()
   }
 
-  const sessionId = getCookie(c, SESSION_COOKIE_NAME)
-
-  if (sessionId) {
-    const authService = appContainer.get(AuthService)
-    const session = await authService.getSession(sessionId)
-
-    if (session) {
-      // Inject session into context
-      c.set('session', session)
-    }
+  if (c.req.header('X-User-Id')) {
+    c.set('session', sessionFromHeaders(c))
   }
 
-  // Continue regardless of session validity
-  await next()
+  return next()
 }
 
 // Export optionalGithubAuth as an alias for backward compatibility

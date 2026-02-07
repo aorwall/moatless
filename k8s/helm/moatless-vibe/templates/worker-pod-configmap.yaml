@@ -22,6 +22,12 @@ data:
       restartPolicy: Always
       automountServiceAccountToken: false
       serviceAccountName: {{ include "moatless-vibe.serviceAccountName" . }}
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "2"
+          - name: single-request-reopen
+            value: ""
       {{- with .Values.podSecurityContext }}
       securityContext:
         {{- toYaml . | nindent 8 }}
@@ -47,6 +53,13 @@ data:
           emptyDir:
             medium: Memory
             sizeLimit: 512Mi
+        - name: build-cache
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1536Mi
+        {{- with .Values.kubernetes.workerExtraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       containers:
         - name: worker
           image: {{ include "moatless-vibe.workerImage" . }}
@@ -66,6 +79,11 @@ data:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            - name: build-cache
+              mountPath: /opt/moatless/build-cache
+            {{- with .Values.kubernetes.workerExtraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           ports:
             - containerPort: 8001
               name: http
@@ -87,6 +105,11 @@ data:
               value: "http://{{ include "moatless-vibe.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}"
             - name: UV_THREADPOOL_SIZE
               value: "16"
+            - name: FIRST_MESSAGE_TIMEOUT_MS
+              value: "300000"
+            {{- with .Values.kubernetes.workerExtraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           {{- with .Values.kubernetes.workerResources }}
           resources:
             {{- toYaml . | nindent 12 }}

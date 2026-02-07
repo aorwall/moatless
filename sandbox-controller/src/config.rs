@@ -3,6 +3,34 @@
 //! Loads configuration from environment variables with sensible defaults.
 
 use std::env;
+use std::fmt;
+
+/// Supported auth providers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuthProvider {
+    GitHub,
+    Auth0,
+}
+
+impl fmt::Display for AuthProvider {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::GitHub => write!(f, "github"),
+            Self::Auth0 => write!(f, "auth0"),
+        }
+    }
+}
+
+impl AuthProvider {
+    /// Parse from string (case-insensitive).
+    pub fn from_str_opt(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "github" => Some(Self::GitHub),
+            "auth0" => Some(Self::Auth0),
+            _ => None,
+        }
+    }
+}
 
 /// Sandbox controller configuration
 #[derive(Debug, Clone)]
@@ -68,6 +96,45 @@ pub struct Config {
 
     /// Maximum stream length for MAXLEN ~ trimming (default: 10000)
     pub redis_max_stream_length: usize,
+
+    // =========================================================================
+    // Auth settings
+    // =========================================================================
+    /// Auth provider, or None (dev mode — auth disabled)
+    pub auth_provider: Option<AuthProvider>,
+
+    /// GitHub OAuth client ID
+    pub github_client_id: Option<String>,
+    /// GitHub OAuth client secret
+    pub github_client_secret: Option<String>,
+    /// GitHub OAuth callback URL
+    pub github_callback_url: Option<String>,
+    /// GitHub OAuth scopes (default: "user:email repo")
+    pub github_oauth_scope: String,
+
+    /// Auth0 domain (e.g., "myapp.us.auth0.com")
+    pub auth0_domain: Option<String>,
+    /// Auth0 client ID
+    pub auth0_client_id: Option<String>,
+    /// Auth0 client secret
+    pub auth0_client_secret: Option<String>,
+    /// Auth0 callback URL
+    pub auth0_callback_url: Option<String>,
+    /// Auth0 audience
+    pub auth0_audience: Option<String>,
+    /// Auth0 JWT claim key for groups (default: "https://moatless.ai/groups")
+    pub auth0_groups_claim: String,
+
+    /// Session max age in seconds (default: 604800 = 7 days)
+    pub session_max_age_secs: u64,
+    /// Frontend URL for redirects (default: "http://localhost:3000")
+    pub frontend_url: String,
+    /// Cookie domain (e.g., ".moatless.xyz"). None for localhost.
+    pub cookie_domain: Option<String>,
+    /// Session cookie name (default: "moatless_session")
+    pub session_cookie_name: String,
+    /// Whether the app is running in production mode (affects cookie Secure flag)
+    pub is_production: bool,
 }
 
 impl Config {
@@ -133,6 +200,39 @@ impl Config {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(10_000),
+
+            auth_provider: env::var("AUTH_PROVIDER")
+                .ok()
+                .filter(|v| v != "disabled")
+                .and_then(|v| AuthProvider::from_str_opt(&v)),
+
+            github_client_id: env::var("GITHUB_CLIENT_ID").ok(),
+            github_client_secret: env::var("GITHUB_CLIENT_SECRET").ok(),
+            github_callback_url: env::var("GITHUB_CALLBACK_URL").ok(),
+            github_oauth_scope: env::var("GITHUB_OAUTH_SCOPE")
+                .unwrap_or_else(|_| "user:email repo".to_string()),
+
+            auth0_domain: env::var("AUTH0_DOMAIN").ok(),
+            auth0_client_id: env::var("AUTH0_CLIENT_ID").ok(),
+            auth0_client_secret: env::var("AUTH0_CLIENT_SECRET").ok(),
+            auth0_callback_url: env::var("AUTH0_CALLBACK_URL").ok(),
+            auth0_audience: env::var("AUTH0_AUDIENCE").ok(),
+            auth0_groups_claim: env::var("AUTH0_GROUPS_CLAIM")
+                .unwrap_or_else(|_| "https://moatless.ai/groups".to_string()),
+
+            session_max_age_secs: env::var("SESSION_MAX_AGE")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(604_800),
+            frontend_url: env::var("FRONTEND_URL")
+                .unwrap_or_else(|_| "http://localhost:3000".to_string()),
+            cookie_domain: env::var("COOKIE_DOMAIN").ok(),
+            session_cookie_name: env::var("SESSION_COOKIE_NAME")
+                .unwrap_or_else(|_| "moatless_session".to_string()),
+            is_production: env::var("APP_ENV")
+                .or_else(|_| env::var("NODE_ENV"))
+                .map(|v| v == "production")
+                .unwrap_or(false),
         }
     }
 }

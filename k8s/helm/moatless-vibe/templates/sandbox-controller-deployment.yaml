@@ -98,6 +98,72 @@ spec:
             - name: SHARED_STORAGE_PVC_NAME
               value: {{ . | quote }}
             {{- end }}
+            # Auth settings (shared with Node.js backend via same secret)
+            {{- with .Values.auth.provider }}
+            - name: AUTH_PROVIDER
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.auth.frontendUrl }}
+            - name: FRONTEND_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.auth.cookieDomain }}
+            - name: COOKIE_DOMAIN
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.auth.sessionMaxAge }}
+            - name: SESSION_MAX_AGE
+              value: {{ . | quote }}
+            {{- end }}
+            - name: NODE_ENV
+              value: {{ .Values.env | default "production" | quote }}
+            # OAuth credentials from secret
+            {{- if .Values.auth.github.enabled }}
+            - name: GITHUB_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "moatless-vibe.secretsName" . }}
+                  key: GITHUB_CLIENT_ID
+                  optional: true
+            - name: GITHUB_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "moatless-vibe.secretsName" . }}
+                  key: GITHUB_CLIENT_SECRET
+                  optional: true
+            {{- with .Values.auth.github.callbackUrl }}
+            - name: GITHUB_CALLBACK_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- end }}
+            {{- if .Values.auth.auth0.enabled }}
+            - name: AUTH0_DOMAIN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "moatless-vibe.secretsName" . }}
+                  key: AUTH0_DOMAIN
+                  optional: true
+            - name: AUTH0_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "moatless-vibe.secretsName" . }}
+                  key: AUTH0_CLIENT_ID
+                  optional: true
+            - name: AUTH0_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "moatless-vibe.secretsName" . }}
+                  key: AUTH0_CLIENT_SECRET
+                  optional: true
+            {{- with .Values.auth.auth0.callbackUrl }}
+            - name: AUTH0_CALLBACK_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.auth.auth0.audience }}
+            - name: AUTH0_AUDIENCE
+              value: {{ . | quote }}
+            {{- end }}
+            {{- end }}
           resources:
             {{- toYaml .Values.proxy.sandboxController.resources | nindent 12 }}
           volumeMounts:

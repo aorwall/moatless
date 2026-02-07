@@ -11,9 +11,9 @@ pub struct TaskRow {
     pub created_by: Option<String>,
 }
 
-/// Provider token row from the `provider_tokens` table.
+/// Lightweight provider token (access_token only) for credential resolution.
 #[derive(sqlx::FromRow, Debug)]
-pub struct ProviderTokenRow {
+pub struct ProviderAccessToken {
     pub access_token: String,
 }
 
