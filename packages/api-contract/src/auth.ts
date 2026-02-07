@@ -135,6 +135,30 @@ export const initiateAuth0OAuthRoute = createRoute({
   },
 })
 
+export const verifyAuthRoute = createRoute({
+  method: 'get',
+  path: '/api/v1/auth/verify',
+  tags: ['Authentication'],
+  description:
+    'Verify authentication for Traefik ForwardAuth. Returns 200 if the request has a valid session cookie or API key, 401 otherwise. Used by Traefik middleware to gate access to preview proxied routes.',
+  responses: {
+    200: {
+      description: 'Authenticated',
+    },
+    401: {
+      description: 'Not authenticated',
+      content: {
+        'application/json': {
+          schema: z.object({
+            error: z.string(),
+            message: z.string(),
+          }),
+        },
+      },
+    },
+  },
+})
+
 export const authAuth0CallbackRoute = createRoute({
   method: 'get',
   path: '/api/v1/auth/auth0/callback',

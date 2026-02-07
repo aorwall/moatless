@@ -8,30 +8,10 @@ import {
   ShellCommandResultSchema,
   WorkspaceSetupRequestSchema,
   WorkspaceSetupResponseSchema,
-  WorkspaceStatusResponseSchema,
 } from '@moatless/types'
 import { z } from 'zod'
 
 const taskIdParams = z.object({ taskId: z.string().min(1) })
-
-export const getWorkspaceStatusRoute = createRoute({
-  method: 'get',
-  path: '/api/v1/tasks/{taskId}/workspace-status',
-  tags: ['Workspace Status'],
-  description:
-    'Retrieve comprehensive workspace status including environment state, agent state, and capabilities',
-  request: { params: taskIdParams },
-  responses: {
-    200: {
-      description: 'Success',
-      content: {
-        'application/json': {
-          schema: WorkspaceStatusResponseSchema,
-        },
-      },
-    },
-  },
-})
 
 export const searchWorkspaceFilesRoute = createRoute({
   method: 'post',
@@ -132,56 +112,6 @@ export const getWorkspaceLogsRoute = createRoute({
       content: {
         'application/json': {
           schema: ServerLogsResponseExtendedSchema,
-        },
-      },
-    },
-  },
-})
-
-export const retryWorkspaceRoute = createRoute({
-  method: 'post',
-  path: '/api/v1/tasks/{taskId}/workspace-retry',
-  tags: ['Workspace Operations'],
-  description:
-    'Retry workspace provisioning after a failure. Clears the failed state and triggers re-provisioning.',
-  request: {
-    params: taskIdParams,
-  },
-  responses: {
-    200: {
-      description: 'Success',
-      content: {
-        'application/json': {
-          schema: z.object({
-            success: z.boolean(),
-            message: z.string(),
-          }),
-        },
-      },
-    },
-  },
-})
-
-export const restartWorkspaceRoute = createRoute({
-  method: 'post',
-  path: '/api/v1/tasks/{taskId}/workspace-restart',
-  tags: ['Workspace Operations'],
-  description:
-    'Restart workspace by stopping the current sandbox and creating a new one. ' +
-    'Returns when the new sandbox reaches initializing status. ' +
-    'Preserves workspace data (PVC in K8s).',
-  request: {
-    params: taskIdParams,
-  },
-  responses: {
-    200: {
-      description: 'Workspace restart initiated',
-      content: {
-        'application/json': {
-          schema: z.object({
-            success: z.boolean(),
-            message: z.string(),
-          }),
         },
       },
     },
