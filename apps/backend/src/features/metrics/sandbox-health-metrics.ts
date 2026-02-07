@@ -1,8 +1,8 @@
 /**
- * Runtime Health Metrics
+ * Sandbox Health Metrics
  *
  * Live-verified health metrics for workspaces, preview servers, and agents.
- * These metrics are collected periodically by RuntimeHealthCollector and reflect
+ * These metrics are collected periodically by SandboxHealthCollector and reflect
  * actual resource state (not just DB state).
  */
 

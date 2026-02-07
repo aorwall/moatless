@@ -1,5 +1,5 @@
 /**
- * RuntimeHealthCollector Service
+ * SandboxHealthCollector Service
  *
  * Periodically collects live-verified health metrics for workspaces and tasks.
  * Uses actual API calls to verify resource state rather than just reading database state.
@@ -25,7 +25,7 @@ import {
   healthCollectorErrors,
   taskHealth,
   workspaceHealth,
-} from '../runtime-health-metrics'
+} from '../sandbox-health-metrics'
 
 const DOCKER_STATES = ['created', 'running', 'exited', 'removing', 'not_created'] as const
 const K8S_PHASES = [
@@ -50,9 +50,9 @@ const TASK_STATUSES = [
 ] as const
 
 @injectable()
-export class RuntimeHealthCollector {
+export class SandboxHealthCollector {
   private refreshInterval: ReturnType<typeof setInterval> | null = null
-  private readonly log = logger.child({ service: 'runtime-health-collector' })
+  private readonly log = logger.child({ service: 'sandbox-health-collector' })
 
   constructor(
     @inject(WorkspaceSandboxRepository) private readonly sandboxRepo: WorkspaceSandboxRepository,
@@ -65,7 +65,7 @@ export class RuntimeHealthCollector {
    * @param intervalMs - Collection interval in milliseconds (default: 30000)
    */
   start(intervalMs = 30000): void {
-    this.log.info({ intervalMs }, 'Starting runtime health collector')
+    this.log.info({ intervalMs }, 'Starting sandbox health collector')
     this.collectAll() // Initial collection (fire and forget)
     this.refreshInterval = setInterval(() => this.collectAll(), intervalMs)
   }
@@ -78,7 +78,7 @@ export class RuntimeHealthCollector {
       clearInterval(this.refreshInterval)
       this.refreshInterval = null
     }
-    this.log.info('Stopped runtime health collector')
+    this.log.info('Stopped sandbox health collector')
   }
 
   /**

@@ -1,7 +1,12 @@
 import { randomUUID } from 'node:crypto'
-import { injectable } from 'inversify'
+import { inject, injectable, optional } from 'inversify'
 import type Redis from 'ioredis'
 import { logger } from '../utils/logger'
+
+/**
+ * Symbol for injecting the Redis URL configuration
+ */
+export const RedisUrlSymbol = Symbol.for('RedisUrl')
 
 /**
  * Symbol for dependency injection
@@ -48,7 +53,11 @@ export class RedisLockService {
   private redis: Redis | null = null
   private readonly redisUrl: string
 
-  constructor(redisUrl?: string) {
+  constructor(
+    @inject(RedisUrlSymbol)
+    @optional()
+    redisUrl?: string,
+  ) {
     this.redisUrl = redisUrl ?? process.env['REDIS_URL'] ?? 'redis://localhost:6379'
   }
 

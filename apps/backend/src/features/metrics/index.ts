@@ -44,7 +44,7 @@ export {
   previewServerStartDurationSeconds,
   previewServerTotal,
 } from './preview-metrics'
-// Runtime health metrics (live-verified)
+// Sandbox health metrics (live-verified)
 export {
   agentHealth,
   healthCollectorDuration,
@@ -52,7 +52,7 @@ export {
   previewHealth,
   taskHealth,
   workspaceHealth,
-} from './runtime-health-metrics'
+} from './sandbox-health-metrics'
 // Task metrics
 export {
   taskCreatedTotal,

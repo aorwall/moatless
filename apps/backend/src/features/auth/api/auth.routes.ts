@@ -8,11 +8,13 @@ import {
   initiateGitHubOAuthRoute,
   logoutGetRoute,
   logoutRoute,
+  verifyAuthRoute,
 } from '@moatless/api-contract/auth'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 import { HTTPException } from 'hono/http-exception'
 import type { AppBindings } from '../../../app'
 import { appContainer } from '../../../container/container'
+import { ApiKeyService } from '../services/api-key.service'
 import { AuthService } from '../services/auth.service'
 import { getSessionCookieOptions, SESSION_COOKIE_NAME } from '../utils/cookie.utils'
 
@@ -20,6 +22,49 @@ import { getSessionCookieOptions, SESSION_COOKIE_NAME } from '../utils/cookie.ut
  * Register authentication routes
  */
 export function registerAuthRoutes(app: OpenAPIHono<AppBindings>) {
+  /**
+   * GET /auth/verify
+   * Traefik ForwardAuth endpoint — validates session cookie or API key.
+   * Returns 200 if authenticated, 401 if not.
+   */
+  app.openapi(verifyAuthRoute, async (c) => {
+    const authProvider = process.env['AUTH_PROVIDER']
+    if (!authProvider || authProvider === 'disabled') {
+      return c.text('OK', 200)
+    }
+
+    // Try API key first (Authorization: Bearer mvk_xxx)
+    const authHeader = c.req.header('Authorization')
+    if (authHeader?.startsWith('Bearer mvk_')) {
+      const apiKey = authHeader.slice(7)
+      const apiKeyService = appContainer.get(ApiKeyService)
+      const keyPayload = await apiKeyService.validateKey(apiKey)
+      if (keyPayload) {
+        return c.text('OK', 200)
+      }
+      return c.json({ error: 'Unauthorized', message: 'Invalid API key' }, 401)
+    }
+
+    // Fall back to session cookie
+    const sessionId = getCookie(c, SESSION_COOKIE_NAME)
+    if (!sessionId) {
+      return c.json(
+        {
+          error: 'Unauthorized',
+          message: 'Authentication required. Please log in to access the preview.',
+        },
+        401,
+      )
+    }
+
+    const authService = appContainer.get(AuthService)
+    const session = await authService.getSession(sessionId)
+    if (!session) {
+      return c.json({ error: 'Unauthorized', message: 'Session expired or invalid.' }, 401)
+    }
+
+    return c.text('OK', 200)
+  })
   /**
    * GET /auth/login
    * Generic login endpoint that redirects to the configured auth provider

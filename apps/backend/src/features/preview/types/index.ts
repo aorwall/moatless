@@ -1,14 +1,7 @@
 // Configuration types
-export type { HostnameProxyConfig, PreviewServerConfig, ProxyConfig } from './config.js'
+export type { PreviewServerConfig, ProxyConfig } from './config.js'
 // DI interfaces (Logger removed - use pino from utils/logger.ts)
-export type {
-  EventService,
-  ResolutionFailureReason,
-  ResolveResult,
-  SourceLocation,
-  TargetInfo,
-  TargetResolver,
-} from './interfaces.js'
+export type { EventService, SourceLocation } from './interfaces.js'
 // Registry types
 export type {
   CodeChangeInfo,

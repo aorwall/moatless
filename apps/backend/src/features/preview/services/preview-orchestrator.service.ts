@@ -38,6 +38,7 @@ export class PreviewOrchestratorService {
   async getStatus(taskId: string): Promise<ServerStatus> {
     // Get repositoryId from task record to check preview config
     const task = await this.taskRepository.get(taskId)
+    let previewPort: number | undefined
     if (task?.repositoryId) {
       const repoConfig = await this.repoService.getRepositoryById(task.repositoryId)
       const hasPreviewConfig =
@@ -52,6 +53,8 @@ export class PreviewOrchestratorService {
           dirtyContext: false,
         }
       }
+      // Look up preview server port from repo config
+      previewPort = repoConfig?.servers?.find((s) => s.name === 'preview')?.port
     }
 
     const handle = await this.getWorkspaceHandleIfExists(taskId)
@@ -70,8 +73,9 @@ export class PreviewOrchestratorService {
       status.externalUrl ||
       (status.status === 'started' &&
       this.proxyConfig.useHostnameRouting &&
-      this.proxyConfig.proxyDomain
-        ? `${this.proxyConfig.proxyProtocol}://${taskId}.${this.proxyConfig.proxyDomain}`
+      this.proxyConfig.proxyDomain &&
+      previewPort
+        ? `${this.proxyConfig.proxyProtocol}://${taskId}--${previewPort}.${this.proxyConfig.proxyDomain}`
         : undefined)
 
     return {
@@ -91,6 +95,7 @@ export class PreviewOrchestratorService {
   async getServerStatus(
     taskId: string,
     serverName: string,
+    port?: number,
   ): Promise<{ status: string; url: string | undefined; error: string | undefined }> {
     const handle = await this.getWorkspaceHandleIfExists(taskId)
 
@@ -104,8 +109,9 @@ export class PreviewOrchestratorService {
         status.externalUrl ||
         (status.status === 'started' &&
         this.proxyConfig.useHostnameRouting &&
-        this.proxyConfig.proxyDomain
-          ? `${this.proxyConfig.proxyProtocol}://${taskId}${serverName === 'preview' ? '' : `--${serverName}`}.${this.proxyConfig.proxyDomain}`
+        this.proxyConfig.proxyDomain &&
+        port
+          ? `${this.proxyConfig.proxyProtocol}://${taskId}--${port}.${this.proxyConfig.proxyDomain}`
           : undefined)
 
       return {

@@ -28,10 +28,3 @@ export interface ProxyConfig {
   serverHost?: string | undefined // Host where preview servers run (default: localhost)
   // Note: Logger is now provided by pino (not passed in config)
 }
-
-/** Configuration for hostname-based routing proxy */
-export interface HostnameProxyConfig {
-  proxyPort: number // Port to listen on
-  proxyDomain: string // Base domain (e.g., 'proxy.moatless.xyz')
-  protocol: 'http' | 'https' // Protocol
-}

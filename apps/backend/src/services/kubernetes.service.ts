@@ -83,6 +83,7 @@ export interface PodCreationResult {
 @injectable()
 export class KubernetesService {
   private coreApi: k8s.CoreV1Api | null = null
+  private customObjectsApi: k8s.CustomObjectsApi | null = null
   private kubeConfig: k8s.KubeConfig | null = null
   private initialized = false
   private initError: string | null = null
@@ -118,6 +119,7 @@ export class KubernetesService {
       }
 
       this.coreApi = this.kubeConfig.makeApiClient(k8s.CoreV1Api)
+      this.customObjectsApi = this.kubeConfig.makeApiClient(k8s.CustomObjectsApi)
       this.initialized = true
 
       logger.info('KubernetesService: Successfully initialized Kubernetes client')
@@ -184,7 +186,12 @@ export class KubernetesService {
     const startTime = Date.now()
 
     logger.info(
-      { taskId, pvcName, namespace, storageSize: k8sSettings.workerStorageSize },
+      {
+        taskId,
+        pvcName,
+        namespace,
+        storageSize: k8sSettings.workerStorageSize,
+      },
       'KubernetesService: Creating task PVC',
     )
 
@@ -220,7 +227,10 @@ export class KubernetesService {
     }
 
     try {
-      await this.coreApi?.createNamespacedPersistentVolumeClaim({ namespace, body: pvc })
+      await this.coreApi?.createNamespacedPersistentVolumeClaim({
+        namespace,
+        body: pvc,
+      })
 
       // Track metrics
       const durationSeconds = (Date.now() - startTime) / 1000
@@ -389,7 +399,10 @@ export class KubernetesService {
     const secretName = this.generateSecretName(taskId)
 
     try {
-      await this.coreApi?.deleteNamespacedSecret({ name: secretName, namespace })
+      await this.coreApi?.deleteNamespacedSecret({
+        name: secretName,
+        namespace,
+      })
       logger.info({ taskId, secretName }, 'KubernetesService: Deleted task credentials secret')
     } catch (error) {
       // Ignore 404 - secret may already be deleted
@@ -445,7 +458,11 @@ export class KubernetesService {
       stringData,
     }
 
-    await this.coreApi?.replaceNamespacedSecret({ name: secretName, namespace, body: secret })
+    await this.coreApi?.replaceNamespacedSecret({
+      name: secretName,
+      namespace,
+      body: secret,
+    })
     logger.info({ taskId, secretName }, 'KubernetesService: Updated task credentials secret')
   }
 
@@ -535,7 +552,13 @@ export class KubernetesService {
         )
       } else {
         logger.debug(
-          { taskId, podName, namespace, phase: verifyStatus.phase, podIp: verifyStatus.podIp },
+          {
+            taskId,
+            podName,
+            namespace,
+            phase: verifyStatus.phase,
+            podIp: verifyStatus.podIp,
+          },
           'KubernetesService: Pod verified after creation',
         )
       }
@@ -590,7 +613,10 @@ export class KubernetesService {
         : []),
       // Custom environment variables from repository config
       ...(config.envVars
-        ? Object.entries(config.envVars).map(([key, value]) => ({ name: key, value }))
+        ? Object.entries(config.envVars).map(([key, value]) => ({
+            name: key,
+            value,
+          }))
         : []),
     ]
 
@@ -632,7 +658,9 @@ export class KubernetesService {
             return {
               ...container,
               // Override image if workerDockerImage is specified in repository config
-              ...(config.workerDockerImage && { image: config.workerDockerImage }),
+              ...(config.workerDockerImage && {
+                image: config.workerDockerImage,
+              }),
               env: [...(container.env || []), ...taskEnvVars],
               // Add envFrom to reference secret for credentials
               ...(envFrom.length > 0 && {
@@ -766,7 +794,12 @@ export class KubernetesService {
           Boolean(c.type && c.status),
         )
         .map((c) => {
-          const condition: { type: string; status: string; reason?: string; message?: string } = {
+          const condition: {
+            type: string
+            status: string
+            reason?: string
+            message?: string
+          } = {
             type: c.type,
             status: c.status,
           }
@@ -857,7 +890,12 @@ export class KubernetesService {
       }
     } else {
       // Fallback when no server config available
-      ports.push({ name: 'preview', port: 3000, targetPort: 3000, protocol: 'TCP' })
+      ports.push({
+        name: 'preview',
+        port: 3000,
+        targetPort: 3000,
+        protocol: 'TCP',
+      })
     }
 
     const service: k8s.V1Service = {
@@ -917,7 +955,10 @@ export class KubernetesService {
     const serviceName = this.generateServiceName(taskId)
 
     try {
-      await this.coreApi?.deleteNamespacedService({ name: serviceName, namespace })
+      await this.coreApi?.deleteNamespacedService({
+        name: serviceName,
+        namespace,
+      })
       logger.info({ taskId, serviceName }, 'KubernetesService: Worker Service deleted')
     } catch (error) {
       const statusCode = (error as { response?: { statusCode?: number } }).response?.statusCode
@@ -927,6 +968,161 @@ export class KubernetesService {
           'KubernetesService: Failed to delete Worker Service',
         )
       }
+    }
+  }
+
+  // =============================================================================
+  // Traefik IngressRoute Lifecycle Methods
+  // =============================================================================
+
+  private static readonly TRAEFIK_GROUP = 'traefik.io'
+  private static readonly TRAEFIK_VERSION = 'v1alpha1'
+  private static readonly TRAEFIK_INGRESS_ROUTE_PLURAL = 'ingressroutes'
+
+  /**
+   * Create Traefik IngressRoute CRDs for each server port exposed by a workspace.
+   * Each IngressRoute maps a subdomain (taskId--port.proxyDomain) to the workspace
+   * K8s Service on the corresponding port.
+   *
+   * Idempotent — handles AlreadyExists (409) gracefully.
+   *
+   * @param taskId - Task identifier
+   * @param namespace - K8s namespace where workspace resources live
+   * @param serverPorts - Map of server name → port (e.g., { preview: 3000, files: 4000 })
+   * @param proxyDomain - Base domain for preview URLs (e.g., "moatless.xyz")
+   * @param authMiddlewareName - Name of the Traefik ForwardAuth Middleware CRD
+   * @param authMiddlewareNamespace - Namespace where the Middleware lives
+   */
+  async createTaskIngressRoutes(
+    taskId: string,
+    namespace: string,
+    serverPorts: Record<string, number>,
+    proxyDomain: string,
+    authMiddlewareName: string,
+    authMiddlewareNamespace: string,
+  ): Promise<void> {
+    this.ensureInitialized()
+
+    const serviceName = this.generateServiceName(taskId)
+
+    for (const [serverName, port] of Object.entries(serverPorts)) {
+      const routeName = `${serviceName}-${serverName}`.substring(0, 63)
+      const hostname = `${taskId}--${port}.${proxyDomain}`
+
+      const ingressRoute = {
+        apiVersion: `${KubernetesService.TRAEFIK_GROUP}/${KubernetesService.TRAEFIK_VERSION}`,
+        kind: 'IngressRoute',
+        metadata: {
+          name: routeName,
+          namespace,
+          labels: {
+            'app.kubernetes.io/managed-by': 'moatless',
+            'moatless.io/task-id': taskId,
+          },
+        },
+        spec: {
+          entryPoints: [process.env['TRAEFIK_ENTRY_POINT'] || 'websecure'],
+          routes: [
+            {
+              match: `Host(\`${hostname}\`)`,
+              kind: 'Rule',
+              middlewares: [
+                {
+                  name: authMiddlewareName,
+                  namespace: authMiddlewareNamespace,
+                },
+              ],
+              services: [
+                {
+                  name: serviceName,
+                  port,
+                },
+              ],
+            },
+          ],
+        },
+      }
+
+      try {
+        await this.customObjectsApi?.createNamespacedCustomObject({
+          group: KubernetesService.TRAEFIK_GROUP,
+          version: KubernetesService.TRAEFIK_VERSION,
+          namespace,
+          plural: KubernetesService.TRAEFIK_INGRESS_ROUTE_PLURAL,
+          body: ingressRoute,
+        })
+        logger.info({ taskId, routeName, hostname }, 'KubernetesService: IngressRoute created')
+      } catch (error) {
+        const statusCode = (error as { response?: { statusCode?: number } }).response?.statusCode
+        if (statusCode === 409) {
+          logger.debug(
+            { taskId, routeName },
+            'KubernetesService: IngressRoute already exists, reusing',
+          )
+        } else {
+          logger.error(
+            { err: error as Error, taskId, routeName, hostname },
+            'KubernetesService: Failed to create IngressRoute',
+          )
+        }
+      }
+    }
+  }
+
+  /**
+   * Delete all Traefik IngressRoute CRDs for a task.
+   * Uses label selector to find and delete all routes for the given task ID.
+   */
+  async deleteTaskIngressRoutes(taskId: string): Promise<void> {
+    this.ensureInitialized()
+
+    const k8sSettings = this.settingsService.getKubernetesSettings()
+    const namespace = k8sSettings.namespace
+
+    try {
+      const response = await this.customObjectsApi?.listNamespacedCustomObject({
+        group: KubernetesService.TRAEFIK_GROUP,
+        version: KubernetesService.TRAEFIK_VERSION,
+        namespace,
+        plural: KubernetesService.TRAEFIK_INGRESS_ROUTE_PLURAL,
+        labelSelector: `moatless.io/task-id=${taskId}`,
+      })
+
+      const items = (response as { items?: Array<{ metadata?: { name?: string } }> })?.items ?? []
+
+      for (const item of items) {
+        const name = item.metadata?.name
+        if (!name) {
+          continue
+        }
+        try {
+          await this.customObjectsApi?.deleteNamespacedCustomObject({
+            group: KubernetesService.TRAEFIK_GROUP,
+            version: KubernetesService.TRAEFIK_VERSION,
+            namespace,
+            plural: KubernetesService.TRAEFIK_INGRESS_ROUTE_PLURAL,
+            name,
+          })
+          logger.debug({ taskId, routeName: name }, 'KubernetesService: IngressRoute deleted')
+        } catch (error) {
+          const statusCode = (error as { response?: { statusCode?: number } }).response?.statusCode
+          if (statusCode !== 404) {
+            logger.warn(
+              { taskId, routeName: name, error: (error as Error).message },
+              'KubernetesService: Failed to delete IngressRoute',
+            )
+          }
+        }
+      }
+
+      if (items.length > 0) {
+        logger.info({ taskId, count: items.length }, 'KubernetesService: IngressRoutes deleted')
+      }
+    } catch (error) {
+      logger.warn(
+        { taskId, error: (error as Error).message },
+        'KubernetesService: Failed to list IngressRoutes for deletion',
+      )
     }
   }
 
@@ -984,7 +1180,11 @@ export class KubernetesService {
               })
             } catch (deleteError) {
               logger.error(
-                { err: deleteError as Error, taskId, podName: oldPod.metadata.name },
+                {
+                  err: deleteError as Error,
+                  taskId,
+                  podName: oldPod.metadata.name,
+                },
                 'KubernetesService: Failed to delete duplicate pod',
               )
             }

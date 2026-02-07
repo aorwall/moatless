@@ -35,6 +35,7 @@ export const auth = async (c: Context, next: Next) => {
     '/api/v1/auth/login', // Generic login endpoint
     '/api/v1/auth/logout', // Logout endpoint (allows clearing expired sessions)
     '/api/v1/auth/me', // User info endpoint (handles dev mode internally)
+    '/api/v1/auth/verify', // Traefik ForwardAuth endpoint (handles auth internally)
     '/api/v1/auth/github',
     '/api/v1/auth/github/callback',
     '/api/v1/auth/auth0',
@@ -117,7 +118,9 @@ export const auth = async (c: Context, next: Next) => {
       const routeTaskId = c.req.param('taskId')
       if (routeTaskId && taskId !== routeTaskId) {
         logger.warn({ tokenTaskId: taskId, routeTaskId }, 'Token taskId mismatch')
-        throw new HTTPException(403, { message: 'Token not valid for this task' })
+        throw new HTTPException(403, {
+          message: 'Token not valid for this task',
+        })
       }
 
       // Create synthetic session so SessionContext works transparently
