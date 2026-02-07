@@ -121,7 +121,10 @@ export async function buildSDKOptions(ctx: SDKBuildContext): Promise<ClaudeCodeO
         stdio: ['pipe', 'pipe', 'pipe'],
       })
 
+      let exited = false
+
       child.on('exit', (code, signal) => {
+        exited = true
         ctx.processExitCollector({
           code,
           signal: signal as string | null,
@@ -132,6 +135,31 @@ export async function buildSDKOptions(ctx: SDKBuildContext): Promise<ClaudeCodeO
       child.on('error', (err) => {
         logger.error({ err, pid: child.pid }, 'Claude Code process error')
       })
+
+      // Escalate to SIGKILL if process doesn't exit after abort (SIGTERM).
+      // This handles processes stuck in D state (uninterruptible I/O wait)
+      // where SIGTERM is ignored.
+      if (spawnOptions.signal) {
+        spawnOptions.signal.addEventListener(
+          'abort',
+          () => {
+            setTimeout(() => {
+              if (!exited && child.pid) {
+                logger.warn(
+                  { pid: child.pid },
+                  'Claude Code process did not exit after abort, sending SIGKILL',
+                )
+                try {
+                  process.kill(child.pid, 'SIGKILL')
+                } catch {
+                  // Process may have already exited
+                }
+              }
+            }, 5_000)
+          },
+          { once: true },
+        )
+      }
 
       // Pipe stderr to our collector + logger
       if (child.stderr) {

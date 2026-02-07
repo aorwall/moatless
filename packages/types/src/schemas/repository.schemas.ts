@@ -33,8 +33,8 @@ export const PreviewConfigSchema = z.object({
 export const ServerConfigSchema = z.object({
   /** Unique server identifier (e.g., "preview", "files", "storybook") */
   name: z.string(),
-  /** Human-readable label shown in UI */
-  label: z.string(),
+  /** Human-readable label shown in UI (defaults to name if not provided) */
+  label: z.string().optional(),
   /** Port the server listens on inside the sandbox container (assigned at provisioning time) */
   port: z.number().optional(),
   /** Whether this server is built into the sandbox image (not user-configurable) */
@@ -86,7 +86,7 @@ export const ChannelInfoSchema = z.object({
 export const RepositoryConfigFileSchema = z.object({
   systemPrompt: z
     .string()
-    .optional()
+    .nullish()
     .describe('Additional system prompt to append to Claude Code default prompt'),
   codeExecution: CodeExecutionSchema.optional(),
   previewConfig: PreviewConfigSchema.optional(),

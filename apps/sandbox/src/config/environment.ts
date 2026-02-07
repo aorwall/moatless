@@ -150,7 +150,7 @@ function parseAgentConfig(repoConfig: RepositoryConfigFile | undefined): Sandbox
     pluginPaths: repoConfig?.agentConfig?.pluginPaths,
     timeout: repoConfig?.agentConfig?.timeout,
     model: repoConfig?.agentConfig?.model,
-    systemPrompt: repoConfig?.systemPrompt,
+    systemPrompt: repoConfig?.systemPrompt ?? undefined,
   }
 }
 

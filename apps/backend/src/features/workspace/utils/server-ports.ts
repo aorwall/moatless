@@ -51,7 +51,7 @@ export function buildServersMap(repoConfig: RepositoryConfig): Record<string, Se
     for (const server of repoConfig.servers) {
       servers[server.name] = {
         port: server.port ?? allocatePort(),
-        label: server.label,
+        ...(server.label != null && { label: server.label }),
       }
     }
   }
