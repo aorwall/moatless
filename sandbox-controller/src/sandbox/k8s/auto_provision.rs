@@ -28,9 +28,9 @@ pub async fn build_provision_request(
     // 1. Read task from DB
     let task = task_repo::find_task_by_id(pool, task_id)
         .await
-        .map_err(|e| SandboxError::Internal(format!("DB error reading task: {}", e)))?
+        .map_err(|e| SandboxError::Internal(format!("DB error reading task: {e}")))?
         .ok_or_else(|| {
-            SandboxError::Internal(format!("Task '{}' not found in database", task_id))
+            SandboxError::Internal(format!("Task '{task_id}' not found in database"))
         })?;
 
     info!(
@@ -42,7 +42,7 @@ pub async fn build_provision_request(
     // 2. Read repository from DB
     let repo = repository_repo::find_repository_by_id(pool, &task.repository_id)
         .await
-        .map_err(|e| SandboxError::Internal(format!("DB error reading repository: {}", e)))?
+        .map_err(|e| SandboxError::Internal(format!("DB error reading repository: {e}")))?
         .ok_or_else(|| {
             SandboxError::Internal(format!(
                 "Repository '{}' not found in database",
@@ -202,14 +202,13 @@ fn build_servers(repo: &RepositoryRow) -> Vec<ServerConfig> {
     }
 
     // Auto-populate preview from previewConfig if no preview server exists
-    if !servers.iter().any(|s| s.name == "preview") {
-        if repo.server_start_commands.is_some() {
+    if !servers.iter().any(|s| s.name == "preview")
+        && repo.server_start_commands.is_some() {
             servers.push(ServerConfig {
                 name: "preview".to_string(),
                 port: 0, // Will be assigned below
             });
         }
-    }
 
     // Assign sequential ports (starting at 3000) to servers missing one
     assign_missing_ports(&mut servers);

@@ -68,7 +68,7 @@ pub async fn create_task_secret(
         "type": "Opaque",
         "stringData": string_data,
     }))
-    .map_err(|e| kube::Error::SerdeError(e))?;
+    .map_err(kube::Error::SerdeError)?;
 
     secrets.create(&PostParams::default(), &secret).await?;
     info!(task_id, secret_name = %secret_name, "Task secret created");
@@ -121,7 +121,7 @@ pub async fn update_task_secret(
         "type": "Opaque",
         "stringData": string_data,
     }))
-    .map_err(|e| kube::Error::SerdeError(e))?;
+    .map_err(kube::Error::SerdeError)?;
 
     secrets.replace(&secret_name, &PostParams::default(), &secret).await?;
     info!(task_id, secret_name = %secret_name, "Task secret updated");

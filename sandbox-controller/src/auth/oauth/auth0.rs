@@ -63,10 +63,6 @@ struct Auth0UserInfo {
 
 #[async_trait]
 impl OAuthProvider for Auth0OAuthProvider {
-    fn provider_id(&self) -> &str {
-        "auth0"
-    }
-
     fn generate_auth_url(&self, state: &str) -> Option<String> {
         let mut params = vec![
             ("response_type", "code"),

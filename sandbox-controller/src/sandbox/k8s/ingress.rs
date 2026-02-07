@@ -22,7 +22,7 @@ fn ingress_api(k8s: &K8sClient) -> Api<DynamicObject> {
     let ar = ApiResource {
         group: TRAEFIK_GROUP.to_string(),
         version: TRAEFIK_VERSION.to_string(),
-        api_version: format!("{}/{}", TRAEFIK_GROUP, TRAEFIK_VERSION),
+        api_version: format!("{TRAEFIK_GROUP}/{TRAEFIK_VERSION}"),
         kind: TRAEFIK_KIND.to_string(),
         plural: TRAEFIK_PLURAL.to_string(),
     };
@@ -51,7 +51,7 @@ pub async fn create_task_ingress_routes(
     let service_name = generate_service_name(task_id);
 
     for (server_name, port) in server_ports {
-        let route_name = format!("{}-{}", service_name, server_name);
+        let route_name = format!("{service_name}-{server_name}");
         // K8s name max 63 chars
         let route_name = if route_name.len() > 63 {
             route_name[..63].to_string()
@@ -59,7 +59,7 @@ pub async fn create_task_ingress_routes(
             route_name
         };
 
-        let hostname = format!("{}--{}.{}", task_id, port, proxy_domain);
+        let hostname = format!("{task_id}--{port}.{proxy_domain}");
 
         let mut labels = BTreeMap::new();
         labels.insert(
@@ -124,7 +124,7 @@ pub async fn delete_task_ingress_routes(
     task_id: &str,
 ) -> Result<(), kube::Error> {
     let api = ingress_api(k8s);
-    let lp = ListParams::default().labels(&format!("moatless.io/task-id={}", task_id));
+    let lp = ListParams::default().labels(&format!("moatless.io/task-id={task_id}"));
 
     let list = match api.list(&lp).await {
         Ok(list) => list,

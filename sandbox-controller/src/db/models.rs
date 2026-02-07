@@ -4,6 +4,7 @@
 
 /// Task row from the `tasks` table.
 #[derive(sqlx::FromRow, Debug)]
+#[allow(dead_code)]
 pub struct TaskRow {
     pub task_id: String,
     pub repository_id: String,
@@ -19,6 +20,7 @@ pub struct ProviderAccessToken {
 
 /// Repository row from the `repositories` table.
 #[derive(sqlx::FromRow, Debug)]
+#[allow(dead_code)]
 pub struct RepositoryRow {
     pub id: String,
     pub name: String,

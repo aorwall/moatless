@@ -14,10 +14,8 @@ const KEY_BYTES: usize = 32;
 
 /// Payload extracted from a validated API key.
 pub struct ApiKeyPayload {
-    pub key_id: String,
     pub user_id: String,
     pub user_name: Option<String>,
-    pub scopes: Option<Vec<String>>,
     pub group_id: Option<String>,
     pub expires_at: Option<NaiveDateTime>,
 }
@@ -121,10 +119,8 @@ pub async fn validate_key(
     let user = users::get_user(pool, &row.user_id).await?;
 
     Ok(Some(ApiKeyPayload {
-        key_id: row.id,
         user_id: row.user_id,
         user_name: user.map(|u| u.login),
-        scopes: row.scopes.and_then(|s| serde_json::from_str(&s).ok()),
         group_id: row.group_id,
         expires_at: row.expires_at,
     }))

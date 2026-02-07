@@ -105,7 +105,7 @@ impl RedisEventPublisher {
             }
         };
 
-        let stream_key = format!("task-events:{}", task_id);
+        let stream_key = format!("task-events:{task_id}");
         let max_len = self.max_stream_length;
 
         let mut conn = self.conn.clone();

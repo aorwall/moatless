@@ -19,7 +19,7 @@ pub fn build_pod_from_template(
     task_auth_token: &str,
 ) -> Result<Pod, String> {
     let mut pod: Pod =
-        serde_yaml::from_str(template_content).map_err(|e| format!("Failed to parse pod template: {}", e))?;
+        serde_yaml::from_str(template_content).map_err(|e| format!("Failed to parse pod template: {e}"))?;
 
     let pod_name = generate_pod_name(&plan.repo_config.name, task_id);
     let namespace = config.sandbox_namespace.clone();
@@ -158,7 +158,7 @@ pub fn build_pod_from_template(
                 for env_var in &task_env {
                     let var: k8s_openapi::api::core::v1::EnvVar =
                         serde_json::from_value(env_var.clone())
-                            .map_err(|e| format!("Failed to parse env var: {}", e))?;
+                            .map_err(|e| format!("Failed to parse env var: {e}"))?;
                     env.push(var);
                 }
 
@@ -169,7 +169,7 @@ pub fn build_pod_from_template(
                         serde_json::from_value(serde_json::json!({
                             "secretRef": {"name": secret, "optional": false}
                         }))
-                        .map_err(|e| format!("Failed to parse envFrom: {}", e))?;
+                        .map_err(|e| format!("Failed to parse envFrom: {e}"))?;
                     env_from.push(source);
                 }
 
@@ -181,7 +181,7 @@ pub fn build_pod_from_template(
                         "timeoutSeconds": 5,
                         "failureThreshold": failure_threshold,
                     }))
-                    .map_err(|e| format!("Failed to parse startup probe: {}", e))?;
+                    .map_err(|e| format!("Failed to parse startup probe: {e}"))?;
                 container.startup_probe = Some(probe);
 
                 // Add PVC volume mount
@@ -192,7 +192,7 @@ pub fn build_pod_from_template(
                             "name": "workspace-data",
                             "mountPath": "/opt/moatless",
                         }))
-                        .map_err(|e| format!("Failed to parse volume mount: {}", e))?;
+                        .map_err(|e| format!("Failed to parse volume mount: {e}"))?;
                     mounts.push(mount);
                 }
             }
@@ -206,7 +206,7 @@ pub fn build_pod_from_template(
                     "name": "workspace-data",
                     "persistentVolumeClaim": {"claimName": pvc},
                 }))
-                .map_err(|e| format!("Failed to parse volume: {}", e))?;
+                .map_err(|e| format!("Failed to parse volume: {e}"))?;
             volumes.push(volume);
         }
     }
@@ -225,7 +225,7 @@ fn chrono_now_iso() -> String {
         .unwrap_or_default()
         .as_secs();
     // Simple epoch seconds — callers only use this for ordering
-    format!("{}Z", now)
+    format!("{now}Z")
 }
 
 /// Build servers name→port map from plan

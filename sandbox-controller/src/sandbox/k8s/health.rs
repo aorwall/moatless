@@ -10,7 +10,7 @@ use crate::sandbox::types::SandboxSnapshotStatus;
 ///
 /// Uses a simple TCP connect + HTTP GET. Returns true if the pod responds with 2xx.
 pub async fn check_pod_health(host: &str, port: u16) -> bool {
-    let url = format!("http://{}:{}/health", host, port);
+    let url = format!("http://{host}:{port}/health");
 
     let result = tokio::time::timeout(Duration::from_secs(5), async {
         match hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
@@ -35,7 +35,7 @@ pub async fn check_pod_health(host: &str, port: u16) -> bool {
 
 /// Check health using K8s service DNS
 pub async fn check_service_health(service_name: &str, namespace: &str, port: u16) -> bool {
-    let host = format!("{}.{}.svc.cluster.local", service_name, namespace);
+    let host = format!("{service_name}.{namespace}.svc.cluster.local");
     check_pod_health(&host, port).await
 }
 
@@ -47,8 +47,8 @@ pub async fn fetch_sandbox_status(
     namespace: &str,
     port: u16,
 ) -> Option<SandboxSnapshotStatus> {
-    let host = format!("{}.{}.svc.cluster.local", service_name, namespace);
-    let url = format!("http://{}:{}/status", host, port);
+    let host = format!("{service_name}.{namespace}.svc.cluster.local");
+    let url = format!("http://{host}:{port}/status");
 
     let result = tokio::time::timeout(Duration::from_secs(5), async {
         let client = hyper_util::client::legacy::Client::builder(

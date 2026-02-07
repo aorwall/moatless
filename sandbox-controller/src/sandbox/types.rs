@@ -68,7 +68,6 @@ pub struct TaskCredentials {
 pub enum WorkspaceState {
     Exists,
     Missing,
-    Invalid,
 }
 
 /// Matches TS EnvironmentStatusSchema

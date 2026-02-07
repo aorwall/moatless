@@ -12,7 +12,7 @@ use crate::config::Config;
 /// Find existing PVC for a task by label selector
 pub async fn find_task_pvc(k8s: &K8sClient, task_id: &str) -> Option<String> {
     let pvcs: Api<PersistentVolumeClaim> = Api::namespaced(k8s.client.clone(), k8s.namespace());
-    let lp = ListParams::default().labels(&format!("moatless.io/task-id={}", task_id));
+    let lp = ListParams::default().labels(&format!("moatless.io/task-id={task_id}"));
 
     match pvcs.list(&lp).await {
         Ok(list) => {
@@ -78,7 +78,7 @@ pub async fn create_task_pvc(
             "storageClassName": config.k8s_worker_storage_class,
         }
     }))
-    .map_err(|e| kube::Error::SerdeError(e))?;
+    .map_err(kube::Error::SerdeError)?;
 
     pvcs.create(&PostParams::default(), &pvc).await?;
     info!(task_id, pvc_name = %pvc_name, "Task PVC created");
@@ -89,7 +89,7 @@ pub async fn create_task_pvc(
 /// Delete all PVCs for a task
 pub async fn delete_task_pvc(k8s: &K8sClient, task_id: &str) -> Result<(), kube::Error> {
     let pvcs: Api<PersistentVolumeClaim> = Api::namespaced(k8s.client.clone(), k8s.namespace());
-    let lp = ListParams::default().labels(&format!("moatless.io/task-id={}", task_id));
+    let lp = ListParams::default().labels(&format!("moatless.io/task-id={task_id}"));
 
     let list = pvcs.list(&lp).await?;
     for pvc in list.items {

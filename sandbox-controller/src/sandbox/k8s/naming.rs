@@ -36,7 +36,7 @@ fn truncate_k8s(name: String) -> String {
 /// Format: `moatless-ws-{sanitized_task_id}` (max 63 chars).
 pub fn generate_service_name(task_id: &str) -> String {
     let sanitized = sanitize_k8s_name(task_id, 63);
-    truncate_k8s(format!("moatless-ws-{}", sanitized))
+    truncate_k8s(format!("moatless-ws-{sanitized}"))
 }
 
 /// Generate a unique PVC name for a task.
@@ -49,7 +49,7 @@ pub fn generate_pvc_name(task_id: &str) -> String {
         .unwrap_or_default()
         .as_millis();
     let ts_str = radix_fmt(timestamp);
-    truncate_k8s(format!("moatless-workspace-{}-{}", sanitized, ts_str))
+    truncate_k8s(format!("moatless-workspace-{sanitized}-{ts_str}"))
 }
 
 /// Generate a deterministic secret name for a task.
@@ -57,7 +57,7 @@ pub fn generate_pvc_name(task_id: &str) -> String {
 /// Format: `moatless-task-{sanitized_task_id}-secrets` (max 63 chars).
 pub fn generate_secret_name(task_id: &str) -> String {
     let sanitized = sanitize_k8s_name(task_id, 30);
-    truncate_k8s(format!("moatless-task-{}-secrets", sanitized))
+    truncate_k8s(format!("moatless-task-{sanitized}-secrets"))
 }
 
 /// Generate a unique pod name for a task.
@@ -70,10 +70,9 @@ pub fn generate_pod_name(repository_name: &str, task_id: &str) -> String {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis();
-    let ts_str = format!("{:x}", timestamp);
+    let ts_str = format!("{timestamp:x}");
     truncate_k8s(format!(
-        "moatless-{}-{}-{}",
-        sanitized_repo, sanitized_task, ts_str
+        "moatless-{sanitized_repo}-{sanitized_task}-{ts_str}"
     ))
 }
 

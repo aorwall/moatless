@@ -216,6 +216,23 @@ if [ -n "$REPO_CONFIG" ]; then
     done
 fi
 
+# Start pre-built servers immediately (before setup commands)
+# These serve from /usr/share/prebuilt-app/ and don't need workspace node_modules
+PREBUILT_APP="/usr/share/prebuilt-app"
+if [ -d "$PREBUILT_APP" ] && [ -n "$REPO_CONFIG" ]; then
+    for config_file in "$DATA_DIR"/*-server.config.json; do
+        [ -f "$config_file" ] || continue
+        # Check if any startCommand references the prebuilt app path
+        if jq -r '(.startCommands // [])[]' "$config_file" 2>/dev/null | grep -q "$PREBUILT_APP"; then
+            SRV_NAME=$(basename "$config_file" -server.config.json)
+            echo "Starting pre-built server: $SRV_NAME"
+            /usr/local/bin/server "$SRV_NAME" start || {
+                echo "Warning: Pre-built server '$SRV_NAME' start failed" >&2
+            }
+        fi
+    done
+fi
+
 # Start sandbox app FIRST (for backend health checks and monitor)
 echo "Starting Moatless Sandbox..."
 echo "Workspace Dir: $WORKSPACE_DIR"

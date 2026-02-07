@@ -502,7 +502,7 @@ impl K8sSandboxProvider {
         let pods_api: Api<Pod> =
             Api::namespaced(self.k8s.client.clone(), self.k8s.namespace());
         let lp =
-            ListParams::default().labels(&format!("moatless.io/task-id={}", task_id));
+            ListParams::default().labels(&format!("moatless.io/task-id={task_id}"));
 
         match pods_api.list(&lp).await {
             Ok(list) => {
@@ -535,7 +535,7 @@ impl K8sSandboxProvider {
         let pods_api: Api<Pod> =
             Api::namespaced(self.k8s.client.clone(), self.k8s.namespace());
         let lp =
-            ListParams::default().labels(&format!("moatless.io/task-id={}", task_id));
+            ListParams::default().labels(&format!("moatless.io/task-id={task_id}"));
 
         if let Ok(list) = pods_api.list(&lp).await {
             list.items.first().and_then(|p| p.metadata.name.clone())
@@ -571,7 +571,7 @@ impl K8sSandboxProvider {
         let pods_api: Api<Pod> =
             Api::namespaced(self.k8s.client.clone(), self.k8s.namespace());
         let lp =
-            ListParams::default().labels(&format!("moatless.io/task-id={}", task_id));
+            ListParams::default().labels(&format!("moatless.io/task-id={task_id}"));
 
         let list = pods_api.list(&lp).await.map_err(|e| e.to_string())?;
 
@@ -793,7 +793,7 @@ impl BackgroundReadinessChecker {
                                             "CreateContainerConfigError",
                                         ];
                                         if permanent_failures.contains(&reason) {
-                                            let msg = format!("Container error: {}", reason);
+                                            let msg = format!("Container error: {reason}");
                                             warn!(
                                                 task_id = %self.task_id,
                                                 reason = %reason,

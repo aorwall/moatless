@@ -55,10 +55,6 @@ struct GitHubUser {
 
 #[async_trait]
 impl OAuthProvider for GitHubOAuthProvider {
-    fn provider_id(&self) -> &str {
-        "github"
-    }
-
     fn generate_auth_url(&self, state: &str) -> Option<String> {
         let params = [
             ("client_id", self.client_id.as_str()),

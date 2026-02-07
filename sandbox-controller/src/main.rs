@@ -8,7 +8,6 @@ mod db;
 mod events;
 mod metrics;
 mod sandbox;
-mod target;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -130,7 +129,7 @@ async fn start_api_server(
 
     let pod_template = tokio::fs::read_to_string(template_path)
         .await
-        .map_err(|e| format!("Failed to read pod template from {}: {}", template_path, e))?;
+        .map_err(|e| format!("Failed to read pod template from {template_path}: {e}"))?;
 
     info!(template_path, "Pod template loaded");
 

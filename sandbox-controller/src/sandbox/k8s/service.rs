@@ -67,7 +67,7 @@ pub async fn create_worker_service(
             "ports": ports,
         }
     }))
-    .map_err(|e| kube::Error::SerdeError(e))?;
+    .map_err(kube::Error::SerdeError)?;
 
     match services.create(&PostParams::default(), &svc).await {
         Ok(_) => {

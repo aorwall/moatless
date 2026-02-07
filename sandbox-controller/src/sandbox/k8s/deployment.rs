@@ -38,8 +38,7 @@ pub async fn create_workspace_deployment(
     if let Some(ref policy) = pod_spec.restart_policy {
         if policy != "Always" {
             return Err(SandboxError::PodBuildError(format!(
-                "Pod template has restartPolicy \"{}\", but Deployments only support \"Always\"",
-                policy
+                "Pod template has restartPolicy \"{policy}\", but Deployments only support \"Always\""
             )));
         }
     }
@@ -175,7 +174,7 @@ pub async fn restart_deployment(
 ) -> Result<(), kube::Error> {
     let pods_api: Api<Pod> =
         Api::namespaced(k8s.client.clone(), k8s.namespace());
-    let lp = ListParams::default().labels(&format!("moatless.io/task-id={}", task_id));
+    let lp = ListParams::default().labels(&format!("moatless.io/task-id={task_id}"));
 
     let list = pods_api.list(&lp).await?;
     for pod in list.items {
@@ -195,7 +194,7 @@ pub async fn find_deployment(
 ) -> Result<Option<Deployment>, kube::Error> {
     let deployments: Api<Deployment> =
         Api::namespaced(k8s.client.clone(), k8s.namespace());
-    let lp = ListParams::default().labels(&format!("moatless.io/task-id={}", task_id));
+    let lp = ListParams::default().labels(&format!("moatless.io/task-id={task_id}"));
 
     let list = deployments.list(&lp).await?;
     Ok(list.items.into_iter().next())
@@ -233,7 +232,7 @@ pub async fn get_deployment_replicas(
 ///
 /// Uses the same base as the service name for consistency.
 fn generate_deployment_name(task_id: &str) -> String {
-    let service_name = generate_service_name(task_id);
+    
     // Service name is already "moatless-ws-{task_id}", reuse it for the deployment
-    service_name
+    generate_service_name(task_id)
 }

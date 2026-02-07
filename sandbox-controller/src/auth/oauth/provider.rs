@@ -7,9 +7,6 @@ use crate::auth::types::{OAuthTokens, ProviderUserInfo};
 /// Generic OAuth provider interface.
 #[async_trait]
 pub trait OAuthProvider: Send + Sync {
-    /// Unique provider ID (e.g., "github", "auth0").
-    fn provider_id(&self) -> &str;
-
     /// Generate the OAuth authorization URL.
     fn generate_auth_url(&self, state: &str) -> Option<String>;
 
