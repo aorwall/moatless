@@ -18,6 +18,7 @@ import type {
 import type { UseMutationOptions, UseQueryOptions } from '@tanstack/react-query'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { updateTaskInLists } from '@/features/tasks'
+import { sandboxApi } from '@/features/tasks/api/sandbox'
 import { tasksApi } from '@/features/tasks/api/tasks'
 import { queryKeys } from '@/lib/api/query-keys'
 
@@ -114,7 +115,7 @@ export function useCreateTask(
         // Prefetch actual workspace status in background (staleTime: 0 forces fetch)
         queryClient.prefetchQuery({
           queryKey: queryKeys.tasks.workspaceStatus(response.taskId),
-          queryFn: () => tasksApi.getTaskWorkspaceStatus(response.taskId),
+          queryFn: () => sandboxApi.getWorkspaceStatus(response.taskId),
           staleTime: 0,
         })
       } else {
@@ -490,7 +491,7 @@ export function useCreateVibeTask(
         // Prefetch actual workspace status in background (staleTime: 0 forces fetch)
         queryClient.prefetchQuery({
           queryKey: queryKeys.tasks.workspaceStatus(data.taskId),
-          queryFn: () => tasksApi.getTaskWorkspaceStatus(data.taskId),
+          queryFn: () => sandboxApi.getWorkspaceStatus(data.taskId),
           staleTime: 0,
         })
       }

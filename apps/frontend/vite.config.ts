@@ -19,6 +19,10 @@ export default defineConfig({
 	server: {
 		port: process.env.PORT ? Number(process.env.PORT) : 3000,
 		proxy: {
+			"/api/sandbox": {
+				target: "http://localhost:8080",
+				changeOrigin: true,
+			},
 			"/api": {
 				target: "http://localhost:8000",
 				changeOrigin: true,

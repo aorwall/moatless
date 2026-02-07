@@ -1,7 +1,8 @@
 import type { Task, WorkspaceStatusResponse } from '@moatless/types'
 import type { UseQueryOptions } from '@tanstack/react-query'
-import { useMutation } from '@tanstack/react-query'
-import { tasksApi } from '../api/tasks'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { queryKeys } from '@/lib/api/query-keys'
+import { sandboxApi } from '../api/sandbox'
 import { useTaskWorkspaceStatusQuery } from './use-task-queries'
 
 interface UseWorkspaceStatusOptions
@@ -31,22 +32,55 @@ export function useWorkspaceStatus(
 
 /**
  * Hook to retry workspace provisioning after a failure
- * Clears error state and triggers re-provisioning
+ * Calls sandbox controller's start endpoint directly
  * Note: Status updates are handled by SSE events in global-event-stream-provider
  */
 export function useWorkspaceRetry(taskId: string) {
+  const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: () => tasksApi.retryWorkspace(taskId),
+    mutationFn: () => sandboxApi.startWorkspace(taskId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.workspaceStatus(taskId) })
+    },
   })
 }
 
 /**
- * Hook to restart workspace by stopping the current sandbox and creating a new one
+ * Hook to restart workspace via sandbox-controller (Deployment pod restart)
  * Preserves workspace data (PVC in K8s)
- * Note: Status updates are handled by SSE events in global-event-stream-provider
  */
 export function useWorkspaceRestart(taskId: string) {
+  const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: () => tasksApi.restartWorkspace(taskId),
+    mutationFn: () => sandboxApi.restartWorkspace(taskId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.workspaceStatus(taskId) })
+    },
+  })
+}
+
+/**
+ * Hook to stop workspace via sandbox-controller (scale Deployment to 0)
+ */
+export function useWorkspaceStop(taskId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => sandboxApi.stopWorkspace(taskId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.workspaceStatus(taskId) })
+    },
+  })
+}
+
+/**
+ * Hook to start a stopped workspace via sandbox-controller (scale Deployment to 1)
+ */
+export function useWorkspaceStart(taskId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => sandboxApi.startWorkspace(taskId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.workspaceStatus(taskId) })
+    },
   })
 }

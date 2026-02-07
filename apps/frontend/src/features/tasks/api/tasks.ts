@@ -1,9 +1,4 @@
-import {
-  buildPath,
-  type RouteParams,
-  type RouteRequestJson,
-  type RouteSuccess,
-} from '@moatless/api-contract'
+import { buildPath, type RouteRequestJson, type RouteSuccess } from '@moatless/api-contract'
 import {
   closeTaskRoute,
   createTaskRoute,
@@ -19,11 +14,6 @@ import {
   updateTaskMetadataRoute,
   updateTaskVisibilityRoute,
 } from '@moatless/api-contract/tasks.ts'
-import {
-  getWorkspaceStatusRoute,
-  restartWorkspaceRoute,
-  retryWorkspaceRoute,
-} from '@moatless/api-contract/workspace.ts'
 import type {
   CreateTaskRequest,
   CreateVibeTaskRequest,
@@ -33,10 +23,7 @@ import type {
 import { apiClient } from '@/lib/api/client'
 
 type TaskListResponse = RouteSuccess<typeof listTasksRoute>
-type WorkspaceStatusResponse = RouteSuccess<typeof getWorkspaceStatusRoute>
 type SimpleTaskResponse = RouteSuccess<typeof createTaskRoute>
-type WorkspaceRetryResponse = RouteSuccess<typeof retryWorkspaceRoute>
-type WorkspaceRestartResponse = RouteSuccess<typeof restartWorkspaceRoute>
 
 export const tasksApi = {
   async getActiveTasks(): Promise<string[]> {
@@ -124,27 +111,6 @@ export const tasksApi = {
     const path = buildPath(getMessagesRoute, { taskId })
     const response = await apiClient.get<RouteSuccess<typeof getMessagesRoute>>(path)
     return response.messages
-  },
-
-  async getTaskWorkspaceStatus(
-    taskId: RouteParams<typeof getWorkspaceStatusRoute>['taskId'],
-  ): Promise<WorkspaceStatusResponse> {
-    const path = buildPath(getWorkspaceStatusRoute, { taskId })
-    return await apiClient.get<WorkspaceStatusResponse>(path)
-  },
-
-  async retryWorkspace(
-    taskId: RouteParams<typeof retryWorkspaceRoute>['taskId'],
-  ): Promise<WorkspaceRetryResponse> {
-    const path = buildPath(retryWorkspaceRoute, { taskId })
-    return await apiClient.post<WorkspaceRetryResponse>(path)
-  },
-
-  async restartWorkspace(
-    taskId: RouteParams<typeof restartWorkspaceRoute>['taskId'],
-  ): Promise<WorkspaceRestartResponse> {
-    const path = buildPath(restartWorkspaceRoute, { taskId })
-    return await apiClient.post<WorkspaceRestartResponse>(path)
   },
 
   async getTaskCommands(taskId: string): Promise<RouteSuccess<typeof getCommandsRoute>> {

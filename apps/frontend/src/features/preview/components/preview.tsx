@@ -2,6 +2,7 @@ import { AlertCircle, Loader2, Server, XCircle } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { usePreviewPath, usePreviewViewport } from '@/features/tasks/hooks/use-task-view'
 import { useWorkspaceRetry } from '@/features/tasks/hooks/use-workspace-status'
+import { ApiError } from '@/lib/api/client'
 import { Button } from '@/lib/components/ui/button'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/components/ui/resizable'
 import { cn } from '@/lib/utils'
@@ -63,6 +64,16 @@ function getSandboxStatusConfig(
     },
   }
   return configs[status]
+}
+
+function getMutationErrorMessage(error: Error): string {
+  if (error instanceof ApiError) {
+    const data = error.data as { error?: unknown } | undefined
+    if (typeof data?.error === 'string') {
+      return data.error
+    }
+  }
+  return error.message
 }
 
 export function Preview({
@@ -139,6 +150,7 @@ export function Preview({
       stack?: string
     }[]
   >([])
+  const [hasProxyError, setHasProxyError] = useState(false)
 
   // Reset state when active server changes
   // biome-ignore lint/correctness/useExhaustiveDependencies: activeServer is the trigger for resetting state
@@ -150,6 +162,7 @@ export function Preview({
     setLastHeartbeat(null)
     setSelectedComponentId(null)
     setConsoleLogs([])
+    setHasProxyError(false)
     setPath('/')
     setIframeTargetPath('/')
     setViewport('desktop')
@@ -192,6 +205,13 @@ export function Preview({
       setLastHeartbeat(null)
       setSelectedComponentId(null)
       // Keep path as-is so server can resume at same path when restarted
+    }
+  }, [serverStatus?.status])
+
+  // Clear proxy error when server becomes ready/started
+  useEffect(() => {
+    if (serverStatus?.status === 'started') {
+      setHasProxyError(false)
     }
   }, [serverStatus?.status])
 
@@ -343,6 +363,10 @@ export function Preview({
 
         case 'TROUBLESHOOT_REQUEST':
           onTroubleshootRequest?.(payload?.reason)
+          break
+
+        case 'PROXY_ERROR':
+          setHasProxyError(true)
           break
 
         default:
@@ -499,6 +523,7 @@ export function Preview({
   }, [path])
 
   const handleIframeLoad = useCallback(() => {
+    setHasProxyError(false)
     setIsLoaded(true)
 
     // Reset script health status when iframe loads
@@ -557,21 +582,28 @@ export function Preview({
                     {getSandboxStatusConfig(environmentStatus, environmentError).message}
                   </p>
                   {getSandboxStatusConfig(environmentStatus, environmentError).showRetry && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => retryMutation.mutate()}
-                      disabled={retryMutation.isPending}
-                    >
-                      {retryMutation.isPending ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Starting...
-                        </>
-                      ) : (
-                        'Start Sandbox'
+                    <>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => retryMutation.mutate()}
+                        disabled={retryMutation.isPending}
+                      >
+                        {retryMutation.isPending ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Starting...
+                          </>
+                        ) : (
+                          'Start Sandbox'
+                        )}
+                      </Button>
+                      {retryMutation.isError && (
+                        <p className="text-destructive text-xs max-w-md line-clamp-3">
+                          {getMutationErrorMessage(retryMutation.error)}
+                        </p>
                       )}
-                    </Button>
+                    </>
                   )}
                 </div>
               </div>
@@ -583,6 +615,43 @@ export function Preview({
                 <div className="text-center space-y-2">
                   <Server className="h-8 w-8 text-muted-foreground mx-auto" />
                   <p className="text-sm text-muted-foreground">No servers configured</p>
+                </div>
+              </div>
+            )}
+
+            {/* Proxy error overlay - show appropriate message based on known server state */}
+            {hasProxyError && isSandboxRunning && (
+              <div className="absolute inset-0 flex items-center justify-center z-10 bg-background/80 backdrop-blur-sm">
+                <div className="flex flex-col items-center justify-center text-center space-y-4 p-8">
+                  {serverStatus?.status === 'starting' || serverStatus?.status === 'installing' ? (
+                    <>
+                      <Loader2 className="h-12 w-12 text-muted-foreground animate-spin" />
+                      <h3 className="text-lg font-semibold">Preview Server Starting</h3>
+                      <p className="text-sm text-muted-foreground max-w-md">
+                        Please wait while the server starts...
+                      </p>
+                    </>
+                  ) : serverStatus?.status === 'stopped' ? (
+                    <>
+                      <AlertCircle className="h-12 w-12 text-orange-500" />
+                      <h3 className="text-lg font-semibold">Preview Server Stopped</h3>
+                      <p className="text-sm text-muted-foreground max-w-md">
+                        The server is not currently running
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <XCircle className="h-12 w-12 text-destructive" />
+                      <h3 className="text-lg font-semibold">Connection Failed</h3>
+                      <p className="text-sm text-muted-foreground max-w-md">
+                        Could not connect to the preview server. It may have crashed or be listening
+                        on a different port.
+                      </p>
+                      <Button variant="outline" size="sm" onClick={reloadPreview}>
+                        Retry
+                      </Button>
+                    </>
+                  )}
                 </div>
               </div>
             )}
