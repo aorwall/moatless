@@ -11,7 +11,7 @@ A Helm chart for deploying Moatless Vibe - an AI-powered development platform.
 
 ## Redis Configuration
 
-**Redis is required** for event streaming between the main application and worker pods. You have three deployment options:
+**Redis is required** for event streaming between the main application and sandbox pods. You have three deployment options:
 
 ### Option 1: Deploy Redis with Chart (Development/Testing)
 
@@ -127,7 +127,7 @@ helm install moatless ./k8s/helm/moatless-vibe \
 kubectl create secret generic vibe-secrets \
   --from-literal=ANTHROPIC_API_KEY="sk-ant-..." \
   --from-literal=GITHUB_TOKEN="ghp_..." \
-  --from-literal=WORKER_API_KEY="$(openssl rand -base64 32)" \
+  --from-literal=SANDBOX_API_KEY="$(openssl rand -base64 32)" \
   --from-literal=DATABASE_URL="postgresql://user:pass@host:5432/db"
 
 # 2. Update Helm dependencies
@@ -162,7 +162,7 @@ helm install moatless ./k8s/helm/moatless-vibe \
 | `replicaCount` | Number of API replicas | `1` |
 | `image.repository` | API image repository | `ghcr.io/aorwall/moatless-vibe` |
 | `image.tag` | Image tag | Chart `appVersion` |
-| `workerImage.repository` | Worker image repository | `ghcr.io/aorwall/moatless-vibe-worker` |
+| `sandboxImage.repository` | Sandbox image repository | `ghcr.io/aorwall/moatless-vibe-worker` |
 
 ### Database Parameters
 
@@ -176,9 +176,9 @@ helm install moatless ./k8s/helm/moatless-vibe \
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `kubernetes.enabled` | Enable Kubernetes execution mode | `true` |
-| `kubernetes.namespace` | Namespace for worker pods | Release namespace |
-| `kubernetes.workerStorage.enabled` | Enable per-task PVC | `true` |
-| `kubernetes.workerStorage.size` | Size of each task's PVC | `10Gi` |
+| `kubernetes.namespace` | Namespace for sandbox pods | Release namespace |
+| `kubernetes.sandboxStorage.enabled` | Enable per-task PVC | `true` |
+| `kubernetes.sandboxStorage.size` | Size of each task's PVC | `10Gi` |
 
 ### Ingress Parameters
 
@@ -243,7 +243,7 @@ Application-level metrics are exposed at `/metrics` endpoint.
 
 ### Event Delivery Issues
 
-**Symptom**: Worker events not appearing in UI
+**Symptom**: Sandbox events not appearing in UI
 
 **Solutions**:
 1. Check Redis streams exist:
@@ -334,7 +334,7 @@ kubectl port-forward svc/moatless-moatless-vibe 8000:8000
 kubectl create secret generic vibe-secrets \
   --from-literal=ANTHROPIC_API_KEY="sk-ant-..." \
   --from-literal=GITHUB_TOKEN="ghp_..." \
-  --from-literal=WORKER_API_KEY="$(openssl rand -base64 32)" \
+  --from-literal=SANDBOX_API_KEY="$(openssl rand -base64 32)" \
   --from-literal=DATABASE_URL="postgresql://..."
 
 # 4. Install chart

@@ -30,60 +30,18 @@ spec:
     - host: {{ .host | quote }}
       http:
         paths:
-          {{- range .paths }}
-          - path: {{ .path }}
-            pathType: {{ .pathType }}
+          - path: /
+            pathType: Prefix
             backend:
               service:
+                {{- if $.Values.proxy.enabled }}
+                name: {{ $.Values.proxyIngress.targetServiceName | default "traefik" }}
+                port:
+                  number: {{ $.Values.proxyIngress.targetServicePort | default 80 }}
+                {{- else }}
                 name: {{ include "moatless-vibe.fullname" $ }}
                 port:
                   number: {{ $.Values.service.port }}
-          {{- end }}
-    {{- end }}
-{{- end }}
----
-{{- if and .Values.ingress.enabled .Values.proxy.enabled .Values.proxy.sandboxController.enabled -}}
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: {{ include "moatless-vibe.fullname" . }}-sandbox-api
-  namespace: {{ .Release.Namespace }}
-  labels:
-    {{- include "moatless-vibe.labels" . | nindent 4 }}
-  annotations:
-    {{- with .Values.ingress.annotations }}
-    {{- toYaml . | nindent 4 }}
-    {{- end }}
-    alb.ingress.kubernetes.io/group.order: "10"
-spec:
-  {{- if .Values.ingress.className }}
-  ingressClassName: {{ .Values.ingress.className }}
-  {{- end }}
-  rules:
-    {{- range .Values.ingress.hosts }}
-    - host: {{ .host | quote }}
-      http:
-        paths:
-          - path: /api/sandbox
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "moatless-vibe.fullname" $ }}-sandbox-controller
-                port:
-                  number: 8080
-          - path: /api/v1/auth
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "moatless-vibe.fullname" $ }}-sandbox-controller
-                port:
-                  number: 8080
-          - path: /api/v1/users
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "moatless-vibe.fullname" $ }}-sandbox-controller
-                port:
-                  number: 8080
+                {{- end }}
     {{- end }}
 {{- end }}

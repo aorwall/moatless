@@ -162,12 +162,6 @@ CORS_ORIGIN=*
 LOG_LEVEL=info
 USE_CONSOLE_LOGGING=false
 
-# Optional: Worker mode configuration
-# WORKER_MODE=false
-# WORKER_API_URL=
-# WORKER_API_KEY=
-# WORKSPACE_DIR=
-
 # Optional: Static client path (defaults to ../frontend/dist)
 # STATIC_CLIENT_PATH=/opt/moatless-vibe/apps/frontend/dist
 EOF

@@ -2,18 +2,18 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "moatless-vibe.fullname" . }}-worker-pod-template
+  name: {{ include "moatless-vibe.fullname" . }}-sandbox-pod-template
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "moatless-vibe.labels" . | nindent 4 }}
 data:
-  worker-pod-template.yaml: |
+  sandbox-pod-template.yaml: |
     apiVersion: v1
     kind: Pod
     metadata:
       labels:
-        app.kubernetes.io/name: moatless-worker
-        app.kubernetes.io/component: worker
+        app.kubernetes.io/name: moatless-sandbox
+        app.kubernetes.io/component: sandbox
         app.kubernetes.io/managed-by: moatless
       annotations:
         karpenter.sh/do-not-disrupt: "true"
@@ -28,19 +28,23 @@ data:
             value: "2"
           - name: single-request-reopen
             value: ""
-      {{- with .Values.podSecurityContext }}
       securityContext:
+        {{- with .Values.podSecurityContext }}
         {{- toYaml . | nindent 8 }}
-      {{- end }}
+        {{- end }}
+        {{- with .Values.kubernetes.sandboxSysctls }}
+        sysctls:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with (.Values.kubernetes.workerTolerations | default .Values.tolerations) }}
+      {{- with (.Values.kubernetes.sandboxTolerations | default .Values.tolerations) }}
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with (.Values.kubernetes.workerNodeSelector | default .Values.nodeSelector) }}
+      {{- with (.Values.kubernetes.sandboxNodeSelector | default .Values.nodeSelector) }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}
@@ -57,13 +61,13 @@ data:
           emptyDir:
             medium: Memory
             sizeLimit: 1536Mi
-        {{- with .Values.kubernetes.workerExtraVolumes }}
+        {{- with .Values.kubernetes.sandboxExtraVolumes }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
       containers:
-        - name: worker
-          image: {{ include "moatless-vibe.workerImage" . }}
-          imagePullPolicy: {{ .Values.workerImage.pullPolicy }}
+        - name: sandbox
+          image: {{ include "moatless-vibe.sandboxImage" . }}
+          imagePullPolicy: {{ .Values.sandboxImage.pullPolicy }}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -81,7 +85,7 @@ data:
               mountPath: /tmp
             - name: build-cache
               mountPath: /opt/moatless/build-cache
-            {{- with .Values.kubernetes.workerExtraVolumeMounts }}
+            {{- with .Values.kubernetes.sandboxExtraVolumeMounts }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
           ports:
@@ -90,27 +94,29 @@ data:
               protocol: TCP
           env:
             - name: NODE_ENV
-              value: {{ .Values.kubernetes.workerEnv.nodeEnv | quote }}
+              value: {{ .Values.kubernetes.sandboxEnv.nodeEnv | quote }}
             - name: LOG_LEVEL
-              value: {{ (.Values.kubernetes.workerEnv.logLevel | default .Values.config.logLevel) | quote }}
+              value: {{ (.Values.kubernetes.sandboxEnv.logLevel | default .Values.config.logLevel) | quote }}
             - name: WORKSPACE_DIR
-              value: {{ .Values.kubernetes.workerEnv.workspaceDir | quote }}
+              value: {{ .Values.kubernetes.sandboxEnv.workspaceDir | quote }}
             - name: DATA_DIR
-              value: {{ .Values.kubernetes.workerEnv.dataDir | quote }}
+              value: {{ .Values.kubernetes.sandboxEnv.dataDir | quote }}
             - name: CLAUDE_CONFIG_DIR
-              value: {{ .Values.kubernetes.workerEnv.claudeConfigDir | quote }}
+              value: {{ .Values.kubernetes.sandboxEnv.claudeConfigDir | quote }}
             - name: REDIS_URL
               value: {{ include "moatless-vibe.redisUrl" . | quote }}
             - name: BACKEND_API_URL
               value: "http://{{ include "moatless-vibe.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}"
             - name: UV_THREADPOOL_SIZE
               value: "16"
+            - name: NODE_OPTIONS
+              value: {{ .Values.kubernetes.sandboxEnv.nodeOptions | quote }}
             - name: FIRST_MESSAGE_TIMEOUT_MS
               value: "300000"
-            {{- with .Values.kubernetes.workerExtraEnv }}
+            {{- with .Values.kubernetes.sandboxExtraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
-          {{- with .Values.kubernetes.workerResources }}
+          {{- with .Values.kubernetes.sandboxResources }}
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
@@ -125,9 +131,9 @@ data:
             httpGet:
               path: /health
               port: 8001
-            periodSeconds: 5
-            timeoutSeconds: 3
-            failureThreshold: 3
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 6
           livenessProbe:
             httpGet:
               path: /health

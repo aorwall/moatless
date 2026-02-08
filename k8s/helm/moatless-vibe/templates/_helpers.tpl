@@ -71,24 +71,24 @@ Get the secrets name
 {{- end }}
 
 {{/*
-Get the worker image
-Priority: kubernetes.workerImage (object or string) > workerImage section > fallback to main image
+Get the sandbox image
+Priority: kubernetes.sandboxImage (object or string) > sandboxImage section > fallback to main image
 Supports both:
-  --set kubernetes.workerImage.repository=... --set kubernetes.workerImage.tag=...
-  --set kubernetes.workerImage=full/image:tag
+  --set kubernetes.sandboxImage.repository=... --set kubernetes.sandboxImage.tag=...
+  --set kubernetes.sandboxImage=full/image:tag
 */}}
-{{- define "moatless-vibe.workerImage" -}}
-{{- if .Values.kubernetes.workerImage.repository }}
-{{- /* Object format: kubernetes.workerImage.repository + tag */}}
-{{- $tag := default (default .Chart.AppVersion .Values.image.tag) .Values.kubernetes.workerImage.tag }}
-{{- printf "%s:%s" .Values.kubernetes.workerImage.repository $tag }}
-{{- else if and .Values.kubernetes.workerImage (kindIs "string" .Values.kubernetes.workerImage) }}
-{{- /* String format: kubernetes.workerImage is a full image string */}}
-{{- .Values.kubernetes.workerImage }}
-{{- else if .Values.workerImage.repository }}
-{{- /* Fallback to workerImage section */}}
-{{- $tag := default .Values.image.tag .Values.workerImage.tag }}
-{{- printf "%s:%s" .Values.workerImage.repository (default .Chart.AppVersion $tag) }}
+{{- define "moatless-vibe.sandboxImage" -}}
+{{- if .Values.kubernetes.sandboxImage.repository }}
+{{- /* Object format: kubernetes.sandboxImage.repository + tag */}}
+{{- $tag := default (default .Chart.AppVersion .Values.image.tag) .Values.kubernetes.sandboxImage.tag }}
+{{- printf "%s:%s" .Values.kubernetes.sandboxImage.repository $tag }}
+{{- else if and .Values.kubernetes.sandboxImage (kindIs "string" .Values.kubernetes.sandboxImage) }}
+{{- /* String format: kubernetes.sandboxImage is a full image string */}}
+{{- .Values.kubernetes.sandboxImage }}
+{{- else if .Values.sandboxImage.repository }}
+{{- /* Fallback to sandboxImage section */}}
+{{- $tag := default .Values.image.tag .Values.sandboxImage.tag }}
+{{- printf "%s:%s" .Values.sandboxImage.repository (default .Chart.AppVersion $tag) }}
 {{- else }}
 {{- /* Final fallback: main image */}}
 {{- printf "%s:%s" .Values.image.repository (default .Chart.AppVersion .Values.image.tag) }}
@@ -96,9 +96,9 @@ Supports both:
 {{- end }}
 
 {{/*
-Get the Kubernetes namespace for workers
+Get the Kubernetes namespace for sandbox pods
 */}}
-{{- define "moatless-vibe.workerNamespace" -}}
+{{- define "moatless-vibe.sandboxNamespace" -}}
 {{- if .Values.kubernetes.namespace }}
 {{- .Values.kubernetes.namespace }}
 {{- else }}

@@ -179,13 +179,10 @@ docker build -f docker/Dockerfile.sandbox-full \
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `WORKER_MODE` | Must be `true` for worker mode | `true` |
-| `WORKER_API_URL` | Main backend API URL | Required |
-| `WORKER_AUTH_TOKEN` | JWT token for authentication | Required |
 | `WORKSPACE_DIR` | Workspace directory | `/opt/moatless/repo` |
 | `DATA_DIR` | Data storage directory | `/opt/moatless/data` |
 | `CLAUDE_CONFIG_DIR` | Claude config directory | `/opt/moatless/.claude` |
-| `PORT` | Worker API port | `8001` |
+| `PORT` | Sandbox API port | `8001` |
 | `ANTHROPIC_API_KEY` | Claude API key | Optional |
 
 ## Build Script Options
@@ -262,8 +259,7 @@ Build the images first:
 ./docker/build-sandbox.sh   # for sandbox images
 ```
 
-### Connection refused (worker)
-- Check that `WORKER_API_URL` is correct
+### Connection refused (sandbox)
 - On Mac/Windows, use `host.docker.internal` instead of `localhost`
 - Ensure the main backend is running
 

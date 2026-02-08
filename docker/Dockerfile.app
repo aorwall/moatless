@@ -44,7 +44,6 @@ RUN node -e "const pkg = require('./package.json'); delete pkg.scripts.prepare; 
 
 # Environment variables
 ENV NODE_ENV=production
-ENV WORKER_MODE=false
 ENV PORT=8000
 ENV STATIC_CLIENT_PATH=/app/dist/client
 

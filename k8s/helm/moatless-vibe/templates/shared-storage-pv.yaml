@@ -22,7 +22,7 @@ spec:
     volumeAttributes:
       bucketName: {{ .Values.storage.s3.bucketName | quote }}
 ---
-# PersistentVolumeClaim for worker pods to mount
+# PersistentVolumeClaim for sandbox pods to mount
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -62,7 +62,7 @@ spec:
       containerName: {{ .Values.storage.azureBlob.containerName | quote }}
       storageAccount: {{ .Values.storage.azureBlob.accountName | quote }}
 ---
-# PersistentVolumeClaim for worker pods to mount
+# PersistentVolumeClaim for sandbox pods to mount
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

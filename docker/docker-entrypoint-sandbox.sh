@@ -134,6 +134,31 @@ if [ -n "$GIT_CLONE_URL" ] && [ ! -d "$WORKSPACE_DIR/.git" ]; then
     echo "Repository cloned successfully"
 fi
 
+# Sync plugins from backend API (blocking - needed for agent execution)
+# Plugins are downloaded via API instead of mounted from shared storage
+if [ -n "$REPO_CONFIG" ]; then
+    PLUGIN_COUNT=$(echo "$REPO_CONFIG" | jq -r '.agentConfig.pluginPaths // [] | length' 2>/dev/null || echo "0")
+    if [ "$PLUGIN_COUNT" -gt 0 ]; then
+        echo "Syncing $PLUGIN_COUNT plugin(s) from backend API..."
+        if [ -f "/usr/local/bin/sync-plugins.sh" ]; then
+            /usr/local/bin/sync-plugins.sh || echo "Warning: Some plugins failed to sync"
+        else
+            echo "Warning: sync-plugins.sh not found, skipping plugin sync"
+        fi
+    fi
+fi
+
+# Start sandbox app early (responds to health checks while remaining setup runs)
+echo "Starting Moatless Sandbox..."
+echo "Workspace Dir: $WORKSPACE_DIR"
+echo "Data Dir: $DATA_DIR"
+
+cd /app/sandbox
+nice -n -5 bun run dist/index.js &
+SANDBOX_PID=$!
+
+# --- Phase 2: Post-app setup (sandbox already serving /health) ---
+
 # Copy pre-installed dependencies from image layer if available
 # This makes `bun install` near-instant (verify only, no download)
 PREBUILT_DEPS="/usr/share/prebuilt-deps/node_modules"
@@ -170,20 +195,6 @@ if [ -d "$BUILD_CACHE_DIR" ]; then
     if [ -d "$PREBUILT_NEXT_CACHE" ] && [ ! -d "$BUILD_CACHE_DIR/next/cache" ]; then
         cp -a "$PREBUILT_NEXT_CACHE" "$BUILD_CACHE_DIR/next/cache"
         echo "Seeded Next.js build cache from image ($(du -sh "$BUILD_CACHE_DIR/next/cache" | cut -f1))"
-    fi
-fi
-
-# Sync plugins from backend API (blocking - needed for agent execution)
-# Plugins are downloaded via API instead of mounted from shared storage
-if [ -n "$REPO_CONFIG" ]; then
-    PLUGIN_COUNT=$(echo "$REPO_CONFIG" | jq -r '.agentConfig.pluginPaths // [] | length' 2>/dev/null || echo "0")
-    if [ "$PLUGIN_COUNT" -gt 0 ]; then
-        echo "Syncing $PLUGIN_COUNT plugin(s) from backend API..."
-        if [ -f "/usr/local/bin/sync-plugins.sh" ]; then
-            /usr/local/bin/sync-plugins.sh || echo "Warning: Some plugins failed to sync"
-        else
-            echo "Warning: sync-plugins.sh not found, skipping plugin sync"
-        fi
     fi
 fi
 
@@ -240,18 +251,6 @@ if [ -n "$REPO_CONFIG" ]; then
         fi
     done
 fi
-
-# Start sandbox app FIRST (for backend health checks and monitor)
-echo "Starting Moatless Sandbox..."
-echo "Workspace Dir: $WORKSPACE_DIR"
-echo "Data Dir: $DATA_DIR"
-
-cd /app/sandbox
-bun run dist/index.js &
-SANDBOX_PID=$!
-
-# Give sandbox a moment to start before running setup commands
-sleep 1
 
 # Run setup commands from REPO_CONFIG (sandbox is running during this)
 if [ -n "$REPO_CONFIG" ]; then

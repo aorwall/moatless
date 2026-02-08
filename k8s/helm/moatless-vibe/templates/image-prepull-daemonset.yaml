@@ -17,8 +17,8 @@ spec:
         app.kubernetes.io/name: {{ include "moatless-vibe.name" . }}-image-prepull
     spec:
       initContainers:
-        - name: prepull-worker
-          image: {{ include "moatless-vibe.workerImage" . }}
+        - name: prepull-sandbox
+          image: {{ include "moatless-vibe.sandboxImage" . }}
           imagePullPolicy: Always
           command: ["sh", "-c", "echo 'Image pulled successfully'"]
           resources:

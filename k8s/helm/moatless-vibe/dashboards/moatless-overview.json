@@ -3559,7 +3559,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"$namespace\", pod=~\"moatless.*\", pod!~\".*worker.*\"}[5m])) by (pod)",
+          "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"$namespace\", pod=~\"moatless.*\", pod!~\".*sandbox.*\"}[5m])) by (pod)",
           "legendFormat": "{{pod}}",
           "refId": "A"
         }
@@ -3652,7 +3652,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(container_memory_working_set_bytes{namespace=\"$namespace\", pod=~\"moatless.*\", pod!~\".*worker.*\"}) by (pod)",
+          "expr": "sum(container_memory_working_set_bytes{namespace=\"$namespace\", pod=~\"moatless.*\", pod!~\".*sandbox.*\"}) by (pod)",
           "legendFormat": "{{pod}}",
           "refId": "A"
         }
@@ -3748,7 +3748,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(kube_pod_container_status_restarts_total{namespace=\"$namespace\", pod=~\"moatless.*\", pod!~\".*worker.*\"}) by (pod)",
+          "expr": "sum(kube_pod_container_status_restarts_total{namespace=\"$namespace\", pod=~\"moatless.*\", pod!~\".*sandbox.*\"}) by (pod)",
           "legendFormat": "{{pod}}",
           "refId": "A"
         }
@@ -3828,7 +3828,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "kube_pod_status_ready{namespace=\"$namespace\", pod=~\"moatless.*\", pod!~\".*worker.*\", condition=\"true\"}",
+          "expr": "kube_pod_status_ready{namespace=\"$namespace\", pod=~\"moatless.*\", pod!~\".*sandbox.*\", condition=\"true\"}",
           "legendFormat": "{{pod}}",
           "refId": "A"
         }
@@ -3846,7 +3846,7 @@
       },
       "id": 60,
       "panels": [],
-      "title": "Worker Pods",
+      "title": "Sandbox Pods",
       "type": "row"
     },
     {
@@ -3934,12 +3934,12 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"$namespace\", pod=~\".*worker.*\"}[5m])) by (pod)",
+          "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"$namespace\", pod=~\".*sandbox.*\"}[5m])) by (pod)",
           "legendFormat": "{{pod}}",
           "refId": "A"
         }
       ],
-      "title": "Worker CPU Usage",
+      "title": "Sandbox CPU Usage",
       "type": "timeseries"
     },
     {
@@ -4027,12 +4027,12 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(container_memory_working_set_bytes{namespace=\"$namespace\", pod=~\".*worker.*\"}) by (pod)",
+          "expr": "sum(container_memory_working_set_bytes{namespace=\"$namespace\", pod=~\".*sandbox.*\"}) by (pod)",
           "legendFormat": "{{pod}}",
           "refId": "A"
         }
       ],
-      "title": "Worker Memory Usage",
+      "title": "Sandbox Memory Usage",
       "type": "timeseries"
     },
     {
@@ -4123,12 +4123,12 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(kube_pod_container_status_restarts_total{namespace=\"$namespace\", pod=~\".*worker.*\"}) by (pod)",
+          "expr": "sum(kube_pod_container_status_restarts_total{namespace=\"$namespace\", pod=~\".*sandbox.*\"}) by (pod)",
           "legendFormat": "{{pod}}",
           "refId": "A"
         }
       ],
-      "title": "Worker Pod Restarts",
+      "title": "Sandbox Pod Restarts",
       "type": "timeseries"
     },
     {
@@ -4203,12 +4203,12 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "kube_pod_status_ready{namespace=\"$namespace\", pod=~\".*worker.*\", condition=\"true\"}",
+          "expr": "kube_pod_status_ready{namespace=\"$namespace\", pod=~\".*sandbox.*\", condition=\"true\"}",
           "legendFormat": "{{pod}}",
           "refId": "A"
         }
       ],
-      "title": "Worker Pod Status",
+      "title": "Sandbox Pod Status",
       "type": "stat"
     }
   ],

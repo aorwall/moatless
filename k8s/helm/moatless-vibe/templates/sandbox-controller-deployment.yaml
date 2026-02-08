@@ -59,19 +59,19 @@ spec:
             - name: SANDBOX_NAMESPACE
               value: {{ .Values.kubernetes.namespace | default .Release.Namespace | quote }}
             - name: RUST_LOG
-              value: {{ .Values.proxy.sandboxController.logLevel | default "info,sandbox_controller=debug" | quote }}
-            - name: WORKER_POD_TEMPLATE_PATH
-              value: "/etc/moatless/worker-pod-template.yaml"
-            {{- with .Values.proxy.sandboxController.workerImage }}
-            - name: K8S_WORKER_IMAGE
+              value: {{ .Values.proxy.sandboxController.logLevel | default "info" | quote }}
+            - name: SANDBOX_POD_TEMPLATE_PATH
+              value: "/etc/moatless/sandbox-pod-template.yaml"
+            {{- with .Values.proxy.sandboxController.sandboxImage }}
+            - name: K8S_SANDBOX_IMAGE
               value: {{ . | quote }}
             {{- end }}
-            - name: K8S_WORKER_STORAGE_ENABLED
-              value: {{ .Values.kubernetes.workerStorage.enabled | default true | quote }}
-            - name: K8S_WORKER_STORAGE_SIZE
-              value: {{ .Values.kubernetes.workerStorage.size | default "10Gi" | quote }}
-            {{- with .Values.kubernetes.workerStorage.storageClass }}
-            - name: K8S_WORKER_STORAGE_CLASS
+            - name: K8S_SANDBOX_STORAGE_ENABLED
+              value: {{ .Values.kubernetes.sandboxStorage.enabled | default true | quote }}
+            - name: K8S_SANDBOX_STORAGE_SIZE
+              value: {{ .Values.kubernetes.sandboxStorage.size | default "10Gi" | quote }}
+            {{- with .Values.kubernetes.sandboxStorage.storageClass }}
+            - name: K8S_SANDBOX_STORAGE_CLASS
               value: {{ . | quote }}
             {{- end }}
             - name: K8S_POD_STARTUP_TIMEOUT_SECS
@@ -89,11 +89,7 @@ spec:
                   key: DATABASE_URL
                   optional: true
             - name: REDIS_URL
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "moatless-vibe.secretsName" . }}
-                  key: REDIS_URL
-                  optional: true
+              value: {{ include "moatless-vibe.redisUrl" . | quote }}
             {{- with .Values.proxy.sandboxController.sharedStoragePvcName }}
             - name: SHARED_STORAGE_PVC_NAME
               value: {{ . | quote }}
@@ -167,7 +163,7 @@ spec:
           resources:
             {{- toYaml .Values.proxy.sandboxController.resources | nindent 12 }}
           volumeMounts:
-            - name: worker-pod-template
+            - name: sandbox-pod-template
               mountPath: /etc/moatless
               readOnly: true
           livenessProbe:
@@ -185,9 +181,9 @@ spec:
             periodSeconds: 5
             timeoutSeconds: 3
       volumes:
-        - name: worker-pod-template
+        - name: sandbox-pod-template
           configMap:
-            name: {{ include "moatless-vibe.fullname" . }}-worker-pod-template
+            name: {{ include "moatless-vibe.fullname" . }}-sandbox-pod-template
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

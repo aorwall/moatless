@@ -37,9 +37,8 @@ if [ ! -f .env.docker-compose ]; then
     echo "⚠️  IMPORTANT: You must edit .env.docker-compose and set the following required values:"
     echo ""
     echo "   1. CLAUDE_CODE_OAUTH_TOKEN - Get from https://claude.ai/settings/code"
-    echo "   2. WORKER_API_KEY - Generate with: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\""
-    echo "   3. SESSION_SECRET - Generate with: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\""
-    echo "   4. POSTGRES_PASSWORD - Change from default password"
+    echo "   2. SESSION_SECRET - Generate with: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\""
+    echo "   3. POSTGRES_PASSWORD - Change from default password"
     echo ""
     read -p "Press Enter to open .env.docker-compose in your editor..."
     ${EDITOR:-nano} .env.docker-compose
@@ -60,11 +59,6 @@ VALIDATION_FAILED=false
 
 if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ] || [ "$CLAUDE_CODE_OAUTH_TOKEN" = "your_claude_oauth_token_here" ]; then
     echo "❌ CLAUDE_CODE_OAUTH_TOKEN is required. Get token by running claude setup-token"
-    VALIDATION_FAILED=true
-fi
-
-if [ -z "$WORKER_API_KEY" ] || [ "$WORKER_API_KEY" = "your_secure_worker_api_key_here" ]; then
-    echo "❌ WORKER_API_KEY is required. Generate with: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\""
     VALIDATION_FAILED=true
 fi
 

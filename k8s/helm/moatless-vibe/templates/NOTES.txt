@@ -15,8 +15,8 @@ Get the application URL by running:
 {{- if .Values.kubernetes.enabled }}
 
 📦 Kubernetes Execution Mode is ENABLED
-Worker pods will be created in namespace: {{ include "moatless-vibe.workerNamespace" . }}
-Worker image: {{ include "moatless-vibe.workerImage" . }}
+Sandbox pods will be created in namespace: {{ include "moatless-vibe.sandboxNamespace" . }}
+Sandbox image: {{ include "moatless-vibe.sandboxImage" . }}
 {{- end }}
 
 {{- if .Values.redis.enabled }}
@@ -40,8 +40,25 @@ Create a secret with your API keys:
     --namespace {{ .Release.Namespace }} \
     --from-literal=ANTHROPIC_API_KEY=your-key \
     --from-literal=GITHUB_TOKEN=your-token \
-    --from-literal=WORKER_API_KEY=$(openssl rand -hex 16)
+    --from-literal=SANDBOX_API_KEY=$(openssl rand -hex 16)
 {{- end }}
+{{- end }}
+
+{{- if .Values.kubernetes.enabled }}
+
+🔧 Recommended Node-Level Tuning (EKS)
+Set on nodes via Karpenter userData, DaemonSet, or launch template:
+
+  Required sysctls:
+    sysctl -w fs.inotify.max_user_watches=524288  # Vite/Next.js file watchers exhaust default 8192
+    sysctl -w vm.max_map_count=1048576             # V8 + esbuild mmap usage during heavy builds
+
+  Optional (needs kubelet --allowed-unsafe-sysctls on nodes):
+    net.core.somaxconn=1024        # HMR WebSocket burst connections (default 128)
+    net.ipv4.tcp_syn_retries=3     # Faster failure for in-cluster service calls
+
+  To add unsafe sysctls, set kubernetes.sandboxSysctls in values.yaml after
+  configuring kubelet --allowed-unsafe-sysctls=net.core.somaxconn,net.ipv4.tcp_syn_retries
 {{- end }}
 
 📚 For more information, visit: https://github.com/aorwall/moatless-swarm-ui

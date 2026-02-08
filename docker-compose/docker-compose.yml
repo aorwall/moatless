@@ -87,10 +87,6 @@ services:
       REDIS_CONSUMER_ID: ${REDIS_CONSUMER_ID:-backend-main}
       REDIS_MAX_STREAM_LENGTH: ${REDIS_MAX_STREAM_LENGTH:-10000}
 
-      # Worker Communication (for sandboxes to reach backend)
-      WORKER_API_URL: http://host.docker.internal:${BACKEND_PORT:-8000}
-      WORKER_API_KEY: ${WORKER_API_KEY}
-
       # Claude Authentication (REQUIRED)
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}

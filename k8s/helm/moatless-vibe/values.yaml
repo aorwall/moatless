@@ -13,13 +13,13 @@ image:
   # -- Overrides the image tag (default: chart appVersion)
   tag: "latest"
 
-# Worker image (full dev environment, ~5-8GB)
-workerImage:
-  # -- Docker image repository for workers
+# Sandbox image (full dev environment, ~5-8GB)
+sandboxImage:
+  # -- Docker image repository for sandbox pods
   repository: ghcr.io/aorwall/moatless-vibe-worker
-  # -- Image pull policy for workers
+  # -- Image pull policy for sandbox pods
   pullPolicy: Always
-  # -- Overrides the worker image tag (default: same as main image tag)
+  # -- Overrides the sandbox image tag (default: same as main image tag)
   tag: ""
 
 # -- Image pull secrets for private registries
@@ -147,13 +147,27 @@ proxy:
         cpu: 50m
         memory: 32Mi
     # -- Log level (RUST_LOG format)
-    logLevel: "info,sandbox_controller=debug"
+    logLevel: "info"
     # -- Pod annotations
     podAnnotations: {}
-    # -- Worker image for sandbox pods
-    workerImage: ""
+    # -- Sandbox image for sandbox pods
+    sandboxImage: ""
     # -- Shared storage PVC name for plugins
     sharedStoragePvcName: ""
+
+# Traefik Dashboard (requires Traefik api.dashboard=true)
+traefikDashboard:
+  # -- Enable Traefik dashboard ingress
+  enabled: false
+  # -- Host for the dashboard (e.g., traefik.example.com)
+  host: "traefik.example.com"
+  ingress:
+    # -- Ingress class name (same options as main ingress)
+    className: ""
+    # -- Ingress annotations
+    annotations: {}
+    # -- TLS configuration
+    tls: []
 
 # cert-manager configuration for DNS-01 challenge (required for wildcard certs)
 certManager:
@@ -291,31 +305,35 @@ redis:
       # -- Storage size for Redis replicas
       size: 1Gi
 
-# Kubernetes execution mode for worker pods
+# Kubernetes execution mode for sandbox pods
+#
+# Node-level sysctl requirements (set via Karpenter userData, DaemonSet, or launch template):
+#   fs.inotify.max_user_watches = 524288  # Vite/Next.js watchers exhaust default 8192
+#   vm.max_map_count = 1048576            # V8 + esbuild mmap usage during heavy builds
 kubernetes:
   # -- Enable Kubernetes execution mode
   enabled: true
-  # -- Namespace for worker pods (defaults to release namespace)
+  # -- Namespace for sandbox pods (defaults to release namespace)
   namespace: ""
-  # -- Worker image override (object format with repository + tag, or full image string)
+  # -- Sandbox image override (object format with repository + tag, or full image string)
   # Examples:
-  #   --set kubernetes.workerImage.repository=ghcr.io/aorwall/moatless-vibe-worker
-  #   --set kubernetes.workerImage.tag=v1.0.0
+  #   --set kubernetes.sandboxImage.repository=ghcr.io/aorwall/moatless-vibe-worker
+  #   --set kubernetes.sandboxImage.tag=v1.0.0
   # Or as a full string:
-  #   --set kubernetes.workerImage=ghcr.io/aorwall/moatless-vibe-worker:v1.0.0
-  # Defaults to workerImage section below if not set
-  workerImage:
+  #   --set kubernetes.sandboxImage=ghcr.io/aorwall/moatless-vibe-worker:v1.0.0
+  # Defaults to sandboxImage section below if not set
+  sandboxImage:
     repository: ""
     tag: ""
-  # -- Service account for worker pods
-  workerServiceAccount: ""
-  # -- Resource limits for worker pods
-  workerResources:
+  # -- Service account for sandbox pods
+  sandboxServiceAccount: ""
+  # -- Resource limits for sandbox pods
+  sandboxResources:
     limits:
-      cpu: "2"
+      cpu: "4"
       memory: 8Gi
     requests:
-      cpu: 500m
+      cpu: "1"
       memory: 2Gi
   # -- Pod startup timeout in seconds
   podStartupTimeout: 120
@@ -323,39 +341,59 @@ kubernetes:
   healthCheckInterval: 30
   # -- Minutes of inactivity before workspace is suspended (0 = disabled)
   inactivityTimeoutMinutes: 20
-  # Worker storage configuration (per-task PVC for data persistence)
-  workerStorage:
+  # Sandbox storage configuration (per-task PVC for data persistence)
+  sandboxStorage:
     # -- Enable per-task PVC for workspace persistence
     enabled: true
-    # -- Storage class for worker PVCs (empty = cluster default)
+    # -- Storage class for sandbox PVCs (empty = cluster default)
     storageClass: ""
     # -- Size of each task's PVC
     size: "10Gi"
-  # Worker pod environment configuration
-  workerEnv:
+  # Sandbox pod environment configuration
+  sandboxEnv:
     # -- Node environment
     nodeEnv: "production"
-    # -- Log level for worker pods (defaults to config.logLevel if empty)
+    # -- Log level for sandbox pods (defaults to config.logLevel if empty)
     logLevel: ""
-    # -- Workspace directory inside the worker container
+    # -- Workspace directory inside the sandbox container
     workspaceDir: "/opt/moatless/repo"
-    # -- Data directory inside the worker container
+    # -- Data directory inside the sandbox container
     dataDir: "/opt/moatless/data"
-    # -- Claude config directory inside the worker container
+    # -- Claude config directory inside the sandbox container
     claudeConfigDir: "/opt/moatless/.claude"
-  # -- Node selector for worker pods (overrides top-level nodeSelector)
+    # -- Node.js heap size and options for sandbox processes
+    # 3GB heap prevents V8 OOM during heavy TypeScript/Next.js builds (default ~1.5GB)
+    nodeOptions: "--max-old-space-size=3072"
+  # -- Node selector for sandbox pods (overrides top-level nodeSelector)
   # If empty, falls back to top-level nodeSelector
-  workerNodeSelector: {}
-  # -- Tolerations for worker pods (overrides top-level tolerations)
+  sandboxNodeSelector: {}
+  # -- Tolerations for sandbox pods (overrides top-level tolerations)
   # If empty, falls back to top-level tolerations
-  workerTolerations: []
-  # Extension hooks for environment-specific worker pod customization
-  workerExtraVolumes: []
-  workerExtraVolumeMounts: []
-  workerExtraEnv: []
+  sandboxTolerations: []
+  # -- Pod-level sysctls for sandbox pods (must be "safe" or allowed by kubelet)
+  # Only namespaced/safe sysctls are included by default. These work on K8s 1.29+.
+  # For K8s < 1.29, remove the tcp_keepalive_* entries (they require --allowed-unsafe-sysctls).
+  # Unsafe sysctls (need kubelet --allowed-unsafe-sysctls to use):
+  #   - name: net.core.somaxconn        # HMR WebSocket burst connections
+  #     value: "1024"
+  #   - name: net.ipv4.tcp_syn_retries  # Faster failure for in-cluster calls
+  #     value: "3"
+  sandboxSysctls:
+    - name: net.ipv4.ip_local_port_range
+      value: "16000 65535"
+    - name: net.ipv4.tcp_keepalive_time
+      value: "300"
+    - name: net.ipv4.tcp_keepalive_intvl
+      value: "30"
+    - name: net.ipv4.tcp_keepalive_probes
+      value: "5"
+  # Extension hooks for environment-specific sandbox pod customization
+  sandboxExtraVolumes: []
+  sandboxExtraVolumeMounts: []
+  sandboxExtraEnv: []
   # Image pre-pull configuration (reduces pod startup time)
   imagePrepull:
-    # -- Enable DaemonSet to pre-pull worker image on all nodes
+    # -- Enable DaemonSet to pre-pull sandbox image on all nodes
     enabled: true
 
 # Secrets configuration
@@ -366,8 +404,8 @@ secrets:
   anthropicApiKey: ""
   # -- GitHub token
   githubToken: ""
-  # -- Worker API key (auto-generated if empty)
-  workerApiKey: ""
+  # -- Sandbox API key (auto-generated if empty)
+  sandboxApiKey: ""
   # -- Database URL (PostgreSQL connection string, e.g., postgres://user:pass@host:5432/db)
   databaseUrl: ""
 
@@ -395,7 +433,7 @@ readinessProbe:
   periodSeconds: 10
   timeoutSeconds: 5
 
-# RBAC for managing worker pods, PVCs, secrets, and services
+# RBAC for managing sandbox pods, PVCs, secrets, and services
 rbac:
   # -- Create RBAC resources
   create: true

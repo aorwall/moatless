@@ -43,8 +43,7 @@ This guide covers deploying Moatless Vibe using Docker Compose with PostgreSQL, 
 
 3. **Configure required values in `.env.docker-compose`**
    - `CLAUDE_CODE_OAUTH_TOKEN` - Get from https://claude.ai/settings/code
-   - `WORKER_API_KEY` - Generate with: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
-   - `SESSION_SECRET` - Generate with same command
+   - `SESSION_SECRET` - Generate with: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
    - `POSTGRES_PASSWORD` - Change from default
 
 4. **Verify deployment**
@@ -349,9 +348,6 @@ docker inspect moatless-{repo}-{task-id} | jq '.[0].Mounts | map(select(.Destina
 | `DATA_DIR` | Per-task data directory | `/data` |
 | `GIT_CLONE_URL` | Repository URL to clone | `https://github.com/user/repo.git` |
 | `SETUP_COMMANDS` | JSON array of commands | `["npm install", "bun run build"]` |
-| `WORKER_MODE` | Enable worker mode | `true` |
-| `WORKER_API_URL` | Backend API URL | `http://host.docker.internal:8000` |
-| `WORKER_API_KEY` | Authentication key | Generated random key |
 
 #### Workspace Execution Mode
 
@@ -386,24 +382,18 @@ Alternatively, use Anthropic API key:
 ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-#### 2. Worker API Security (REQUIRED)
-```bash
-WORKER_API_KEY=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
-```
-This secures communication between sandboxes and the backend.
-
-#### 3. Session Security (REQUIRED if using auth)
+#### 2. Session Security (REQUIRED if using auth)
 ```bash
 SESSION_SECRET=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
 ```
 
-#### 4. Database Password
+#### 3. Database Password
 ```bash
 POSTGRES_PASSWORD=your_secure_password_here
 ```
 Change from default for security.
 
-#### 5. Workspace Execution Mode (REQUIRED for Docker Compose)
+#### 4. Workspace Execution Mode (REQUIRED for Docker Compose)
 ```bash
 WORKSPACE_EXECUTION_MODE=docker
 ```
@@ -606,14 +596,13 @@ docker-compose --env-file .env.docker-compose exec backend docker ps
 
 **Diagnosis**:
 ```bash
-docker-compose --env-file .env.docker-compose exec backend env | grep WORKER_API_URL
-# Should show: http://host.docker.internal:8000
+curl http://localhost:8000/health
+# Should return: ok
 ```
 
 **Solution**:
-1. Verify `WORKER_API_URL` uses `host.docker.internal`
-2. Check backend service has `extra_hosts: - "host.docker.internal:host-gateway"`
-3. Verify backend is accessible: `curl http://localhost:8000/health`
+1. Check backend service has `extra_hosts: - "host.docker.internal:host-gateway"`
+2. Verify backend is accessible: `curl http://localhost:8000/health`
 
 ### Workspace Provisioning Issues
 
@@ -730,7 +719,7 @@ docker inspect moatless-{repo}-{task-id} | jq '.[0].State.ExitCode'
 ```
 
 **Common Causes**:
-1. **Missing environment variables**: Check `GIT_CLONE_URL`, `WORKER_API_URL`, `WORKER_API_KEY`
+1. **Missing environment variables**: Check `GIT_CLONE_URL`
 2. **Network issues**: Can't reach backend or git repository
 3. **Invalid git URL**: Check repository URL is accessible
 4. **Database connection**: SQLite database file not writable
@@ -902,7 +891,7 @@ This checks:
 2. **Environment Variables**
    - Use Docker secrets or external secret management (AWS Secrets Manager, HashiCorp Vault)
    - Never commit `.env.docker-compose` to version control
-   - Rotate `WORKER_API_KEY` and `SESSION_SECRET` regularly
+   - Rotate `SESSION_SECRET` regularly
 
 3. **Network Isolation**
    - Use custom networks with firewall rules
@@ -1110,7 +1099,7 @@ Add to crontab:
 ### Production Checklist
 
 - [ ] Change all default passwords
-- [ ] Generate secure random keys for `WORKER_API_KEY` and `SESSION_SECRET`
+- [ ] Generate secure random key for `SESSION_SECRET`
 - [ ] Configure SSL/TLS certificates
 - [ ] Set up external databases (RDS, ElastiCache)
 - [ ] Configure backup automation
