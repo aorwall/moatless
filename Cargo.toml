@@ -1,0 +1,14 @@
+[workspace]
+members = [
+    "sandbox-controller",
+    "crates/figma-clipboard",
+]
+resolver = "2"
+
+[profile.release]
+lto = "thin"
+codegen-units = 8
+strip = true
+
+[workspace.package]
+license = "AGPL-3.0-or-later"
