@@ -11,15 +11,20 @@ mod auth;
 mod command;
 mod config;
 mod db;
+mod event_handler;
 mod events;
 mod extractors;
+mod feature_flags;
 mod figma;
 mod file_storage;
 mod message;
 mod metrics;
+mod provider_settings;
+mod repository;
 mod sandbox;
 mod sse;
 mod state;
+mod tag;
 mod task;
 
 use std::net::SocketAddr;
@@ -174,6 +179,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         event_publisher,
         sse_state,
         s3_client,
+        cancel,
     )
     .await?;
 
@@ -233,6 +239,7 @@ async fn start_api_server(
     event_publisher: Option<RedisEventPublisher>,
     sse_state: SseState,
     s3_client: Option<aws_sdk_s3::Client>,
+    cancel: CancellationToken,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use sandbox::k8s::provider::K8sSandboxProvider;
     use sandbox::routes::{api_router, SandboxApiState};
@@ -305,12 +312,45 @@ async fn start_api_server(
             .merge(agent::agent_router().with_state(app_state.clone()))
             .merge(command::command_router().with_state(app_state.clone()))
             .merge(file_storage::file_storage_router().with_state(app_state.clone()))
-            .merge(figma::figma_router().with_state(app_state));
+            .merge(figma::figma_router().with_state(app_state.clone()))
+            .merge(repository::repository_router().with_state(app_state.clone()))
+            .merge(tag::tag_router().with_state(app_state.clone()))
+            .merge(provider_settings::provider_settings_router().with_state(app_state.clone()));
 
-        info!("Task/message/agent/command/file/figma routes registered");
+        info!("Task/message/agent/command/file/figma/repository/tag/provider routes registered");
+
+        // Spawn event handler consumer if Redis is available
+        if let Some(ref redis_url) = config.redis_url {
+            match redis::Client::open(redis_url.as_str()) {
+                Ok(client) => match redis::aio::ConnectionManager::new(client).await {
+                    Ok(conn) => {
+                        let handler_state = app_state;
+                        let handler_cancel = cancel.clone();
+                        tokio::spawn(event_handler::spawn_event_handler(
+                            conn,
+                            handler_state,
+                            handler_cancel,
+                        ));
+                        info!("Event handler consumer spawned");
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "Failed to connect Redis for event handler");
+                    }
+                },
+                Err(e) => {
+                    tracing::warn!(error = %e, "Failed to create Redis client for event handler");
+                }
+            }
+        }
     } else {
         info!("New API routes disabled (no database)");
     }
+
+    // Feature flags route (no database required)
+    router = router.route(
+        "/api/v1/feature-flags",
+        axum::routing::get(feature_flags::get_feature_flags),
+    );
 
     // Add SSE routes
     router = router.merge(sse_router(sse_state));

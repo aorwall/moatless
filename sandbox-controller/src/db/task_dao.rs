@@ -167,6 +167,13 @@ pub async fn update_task(pool: &DbPool, task_id: &str, patch: &TaskPatch) -> Res
     maybe_set!(visibility, "visibility");
     maybe_set!(short_id, "short_id");
 
+    // Special handling for additive increment
+    if patch.total_cost_usd_increment.is_some() {
+        sets.push(format!("total_cost_usd = total_cost_usd + ${}", idx));
+        #[allow(unused_assignments)]
+        { idx += 1; }
+    }
+
     if sets.is_empty() {
         return Ok(());
     }
@@ -190,6 +197,7 @@ pub async fn update_task(pool: &DbPool, task_id: &str, patch: &TaskPatch) -> Res
     maybe_bind!(site_url);
     maybe_bind!(visibility);
     maybe_bind!(short_id);
+    maybe_bind!(total_cost_usd_increment);
 
     query.execute(pool).await?;
     Ok(())
@@ -222,6 +230,8 @@ pub struct TaskPatch {
     pub description: Option<String>,
     pub last_message_at: Option<String>,
     pub total_cost_usd: Option<f64>,
+    /// Additive increment to total_cost_usd (uses SQL `total_cost_usd + $N`).
+    pub total_cost_usd_increment: Option<f64>,
     pub site_url: Option<String>,
     pub visibility: Option<String>,
     pub short_id: Option<String>,

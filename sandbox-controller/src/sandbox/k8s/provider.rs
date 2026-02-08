@@ -1,6 +1,8 @@
 //! Kubernetes implementation of the SandboxProvider trait.
 
 use async_trait::async_trait;
+use axum::response::sse::Event;
+use futures::stream::BoxStream;
 use k8s_openapi::api::core::v1::Pod;
 use kube::api::{Api, ListParams};
 use std::collections::BTreeMap;
@@ -403,6 +405,56 @@ impl SandboxProvider for K8sSandboxProvider {
 
         self.status_cache.invalidate(task_id).await;
         Ok(())
+    }
+
+    async fn server_status(
+        &self,
+        task_id: &str,
+    ) -> Result<ServerStatusResponse, SandboxError> {
+        let service_name = generate_service_name(task_id);
+        let snapshot =
+            health::fetch_sandbox_status(&service_name, self.k8s.namespace(), 8001)
+                .await
+                .ok_or_else(|| {
+                    SandboxError::NotReady(format!(
+                        "Sandbox not reachable for task {task_id}"
+                    ))
+                })?;
+
+        Ok(ServerStatusResponse {
+            servers: snapshot.servers,
+        })
+    }
+
+    async fn server_logs(
+        &self,
+        task_id: &str,
+        server_name: &str,
+    ) -> Result<BoxStream<'static, Result<Event, SandboxError>>, SandboxError> {
+        let service_name = generate_service_name(task_id);
+        let namespace = self.k8s.namespace().to_string();
+        let server_name = server_name.to_string();
+
+        let stream = health::stream_server_logs(&service_name, &namespace, 8001, &server_name)
+            .await
+            .map_err(|e| SandboxError::Internal(e))?;
+
+        Ok(stream)
+    }
+
+    async fn search_files(
+        &self,
+        task_id: &str,
+        query: &str,
+        limit: u32,
+    ) -> Result<Vec<FileSearchResult>, SandboxError> {
+        let service_name = generate_service_name(task_id);
+        let results =
+            health::search_sandbox_files(&service_name, self.k8s.namespace(), 8001, query, limit)
+                .await
+                .map_err(|e| SandboxError::Internal(e))?;
+
+        Ok(results)
     }
 }
 

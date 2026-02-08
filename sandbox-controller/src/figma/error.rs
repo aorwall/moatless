@@ -5,7 +5,6 @@ use axum::response::{IntoResponse, Response};
 use axum::Json;
 
 #[derive(Debug, thiserror::Error)]
-#[allow(dead_code)]
 pub enum FigmaError {
     #[error("Import not found: {0}")]
     NotFound(String),
@@ -18,6 +17,12 @@ pub enum FigmaError {
 
     #[error("Figma API error: {0}")]
     ApiError(String),
+
+    #[error("Database error: {0}")]
+    Db(#[from] sqlx::Error),
+
+    #[error("Storage error: {0}")]
+    StorageError(String),
 }
 
 impl IntoResponse for FigmaError {
@@ -27,6 +32,13 @@ impl IntoResponse for FigmaError {
             FigmaError::ParseError(_) => (StatusCode::UNPROCESSABLE_ENTITY, self.to_string()),
             FigmaError::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             FigmaError::ApiError(_) => (StatusCode::BAD_GATEWAY, self.to_string()),
+            FigmaError::Db(_) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Internal database error".to_string(),
+            ),
+            FigmaError::StorageError(_) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, self.to_string())
+            }
         };
 
         (status, Json(serde_json::json!({ "error": message }))).into_response()

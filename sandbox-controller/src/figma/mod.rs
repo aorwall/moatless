@@ -21,7 +21,15 @@ pub fn figma_router() -> Router<AppState> {
             post(handlers::import_node),
         )
         .route(
-            "/api/v1/figma/context/{import_id}",
-            get(handlers::get_figma_context),
+            "/api/v1/figma/parse-clipboard",
+            post(handlers::parse_clipboard),
+        )
+        .route(
+            "/api/v1/figma/imports/{import_id}",
+            get(handlers::get_import),
+        )
+        .route(
+            "/api/v1/figma/imports/{import_id}/image",
+            get(handlers::get_import_image),
         )
 }

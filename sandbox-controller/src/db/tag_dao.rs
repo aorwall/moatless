@@ -3,6 +3,33 @@
 use super::models::{TagRow, TaskTagRow};
 use super::DbPool;
 
+/// List all tags.
+pub async fn list_all(pool: &DbPool) -> Result<Vec<TagRow>, sqlx::Error> {
+    sqlx::query_as::<_, TagRow>(
+        "SELECT id, tag_id, name, description, created_at FROM tags ORDER BY name ASC",
+    )
+    .fetch_all(pool)
+    .await
+}
+
+/// Add tags to a task (additive — does not remove existing tags).
+pub async fn add_task_tags(
+    pool: &DbPool,
+    task_id: &str,
+    tag_ids: &[String],
+) -> Result<(), sqlx::Error> {
+    for tag_id in tag_ids {
+        sqlx::query(
+            "INSERT INTO task_tags (task_id, tag_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        )
+        .bind(task_id)
+        .bind(tag_id)
+        .execute(pool)
+        .await?;
+    }
+    Ok(())
+}
+
 /// Find or create tags by name. Returns all matching tag rows.
 pub async fn find_or_create_tags(pool: &DbPool, names: &[String]) -> Result<Vec<TagRow>, sqlx::Error> {
     if names.is_empty() {

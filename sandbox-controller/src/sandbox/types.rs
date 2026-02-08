@@ -255,7 +255,7 @@ pub struct AgentSnapshot {
 }
 
 /// Server snapshot from sandbox GET /status
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 #[allow(dead_code)]
 pub struct ServerSnapshot {
     pub name: String,
@@ -327,6 +327,34 @@ pub struct WorkspaceStatusFullResponse {
     pub can_execute: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resources: Option<ResourceMetrics>,
+}
+
+// =============================================================================
+// Preview / workspace types
+// =============================================================================
+
+/// Request body for file search in sandbox.
+#[derive(Debug, Deserialize)]
+pub struct SearchFilesRequest {
+    pub query: String,
+    pub limit: Option<u32>,
+}
+
+/// Single file search result from sandbox.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct FileSearchResult {
+    pub path: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_type: Option<String>,
+}
+
+/// Server status response proxied from sandbox pod.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerStatusResponse {
+    pub servers: Vec<ServerSnapshot>,
 }
 
 /// Get capabilities for a server by name (mirrors TS getServerCapabilities)

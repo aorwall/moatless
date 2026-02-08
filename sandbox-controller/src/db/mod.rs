@@ -6,6 +6,7 @@
 
 pub mod api_keys;
 pub mod command_dao;
+pub mod figma_import_dao;
 pub mod file_meta_dao;
 pub mod message_dao;
 pub mod models;

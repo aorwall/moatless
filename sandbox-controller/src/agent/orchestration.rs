@@ -11,6 +11,7 @@ use crate::task::types::MessageContextInput;
 
 use super::error::AgentError;
 use super::notify;
+use super::request_builder;
 
 /// The main message flow — called by handlers and by task creation.
 pub async fn send_message_flow(
@@ -19,17 +20,18 @@ pub async fn send_message_flow(
     message: &str,
     model: Option<&str>,
     agent_mode: Option<&str>,
-    _file_ids: &[String],
-    _contexts: &[MessageContextInput],
+    file_ids: &[String],
+    contexts: &[MessageContextInput],
 ) -> Result<(), AgentError> {
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let msg_uuid = uuid::Uuid::new_v4().to_string();
 
-    // Build content blocks
-    let content = serde_json::json!([{
-        "type": "text",
-        "text": message
-    }]);
+    // Build enriched content blocks (includes figma, preview, element contexts + file attachments)
+    let enriched_blocks =
+        request_builder::build_content_blocks(&state.db, &state.config, message, contexts, file_ids).await;
+    let content = serde_json::to_value(&enriched_blocks).unwrap_or_else(|_| {
+        serde_json::json!([{ "type": "text", "text": message }])
+    });
 
     let msg_row = TaskMessageRow {
         id: 0, // will be assigned by DB

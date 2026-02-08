@@ -57,6 +57,14 @@ pub struct RepositoryRow {
     pub build_output_directory: Option<String>,
     pub enable_inspector: Option<bool>,
     pub auto_reload: Option<bool>,
+    // CRUD fields
+    pub description: Option<String>,
+    pub provider: Option<String>,
+    pub visibility: Option<String>,
+    pub created_by: Option<String>,
+    pub deleted: Option<bool>,
+    pub created_at: Option<DateTime<Utc>>,
+    pub updated_at: Option<DateTime<Utc>>,
 }
 
 // =========================================================================
@@ -221,4 +229,44 @@ pub struct UserDisplayRow {
     pub id: String,
     pub login: String,
     pub name: Option<String>,
+}
+
+// =========================================================================
+// Figma imports
+// =========================================================================
+
+/// Row from the `figma_imports` table.
+#[derive(sqlx::FromRow, Debug, Clone)]
+#[allow(dead_code)]
+pub struct FigmaImportRow {
+    pub import_id: String,
+    pub file_id: Option<String>,
+    pub file_key: Option<String>,
+    pub node_id: Option<String>,
+    pub file_name: Option<String>,
+    pub node_name: Option<String>,
+    pub node_metadata: Option<serde_json::Value>,
+    pub has_image: Option<bool>,
+    pub include_image_in_prompt: Option<bool>,
+    pub created_by: Option<String>,
+    pub created_at: Option<DateTime<Utc>>,
+}
+
+// =========================================================================
+// Provider tokens (full row)
+// =========================================================================
+
+/// Full provider token row from the `provider_tokens` table.
+#[derive(sqlx::FromRow, Debug, Clone)]
+#[allow(dead_code)]
+pub struct ProviderTokenRow {
+    pub id: i32,
+    pub user_id: String,
+    pub provider: String,
+    pub access_token: String,
+    pub refresh_token: Option<String>,
+    pub token_type: Option<String>,
+    pub metadata: Option<serde_json::Value>,
+    pub created_at: Option<DateTime<Utc>>,
+    pub updated_at: Option<DateTime<Utc>>,
 }

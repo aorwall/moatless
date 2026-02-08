@@ -5,11 +5,13 @@
 //! - Future: ModalSandboxProvider, FlyIoSandboxProvider, etc.
 
 use async_trait::async_trait;
+use axum::response::sse::Event;
+use futures::stream::BoxStream;
 
 use super::error::SandboxError;
 use super::types::{
-    HealthResponse, ProvisionRequest, ProvisionResponse, StatusResponse,
-    WorkspaceStatusFullResponse,
+    FileSearchResult, HealthResponse, ProvisionRequest, ProvisionResponse,
+    ServerStatusResponse, StatusResponse, WorkspaceStatusFullResponse,
 };
 
 #[async_trait]
@@ -44,4 +46,25 @@ pub trait SandboxProvider: Send + Sync {
 
     /// Fully clean up a sandbox (remove all resources).
     async fn cleanup(&self, task_id: &str) -> Result<(), SandboxError>;
+
+    /// Get server status for all servers in the sandbox.
+    async fn server_status(
+        &self,
+        task_id: &str,
+    ) -> Result<ServerStatusResponse, SandboxError>;
+
+    /// Stream server logs via SSE (proxied from sandbox pod).
+    async fn server_logs(
+        &self,
+        task_id: &str,
+        server_name: &str,
+    ) -> Result<BoxStream<'static, Result<Event, SandboxError>>, SandboxError>;
+
+    /// Search files in the sandbox workspace.
+    async fn search_files(
+        &self,
+        task_id: &str,
+        query: &str,
+        limit: u32,
+    ) -> Result<Vec<FileSearchResult>, SandboxError>;
 }
