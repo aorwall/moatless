@@ -9,7 +9,7 @@ use tracing::{info, warn};
 use super::client::K8sClient;
 use super::secret;
 use crate::db::models::RepositoryRow;
-use crate::db::{provider_token_repo, repository_repo, task_repo, DbPool};
+use crate::db::{provider_token_dao, repository_dao, task_dao, DbPool};
 use crate::sandbox::error::SandboxError;
 use crate::sandbox::types::{ProvisionPlan, ProvisionRequest, RepoConfig, ServerConfig};
 
@@ -26,7 +26,7 @@ pub async fn build_provision_request(
     task_id: &str,
 ) -> Result<ProvisionRequest, SandboxError> {
     // 1. Read task from DB
-    let task = task_repo::find_task_by_id(pool, task_id)
+    let task = task_dao::find_by_id_internal(pool, task_id)
         .await
         .map_err(|e| SandboxError::Internal(format!("DB error reading task: {e}")))?
         .ok_or_else(|| {
@@ -40,7 +40,7 @@ pub async fn build_provision_request(
     );
 
     // 2. Read repository from DB
-    let repo = repository_repo::find_repository_by_id(pool, &task.repository_id)
+    let repo = repository_dao::find_repository_by_id(pool, &task.repository_id)
         .await
         .map_err(|e| SandboxError::Internal(format!("DB error reading repository: {e}")))?
         .ok_or_else(|| {
@@ -103,7 +103,7 @@ async fn resolve_credentials(
     // Step 2: Fill gaps from provider_tokens table
     if let Some(uid) = user_id {
         if git_token.is_none() {
-            match provider_token_repo::find_provider_token(pool, uid, "github").await {
+            match provider_token_dao::find_provider_token(pool, uid, "github").await {
                 Ok(Some(row)) => {
                     info!(task_id = %task_id, "Auto-provision: GitHub token resolved from provider_tokens");
                     git_token = Some(row.access_token);
@@ -116,7 +116,7 @@ async fn resolve_credentials(
         }
 
         if anthropic.is_none() && claude.is_none() {
-            match provider_token_repo::find_provider_token(pool, uid, "claude").await {
+            match provider_token_dao::find_provider_token(pool, uid, "claude").await {
                 Ok(Some(row)) => {
                     info!(task_id = %task_id, "Auto-provision: Claude token resolved from provider_tokens");
                     claude = Some(row.access_token);

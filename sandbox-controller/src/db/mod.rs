@@ -1,15 +1,20 @@
 //! Database access layer for the sandbox controller.
 //!
 //! Uses sqlx with PostgreSQL for reading task and repository configuration
-//! needed for auto-provisioning workspaces.
+//! needed for auto-provisioning workspaces, and full CRUD for tasks,
+//! messages, commands, tags, and file metadata.
 
 pub mod api_keys;
+pub mod command_dao;
+pub mod file_meta_dao;
+pub mod message_dao;
 pub mod models;
-pub mod provider_token_repo;
+pub mod provider_token_dao;
 pub mod provider_tokens;
-pub mod repository_repo;
+pub mod repository_dao;
 pub mod sessions;
-pub mod task_repo;
+pub mod tag_dao;
+pub mod task_dao;
 pub mod users;
 
 use sqlx::postgres::PgPoolOptions;

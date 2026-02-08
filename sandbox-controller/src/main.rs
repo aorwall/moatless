@@ -2,13 +2,25 @@
 //!
 //! Serves a unified API on port 8080. Authenticated via Traefik ForwardAuth.
 
+// Allow dead code for newly added modules — functions/types will be wired up
+// incrementally as frontend migration proceeds.
+#![allow(dead_code)]
+
+mod agent;
 mod auth;
+mod command;
 mod config;
 mod db;
 mod events;
+mod extractors;
+mod figma;
+mod file_storage;
+mod message;
 mod metrics;
 mod sandbox;
 mod sse;
+mod state;
+mod task;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -29,6 +41,7 @@ use sandbox::k8s::client::K8sClient;
 use sandbox::k8s::status_cache::StatusCache;
 use sse::consumer::RedisStreamConsumer;
 use sse::routes::{sse_router, SseState};
+use state::AppState;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -126,6 +139,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         cancel: cancel.clone(),
     };
 
+    // Optionally initialize S3 client
+    let s3_client = if config.s3_bucket_name.is_some() {
+        let aws_config = aws_config::defaults(aws_config::BehaviorVersion::latest())
+            .region(aws_config::Region::new(config.s3_region.clone()))
+            .load()
+            .await;
+        let client = aws_sdk_s3::Client::new(&aws_config);
+        info!("S3 client initialized");
+        Some(client)
+    } else {
+        info!("S3_BUCKET_NAME not set — file uploads disabled");
+        None
+    };
+
     // Initialize K8s client and start API server
     let k8s = K8sClient::new(config.sandbox_namespace.clone()).await?;
     let status_cache = StatusCache::new(10);
@@ -139,7 +166,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         cancel_for_signal.cancel();
     });
 
-    start_api_server(&config, k8s, status_cache, db_pool, event_publisher, sse_state).await?;
+    start_api_server(
+        &config,
+        k8s,
+        status_cache,
+        db_pool,
+        event_publisher,
+        sse_state,
+        s3_client,
+    )
+    .await?;
 
     Ok(())
 }
@@ -196,6 +232,7 @@ async fn start_api_server(
     db_pool: Option<db::DbPool>,
     event_publisher: Option<RedisEventPublisher>,
     sse_state: SseState,
+    s3_client: Option<aws_sdk_s3::Client>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use sandbox::k8s::provider::K8sSandboxProvider;
     use sandbox::routes::{api_router, SandboxApiState};
@@ -218,22 +255,24 @@ async fn start_api_server(
         status_cache,
         pod_template: Arc::new(pod_template),
         db_pool: db_pool.clone(),
-        event_publisher,
+        event_publisher: event_publisher.clone(),
     };
 
+    let sandbox_provider: Arc<dyn sandbox::provider::SandboxProvider> = Arc::new(provider);
+
     let sandbox_state = SandboxApiState {
-        provider: Arc::new(provider),
+        provider: Arc::clone(&sandbox_provider),
     };
 
     // Build sandbox router with OpenAPI
     let (mut router, mut merged_api) = api_router(sandbox_state);
 
     // Add auth routes if database is available
-    if let Some(pool) = db_pool {
+    if let Some(ref pool) = db_pool {
         let oauth_providers = build_oauth_providers(config);
         let auth_cache = AuthCache::new(config.auth_cache_ttl_secs);
         let auth_state = AuthState {
-            db: pool,
+            db: pool.clone(),
             config: Arc::new(config.clone()),
             providers: Arc::new(oauth_providers),
             cache: auth_cache,
@@ -248,6 +287,29 @@ async fn start_api_server(
         );
     } else {
         info!("Auth routes disabled (no database)");
+    }
+
+    // Add new API routes if database is available
+    if let Some(pool) = db_pool {
+        let app_state = AppState {
+            db: pool,
+            config: Arc::new(config.clone()),
+            sandbox: sandbox_provider,
+            events: event_publisher,
+            s3: s3_client,
+        };
+
+        router = router
+            .merge(task::task_router().with_state(app_state.clone()))
+            .merge(message::message_router().with_state(app_state.clone()))
+            .merge(agent::agent_router().with_state(app_state.clone()))
+            .merge(command::command_router().with_state(app_state.clone()))
+            .merge(file_storage::file_storage_router().with_state(app_state.clone()))
+            .merge(figma::figma_router().with_state(app_state));
+
+        info!("Task/message/agent/command/file/figma routes registered");
+    } else {
+        info!("New API routes disabled (no database)");
     }
 
     // Add SSE routes

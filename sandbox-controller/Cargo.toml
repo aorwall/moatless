@@ -83,5 +83,15 @@ tokio-util = { version = "0.7", features = ["rt"] }
 # Async traits
 async-trait = "0.1"
 
+# S3 file storage
+aws-sdk-s3 = "1"
+aws-config = "1"
+
+# Multipart uploads
+axum-extra = { version = "0.10", features = ["multipart"] }
+
+# ID generation
+nanoid = "0.4"
+
 [dev-dependencies]
 tokio-test = "0.4"

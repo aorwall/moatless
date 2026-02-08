@@ -1,12 +1,12 @@
-//! Redis event publisher for environment lifecycle events.
+//! Redis event publisher for environment and task lifecycle events.
 //!
-//! Publishes events to Redis Streams that the TS backend consumes via
-//! `RedisEventTransport`. The stream format must match exactly:
+//! Publishes events to Redis Streams that the frontend consumes via SSE.
+//! The stream format must match exactly:
 //!
 //! ```text
 //! XADD task-events:{taskId} MAXLEN ~ {max} *
 //!   eventId {uuid}
-//!   type environment
+//!   type environment|task|taskTurn
 //!   payload {fullEventJson}
 //! ```
 
@@ -26,20 +26,24 @@ pub struct RedisEventPublisher {
     max_stream_length: usize,
 }
 
-/// Environment event payload matching the TS `Event` schema exactly.
+/// Generic event payload matching the TS `Event` schema exactly.
 ///
 /// Fields use camelCase to match the JSON the TS consumer expects
 /// when it does `JSON.parse(payload)`.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct EnvironmentEvent {
+struct StreamEvent {
     event_id: String,
     #[serde(rename = "type")]
-    event_type: &'static str,
+    event_type: String,
     sub_type: String,
     task_id: String,
     timestamp: String,
     is_error: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    agent_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    turn_number: Option<i32>,
     payload: serde_json::Value,
 }
 
@@ -95,24 +99,65 @@ impl RedisEventPublisher {
         sub_type: &str,
         payload: serde_json::Value,
     ) {
+        self.publish_event(task_id, "environment", sub_type, None, None, payload)
+            .await;
+    }
+
+    /// Publish a task lifecycle event (e.g. "open", "closed", "running").
+    pub async fn publish_task_event(
+        &self,
+        task_id: &str,
+        sub_type: &str,
+        agent_type: Option<&str>,
+        payload: serde_json::Value,
+    ) {
+        self.publish_event(task_id, "task", sub_type, agent_type, None, payload)
+            .await;
+    }
+
+    /// Publish a task turn event (e.g. "active", "completed", "failed").
+    pub async fn publish_task_turn_event(
+        &self,
+        task_id: &str,
+        sub_type: &str,
+        agent_type: Option<&str>,
+        turn_number: Option<i32>,
+        payload: serde_json::Value,
+    ) {
+        self.publish_event(task_id, "taskTurn", sub_type, agent_type, turn_number, payload)
+            .await;
+    }
+
+    /// Internal: publish a generic event to the Redis stream.
+    async fn publish_event(
+        &self,
+        task_id: &str,
+        event_type: &str,
+        sub_type: &str,
+        agent_type: Option<&str>,
+        turn_number: Option<i32>,
+        payload: serde_json::Value,
+    ) {
         let event_id = Uuid::new_v4().to_string();
         let timestamp = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
         let is_error = sub_type == "error" || sub_type == "server_failed";
 
-        let event = EnvironmentEvent {
+        let event = StreamEvent {
             event_id: event_id.clone(),
-            event_type: "environment",
+            event_type: event_type.to_string(),
             sub_type: sub_type.to_string(),
             task_id: task_id.to_string(),
             timestamp,
             is_error,
+            agent_type: agent_type.map(|s| s.to_string()),
+            turn_number,
             payload,
         };
 
         let event_json = match serde_json::to_string(&event) {
             Ok(json) => json,
             Err(e) => {
-                warn!(task_id = %task_id, error = %e, "Failed to serialize environment event");
+                warn!(task_id = %task_id, error = %e, "Failed to serialize event");
                 return;
             }
         };
@@ -130,7 +175,7 @@ impl RedisEventPublisher {
             .arg("eventId")
             .arg(&event_id)
             .arg("type")
-            .arg("environment")
+            .arg(event_type)
             .arg("payload")
             .arg(&event_json)
             .query_async(&mut conn)
@@ -140,16 +185,18 @@ impl RedisEventPublisher {
             Ok(_) => {
                 debug!(
                     task_id = %task_id,
+                    event_type = %event_type,
                     sub_type = %sub_type,
-                    "Published environment event to Redis"
+                    "Published event to Redis"
                 );
             }
             Err(e) => {
                 warn!(
                     task_id = %task_id,
+                    event_type = %event_type,
                     sub_type = %sub_type,
                     error = %e,
-                    "Failed to publish environment event to Redis"
+                    "Failed to publish event to Redis"
                 );
             }
         }

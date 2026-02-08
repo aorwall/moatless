@@ -34,6 +34,7 @@ impl AuthProvider {
 
 /// Sandbox controller configuration
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct Config {
     /// Port to listen on (default: 8080)
     pub port: u16,
@@ -148,6 +149,18 @@ pub struct Config {
     /// Auth cache TTL in seconds (default: 30). Controls how long verified
     /// sessions and API keys are cached in memory before re-querying the DB.
     pub auth_cache_ttl_secs: u64,
+
+    // =========================================================================
+    // S3 / File storage settings
+    // =========================================================================
+    /// S3 bucket name for file uploads.
+    pub s3_bucket_name: Option<String>,
+    /// S3 key prefix for uploaded files (default: "uploads")
+    pub s3_key_prefix: String,
+    /// S3 region (default: "us-east-1")
+    pub s3_region: String,
+    /// Mount path inside sandbox pods for uploaded files (default: "/mnt/uploads")
+    pub sandbox_file_mount_path: String,
 }
 
 impl Config {
@@ -262,6 +275,14 @@ impl Config {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(30),
+
+            s3_bucket_name: env::var("S3_BUCKET_NAME").ok(),
+            s3_key_prefix: env::var("S3_KEY_PREFIX")
+                .unwrap_or_else(|_| "uploads".to_string()),
+            s3_region: env::var("S3_REGION")
+                .unwrap_or_else(|_| "us-east-1".to_string()),
+            sandbox_file_mount_path: env::var("SANDBOX_FILE_MOUNT_PATH")
+                .unwrap_or_else(|_| "/mnt/uploads".to_string()),
         }
     }
 }

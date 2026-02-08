@@ -1,4 +1,4 @@
-//! Repository repository — read-only queries for auto-provisioning.
+//! Repository DAO — queries for repository data access.
 
 use super::models::RepositoryRow;
 use super::DbPool;

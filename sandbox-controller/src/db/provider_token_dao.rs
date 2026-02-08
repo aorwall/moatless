@@ -1,4 +1,4 @@
-//! Provider token repository — read-only queries for credential resolution.
+//! Provider token DAO — queries for credential resolution.
 
 use super::models::ProviderAccessToken;
 use super::DbPool;
