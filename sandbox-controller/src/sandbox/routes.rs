@@ -7,14 +7,18 @@
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use axum::routing::{get, post};
-use axum::{Json, Router};
+use axum::Json;
 use std::sync::Arc;
 use tracing::{error, info};
+use utoipa::OpenApi;
+use utoipa_axum::{router::OpenApiRouter, routes};
 
 use super::error::SandboxError;
 use super::provider::SandboxProvider;
-use super::types::{ProvisionRequest, ProvisionResponse};
+use super::types::{
+    ErrorBody, HealthResponse, ProvisionRequest, ProvisionResponse, StatusResponse,
+    WorkspaceStatusFullResponse,
+};
 
 /// State shared across API handlers.
 #[derive(Clone)]
@@ -22,53 +26,65 @@ pub struct SandboxApiState {
     pub provider: Arc<dyn SandboxProvider>,
 }
 
-/// Create the unified API router (served on both ports).
-pub fn api_router(state: SandboxApiState) -> Router {
-    Router::new()
-        .route("/health", get(health_handler))
-        .route("/healthz", get(health_handler))
-        // Unified sandbox API
-        .route(
-            "/api/sandbox/v1/tasks/{task_id}/provision",
-            post(provision_handler),
-        )
-        .route(
-            "/api/sandbox/v1/tasks/{task_id}/env-status",
-            get(status_handler),
-        )
-        .route(
-            "/api/sandbox/v1/tasks/{task_id}/health",
-            get(health_check_handler),
-        )
-        .route(
-            "/api/sandbox/v1/tasks/{task_id}/status",
-            get(workspace_status_handler),
-        )
-        .route(
-            "/api/sandbox/v1/tasks/{task_id}/stop",
-            post(stop_handler),
-        )
-        .route(
-            "/api/sandbox/v1/tasks/{task_id}/start",
-            post(start_handler),
-        )
-        .route(
-            "/api/sandbox/v1/tasks/{task_id}/restart",
-            post(restart_handler),
-        )
-        .route(
-            "/api/sandbox/v1/tasks/{task_id}/cleanup",
-            post(cleanup_handler),
-        )
+#[derive(OpenApi)]
+#[openapi(
+    tags(
+        (name = "sandbox", description = "Sandbox workspace lifecycle management"),
+    ),
+    paths(
+        provision_handler,
+        status_handler,
+        health_check_handler,
+        workspace_status_handler,
+        stop_handler,
+        start_handler,
+        restart_handler,
+        cleanup_handler,
+    )
+)]
+pub struct SandboxApiDoc;
+
+/// Create the sandbox API router with OpenAPI metadata collection.
+pub fn api_router(state: SandboxApiState) -> (axum::Router, utoipa::openapi::OpenApi) {
+    let (router, api) = OpenApiRouter::with_openapi(SandboxApiDoc::openapi())
+        .routes(routes!(provision_handler))
+        .routes(routes!(status_handler))
+        .routes(routes!(health_check_handler))
+        .routes(routes!(workspace_status_handler))
+        .routes(routes!(stop_handler))
+        .routes(routes!(start_handler))
+        .routes(routes!(restart_handler))
+        .routes(routes!(cleanup_handler))
         .with_state(state)
+        .split_for_parts();
+
+    // Convert to plain Router and add non-OpenAPI health endpoints
+    let router: axum::Router = Into::<axum::Router>::into(router)
+        .route("/health", axum::routing::get(health_handler))
+        .route("/healthz", axum::routing::get(health_handler));
+
+    (router, api)
 }
 
-/// Health check handler.
+/// Health check handler (not documented in OpenAPI — infrastructure only).
 async fn health_handler() -> impl IntoResponse {
     (StatusCode::OK, "OK")
 }
 
-/// POST /api/sandbox/v1/tasks/{task_id}/provision
+/// Provision a new sandbox workspace for a task.
+#[utoipa::path(
+    post,
+    path = "/api/sandbox/v1/tasks/{task_id}/provision",
+    tag = "sandbox",
+    params(
+        ("task_id" = String, Path, description = "Task identifier")
+    ),
+    request_body = ProvisionRequest,
+    responses(
+        (status = 200, description = "Workspace provisioned successfully", body = ProvisionResponse),
+        (status = 500, description = "Provisioning failed", body = ErrorBody)
+    )
+)]
 async fn provision_handler(
     State(state): State<SandboxApiState>,
     Path(task_id): Path<String>,
@@ -87,7 +103,19 @@ async fn provision_handler(
     }
 }
 
-/// GET /api/sandbox/v1/tasks/{task_id}/env-status
+/// Get environment status for a task workspace.
+#[utoipa::path(
+    get,
+    path = "/api/sandbox/v1/tasks/{task_id}/env-status",
+    tag = "sandbox",
+    params(
+        ("task_id" = String, Path, description = "Task identifier")
+    ),
+    responses(
+        (status = 200, description = "Environment status", body = StatusResponse),
+        (status = 500, description = "Internal error", body = ErrorBody)
+    )
+)]
 async fn status_handler(
     State(state): State<SandboxApiState>,
     Path(task_id): Path<String>,
@@ -101,7 +129,18 @@ async fn status_handler(
     }
 }
 
-/// GET /api/sandbox/v1/tasks/{task_id}/health
+/// Check if a task's sandbox is healthy.
+#[utoipa::path(
+    get,
+    path = "/api/sandbox/v1/tasks/{task_id}/health",
+    tag = "sandbox",
+    params(
+        ("task_id" = String, Path, description = "Task identifier")
+    ),
+    responses(
+        (status = 200, description = "Health check result", body = HealthResponse)
+    )
+)]
 async fn health_check_handler(
     State(state): State<SandboxApiState>,
     Path(task_id): Path<String>,
@@ -110,7 +149,20 @@ async fn health_check_handler(
     Json(resp)
 }
 
-/// GET /api/sandbox/v1/tasks/{task_id}/status
+/// Get full workspace status including servers and agent state.
+#[utoipa::path(
+    get,
+    path = "/api/sandbox/v1/tasks/{task_id}/status",
+    tag = "sandbox",
+    params(
+        ("task_id" = String, Path, description = "Task identifier")
+    ),
+    responses(
+        (status = 200, description = "Full workspace status", body = WorkspaceStatusFullResponse),
+        (status = 503, description = "Workspace not ready", body = ErrorBody),
+        (status = 500, description = "Internal error", body = ErrorBody)
+    )
+)]
 async fn workspace_status_handler(
     State(state): State<SandboxApiState>,
     Path(task_id): Path<String>,
@@ -124,7 +176,19 @@ async fn workspace_status_handler(
     }
 }
 
-/// POST stop
+/// Stop a running workspace.
+#[utoipa::path(
+    post,
+    path = "/api/sandbox/v1/tasks/{task_id}/stop",
+    tag = "sandbox",
+    params(
+        ("task_id" = String, Path, description = "Task identifier")
+    ),
+    responses(
+        (status = 204, description = "Workspace stopped"),
+        (status = 500, description = "Stop failed", body = ErrorBody)
+    )
+)]
 async fn stop_handler(
     State(state): State<SandboxApiState>,
     Path(task_id): Path<String>,
@@ -133,7 +197,7 @@ async fn stop_handler(
     match state.provider.stop(&task_id).await {
         Ok(()) => {
             info!(task_id = %task_id, "Stop succeeded");
-            Ok(StatusCode::OK)
+            Ok(StatusCode::NO_CONTENT)
         }
         Err(e) => {
             error!(task_id = %task_id, error = %e, "Stop failed");
@@ -142,7 +206,19 @@ async fn stop_handler(
     }
 }
 
-/// POST start
+/// Start a stopped workspace.
+#[utoipa::path(
+    post,
+    path = "/api/sandbox/v1/tasks/{task_id}/start",
+    tag = "sandbox",
+    params(
+        ("task_id" = String, Path, description = "Task identifier")
+    ),
+    responses(
+        (status = 204, description = "Workspace started"),
+        (status = 500, description = "Start failed", body = ErrorBody)
+    )
+)]
 async fn start_handler(
     State(state): State<SandboxApiState>,
     Path(task_id): Path<String>,
@@ -151,7 +227,7 @@ async fn start_handler(
     match state.provider.start(&task_id).await {
         Ok(()) => {
             info!(task_id = %task_id, "Start succeeded");
-            Ok(StatusCode::OK)
+            Ok(StatusCode::NO_CONTENT)
         }
         Err(e) => {
             error!(task_id = %task_id, error = %e, "Start failed");
@@ -160,7 +236,19 @@ async fn start_handler(
     }
 }
 
-/// POST restart
+/// Restart a workspace (stop + start).
+#[utoipa::path(
+    post,
+    path = "/api/sandbox/v1/tasks/{task_id}/restart",
+    tag = "sandbox",
+    params(
+        ("task_id" = String, Path, description = "Task identifier")
+    ),
+    responses(
+        (status = 204, description = "Workspace restarted"),
+        (status = 500, description = "Restart failed", body = ErrorBody)
+    )
+)]
 async fn restart_handler(
     State(state): State<SandboxApiState>,
     Path(task_id): Path<String>,
@@ -169,7 +257,7 @@ async fn restart_handler(
     match state.provider.restart(&task_id).await {
         Ok(()) => {
             info!(task_id = %task_id, "Restart succeeded");
-            Ok(StatusCode::OK)
+            Ok(StatusCode::NO_CONTENT)
         }
         Err(e) => {
             error!(task_id = %task_id, error = %e, "Restart failed");
@@ -178,7 +266,19 @@ async fn restart_handler(
     }
 }
 
-/// POST /api/sandbox/v1/tasks/{task_id}/cleanup
+/// Clean up a workspace and all associated resources.
+#[utoipa::path(
+    post,
+    path = "/api/sandbox/v1/tasks/{task_id}/cleanup",
+    tag = "sandbox",
+    params(
+        ("task_id" = String, Path, description = "Task identifier")
+    ),
+    responses(
+        (status = 204, description = "Workspace cleaned up"),
+        (status = 500, description = "Cleanup failed", body = ErrorBody)
+    )
+)]
 async fn cleanup_handler(
     State(state): State<SandboxApiState>,
     Path(task_id): Path<String>,
@@ -187,7 +287,7 @@ async fn cleanup_handler(
     match state.provider.cleanup(&task_id).await {
         Ok(()) => {
             info!(task_id = %task_id, "Cleanup succeeded");
-            Ok(StatusCode::OK)
+            Ok(StatusCode::NO_CONTENT)
         }
         Err(e) => {
             error!(task_id = %task_id, error = %e, "Cleanup failed");

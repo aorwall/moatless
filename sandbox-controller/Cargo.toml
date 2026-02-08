@@ -69,13 +69,19 @@ cookie = "0.18"
 # Error handling
 thiserror = "2"
 
+# OpenAPI documentation
+utoipa = { version = "5", features = ["axum_extras"] }
+utoipa-axum = "0.2"
+
+# Async streams
+futures = "0.3"
+async-stream = "0.3"
+
+# Cancellation
+tokio-util = { version = "0.7", features = ["rt"] }
+
 # Async traits
 async-trait = "0.1"
 
 [dev-dependencies]
 tokio-test = "0.4"
-
-[profile.release]
-lto = "thin"
-codegen-units = 1
-strip = true

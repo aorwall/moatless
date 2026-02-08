@@ -8,13 +8,18 @@ mod db;
 mod events;
 mod metrics;
 mod sandbox;
+mod sse;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use axum::Json;
 use tokio::net::TcpListener;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
+
+use tokio::sync::broadcast;
+use tokio_util::sync::CancellationToken;
 
 use auth::cache::AuthCache;
 use auth::routes::{AuthState, OAuthProviders};
@@ -22,9 +27,17 @@ use config::Config;
 use events::RedisEventPublisher;
 use sandbox::k8s::client::K8sClient;
 use sandbox::k8s::status_cache::StatusCache;
+use sse::consumer::RedisStreamConsumer;
+use sse::routes::{sse_router, SseState};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Handle --dump-openapi before any runtime initialization
+    if std::env::args().any(|a| a == "--dump-openapi") {
+        dump_openapi()?;
+        return Ok(());
+    }
+
     // Install rustls crypto provider (required before any TLS operations)
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
@@ -34,7 +47,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new("info,sandbox_controller=debug")),
+                .unwrap_or_else(|_| EnvFilter::new("info")),
         )
         .json()
         .init();
@@ -86,13 +99,78 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         None
     };
 
+    // Create broadcast channel for SSE fan-out
+    let (sse_tx, _) = broadcast::channel::<String>(config.sse_broadcast_capacity);
+
+    // Graceful-shutdown token
+    let cancel = CancellationToken::new();
+
+    // Spawn SSE Redis consumer if Redis is configured
+    if let Some(ref redis_url) = config.redis_url {
+        let client = redis::Client::open(redis_url.as_str())?;
+        let conn = redis::aio::ConnectionManager::new(client).await?;
+        let consumer = RedisStreamConsumer::new(
+            conn,
+            config.sse_consumer_id.clone(),
+            sse_tx.clone(),
+            cancel.clone(),
+        );
+        tokio::spawn(consumer.run());
+        info!(consumer_id = %config.sse_consumer_id, "SSE Redis consumer spawned");
+    } else {
+        info!("REDIS_URL not set — SSE Redis consumer disabled");
+    }
+
+    let sse_state = SseState {
+        broadcast: sse_tx,
+        cancel: cancel.clone(),
+    };
+
     // Initialize K8s client and start API server
     let k8s = K8sClient::new(config.sandbox_namespace.clone()).await?;
     let status_cache = StatusCache::new(10);
     info!("K8s client initialized");
-    start_api_server(&config, k8s, status_cache, db_pool, event_publisher).await?;
+
+    // Install graceful shutdown handler
+    let cancel_for_signal = cancel.clone();
+    tokio::spawn(async move {
+        let _ = tokio::signal::ctrl_c().await;
+        info!("Received shutdown signal, cancelling background tasks");
+        cancel_for_signal.cancel();
+    });
+
+    start_api_server(&config, k8s, status_cache, db_pool, event_publisher, sse_state).await?;
 
     Ok(())
+}
+
+/// Print the merged OpenAPI spec as JSON to stdout and exit.
+fn dump_openapi() -> Result<(), Box<dyn std::error::Error>> {
+    let merged = build_merged_openapi();
+    println!("{}", merged.to_pretty_json()?);
+    Ok(())
+}
+
+/// Build the merged OpenAPI spec from sandbox + auth doc structs.
+///
+/// Both `SandboxApiDoc` and `AuthApiDoc` have their paths registered via
+/// `#[openapi(paths(...))]`, so we can build the full spec without constructing
+/// any routers or providing real state.
+fn build_merged_openapi() -> utoipa::openapi::OpenApi {
+    use sandbox::routes::SandboxApiDoc;
+    use auth::routes::AuthApiDoc;
+    use utoipa::OpenApi;
+
+    let mut merged = SandboxApiDoc::openapi();
+    merged.merge(AuthApiDoc::openapi());
+
+    merged.info = utoipa::openapi::InfoBuilder::new()
+        .title("Sandbox Controller API")
+        .version(env!("CARGO_PKG_VERSION"))
+        .description(Some("Workspace orchestration and authentication for Moatless Vibe"))
+        .build();
+
+    merged
 }
 
 /// Build OAuth providers from config.
@@ -117,15 +195,16 @@ async fn start_api_server(
     status_cache: StatusCache,
     db_pool: Option<db::DbPool>,
     event_publisher: Option<RedisEventPublisher>,
+    sse_state: SseState,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use sandbox::k8s::provider::K8sSandboxProvider;
     use sandbox::routes::{api_router, SandboxApiState};
 
     // Load pod template
     let template_path = config
-        .worker_pod_template_path
+        .sandbox_pod_template_path
         .as_deref()
-        .ok_or("WORKER_POD_TEMPLATE_PATH not configured")?;
+        .ok_or("SANDBOX_POD_TEMPLATE_PATH not configured")?;
 
     let pod_template = tokio::fs::read_to_string(template_path)
         .await
@@ -146,8 +225,8 @@ async fn start_api_server(
         provider: Arc::new(provider),
     };
 
-    // Build the combined router: sandbox routes + auth routes
-    let mut router = api_router(sandbox_state);
+    // Build sandbox router with OpenAPI
+    let (mut router, mut merged_api) = api_router(sandbox_state);
 
     // Add auth routes if database is available
     if let Some(pool) = db_pool {
@@ -159,8 +238,9 @@ async fn start_api_server(
             providers: Arc::new(oauth_providers),
             cache: auth_cache,
         };
-        let auth_routes = auth::routes::auth_router(auth_state);
-        router = router.merge(auth_routes);
+        let (auth_router, auth_api) = auth::routes::auth_router(auth_state);
+        router = router.merge(auth_router);
+        merged_api.merge(auth_api);
         info!(
             auth_provider = ?config.auth_provider,
             auth_cache_ttl_secs = config.auth_cache_ttl_secs,
@@ -169,6 +249,17 @@ async fn start_api_server(
     } else {
         info!("Auth routes disabled (no database)");
     }
+
+    // Add SSE routes
+    router = router.merge(sse_router(sse_state));
+    info!("SSE routes registered");
+
+    // Serve OpenAPI spec at /openapi.json
+    let openapi_json = merged_api.clone();
+    let router = router.route(
+        "/openapi.json",
+        axum::routing::get(move || async move { Json(openapi_json) }),
+    );
 
     let addr = SocketAddr::from(([0, 0, 0, 0], config.port));
     let listener = TcpListener::bind(addr).await?;

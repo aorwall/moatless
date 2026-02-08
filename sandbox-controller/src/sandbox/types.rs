@@ -2,9 +2,16 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use utoipa::ToSchema;
+
+/// Generic error body returned by all error responses.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ErrorBody {
+    pub error: String,
+}
 
 /// Provision plan sent from TS backend
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ProvisionRequest {
     pub plan: ProvisionPlan,
@@ -12,7 +19,7 @@ pub struct ProvisionRequest {
 }
 
 /// Provision plan with all configuration needed to create a workspace
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ProvisionPlan {
     pub repo_config: RepoConfig,
@@ -26,11 +33,11 @@ pub struct ProvisionPlan {
 }
 
 /// Repository config for provisioning and sandbox environment
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RepoConfig {
     pub name: String,
-    /// Per-repository worker image override
+    /// Per-repository sandbox image override
     pub docker_image: Option<String>,
     /// Servers with allocated ports
     pub servers: Option<Vec<ServerConfig>>,
@@ -40,13 +47,15 @@ pub struct RepoConfig {
     /// System prompt for the agent
     pub system_prompt: Option<String>,
     /// Code execution configuration (dockerImage, envVars, etc.)
+    #[schema(value_type = Object)]
     pub code_execution: Option<serde_json::Value>,
     /// Preview server configuration
+    #[schema(value_type = Object)]
     pub preview_config: Option<serde_json::Value>,
 }
 
 /// Server config entry
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ServerConfig {
     pub name: String,
@@ -63,7 +72,7 @@ pub struct TaskCredentials {
 }
 
 /// Matches TS WorkspaceExistenceSchema: 'exists' | 'missing' | 'invalid'
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum WorkspaceState {
     Exists,
@@ -71,7 +80,7 @@ pub enum WorkspaceState {
 }
 
 /// Matches TS EnvironmentStatusSchema
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum EnvironmentStatus {
     NotCreated,
@@ -96,7 +105,7 @@ impl std::fmt::Display for EnvironmentStatus {
 }
 
 /// Matches TS AgentStateSchema: 'idle' | 'running' | 'none'
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum AgentState {
     Idle,
@@ -115,7 +124,7 @@ impl From<&str> for AgentState {
 }
 
 /// Matches TS ServerStatusEnumSchema: 'stopped' | 'installing' | 'starting' | 'started' | 'failed'
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum ServerStatus {
     Stopped,
@@ -139,7 +148,7 @@ impl From<&str> for ServerStatus {
 }
 
 /// Execution target returned after provisioning
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ExecutionTarget {
     pub mode: String,
@@ -150,20 +159,20 @@ pub struct ExecutionTarget {
     pub status: EnvironmentStatus,
     pub repository_clone_url: String,
     pub repository_branch: Option<String>,
-    pub worker_port: u16,
+    pub sandbox_port: u16,
     pub preview_host_port: u16,
     pub servers: HashMap<String, u16>,
 }
 
 /// Provision response
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ProvisionResponse {
     pub execution_target: ExecutionTarget,
 }
 
 /// Status response
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct StatusResponse {
     pub status: EnvironmentStatus,
@@ -172,7 +181,7 @@ pub struct StatusResponse {
 }
 
 /// Health response
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct HealthResponse {
     pub healthy: bool,
 }
@@ -258,15 +267,28 @@ pub struct ServerSnapshot {
     pub pid: Option<u32>,
 }
 
+/// Resource metrics from sandbox GET /status
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourceMetrics {
+    pub memory_usage_mb: f64,
+    pub memory_limit_mb: Option<f64>,
+    pub memory_usage_percent: Option<f64>,
+    pub cpu_usage_percent: Option<f64>,
+    pub event_loop_latency_ms: f64,
+    pub uptime_seconds: f64,
+}
+
 /// Combined snapshot from sandbox GET /status
 #[derive(Debug, Deserialize)]
 pub struct SandboxSnapshotStatus {
     pub agent: AgentSnapshot,
     pub servers: Vec<ServerSnapshot>,
+    pub resources: Option<ResourceMetrics>,
 }
 
 /// Server capabilities (deterministic from server name)
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ServerCapabilities {
     pub address_bar: bool,
@@ -278,7 +300,7 @@ pub struct ServerCapabilities {
 }
 
 /// Single server entry in the workspace status response
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ServerEntry {
     pub name: String,
@@ -292,7 +314,7 @@ pub struct ServerEntry {
 }
 
 /// Full workspace status response to frontend (matches TS WorkspaceStatusResponse)
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceStatusFullResponse {
     pub workspace_state: WorkspaceState,
@@ -303,6 +325,8 @@ pub struct WorkspaceStatusFullResponse {
     pub is_running: bool,
     pub workspace_ready: bool,
     pub can_execute: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resources: Option<ResourceMetrics>,
 }
 
 /// Get capabilities for a server by name (mirrors TS getServerCapabilities)

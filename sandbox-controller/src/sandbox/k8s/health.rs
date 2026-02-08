@@ -1,4 +1,4 @@
-//! HTTP health check and status fetching for worker pods.
+//! HTTP health check and status fetching for sandbox pods.
 
 use http_body_util::BodyExt;
 use std::time::Duration;
@@ -6,13 +6,13 @@ use tracing::debug;
 
 use crate::sandbox::types::SandboxSnapshotStatus;
 
-/// Check if a worker pod is healthy via its HTTP health endpoint.
+/// Check if a sandbox pod is healthy via its HTTP health endpoint.
 ///
 /// Uses a simple TCP connect + HTTP GET. Returns true if the pod responds with 2xx.
 pub async fn check_pod_health(host: &str, port: u16) -> bool {
     let url = format!("http://{host}:{port}/health");
 
-    let result = tokio::time::timeout(Duration::from_secs(5), async {
+    let result = tokio::time::timeout(Duration::from_secs(2), async {
         match hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
             .build_http::<axum::body::Body>()
             .get(url.parse().unwrap())
@@ -41,7 +41,7 @@ pub async fn check_service_health(service_name: &str, namespace: &str, port: u16
 
 /// Fetch the sandbox snapshot status from a running sandbox pod's `/status` endpoint.
 ///
-/// Returns `None` if the request fails or times out (5s).
+/// Returns `None` if the request fails or times out (2s).
 pub async fn fetch_sandbox_status(
     service_name: &str,
     namespace: &str,
@@ -50,7 +50,7 @@ pub async fn fetch_sandbox_status(
     let host = format!("{service_name}.{namespace}.svc.cluster.local");
     let url = format!("http://{host}:{port}/status");
 
-    let result = tokio::time::timeout(Duration::from_secs(5), async {
+    let result = tokio::time::timeout(Duration::from_secs(2), async {
         let client = hyper_util::client::legacy::Client::builder(
             hyper_util::rt::TokioExecutor::new(),
         )

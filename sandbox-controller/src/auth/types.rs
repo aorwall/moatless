@@ -5,6 +5,7 @@
 
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 // ============================================================================
 // OAuth types (used by session + provider implementations)
@@ -39,7 +40,7 @@ pub struct OAuthCallbackQuery {
 }
 
 /// Body for POST /api/v1/auth/api-keys.
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateApiKeyRequest {
     pub name: String,
@@ -52,7 +53,7 @@ pub struct CreateApiKeyRequest {
 // ============================================================================
 
 /// GET /api/v1/auth/me response.
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionResponse {
     pub user: Option<UserInfo>,
@@ -60,7 +61,7 @@ pub struct SessionResponse {
 }
 
 /// User info within session response.
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UserInfo {
     pub id: String,
@@ -73,7 +74,7 @@ pub struct UserInfo {
 }
 
 /// POST /api/v1/auth/api-keys response (includes the full key, shown once).
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiKeyCreateResponse {
     pub id: String,
@@ -86,7 +87,7 @@ pub struct ApiKeyCreateResponse {
 }
 
 /// Single item in GET /api/v1/auth/api-keys list.
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiKeyListItem {
     pub id: String,
@@ -99,7 +100,7 @@ pub struct ApiKeyListItem {
 }
 
 /// Single item in GET /api/v1/users list.
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UserListItem {
     pub id: String,
@@ -109,13 +110,13 @@ pub struct UserListItem {
 }
 
 /// GET /api/v1/users response.
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct UserListResponse {
     pub users: Vec<UserListItem>,
 }
 
 /// Generic message response (logout, revoke, etc.).
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct MessageResponse {
     pub message: String,
 }

@@ -44,17 +44,17 @@ pub struct Config {
     /// Kubernetes namespace for sandbox pods
     pub sandbox_namespace: String,
 
-    /// Path to worker pod YAML template
-    pub worker_pod_template_path: Option<String>,
+    /// Path to sandbox pod YAML template
+    pub sandbox_pod_template_path: Option<String>,
 
-    /// Whether PVC storage is enabled for worker pods
-    pub k8s_worker_storage_enabled: bool,
+    /// Whether PVC storage is enabled for sandbox pods
+    pub k8s_sandbox_storage_enabled: bool,
 
     /// PVC storage size (e.g., "5Gi")
-    pub k8s_worker_storage_size: String,
+    pub k8s_sandbox_storage_size: String,
 
     /// PVC storage class
-    pub k8s_worker_storage_class: Option<String>,
+    pub k8s_sandbox_storage_class: Option<String>,
 
     /// Pod startup timeout in seconds
     pub k8s_pod_startup_timeout_secs: u64,
@@ -96,6 +96,15 @@ pub struct Config {
 
     /// Maximum stream length for MAXLEN ~ trimming (default: 10000)
     pub redis_max_stream_length: usize,
+
+    // =========================================================================
+    // SSE settings
+    // =========================================================================
+    /// Broadcast channel capacity for SSE fan-out (default: 4096)
+    pub sse_broadcast_capacity: usize,
+
+    /// Consumer ID for the SSE Redis consumer group (default: "sse-{HOSTNAME}")
+    pub sse_consumer_id: String,
 
     // =========================================================================
     // Auth settings
@@ -161,16 +170,16 @@ impl Config {
             sandbox_namespace: env::var("SANDBOX_NAMESPACE")
                 .unwrap_or_else(|_| "workspaces".to_string()),
 
-            worker_pod_template_path: env::var("WORKER_POD_TEMPLATE_PATH").ok(),
+            sandbox_pod_template_path: env::var("SANDBOX_POD_TEMPLATE_PATH").ok(),
 
-            k8s_worker_storage_enabled: env::var("K8S_WORKER_STORAGE_ENABLED")
+            k8s_sandbox_storage_enabled: env::var("K8S_SANDBOX_STORAGE_ENABLED")
                 .map(|v| v == "true" || v == "1")
                 .unwrap_or(true),
 
-            k8s_worker_storage_size: env::var("K8S_WORKER_STORAGE_SIZE")
+            k8s_sandbox_storage_size: env::var("K8S_SANDBOX_STORAGE_SIZE")
                 .unwrap_or_else(|_| "5Gi".to_string()),
 
-            k8s_worker_storage_class: env::var("K8S_WORKER_STORAGE_CLASS").ok(),
+            k8s_sandbox_storage_class: env::var("K8S_SANDBOX_STORAGE_CLASS").ok(),
 
             k8s_pod_startup_timeout_secs: env::var("K8S_POD_STARTUP_TIMEOUT_SECS")
                 .ok()
@@ -204,6 +213,17 @@ impl Config {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(10_000),
+
+            sse_broadcast_capacity: env::var("SSE_BROADCAST_CAPACITY")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(4096),
+
+            sse_consumer_id: env::var("SSE_CONSUMER_ID").unwrap_or_else(|_| {
+                let hostname =
+                    env::var("HOSTNAME").unwrap_or_else(|_| "local".to_string());
+                format!("sse-{hostname}")
+            }),
 
             auth_provider: env::var("AUTH_PROVIDER")
                 .ok()

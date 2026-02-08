@@ -5,14 +5,17 @@ use std::sync::Arc;
 use axum::extract::{Path, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Redirect, Response};
-use axum::routing::{delete, get, post};
-use axum::{Json, Router};
+use axum::routing::get;
+use axum::Json;
 use rand::Rng;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
+use utoipa::OpenApi;
+use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::config::{AuthProvider, Config};
 use crate::db::sessions::SessionRow;
 use crate::db::DbPool;
+use crate::sandbox::types::ErrorBody;
 
 use super::api_key;
 use super::cache::AuthCache;
@@ -52,30 +55,52 @@ pub struct AuthState {
     pub cache: AuthCache,
 }
 
+#[derive(OpenApi)]
+#[openapi(
+    tags(
+        (name = "auth", description = "Authentication and session management"),
+        (name = "api-keys", description = "API key management"),
+        (name = "users", description = "User listing"),
+    ),
+    paths(
+        verify_handler,
+        me_handler,
+        logout_handler,
+        create_api_key_handler,
+        list_api_keys_handler,
+        revoke_api_key_handler,
+        list_users_handler,
+    )
+)]
+pub struct AuthApiDoc;
+
 /// Create the auth router with all endpoints.
-pub fn auth_router(state: AuthState) -> Router {
-    Router::new()
-        // Auth endpoints
-        .route("/api/v1/auth/verify", get(verify_handler))
-        .route("/api/v1/auth/me", get(me_handler))
+pub fn auth_router(state: AuthState) -> (axum::Router, utoipa::openapi::OpenApi) {
+    // Build OpenAPI-documented routes
+    let (openapi_router, api) = OpenApiRouter::with_openapi(AuthApiDoc::openapi())
+        .routes(routes!(verify_handler))
+        .routes(routes!(me_handler))
+        .routes(routes!(logout_handler))
+        .routes(routes!(create_api_key_handler, list_api_keys_handler))
+        .routes(routes!(revoke_api_key_handler))
+        .routes(routes!(list_users_handler))
+        .with_state(state.clone())
+        .split_for_parts();
+
+    // Build a separate plain Router for OAuth redirect routes (not in OpenAPI — browser-only flows)
+    let oauth_router = axum::Router::new()
         .route("/api/v1/auth/login", get(login_handler))
         .route("/api/v1/auth/github", get(oauth_init_handler))
         .route("/api/v1/auth/github/callback", get(github_callback_handler))
         .route("/api/v1/auth/auth0", get(auth0_init_handler))
         .route("/api/v1/auth/auth0/callback", get(auth0_callback_handler))
-        .route("/api/v1/auth/logout", post(logout_handler).get(logout_get_handler))
-        // API key endpoints
-        .route(
-            "/api/v1/auth/api-keys",
-            post(create_api_key_handler).get(list_api_keys_handler),
-        )
-        .route(
-            "/api/v1/auth/api-keys/{key_id}",
-            delete(revoke_api_key_handler),
-        )
-        // User endpoints
-        .route("/api/v1/users", get(list_users_handler))
-        .with_state(state)
+        .route("/api/v1/auth/logout", get(logout_get_handler))
+        .with_state(state);
+
+    // Merge both into a single Router
+    let router: axum::Router = Into::<axum::Router>::into(openapi_router).merge(oauth_router);
+
+    (router, api)
 }
 
 // ============================================================================
@@ -98,6 +123,16 @@ async fn authenticate_from_cookie(
 // GET /api/v1/auth/verify — Traefik ForwardAuth endpoint
 // ============================================================================
 
+/// Verify authentication via session cookie or API key (Traefik ForwardAuth).
+#[utoipa::path(
+    get,
+    path = "/api/v1/auth/verify",
+    tag = "auth",
+    responses(
+        (status = 200, description = "Authentication valid"),
+        (status = 401, description = "Authentication required", body = ErrorBody)
+    )
+)]
 async fn verify_handler(
     State(state): State<AuthState>,
     headers: HeaderMap,
@@ -113,33 +148,59 @@ async fn verify_handler(
             let key = &auth_header[7..]; // strip "Bearer "
             match api_key::validate_key_cached(&state.db, key, &state.cache).await? {
                 Some(payload) => {
+                    debug!(user_id = %payload.user_id, "Auth verify: API key valid");
                     return Ok(verify_success_response(&payload.user_id, &payload.user_login, &payload.role, &payload.provider, payload.group_id.as_deref()));
                 }
                 None => {
+                    warn!("Auth verify: invalid API key");
                     return Err(AuthError::InvalidApiKey);
                 }
             }
         }
     }
 
-    // Try session cookie
-    let session_id = cookie::get_cookie_value(&headers, &state.config.session_cookie_name);
-    let Some(session_id) = session_id else {
+    // Try session cookies — there may be duplicates when COOKIE_DOMAIN changed
+    let session_ids = cookie::get_all_cookie_values(&headers, &state.config.session_cookie_name);
+    if session_ids.is_empty() {
+        warn!("Auth verify: no session cookie found");
         return Err(AuthError::Unauthorized);
-    };
+    }
 
-    let payload = session::validate_session_cached(&state.db, &session_id, &state.cache).await?;
-    let Some(payload) = payload else {
-        return Err(AuthError::SessionExpired);
-    };
+    for session_id in &session_ids {
+        match session::validate_session_cached(&state.db, session_id, &state.cache).await {
+            Ok(Some(payload)) => {
+                if session_ids.len() > 1 {
+                    warn!(
+                        count = session_ids.len(),
+                        "Auth verify: multiple session cookies found, using valid one"
+                    );
+                }
+                debug!(user_id = %payload.user_id, "Auth verify: session valid");
+                return Ok(verify_success_response(
+                    &payload.user_id,
+                    &payload.user_login,
+                    &payload.role,
+                    &payload.provider,
+                    payload.group_id.as_deref(),
+                ));
+            }
+            Ok(None) => {
+                // This cookie value is invalid/expired — try the next one
+                continue;
+            }
+            Err(e) => {
+                // Database error — propagate immediately
+                return Err(e);
+            }
+        }
+    }
 
-    Ok(verify_success_response(
-        &payload.user_id,
-        &payload.user_login,
-        &payload.role,
-        &payload.provider,
-        payload.group_id.as_deref(),
-    ))
+    warn!(
+        count = session_ids.len(),
+        session_prefix = &session_ids[0][..session_ids[0].len().min(8)],
+        "Auth verify: all session cookies invalid/expired"
+    );
+    Err(AuthError::SessionExpired)
 }
 
 /// Build a 200 response with user info headers for ForwardAuth.
@@ -176,6 +237,16 @@ fn verify_success_response(
 // GET /api/v1/auth/me — current user session
 // ============================================================================
 
+/// Get current user session information.
+#[utoipa::path(
+    get,
+    path = "/api/v1/auth/me",
+    tag = "auth",
+    responses(
+        (status = 200, description = "Current session info", body = SessionResponse),
+        (status = 401, description = "Not authenticated", body = ErrorBody)
+    )
+)]
 async fn me_handler(
     State(state): State<AuthState>,
     headers: HeaderMap,
@@ -415,6 +486,16 @@ async fn do_logout(state: &AuthState, headers: &HeaderMap) -> Result<Response, A
         .into_response())
 }
 
+/// Log out the current user session.
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/logout",
+    tag = "auth",
+    responses(
+        (status = 200, description = "Logged out successfully", body = MessageResponse),
+        (status = 302, description = "Redirect to provider logout")
+    )
+)]
 async fn logout_handler(
     State(state): State<AuthState>,
     headers: HeaderMap,
@@ -433,6 +514,17 @@ async fn logout_get_handler(
 // API key management
 // ============================================================================
 
+/// Create a new API key for the authenticated user.
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/api-keys",
+    tag = "api-keys",
+    request_body = CreateApiKeyRequest,
+    responses(
+        (status = 201, description = "API key created", body = ApiKeyCreateResponse),
+        (status = 401, description = "Not authenticated", body = ErrorBody)
+    )
+)]
 async fn create_api_key_handler(
     State(state): State<AuthState>,
     headers: HeaderMap,
@@ -468,6 +560,16 @@ async fn create_api_key_handler(
     ))
 }
 
+/// List all API keys for the authenticated user.
+#[utoipa::path(
+    get,
+    path = "/api/v1/auth/api-keys",
+    tag = "api-keys",
+    responses(
+        (status = 200, description = "List of API keys", body = Vec<ApiKeyListItem>),
+        (status = 401, description = "Not authenticated", body = ErrorBody)
+    )
+)]
 async fn list_api_keys_handler(
     State(state): State<AuthState>,
     headers: HeaderMap,
@@ -494,6 +596,20 @@ async fn list_api_keys_handler(
     Ok(Json(items))
 }
 
+/// Revoke an API key by ID.
+#[utoipa::path(
+    delete,
+    path = "/api/v1/auth/api-keys/{key_id}",
+    tag = "api-keys",
+    params(
+        ("key_id" = String, Path, description = "API key identifier")
+    ),
+    responses(
+        (status = 200, description = "API key revoked", body = MessageResponse),
+        (status = 401, description = "Not authenticated", body = ErrorBody),
+        (status = 404, description = "API key not found", body = ErrorBody)
+    )
+)]
 async fn revoke_api_key_handler(
     State(state): State<AuthState>,
     headers: HeaderMap,
@@ -519,6 +635,16 @@ async fn revoke_api_key_handler(
 // User listing
 // ============================================================================
 
+/// List all registered users.
+#[utoipa::path(
+    get,
+    path = "/api/v1/users",
+    tag = "users",
+    responses(
+        (status = 200, description = "List of users", body = UserListResponse),
+        (status = 500, description = "Internal error", body = ErrorBody)
+    )
+)]
 async fn list_users_handler(
     State(state): State<AuthState>,
 ) -> Result<Json<UserListResponse>, AuthError> {

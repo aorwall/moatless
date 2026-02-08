@@ -137,7 +137,7 @@ pub fn build_pod_from_template(
         }
     }
 
-    // Modify the pod spec: inject env vars into worker container
+    // Modify the pod spec: inject env vars into sandbox container
     if let Some(ref mut spec) = pod.spec {
         // Compute startup probe failure threshold
         let startup_timeout = config.k8s_pod_startup_timeout_secs;
@@ -145,7 +145,7 @@ pub fn build_pod_from_template(
         let failure_threshold = (startup_timeout / startup_probe_period) + 6; // +30s buffer
 
         for container in spec.containers.iter_mut() {
-            if container.name == "worker" {
+            if container.name == "sandbox" {
                 // Override image if specified in repo config (skip empty strings)
                 if let Some(ref image) = plan.repo_config.docker_image {
                     if !image.is_empty() {

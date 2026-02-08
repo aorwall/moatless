@@ -10,7 +10,7 @@ use super::naming::generate_service_name;
 
 /// Create a ClusterIP Service for a workspace pod.
 /// Idempotent — handles AlreadyExists (409) gracefully.
-pub async fn create_worker_service(
+pub async fn create_sandbox_service(
     k8s: &K8sClient,
     task_id: &str,
     server_ports: &BTreeMap<String, u16>,
@@ -18,9 +18,9 @@ pub async fn create_worker_service(
     let services: Api<Service> = Api::namespaced(k8s.client.clone(), k8s.namespace());
     let service_name = generate_service_name(task_id);
 
-    // Always expose worker port; add server ports from config
+    // Always expose sandbox port; add server ports from config
     let mut ports = vec![serde_json::json!({
-        "name": "worker",
+        "name": "sandbox",
         "port": 8001,
         "targetPort": 8001,
         "protocol": "TCP",
@@ -42,7 +42,7 @@ pub async fn create_worker_service(
     );
     labels.insert(
         "app.kubernetes.io/component".to_string(),
-        "worker-service".to_string(),
+        "sandbox-service".to_string(),
     );
     labels.insert(
         "app.kubernetes.io/managed-by".to_string(),
@@ -71,10 +71,10 @@ pub async fn create_worker_service(
 
     match services.create(&PostParams::default(), &svc).await {
         Ok(_) => {
-            info!(task_id, service_name = %service_name, "Worker Service created");
+            info!(task_id, service_name = %service_name, "Sandbox Service created");
         }
         Err(kube::Error::Api(ref e)) if e.code == 409 => {
-            debug!(task_id, service_name = %service_name, "Worker Service already exists, reusing");
+            debug!(task_id, service_name = %service_name, "Sandbox Service already exists, reusing");
         }
         Err(e) => return Err(e),
     }
@@ -82,22 +82,22 @@ pub async fn create_worker_service(
     Ok(service_name)
 }
 
-/// Delete the Worker Service for a task. Handles 404 gracefully.
-pub async fn delete_worker_service(k8s: &K8sClient, task_id: &str) -> Result<(), kube::Error> {
+/// Delete the Sandbox Service for a task. Handles 404 gracefully.
+pub async fn delete_sandbox_service(k8s: &K8sClient, task_id: &str) -> Result<(), kube::Error> {
     let services: Api<Service> = Api::namespaced(k8s.client.clone(), k8s.namespace());
     let service_name = generate_service_name(task_id);
 
     match services.delete(&service_name, &Default::default()).await {
         Ok(_) => {
-            info!(task_id, service_name = %service_name, "Worker Service deleted");
+            info!(task_id, service_name = %service_name, "Sandbox Service deleted");
             Ok(())
         }
         Err(kube::Error::Api(ref e)) if e.code == 404 => {
-            debug!(task_id, "Worker Service not found, already deleted");
+            debug!(task_id, "Sandbox Service not found, already deleted");
             Ok(())
         }
         Err(e) => {
-            warn!(task_id, error = %e, "Failed to delete Worker Service");
+            warn!(task_id, error = %e, "Failed to delete Sandbox Service");
             Err(e)
         }
     }

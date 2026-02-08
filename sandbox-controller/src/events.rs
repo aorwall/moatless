@@ -12,7 +12,7 @@
 
 use redis::aio::ConnectionManager;
 use serde::Serialize;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 /// Publishes environment lifecycle events to Redis Streams.
@@ -78,14 +78,26 @@ impl RedisEventPublisher {
         sub_type: &str,
         error_message: Option<&str>,
     ) {
-        let event_id = Uuid::new_v4().to_string();
-        let timestamp = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-        let is_error = sub_type == "error";
-
         let payload = match error_message {
             Some(msg) => serde_json::json!({ "error": msg }),
             None => serde_json::json!({}),
         };
+        self.publish_environment_event_with_payload(task_id, sub_type, payload)
+            .await;
+    }
+
+    /// Publish an environment lifecycle event with a custom JSON payload.
+    ///
+    /// Fire-and-forget: logs warnings on failure, never returns errors.
+    pub async fn publish_environment_event_with_payload(
+        &self,
+        task_id: &str,
+        sub_type: &str,
+        payload: serde_json::Value,
+    ) {
+        let event_id = Uuid::new_v4().to_string();
+        let timestamp = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+        let is_error = sub_type == "error" || sub_type == "server_failed";
 
         let event = EnvironmentEvent {
             event_id: event_id.clone(),
@@ -126,7 +138,7 @@ impl RedisEventPublisher {
 
         match result {
             Ok(_) => {
-                info!(
+                debug!(
                     task_id = %task_id,
                     sub_type = %sub_type,
                     "Published environment event to Redis"

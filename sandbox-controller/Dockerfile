@@ -1,7 +1,10 @@
 # syntax=docker/dockerfile:1
 
-# --- Chef stage: install cargo-chef ---
-FROM rust:1.88-slim AS chef
+# Build natively on host arch, cross-compile to target arch.
+# This avoids QEMU emulation which makes Rust compilation 5-10x slower.
+
+# --- Chef stage: install cargo-chef (runs on build host natively) ---
+FROM --platform=$BUILDPLATFORM rust:1.88-slim AS chef
 RUN cargo install cargo-chef
 WORKDIR /app
 
@@ -10,26 +13,67 @@ FROM chef AS planner
 COPY . .
 RUN cargo chef prepare --recipe-path recipe.json
 
-# --- Builder stage: build dependencies then source ---
+# --- Builder stage: cross-compile to target arch ---
 FROM chef AS builder
-RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
+
+ARG TARGETARCH
+
+# Install cmake (needed by aws-lc-sys) and cross-compilation toolchain
+RUN apt-get update && \
+    if [ "$TARGETARCH" = "amd64" ] && [ "$(uname -m)" != "x86_64" ]; then \
+      apt-get install -y cmake gcc-x86-64-linux-gnu g++-x86-64-linux-gnu && \
+      rustup target add x86_64-unknown-linux-gnu; \
+    elif [ "$TARGETARCH" = "arm64" ] && [ "$(uname -m)" != "aarch64" ]; then \
+      apt-get install -y cmake gcc-aarch64-linux-gnu g++-aarch64-linux-gnu && \
+      rustup target add aarch64-unknown-linux-gnu; \
+    else \
+      apt-get install -y cmake; \
+    fi && \
+    rm -rf /var/lib/apt/lists/*
+
+# Cross-compilation environment for amd64 target on arm64 host
+ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=x86_64-linux-gnu-gcc
+ENV CC_x86_64_unknown_linux_gnu=x86_64-linux-gnu-gcc
+ENV CXX_x86_64_unknown_linux_gnu=x86_64-linux-gnu-g++
+
+# Cross-compilation environment for arm64 target on amd64 host
+ENV CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
+ENV CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc
+ENV CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++
+
+# Resolve the Rust target triple
+SHELL ["/bin/bash", "-c"]
 
 # Cook dependencies (cached unless Cargo.toml/lock change)
-# Limit parallel jobs to reduce peak memory usage during cross-compilation
-ENV CARGO_BUILD_JOBS=2
 COPY --from=planner /app/recipe.json recipe.json
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
-    cargo chef cook --release --recipe-path recipe.json
+    --mount=type=cache,target=/app/target \
+    TARGET_FLAG="" && \
+    if [ "$TARGETARCH" = "amd64" ] && [ "$(uname -m)" != "x86_64" ]; then \
+      TARGET_FLAG="--target x86_64-unknown-linux-gnu"; \
+    elif [ "$TARGETARCH" = "arm64" ] && [ "$(uname -m)" != "aarch64" ]; then \
+      TARGET_FLAG="--target aarch64-unknown-linux-gnu"; \
+    fi && \
+    cargo chef cook --release $TARGET_FLAG --recipe-path recipe.json
 
 # Build the actual binary
 COPY . .
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
-    cargo build --release && \
-    cp target/release/sandbox-controller /app/sandbox-controller
+    --mount=type=cache,target=/app/target \
+    if [ "$TARGETARCH" = "amd64" ] && [ "$(uname -m)" != "x86_64" ]; then \
+      cargo build --release --target x86_64-unknown-linux-gnu && \
+      cp target/x86_64-unknown-linux-gnu/release/sandbox-controller /app/sandbox-controller; \
+    elif [ "$TARGETARCH" = "arm64" ] && [ "$(uname -m)" != "aarch64" ]; then \
+      cargo build --release --target aarch64-unknown-linux-gnu && \
+      cp target/aarch64-unknown-linux-gnu/release/sandbox-controller /app/sandbox-controller; \
+    else \
+      cargo build --release && \
+      cp target/release/sandbox-controller /app/sandbox-controller; \
+    fi
 
-# --- Runtime stage ---
+# --- Runtime stage (target platform) ---
 FROM gcr.io/distroless/cc-debian12
 COPY --from=builder /app/sandbox-controller /
 EXPOSE 8080 9090

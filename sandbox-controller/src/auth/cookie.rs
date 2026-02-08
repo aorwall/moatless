@@ -5,7 +5,7 @@ use axum::http::HeaderMap;
 use cookie::{Cookie, SameSite};
 use crate::config::Config;
 
-/// Extract a cookie value from the request headers.
+/// Extract a cookie value from the request headers (returns the first match).
 pub fn get_cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
     let cookie_header = headers.get(header::COOKIE)?.to_str().ok()?;
     for pair in cookie_header.split(';') {
@@ -16,6 +16,27 @@ pub fn get_cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
         }
     }
     None
+}
+
+/// Extract all cookie values matching `name` from the request headers.
+///
+/// Browsers may send duplicate cookies when the domain or path changed between
+/// deployments. This returns every matching value so callers can try each one.
+pub fn get_all_cookie_values(headers: &HeaderMap, name: &str) -> Vec<String> {
+    let Some(cookie_header) = headers.get(header::COOKIE).and_then(|v| v.to_str().ok()) else {
+        return Vec::new();
+    };
+    cookie_header
+        .split(';')
+        .filter_map(|pair| {
+            let c = Cookie::parse(pair.trim()).ok()?;
+            if c.name() == name {
+                Some(c.value().to_string())
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 /// Build a Set-Cookie header value for the session cookie.

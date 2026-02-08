@@ -8,6 +8,7 @@ use std::sync::Arc;
 use tracing::{info, warn};
 
 use super::auto_provision;
+use super::readiness::BackgroundReadinessChecker;
 use super::client::K8sClient;
 use super::deployment;
 use super::health;
@@ -131,7 +132,7 @@ impl SandboxProvider for K8sSandboxProvider {
         .await?;
 
         let service_name =
-            service::create_worker_service(&self.k8s, task_id, &server_ports).await?;
+            service::create_sandbox_service(&self.k8s, task_id, &server_ports).await?;
 
         // 5b. Create Traefik IngressRoutes (if proxy_domain is configured)
         if self.config.proxy_domain.is_some() {
@@ -153,20 +154,13 @@ impl SandboxProvider for K8sSandboxProvider {
             status: EnvironmentStatus::Initializing,
             repository_clone_url: plan.git_clone_url.clone(),
             repository_branch: plan.git_branch.clone(),
-            worker_port: 8001,
+            sandbox_port: 8001,
             preview_host_port: 3000,
             servers: servers_map,
         };
 
         // Invalidate status cache
         self.status_cache.invalidate(task_id).await;
-
-        // Publish initializing event
-        if let Some(ref publisher) = self.event_publisher {
-            publisher
-                .publish_environment_event(task_id, "initializing", None)
-                .await;
-        }
 
         info!(
             task_id = %task_id,
@@ -175,24 +169,8 @@ impl SandboxProvider for K8sSandboxProvider {
             "Workspace provisioned, returning immediately (pod starting in background)"
         );
 
-        // Spawn background task for pod readiness (publishes ready/error events)
-        let bg_k8s = self.k8s.clone();
-        let bg_task_id = task_id.to_string();
-        let bg_service_name = service_name.clone();
-        let bg_timeout = self.config.k8s_pod_startup_timeout_secs;
-        let bg_cache = self.status_cache.clone();
-        let bg_publisher = self.event_publisher.clone();
-        tokio::spawn(async move {
-            let checker = BackgroundReadinessChecker {
-                k8s: bg_k8s,
-                task_id: bg_task_id,
-                service_name: bg_service_name,
-                timeout_secs: bg_timeout,
-                status_cache: bg_cache,
-                event_publisher: bg_publisher,
-            };
-            checker.run().await;
-        });
+        // Publish initializing event + spawn background readiness checker
+        self.publish_and_watch_readiness(task_id).await;
 
         Ok(ProvisionResponse {
             execution_target: target,
@@ -282,19 +260,21 @@ impl SandboxProvider for K8sSandboxProvider {
                     is_running: agent_running,
                     workspace_ready: true,
                     can_execute: true,
+                    resources: snapshot.resources,
                 });
             }
 
-            // Sandbox /status failed but pod is running — return minimal response
+            // Sandbox /status failed but pod is running — application not yet serving
             return Ok(WorkspaceStatusFullResponse {
                 workspace_state: WorkspaceState::Exists,
-                environment_status,
+                environment_status: EnvironmentStatus::Initializing,
                 environment_error: None,
                 agent_state: AgentState::None,
                 servers: vec![],
                 is_running: false,
-                workspace_ready: true,
-                can_execute: true,
+                workspace_ready: false,
+                can_execute: false,
+                resources: None,
             });
         }
 
@@ -316,6 +296,7 @@ impl SandboxProvider for K8sSandboxProvider {
             is_running: false,
             workspace_ready: false,
             can_execute,
+            resources: None,
         })
     }
 
@@ -356,30 +337,8 @@ impl SandboxProvider for K8sSandboxProvider {
                     .await
                     .map_err(SandboxError::KubeError)?;
 
-                // Publish initializing and spawn background readiness checker
-                if let Some(ref publisher) = self.event_publisher {
-                    publisher
-                        .publish_environment_event(task_id, "initializing", None)
-                        .await;
-                }
-
-                let service_name = generate_service_name(task_id);
-                let bg_k8s = self.k8s.clone();
-                let bg_task_id = task_id.to_string();
-                let bg_timeout = self.config.k8s_pod_startup_timeout_secs;
-                let bg_cache = self.status_cache.clone();
-                let bg_publisher = self.event_publisher.clone();
-                tokio::spawn(async move {
-                    let checker = BackgroundReadinessChecker {
-                        k8s: bg_k8s,
-                        task_id: bg_task_id,
-                        service_name,
-                        timeout_secs: bg_timeout,
-                        status_cache: bg_cache,
-                        event_publisher: bg_publisher,
-                    };
-                    checker.run().await;
-                });
+                // Publish initializing event + spawn background readiness checker
+                self.publish_and_watch_readiness(task_id).await;
             }
             Ok(None) => {
                 // No Deployment — try auto-provisioning from DB
@@ -415,6 +374,10 @@ impl SandboxProvider for K8sSandboxProvider {
             .map_err(SandboxError::KubeError)?;
 
         self.status_cache.invalidate(task_id).await;
+
+        // Publish initializing event + watch for pod readiness
+        self.publish_and_watch_readiness(task_id).await;
+
         Ok(())
     }
 
@@ -425,7 +388,7 @@ impl SandboxProvider for K8sSandboxProvider {
         if let Err(e) = deployment::delete_deployment(&self.k8s, task_id).await {
             warn!(task_id = %task_id, error = %e, "Failed to delete Deployment");
         }
-        if let Err(e) = service::delete_worker_service(&self.k8s, task_id).await {
+        if let Err(e) = service::delete_sandbox_service(&self.k8s, task_id).await {
             warn!(task_id = %task_id, error = %e, "Failed to delete service");
         }
         if let Err(e) = ingress::delete_task_ingress_routes(&self.k8s, task_id).await {
@@ -448,6 +411,36 @@ impl SandboxProvider for K8sSandboxProvider {
 // =============================================================================
 
 impl K8sSandboxProvider {
+    /// Publish an "initializing" event and spawn a background readiness checker.
+    ///
+    /// Used by `provision()`, `start()`, and `restart()` to give the frontend
+    /// real-time feedback while a pod is starting up.
+    async fn publish_and_watch_readiness(&self, task_id: &str) {
+        if let Some(ref publisher) = self.event_publisher {
+            publisher
+                .publish_environment_event(task_id, "initializing", None)
+                .await;
+        }
+
+        let service_name = generate_service_name(task_id);
+        let bg_k8s = self.k8s.clone();
+        let bg_task_id = task_id.to_string();
+        let bg_timeout = self.config.k8s_pod_startup_timeout_secs;
+        let bg_cache = self.status_cache.clone();
+        let bg_publisher = self.event_publisher.clone();
+        tokio::spawn(async move {
+            let checker = BackgroundReadinessChecker {
+                k8s: bg_k8s,
+                task_id: bg_task_id,
+                service_name,
+                timeout_secs: bg_timeout,
+                status_cache: bg_cache,
+                event_publisher: bg_publisher,
+            };
+            checker.run().await;
+        });
+    }
+
     /// Create or find existing PVC.
     async fn create_or_find_pvc(&self, task_id: &str) -> Result<String, String> {
         if let Some(name) = pvc::find_task_pvc(&self.k8s, task_id).await {
@@ -611,7 +604,7 @@ impl K8sSandboxProvider {
                         status: EnvironmentStatus::Ready,
                         repository_clone_url: plan.git_clone_url.clone(),
                         repository_branch: plan.git_branch.clone(),
-                        worker_port: 8001,
+                        sandbox_port: 8001,
                         preview_host_port: 3000,
                         servers: servers_map,
                     };
@@ -662,190 +655,5 @@ impl K8sSandboxProvider {
                 self.config.proxy_protocol, task_id, port, domain
             )
         })
-    }
-}
-
-// =============================================================================
-// Background readiness checker (fire-and-forget, logging only)
-// =============================================================================
-
-/// Polls pod readiness in a background task after provisioning.
-/// Publishes environment events to Redis when state transitions occur.
-struct BackgroundReadinessChecker {
-    k8s: K8sClient,
-    task_id: String,
-    service_name: String,
-    timeout_secs: u64,
-    status_cache: StatusCache,
-    event_publisher: Option<RedisEventPublisher>,
-}
-
-impl BackgroundReadinessChecker {
-    async fn run(&self) {
-        let poll_interval = std::time::Duration::from_secs(2);
-        let start = std::time::Instant::now();
-        let deadline = start + std::time::Duration::from_secs(self.timeout_secs);
-
-        let pods_api: Api<Pod> =
-            Api::namespaced(self.k8s.client.clone(), self.k8s.namespace());
-        let lp = ListParams::default()
-            .labels(&format!("moatless.io/task-id={}", self.task_id));
-
-        let mut iteration: u32 = 0;
-        let mut last_phase: Option<String> = None;
-
-        while std::time::Instant::now() < deadline {
-            let elapsed_secs = start.elapsed().as_secs();
-
-            match pods_api.list(&lp).await {
-                Ok(list) => {
-                    if let Some(pod) = list.items.first() {
-                        let raw_phase = pod
-                            .status
-                            .as_ref()
-                            .and_then(|s| s.phase.as_deref())
-                            .unwrap_or("Unknown");
-                        let phase = PodPhase::from(raw_phase);
-
-                        let waiting_reason = pod
-                            .status
-                            .as_ref()
-                            .and_then(|s| s.container_statuses.as_ref())
-                            .and_then(|cs| cs.first())
-                            .and_then(|cs| cs.state.as_ref())
-                            .and_then(|s| s.waiting.as_ref())
-                            .and_then(|w| w.reason.clone());
-
-                        let pod_ip = pod.status.as_ref().and_then(|s| s.pod_ip.as_deref());
-
-                        // Log on phase change or every 5th iteration (~10s)
-                        let phase_str = raw_phase.to_string();
-                        let phase_changed = last_phase.as_ref() != Some(&phase_str);
-                        if phase_changed || iteration % 5 == 0 {
-                            info!(
-                                task_id = %self.task_id,
-                                phase = %raw_phase,
-                                pod_ip = ?pod_ip,
-                                waiting_reason = ?waiting_reason,
-                                elapsed_secs,
-                                "Waiting for pod"
-                            );
-                            last_phase = Some(phase_str);
-                        }
-
-                        match phase {
-                            PodPhase::Failed | PodPhase::Succeeded => {
-                                let msg = format!("Pod entered {} phase", phase.as_str());
-                                warn!(task_id = %self.task_id, phase = phase.as_str(), "Pod entered terminal phase");
-                                self.publish_event("error", Some(&msg)).await;
-                                return;
-                            }
-                            PodPhase::Running => {
-                                if let Some(ref status) = pod.status {
-                                    if let Some(ref pod_ip) = status.pod_ip {
-                                        let ip_healthy =
-                                            health::check_pod_health(pod_ip, 8001).await;
-                                        if ip_healthy {
-                                            let svc_healthy = health::check_service_health(
-                                                &self.service_name,
-                                                self.k8s.namespace(),
-                                                8001,
-                                            )
-                                            .await;
-                                            if svc_healthy {
-                                                self.status_cache
-                                                    .invalidate(&self.task_id)
-                                                    .await;
-                                                info!(
-                                                    task_id = %self.task_id,
-                                                    elapsed_secs,
-                                                    "Pod is ready (background check)"
-                                                );
-                                                self.publish_event("ready", None).await;
-                                                return;
-                                            }
-                                            if iteration % 5 == 0 {
-                                                info!(
-                                                    task_id = %self.task_id,
-                                                    elapsed_secs,
-                                                    "Pod healthy but service DNS not ready yet"
-                                                );
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            _ => {} // Keep waiting
-                        }
-
-                        // Check for permanent container failures
-                        if let Some(ref status) = pod.status {
-                            if let Some(ref container_statuses) = status.container_statuses {
-                                for cs in container_statuses {
-                                    if let Some(waiting) =
-                                        cs.state.as_ref().and_then(|s| s.waiting.as_ref())
-                                    {
-                                        let reason = waiting.reason.as_deref().unwrap_or("");
-                                        let permanent_failures = [
-                                            "ImagePullBackOff",
-                                            "ErrImagePull",
-                                            "InvalidImageName",
-                                            "CreateContainerConfigError",
-                                        ];
-                                        if permanent_failures.contains(&reason) {
-                                            let msg = format!("Container error: {reason}");
-                                            warn!(
-                                                task_id = %self.task_id,
-                                                reason = %reason,
-                                                "Container hit permanent failure"
-                                            );
-                                            self.publish_event("error", Some(&msg)).await;
-                                            return;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        let phase_str = "NoPod".to_string();
-                        let phase_changed = last_phase.as_ref() != Some(&phase_str);
-                        if phase_changed || iteration % 5 == 0 {
-                            info!(
-                                task_id = %self.task_id,
-                                elapsed_secs,
-                                "Waiting for pod to be scheduled"
-                            );
-                            last_phase = Some(phase_str);
-                        }
-                    }
-                }
-                Err(e) => {
-                    warn!(task_id = %self.task_id, error = %e, "Error polling pod status");
-                }
-            }
-
-            iteration += 1;
-            tokio::time::sleep(poll_interval).await;
-        }
-
-        let msg = format!(
-            "Pod startup timed out after {}s",
-            self.timeout_secs
-        );
-        warn!(
-            task_id = %self.task_id,
-            timeout_secs = self.timeout_secs,
-            "Background readiness check timed out"
-        );
-        self.publish_event("error", Some(&msg)).await;
-    }
-
-    /// Helper to publish an environment event (fire-and-forget).
-    async fn publish_event(&self, sub_type: &str, error_message: Option<&str>) {
-        if let Some(ref publisher) = self.event_publisher {
-            publisher
-                .publish_environment_event(&self.task_id, sub_type, error_message)
-                .await;
-        }
     }
 }

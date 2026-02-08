@@ -50,7 +50,7 @@ pub async fn create_workspace_deployment(
     );
     labels.insert(
         "app.kubernetes.io/component".to_string(),
-        "worker".to_string(),
+        "sandbox".to_string(),
     );
     labels.insert(
         "app.kubernetes.io/managed-by".to_string(),
