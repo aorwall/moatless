@@ -279,6 +279,18 @@
       }
     },
     {
+      "includes": ["packages/api-client/src/sandbox/**"],
+      "linter": {
+        "enabled": false
+      },
+      "formatter": {
+        "enabled": false
+      },
+      "assist": {
+        "enabled": false
+      }
+    },
+    {
       "includes": ["packages/inspector/src/client/**/*.ts"],
       "linter": {
         "rules": {

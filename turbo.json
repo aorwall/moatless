@@ -68,6 +68,10 @@
 			"outputs": ["coverage/**"],
 			"inputs": ["**/*.ts", "**/*.tsx", "vitest.config.ts", "**/*.test.ts"],
 			"env": ["USE_CONSOLE_LOGGING"]
+		},
+		"generate": {
+			"outputs": ["src/**", "specs/**"],
+			"cache": false
 		}
 	}
 }
