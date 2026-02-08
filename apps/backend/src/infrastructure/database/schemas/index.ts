@@ -18,7 +18,6 @@ import { repositories } from '../../../features/repositories/db/repository.schem
 import { tags, taskTags } from '../../../features/tags/db/tag.schema'
 import { tasks } from '../../../features/tasks/db/task.schema'
 import { taskMessageContexts, taskMessages } from '../../../features/tasks/db/task-message.schema'
-import { workspaceSandboxes } from '../../../features/workspace/db/workspace-sandbox.schema'
 
 /**
  * All database table schemas.
@@ -35,7 +34,6 @@ export const schemas = {
   taskEvents,
   repositories,
   pluginMarketplaces,
-  workspaceSandboxes,
   commands,
   channelThreads,
   slackChannelMappings,

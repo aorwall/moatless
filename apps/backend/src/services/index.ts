@@ -8,7 +8,6 @@
  * INFRASTRUCTURE SERVICES (Keep Here):
  * - SettingsService: Application-wide settings management used by agents, workspace,
  *   repositories, and other features
- * - DockerService: Reserved for future Docker-based worker execution support
  *
  * MIGRATED SERVICES (Moved to Feature Folders):
  * - FileOperations → features/workspace/services/
@@ -23,7 +22,6 @@ export * from '../features/file-storage/index'
 export * from '../features/preview/index'
 export * from '../features/repositories/index'
 export { TaskService } from '../features/tasks/services/task.service'
-export * from './docker.service'
 export * from './redis-lock.service'
 // Cross-feature infrastructure services
 export * from './settings.service'
