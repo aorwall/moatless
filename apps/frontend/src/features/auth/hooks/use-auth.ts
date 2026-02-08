@@ -1,28 +1,27 @@
+import type { SessionResponse } from '@moatless/api-client'
+import { unwrapResponse } from '@moatless/api-client/custom-instance'
+import { meHandler } from '@moatless/api-client/sandbox/auth/auth'
 import { useQuery } from '@tanstack/react-query'
-import { ApiError } from '@/lib/api/client'
-import { getCurrentUser } from '../api/auth.api'
+import { redirectToLogin } from '@/lib/api/query-client'
 
-// API base URL for auth redirects
 const API_BASE_URL = import.meta.env.PROD
   ? ''
   : import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
 /**
  * Hook to get the current authenticated user
- * Redirects to /auth/login on 401 response from /auth/me
+ * Redirects to login on 401 response from /auth/me
  */
 export function useAuth() {
   const { data: session, isLoading } = useQuery({
     queryKey: ['auth', 'session'],
-    queryFn: getCurrentUser,
+    queryFn: () => unwrapResponse<SessionResponse>(meHandler()),
     retry: false, // Don't retry on 401
     staleTime: 5 * 60 * 1000, // Consider fresh for 5 minutes
     throwOnError: (error) => {
-      // Redirect to login on 401 from /auth/me (backend determines provider)
-      if (error instanceof ApiError && error.status === 401) {
-        if (!window.location.pathname.startsWith('/auth')) {
-          window.location.href = `${API_BASE_URL}/api/v1/auth/login`
-        }
+      const status = (error as Error & { status?: number }).status
+      if (status === 401) {
+        redirectToLogin()
         return false // Don't throw the error
       }
       return true // Throw other errors

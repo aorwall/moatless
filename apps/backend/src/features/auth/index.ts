@@ -1,6 +1,6 @@
 // Routes
 export { registerApiKeyRoutes } from './api/api-key.routes'
-export { registerAuthRoutes } from './api/auth.routes'
+
 export { registerGitHubSettingsRoutes } from './api/github-settings.routes'
 export { registerGitLabSettingsRoutes } from './api/gitlab-settings.routes'
 

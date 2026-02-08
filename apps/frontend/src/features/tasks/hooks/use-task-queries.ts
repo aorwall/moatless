@@ -1,6 +1,7 @@
+import { unwrapResponse } from '@moatless/api-client/custom-instance'
+import { workspaceStatusHandler } from '@moatless/api-client/sandbox/sandbox/sandbox'
 import type { Task, WorkspaceStatusResponse } from '@moatless/types'
 import { type UseQueryOptions, useQuery } from '@tanstack/react-query'
-import { sandboxApi } from '@/features/tasks/api/sandbox'
 import { tasksApi } from '@/features/tasks/api/tasks'
 import { queryKeys } from '@/lib/api/query-keys'
 
@@ -50,7 +51,7 @@ export function useTaskWorkspaceStatusQuery(
 
   return useQuery({
     queryKey: queryKeys.tasks.workspaceStatus(taskId),
-    queryFn: () => sandboxApi.getWorkspaceStatus(taskId),
+    queryFn: () => unwrapResponse<WorkspaceStatusResponse>(workspaceStatusHandler(taskId)),
     enabled: enabled && !!taskId,
     staleTime,
     refetchInterval,

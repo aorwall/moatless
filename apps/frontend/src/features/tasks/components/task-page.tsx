@@ -1,8 +1,9 @@
-import type { MessageContext } from '@moatless/types'
+import type { Event, MessageContext } from '@moatless/types'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
+import { useTaskEventSubscription } from '@/features/events'
 import { Preview } from '@/features/preview'
-import type { ElementInfo } from '@/features/preview/types'
+import type { ElementInfo, StartupEvent } from '@/features/preview/types'
 import { useWorkspaceStatus } from '@/features/tasks'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
@@ -29,6 +30,37 @@ function TaskPageComponent() {
   const handleCommandExecutorReady = useCallback((executor: (commandName: string) => void) => {
     commandExecutorRef.current = executor
   }, [])
+
+  // K8s startup events for the initializing overlay
+  const [startupEvents, setStartupEvents] = useState<StartupEvent[]>([])
+
+  const handleTaskEvent = useCallback((event: Event) => {
+    // k8s_event is not in the EnvironmentStatus enum but arrives via raw JSON SSE,
+    // so we need to check the untyped subType before discriminated-union narrowing.
+    const rawSubType = (event as { subType?: string }).subType
+    if (event.type === 'environment' && rawSubType === 'k8s_event') {
+      const payload = (event as { payload?: Record<string, unknown> }).payload ?? {}
+      setStartupEvents((prev) => [
+        ...prev,
+        {
+          reason: String(payload.reason ?? ''),
+          message: String(payload.message ?? ''),
+          eventType: String(payload.eventType ?? 'Normal'),
+          timestamp: event.timestamp
+            ? new Date(event.timestamp).toISOString()
+            : new Date().toISOString(),
+        },
+      ])
+    }
+    if (
+      event.type === 'environment' &&
+      (rawSubType === 'ready' || rawSubType === 'error' || rawSubType === 'stopped')
+    ) {
+      setStartupEvents([])
+    }
+  }, [])
+
+  useTaskEventSubscription(taskId, handleTaskEvent)
 
   // Ref for capturing preview navigation function (using ref to avoid re-render issues)
   const previewNavigateRef = useRef<((path: string) => void) | null>(null)
@@ -174,11 +206,13 @@ function TaskPageComponent() {
           taskId={taskId}
           environmentStatus={workspaceStatus?.environmentStatus}
           environmentError={workspaceStatus?.environmentError}
+          startupEvents={startupEvents}
           onToggleElementContext={handleToggleElementContext}
           onNavigationReady={handleNavigationReady}
           onTroubleshootRequest={handleTroubleshootRequest}
           servers={servers}
           activeServer={activeServerName}
+          resources={workspaceStatus?.resources}
         />
       </ErrorBoundary>
     )

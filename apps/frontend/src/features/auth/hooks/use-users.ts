@@ -1,7 +1,8 @@
-import type { UserListResponse } from '@moatless/types'
+import type { UserListResponse } from '@moatless/api-client'
+import { unwrapResponse } from '@moatless/api-client/custom-instance'
+import { listUsersHandler } from '@moatless/api-client/sandbox/users/users'
 import type { UseQueryOptions } from '@tanstack/react-query'
 import { useQuery } from '@tanstack/react-query'
-import { usersApi } from '@/features/auth/api/users'
 import { queryKeys } from '@/lib/api/query-keys'
 
 export function useUsersList(
@@ -9,7 +10,7 @@ export function useUsersList(
 ) {
   return useQuery({
     queryKey: queryKeys.users.list(),
-    queryFn: () => usersApi.listUsers(),
+    queryFn: () => unwrapResponse<UserListResponse>(listUsersHandler()),
     ...options,
   })
 }

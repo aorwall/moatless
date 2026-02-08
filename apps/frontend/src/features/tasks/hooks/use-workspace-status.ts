@@ -1,8 +1,12 @@
+import {
+  restartHandler,
+  startHandler,
+  stopHandler,
+} from '@moatless/api-client/sandbox/sandbox/sandbox'
 import type { Task, WorkspaceStatusResponse } from '@moatless/types'
 import type { UseQueryOptions } from '@tanstack/react-query'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/api/query-keys'
-import { sandboxApi } from '../api/sandbox'
 import { useTaskWorkspaceStatusQuery } from './use-task-queries'
 
 interface UseWorkspaceStatusOptions
@@ -38,7 +42,7 @@ export function useWorkspaceStatus(
 export function useWorkspaceRetry(taskId: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: () => sandboxApi.startWorkspace(taskId),
+    mutationFn: () => startHandler(taskId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.tasks.workspaceStatus(taskId) })
     },
@@ -52,7 +56,7 @@ export function useWorkspaceRetry(taskId: string) {
 export function useWorkspaceRestart(taskId: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: () => sandboxApi.restartWorkspace(taskId),
+    mutationFn: () => restartHandler(taskId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.tasks.workspaceStatus(taskId) })
     },
@@ -65,7 +69,7 @@ export function useWorkspaceRestart(taskId: string) {
 export function useWorkspaceStop(taskId: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: () => sandboxApi.stopWorkspace(taskId),
+    mutationFn: () => stopHandler(taskId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.tasks.workspaceStatus(taskId) })
     },
@@ -78,7 +82,7 @@ export function useWorkspaceStop(taskId: string) {
 export function useWorkspaceStart(taskId: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: () => sandboxApi.startWorkspace(taskId),
+    mutationFn: () => startHandler(taskId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.tasks.workspaceStatus(taskId) })
     },

@@ -20,6 +20,7 @@
     "post-edit-hook": "../../scripts/validate-code.sh"
   },
   "dependencies": {
+    "@moatless/api-client": "workspace:*",
     "@moatless/api-contract": "workspace:*",
     "@moatless/diff-viewer": "workspace:*",
     "@moatless/figma": "workspace:*",

@@ -1,40 +1,28 @@
+import type {
+  ApiKeyCreateResponse,
+  ApiKeyListItem,
+  CreateApiKeyRequest,
+} from '@moatless/api-client'
+import type { ErrorType } from '@moatless/api-client/custom-instance'
+import { unwrapResponse } from '@moatless/api-client/custom-instance'
+import {
+  createApiKeyHandler,
+  listApiKeysHandler,
+  revokeApiKeyHandler,
+} from '@moatless/api-client/sandbox/api-keys/api-keys'
 import {
   type UseMutationOptions,
   useMutation,
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query'
-import { apiKeysApi } from '@/features/settings/api/api-keys.api'
-import type { ApiError } from '@/lib/api/client'
 import { queryKeys } from '@/lib/api/query-keys'
 
-/**
- * API Key types based on the API contract
- */
-export interface ApiKey {
-  id: string
-  name: string
-  keyPrefix: string
-  scopes: string[] | null
-  lastUsedAt: string | null
-  expiresAt: string | null
-  createdAt: string
-}
-
-export interface ApiKeyCreateResult {
-  id: string
-  key: string
-  name: string
-  keyPrefix: string
-  scopes: string[] | null
-  expiresAt: string | null
-  createdAt: string
-}
-
-export interface CreateApiKeyRequest {
-  name: string
-  scopes?: string[]
-  expiresInDays?: number
+// Re-export generated types for consumers
+export type {
+  ApiKeyListItem as ApiKey,
+  ApiKeyCreateResponse as ApiKeyCreateResult,
+  CreateApiKeyRequest,
 }
 
 /**
@@ -43,7 +31,7 @@ export interface CreateApiKeyRequest {
 export function useApiKeys() {
   return useQuery({
     queryKey: queryKeys.settings.apiKeys(),
-    queryFn: apiKeysApi.list,
+    queryFn: () => unwrapResponse<ApiKeyListItem[]>(listApiKeysHandler()),
   })
 }
 
@@ -52,12 +40,13 @@ export function useApiKeys() {
  * The full key is only returned once and cannot be retrieved later
  */
 export function useCreateApiKey(
-  options?: UseMutationOptions<ApiKeyCreateResult, ApiError, CreateApiKeyRequest>,
+  options?: UseMutationOptions<ApiKeyCreateResponse, ErrorType<unknown>, CreateApiKeyRequest>,
 ) {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: apiKeysApi.create,
+    mutationFn: (request: CreateApiKeyRequest) =>
+      unwrapResponse<ApiKeyCreateResponse>(createApiKeyHandler(request)),
     onSuccess: () => {
       // Invalidate API keys list to refresh
       queryClient.invalidateQueries({ queryKey: queryKeys.settings.apiKeys() })
@@ -70,12 +59,12 @@ export function useCreateApiKey(
  * Revoke an API key
  */
 export function useRevokeApiKey(
-  options?: UseMutationOptions<{ message: string }, ApiError, string>,
+  options?: UseMutationOptions<{ message: string }, ErrorType<unknown>, string>,
 ) {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: apiKeysApi.revoke,
+    mutationFn: (keyId: string) => unwrapResponse<{ message: string }>(revokeApiKeyHandler(keyId)),
     onSuccess: () => {
       // Invalidate API keys list to refresh
       queryClient.invalidateQueries({ queryKey: queryKeys.settings.apiKeys() })

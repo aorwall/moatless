@@ -114,14 +114,14 @@ export function ApiKeyConfigurationSection() {
     }
   }
 
-  const formatDate = (dateString: string | null) => {
+  const formatDate = (dateString: string | null | undefined) => {
     if (!dateString) {
       return 'Never'
     }
     return new Date(dateString).toLocaleDateString()
   }
 
-  const formatRelativeTime = (dateString: string | null) => {
+  const formatRelativeTime = (dateString: string | null | undefined) => {
     if (!dateString) {
       return 'Never used'
     }

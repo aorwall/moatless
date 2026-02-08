@@ -19,8 +19,12 @@ function AuthCallback() {
     }
   }, [success, navigate])
 
+  const API_BASE_URL = import.meta.env.PROD
+    ? ''
+    : import.meta.env.VITE_API_URL || 'http://localhost:8000'
+
   const handleRetry = () => {
-    window.location.href = '/auth/login'
+    window.location.href = `${API_BASE_URL}/api/v1/auth/login`
   }
 
   if (success === 'true') {
