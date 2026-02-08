@@ -29,7 +29,16 @@ export class PreviewOrchestratorService {
   }
 
   private async getWorkspaceHandleIfExists(taskId: string): Promise<WorkspaceHandle | null> {
-    return await this.runtimeManager.getExistingWorkspaceHandle(taskId)
+    try {
+      const isAvailable = await this.runtimeManager.isWorkspaceAvailable(taskId)
+      if (!isAvailable) {
+        return null
+      }
+      // Workspace exists and is ready — get a handle via ensureWorkspace (no-op if already ready)
+      return await this.runtimeManager.ensureWorkspace(taskId)
+    } catch {
+      return null
+    }
   }
 
   /**

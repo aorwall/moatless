@@ -8,7 +8,7 @@ This module handles event emission, persistence, and real-time delivery to SSE c
                     EVENT SOURCES
     ┌─────────────────────────────────────────────┐
     │  Local Mode          │   Kubernetes Mode    │
-    │  (in-process)        │   (worker pods)      │
+    │  (in-process)        │   (sandbox pods)      │
     │                      │                      │
     │  Agent, Task,        │   Agent events       │
     │  Preview events      │   Preview events     │
@@ -65,9 +65,9 @@ await eventService.emitEvent(event)
 // → SSE clients receive event
 ```
 
-### Worker Mode (Kubernetes pods)
+### Sandbox Mode (Kubernetes pods)
 ```typescript
-// Worker pod: saves as pending, triggers NOTIFY
+// Sandbox pod: saves as pending, triggers NOTIFY
 await eventService.emitEvent(event)
 // → savePendingEvent() with status='pending'
 // → PostgreSQL trigger fires pg_notify('task_events', {...})
@@ -81,7 +81,7 @@ await eventService.emitEvent(event)
 
 ## Event Flow (PostgreSQL + Kubernetes)
 
-1. **Worker inserts event** → `eventRepository.savePendingEvent()`
+1. **Sandbox inserts event** → `eventRepository.savePendingEvent()`
 2. **Database trigger fires** → `pg_notify('task_events', {eventId, taskId, type})`
 3. **NotifyListenerService receives** → `sql.listen('task_events', callback)`
 4. **Fetches full event** → `eventRepository.getEventById(eventId)`

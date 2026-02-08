@@ -4,7 +4,19 @@ import { RedisEventTransport } from '@moatless/events/transports/redis-event-tra
 import type { Event } from '@moatless/types'
 import Redis from 'ioredis'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { isDockerAvailable, isPlatformCompatible } from '../../../__tests__/utils/docker-helpers'
+
+async function isDockerAvailable(): Promise<boolean> {
+  try {
+    execSync('docker info', { stdio: 'pipe' })
+    return true
+  } catch {
+    return false
+  }
+}
+
+function isPlatformCompatible(): boolean {
+  return process.platform === 'linux' || process.platform === 'darwin'
+}
 
 const dockerAvailable = await isDockerAvailable()
 const platformCompatible = isPlatformCompatible()

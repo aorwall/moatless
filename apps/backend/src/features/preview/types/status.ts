@@ -3,7 +3,13 @@
  * Generic types with no dependencies on moatless-specific types
  */
 
-export type ServerStatusType = 'stopped' | 'installing' | 'starting' | 'started' | 'failed'
+export type ServerStatusType =
+  | 'stopped'
+  | 'installing'
+  | 'starting'
+  | 'started'
+  | 'failed'
+  | 'timeout'
 
 export interface PreviewServerStatus {
   status: ServerStatusType

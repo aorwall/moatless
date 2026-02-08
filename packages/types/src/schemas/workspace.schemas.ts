@@ -227,6 +227,15 @@ export const ServerEntrySchema = z.object({
   capabilities: ServerCapabilitiesSchema,
 })
 
+export const ResourceMetricsSchema = z.object({
+  memoryUsageMb: z.number(),
+  memoryLimitMb: z.number().nullable(),
+  memoryUsagePercent: z.number().nullable(),
+  cpuUsagePercent: z.number().nullable(),
+  eventLoopLatencyMs: z.number(),
+  uptimeSeconds: z.number(),
+})
+
 export const WorkspaceStatusResponseSchema = z.object({
   workspaceState: WorkspaceExistenceSchema,
   environmentStatus: EnvironmentStatusSchema,
@@ -236,9 +245,11 @@ export const WorkspaceStatusResponseSchema = z.object({
   isRunning: z.boolean(),
   workspaceReady: z.boolean(),
   canExecute: z.boolean(),
+  resources: ResourceMetricsSchema.optional(),
 })
 
 export type WorkspaceStatusResponse = z.infer<typeof WorkspaceStatusResponseSchema>
+export type ResourceMetrics = z.infer<typeof ResourceMetricsSchema>
 export type ServerEntry = z.infer<typeof ServerEntrySchema>
 export type ServerCapabilities = z.infer<typeof ServerCapabilitiesSchema>
 

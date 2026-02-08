@@ -11,6 +11,7 @@ import { DeviceFrame } from './device-frame'
 import { InspectorOverlay } from './inspector-overlay'
 import { LogsPanel } from './logs-panel'
 import { PreviewHeader } from './preview-header'
+import { StartupTimeline } from './startup-timeline'
 
 type EnvironmentStatusType = NonNullable<PreviewProps['environmentStatus']>
 
@@ -76,16 +77,92 @@ function getMutationErrorMessage(error: Error): string {
   return error.message
 }
 
+function getResourceColor(
+  cpuPercent: number | null | undefined,
+  loopMs: number | null | undefined,
+): string {
+  const cpu = cpuPercent ?? 0
+  const loop = loopMs ?? 0
+  if (cpu > 80 || loop > 1000) {
+    return 'text-red-500'
+  }
+  if (cpu > 50 || loop > 100) {
+    return 'text-yellow-500'
+  }
+  return 'text-muted-foreground'
+}
+
+function formatMemory(mb: number): string {
+  if (mb >= 1024) {
+    return `${(mb / 1024).toFixed(1)} GB`
+  }
+  return `${Math.round(mb)} MB`
+}
+
+function ProxyErrorOverlay({
+  serverStatus,
+  onReload,
+}: {
+  serverStatus: { status: string; url?: string; error?: string } | undefined
+  onReload: () => void
+}) {
+  if (serverStatus?.status === 'starting' || serverStatus?.status === 'installing') {
+    return (
+      <div className="absolute inset-0 flex items-center justify-center z-10 bg-background/80 backdrop-blur-sm">
+        <div className="flex flex-col items-center justify-center text-center space-y-4 p-8">
+          <Loader2 className="h-12 w-12 text-muted-foreground animate-spin" />
+          <h3 className="text-lg font-semibold">Preview Server Starting</h3>
+          <p className="text-sm text-muted-foreground max-w-md">
+            Please wait while the server starts...
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  if (serverStatus?.status === 'stopped') {
+    return (
+      <div className="absolute inset-0 flex items-center justify-center z-10 bg-background/80 backdrop-blur-sm">
+        <div className="flex flex-col items-center justify-center text-center space-y-4 p-8">
+          <AlertCircle className="h-12 w-12 text-orange-500" />
+          <h3 className="text-lg font-semibold">Preview Server Stopped</h3>
+          <p className="text-sm text-muted-foreground max-w-md">
+            The server is not currently running
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="absolute inset-0 flex items-center justify-center z-10 bg-background/80 backdrop-blur-sm">
+      <div className="flex flex-col items-center justify-center text-center space-y-4 p-8">
+        <XCircle className="h-12 w-12 text-destructive" />
+        <h3 className="text-lg font-semibold">Connection Failed</h3>
+        <p className="text-sm text-muted-foreground max-w-md">
+          Could not connect to the preview server. It may have crashed or be listening on a
+          different port.
+        </p>
+        <Button variant="outline" size="sm" onClick={onReload}>
+          Retry
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 export function Preview({
   taskId,
   environmentStatus,
   environmentError,
+  startupEvents,
   onElementSelected,
   onToggleElementContext,
   onNavigationReady,
   onTroubleshootRequest,
   servers,
   activeServer,
+  resources,
   className,
 }: PreviewProps) {
   // Hook for retrying/starting sandbox
@@ -581,6 +658,9 @@ export function Preview({
                   <p className="text-sm text-muted-foreground max-w-md">
                     {getSandboxStatusConfig(environmentStatus, environmentError).message}
                   </p>
+                  {environmentStatus === 'initializing' &&
+                    startupEvents &&
+                    startupEvents.length > 0 && <StartupTimeline events={startupEvents} />}
                   {getSandboxStatusConfig(environmentStatus, environmentError).showRetry && (
                     <>
                       <Button
@@ -621,39 +701,7 @@ export function Preview({
 
             {/* Proxy error overlay - show appropriate message based on known server state */}
             {hasProxyError && isSandboxRunning && (
-              <div className="absolute inset-0 flex items-center justify-center z-10 bg-background/80 backdrop-blur-sm">
-                <div className="flex flex-col items-center justify-center text-center space-y-4 p-8">
-                  {serverStatus?.status === 'starting' || serverStatus?.status === 'installing' ? (
-                    <>
-                      <Loader2 className="h-12 w-12 text-muted-foreground animate-spin" />
-                      <h3 className="text-lg font-semibold">Preview Server Starting</h3>
-                      <p className="text-sm text-muted-foreground max-w-md">
-                        Please wait while the server starts...
-                      </p>
-                    </>
-                  ) : serverStatus?.status === 'stopped' ? (
-                    <>
-                      <AlertCircle className="h-12 w-12 text-orange-500" />
-                      <h3 className="text-lg font-semibold">Preview Server Stopped</h3>
-                      <p className="text-sm text-muted-foreground max-w-md">
-                        The server is not currently running
-                      </p>
-                    </>
-                  ) : (
-                    <>
-                      <XCircle className="h-12 w-12 text-destructive" />
-                      <h3 className="text-lg font-semibold">Connection Failed</h3>
-                      <p className="text-sm text-muted-foreground max-w-md">
-                        Could not connect to the preview server. It may have crashed or be listening
-                        on a different port.
-                      </p>
-                      <Button variant="outline" size="sm" onClick={reloadPreview}>
-                        Retry
-                      </Button>
-                    </>
-                  )}
-                </div>
-              </div>
+              <ProxyErrorOverlay serverStatus={serverStatus} onReload={reloadPreview} />
             )}
 
             {/* Always render iframe when URL is available — proxy handles unreachable states */}
@@ -735,6 +783,23 @@ export function Preview({
             </ResizablePanel>
           )}
         </ResizablePanelGroup>
+
+        {/* Resource metrics indicator */}
+        {resources && isSandboxRunning && (
+          <div
+            className={cn(
+              'h-6 flex-shrink-0 border-t px-3 flex items-center gap-3 text-xs font-mono tabular-nums',
+              getResourceColor(resources.cpuUsagePercent, resources.eventLoopLatencyMs),
+            )}
+          >
+            {resources.cpuUsagePercent !== null && <span>CPU {resources.cpuUsagePercent}%</span>}
+            <span>
+              Mem {formatMemory(resources.memoryUsageMb)}
+              {resources.memoryLimitMb !== null ? `/${formatMemory(resources.memoryLimitMb)}` : ''}
+            </span>
+            <span>Loop {Math.round(resources.eventLoopLatencyMs)}ms</span>
+          </div>
+        )}
 
         {/* Console panel collapsed state - fixed 40px */}
         {!isConsoleExpanded && (

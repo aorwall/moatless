@@ -78,7 +78,7 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
 
     try {
       // Map status to event subType
-      const subType = statusInfo.status as 'starting' | 'started' | 'stopped' | 'failed'
+      const subType = statusInfo.status as 'starting' | 'started' | 'stopped' | 'failed' | 'timeout'
 
       // Emit ServerEvent
       await this.eventService.emitEvent({

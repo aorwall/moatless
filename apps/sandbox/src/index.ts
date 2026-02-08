@@ -1,4 +1,5 @@
 import { serve } from '@hono/node-server'
+import type { Event } from '@moatless/types'
 import { createApp } from './app'
 import { loadConfig } from './config/environment'
 import { createMessagePollingConsumer } from './features/agents/services/message-polling-consumer'
@@ -62,6 +63,21 @@ async function main() {
       { servers: (await serverRegistry.getAllStatuses()).map((s) => s.name) },
       'Server registry initialized',
     )
+
+    // Start resource monitor (cgroup metrics + event loop latency)
+    const { initResourceMonitor } = await import('./features/monitoring')
+    initResourceMonitor({
+      onMetrics: eventService
+        ? (metrics) => {
+            eventService.emitEvent({
+              type: 'resources',
+              taskId: config.taskId,
+              isError: false,
+              payload: metrics,
+            } as unknown as Event)
+          }
+        : undefined,
+    })
 
     const app = createApp(config, { eventService, messageConsumer })
 

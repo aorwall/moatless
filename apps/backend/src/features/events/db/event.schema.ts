@@ -4,7 +4,7 @@ import { boolean, index, pgTable, serial, text, timestamp, uniqueIndex } from 'd
 
 /**
  * Task events table schema (PostgreSQL).
- * Stores events emitted by worker pods for durability.
+ * Stores events emitted by sandbox pods for durability.
  *
  * Events are written here as a fallback when HTTP delivery fails,
  * allowing the main API to poll and process them later.

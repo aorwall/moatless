@@ -1,4 +1,10 @@
-import type { Event, EventType, ServerEntry, WorkspaceStatusResponse } from '@moatless/types'
+import type {
+  Event,
+  EventType,
+  ResourceMetrics,
+  ServerEntry,
+  WorkspaceStatusResponse,
+} from '@moatless/types'
 import { useQueryClient } from '@tanstack/react-query'
 import type React from 'react'
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
@@ -157,6 +163,17 @@ export function GlobalEventStreamProvider({
               : s,
           )
           return { ...old, servers: updatedServers }
+        })
+      }
+
+      // Apply optimistic updates for resource metrics events
+      if (event.type === 'resources') {
+        const wsKey = queryKeys.tasks.workspaceStatus(event.taskId)
+        queryClient.setQueryData(wsKey, (old: WorkspaceStatusResponse | undefined) => {
+          if (!old) {
+            return old
+          }
+          return { ...old, resources: event.payload as ResourceMetrics }
         })
       }
 
@@ -413,18 +430,14 @@ export function GlobalEventStreamProvider({
   )
 
   // Helper: Build stream URL with query params
+  // Always uses a relative URL — Vite proxy (dev) and Traefik (prod) route to sandbox-controller
   const buildStreamUrl = useCallback((): string => {
     const params = new URLSearchParams()
     if (types && types.length > 0) {
       params.append('types', types.join(','))
     }
-
-    // Use same URL pattern as API client: relative URLs in production, absolute in development
-    const baseUrl = import.meta.env.PROD
-      ? '' // Empty string for relative URLs in production
-      : import.meta.env.VITE_API_URL || 'http://localhost:8000'
-
-    return `${baseUrl}/api/v1/events/stream?${params.toString()}`
+    const query = params.toString()
+    return `/api/v1/events/stream${query ? `?${query}` : ''}`
   }, [types])
 
   const connect = useCallback(() => {

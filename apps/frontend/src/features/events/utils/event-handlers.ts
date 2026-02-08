@@ -46,6 +46,9 @@ export const EVENT_INVALIDATION_MAP = {
   preview: {
     // Preview events are emitted by backend but not handled by frontend
   },
+  resources: {
+    // Resource metrics are handled via direct cache updates, no invalidation needed
+  },
 } as const satisfies Record<Event['type'], InvalidationMapping>
 
 // Status-affecting events now consider subType for granular control
@@ -58,6 +61,7 @@ export const STATUS_AFFECTING_SUBTYPES = {
   server: ['started', 'stopped', 'error'], // Only state changes affect status
   navigation: [],
   preview: [], // Preview events don't affect task status
+  resources: [], // Resource metrics don't affect task status
 } as const satisfies Record<Event['type'], readonly string[]>
 
 export function getInvalidationKeys(event: Event): InvalidationKeyFunction[] {

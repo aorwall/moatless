@@ -53,4 +53,12 @@ export class EventService extends BaseEventService {
     // Delegate to BaseEventService
     await super.emitEvent(event)
   }
+
+  /**
+   * Emit event locally (no re-publish to transport) with metrics tracking
+   */
+  override async emitLocal(event: Event): Promise<void> {
+    eventEmittedTotal.labels({ type: event.type }).inc()
+    await super.emitLocal(event)
+  }
 }

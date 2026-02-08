@@ -101,6 +101,50 @@ export class BaseEventService extends EventEmitter {
   }
 
   /**
+   * Emit an event locally without re-publishing to transport.
+   *
+   * Used by the consume loop to broadcast events that were already
+   * read from Redis — avoids re-publishing them back.
+   */
+  async emitLocal(event: Event): Promise<void> {
+    // Ensure event has required fields
+    if (!event.eventId) {
+      event.eventId = randomUUID()
+    }
+    if (!event.timestamp) {
+      event.timestamp = new Date()
+    }
+
+    // Deduplication: Skip if we've already processed this exact event
+    if (this.recentEventIds.has(event.eventId)) {
+      this.logger.debug(
+        { eventId: event.eventId, taskId: event.taskId, type: event.type },
+        'Duplicate event skipped (already processed)',
+      )
+      return
+    }
+
+    // Track this event and periodically clean up expired entries
+    this.recentEventIds.set(event.eventId, Date.now())
+    this.emitCounter++
+    if (this.emitCounter >= this.cleanupInterval) {
+      this.cleanupExpiredEvents()
+      this.emitCounter = 0
+    }
+
+    // Save to storage (file-based only)
+    await this.saveEvent(event)
+
+    // NOTE: No transport.publishEvent() — that's the key difference from emitEvent()
+
+    // Emit for real-time subscribers (main app in-process)
+    super.emit(`task:${event.taskId}`, event)
+
+    // Also emit to global channel
+    super.emit('global', event)
+  }
+
+  /**
    * Save event to storage (can be overridden)
    */
   protected async saveEvent(event: Event): Promise<void> {

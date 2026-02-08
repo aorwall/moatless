@@ -5,6 +5,7 @@ import { getAgentSnapshot, registerAgentRoutes } from './features/agents'
 import type { MessagePollingConsumer } from './features/agents/services/message-polling-consumer'
 import type { SandboxEventService } from './features/events/services/sandbox-event.service'
 import { registerFileRoutes } from './features/files'
+import { getResourceMetrics } from './features/monitoring'
 import { registerPreviewRoutes } from './features/preview'
 import { getRegistryOrUndefined, registerServerRoutes } from './features/servers'
 import { registerWorkspaceRoutes } from './features/workspace'
@@ -71,6 +72,7 @@ export function createApp(config: SandboxConfig, options?: CreateAppOptions) {
     const agent = getAgentSnapshot()
     const registry = getRegistryOrUndefined()
     const serverInfos = registry ? await registry.getAllStatuses() : []
+    const resources = getResourceMetrics()
 
     return c.json({
       agent,
@@ -83,6 +85,7 @@ export function createApp(config: SandboxConfig, options?: CreateAppOptions) {
         error: s.status.error,
         pid: s.status.pid,
       })),
+      resources,
     })
   })
 

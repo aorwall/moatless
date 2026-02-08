@@ -63,17 +63,30 @@ export class ServerRegistry {
    * Get status for all registered servers
    */
   async getAllStatuses(): Promise<ServerInfo[]> {
-    const result: ServerInfo[] = []
-    for (const [name, monitor] of this.monitors) {
-      result.push({
-        name,
-        label: this.labels.get(name) ?? name,
-        port: await monitor.getConfiguredPort(),
-        builtin: this.builtinFlags.get(name) ?? false,
-        status: await monitor.getStatus(),
-      })
-    }
-    return result
+    const entries = [...this.monitors.entries()]
+    const results = await Promise.all(
+      entries.map(async ([name, monitor]) => {
+        const result = await Promise.race([
+          (async () => ({
+            port: await monitor.getConfiguredPort(),
+            status: await monitor.getStatus(),
+          }))(),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 1000)),
+        ]).catch(() => ({
+          port: 0,
+          status: { status: 'timeout' as const } satisfies PreviewServerStatus,
+        }))
+
+        return {
+          name,
+          label: this.labels.get(name) ?? name,
+          port: result.port,
+          builtin: this.builtinFlags.get(name) ?? false,
+          status: result.status,
+        }
+      }),
+    )
+    return results
   }
 
   /**

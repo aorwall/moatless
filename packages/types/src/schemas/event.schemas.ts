@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { dateSchema } from '../utils/validation.js'
-import { EnvironmentStatusSchema } from './workspace.schemas.js'
+import { EnvironmentStatusSchema, ResourceMetricsSchema } from './workspace.schemas.js'
 
 // ============================================
 // Event Types and Enums
@@ -17,6 +17,7 @@ export const EventTypeSchema = z.enum([
   'server', // Preview server management
   'navigation', // Preview navigation events, TODO: Investigate if we use / can use this
   'preview', // Playwright preview interaction events, TODO: Investigate if we use / can use this
+  'resources', // Resource metrics (CPU, memory, event loop)
 ])
 
 // ============================================
@@ -63,8 +64,10 @@ export const TaskTurnPayloadSchema = z.object({
 // Server event payload schema
 export const ServerEventPayloadSchema = z.object({
   serverName: z.string(),
-  status: z.enum(['stopped', 'installing', 'starting', 'started', 'failed']),
-  previousStatus: z.enum(['stopped', 'installing', 'starting', 'started', 'failed']).optional(),
+  status: z.enum(['stopped', 'installing', 'starting', 'started', 'failed', 'timeout']),
+  previousStatus: z
+    .enum(['stopped', 'installing', 'starting', 'started', 'failed', 'timeout'])
+    .optional(),
   error: z.string().optional(),
 })
 
@@ -131,7 +134,7 @@ export const EnvironmentEventSchema = BaseEventSchema.extend({
 // Server event
 export const ServerEventSchema = BaseEventSchema.extend({
   type: z.literal('server'),
-  subType: z.enum(['installing', 'starting', 'started', 'stopped', 'failed', 'error']),
+  subType: z.enum(['installing', 'starting', 'started', 'stopped', 'failed', 'error', 'timeout']),
   payload: ServerEventPayloadSchema,
 })
 
@@ -157,6 +160,12 @@ export const PendingResponsePayloadSchema = z.object({
   // For ExitPlanMode: may contain plan content
 })
 
+// Resources event (CPU, memory, event loop metrics)
+export const ResourcesEventSchema = BaseEventSchema.extend({
+  type: z.literal('resources'),
+  payload: ResourceMetricsSchema,
+})
+
 // Agent event (consolidated: messages, results, lifecycle)
 export const AgentEventSchema = BaseEventSchema.extend({
   type: z.literal('agent'),
@@ -180,6 +189,7 @@ export const EventSchema = z.discriminatedUnion('type', [
   ServerEventSchema,
   NavigationEventSchema,
   PreviewEventSchema,
+  ResourcesEventSchema,
   AgentEventSchema,
 ])
 
@@ -220,6 +230,7 @@ export type TaskEvent = z.infer<typeof TaskEventSchema>
 export type TaskTurnEvent = z.infer<typeof TaskTurnEventSchema>
 export type WorkspaceEvent = z.infer<typeof WorkspaceEventSchema>
 export type ServerEvent = z.infer<typeof ServerEventSchema>
+export type ResourcesEvent = z.infer<typeof ResourcesEventSchema>
 export type AgentEvent = z.infer<typeof AgentEventSchema>
 export type PendingResponsePayload = z.infer<typeof PendingResponsePayloadSchema>
 

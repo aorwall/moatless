@@ -91,11 +91,18 @@ export class ServerProcessMonitor {
         (parsed.status === 'started' || parsed.status === 'starting') &&
         !this.isProcessAlive(parsed.pid)
       ) {
+        // Only mark as failed if a PID was actually recorded (meaning the
+        // process was launched and then died). If no PID exists yet, the
+        // entrypoint wrote "starting" but hasn't launched the server process
+        // — keep reporting "starting" so the monitor continues waiting.
         if (parsed.status === 'starting') {
-          return {
-            status: 'failed',
-            error: 'Process exited before becoming responsive',
+          if (parsed.pid) {
+            return {
+              status: 'failed',
+              error: 'Process exited before becoming responsive',
+            }
           }
+          return { status: 'starting' }
         }
         return { status: 'stopped' }
       }
@@ -462,9 +469,11 @@ export class ServerProcessMonitor {
         return
       }
 
-      // Check if process died
+      // Check if process died — but only if a PID was recorded.
+      // If no PID file exists, the server process hasn't been launched
+      // yet (entrypoint is still running setup commands).
       const pid = await this.readPid()
-      if (!this.isProcessAlive(pid)) {
+      if (pid !== undefined && !this.isProcessAlive(pid)) {
         this.monitorLogger.info('Process died while starting, marking as failed')
         await this.updateStatusFile('failed', {
           error: 'Process exited before becoming responsive',
