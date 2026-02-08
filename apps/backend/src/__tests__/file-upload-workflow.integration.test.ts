@@ -4,7 +4,7 @@ import type { CreateTaskRequest, Event, Task } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { EventService } from '../features/events/index'
 import type { WorkspaceRuntimeManager } from '../features/workspace/index'
-import { getWorkspacePathFromTarget } from '../features/workspace/types/workspace-runtime.types'
+import { CONTAINER_WORKSPACE_PATH } from '../features/workspace/types/workspace-runtime.types'
 import { build } from '../test/helper'
 import { getDataDir } from '../utils/data-dir'
 import { logger } from '../utils/logger'
@@ -376,12 +376,8 @@ Make sure to preserve all content exactly as shown above.`,
       expect(errorEvent).toBeNull()
 
       // Step 7: Verify the file was copied to the repository
-      // Get the actual workspace path where the agent operates
-      const sandboxRecord = await workspaceCoordinator.getSandboxRecord(createdTaskId)
-      if (!sandboxRecord) {
-        throw new Error('Failed to get workspace sandbox record')
-      }
-      const workspacePath = getWorkspacePathFromTarget(sandboxRecord.executionTarget)
+      // All container-based workspaces use the standard path
+      const workspacePath = CONTAINER_WORKSPACE_PATH
       logger.info({ workspacePath, tempDir }, 'Checking workspace path for created file')
 
       const copiedFilePath = path.join(workspacePath, 'copied-file.txt')

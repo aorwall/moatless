@@ -141,9 +141,7 @@ export class TaskEventHandler {
   private handleAgentStartedEvent(event: AgentEvent): void {
     const taskLogger = logger.child({ taskId: event.taskId, eventId: event.eventId })
     taskLogger.debug('Handling agent.started event')
-
-    // Agent state is ephemeral — sandbox tracks it. Just touch activity.
-    this.runtimeManager.touchActivity(event.taskId)
+    // Agent state is ephemeral — sandbox tracks it.
   }
 
   /**
@@ -247,7 +245,6 @@ export class TaskEventHandler {
    */
   private handleAgentMessageEvent(event: AgentEvent): void {
     const taskId = event.taskId
-    this.runtimeManager.touchActivity(taskId)
     const payload = event.payload
 
     // Auto-tag task when Skill tool is used (fire-and-forget, non-blocking)
@@ -567,10 +564,9 @@ export class TaskEventHandler {
     const taskId = event.taskId
     const taskLogger = logger.child({ taskId, handler: 'handleServerEvent' })
 
-    // Extract status from event - subType is 'installing' | 'starting' | 'started' | 'stopped' | 'failed' | 'error'
-    // Map 'error' to 'failed' for preview state compatibility
+    // Extract status from event - subType includes 'error' and 'timeout' which we map to 'failed'/'stopped'
     const eventStatus = event.subType
-    const status: 'stopped' | 'installing' | 'starting' | 'started' | 'failed' =
+    const status: 'stopped' | 'installing' | 'starting' | 'started' | 'failed' | 'timeout' =
       eventStatus === 'error' ? 'failed' : eventStatus
     const payload = event.payload
 
@@ -650,18 +646,17 @@ export class TaskEventHandler {
           continue
         }
 
-        // Check workspace status
-        const record = await this.runtimeManager.getSandboxRecord(task.taskId)
-        const workspaceStatus = record?.executionTarget?.status
+        // Check workspace status via sandbox controller
+        const wsStatus = await this.runtimeManager.getWorkspaceStatus(task.taskId)
 
         const taskLogger = logger.child({
           taskId: task.taskId,
           taskStatus: task.status,
-          workspaceStatus,
+          workspaceStatus: wsStatus.status,
         })
 
         // If workspace is initializing or ready, let auto-resume handle it
-        if (workspaceStatus === 'initializing' || workspaceStatus === 'ready') {
+        if (wsStatus.status === 'initializing' || wsStatus.status === 'ready') {
           taskLogger.info('Task queued for auto-resume (workspace available)')
           queuedForAutoResume++
           continue

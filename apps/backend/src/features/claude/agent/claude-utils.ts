@@ -4,7 +4,6 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { promisify } from 'node:util'
 import type { SystemStatusCheck } from '@moatless/types'
-import type { DockerService } from '../../../services'
 
 const execAsync = promisify(exec)
 
@@ -159,38 +158,7 @@ export async function isValidClaudeConfigPath(configPath: string): Promise<boole
 /**
  * Perform comprehensive system status check
  */
-export async function checkSystemStatus(dockerService?: DockerService): Promise<SystemStatusCheck> {
-  let dockerRunning = false
-  let dockerVersion: string | null = null
-
-  if (dockerService) {
-    const [binPath, configPath, dr, dv] = await Promise.all([
-      findClaudeBinPath(),
-      findClaudeConfigPath(),
-      dockerService.isDockerRunning(),
-      dockerService.getDockerVersion(),
-    ])
-    dockerRunning = dr
-    dockerVersion = dv
-
-    const binPathResult = binPath
-    const configPathResult = configPath
-
-    return {
-      claude: {
-        binPath: binPathResult,
-        configPath: configPathResult,
-        isValidBin: binPathResult !== null,
-        isValidConfig: configPathResult !== null,
-      },
-      docker: {
-        isRunning: dockerRunning,
-        version: dockerVersion,
-      },
-    }
-  }
-
-  // Fallback when no dockerService provided - skip Docker checks
+export async function checkSystemStatus(): Promise<SystemStatusCheck> {
   const [binPath, configPath] = await Promise.all([findClaudeBinPath(), findClaudeConfigPath()])
 
   return {
@@ -201,8 +169,8 @@ export async function checkSystemStatus(dockerService?: DockerService): Promise<
       isValidConfig: configPath !== null,
     },
     docker: {
-      isRunning: dockerRunning,
-      version: dockerVersion,
+      isRunning: false,
+      version: null,
     },
   }
 }

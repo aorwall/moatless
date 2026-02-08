@@ -95,7 +95,7 @@ export class ProvisionPlanFactory {
     const hasValidAnthropicKey = anthropicApiKey && anthropicApiKey !== 'placeholder'
     if (!(claudeOAuthToken || hasValidAnthropicKey)) {
       throw new Error(
-        'Cannot create worker: No Claude authentication configured. ' +
+        'Cannot create sandbox: No Claude authentication configured. ' +
           'Please connect a Claude account (Settings → Claude) or set ANTHROPIC_API_KEY.',
       )
     }

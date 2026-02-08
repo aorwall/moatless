@@ -28,7 +28,7 @@ metadata:
   name: k8s-test-runner-role
   namespace: vibe
 rules:
-  # Pod management for creating test worker pods
+  # Pod management for creating test sandbox pods
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["get", "list", "watch", "create", "delete"]

@@ -1,4 +1,5 @@
 import type { AgentRunRequest, FileAttachment } from '@moatless/sandbox-schemas'
+import { SANDBOX_WORKSPACE_DIR } from '@moatless/sandbox-schemas'
 import type { MessageContext, PreviewUrlContextData, UserContent } from '@moatless/types'
 import { generateComponentList } from '@moatless/types'
 import { inject, injectable } from 'inversify'
@@ -6,8 +7,6 @@ import type { Logger } from 'pino'
 import { logger } from '../../../utils/logger'
 import { FigmaService } from '../../figma'
 import { FileStorageService } from '../../file-storage'
-import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
-import { getWorkspacePathFromTarget } from '../../workspace/types/workspace-runtime.types'
 import { getServerManagementPromptText } from '../prompts/preview-server-prompt'
 import { getTaskMetadataPromptText } from '../prompts/task-metadata-prompt'
 
@@ -37,7 +36,6 @@ export interface AgentRequestBuildOptions {
 @injectable()
 export class AgentRequestBuilder {
   constructor(
-    @inject(WorkspaceRuntimeManager) private readonly runtimeManager: WorkspaceRuntimeManager,
     @inject(FileStorageService) private readonly uploadService: FileStorageService,
     @inject(FigmaService) private readonly figmaService: FigmaService,
   ) {}
@@ -453,7 +451,7 @@ export class AgentRequestBuilder {
    * Process Figma context and return formatted context text and optional image content block.
    */
   private async processFigmaContext(
-    taskId: string,
+    _taskId: string,
     figmaData: { importId: string; fileName: string; nodeName: string },
     buildLogger: Logger,
   ): Promise<{
@@ -461,13 +459,8 @@ export class AgentRequestBuilder {
     imageBlock: import('@moatless/types').ImageContentBlock | null
   }> {
     try {
-      // Get workspace path from coordinator
-      const sandboxRecord = await this.runtimeManager.getSandboxRecord(taskId)
-      if (!sandboxRecord) {
-        throw new Error('Cannot process Figma context - workspace not found')
-      }
-
-      const workspacePath = getWorkspacePathFromTarget(sandboxRecord.executionTarget)
+      // All container-based workspaces use the standard path
+      const workspacePath = SANDBOX_WORKSPACE_DIR
 
       // Use FigmaService to get context for workspace (returns both text and optional image block)
       const { contextText, imageBlock } = await this.figmaService.getFigmaContextForWorkspace(

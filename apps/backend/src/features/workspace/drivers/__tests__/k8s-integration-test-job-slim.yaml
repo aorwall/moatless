@@ -1,5 +1,5 @@
-# Integration test job using the slim JavaScript/TypeScript worker image
-# This tests KubernetesEnvironmentDriver with the lightweight worker (~500MB vs 1.7GB)
+# Integration test job using the slim JavaScript/TypeScript sandbox image
+# This tests KubernetesEnvironmentDriver with the lightweight sandbox (~500MB vs 1.7GB)
 #
 # Deploy with:
 #   kubectl apply -f k8s-integration-test-job-slim.yaml
@@ -11,7 +11,7 @@
 #   kubectl delete job k8s-driver-integration-test-slim -n vibe
 
 ---
-# Job to run the integration tests with slim worker
+# Job to run the integration tests with slim sandbox
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -19,7 +19,7 @@ metadata:
   namespace: vibe
   labels:
     app: k8s-integration-test
-    worker-type: slim
+    sandbox-type: slim
 spec:
   ttlSecondsAfterFinished: 3600  # Clean up after 1 hour
   backoffLimit: 0  # Don't retry on failure
@@ -27,7 +27,7 @@ spec:
     metadata:
       labels:
         app: k8s-integration-test
-        worker-type: slim
+        sandbox-type: slim
     spec:
       serviceAccountName: k8s-test-runner  # Reuse existing RBAC
       restartPolicy: Never

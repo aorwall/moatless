@@ -1,81 +1,9 @@
 import type { RepositoryConfig } from '@moatless/types'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { SandboxRecord } from '../../db/workspace-sandbox.schema'
+import type { SandboxControllerProvisioner } from '../../provisioners/sandbox-controller-provisioner'
 import type { WorkspaceProvisionPlan } from '../../types/provision-plan.types'
-import type { WorkspaceProvisioner } from '../../types/workspace-provisioner.types'
 import type { ExecutionTarget } from '../../types/workspace-runtime.types'
 import { WorkspaceRuntimeManager } from '../workspace-runtime-manager.service'
-
-/**
- * In-memory sandbox store for testing.
- * This is the sole persistence layer.
- */
-class InMemorySandboxStore {
-  private readonly records = new Map<string, SandboxRecord>()
-
-  async register(taskId: string, mode: string, executionTarget: ExecutionTarget): Promise<void> {
-    const now = new Date()
-    const existing = this.records.get(taskId)
-    this.records.set(taskId, {
-      taskId,
-      mode: mode as 'docker' | 'kubernetes',
-      executionTarget,
-      lastActivityAt: existing?.lastActivityAt ?? null,
-      lastError: executionTarget.lastError ?? null,
-      createdAt: existing?.createdAt ?? now,
-      updatedAt: now,
-    })
-  }
-
-  async unregister(taskId: string): Promise<void> {
-    this.records.delete(taskId)
-  }
-
-  async load(taskId: string): Promise<SandboxRecord | null> {
-    return this.records.get(taskId) ?? null
-  }
-
-  async exists(taskId: string): Promise<boolean> {
-    return this.records.has(taskId)
-  }
-
-  async list(): Promise<SandboxRecord[]> {
-    return [...this.records.values()]
-  }
-
-  async touchActivity(taskId: string, timestamp: Date): Promise<void> {
-    const record = this.records.get(taskId)
-    if (record) {
-      this.records.set(taskId, { ...record, lastActivityAt: timestamp, updatedAt: timestamp })
-    }
-  }
-
-  async setError(taskId: string, error: string): Promise<void> {
-    const record = this.records.get(taskId)
-    if (record) {
-      this.records.set(taskId, { ...record, lastError: error })
-    }
-  }
-
-  async clearError(taskId: string): Promise<void> {
-    const record = this.records.get(taskId)
-    if (record) {
-      this.records.set(taskId, { ...record, lastError: null })
-    }
-  }
-
-  async updateExecutionTarget(taskId: string, target: ExecutionTarget): Promise<void> {
-    const record = this.records.get(taskId)
-    if (record) {
-      this.records.set(taskId, { ...record, executionTarget: target, updatedAt: new Date() })
-    }
-  }
-
-  // Test helper
-  get(taskId: string): SandboxRecord | undefined {
-    return this.records.get(taskId)
-  }
-}
 
 const makeEventService = () => ({
   emitEvent: vi.fn(async () => undefined),
@@ -111,58 +39,51 @@ const makePlanFactory = () => ({
   ),
 })
 
-const makeProvisioner = (overrides?: Partial<WorkspaceProvisioner>): WorkspaceProvisioner => {
-  const runningTarget = {
+const makeProvisioner = (
+  overrides?: Partial<SandboxControllerProvisioner>,
+): SandboxControllerProvisioner => {
+  const runningTarget: ExecutionTarget = {
     mode: 'kubernetes',
     podName: 'pod-1',
     podNamespace: 'default',
     serviceName: 'moatless-ws-task-1',
     repositoryCloneUrl: 'https://example.com/repo.git',
-    workerPort: 8001,
-    podPhase: 'Running',
-  } satisfies ExecutionTarget
-  const initializingTarget = {
+    sandboxPort: 8001,
+  }
+  const initializingTarget: ExecutionTarget = {
     mode: 'kubernetes',
     podNamespace: 'default',
     serviceName: 'moatless-ws-task-1',
     repositoryCloneUrl: 'https://example.com/repo.git',
-    workerPort: 8001,
+    sandboxPort: 8001,
     status: 'initializing',
-  } satisfies ExecutionTarget
-  const provision: WorkspaceProvisioner['provision'] = async () => ({ ...runningTarget })
-  const createInitializingTarget: WorkspaceProvisioner['createInitializingTarget'] = () => ({
+  }
+  const provision = async () => ({ ...runningTarget, status: 'ready' as const })
+  const createInitializingTarget = () => ({
     ...initializingTarget,
   })
-  const base: WorkspaceProvisioner = {
+  const base: SandboxControllerProvisioner = {
     createInitializingTarget: vi.fn(createInitializingTarget),
     provision: vi.fn(provision),
     isHealthy: vi.fn(async (_taskId: string, _target: ExecutionTarget) => true),
-    getStatus: vi.fn((_taskId: string, target: ExecutionTarget) => {
-      // Return status result based on unified status field or podPhase for K8s targets
-      let status = target.status
-      if (!status && target.mode === 'kubernetes') {
-        const k8sTarget = target as { podPhase?: string; podName?: string }
-        status = k8sTarget.podPhase === 'Running' ? 'ready' : 'initializing'
-      }
-      status = status ?? 'initializing'
-
-      return {
-        status,
-        podName:
-          target.mode === 'kubernetes' ? (target as { podName?: string }).podName : undefined,
-        containerName:
-          target.mode === 'docker'
-            ? (target as { containerName?: string }).containerName
-            : undefined,
-        lastError: target.lastError,
-      }
-    }),
+    getStatus: vi.fn(async () => ({
+      status: 'not_created' as const,
+    })),
     isAgentRunning: vi.fn(async () => false),
     cleanup: vi.fn(async () => undefined),
     stopSandbox: vi.fn(async () => undefined),
     createDriver: vi.fn(() => ({}) as any),
+    getFullWorkspaceStatus: vi.fn(async () => ({
+      workspaceState: 'missing',
+      environmentStatus: 'not_created',
+      agentState: 'none',
+      servers: [],
+      isRunning: false,
+      workspaceReady: false,
+      canExecute: false,
+    })),
     ...overrides,
-  }
+  } as any
 
   return base
 }
@@ -172,24 +93,15 @@ describe('WorkspaceRuntimeManager', () => {
     vi.restoreAllMocks()
   })
 
-  it('throws on terminal pod errors without reprovisioning', async () => {
-    const sandboxStore = new InMemorySandboxStore()
-    const failingTarget: ExecutionTarget = {
-      mode: 'kubernetes',
-      podName: 'pod-1',
-      podNamespace: 'default',
-      serviceName: 'moatless-ws-task-1',
-      repositoryCloneUrl: 'https://example.com/repo.git',
-      workerPort: 8001,
-      podPhase: 'Failed',
-      lastError: 'boom',
-    }
-    await sandboxStore.register('task-1', 'kubernetes', failingTarget)
-
-    const provisioner = makeProvisioner()
+  it('throws on terminal error status from sandbox controller', async () => {
+    const provisioner = makeProvisioner({
+      getStatus: vi.fn(async () => ({
+        status: 'error' as const,
+        lastError: 'boom',
+      })),
+    })
     const planFactory = makePlanFactory()
     const manager = new WorkspaceRuntimeManager(
-      sandboxStore as any,
       makeTaskRepository() as any,
       provisioner,
       makeEventService() as any,
@@ -202,18 +114,20 @@ describe('WorkspaceRuntimeManager', () => {
     expect(provisioner.provision).not.toHaveBeenCalled()
   })
 
-  it('provisions when no sandbox record exists', async () => {
-    const sandboxStore = new InMemorySandboxStore()
-    const provisioner = makeProvisioner()
+  it('provisions when sandbox controller reports not_created', async () => {
+    const provisioner = makeProvisioner({
+      getStatus: vi.fn(async () => ({
+        status: 'not_created' as const,
+      })),
+    })
     const planFactory = makePlanFactory()
 
     const manager = new WorkspaceRuntimeManager(
-      sandboxStore as any,
       makeTaskRepository() as any,
       provisioner,
       makeEventService() as any,
       planFactory as any,
-      null, // RedisLockService - not used in tests
+      null,
     )
 
     const handle = await manager.ensureWorkspace('task-1', 'repo-1')
@@ -224,27 +138,19 @@ describe('WorkspaceRuntimeManager', () => {
   })
 
   it('reuses valid existing workspace without reprovisioning', async () => {
-    const sandboxStore = new InMemorySandboxStore()
-    const runningTarget: ExecutionTarget = {
-      mode: 'kubernetes',
-      podName: 'pod-1',
-      podNamespace: 'default',
-      serviceName: 'moatless-ws-task-1',
-      repositoryCloneUrl: 'https://example.com/repo.git',
-      workerPort: 8001,
-      podPhase: 'Running',
-    }
-    await sandboxStore.register('task-1', 'kubernetes', runningTarget)
-
-    const provisioner = makeProvisioner()
+    const provisioner = makeProvisioner({
+      getStatus: vi.fn(async () => ({
+        status: 'ready' as const,
+        podName: 'pod-1',
+      })),
+    })
     const planFactory = makePlanFactory()
     const manager = new WorkspaceRuntimeManager(
-      sandboxStore as any,
       makeTaskRepository() as any,
       provisioner,
       makeEventService() as any,
       planFactory as any,
-      null, // RedisLockService - not used in tests
+      null,
     )
 
     const handle = await manager.ensureWorkspace('task-1')
@@ -254,31 +160,19 @@ describe('WorkspaceRuntimeManager', () => {
     expect(planFactory.createPlan).not.toHaveBeenCalled()
   })
 
-  it('provisions fresh when existing workspace is not ready', async () => {
-    const sandboxStore = new InMemorySandboxStore()
-    const pendingTarget: ExecutionTarget = {
-      mode: 'kubernetes',
-      podName: 'pod-1',
-      podNamespace: 'default',
-      serviceName: 'moatless-ws-task-1',
-      repositoryCloneUrl: 'https://example.com/repo.git',
-      workerPort: 8001,
-      podPhase: 'Pending',
-      status: 'not_created',
-    }
-    await sandboxStore.register('task-1', 'kubernetes', pendingTarget)
-
+  it('provisions fresh when existing workspace is stopped', async () => {
     const provisioner = makeProvisioner({
-      getStatus: vi.fn(() => ({ status: 'not_created' as const, podName: 'pod-1' })),
+      getStatus: vi.fn(async () => ({
+        status: 'stopped' as const,
+      })),
     })
     const planFactory = makePlanFactory()
     const manager = new WorkspaceRuntimeManager(
-      sandboxStore as any,
       makeTaskRepository() as any,
       provisioner,
       makeEventService() as any,
       planFactory as any,
-      null, // RedisLockService - not used in tests
+      null,
     )
 
     const handle = await manager.ensureWorkspace('task-1', 'repo-1')
@@ -289,17 +183,25 @@ describe('WorkspaceRuntimeManager', () => {
   })
 
   it('second call reuses existing workspace after provisioning', async () => {
-    const sandboxStore = new InMemorySandboxStore()
-    const provisioner = makeProvisioner()
+    let callCount = 0
+    const provisioner = makeProvisioner({
+      getStatus: vi.fn(async () => {
+        callCount++
+        // First call: not_created, subsequent calls: ready (after provisioning)
+        if (callCount <= 1) {
+          return { status: 'not_created' as const }
+        }
+        return { status: 'ready' as const, podName: 'pod-1' }
+      }),
+    })
     const planFactory = makePlanFactory()
 
     const manager = new WorkspaceRuntimeManager(
-      sandboxStore as any,
       makeTaskRepository() as any,
       provisioner,
       makeEventService() as any,
       planFactory as any,
-      null, // RedisLockService - not used in tests
+      null,
     )
 
     // First call should provision
@@ -313,10 +215,12 @@ describe('WorkspaceRuntimeManager', () => {
     expect(provisioner.provision).toHaveBeenCalledTimes(1)
   })
 
-  it('saves error state when provisioning fails', async () => {
-    const sandboxStore = new InMemorySandboxStore()
+  it('emits error event when provisioning fails', async () => {
     const provisionError = new Error('Mount path not shared with Docker')
     const provisioner = makeProvisioner({
+      getStatus: vi.fn(async () => ({
+        status: 'not_created' as const,
+      })),
       provision: vi.fn(async () => {
         throw provisionError
       }),
@@ -325,24 +229,17 @@ describe('WorkspaceRuntimeManager', () => {
     const eventService = makeEventService()
 
     const manager = new WorkspaceRuntimeManager(
-      sandboxStore as any,
       makeTaskRepository() as any,
       provisioner,
       eventService as any,
       planFactory as any,
-      null, // RedisLockService - not used in tests
+      null,
     )
 
     // Provisioning should fail
     await expect(manager.ensureWorkspace('task-1', 'repo-1')).rejects.toThrow(
       'Mount path not shared with Docker',
     )
-
-    // Verify error state was saved to sandbox record
-    const record = sandboxStore.get('task-1')
-    expect(record).not.toBeUndefined()
-    expect(record!.executionTarget.status).toBe('error')
-    expect(record!.executionTarget.lastError).toBe('Mount path not shared with Docker')
 
     // Verify error event was emitted
     expect(eventService.emitEvent).toHaveBeenCalledWith(

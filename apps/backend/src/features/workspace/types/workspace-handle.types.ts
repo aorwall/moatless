@@ -16,7 +16,7 @@ export interface WorkspaceHandlePreviewState extends Omit<PreviewState, 'endpoin
 export interface BaseWorkspaceHandle {
   taskId: string
   workspacePath: string
-  mode: 'local' | 'worker'
+  mode: 'local' | 'sandbox'
 }
 
 /**

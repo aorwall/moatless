@@ -48,18 +48,7 @@ export async function initializeContainer(infrastructure: {
   await settingsService.initialize()
   appContainer.bind(SettingsService).toConstantValue(settingsService)
 
-  // Bind workspace provisioner based on execution mode
-  const executionMode = settingsService.getWorkspaceExecutionMode()
-  const { DockerWorkspaceProvisioner, SandboxControllerProvisioner } = await import(
-    '../features/workspace/provisioners/index.js'
-  )
-
-  if (executionMode === 'docker') {
-    appContainer.bind('WorkspaceProvisioner').to(DockerWorkspaceProvisioner).inSingletonScope()
-  } else {
-    // Use sandbox controller for K8s workspace operations (delegates to sandbox controller internal API)
-    appContainer.bind('WorkspaceProvisioner').to(SandboxControllerProvisioner).inSingletonScope()
-  }
+  // Workspace provisioner is bound in bindServices() via SandboxControllerProvisioner.toSelf()
 
   return appContainer
 }
@@ -105,7 +94,6 @@ export async function bindServices(container: Container): Promise<void> {
   const { AuthService } = await import('../features/auth/services/auth.service.js')
   const { ClaudeService } = await import('../features/claude/index.js')
   const { CommandService } = await import('../features/agents/services/command.service.js')
-  const { DockerService } = await import('../services/docker.service.js')
   const { EventService } = await import('../features/events/services/event.service.js')
   const { FigmaService } = await import('../features/figma/services/figma.service.js')
   const { FigmaStorage } = await import('../features/figma/storage/figma.storage.js')
@@ -113,9 +101,6 @@ export async function bindServices(container: Container): Promise<void> {
   const { ClaudeSettingsService } = await import('../features/claude/index.js')
 
   // Import workspace services BEFORE AgentController since AgentController depends on them
-  const { WorkspaceSandboxRepository } = await import(
-    '../features/workspace/db/workspace-sandbox.repository.js'
-  )
   const { WorkspaceRuntimeManager } = await import(
     '../features/workspace/services/workspace-runtime-manager.service.js'
   )
@@ -124,10 +109,9 @@ export async function bindServices(container: Container): Promise<void> {
   )
   // Note: Drivers are not imported here.
   // They are created per-task by provisioners and are not bound to DI container.
-  const { KubernetesService } = await import('../services/kubernetes.service.js')
 
-  // Import workspace provisioners
-  const { DockerWorkspaceProvisioner, SandboxControllerProvisioner } = await import(
+  // Import workspace provisioner
+  const { SandboxControllerProvisioner } = await import(
     '../features/workspace/provisioners/index.js'
   )
 
@@ -190,7 +174,6 @@ export async function bindServices(container: Container): Promise<void> {
   // Bind ClaudeService symbol to break circular dependencies with legacy services
   container.bind(ClaudeServiceSymbol).to(ClaudeService)
   container.bind(CommandService).toSelf().inSingletonScope()
-  container.bind(DockerService).toSelf().inSingletonScope()
   container.bind(EventService).toSelf().inSingletonScope()
   container.bind(FigmaService).toSelf().inSingletonScope()
   container.bind(FigmaStorage).toSelf().inSingletonScope()
@@ -307,34 +290,17 @@ export async function bindServices(container: Container): Promise<void> {
   // Bind AgentControlService symbol to break circular dependencies
   container.bind(AgentControlServiceSymbol).to(AgentControlService)
   container.bind(AgentRequestService).toSelf().inSingletonScope()
-  container.bind(WorkspaceSandboxRepository).toSelf().inSingletonScope()
   container.bind(ProvisionPlanFactory).toSelf().inSingletonScope()
   container.bind(WorkspaceRuntimeManager).toSelf().inSingletonScope()
   // Note: Drivers are NOT bound here.
   // They are created per-task by provisioners (driver factory pattern).
-  container.bind(KubernetesService).toSelf().inSingletonScope()
 
-  // Bind workspace provisioners
-  // Both are bound to DI so they can be resolved, but only one is bound to 'WorkspaceProvisioner'
-  // symbol based on WORKSPACE_EXECUTION_MODE (see initializeContainer)
-  container.bind(DockerWorkspaceProvisioner).toSelf().inSingletonScope()
+  // Bind workspace provisioner
   container.bind(SandboxControllerProvisioner).toSelf().inSingletonScope()
 
   // Bind preview feature services
   container.bind(PreviewRuntimeService).toSelf().inSingletonScope()
   container.bind(PreviewOrchestratorService).toSelf().inSingletonScope()
-
-  // Bind metrics services
-  const { SandboxHealthCollector } = await import(
-    '../features/metrics/services/sandbox-health-collector.service.js'
-  )
-  container.bind(SandboxHealthCollector).toSelf().inSingletonScope()
-
-  // Bind workspace inactivity service
-  const { WorkspaceInactivityService } = await import(
-    '../features/workspace/services/workspace-inactivity.service.js'
-  )
-  container.bind(WorkspaceInactivityService).toSelf().inSingletonScope()
 
   // Bind Redis lock service for distributed locking across replicas
   const { RedisLockService, RedisLockServiceSymbol } = await import(
@@ -436,10 +402,10 @@ export async function initializeAppContainer(): Promise<void> {
   // Attach to EventService
   eventService.setTransport(transport)
 
-  // Backend always consumes from Redis and broadcasts to SSE
+  // Backend consumes from Redis and broadcasts to local subscribers only.
+  // Using emitLocal() avoids re-publishing events back to Redis transport.
   await transport.startListening(async (event) => {
-    // Broadcast to SSE clients via EventEmitter
-    await eventService.emitEvent(event)
+    await eventService.emitLocal(event)
   })
 
   logger.info({ redisUrl: transportConfig.redisUrl }, 'Redis event transport initialized')
@@ -477,25 +443,6 @@ export async function initializeAppContainer(): Promise<void> {
   )
   const channelNotification = appContainer.get(ChannelNotificationService)
   channelNotification.startEventSubscription()
-
-  // Start sandbox health collector when metrics are enabled
-  const { metricsEnabled } = await import('../features/metrics/index.js')
-  if (metricsEnabled) {
-    const { SandboxHealthCollector } = await import(
-      '../features/metrics/services/sandbox-health-collector.service.js'
-    )
-    const healthCollector = appContainer.get(SandboxHealthCollector)
-    const intervalMs = Number(process.env['HEALTH_COLLECTOR_INTERVAL_MS']) || 30000
-    healthCollector.start(intervalMs)
-    logger.info({ intervalMs }, 'Sandbox health collector started')
-  }
-
-  // Start workspace inactivity checker
-  const { WorkspaceInactivityService } = await import(
-    '../features/workspace/services/workspace-inactivity.service.js'
-  )
-  const inactivityService = appContainer.get(WorkspaceInactivityService)
-  inactivityService.start()
 
   // Start task event handler - handles all task-related events (agent, environment)
   // This consolidates all task-related event handling

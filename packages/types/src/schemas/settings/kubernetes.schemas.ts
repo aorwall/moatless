@@ -39,13 +39,13 @@ export const KubernetesSettingsSchema = z.object({
   /** Whether Kubernetes execution mode is enabled */
   enabled: z.boolean().default(false),
 
-  /** Kubernetes namespace for worker pods */
+  /** Kubernetes namespace for sandbox pods */
   namespace: z.string().default('moatless'),
 
   /** Path to kubeconfig file (undefined means use in-cluster config) */
   kubeconfig: z.string().optional(),
 
-  /** Worker container image */
+  /** Sandbox container image */
   image: z.string().default('aorwall/moatless-vibe-sandbox-js:latest'),
 
   /** Image pull secrets for private registries */
@@ -71,25 +71,6 @@ export const KubernetesSettingsSchema = z.object({
 
   /** Health check interval in seconds */
   healthCheckIntervalSeconds: z.number().default(30),
-
-  /** Main API URL for pods to connect back (required for event forwarding) */
-  workerApiUrl: z.string().optional(),
-
-  /** API key for worker authentication (optional) */
-  workerApiKey: z.string().optional(),
-
-  /** Path to worker pod template file (YAML) */
-  workerPodTemplate: z.string().optional(),
-
-  // Per-task PVC settings for workspace persistence
-  /** Enable per-task PVC for workspace data persistence */
-  workerStorageEnabled: z.boolean().default(true),
-
-  /** Storage class for worker PVCs (empty = cluster default) */
-  workerStorageClass: z.string().optional(),
-
-  /** Size of each task's PVC (e.g., '10Gi', '20Gi') */
-  workerStorageSize: z.string().default('10Gi'),
 })
 
 export type KubernetesSettings = z.infer<typeof KubernetesSettingsSchema>
@@ -100,9 +81,7 @@ export type KubernetesSettings = z.infer<typeof KubernetesSettingsSchema>
 export const defaultKubernetesSettings: KubernetesSettings = {
   enabled: false,
   namespace: 'moatless',
-  image: 'moatless/worker:latest',
+  image: 'ghcr.io/aorwall/moatless-vibe-sandbox',
   podStartupTimeoutSeconds: 120,
   healthCheckIntervalSeconds: 30,
-  workerStorageEnabled: true,
-  workerStorageSize: '10Gi',
 }

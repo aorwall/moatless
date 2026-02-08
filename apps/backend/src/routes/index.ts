@@ -25,7 +25,6 @@ export async function registerRoutes(app: OpenAPIHono<AppBindings>) {
   })
 
   // Dynamic imports to avoid circular dependencies during module loading
-  const { registerAuthRoutes } = await import('../features/auth/api/auth.routes.js')
   const { registerApiKeyRoutes } = await import('../features/auth/api/api-key.routes.js')
   const { registerEventRoutes } = await import('../features/events/index.js')
   const { registerDeploymentRoutes } = await import('../features/deployments/index.js')
@@ -47,9 +46,7 @@ export async function registerRoutes(app: OpenAPIHono<AppBindings>) {
   // TODO: usage.ts file is missing - need to restore or remove
   // const { registerUsageRoutes } = await import('./usage.js')
 
-  // Register authentication routes
-  // Routes handle dev vs prod mode internally
-  await registerAuthRoutes(app)
+  // Register API key routes (auth routes are handled by sandbox-controller)
   await registerApiKeyRoutes(app)
 
   // Register API route groups with prefixes

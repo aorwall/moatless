@@ -4,16 +4,17 @@ import { logger } from '../../../utils/logger'
 import type { BaseEnvironmentDriver } from '../drivers/base-environment-driver'
 import { RemoteEnvironmentDriver } from '../drivers/remote-environment-driver'
 import type { WorkspaceProvisionPlan } from '../types/provision-plan.types'
-import type {
-  WorkspaceProvisioner,
-  WorkspaceStatusResult,
-} from '../types/workspace-provisioner.types'
-import {
-  type ExecutionTarget,
-  isKubernetesExecutionTarget,
-  type KubernetesExecutionTarget,
-} from '../types/workspace-runtime.types'
+import type { ExecutionTarget } from '../types/workspace-runtime.types'
 import { buildServersConfig } from '../utils/server-ports'
+
+/**
+ * Result of getStatus() call - provides detailed workspace status for logging
+ */
+export interface WorkspaceStatusResult {
+  status: EnvironmentStatus
+  podName?: string | undefined
+  lastError?: string | undefined
+}
 
 /**
  * Base URL for the sandbox controller API.
@@ -33,7 +34,7 @@ function getSandboxControllerUrl(): string {
  * Each method maps to a single HTTP call to the sandbox controller API.
  */
 @injectable()
-export class SandboxControllerProvisioner implements WorkspaceProvisioner {
+export class SandboxControllerProvisioner {
   private readonly baseUrl = getSandboxControllerUrl()
 
   /**
@@ -57,13 +58,13 @@ export class SandboxControllerProvisioner implements WorkspaceProvisioner {
       serversMap[s.name] = s.port
     }
 
-    const target: KubernetesExecutionTarget = {
+    const target: ExecutionTarget = {
       mode: 'kubernetes',
       podNamespace: namespace,
       serviceName,
       status: 'initializing',
       repositoryCloneUrl: plan.gitCloneUrl,
-      workerPort: 8001,
+      sandboxPort: 8001,
       previewHostPort: 3000,
       servers: serversMap,
     }
@@ -136,21 +137,21 @@ export class SandboxControllerProvisioner implements WorkspaceProvisioner {
         status: string
         repositoryCloneUrl: string
         repositoryBranch?: string
-        workerPort: number
+        sandboxPort: number
         previewHostPort: number
         servers: Record<string, number>
       }
     }
 
     const et = data.executionTarget
-    const target: KubernetesExecutionTarget = {
+    const target: ExecutionTarget = {
       mode: 'kubernetes',
       podName: et.podName,
       podNamespace: et.podNamespace,
       serviceName: et.serviceName,
       status: et.status as EnvironmentStatus,
       repositoryCloneUrl: et.repositoryCloneUrl,
-      workerPort: et.workerPort,
+      sandboxPort: et.sandboxPort,
       previewHostPort: et.previewHostPort,
       servers: et.servers,
     }
@@ -170,11 +171,7 @@ export class SandboxControllerProvisioner implements WorkspaceProvisioner {
   /**
    * Check workspace health via sandbox controller.
    */
-  async isHealthy(taskId: string, target: ExecutionTarget): Promise<boolean> {
-    if (!isKubernetesExecutionTarget(target)) {
-      return false
-    }
-
+  async isHealthy(taskId: string, _target: ExecutionTarget): Promise<boolean> {
     try {
       const url = `${this.baseUrl}/api/sandbox/v1/tasks/${encodeURIComponent(taskId)}/health`
       const response = await fetch(url, { signal: AbortSignal.timeout(10_000) })
@@ -192,11 +189,7 @@ export class SandboxControllerProvisioner implements WorkspaceProvisioner {
   /**
    * Get workspace status via sandbox controller.
    */
-  async getStatus(taskId: string, target: ExecutionTarget): Promise<WorkspaceStatusResult> {
-    if (!isKubernetesExecutionTarget(target)) {
-      return { status: 'error', lastError: 'Non-kubernetes target' }
-    }
-
+  async getStatus(taskId: string, _target: ExecutionTarget): Promise<WorkspaceStatusResult> {
     try {
       const url = `${this.baseUrl}/api/sandbox/v1/tasks/${encodeURIComponent(taskId)}/env-status`
       const response = await fetch(url, { signal: AbortSignal.timeout(10_000) })
@@ -220,19 +213,15 @@ export class SandboxControllerProvisioner implements WorkspaceProvisioner {
   }
 
   /**
-   * Check if agent is running by querying the worker pod directly.
+   * Check if agent is running by querying the sandbox pod directly.
    * This doesn't go through Rust — it queries the sandbox directly via service DNS.
    */
   async isAgentRunning(_taskId: string, target: ExecutionTarget): Promise<boolean> {
-    if (!isKubernetesExecutionTarget(target)) {
-      return false
-    }
-
     const serviceHost = `${target.serviceName}.${target.podNamespace}.svc.cluster.local`
 
     try {
-      const workerUrl = `http://${serviceHost}:${target.workerPort}/agent-status`
-      const response = await fetch(workerUrl, { signal: AbortSignal.timeout(5000) })
+      const sandboxUrl = `http://${serviceHost}:${target.sandboxPort}/agent-status`
+      const response = await fetch(sandboxUrl, { signal: AbortSignal.timeout(5000) })
       if (!response.ok) {
         return false
       }
@@ -337,18 +326,12 @@ export class SandboxControllerProvisioner implements WorkspaceProvisioner {
    * Pure local construction — no HTTP call to Rust.
    */
   createDriver(taskId: string, target: ExecutionTarget): BaseEnvironmentDriver {
-    if (!isKubernetesExecutionTarget(target)) {
-      throw new Error(
-        'SandboxControllerProvisioner: Cannot create driver for non-kubernetes target',
-      )
-    }
-
     const serviceHost = `${target.serviceName}.${target.podNamespace}.svc.cluster.local`
     const previewPort = target.previewHostPort ?? 3000
 
     return new RemoteEnvironmentDriver({
       taskId,
-      getWorkerUrl: async () => `http://${serviceHost}:${target.workerPort}`,
+      getSandboxUrl: async () => `http://${serviceHost}:${target.sandboxPort}`,
       getPreviewUrl: async () => `http://${serviceHost}:${previewPort}`,
     })
   }

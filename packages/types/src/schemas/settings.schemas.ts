@@ -64,8 +64,6 @@ export const updateSettingsSchema = z
         namespace: z.string().nullable().optional(),
         kubeconfig: z.string().nullable().optional(),
         image: z.string().nullable().optional(),
-        workerApiUrl: z.string().nullable().optional(),
-        workerApiKey: z.string().nullable().optional(),
       })
       .strict()
       .nullable()

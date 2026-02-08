@@ -5,19 +5,12 @@ import { logger } from '../../../utils/logger'
 import { EventService } from '../../events/services/event.service'
 import { activeWorkspaces } from '../../metrics'
 import { TaskRepository } from '../../tasks/db/task.repository'
-import { WorkspaceSandboxRepository } from '../db/workspace-sandbox.repository'
-import type { SandboxRecord } from '../db/workspace-sandbox.schema'
+import { SandboxControllerProvisioner } from '../provisioners/sandbox-controller-provisioner'
 import type { WorkspaceProvisionPlan } from '../types/provision-plan.types'
 import type { WorkspaceHandle } from '../types/workspace-handle.types'
-import type {
-  WorkspaceProvisioner,
-  WorkspaceStatusResult,
-} from '../types/workspace-provisioner.types'
 import {
   type ExecutionTarget,
-  getSandboxUrl,
   getWorkspacePathFromTarget,
-  isDockerExecutionTarget,
   isWorkspaceAvailable as isTargetAvailable,
 } from '../types/workspace-runtime.types'
 import { ProvisionPlanFactory } from './provision-plan-factory.service'
@@ -26,15 +19,13 @@ import { ProvisionPlanFactory } from './provision-plan-factory.service'
  * WorkspaceRuntimeManager - Low-level runtime state manager
  *
  * Owns all workspace provisioning, runtime state management, and driver lifecycle.
- * Uses WorkspaceSandboxRepository as the sole persistence layer.
- *
- * Agent state and preview state are NOT persisted — they are queried on-demand
- * from the sandbox. Only the execution target is persisted (needed for provisioner operations).
+ * The sandbox controller API is the sole source of truth for workspace state.
+ * No local DB persistence — execution targets are constructed deterministically
+ * from taskId (service names are deterministic).
  *
  * Responsibilities:
  * - Workspace provisioning and validation
- * - Sandbox record CRUD operations
- * - State updates for execution target
+ * - State queries via sandbox controller API
  * - Driver creation (per-task)
  * - Returns enriched WorkspaceHandle with runtime state and driver
  */
@@ -49,10 +40,9 @@ export class WorkspaceRuntimeManager {
   private provisioningLocks = new Map<string, Promise<WorkspaceHandle>>()
 
   constructor(
-    @inject(WorkspaceSandboxRepository) private readonly sandboxStore: WorkspaceSandboxRepository,
     @inject(TaskRepository) private readonly taskRepository: TaskRepository,
-    @inject('WorkspaceProvisioner')
-    private readonly provisioner: WorkspaceProvisioner,
+    @inject(SandboxControllerProvisioner)
+    private readonly provisioner: SandboxControllerProvisioner,
     @inject(EventService) private readonly eventService: EventService,
     @inject(ProvisionPlanFactory) private readonly planFactory: ProvisionPlanFactory,
     @inject(RedisLockServiceSymbol)
@@ -71,14 +61,9 @@ export class WorkspaceRuntimeManager {
   async ensureWorkspace(taskId: string, repositoryId?: string): Promise<WorkspaceHandle> {
     logger.debug({ taskId, repositoryId }, 'WorkspaceRuntimeManager: Ensuring workspace')
 
-    // 1. Try to load existing sandbox record
-    const record = await this.sandboxStore.load(taskId)
-
-    const existingHandle = await this.tryGetExistingHandle(record)
+    // 1. Check sandbox controller for existing workspace
+    const existingHandle = await this.tryGetExistingHandle(taskId)
     if (existingHandle) {
-      if (record) {
-        this.touchActivityIfStale(taskId, record)
-      }
       return existingHandle
     }
 
@@ -139,8 +124,7 @@ export class WorkspaceRuntimeManager {
       }
 
       // After waiting, check if workspace is now available
-      const record = await this.sandboxStore.load(taskId)
-      const existingHandle = await this.tryGetExistingHandle(record)
+      const existingHandle = await this.tryGetExistingHandle(taskId)
       if (existingHandle) {
         logger.info({ taskId }, 'WorkspaceRuntimeManager: Workspace provisioned by another replica')
         return existingHandle
@@ -156,8 +140,7 @@ export class WorkspaceRuntimeManager {
 
     try {
       // Double-check after acquiring lock (another replica may have just finished)
-      const record = await this.sandboxStore.load(taskId)
-      const existingHandle = await this.tryGetExistingHandle(record)
+      const existingHandle = await this.tryGetExistingHandle(taskId)
       if (existingHandle) {
         logger.debug({ taskId }, 'WorkspaceRuntimeManager: Workspace appeared after acquiring lock')
         return existingHandle
@@ -205,112 +188,53 @@ export class WorkspaceRuntimeManager {
     }
 
     const plan = await this.planFactory.createPlan(taskId, repoId)
-    return await this.provisionAndPersist(taskId, plan)
+    return await this.provisionWorkspace(taskId, plan)
   }
 
   /**
-   * Get sandbox record by task ID.
+   * Get workspace status from the sandbox controller.
+   * Returns status and optional error information.
    */
-  async getSandboxRecord(taskId: string): Promise<SandboxRecord | null> {
-    return await this.sandboxStore.load(taskId)
-  }
-
-  /**
-   * Get execution target for a task, or null if no sandbox exists.
-   */
-  async getExecutionTarget(taskId: string): Promise<ExecutionTarget | null> {
-    const record = await this.sandboxStore.load(taskId)
-    return record?.executionTarget ?? null
-  }
-
-  /**
-   * Get sandbox URL for a task, or null if not available.
-   */
-  async getSandboxUrl(taskId: string): Promise<string | null> {
-    const target = await this.getExecutionTarget(taskId)
-    if (!target) {
-      return null
+  async getWorkspaceStatus(
+    taskId: string,
+  ): Promise<{ exists: boolean; status: string; error?: string }> {
+    const target = this.buildExecutionTarget(taskId)
+    const liveStatus = await this.provisioner.getStatus(taskId, target)
+    const exists = liveStatus.status !== 'not_created' && liveStatus.status !== 'error'
+    const result: { exists: boolean; status: string; error?: string } = {
+      exists,
+      status: liveStatus.status,
     }
-    return getSandboxUrl(target)
-  }
-
-  /**
-   * Get workspace handle without provisioning or validation.
-   * Returns null if no sandbox record exists.
-   */
-  async getExistingWorkspaceHandle(taskId: string): Promise<WorkspaceHandle | null> {
-    const record = await this.sandboxStore.load(taskId)
-    if (!record) {
-      return null
+    if (liveStatus.lastError !== undefined) {
+      result.error = liveStatus.lastError
     }
-
-    return this.createEnrichedHandle(record)
+    return result
   }
 
   /**
-   * Get sandbox record with live environment validation.
-   * Returns the record with execution target updated from live status.
+   * Get execution target for a task, constructed deterministically from taskId.
    */
-  async getValidatedRecord(taskId: string): Promise<SandboxRecord | null> {
-    const record = await this.sandboxStore.load(taskId)
-    if (!record) {
-      return null
-    }
-
-    const liveStatus = await this.provisioner.getStatus(taskId, record.executionTarget)
-
-    return {
-      ...record,
-      executionTarget: {
-        ...record.executionTarget,
-        status: liveStatus.status,
-        lastHealthCheck: new Date(),
-        lastError: liveStatus.lastError ?? record.executionTarget.lastError,
-      },
-    }
+  getExecutionTarget(taskId: string): ExecutionTarget {
+    return this.buildExecutionTarget(taskId)
   }
 
   /**
-   * Explicitly mark workspace as active. Fire-and-forget.
-   */
-  touchActivity(taskId: string): void {
-    this.sandboxStore
-      .load(taskId)
-      .then((record) => {
-        if (record) {
-          this.touchActivityIfStale(taskId, record)
-        }
-      })
-      .catch((err) => {
-        logger.debug({ taskId, err }, 'Failed to load sandbox record for activity touch')
-      })
-  }
-
-  /**
-   * Check if an agent is actually running by querying the worker.
+   * Check if an agent is actually running by querying the sandbox.
    */
   async isAgentActuallyRunning(taskId: string): Promise<boolean> {
-    const record = await this.sandboxStore.load(taskId)
-    if (!record) {
-      return false
-    }
-    return await this.provisioner.isAgentRunning(taskId, record.executionTarget)
+    const target = this.buildExecutionTarget(taskId)
+    return await this.provisioner.isAgentRunning(taskId, target)
   }
 
   /**
-   * Delete sandbox record and clean up metrics.
+   * Delete sandbox and clean up metrics.
    */
   async deleteSandbox(taskId: string): Promise<void> {
-    const record = await this.sandboxStore.load(taskId)
-    if (record) {
-      const mode = record.executionTarget.mode
-      const liveStatus = await this.provisioner.getStatus(taskId, record.executionTarget)
-      if (liveStatus.status === 'ready') {
-        activeWorkspaces.labels({ mode }).dec()
-      }
+    const target = this.buildExecutionTarget(taskId)
+    const liveStatus = await this.provisioner.getStatus(taskId, target)
+    if (liveStatus.status === 'ready') {
+      activeWorkspaces.labels({ mode: 'kubernetes' }).dec()
     }
-
-    await this.sandboxStore.unregister(taskId)
   }
 
   /**
@@ -319,14 +243,9 @@ export class WorkspaceRuntimeManager {
   async clearWorkspaceError(taskId: string): Promise<void> {
     logger.info({ taskId }, 'WorkspaceRuntimeManager: Clearing workspace error state')
 
-    const record = await this.sandboxStore.load(taskId)
-    if (!record) {
-      logger.debug({ taskId }, 'No sandbox record found to clear')
-      return
-    }
-
     try {
-      await this.provisioner.stopSandbox(taskId, record.executionTarget)
+      const target = this.buildExecutionTarget(taskId)
+      await this.provisioner.stopSandbox(taskId, target)
     } catch (error) {
       logger.debug(
         { taskId, error: (error as Error).message },
@@ -334,26 +253,18 @@ export class WorkspaceRuntimeManager {
       )
     }
 
-    // Delete the sandbox record to allow fresh provisioning
-    await this.sandboxStore.unregister(taskId)
-
     logger.info({ taskId }, 'WorkspaceRuntimeManager: Workspace error state cleared')
   }
 
   /**
-   * Clean up workspace artifacts before deleting sandbox record
+   * Clean up workspace artifacts via sandbox controller
    */
   async cleanupWorkspaceArtifacts(taskId: string): Promise<void> {
     logger.debug({ taskId }, 'WorkspaceRuntimeManager: Cleaning up workspace artifacts')
 
     try {
-      const record = await this.sandboxStore.load(taskId)
-      if (!record) {
-        logger.debug({ taskId }, 'No sandbox record found, skipping artifact cleanup')
-        return
-      }
-
-      await this.provisioner.cleanup(taskId, record.executionTarget)
+      const target = this.buildExecutionTarget(taskId)
+      await this.provisioner.cleanup(taskId, target)
 
       logger.debug({ taskId }, 'WorkspaceRuntimeManager: Workspace artifacts cleaned up')
     } catch (error) {
@@ -368,11 +279,8 @@ export class WorkspaceRuntimeManager {
    * Check if workspace is available and ready for use
    */
   async isWorkspaceAvailable(taskId: string): Promise<boolean> {
-    const record = await this.sandboxStore.load(taskId)
-    if (!record) {
-      return false
-    }
-    const liveStatus = await this.provisioner.getStatus(taskId, record.executionTarget)
+    const target = this.buildExecutionTarget(taskId)
+    const liveStatus = await this.provisioner.getStatus(taskId, target)
     return liveStatus.status === 'ready'
   }
 
@@ -411,9 +319,9 @@ export class WorkspaceRuntimeManager {
         )
       }
 
-      // 3. Delete sandbox record
+      // 3. Update metrics
       await this.deleteSandbox(taskId)
-      logger.debug({ taskId }, 'WorkspaceRuntimeManager: Sandbox record deleted')
+      logger.debug({ taskId }, 'WorkspaceRuntimeManager: Sandbox metrics updated')
 
       logger.info({ taskId }, 'WorkspaceRuntimeManager: Complete workspace cleanup finished')
     } catch (error) {
@@ -430,14 +338,9 @@ export class WorkspaceRuntimeManager {
    * Fire-and-forget — notification is best-effort.
    */
   async notifySandbox(taskId: string): Promise<void> {
-    const record = await this.sandboxStore.load(taskId)
-    if (!record) {
-      logger.debug({ taskId }, 'WorkspaceRuntimeManager: No sandbox record, skipping notification')
-      return
-    }
-
     try {
-      const driver = this.provisioner.createDriver(taskId, record.executionTarget)
+      const target = this.buildExecutionTarget(taskId)
+      const driver = this.provisioner.createDriver(taskId, target)
       await driver.notifyMessages()
     } catch (error) {
       logger.debug(
@@ -451,62 +354,78 @@ export class WorkspaceRuntimeManager {
   // Private Helper Methods
   // ========================================
 
-  private async tryGetExistingHandle(
-    record: SandboxRecord | null,
-  ): Promise<WorkspaceHandle | null> {
-    if (!record) {
+  /**
+   * Build an ExecutionTarget deterministically from taskId.
+   * Service names are deterministic: moatless-ws-{sanitized-taskId}
+   * No DB lookup needed.
+   */
+  private buildExecutionTarget(taskId: string): ExecutionTarget {
+    const namespace = process.env['K8S_NAMESPACE'] || process.env['SANDBOX_NAMESPACE'] || 'default'
+
+    // Deterministic service name (must match Rust's generate_service_name)
+    const sanitized = taskId
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, '-')
+      .substring(0, 49)
+    const serviceName = `moatless-ws-${sanitized}`.substring(0, 63)
+
+    return {
+      mode: 'kubernetes',
+      podNamespace: namespace,
+      serviceName,
+      repositoryCloneUrl: '', // Not needed for status/driver operations
+      sandboxPort: 8001,
+    }
+  }
+
+  private async tryGetExistingHandle(taskId: string): Promise<WorkspaceHandle | null> {
+    const target = this.buildExecutionTarget(taskId)
+    const statusResult = await this.provisioner.getStatus(taskId, target)
+
+    if (statusResult.status === 'ready') {
+      logger.debug({ taskId }, 'WorkspaceRuntimeManager: Using existing workspace')
+      return this.createEnrichedHandle(taskId, target)
+    }
+
+    if (statusResult.status === 'not_created' || statusResult.status === 'stopped') {
+      // No workspace exists or it's stopped — needs provisioning
       return null
     }
 
-    const statusResult = await this.provisioner.getStatus(record.taskId, record.executionTarget)
-
-    if (statusResult.status === 'ready') {
-      logger.debug({ taskId: record.taskId }, 'WorkspaceRuntimeManager: Using existing workspace')
-      // Emit ready event if the stored state wasn't already ready (e.g. recovered from error)
-      if (record.executionTarget.status !== 'ready') {
-        await this.emitEnvironmentEvent(record.taskId, 'ready')
-      }
-      return this.createEnrichedHandle(record)
+    if (statusResult.status === 'initializing') {
+      // Still initializing — not ready yet, but exists
+      logger.info(
+        { taskId, status: statusResult.status, podName: statusResult.podName },
+        'WorkspaceRuntimeManager: Existing workspace not ready, will provision',
+      )
+      return null
     }
 
-    logger.info(
-      {
-        taskId: record.taskId,
-        status: statusResult.status,
-        containerName: statusResult.containerName,
-        podName: statusResult.podName,
-      },
-      'WorkspaceRuntimeManager: Existing workspace not ready, will provision',
-    )
-
-    const terminalError = await this.getTerminalWorkspaceError(record, statusResult)
-    if (terminalError) {
+    // Error state
+    if (statusResult.status === 'error' && statusResult.lastError) {
       throw new Error(
-        `Workspace provisioning failed: ${terminalError}. Retry from the workspace retry endpoint.`,
+        `Workspace provisioning failed: ${statusResult.lastError}. Retry from the workspace retry endpoint.`,
       )
     }
 
+    logger.info(
+      { taskId, status: statusResult.status, podName: statusResult.podName },
+      'WorkspaceRuntimeManager: Existing workspace not ready, will provision',
+    )
     return null
   }
 
-  private async provisionAndPersist(
+  private async provisionWorkspace(
     taskId: string,
     plan: WorkspaceProvisionPlan,
   ): Promise<WorkspaceHandle> {
-    const initTarget = this.provisioner.createInitializingTarget(taskId, plan)
-    const mode = initTarget.mode
+    this.provisioner.createInitializingTarget(taskId, plan)
 
     try {
-      // Save initializing sandbox record immediately
-      await this.sandboxStore.register(taskId, mode, initTarget)
-
       await this.emitEnvironmentEvent(taskId, 'initializing')
 
       // Provision workspace (blocking - can take 30+ seconds for K8s)
       const executionTarget = await this.provisioner.provision(taskId, plan)
-
-      // Update sandbox record with final execution target
-      await this.sandboxStore.register(taskId, executionTarget.mode, executionTarget)
 
       // Only emit 'ready' if the provisioner returned a ready target.
       // When status is 'initializing', the sandbox controller publishes
@@ -516,7 +435,7 @@ export class WorkspaceRuntimeManager {
       }
 
       if (isTargetAvailable(executionTarget)) {
-        activeWorkspaces.labels({ mode }).inc()
+        activeWorkspaces.labels({ mode: 'kubernetes' }).inc()
       }
 
       logger.debug(
@@ -524,24 +443,12 @@ export class WorkspaceRuntimeManager {
           taskId,
           workspacePath: getWorkspacePathFromTarget(executionTarget),
         },
-        'WorkspaceRuntimeManager: Workspace provisioned and sandbox record saved',
+        'WorkspaceRuntimeManager: Workspace provisioned',
       )
 
-      const record = await this.sandboxStore.load(taskId)
-      return this.createEnrichedHandle(record!)
+      return this.createEnrichedHandle(taskId, executionTarget)
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error)
-
-      // Update sandbox record with error state
-      const errorTarget: ExecutionTarget = {
-        ...initTarget,
-        status: 'error',
-        lastError: errorMessage,
-      }
-      await this.sandboxStore.register(taskId, mode, errorTarget)
-      await this.sandboxStore.setError(taskId, errorMessage).catch((err) => {
-        logger.debug({ taskId, err }, 'Failed to set sandbox error')
-      })
 
       await this.emitEnvironmentEvent(taskId, 'error', errorMessage)
       throw error
@@ -549,84 +456,11 @@ export class WorkspaceRuntimeManager {
   }
 
   /**
-   * Check if workspace has a terminal error that prevents retry.
-   */
-  private getTerminalWorkspaceError(
-    record: SandboxRecord,
-    liveStatus: WorkspaceStatusResult,
-  ): Promise<string | null> {
-    if (record.executionTarget.lastError) {
-      return this.handleCachedError(record)
-    }
-
-    return Promise.resolve(this.getTerminalStateError(liveStatus))
-  }
-
-  private async handleCachedError(record: SandboxRecord): Promise<string | null> {
-    const target = record.executionTarget
-    logger.debug(
-      { taskId: record.taskId, lastError: target.lastError },
-      'WorkspaceRuntimeManager: Checking status for cached error',
-    )
-
-    const liveStatus = await this.provisioner.getStatus(record.taskId, target)
-
-    if (liveStatus.status === 'not_created' || liveStatus.status === 'stopped') {
-      const statusMsg = isDockerExecutionTarget(target)
-        ? liveStatus.status === 'not_created'
-          ? 'Container not found'
-          : 'Container stopped'
-        : liveStatus.status === 'not_created'
-          ? 'Pod not found'
-          : 'Pod stopped'
-      logger.info(
-        { taskId: record.taskId },
-        `WorkspaceRuntimeManager: ${statusMsg}, clearing cached error to allow retry`,
-      )
-      await this.sandboxStore.unregister(record.taskId)
-      return null
-    }
-
-    if (liveStatus.status === 'ready') {
-      const statusMsg = isDockerExecutionTarget(target)
-        ? 'Container is now running'
-        : 'Pod is now running'
-      logger.info(
-        { taskId: record.taskId },
-        `WorkspaceRuntimeManager: ${statusMsg}, clearing cached error`,
-      )
-      const updatedTarget: ExecutionTarget = {
-        ...target,
-        status: 'ready',
-        lastHealthCheck: new Date(),
-        lastError: undefined,
-      }
-      await this.sandboxStore.updateExecutionTarget(record.taskId, updatedTarget)
-      await this.sandboxStore.clearError(record.taskId)
-      await this.emitEnvironmentEvent(record.taskId, 'ready')
-      return null
-    }
-
-    return target.lastError ?? null
-  }
-
-  private getTerminalStateError(liveStatus: WorkspaceStatusResult): string | null {
-    if (liveStatus.status === 'error' && liveStatus.lastError) {
-      return liveStatus.lastError
-    }
-    return null
-  }
-
-  /**
    * Stop agent for a task.
    */
   async stopAgentAndInvalidate(taskId: string): Promise<void> {
-    const record = await this.sandboxStore.load(taskId)
-    if (!record) {
-      return
-    }
-
-    const driver = this.provisioner.createDriver(taskId, record.executionTarget)
+    const target = this.buildExecutionTarget(taskId)
+    const driver = this.provisioner.createDriver(taskId, target)
     try {
       await driver.stopAgent()
     } catch (error) {
@@ -638,16 +472,16 @@ export class WorkspaceRuntimeManager {
   }
 
   /**
-   * Create enriched workspace handle from sandbox record.
+   * Create enriched workspace handle from execution target.
    * Agent/preview state are set to defaults — consumers should query sandbox for live state.
    */
-  private createEnrichedHandle(record: SandboxRecord): WorkspaceHandle {
-    const driver = this.provisioner.createDriver(record.taskId, record.executionTarget)
+  private createEnrichedHandle(taskId: string, target: ExecutionTarget): WorkspaceHandle {
+    const driver = this.provisioner.createDriver(taskId, target)
     return {
-      taskId: record.taskId,
-      workspacePath: getWorkspacePathFromTarget(record.executionTarget),
+      taskId,
+      workspacePath: getWorkspacePathFromTarget(target),
       repositoryId: '', // Not stored in sandbox; consumers get from task record
-      mode: 'worker',
+      mode: 'sandbox',
       preview: {
         status: 'stopped',
         needsSetup: true,
@@ -676,32 +510,5 @@ export class WorkspaceRuntimeManager {
       isError: status === 'error',
       payload: error ? { error } : {},
     })
-  }
-
-  // ========================================
-  // Activity Tracking
-  // ========================================
-
-  private getActivityThrottleMs(): number {
-    return Number(process.env['WORKSPACE_ACTIVITY_THROTTLE_MS']) || 5 * 60 * 1000
-  }
-
-  /** Update lastActivityAt in DB if stale (older than throttle). Fire-and-forget. */
-  private touchActivityIfStale(taskId: string, record: SandboxRecord): void {
-    const now = Date.now()
-    const lastActivity = record.lastActivityAt?.getTime() ?? 0
-    if (now - lastActivity > this.getActivityThrottleMs()) {
-      const timestamp = new Date()
-      this.sandboxStore.touchActivity(taskId, timestamp).catch((err) => {
-        logger.debug({ taskId, err }, 'Failed to update lastActivityAt')
-      })
-    }
-  }
-
-  /**
-   * Get the sandbox repository for direct access by background services
-   */
-  getSandboxStore(): WorkspaceSandboxRepository {
-    return this.sandboxStore
   }
 }

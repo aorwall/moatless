@@ -7,7 +7,6 @@ import { SettingsService } from '../../../services/settings.service.js'
 import { pathExists } from '../../../utils/filesystem.js'
 import { logger } from '../../../utils/logger.js'
 import { TaskService } from '../../tasks/services/task.service.js'
-import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service.js'
 import { NetlifyService } from './netlify.service.js'
 
 type DeploymentInfo = Pick<DeployResponse, 'success' | 'siteId' | 'siteUrl'>
@@ -49,7 +48,6 @@ export class DeploymentService {
   constructor(
     @inject(TaskService) private readonly taskService: TaskService,
     @inject(SettingsService) private readonly settingsService: SettingsService,
-    @inject(WorkspaceRuntimeManager) private readonly runtimeManager: WorkspaceRuntimeManager,
     @inject(NetlifyService) private readonly netlifyService: NetlifyService,
   ) {}
 
@@ -178,16 +176,11 @@ export class DeploymentService {
 
   /**
    * Get and validate workspace for deployment.
-   * Currently only supports local workspaces.
+   * All workspaces are remote (K8s) — deployment is not supported.
    */
-  private async getDeploymentWorkspace(taskId: string): Promise<DeploymentWorkspace> {
-    const record = await this.runtimeManager.getSandboxRecord(taskId)
-    if (!record) {
-      throw new DeploymentWorkspaceError('Workspace not found for task')
-    }
-
+  private getDeploymentWorkspace(_taskId: string): Promise<DeploymentWorkspace> {
     // Deployment requires local file access for building and uploading
-    // This is not supported for remote workspaces (Docker/K8s)
+    // This is not supported for remote workspaces (K8s)
     throw new DeploymentWorkspaceError(
       'Deployment is not supported for remote workspaces. Use CI/CD pipelines instead.',
     )

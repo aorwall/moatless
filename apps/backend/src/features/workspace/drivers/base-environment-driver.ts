@@ -64,9 +64,9 @@ export interface PreviewServerLogEvent {
  * - File search
  * - Preview server management
  *
- * Implementation: RemoteEnvironmentDriver - HTTP forwarding to worker pods/containers
+ * Implementation: RemoteEnvironmentDriver - HTTP forwarding to sandbox pods/containers
  *
- * Note: The worker pod/container internally handles operations locally.
+ * Note: The sandbox pod/container internally handles operations locally.
  */
 export interface BaseEnvironmentDriver {
   /**
@@ -128,9 +128,9 @@ export interface BaseEnvironmentDriver {
   getExternalPreviewUrl?(): string | undefined
 
   /**
-   * Get the worker base URL for proxying requests to the sandbox
+   * Get the sandbox base URL for proxying requests to the sandbox
    */
-  getWorkerBaseUrl?(): Promise<string | undefined>
+  getSandboxBaseUrl?(): Promise<string | undefined>
 
   /**
    * Get preview server status

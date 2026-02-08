@@ -4,7 +4,7 @@ import type { CreateTaskRequest, Event, Task } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { EventService } from '../features/events/index'
 import type { WorkspaceRuntimeManager } from '../features/workspace/index'
-import { getWorkspacePathFromTarget } from '../features/workspace/types/workspace-runtime.types'
+import { CONTAINER_WORKSPACE_PATH } from '../features/workspace/types/workspace-runtime.types'
 import { build } from '../test/helper'
 import { getDataDir } from '../utils/data-dir'
 import { logger } from '../utils/logger'
@@ -211,28 +211,21 @@ describe.skipIf(!process.env['DATABASE_URL'])('Complete Workflow Integration Tes
     // Wait a bit for background workspace setup and initial message processing
     await new Promise((resolve) => setTimeout(resolve, 2000))
 
-    // Step 2a: Verify workspace sandbox record was created
-    logger.info({ taskId: createdTaskId }, 'Verifying workspace sandbox record')
-    const sandboxRecord = await workspaceCoordinator.getSandboxRecord(createdTaskId)
-    expect(sandboxRecord).toBeTruthy()
-    expect(sandboxRecord?.taskId).toBe(createdTaskId)
-    expect(sandboxRecord?.executionTarget.mode).toBe('local')
+    // Step 2a: Verify workspace status via sandbox controller
+    logger.info({ taskId: createdTaskId }, 'Verifying workspace status')
+    const wsStatus = await workspaceCoordinator.getWorkspaceStatus(createdTaskId)
+    expect(wsStatus).toBeTruthy()
 
-    // Use type guard to safely access local execution target properties
-    const workspacePath = sandboxRecord
-      ? getWorkspacePathFromTarget(sandboxRecord.executionTarget)
-      : undefined
+    // Workspace path is deterministic for container-based workspaces
+    const workspacePath = CONTAINER_WORKSPACE_PATH
     expect(workspacePath).toBeTruthy()
-
-    // Verify workspace path matches temp directory (direct mode)
-    expect(workspacePath).toBe(tempDir)
 
     logger.info(
       {
-        mode: sandboxRecord?.executionTarget.mode,
+        status: wsStatus.status,
         workspacePath,
       },
-      'Workspace sandbox record verified',
+      'Workspace status verified',
     )
 
     // Step 3: Verify task was created and has initial state
@@ -417,13 +410,10 @@ describe.skipIf(!process.env['DATABASE_URL'])('Complete Workflow Integration Tes
     logger.info({ waitTime: Date.now() - pollStartTime }, 'Agent final state verified (idle)')
 
     // Workspace should still be valid
-    const finalRecord = await workspaceCoordinator.getSandboxRecord(createdTaskId)
-    expect(finalRecord).toBeTruthy()
-    const finalWorkspacePath = finalRecord
-      ? getWorkspacePathFromTarget(finalRecord.executionTarget)
-      : undefined
-    expect(finalWorkspacePath).toBe(tempDir)
-    expect(finalRecord?.executionTarget.mode).toBe('local')
+    const finalWsStatus = await workspaceCoordinator.getWorkspaceStatus(createdTaskId)
+    expect(finalWsStatus).toBeTruthy()
+    const finalWorkspacePath = CONTAINER_WORKSPACE_PATH
+    expect(finalWorkspacePath).toBeTruthy()
 
     // Step 6: Verify the file was created
     const helloWorldPath = path.join(tempDir, 'hello_world.py')

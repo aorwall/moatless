@@ -444,7 +444,7 @@ export class TaskExecutionCoordinator {
   }
 
   /**
-   * Wait for workspace to be ready by polling snapshots.
+   * Wait for workspace to be ready by polling sandbox controller status.
    */
   private async waitForWorkspaceReady(taskId: string): Promise<void> {
     const maxWaitTime = TaskExecutionCoordinator.WORKSPACE_READY_TIMEOUT
@@ -452,18 +452,12 @@ export class TaskExecutionCoordinator {
     const startWait = Date.now()
 
     while (Date.now() - startWait < maxWaitTime) {
-      const record = await this.workspaceCoordinator.getSandboxRecord(taskId)
-      if (record) {
-        // Unified availability check for both local and Kubernetes workspaces
-        if (await this.workspaceCoordinator.isWorkspaceAvailable(taskId)) {
-          return
-        }
-        // Check for errors in execution target
-        if (record.executionTarget.lastError) {
-          throw new Error(
-            `Cannot start task - workspace setup failed: ${record.executionTarget.lastError}`,
-          )
-        }
+      if (await this.workspaceCoordinator.isWorkspaceAvailable(taskId)) {
+        return
+      }
+      const wsStatus = await this.workspaceCoordinator.getWorkspaceStatus(taskId)
+      if (wsStatus.error) {
+        throw new Error(`Cannot start task - workspace setup failed: ${wsStatus.error}`)
       }
       await new Promise((resolve) => setTimeout(resolve, checkInterval))
     }

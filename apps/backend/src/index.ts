@@ -56,13 +56,6 @@ const start = async () => {
         const { MessageService } = await import('./features/agents/services/message.service.js')
         const { appContainer: container } = await import('./container/container.js')
         if (container) {
-          // Stop workspace inactivity checker
-          const { WorkspaceInactivityService } = await import(
-            './features/workspace/services/workspace-inactivity.service.js'
-          )
-          const inactivityService = container.get(WorkspaceInactivityService)
-          inactivityService.stop()
-
           // Stop message subscription
           const messageService = container.get(MessageService)
           messageService.stopEventSubscription()

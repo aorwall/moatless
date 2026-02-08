@@ -22,7 +22,7 @@ export class AgentControlService {
   /**
    * Stop agent execution
    *
-   * This method sends the stop signal to the sandbox worker.
+   * This method sends the stop signal to the sandbox.
    * State updates (agent state to 'idle', iteration to 'completed') are handled
    * by TaskEventHandler when the sandbox emits the 'agent.stopped' event.
    */
@@ -30,7 +30,7 @@ export class AgentControlService {
     logger.info({ taskId }, 'AgentControlService: Stopping agent')
 
     try {
-      // Stop agent via RuntimeManager - sends stop signal to sandbox worker
+      // Stop agent via RuntimeManager - sends stop signal to sandbox
       // The sandbox will emit 'agent.stopped' event which triggers state updates
       await this.runtimeManager.stopAgentAndInvalidate(taskId)
 

@@ -55,7 +55,7 @@ interface SearchFilesResponse {
  */
 export interface RemoteEnvironmentDriverConfig {
   taskId: string
-  getWorkerUrl: () => Promise<string>
+  getSandboxUrl: () => Promise<string>
   getExternalPreviewUrl?: () => string | undefined
   getPreviewUrl?: () => Promise<string | undefined>
 }
@@ -69,7 +69,7 @@ export interface RemoteEnvironmentDriverConfig {
  * The URL provider function is injected at construction time, allowing
  * different provisioners to provide their own URL resolution strategy:
  * - Docker: () => `http://localhost:${hostPort}`
- * - Kubernetes: async () => `http://${serviceName}.${namespace}.svc.cluster.local:${workerPort}`
+ * - Kubernetes: async () => `http://${serviceName}.${namespace}.svc.cluster.local:${sandboxPort}`
  *
  * Key responsibilities:
  * - Run commands on the sandbox via HTTP
@@ -88,24 +88,24 @@ export class RemoteEnvironmentDriver implements BaseEnvironmentDriver {
   }
 
   /**
-   * Get the worker URL for this sandbox
+   * Get the sandbox URL for this sandbox
    */
-  protected getWorkerUrl(): Promise<string> {
-    return this.config.getWorkerUrl()
+  protected getSandboxUrl(): Promise<string> {
+    return this.config.getSandboxUrl()
   }
 
   /**
-   * Get the worker base URL for preview proxying
+   * Get the sandbox base URL for preview proxying
    */
-  async getWorkerBaseUrl(): Promise<string | undefined> {
+  async getSandboxBaseUrl(): Promise<string | undefined> {
     try {
-      return await this.getWorkerUrl()
+      return await this.getSandboxUrl()
     } catch {
       return undefined
     }
   }
 
-  protected async getWorkerProxyUrl(): Promise<string | undefined> {
+  protected async getSandboxProxyUrl(): Promise<string | undefined> {
     if (this.config.getPreviewUrl) {
       try {
         return await this.config.getPreviewUrl()
@@ -113,8 +113,8 @@ export class RemoteEnvironmentDriver implements BaseEnvironmentDriver {
         return undefined
       }
     }
-    const workerBaseUrl = await this.getWorkerBaseUrl()
-    return workerBaseUrl ? `${workerBaseUrl}/preview` : undefined
+    const sandboxBaseUrl = await this.getSandboxBaseUrl()
+    return sandboxBaseUrl ? `${sandboxBaseUrl}/preview` : undefined
   }
 
   public getExternalPreviewUrl(): string | undefined {
@@ -156,10 +156,10 @@ export class RemoteEnvironmentDriver implements BaseEnvironmentDriver {
     command: string,
     options?: RunCommandOptions,
   ): AsyncGenerator<ShellCommandLogEvent> {
-    const workerUrl = await this.getWorkerUrl()
+    const sandboxUrl = await this.getSandboxUrl()
 
     this.driverLogger.debug(
-      { taskId: this.config.taskId, command, workerUrl },
+      { taskId: this.config.taskId, command, sandboxUrl },
       'RemoteEnvironmentDriver: Running command',
     )
 
@@ -176,7 +176,7 @@ export class RemoteEnvironmentDriver implements BaseEnvironmentDriver {
       if (options?.timeout) {
         fetchOptions.signal = AbortSignal.timeout(options.timeout)
       }
-      const response = await fetch(`${workerUrl}/command`, fetchOptions)
+      const response = await fetch(`${sandboxUrl}/command`, fetchOptions)
 
       const result = (await response.json()) as CommandResponse
 
@@ -230,14 +230,14 @@ export class RemoteEnvironmentDriver implements BaseEnvironmentDriver {
    * This is a fire-and-forget HTTP POST - events are handled via Redis subscription.
    */
   async executeAgent(request: AgentRunRequest): Promise<void> {
-    const workerUrl = await this.getWorkerUrl()
+    const sandboxUrl = await this.getSandboxUrl()
 
     this.driverLogger.info(
-      { taskId: this.config.taskId, workerUrl },
+      { taskId: this.config.taskId, sandboxUrl },
       'RemoteEnvironmentDriver: Executing agent on sandbox',
     )
 
-    const response = await fetch(`${workerUrl}/execute-agent`, {
+    const response = await fetch(`${sandboxUrl}/execute-agent`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(request),
@@ -266,24 +266,24 @@ export class RemoteEnvironmentDriver implements BaseEnvironmentDriver {
    * Stop the agent on the sandbox
    */
   async stopAgent(): Promise<void> {
-    let workerUrl: string
+    let sandboxUrl: string
     try {
-      workerUrl = await this.getWorkerUrl()
+      sandboxUrl = await this.getSandboxUrl()
     } catch {
       this.driverLogger.warn(
         { taskId: this.config.taskId },
-        'RemoteEnvironmentDriver: No worker URL to stop agent',
+        'RemoteEnvironmentDriver: No sandbox URL to stop agent',
       )
       return
     }
 
     this.driverLogger.info(
-      { taskId: this.config.taskId, workerUrl },
+      { taskId: this.config.taskId, sandboxUrl },
       'RemoteEnvironmentDriver: Stopping agent',
     )
 
     try {
-      const response = await fetch(`${workerUrl}/stop-agent`, {
+      const response = await fetch(`${sandboxUrl}/stop-agent`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ taskId: this.config.taskId }),
@@ -305,19 +305,19 @@ export class RemoteEnvironmentDriver implements BaseEnvironmentDriver {
   }
 
   async notifyMessages(): Promise<void> {
-    let workerUrl: string
+    let sandboxUrl: string
     try {
-      workerUrl = await this.getWorkerUrl()
+      sandboxUrl = await this.getSandboxUrl()
     } catch {
       this.driverLogger.debug(
         { taskId: this.config.taskId },
-        'RemoteEnvironmentDriver: No worker URL to notify messages',
+        'RemoteEnvironmentDriver: No sandbox URL to notify messages',
       )
       return
     }
 
     try {
-      const response = await fetch(`${workerUrl}/notify-messages`, {
+      const response = await fetch(`${sandboxUrl}/notify-messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
@@ -342,14 +342,14 @@ export class RemoteEnvironmentDriver implements BaseEnvironmentDriver {
    * Search for files in the sandbox workspace
    */
   async searchFiles(request: FileSearchRequest): Promise<FileSearchResult> {
-    const workerUrl = await this.getWorkerUrl()
+    const sandboxUrl = await this.getSandboxUrl()
 
     this.driverLogger.debug(
-      { taskId: this.config.taskId, query: request.query, workerUrl },
+      { taskId: this.config.taskId, query: request.query, sandboxUrl },
       'RemoteEnvironmentDriver: Searching files',
     )
 
-    const response = await fetch(`${workerUrl}/search-files`, {
+    const response = await fetch(`${sandboxUrl}/search-files`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(request),
@@ -376,20 +376,20 @@ export class RemoteEnvironmentDriver implements BaseEnvironmentDriver {
    * Get preview server status from the sandbox
    */
   async getPreviewServerStatus(): Promise<PreviewServerStatus> {
-    let workerUrl: string
+    let sandboxUrl: string
     try {
-      workerUrl = await this.getWorkerUrl()
+      sandboxUrl = await this.getSandboxUrl()
     } catch {
       return {
         status: 'stopped',
-        error: 'No worker URL available',
+        error: 'No sandbox URL available',
       }
     }
 
-    const workerProxyUrl = await this.getWorkerProxyUrl()
+    const sandboxProxyUrl = await this.getSandboxProxyUrl()
 
     try {
-      const response = await fetch(`${workerUrl}/server/status`, {
+      const response = await fetch(`${sandboxUrl}/server/status`, {
         signal: AbortSignal.timeout(5000),
       })
 
@@ -401,11 +401,11 @@ export class RemoteEnvironmentDriver implements BaseEnvironmentDriver {
       }
 
       const status = (await response.json()) as ServerStatusResponse
-      // Prioritize: driver-provided external URL > worker proxy > sandbox-provided URL
-      const extUrl = this.getExternalPreviewUrl() || workerProxyUrl || status.externalUrl
+      // Prioritize: driver-provided external URL > sandbox proxy > sandbox-provided URL
+      const extUrl = this.getExternalPreviewUrl() || sandboxProxyUrl || status.externalUrl
       return {
         ...status,
-        ...(workerProxyUrl && { internalUrl: workerProxyUrl }),
+        ...(sandboxProxyUrl && { internalUrl: sandboxProxyUrl }),
         ...(extUrl && { externalUrl: extUrl }),
       }
     } catch (error) {
@@ -424,18 +424,18 @@ export class RemoteEnvironmentDriver implements BaseEnvironmentDriver {
    * Get status for a specific server by name from the sandbox
    */
   async getServerStatus(serverName: string): Promise<PreviewServerStatus> {
-    let workerUrl: string
+    let sandboxUrl: string
     try {
-      workerUrl = await this.getWorkerUrl()
+      sandboxUrl = await this.getSandboxUrl()
     } catch {
       return {
         status: 'stopped',
-        error: 'No worker URL available',
+        error: 'No sandbox URL available',
       }
     }
 
     try {
-      const response = await fetch(`${workerUrl}/servers/${serverName}/status`, {
+      const response = await fetch(`${sandboxUrl}/servers/${serverName}/status`, {
         signal: AbortSignal.timeout(1000),
       })
 
@@ -463,15 +463,15 @@ export class RemoteEnvironmentDriver implements BaseEnvironmentDriver {
    * Get preview server logs from the sandbox
    */
   async getPreviewServerLogs(lines = 100): Promise<string> {
-    let workerUrl: string
+    let sandboxUrl: string
     try {
-      workerUrl = await this.getWorkerUrl()
+      sandboxUrl = await this.getSandboxUrl()
     } catch {
-      return 'No worker URL available'
+      return 'No sandbox URL available'
     }
 
     try {
-      const response = await fetch(`${workerUrl}/server/logs?lines=${lines}`, {
+      const response = await fetch(`${sandboxUrl}/server/logs?lines=${lines}`, {
         signal: AbortSignal.timeout(5000),
       })
 
@@ -503,15 +503,15 @@ export class RemoteEnvironmentDriver implements BaseEnvironmentDriver {
    * Get logs for a specific server by name from the sandbox
    */
   async getServerLogs(serverName: string, lines = 100): Promise<string> {
-    let workerUrl: string
+    let sandboxUrl: string
     try {
-      workerUrl = await this.getWorkerUrl()
+      sandboxUrl = await this.getSandboxUrl()
     } catch {
-      return 'No worker URL available'
+      return 'No sandbox URL available'
     }
 
     try {
-      const response = await fetch(`${workerUrl}/servers/${serverName}/logs?lines=${lines}`, {
+      const response = await fetch(`${sandboxUrl}/servers/${serverName}/logs?lines=${lines}`, {
         signal: AbortSignal.timeout(5000),
       })
 

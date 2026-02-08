@@ -48,7 +48,7 @@ describe('TaskExecutionCoordinator', () => {
     }
 
     mockRuntimeManager = {
-      getSandboxRecord: vi.fn().mockResolvedValue({ executionTarget: {} }),
+      getWorkspaceStatus: vi.fn().mockResolvedValue({ exists: true, status: 'ready' }),
       ensureWorkspace: vi.fn().mockResolvedValue({
         workspacePath: '/test/workspace',
         repositoryId: 'repo-1',
@@ -221,7 +221,7 @@ describe('TaskExecutionCoordinator', () => {
       await service.startTask('task-123')
 
       expect(mockTaskRepository.get).toHaveBeenCalledWith('task-123')
-      expect(mockRuntimeManager.getSandboxRecord).toHaveBeenCalled()
+      expect(mockRuntimeManager.isWorkspaceAvailable).toHaveBeenCalled()
 
       const savedTask = mockTaskRepository.save.mock.calls[0][0]
       expect(savedTask.status).toBe('running')
@@ -254,15 +254,21 @@ describe('TaskExecutionCoordinator', () => {
       const openTask = { ...mockTask, status: 'open' as const }
       mockTaskRepository.get.mockResolvedValue(openTask)
 
-      // First two calls return null (not ready), third call returns record (ready)
-      mockRuntimeManager.getSandboxRecord
-        .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce({ executionTarget: {} })
+      // First two calls return false (not ready), third call returns true (ready)
+      mockRuntimeManager.isWorkspaceAvailable
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(true)
+
+      // getWorkspaceStatus returns no error during polling
+      mockRuntimeManager.getWorkspaceStatus.mockResolvedValue({
+        exists: false,
+        status: 'initializing',
+      })
 
       await service.startTask('task-123')
 
-      expect(mockRuntimeManager.getSandboxRecord).toHaveBeenCalledTimes(3)
+      expect(mockRuntimeManager.isWorkspaceAvailable).toHaveBeenCalledTimes(3)
       expect(mockRuntimeManager.notifySandbox).toHaveBeenCalled()
     })
   })
