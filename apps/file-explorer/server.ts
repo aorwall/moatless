@@ -24,6 +24,7 @@ const WORKSPACE_PATH = process.env['WORKSPACE_PATH'] || '/opt/moatless/repo'
 const PORT = Number(process.env['FILE_EXPLORER_PORT']) || 4000
 
 const fileService = new FileService(WORKSPACE_PATH)
+fileService.startTreeRefresh(10_000)
 
 function jsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {

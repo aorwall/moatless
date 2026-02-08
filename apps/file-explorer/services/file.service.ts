@@ -36,7 +36,17 @@ export interface FileTreeWithChangesResponse {
 }
 
 export class FileService {
+  private _cachedTree: FileTreeWithChangesResponse | null = null
+  private _refreshPromise: Promise<void> | null = null
+
   constructor(private readonly workspacePath: string) {}
+
+  /** Start background refresh loop. Call once at startup. */
+  startTreeRefresh(intervalMs = 10_000): void {
+    this._refreshTree()
+    const timer = setInterval(() => this._refreshTree(), intervalMs)
+    timer.unref()
+  }
 
   async readFile(filePath: string): Promise<string> {
     const fullPath = path.join(this.workspacePath, filePath)
@@ -123,7 +133,34 @@ export class FileService {
   }
 
   async getFileTreeWithChanges(rootPath = '.'): Promise<FileTreeWithChangesResponse> {
-    const allFiles = await this.listFiles(rootPath, true)
+    if (this._cachedTree) {
+      return this._cachedTree
+    }
+    // First request before cache is ready — compute inline
+    await this._refreshTree()
+    return this._cachedTree!
+  }
+
+  private _refreshTree(): Promise<void> {
+    // Singleflight: skip if a refresh is already running
+    if (this._refreshPromise) {
+      return this._refreshPromise
+    }
+    this._refreshPromise = this._computeTree()
+      .then((result) => {
+        this._cachedTree = result
+      })
+      .catch(() => {
+        /* keep stale cache on error */
+      })
+      .finally(() => {
+        this._refreshPromise = null
+      })
+    return this._refreshPromise
+  }
+
+  private async _computeTree(): Promise<FileTreeWithChangesResponse> {
+    const allFiles = await this.listFiles('.', true)
     const gitDiff = await getGitDiffDetailed(this.workspacePath)
 
     const gitFileMap = new Map<

@@ -22,6 +22,6 @@ export function useFileTree(rootPath = '.') {
       }
       return res.json()
     },
-    refetchInterval: 10_000,
+    refetchInterval: 30_000,
   })
 }
