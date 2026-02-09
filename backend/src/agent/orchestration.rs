@@ -95,6 +95,8 @@ pub async fn send_message_flow(
         .await
         .map_err(|e| AgentError::Internal(format!("Failed to persist message: {e}")))?;
 
+    tracing::info!(task_id = %task_id, "Message persisted, notifying sandbox");
+
     // Update task status to running
     task_dao::update_task(
         &state.db,
@@ -111,7 +113,7 @@ pub async fn send_message_flow(
     // Notify sandbox pod (fire-and-forget)
     let svc_name = generate_service_name(task_id);
     let namespace = state.config.sandbox_namespace.clone();
-    notify::notify_sandbox(&namespace, &svc_name).await;
+    notify::notify_sandbox(&namespace, &svc_name, state.config.sandbox_grpc_port).await;
 
     // Ensure workspace is provisioned in background
     let sandbox = Arc::clone(&state.sandbox);
@@ -192,15 +194,26 @@ pub async fn send_tool_response_flow(
         .await
         .map_err(|e| AgentError::Internal(format!("Failed to persist tool response: {e}")))?;
 
+    tracing::info!(task_id = %task_id, tool_use_id = %tool_use_id, "Tool response sent");
+
     // Notify sandbox
     let svc_name = generate_service_name(task_id);
-    notify::notify_sandbox(&state.config.sandbox_namespace, &svc_name).await;
+    notify::notify_sandbox(&state.config.sandbox_namespace, &svc_name, state.config.sandbox_grpc_port).await;
 
     Ok(())
 }
 
-/// Start task flow — wait for workspace ready, then set status.
+/// Start task flow — provision workspace, wait for ready, then set status.
 pub async fn start_task_flow(state: &AppState, task_id: &str) -> Result<(), AgentError> {
+    tracing::info!(task_id = %task_id, "Starting task flow, provisioning workspace");
+
+    // Ensure workspace is started/provisioned
+    state
+        .sandbox
+        .start(task_id)
+        .await
+        .map_err(|e| AgentError::Internal(format!("Failed to start workspace: {e}")))?;
+
     // Poll workspace status with timeout
     let timeout = tokio::time::Duration::from_secs(30);
     let start = tokio::time::Instant::now();
@@ -211,18 +224,17 @@ pub async fn start_task_flow(state: &AppState, task_id: &str) -> Result<(), Agen
         }
 
         let status = state.sandbox.status(task_id).await;
-        match status {
-            Ok(s) => {
-                let env_status = format!("{:?}", s.status);
-                if env_status.contains("Ready") || env_status.contains("Running") {
-                    break;
-                }
+        if let Ok(s) = status {
+            let env_status = format!("{:?}", s.status);
+            if env_status.contains("Ready") || env_status.contains("Running") {
+                break;
             }
-            Err(_) => {}
         }
 
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
     }
+
+    tracing::info!(task_id = %task_id, "Workspace ready, task started");
 
     // Update task status
     task_dao::update_task(
@@ -251,7 +263,7 @@ pub async fn start_task_flow(state: &AppState, task_id: &str) -> Result<(), Agen
 
     // Notify sandbox
     let svc_name = generate_service_name(task_id);
-    notify::notify_sandbox(&state.config.sandbox_namespace, &svc_name).await;
+    notify::notify_sandbox(&state.config.sandbox_namespace, &svc_name, state.config.sandbox_grpc_port).await;
 
     Ok(())
 }

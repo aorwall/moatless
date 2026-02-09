@@ -30,7 +30,15 @@ pub async fn get_messages(
     Path(task_id): Path<String>,
 ) -> Result<Json<GetMessagesResponse>, MessageError> {
     let (messages, contexts, blocks) = message_dao::get_all(&state.db, &task_id).await?;
-    let ui_messages = transform::transform_to_ui(&messages, &contexts, &blocks);
+    let ui_messages: Vec<UiMessage> = transform::transform_to_ui(&messages, &contexts, &blocks)
+        .into_iter()
+        .filter(|m| {
+            !m.content.is_empty()
+                || !m.tool_results.is_empty()
+                || m.result.is_some()
+                || m.has_pending_user_input == Some(true)
+        })
+        .collect();
     let total_count = ui_messages.len();
 
     Ok(Json(GetMessagesResponse {
@@ -114,6 +122,8 @@ pub async fn delete_queued_message(
     if !deleted {
         return Err(MessageError::NotFound(message_id));
     }
+
+    tracing::info!(task_id = %task_id, message_id = %message_id, "Queued message deleted");
 
     Ok(Json(DeleteMessageResponse {
         status: "deleted".to_string(),

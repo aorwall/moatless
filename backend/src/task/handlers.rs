@@ -7,6 +7,7 @@ use crate::db::{repository_dao, tag_dao, task_dao, users};
 use crate::db::models::TaskRow;
 use crate::db::task_dao::TaskPatch;
 use crate::extractors::AuthUser;
+use crate::sandbox::types::CachedSandboxState;
 use crate::state::AppState;
 
 use super::error::TaskError;
@@ -66,6 +67,7 @@ pub async fn create_task(
     };
 
     task_dao::insert_task(&state.db, &row).await?;
+    tracing::info!(task_id = %task_id, user_id = %auth.user_id, repository_id = %req.repository_id, "Task created");
 
     // Emit task event
     if let Some(ref events) = state.events {
@@ -153,6 +155,7 @@ pub async fn create_vibe_task(
     };
 
     task_dao::insert_task(&state.db, &row).await?;
+    tracing::info!(task_id = %task_id, user_id = %auth.user_id, template_id = %req.template_id, "Vibe task created");
 
     if let Some(ref events) = state.events {
         events
@@ -236,6 +239,15 @@ pub async fn list_tasks(
         .collect();
     let repo_names = resolve_repo_names(&state, &repo_ids).await;
 
+    // Batch fetch sandbox states from Redis
+    let sandbox_states = if let Some(ref cache) = state.sandbox_state {
+        cache
+            .get_many(&task_ids.iter().map(|s| s.as_str()).collect::<Vec<_>>())
+            .await
+    } else {
+        std::collections::HashMap::new()
+    };
+
     let items: Vec<TaskResponse> = rows
         .iter()
         .map(|row| {
@@ -255,8 +267,9 @@ pub async fn list_tasks(
                 .cloned();
 
             let repo_name = repo_names.get(&row.repository_id).cloned();
+            let snapshot = sandbox_states.get(&row.task_id);
 
-            build_task_response(row, tags, display_name, repo_name)
+            build_task_response(row, tags, display_name, repo_name, snapshot)
         })
         .collect();
 
@@ -335,6 +348,7 @@ pub async fn update_task_metadata(
         },
     )
     .await?;
+    tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Task metadata updated");
 
     let row = task_dao::find_by_id(&state.db, &task_id, &auth.user_id)
         .await?
@@ -372,6 +386,7 @@ pub async fn delete_task(
     }
 
     task_dao::delete_task(&state.db, &task_id).await?;
+    tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Task deleted");
 
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
@@ -402,6 +417,7 @@ pub async fn close_task(
     if let Err(e) = state.sandbox.stop(&task_id).await {
         tracing::warn!(task_id = %task_id, error = %e, "Failed to stop sandbox on close");
     }
+    tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Task closed");
 
     task_dao::update_task(
         &state.db,
@@ -462,6 +478,7 @@ pub async fn start_task(
         )));
     }
 
+    tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Starting task");
     crate::agent::orchestration::start_task_flow(&state, &task_id)
         .await
         .map_err(|e| TaskError::Internal(e.to_string()))?;
@@ -496,6 +513,7 @@ pub async fn set_task_tags(
     let tags = tag_dao::find_or_create_tags(&state.db, &req.tags).await?;
     let tag_ids: Vec<String> = tags.iter().map(|t| t.tag_id.clone()).collect();
     tag_dao::set_task_tags(&state.db, &task_id, &tag_ids).await?;
+    tracing::info!(task_id = %task_id, user_id = %auth.user_id, tag_count = tags.len(), "Task tags updated");
 
     let response: Vec<TagResponse> = tags
         .iter()
@@ -541,11 +559,12 @@ pub async fn update_visibility(
         &state.db,
         &task_id,
         &TaskPatch {
-            visibility: Some(req.visibility),
+            visibility: Some(req.visibility.clone()),
             ..Default::default()
         },
     )
     .await?;
+    tracing::info!(task_id = %task_id, user_id = %auth.user_id, visibility = %req.visibility, "Task visibility updated");
 
     let row = task_dao::find_by_id(&state.db, &task_id, &auth.user_id)
         .await?
@@ -559,7 +578,7 @@ pub async fn update_visibility(
 // Helpers
 // =========================================================================
 
-/// Enrich a single task row into a full response with tags, repo name, display name.
+/// Enrich a single task row into a full response with tags, repo name, display name, sandbox snapshot.
 async fn enrich_task(
     row: &TaskRow,
     state: &AppState,
@@ -584,15 +603,22 @@ async fn enrich_task(
         None
     };
 
-    Ok(build_task_response(row, tag_responses, display_name, repo_name))
+    let snapshot = if let Some(ref cache) = state.sandbox_state {
+        cache.get(&row.task_id).await
+    } else {
+        None
+    };
+
+    Ok(build_task_response(row, tag_responses, display_name, repo_name, snapshot.as_ref()))
 }
 
-/// Build a TaskResponse from a row + pre-resolved tags/names.
+/// Build a TaskResponse from a row + pre-resolved tags/names + optional sandbox snapshot.
 fn build_task_response(
     row: &TaskRow,
     tags: Vec<TagResponse>,
     display_name: Option<String>,
     repo_name: Option<String>,
+    sandbox_snapshot: Option<&CachedSandboxState>,
 ) -> TaskResponse {
     let title = derive_title(row);
 
@@ -617,6 +643,13 @@ fn build_task_response(
         created_by_display_name: display_name,
         visibility: row.visibility.clone(),
         tags,
+        environment_status: sandbox_snapshot
+            .and_then(|s| serde_json::to_value(&s.environment_status).ok())
+            .and_then(|v| v.as_str().map(String::from)),
+        agent_state: sandbox_snapshot
+            .and_then(|s| serde_json::to_value(&s.agent_state).ok())
+            .and_then(|v| v.as_str().map(String::from)),
+        is_running: sandbox_snapshot.map(|s| s.is_running),
     }
 }
 

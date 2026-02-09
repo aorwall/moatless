@@ -61,6 +61,8 @@ pub async fn send_message(
         .await?;
     }
 
+    tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Message sent to agent");
+
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     Ok(Json(SendMessageResponse {
         status: "sent".to_string(),
@@ -107,6 +109,8 @@ pub async fn send_command(
     )
     .await?;
 
+    tracing::info!(task_id = %task_id, user_id = %auth.user_id, command = %req.command_name, "Command sent to agent");
+
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     Ok(Json(SendMessageResponse {
         status: "sent".to_string(),
@@ -151,6 +155,8 @@ pub async fn stop_agent(
         },
     )
     .await?;
+
+    tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Agent stopped");
 
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
