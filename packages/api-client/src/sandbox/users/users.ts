@@ -5,7 +5,9 @@
  * Workspace orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
-
+import {
+  useQuery
+} from '@tanstack/react-query';
 import type {
   DataTag,
   DefinedInitialDataOptions,
@@ -15,19 +17,25 @@ import type {
   QueryKey,
   UndefinedInitialDataOptions,
   UseQueryOptions,
-  UseQueryResult,
-} from '@tanstack/react-query'
-import { useQuery } from '@tanstack/react-query'
-import type { ErrorType } from '../../../custom-instance'
+  UseQueryResult
+} from '@tanstack/react-query';
 
-import { customInstance } from '../../../custom-instance'
-import type { ErrorBody, UserListResponse } from '.././model'
+import type {
+  ErrorBody,
+  UserListResponse
+} from '.././model';
 
-type AwaitedInput<T> = PromiseLike<T> | T
+import { customInstance } from '../../../custom-instance';
+import type { ErrorType } from '../../../custom-instance';
 
-type Awaited<O> = O extends AwaitedInput<infer T> ? T : never
+type AwaitedInput<T> = PromiseLike<T> | T;
 
-type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1]
+      type Awaited<O> = O extends AwaitedInput<infer T> ? T : never;
+
+
+type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
+
+
 
 /**
  * @summary List all registered users.
@@ -41,144 +49,122 @@ export type listUsersHandlerResponse500 = {
   data: ErrorBody
   status: 500
 }
+    
+export type listUsersHandlerResponseSuccess = (listUsersHandlerResponse200) & {
+  headers: Headers;
+};
+export type listUsersHandlerResponseError = (listUsersHandlerResponse500) & {
+  headers: Headers;
+};
 
-export type listUsersHandlerResponseSuccess = listUsersHandlerResponse200 & {
-  headers: Headers
-}
-export type listUsersHandlerResponseError = listUsersHandlerResponse500 & {
-  headers: Headers
-}
-
-export type listUsersHandlerResponse =
-  | listUsersHandlerResponseSuccess
-  | listUsersHandlerResponseError
+export type listUsersHandlerResponse = (listUsersHandlerResponseSuccess | listUsersHandlerResponseError)
 
 export const getListUsersHandlerUrl = () => {
-  return '/api/v1/users'
+
+
+  
+
+  return `/api/v1/users`
 }
 
-export const listUsersHandler = async (
-  options?: RequestInit,
-): Promise<listUsersHandlerResponse> => {
-  return customInstance<listUsersHandlerResponse>(getListUsersHandlerUrl(), {
+export const listUsersHandler = async ( options?: RequestInit): Promise<listUsersHandlerResponse> => {
+  
+  return customInstance<listUsersHandlerResponse>(getListUsersHandlerUrl(),
+  {      
     ...options,
-    method: 'GET',
-  })
-}
+    method: 'GET'
+    
+    
+  }
+);}
+
+
+
+
 
 export const getListUsersHandlerQueryKey = () => {
-  return ['/api/v1/users'] as const
-}
+    return [
+    `/api/v1/users`
+    ] as const;
+    }
 
-export const getListUsersHandlerQueryOptions = <
-  TData = Awaited<ReturnType<typeof listUsersHandler>>,
-  TError = ErrorType<ErrorBody>,
->(options?: {
-  query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listUsersHandler>>, TError, TData>>
-  request?: SecondParameter<typeof customInstance>
-}) => {
-  const { query: queryOptions, request: requestOptions } = options ?? {}
+    
+export const getListUsersHandlerQueryOptions = <TData = Awaited<ReturnType<typeof listUsersHandler>>, TError = ErrorType<ErrorBody>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listUsersHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
 
-  const queryKey = queryOptions?.queryKey ?? getListUsersHandlerQueryKey()
+const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryFn: QueryFunction<Awaited<ReturnType<typeof listUsersHandler>>> = ({ signal }) =>
-    listUsersHandler({ signal, ...requestOptions })
+  const queryKey =  queryOptions?.queryKey ?? getListUsersHandlerQueryKey();
 
-  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
-    Awaited<ReturnType<typeof listUsersHandler>>,
-    TError,
-    TData
-  > & { queryKey: DataTag<QueryKey, TData> }
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listUsersHandler>>> = ({ signal }) => listUsersHandler({ signal, ...requestOptions });
+
+      
+
+      
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listUsersHandler>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
 }
 
 export type ListUsersHandlerQueryResult = NonNullable<Awaited<ReturnType<typeof listUsersHandler>>>
 export type ListUsersHandlerQueryError = ErrorType<ErrorBody>
 
-export function useListUsersHandler<
-  TData = Awaited<ReturnType<typeof listUsersHandler>>,
-  TError = ErrorType<ErrorBody>,
->(
-  options: {
-    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof listUsersHandler>>, TError, TData>> &
-      Pick<
+
+export function useListUsersHandler<TData = Awaited<ReturnType<typeof listUsersHandler>>, TError = ErrorType<ErrorBody>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listUsersHandler>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
           Awaited<ReturnType<typeof listUsersHandler>>,
           TError,
           Awaited<ReturnType<typeof listUsersHandler>>
-        >,
-        'initialData'
-      >
-    request?: SecondParameter<typeof customInstance>
-  },
-  queryClient?: QueryClient,
-): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
-export function useListUsersHandler<
-  TData = Awaited<ReturnType<typeof listUsersHandler>>,
-  TError = ErrorType<ErrorBody>,
->(
-  options?: {
-    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listUsersHandler>>, TError, TData>> &
-      Pick<
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useListUsersHandler<TData = Awaited<ReturnType<typeof listUsersHandler>>, TError = ErrorType<ErrorBody>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listUsersHandler>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
           Awaited<ReturnType<typeof listUsersHandler>>,
           TError,
           Awaited<ReturnType<typeof listUsersHandler>>
-        >,
-        'initialData'
-      >
-    request?: SecondParameter<typeof customInstance>
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
-export function useListUsersHandler<
-  TData = Awaited<ReturnType<typeof listUsersHandler>>,
-  TError = ErrorType<ErrorBody>,
->(
-  options?: {
-    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listUsersHandler>>, TError, TData>>
-    request?: SecondParameter<typeof customInstance>
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useListUsersHandler<TData = Awaited<ReturnType<typeof listUsersHandler>>, TError = ErrorType<ErrorBody>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listUsersHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
 /**
  * @summary List all registered users.
  */
 
-export function useListUsersHandler<
-  TData = Awaited<ReturnType<typeof listUsersHandler>>,
-  TError = ErrorType<ErrorBody>,
->(
-  options?: {
-    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listUsersHandler>>, TError, TData>>
-    request?: SecondParameter<typeof customInstance>
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
+export function useListUsersHandler<TData = Awaited<ReturnType<typeof listUsersHandler>>, TError = ErrorType<ErrorBody>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listUsersHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
+
   const queryOptions = getListUsersHandlerQueryOptions(options)
 
-  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
-    queryKey: DataTag<QueryKey, TData>
-  }
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
 
-  return { ...query, queryKey: queryOptions.queryKey }
+  return { ...query, queryKey: queryOptions.queryKey };
 }
 
 /**
  * @summary List all registered users.
  */
-export const prefetchListUsersHandlerQuery = async <
-  TData = Awaited<ReturnType<typeof listUsersHandler>>,
-  TError = ErrorType<ErrorBody>,
->(
-  queryClient: QueryClient,
-  options?: {
-    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listUsersHandler>>, TError, TData>>
-    request?: SecondParameter<typeof customInstance>
-  },
-): Promise<QueryClient> => {
+export const prefetchListUsersHandlerQuery = async <TData = Awaited<ReturnType<typeof listUsersHandler>>, TError = ErrorType<ErrorBody>>(
+ queryClient: QueryClient,  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listUsersHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+
+  ): Promise<QueryClient> => {
+
   const queryOptions = getListUsersHandlerQueryOptions(options)
 
-  await queryClient.prefetchQuery(queryOptions)
+  await queryClient.prefetchQuery(queryOptions);
 
-  return queryClient
+  return queryClient;
 }
+
+
+

@@ -9,4 +9,4 @@
 /**
  * Code execution configuration (dockerImage, envVars, etc.)
  */
-export type RepoConfigCodeExecution = { [key: string]: unknown }
+export type RepoConfigCodeExecution = { [key: string]: unknown };

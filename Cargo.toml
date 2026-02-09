@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    "sandbox-controller",
+    "backend",
     "crates/figma-clipboard",
 ]
 resolver = "2"

@@ -9,7 +9,8 @@
 /**
  * Matches TS EnvironmentStatusSchema
  */
-export type EnvironmentStatus = (typeof EnvironmentStatus)[keyof typeof EnvironmentStatus]
+export type EnvironmentStatus = typeof EnvironmentStatus[keyof typeof EnvironmentStatus];
+
 
 export const EnvironmentStatus = {
   not_created: 'not_created',
@@ -18,4 +19,4 @@ export const EnvironmentStatus = {
   stopped: 'stopped',
   removing: 'removing',
   error: 'error',
-} as const
+} as const;

@@ -5,7 +5,10 @@
  * Workspace orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
-
+import {
+  useMutation,
+  useQuery
+} from '@tanstack/react-query';
 import type {
   DataTag,
   DefinedInitialDataOptions,
@@ -18,19 +21,26 @@ import type {
   UseMutationOptions,
   UseMutationResult,
   UseQueryOptions,
-  UseQueryResult,
-} from '@tanstack/react-query'
-import { useMutation, useQuery } from '@tanstack/react-query'
-import type { ErrorType } from '../../../custom-instance'
+  UseQueryResult
+} from '@tanstack/react-query';
 
-import { customInstance } from '../../../custom-instance'
-import type { ErrorBody, MessageResponse, SessionResponse } from '.././model'
+import type {
+  ErrorBody,
+  MessageResponse,
+  SessionResponse
+} from '.././model';
 
-type AwaitedInput<T> = PromiseLike<T> | T
+import { customInstance } from '../../../custom-instance';
+import type { ErrorType } from '../../../custom-instance';
 
-type Awaited<O> = O extends AwaitedInput<infer T> ? T : never
+type AwaitedInput<T> = PromiseLike<T> | T;
 
-type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1]
+      type Awaited<O> = O extends AwaitedInput<infer T> ? T : never;
+
+
+type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
+
+
 
 /**
  * @summary Log out the current user session.
@@ -44,65 +54,83 @@ export type logoutHandlerResponse302 = {
   data: void
   status: 302
 }
+    
+export type logoutHandlerResponseSuccess = (logoutHandlerResponse200) & {
+  headers: Headers;
+};
+export type logoutHandlerResponseError = (logoutHandlerResponse302) & {
+  headers: Headers;
+};
 
-export type logoutHandlerResponseSuccess = logoutHandlerResponse200 & {
-  headers: Headers
-}
-export type logoutHandlerResponseError = logoutHandlerResponse302 & {
-  headers: Headers
-}
-
-export type logoutHandlerResponse = logoutHandlerResponseSuccess | logoutHandlerResponseError
+export type logoutHandlerResponse = (logoutHandlerResponseSuccess | logoutHandlerResponseError)
 
 export const getLogoutHandlerUrl = () => {
-  return '/api/v1/auth/logout'
+
+
+  
+
+  return `/api/v1/auth/logout`
 }
 
-export const logoutHandler = async (options?: RequestInit): Promise<logoutHandlerResponse> => {
-  return customInstance<logoutHandlerResponse>(getLogoutHandlerUrl(), {
+export const logoutHandler = async ( options?: RequestInit): Promise<logoutHandlerResponse> => {
+  
+  return customInstance<logoutHandlerResponse>(getLogoutHandlerUrl(),
+  {      
     ...options,
-    method: 'POST',
-  })
-}
-
-export const getLogoutHandlerMutationOptions = <
-  TError = ErrorType<void>,
-  TContext = unknown,
->(options?: {
-  mutation?: UseMutationOptions<Awaited<ReturnType<typeof logoutHandler>>, TError, void, TContext>
-  request?: SecondParameter<typeof customInstance>
-}): UseMutationOptions<Awaited<ReturnType<typeof logoutHandler>>, TError, void, TContext> => {
-  const mutationKey = ['logoutHandler']
-  const { mutation: mutationOptions, request: requestOptions } = options
-    ? options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey
-      ? options
-      : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey }, request: undefined }
-
-  const mutationFn: MutationFunction<Awaited<ReturnType<typeof logoutHandler>>, void> = () => {
-    return logoutHandler(requestOptions)
+    method: 'POST'
+    
+    
   }
+);}
 
-  return { mutationFn, ...mutationOptions }
-}
 
-export type LogoutHandlerMutationResult = NonNullable<Awaited<ReturnType<typeof logoutHandler>>>
 
-export type LogoutHandlerMutationError = ErrorType<void>
 
-/**
+export const getLogoutHandlerMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof logoutHandler>>, TError,void, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof logoutHandler>>, TError,void, TContext> => {
+
+const mutationKey = ['logoutHandler'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof logoutHandler>>, void> = () => {
+          
+
+          return  logoutHandler(requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type LogoutHandlerMutationResult = NonNullable<Awaited<ReturnType<typeof logoutHandler>>>
+    
+    export type LogoutHandlerMutationError = ErrorType<void>
+
+    /**
  * @summary Log out the current user session.
  */
-export const useLogoutHandler = <TError = ErrorType<void>, TContext = unknown>(
-  options?: {
-    mutation?: UseMutationOptions<Awaited<ReturnType<typeof logoutHandler>>, TError, void, TContext>
-    request?: SecondParameter<typeof customInstance>
-  },
-  queryClient?: QueryClient,
-): UseMutationResult<Awaited<ReturnType<typeof logoutHandler>>, TError, void, TContext> => {
-  return useMutation(getLogoutHandlerMutationOptions(options), queryClient)
-}
-/**
+export const useLogoutHandler = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof logoutHandler>>, TError,void, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof logoutHandler>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getLogoutHandlerMutationOptions(options), queryClient);
+    }
+    /**
  * @summary Get current user session information.
  */
 export type meHandlerResponse200 = {
@@ -114,143 +142,124 @@ export type meHandlerResponse401 = {
   data: ErrorBody
   status: 401
 }
+    
+export type meHandlerResponseSuccess = (meHandlerResponse200) & {
+  headers: Headers;
+};
+export type meHandlerResponseError = (meHandlerResponse401) & {
+  headers: Headers;
+};
 
-export type meHandlerResponseSuccess = meHandlerResponse200 & {
-  headers: Headers
-}
-export type meHandlerResponseError = meHandlerResponse401 & {
-  headers: Headers
-}
-
-export type meHandlerResponse = meHandlerResponseSuccess | meHandlerResponseError
+export type meHandlerResponse = (meHandlerResponseSuccess | meHandlerResponseError)
 
 export const getMeHandlerUrl = () => {
-  return '/api/v1/auth/me'
+
+
+  
+
+  return `/api/v1/auth/me`
 }
 
-export const meHandler = async (options?: RequestInit): Promise<meHandlerResponse> => {
-  return customInstance<meHandlerResponse>(getMeHandlerUrl(), {
+export const meHandler = async ( options?: RequestInit): Promise<meHandlerResponse> => {
+  
+  return customInstance<meHandlerResponse>(getMeHandlerUrl(),
+  {      
     ...options,
-    method: 'GET',
-  })
-}
+    method: 'GET'
+    
+    
+  }
+);}
+
+
+
+
 
 export const getMeHandlerQueryKey = () => {
-  return ['/api/v1/auth/me'] as const
-}
+    return [
+    `/api/v1/auth/me`
+    ] as const;
+    }
 
-export const getMeHandlerQueryOptions = <
-  TData = Awaited<ReturnType<typeof meHandler>>,
-  TError = ErrorType<ErrorBody>,
->(options?: {
-  query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof meHandler>>, TError, TData>>
-  request?: SecondParameter<typeof customInstance>
-}) => {
-  const { query: queryOptions, request: requestOptions } = options ?? {}
+    
+export const getMeHandlerQueryOptions = <TData = Awaited<ReturnType<typeof meHandler>>, TError = ErrorType<ErrorBody>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof meHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
 
-  const queryKey = queryOptions?.queryKey ?? getMeHandlerQueryKey()
+const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryFn: QueryFunction<Awaited<ReturnType<typeof meHandler>>> = ({ signal }) =>
-    meHandler({ signal, ...requestOptions })
+  const queryKey =  queryOptions?.queryKey ?? getMeHandlerQueryKey();
 
-  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
-    Awaited<ReturnType<typeof meHandler>>,
-    TError,
-    TData
-  > & { queryKey: DataTag<QueryKey, TData> }
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof meHandler>>> = ({ signal }) => meHandler({ signal, ...requestOptions });
+
+      
+
+      
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof meHandler>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
 }
 
 export type MeHandlerQueryResult = NonNullable<Awaited<ReturnType<typeof meHandler>>>
 export type MeHandlerQueryError = ErrorType<ErrorBody>
 
-export function useMeHandler<
-  TData = Awaited<ReturnType<typeof meHandler>>,
-  TError = ErrorType<ErrorBody>,
->(
-  options: {
-    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof meHandler>>, TError, TData>> &
-      Pick<
+
+export function useMeHandler<TData = Awaited<ReturnType<typeof meHandler>>, TError = ErrorType<ErrorBody>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof meHandler>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
           Awaited<ReturnType<typeof meHandler>>,
           TError,
           Awaited<ReturnType<typeof meHandler>>
-        >,
-        'initialData'
-      >
-    request?: SecondParameter<typeof customInstance>
-  },
-  queryClient?: QueryClient,
-): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
-export function useMeHandler<
-  TData = Awaited<ReturnType<typeof meHandler>>,
-  TError = ErrorType<ErrorBody>,
->(
-  options?: {
-    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof meHandler>>, TError, TData>> &
-      Pick<
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useMeHandler<TData = Awaited<ReturnType<typeof meHandler>>, TError = ErrorType<ErrorBody>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof meHandler>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
           Awaited<ReturnType<typeof meHandler>>,
           TError,
           Awaited<ReturnType<typeof meHandler>>
-        >,
-        'initialData'
-      >
-    request?: SecondParameter<typeof customInstance>
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
-export function useMeHandler<
-  TData = Awaited<ReturnType<typeof meHandler>>,
-  TError = ErrorType<ErrorBody>,
->(
-  options?: {
-    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof meHandler>>, TError, TData>>
-    request?: SecondParameter<typeof customInstance>
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useMeHandler<TData = Awaited<ReturnType<typeof meHandler>>, TError = ErrorType<ErrorBody>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof meHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
 /**
  * @summary Get current user session information.
  */
 
-export function useMeHandler<
-  TData = Awaited<ReturnType<typeof meHandler>>,
-  TError = ErrorType<ErrorBody>,
->(
-  options?: {
-    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof meHandler>>, TError, TData>>
-    request?: SecondParameter<typeof customInstance>
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
+export function useMeHandler<TData = Awaited<ReturnType<typeof meHandler>>, TError = ErrorType<ErrorBody>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof meHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
+
   const queryOptions = getMeHandlerQueryOptions(options)
 
-  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
-    queryKey: DataTag<QueryKey, TData>
-  }
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
 
-  return { ...query, queryKey: queryOptions.queryKey }
+  return { ...query, queryKey: queryOptions.queryKey };
 }
 
 /**
  * @summary Get current user session information.
  */
-export const prefetchMeHandlerQuery = async <
-  TData = Awaited<ReturnType<typeof meHandler>>,
-  TError = ErrorType<ErrorBody>,
->(
-  queryClient: QueryClient,
-  options?: {
-    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof meHandler>>, TError, TData>>
-    request?: SecondParameter<typeof customInstance>
-  },
-): Promise<QueryClient> => {
+export const prefetchMeHandlerQuery = async <TData = Awaited<ReturnType<typeof meHandler>>, TError = ErrorType<ErrorBody>>(
+ queryClient: QueryClient,  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof meHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+
+  ): Promise<QueryClient> => {
+
   const queryOptions = getMeHandlerQueryOptions(options)
 
-  await queryClient.prefetchQuery(queryOptions)
+  await queryClient.prefetchQuery(queryOptions);
 
-  return queryClient
+  return queryClient;
 }
+
+
 
 /**
  * @summary Verify authentication via session cookie or API key (Traefik ForwardAuth).
@@ -264,140 +273,122 @@ export type verifyHandlerResponse401 = {
   data: ErrorBody
   status: 401
 }
+    
+export type verifyHandlerResponseSuccess = (verifyHandlerResponse200) & {
+  headers: Headers;
+};
+export type verifyHandlerResponseError = (verifyHandlerResponse401) & {
+  headers: Headers;
+};
 
-export type verifyHandlerResponseSuccess = verifyHandlerResponse200 & {
-  headers: Headers
-}
-export type verifyHandlerResponseError = verifyHandlerResponse401 & {
-  headers: Headers
-}
-
-export type verifyHandlerResponse = verifyHandlerResponseSuccess | verifyHandlerResponseError
+export type verifyHandlerResponse = (verifyHandlerResponseSuccess | verifyHandlerResponseError)
 
 export const getVerifyHandlerUrl = () => {
-  return '/api/v1/auth/verify'
+
+
+  
+
+  return `/api/v1/auth/verify`
 }
 
-export const verifyHandler = async (options?: RequestInit): Promise<verifyHandlerResponse> => {
-  return customInstance<verifyHandlerResponse>(getVerifyHandlerUrl(), {
+export const verifyHandler = async ( options?: RequestInit): Promise<verifyHandlerResponse> => {
+  
+  return customInstance<verifyHandlerResponse>(getVerifyHandlerUrl(),
+  {      
     ...options,
-    method: 'GET',
-  })
-}
+    method: 'GET'
+    
+    
+  }
+);}
+
+
+
+
 
 export const getVerifyHandlerQueryKey = () => {
-  return ['/api/v1/auth/verify'] as const
-}
+    return [
+    `/api/v1/auth/verify`
+    ] as const;
+    }
 
-export const getVerifyHandlerQueryOptions = <
-  TData = Awaited<ReturnType<typeof verifyHandler>>,
-  TError = ErrorType<ErrorBody>,
->(options?: {
-  query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof verifyHandler>>, TError, TData>>
-  request?: SecondParameter<typeof customInstance>
-}) => {
-  const { query: queryOptions, request: requestOptions } = options ?? {}
+    
+export const getVerifyHandlerQueryOptions = <TData = Awaited<ReturnType<typeof verifyHandler>>, TError = ErrorType<ErrorBody>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof verifyHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
 
-  const queryKey = queryOptions?.queryKey ?? getVerifyHandlerQueryKey()
+const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryFn: QueryFunction<Awaited<ReturnType<typeof verifyHandler>>> = ({ signal }) =>
-    verifyHandler({ signal, ...requestOptions })
+  const queryKey =  queryOptions?.queryKey ?? getVerifyHandlerQueryKey();
 
-  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
-    Awaited<ReturnType<typeof verifyHandler>>,
-    TError,
-    TData
-  > & { queryKey: DataTag<QueryKey, TData> }
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof verifyHandler>>> = ({ signal }) => verifyHandler({ signal, ...requestOptions });
+
+      
+
+      
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof verifyHandler>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
 }
 
 export type VerifyHandlerQueryResult = NonNullable<Awaited<ReturnType<typeof verifyHandler>>>
 export type VerifyHandlerQueryError = ErrorType<ErrorBody>
 
-export function useVerifyHandler<
-  TData = Awaited<ReturnType<typeof verifyHandler>>,
-  TError = ErrorType<ErrorBody>,
->(
-  options: {
-    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof verifyHandler>>, TError, TData>> &
-      Pick<
+
+export function useVerifyHandler<TData = Awaited<ReturnType<typeof verifyHandler>>, TError = ErrorType<ErrorBody>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof verifyHandler>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
           Awaited<ReturnType<typeof verifyHandler>>,
           TError,
           Awaited<ReturnType<typeof verifyHandler>>
-        >,
-        'initialData'
-      >
-    request?: SecondParameter<typeof customInstance>
-  },
-  queryClient?: QueryClient,
-): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
-export function useVerifyHandler<
-  TData = Awaited<ReturnType<typeof verifyHandler>>,
-  TError = ErrorType<ErrorBody>,
->(
-  options?: {
-    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof verifyHandler>>, TError, TData>> &
-      Pick<
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useVerifyHandler<TData = Awaited<ReturnType<typeof verifyHandler>>, TError = ErrorType<ErrorBody>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof verifyHandler>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
           Awaited<ReturnType<typeof verifyHandler>>,
           TError,
           Awaited<ReturnType<typeof verifyHandler>>
-        >,
-        'initialData'
-      >
-    request?: SecondParameter<typeof customInstance>
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
-export function useVerifyHandler<
-  TData = Awaited<ReturnType<typeof verifyHandler>>,
-  TError = ErrorType<ErrorBody>,
->(
-  options?: {
-    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof verifyHandler>>, TError, TData>>
-    request?: SecondParameter<typeof customInstance>
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useVerifyHandler<TData = Awaited<ReturnType<typeof verifyHandler>>, TError = ErrorType<ErrorBody>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof verifyHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
 /**
  * @summary Verify authentication via session cookie or API key (Traefik ForwardAuth).
  */
 
-export function useVerifyHandler<
-  TData = Awaited<ReturnType<typeof verifyHandler>>,
-  TError = ErrorType<ErrorBody>,
->(
-  options?: {
-    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof verifyHandler>>, TError, TData>>
-    request?: SecondParameter<typeof customInstance>
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
+export function useVerifyHandler<TData = Awaited<ReturnType<typeof verifyHandler>>, TError = ErrorType<ErrorBody>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof verifyHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
+
   const queryOptions = getVerifyHandlerQueryOptions(options)
 
-  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
-    queryKey: DataTag<QueryKey, TData>
-  }
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
 
-  return { ...query, queryKey: queryOptions.queryKey }
+  return { ...query, queryKey: queryOptions.queryKey };
 }
 
 /**
  * @summary Verify authentication via session cookie or API key (Traefik ForwardAuth).
  */
-export const prefetchVerifyHandlerQuery = async <
-  TData = Awaited<ReturnType<typeof verifyHandler>>,
-  TError = ErrorType<ErrorBody>,
->(
-  queryClient: QueryClient,
-  options?: {
-    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof verifyHandler>>, TError, TData>>
-    request?: SecondParameter<typeof customInstance>
-  },
-): Promise<QueryClient> => {
+export const prefetchVerifyHandlerQuery = async <TData = Awaited<ReturnType<typeof verifyHandler>>, TError = ErrorType<ErrorBody>>(
+ queryClient: QueryClient,  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof verifyHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+
+  ): Promise<QueryClient> => {
+
   const queryOptions = getVerifyHandlerQueryOptions(options)
 
-  await queryClient.prefetchQuery(queryOptions)
+  await queryClient.prefetchQuery(queryOptions);
 
-  return queryClient
+  return queryClient;
 }
+
+
+

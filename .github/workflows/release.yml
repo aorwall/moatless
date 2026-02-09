@@ -13,7 +13,7 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository_owner }}/moatless-vibe
   SANDBOX_IMAGE_NAME: ${{ github.repository_owner }}/moatless-vibe-sandbox-js
-  SANDBOX_CONTROLLER_IMAGE_NAME: ${{ github.repository_owner }}/sandbox-controller
+  BACKEND_IMAGE_NAME: ${{ github.repository_owner }}/moatless-vibe-backend
 
 jobs:
   release:
@@ -76,14 +76,14 @@ jobs:
             .
           docker push ${{ env.REGISTRY }}/${{ env.SANDBOX_IMAGE_NAME }}:${{ steps.version.outputs.version }}-rc
 
-      - name: Build and push sandbox-controller RC image
+      - name: Build and push backend RC image
         run: |
           docker build \
             --platform linux/amd64 \
-            -f sandbox-controller/Dockerfile \
-            -t ${{ env.REGISTRY }}/${{ env.SANDBOX_CONTROLLER_IMAGE_NAME }}:${{ steps.version.outputs.version }}-rc \
-            sandbox-controller
-          docker push ${{ env.REGISTRY }}/${{ env.SANDBOX_CONTROLLER_IMAGE_NAME }}:${{ steps.version.outputs.version }}-rc
+            -f backend/Dockerfile \
+            -t ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE_NAME }}:${{ steps.version.outputs.version }}-rc \
+            backend
+          docker push ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE_NAME }}:${{ steps.version.outputs.version }}-rc
 
       # === E2E TESTING ===
       - name: Create data directory
@@ -169,15 +169,15 @@ jobs:
           docker push ${{ env.REGISTRY }}/${{ env.SANDBOX_IMAGE_NAME }}:${{ steps.version.outputs.version }}
           docker push ${{ env.REGISTRY }}/${{ env.SANDBOX_IMAGE_NAME }}:latest
 
-      - name: Retag sandbox-controller image to release
+      - name: Retag backend image to release
         run: |
-          docker pull ${{ env.REGISTRY }}/${{ env.SANDBOX_CONTROLLER_IMAGE_NAME }}:${{ steps.version.outputs.version }}-rc
-          docker tag ${{ env.REGISTRY }}/${{ env.SANDBOX_CONTROLLER_IMAGE_NAME }}:${{ steps.version.outputs.version }}-rc \
-            ${{ env.REGISTRY }}/${{ env.SANDBOX_CONTROLLER_IMAGE_NAME }}:${{ steps.version.outputs.version }}
-          docker tag ${{ env.REGISTRY }}/${{ env.SANDBOX_CONTROLLER_IMAGE_NAME }}:${{ steps.version.outputs.version }}-rc \
-            ${{ env.REGISTRY }}/${{ env.SANDBOX_CONTROLLER_IMAGE_NAME }}:latest
-          docker push ${{ env.REGISTRY }}/${{ env.SANDBOX_CONTROLLER_IMAGE_NAME }}:${{ steps.version.outputs.version }}
-          docker push ${{ env.REGISTRY }}/${{ env.SANDBOX_CONTROLLER_IMAGE_NAME }}:latest
+          docker pull ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE_NAME }}:${{ steps.version.outputs.version }}-rc
+          docker tag ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE_NAME }}:${{ steps.version.outputs.version }}-rc \
+            ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE_NAME }}:${{ steps.version.outputs.version }}
+          docker tag ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE_NAME }}:${{ steps.version.outputs.version }}-rc \
+            ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE_NAME }}:latest
+          docker push ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE_NAME }}:${{ steps.version.outputs.version }}
+          docker push ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE_NAME }}:latest
 
       # === HELM CHART ===
       - name: Set up Helm
@@ -229,7 +229,7 @@ jobs:
           echo "### Docker Images" >> $GITHUB_STEP_SUMMARY
           echo "- **App:** \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Sandbox:** \`${{ env.REGISTRY }}/${{ env.SANDBOX_IMAGE_NAME }}:${{ steps.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Sandbox Controller:** \`${{ env.REGISTRY }}/${{ env.SANDBOX_CONTROLLER_IMAGE_NAME }}:${{ steps.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Backend:** \`${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE_NAME }}:${{ steps.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Helm Chart" >> $GITHUB_STEP_SUMMARY
           echo "- **Chart:** \`oci://ghcr.io/aorwall/charts/moatless-vibe:${{ steps.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
@@ -239,7 +239,7 @@ jobs:
           echo "# Pull images" >> $GITHUB_STEP_SUMMARY
           echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
           echo "docker pull ${{ env.REGISTRY }}/${{ env.SANDBOX_IMAGE_NAME }}:${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "docker pull ${{ env.REGISTRY }}/${{ env.SANDBOX_CONTROLLER_IMAGE_NAME }}:${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE_NAME }}:${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "# Install chart" >> $GITHUB_STEP_SUMMARY
           echo "helm install vibe oci://ghcr.io/aorwall/charts/moatless-vibe --version ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY

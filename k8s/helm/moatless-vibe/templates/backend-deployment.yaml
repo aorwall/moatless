@@ -1,0 +1,199 @@
+{{- if and .Values.proxy.enabled .Values.proxy.backend.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "moatless-vibe.fullname" . }}-backend
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "moatless-vibe.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
+spec:
+  replicas: {{ .Values.proxy.backend.replicas | default 2 }}
+  selector:
+    matchLabels:
+      {{- include "moatless-vibe.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: backend
+  template:
+    metadata:
+      labels:
+        {{- include "moatless-vibe.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: backend
+      {{- with .Values.proxy.backend.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "moatless-vibe.serviceAccountName" . }}
+      containers:
+        - name: backend
+          image: "{{ .Values.proxy.backend.image.repository }}:{{ .Values.proxy.backend.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.proxy.backend.image.pullPolicy }}
+          ports:
+            - containerPort: 8080
+              name: http
+              protocol: TCP
+            - containerPort: 9090
+              name: metrics
+              protocol: TCP
+          env:
+            - name: PROXY_PORT
+              value: "8080"
+            - name: PROXY_DOMAIN
+              value: {{ .Values.proxy.domain | quote }}
+            - name: PROXY_PROTOCOL
+              value: {{ .Values.proxy.protocol | quote }}
+            - name: TRAEFIK_AUTH_MIDDLEWARE_NAME
+              value: {{ .Values.proxy.authMiddlewareName | default "preview-auth" | quote }}
+            - name: TRAEFIK_AUTH_MIDDLEWARE_NAMESPACE
+              value: {{ .Release.Namespace | quote }}
+            {{- if .Values.proxy.traefikEntryPoint }}
+            - name: TRAEFIK_ENTRY_POINT
+              value: {{ .Values.proxy.traefikEntryPoint | quote }}
+            {{- end }}
+            - name: METRICS_PORT
+              value: "9090"
+            - name: SANDBOX_NAMESPACE
+              value: {{ .Values.kubernetes.namespace | default .Release.Namespace | quote }}
+            - name: RUST_LOG
+              value: {{ .Values.proxy.backend.logLevel | default "info" | quote }}
+            - name: SANDBOX_POD_TEMPLATE_PATH
+              value: "/etc/moatless/sandbox-pod-template.yaml"
+            {{- with .Values.proxy.backend.sandboxImage }}
+            - name: K8S_SANDBOX_IMAGE
+              value: {{ . | quote }}
+            {{- end }}
+            - name: K8S_SANDBOX_STORAGE_ENABLED
+              value: {{ .Values.kubernetes.sandboxStorage.enabled | default true | quote }}
+            - name: K8S_SANDBOX_STORAGE_SIZE
+              value: {{ .Values.kubernetes.sandboxStorage.size | default "10Gi" | quote }}
+            {{- with .Values.kubernetes.sandboxStorage.storageClass }}
+            - name: K8S_SANDBOX_STORAGE_CLASS
+              value: {{ . | quote }}
+            {{- end }}
+            - name: K8S_POD_STARTUP_TIMEOUT_SECS
+              value: {{ .Values.kubernetes.podStartupTimeout | default "120" | quote }}
+            - name: TASK_TOKEN_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "moatless-vibe.secretsName" . }}
+                  key: TASK_TOKEN_SECRET
+                  optional: true
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "moatless-vibe.secretsName" . }}
+                  key: DATABASE_URL
+                  optional: true
+            - name: REDIS_URL
+              value: {{ include "moatless-vibe.redisUrl" . | quote }}
+            {{- with .Values.proxy.backend.sharedStoragePvcName }}
+            - name: SHARED_STORAGE_PVC_NAME
+              value: {{ . | quote }}
+            {{- end }}
+            # Auth settings (shared with Node.js backend via same secret)
+            {{- with .Values.auth.provider }}
+            - name: AUTH_PROVIDER
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.auth.frontendUrl }}
+            - name: FRONTEND_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.auth.cookieDomain }}
+            - name: COOKIE_DOMAIN
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.auth.sessionMaxAge }}
+            - name: SESSION_MAX_AGE
+              value: {{ . | quote }}
+            {{- end }}
+            - name: NODE_ENV
+              value: {{ .Values.env | default "production" | quote }}
+            # OAuth credentials from secret
+            {{- if .Values.auth.github.enabled }}
+            - name: GITHUB_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "moatless-vibe.secretsName" . }}
+                  key: GITHUB_CLIENT_ID
+                  optional: true
+            - name: GITHUB_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "moatless-vibe.secretsName" . }}
+                  key: GITHUB_CLIENT_SECRET
+                  optional: true
+            {{- with .Values.auth.github.callbackUrl }}
+            - name: GITHUB_CALLBACK_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- end }}
+            {{- if .Values.auth.auth0.enabled }}
+            - name: AUTH0_DOMAIN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "moatless-vibe.secretsName" . }}
+                  key: AUTH0_DOMAIN
+                  optional: true
+            - name: AUTH0_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "moatless-vibe.secretsName" . }}
+                  key: AUTH0_CLIENT_ID
+                  optional: true
+            - name: AUTH0_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "moatless-vibe.secretsName" . }}
+                  key: AUTH0_CLIENT_SECRET
+                  optional: true
+            {{- with .Values.auth.auth0.callbackUrl }}
+            - name: AUTH0_CALLBACK_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.auth.auth0.audience }}
+            - name: AUTH0_AUDIENCE
+              value: {{ . | quote }}
+            {{- end }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.proxy.backend.resources | nindent 12 }}
+          volumeMounts:
+            - name: sandbox-pod-template
+              mountPath: /etc/moatless
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            timeoutSeconds: 3
+      volumes:
+        - name: sandbox-pod-template
+          configMap:
+            name: {{ include "moatless-vibe.fullname" . }}-sandbox-pod-template
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

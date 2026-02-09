@@ -5,12 +5,12 @@
  * Workspace orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
-import type { ProvisionPlan } from './provisionPlan'
+import type { ProvisionPlan } from './provisionPlan';
 
 /**
  * Provision plan sent from TS backend
  */
 export interface ProvisionRequest {
-  plan: ProvisionPlan
-  userId: string
+  plan: ProvisionPlan;
+  userId: string;
 }

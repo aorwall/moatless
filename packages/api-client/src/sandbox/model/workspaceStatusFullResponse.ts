@@ -5,22 +5,24 @@
  * Workspace orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
-import type { AgentState } from './agentState'
-import type { EnvironmentStatus } from './environmentStatus'
-import type { ServerEntry } from './serverEntry'
-import type { WorkspaceState } from './workspaceState'
+import type { AgentState } from './agentState';
+import type { EnvironmentStatus } from './environmentStatus';
+import type { ResourceMetrics } from './resourceMetrics';
+import type { ServerEntry } from './serverEntry';
+import type { WorkspaceState } from './workspaceState';
 
 /**
  * Full workspace status response to frontend (matches TS WorkspaceStatusResponse)
  */
 export interface WorkspaceStatusFullResponse {
-  agentState: AgentState
-  canExecute: boolean
+  agentState: AgentState;
+  canExecute: boolean;
   /** @nullable */
-  environmentError?: string | null
-  environmentStatus: EnvironmentStatus
-  isRunning: boolean
-  servers: ServerEntry[]
-  workspaceReady: boolean
-  workspaceState: WorkspaceState
+  environmentError?: string | null;
+  environmentStatus: EnvironmentStatus;
+  isRunning: boolean;
+  resources?: null | ResourceMetrics;
+  servers: ServerEntry[];
+  workspaceReady: boolean;
+  workspaceState: WorkspaceState;
 }

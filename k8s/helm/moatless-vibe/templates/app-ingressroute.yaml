@@ -17,7 +17,7 @@ spec:
     - match: "Host(`{{ $host }}`) && PathPrefix(`/api/v1/auth`)"
       kind: Rule
       services:
-        - name: {{ $fullname }}-sandbox-controller
+        - name: {{ $fullname }}-backend
           port: 8080
 ---
 # Sandbox API routes — NO ForwardAuth (sandbox uses task tokens)
@@ -35,10 +35,10 @@ spec:
     - match: "Host(`{{ $host }}`) && PathPrefix(`/api/sandbox`)"
       kind: Rule
       services:
-        - name: {{ $fullname }}-sandbox-controller
+        - name: {{ $fullname }}-backend
           port: 8080
 ---
-# SSE event stream — routed to sandbox-controller WITH ForwardAuth
+# SSE event stream — routed to backend WITH ForwardAuth
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
@@ -56,7 +56,7 @@ spec:
         - name: {{ .Values.proxy.authMiddlewareName | default "preview-auth" }}
           namespace: {{ .Release.Namespace }}
       services:
-        - name: {{ $fullname }}-sandbox-controller
+        - name: {{ $fullname }}-backend
           port: 8080
 ---
 # Backend API routes — WITH ForwardAuth

@@ -5,11 +5,11 @@
  * Workspace orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
-import type { UserListItem } from './userListItem'
+import type { UserListItem } from './userListItem';
 
 /**
  * GET /api/v1/users response.
  */
 export interface UserListResponse {
-  users: UserListItem[]
+  users: UserListItem[];
 }

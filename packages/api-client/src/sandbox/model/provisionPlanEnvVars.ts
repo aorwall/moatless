@@ -10,4 +10,4 @@
  * Custom environment variables
  * @nullable
  */
-export type ProvisionPlanEnvVars = { [key: string]: string } | null
+export type ProvisionPlanEnvVars = {[key: string]: string} | null;

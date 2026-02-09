@@ -36,7 +36,7 @@ export function useWorkspaceStatus(
 
 /**
  * Hook to retry workspace provisioning after a failure
- * Calls sandbox controller's start endpoint directly
+ * Calls backend's start endpoint directly
  * Note: Status updates are handled by SSE events in global-event-stream-provider
  */
 export function useWorkspaceRetry(taskId: string) {
@@ -50,7 +50,7 @@ export function useWorkspaceRetry(taskId: string) {
 }
 
 /**
- * Hook to restart workspace via sandbox-controller (Deployment pod restart)
+ * Hook to restart workspace via backend (Deployment pod restart)
  * Preserves workspace data (PVC in K8s)
  */
 export function useWorkspaceRestart(taskId: string) {
@@ -64,7 +64,7 @@ export function useWorkspaceRestart(taskId: string) {
 }
 
 /**
- * Hook to stop workspace via sandbox-controller (scale Deployment to 0)
+ * Hook to stop workspace via backend (scale Deployment to 0)
  */
 export function useWorkspaceStop(taskId: string) {
   const queryClient = useQueryClient()
@@ -77,7 +77,7 @@ export function useWorkspaceStop(taskId: string) {
 }
 
 /**
- * Hook to start a stopped workspace via sandbox-controller (scale Deployment to 1)
+ * Hook to start a stopped workspace via backend (scale Deployment to 1)
  */
 export function useWorkspaceStart(taskId: string) {
   const queryClient = useQueryClient()

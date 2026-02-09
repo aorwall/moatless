@@ -10,14 +10,14 @@
  * Single item in GET /api/v1/auth/api-keys list.
  */
 export interface ApiKeyListItem {
-  createdAt: string
+  createdAt: string;
   /** @nullable */
-  expiresAt?: string | null
-  id: string
-  keyPrefix: string
+  expiresAt?: string | null;
+  id: string;
+  keyPrefix: string;
   /** @nullable */
-  lastUsedAt?: string | null
-  name: string
+  lastUsedAt?: string | null;
+  name: string;
   /** @nullable */
-  scopes?: string[] | null
+  scopes?: string[] | null;
 }

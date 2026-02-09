@@ -5,37 +5,37 @@
  * Workspace orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
-import type { RepoConfigCodeExecution } from './repoConfigCodeExecution'
-import type { RepoConfigPreviewConfig } from './repoConfigPreviewConfig'
-import type { ServerConfig } from './serverConfig'
+import type { RepoConfigCodeExecution } from './repoConfigCodeExecution';
+import type { RepoConfigPreviewConfig } from './repoConfigPreviewConfig';
+import type { ServerConfig } from './serverConfig';
 
 /**
  * Repository config for provisioning and sandbox environment
  */
 export interface RepoConfig {
   /** Code execution configuration (dockerImage, envVars, etc.) */
-  codeExecution: RepoConfigCodeExecution
+  codeExecution: RepoConfigCodeExecution;
   /**
    * Per-repository sandbox image override
    * @nullable
    */
-  dockerImage?: string | null
-  name: string
+  dockerImage?: string | null;
+  name: string;
   /**
    * Plugin IDs (format: {name}@{marketplace}) — sandbox resolves to paths
    * @nullable
    */
-  pluginIds?: string[] | null
+  pluginIds?: string[] | null;
   /** Preview server configuration */
-  previewConfig: RepoConfigPreviewConfig
+  previewConfig: RepoConfigPreviewConfig;
   /**
    * Servers with allocated ports
    * @nullable
    */
-  servers?: ServerConfig[] | null
+  servers?: ServerConfig[] | null;
   /**
    * System prompt for the agent
    * @nullable
    */
-  systemPrompt?: string | null
+  systemPrompt?: string | null;
 }

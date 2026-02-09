@@ -444,7 +444,7 @@ export class TaskExecutionCoordinator {
   }
 
   /**
-   * Wait for workspace to be ready by polling sandbox controller status.
+   * Wait for workspace to be ready by polling backend status.
    */
   private async waitForWorkspaceReady(taskId: string): Promise<void> {
     const maxWaitTime = TaskExecutionCoordinator.WORKSPACE_READY_TIMEOUT

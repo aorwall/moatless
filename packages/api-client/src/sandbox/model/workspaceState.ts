@@ -9,9 +9,10 @@
 /**
  * Matches TS WorkspaceExistenceSchema: 'exists' | 'missing' | 'invalid'
  */
-export type WorkspaceState = (typeof WorkspaceState)[keyof typeof WorkspaceState]
+export type WorkspaceState = typeof WorkspaceState[keyof typeof WorkspaceState];
+
 
 export const WorkspaceState = {
   exists: 'exists',
   missing: 'missing',
-} as const
+} as const;

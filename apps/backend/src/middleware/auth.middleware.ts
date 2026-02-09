@@ -74,7 +74,7 @@ async function validateTaskToken(c: Context): Promise<void> {
 /**
  * Authentication middleware
  *
- * After the auth migration to Rust (sandbox-controller), this middleware handles:
+ * After the auth migration to the Rust backend, this middleware handles:
  * 1. Task token auth (X-Task-Token) — sandbox containers call Node.js directly, bypassing Traefik
  * 2. ForwardAuth headers (X-User-*) — set by Traefik after Rust validates session/API key
  *

@@ -11,13 +11,13 @@
  */
 export interface UserInfo {
   /** @nullable */
-  avatarUrl?: string | null
+  avatarUrl?: string | null;
   /** @nullable */
-  email?: string | null
-  id: string
-  login: string
+  email?: string | null;
+  id: string;
+  login: string;
   /** @nullable */
-  name?: string | null
-  provider: string
-  role: string
+  name?: string | null;
+  provider: string;
+  role: string;
 }

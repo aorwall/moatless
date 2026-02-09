@@ -10,10 +10,10 @@
  * Server capabilities (deterministic from server name)
  */
 export interface ServerCapabilities {
-  addressBar: boolean
-  console: boolean
-  inspector: boolean
-  openExternal: boolean
-  reload: boolean
-  viewport: boolean
+  addressBar: boolean;
+  console: boolean;
+  inspector: boolean;
+  openExternal: boolean;
+  reload: boolean;
+  viewport: boolean;
 }

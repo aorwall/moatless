@@ -5,27 +5,27 @@
  * Workspace orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
-import type { EnvironmentStatus } from './environmentStatus'
-import type { ExecutionTargetServers } from './executionTargetServers'
+import type { EnvironmentStatus } from './environmentStatus';
+import type { ExecutionTargetServers } from './executionTargetServers';
 
 /**
  * Execution target returned after provisioning
  */
 export interface ExecutionTarget {
-  mode: string
+  mode: string;
   /** @nullable */
-  podName?: string | null
-  podNamespace: string
+  podName?: string | null;
+  podNamespace: string;
   /** @nullable */
-  podPhase?: string | null
+  podPhase?: string | null;
   /** @minimum 0 */
-  previewHostPort: number
+  previewHostPort: number;
   /** @nullable */
-  repositoryBranch?: string | null
-  repositoryCloneUrl: string
+  repositoryBranch?: string | null;
+  repositoryCloneUrl: string;
   /** @minimum 0 */
-  sandboxPort: number
-  servers: ExecutionTargetServers
-  serviceName: string
-  status: EnvironmentStatus
+  sandboxPort: number;
+  servers: ExecutionTargetServers;
+  serviceName: string;
+  status: EnvironmentStatus;
 }

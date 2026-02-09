@@ -46,7 +46,7 @@ export async function registerRoutes(app: OpenAPIHono<AppBindings>) {
   // TODO: usage.ts file is missing - need to restore or remove
   // const { registerUsageRoutes } = await import('./usage.js')
 
-  // Register API key routes (auth routes are handled by sandbox-controller)
+  // Register API key routes (auth routes are handled by the Rust backend)
   await registerApiKeyRoutes(app)
 
   // Register API route groups with prefixes

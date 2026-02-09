@@ -1,6 +1,6 @@
 import type { RepositoryConfig } from '@moatless/types'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { SandboxControllerProvisioner } from '../../provisioners/sandbox-controller-provisioner'
+import type { BackendProvisioner } from '../../provisioners/backend-provisioner'
 import type { WorkspaceProvisionPlan } from '../../types/provision-plan.types'
 import type { ExecutionTarget } from '../../types/workspace-runtime.types'
 import { WorkspaceRuntimeManager } from '../workspace-runtime-manager.service'
@@ -39,9 +39,7 @@ const makePlanFactory = () => ({
   ),
 })
 
-const makeProvisioner = (
-  overrides?: Partial<SandboxControllerProvisioner>,
-): SandboxControllerProvisioner => {
+const makeProvisioner = (overrides?: Partial<BackendProvisioner>): BackendProvisioner => {
   const runningTarget: ExecutionTarget = {
     mode: 'kubernetes',
     podName: 'pod-1',
@@ -62,7 +60,7 @@ const makeProvisioner = (
   const createInitializingTarget = () => ({
     ...initializingTarget,
   })
-  const base: SandboxControllerProvisioner = {
+  const base: BackendProvisioner = {
     createInitializingTarget: vi.fn(createInitializingTarget),
     provision: vi.fn(provision),
     isHealthy: vi.fn(async (_taskId: string, _target: ExecutionTarget) => true),
@@ -93,7 +91,7 @@ describe('WorkspaceRuntimeManager', () => {
     vi.restoreAllMocks()
   })
 
-  it('throws on terminal error status from sandbox controller', async () => {
+  it('throws on terminal error status from backend', async () => {
     const provisioner = makeProvisioner({
       getStatus: vi.fn(async () => ({
         status: 'error' as const,
@@ -114,7 +112,7 @@ describe('WorkspaceRuntimeManager', () => {
     expect(provisioner.provision).not.toHaveBeenCalled()
   })
 
-  it('provisions when sandbox controller reports not_created', async () => {
+  it('provisions when backend reports not_created', async () => {
     const provisioner = makeProvisioner({
       getStatus: vi.fn(async () => ({
         status: 'not_created' as const,

@@ -8,13 +8,22 @@
   "exports": {
     ".": "./src/index.ts",
     "./custom-instance": "./custom-instance.ts",
-    "./sandbox/sandbox/sandbox": "./src/sandbox/sandbox/sandbox.ts",
+    "./sandbox/agent/agent": "./src/sandbox/agent/agent.ts",
+    "./sandbox/api-keys/api-keys": "./src/sandbox/api-keys/api-keys.ts",
     "./sandbox/auth/auth": "./src/sandbox/auth/auth.ts",
-    "./sandbox/users/users": "./src/sandbox/users/users.ts",
-    "./sandbox/api-keys/api-keys": "./src/sandbox/api-keys/api-keys.ts"
+    "./sandbox/commands/commands": "./src/sandbox/commands/commands.ts",
+    "./sandbox/figma/figma": "./src/sandbox/figma/figma.ts",
+    "./sandbox/file-storage/file-storage": "./src/sandbox/file-storage/file-storage.ts",
+    "./sandbox/messages/messages": "./src/sandbox/messages/messages.ts",
+    "./sandbox/provider-settings/provider-settings": "./src/sandbox/provider-settings/provider-settings.ts",
+    "./sandbox/repositories/repositories": "./src/sandbox/repositories/repositories.ts",
+    "./sandbox/sandbox/sandbox": "./src/sandbox/sandbox/sandbox.ts",
+    "./sandbox/tags/tags": "./src/sandbox/tags/tags.ts",
+    "./sandbox/tasks/tasks": "./src/sandbox/tasks/tasks.ts",
+    "./sandbox/users/users": "./src/sandbox/users/users.ts"
   },
   "scripts": {
-    "generate:spec": "cargo run --manifest-path ../../sandbox-controller/Cargo.toml -- --dump-openapi > specs/sandbox-controller.json",
+    "generate:spec": "cargo run --manifest-path ../../backend/Cargo.toml -- --dump-openapi > specs/backend.json",
     "generate:client": "orval",
     "generate": "bun run generate:spec && bun run generate:client"
   },

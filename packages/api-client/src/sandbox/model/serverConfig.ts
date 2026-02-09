@@ -10,7 +10,7 @@
  * Server config entry
  */
 export interface ServerConfig {
-  name: string
+  name: string;
   /** @minimum 0 */
-  port: number
+  port: number;
 }

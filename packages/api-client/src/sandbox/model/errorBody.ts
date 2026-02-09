@@ -10,5 +10,5 @@
  * Generic error body returned by all error responses.
  */
 export interface ErrorBody {
-  error: string
+  error: string;
 }

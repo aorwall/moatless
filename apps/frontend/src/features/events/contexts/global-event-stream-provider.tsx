@@ -430,7 +430,7 @@ export function GlobalEventStreamProvider({
   )
 
   // Helper: Build stream URL with query params
-  // Always uses a relative URL — Vite proxy (dev) and Traefik (prod) route to sandbox-controller
+  // Always uses a relative URL — Vite proxy (dev) and Traefik (prod) route to the Rust backend
   const buildStreamUrl = useCallback((): string => {
     const params = new URLSearchParams()
     if (types && types.length > 0) {

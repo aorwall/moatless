@@ -11,9 +11,9 @@
  */
 export interface UserListItem {
   /** @nullable */
-  avatarUrl?: string | null
-  id: string
-  login: string
+  avatarUrl?: string | null;
+  id: string;
+  login: string;
   /** @nullable */
-  name?: string | null
+  name?: string | null;
 }

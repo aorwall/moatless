@@ -646,7 +646,7 @@ export class TaskEventHandler {
           continue
         }
 
-        // Check workspace status via sandbox controller
+        // Check workspace status via Rust backend
         const wsStatus = await this.runtimeManager.getWorkspaceStatus(task.taskId)
 
         const taskLogger = logger.child({

@@ -1,0 +1,4721 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Sandbox Controller API",
+    "description": "Workspace orchestration and authentication for Moatless Vibe",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/sandbox/v1/tasks/{task_id}/cleanup": {
+      "post": {
+        "tags": [
+          "sandbox"
+        ],
+        "summary": "Clean up a workspace and all associated resources.",
+        "operationId": "cleanup_handler",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Workspace cleaned up"
+          },
+          "500": {
+            "description": "Cleanup failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sandbox/v1/tasks/{task_id}/env-status": {
+      "get": {
+        "tags": [
+          "sandbox"
+        ],
+        "summary": "Get environment status for a task workspace.",
+        "operationId": "status_handler",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Environment status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sandbox/v1/tasks/{task_id}/health": {
+      "get": {
+        "tags": [
+          "sandbox"
+        ],
+        "summary": "Check if a task's sandbox is healthy.",
+        "operationId": "health_check_handler",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Health check result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sandbox/v1/tasks/{task_id}/provision": {
+      "post": {
+        "tags": [
+          "sandbox"
+        ],
+        "summary": "Provision a new sandbox workspace for a task.",
+        "operationId": "provision_handler",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProvisionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Workspace provisioned successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProvisionResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Provisioning failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sandbox/v1/tasks/{task_id}/restart": {
+      "post": {
+        "tags": [
+          "sandbox"
+        ],
+        "summary": "Restart a workspace (stop + start).",
+        "operationId": "restart_handler",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Workspace restarted"
+          },
+          "500": {
+            "description": "Restart failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sandbox/v1/tasks/{task_id}/start": {
+      "post": {
+        "tags": [
+          "sandbox"
+        ],
+        "summary": "Start a stopped workspace.",
+        "operationId": "start_handler",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Workspace started"
+          },
+          "500": {
+            "description": "Start failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sandbox/v1/tasks/{task_id}/status": {
+      "get": {
+        "tags": [
+          "sandbox"
+        ],
+        "summary": "Get full workspace status including servers and agent state.",
+        "operationId": "workspace_status_handler",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Full workspace status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceStatusFullResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Workspace not ready",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sandbox/v1/tasks/{task_id}/stop": {
+      "post": {
+        "tags": [
+          "sandbox"
+        ],
+        "summary": "Stop a running workspace.",
+        "operationId": "stop_handler",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Workspace stopped"
+          },
+          "500": {
+            "description": "Stop failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/api-keys": {
+      "get": {
+        "tags": [
+          "api-keys"
+        ],
+        "summary": "List all API keys for the authenticated user.",
+        "operationId": "list_api_keys_handler",
+        "responses": {
+          "200": {
+            "description": "List of API keys",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ApiKeyListItem"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "api-keys"
+        ],
+        "summary": "Create a new API key for the authenticated user.",
+        "operationId": "create_api_key_handler",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateApiKeyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "API key created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiKeyCreateResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/api-keys/{key_id}": {
+      "delete": {
+        "tags": [
+          "api-keys"
+        ],
+        "summary": "Revoke an API key by ID.",
+        "operationId": "revoke_api_key_handler",
+        "parameters": [
+          {
+            "name": "key_id",
+            "in": "path",
+            "description": "API key identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "API key revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "API key not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Log out the current user session.",
+        "operationId": "logout_handler",
+        "responses": {
+          "200": {
+            "description": "Logged out successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponse"
+                }
+              }
+            }
+          },
+          "302": {
+            "description": "Redirect to provider logout"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/me": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Get current user session information.",
+        "operationId": "me_handler",
+        "responses": {
+          "200": {
+            "description": "Current session info",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/verify": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Verify authentication via session cookie or API key (Traefik ForwardAuth).",
+        "operationId": "verify_handler",
+        "responses": {
+          "200": {
+            "description": "Authentication valid"
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/commands": {
+      "get": {
+        "tags": [
+          "commands"
+        ],
+        "summary": "List all commands.",
+        "operationId": "list_commands",
+        "responses": {
+          "200": {
+            "description": "List of commands",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CommandResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "commands"
+        ],
+        "summary": "Create a new command.",
+        "operationId": "create_command",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCommandRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Command created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Command already exists",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/commands/{name}": {
+      "get": {
+        "tags": [
+          "commands"
+        ],
+        "summary": "Get a command by name.",
+        "operationId": "get_command",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Command name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Command details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Command not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "commands"
+        ],
+        "summary": "Delete a command by name.",
+        "operationId": "delete_command",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Command name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Command deleted"
+          },
+          "404": {
+            "description": "Command not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "commands"
+        ],
+        "summary": "Update a command by name.",
+        "operationId": "update_command",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Command name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCommandRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Command updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Command not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/figma/import-clipboard": {
+      "post": {
+        "tags": [
+          "figma"
+        ],
+        "summary": "Import a Figma design from clipboard HTML.",
+        "operationId": "import_clipboard",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportClipboardRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Import created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FigmaImportResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Parse error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/figma/import-node": {
+      "post": {
+        "tags": [
+          "figma"
+        ],
+        "summary": "Import a Figma design from a Figma URL.",
+        "operationId": "import_node",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportNodeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Import created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FigmaImportResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/figma/imports/{import_id}": {
+      "get": {
+        "tags": [
+          "figma"
+        ],
+        "summary": "Get details of a Figma import.",
+        "operationId": "get_import",
+        "parameters": [
+          {
+            "name": "import_id",
+            "in": "path",
+            "description": "Import identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Import details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FigmaImportDetailResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Import not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/figma/imports/{import_id}/image": {
+      "get": {
+        "tags": [
+          "figma"
+        ],
+        "summary": "Get the image for a Figma import.",
+        "operationId": "get_import_image",
+        "parameters": [
+          {
+            "name": "import_id",
+            "in": "path",
+            "description": "Import identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Image content",
+            "content": {
+              "image/png": {}
+            }
+          },
+          "404": {
+            "description": "Image not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/figma/parse-clipboard": {
+      "post": {
+        "tags": [
+          "figma"
+        ],
+        "summary": "Parse clipboard HTML into structured Figma data.",
+        "operationId": "parse_clipboard",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ParseClipboardRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Parsed clipboard",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ParseClipboardResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Parse error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/repositories": {
+      "get": {
+        "tags": [
+          "repositories"
+        ],
+        "summary": "List all repositories for the current user.",
+        "operationId": "list_repositories",
+        "responses": {
+          "200": {
+            "description": "List of repositories",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RepositoryResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "repositories"
+        ],
+        "summary": "Create a new repository.",
+        "operationId": "create_repository",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRepositoryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Repository created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Repository already exists",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/repositories/{repository_id}": {
+      "get": {
+        "tags": [
+          "repositories"
+        ],
+        "summary": "Get a repository by ID.",
+        "operationId": "get_repository",
+        "parameters": [
+          {
+            "name": "repository_id",
+            "in": "path",
+            "description": "Repository identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Repository details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Repository not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "repositories"
+        ],
+        "summary": "Update a repository by ID.",
+        "operationId": "update_repository",
+        "parameters": [
+          {
+            "name": "repository_id",
+            "in": "path",
+            "description": "Repository identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateRepositoryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Repository updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Repository not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "repositories"
+        ],
+        "summary": "Delete a repository by ID (soft delete).",
+        "operationId": "delete_repository",
+        "parameters": [
+          {
+            "name": "repository_id",
+            "in": "path",
+            "description": "Repository identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Repository deleted"
+          },
+          "404": {
+            "description": "Repository not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/repositories/{repository_id}/branches": {
+      "get": {
+        "tags": [
+          "repositories"
+        ],
+        "summary": "Get branches for a repository.",
+        "operationId": "get_branches",
+        "parameters": [
+          {
+            "name": "repository_id",
+            "in": "path",
+            "description": "Repository identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Branch list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BranchListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Repository not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/repositories/{repository_id}/convert-to-template": {
+      "post": {
+        "tags": [
+          "repositories"
+        ],
+        "summary": "Convert a remote repository to a template.",
+        "operationId": "convert_to_template",
+        "parameters": [
+          {
+            "name": "repository_id",
+            "in": "path",
+            "description": "Repository identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Repository converted to template",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Cannot convert",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Repository not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/settings/github/config": {
+      "get": {
+        "tags": [
+          "provider-settings"
+        ],
+        "summary": "Get current GitHub configuration for the user.",
+        "operationId": "get_github_config",
+        "responses": {
+          "200": {
+            "description": "GitHub config",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubConfigResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "provider-settings"
+        ],
+        "summary": "Disconnect GitHub by deleting the stored token.",
+        "operationId": "delete_github_config",
+        "responses": {
+          "200": {
+            "description": "GitHub disconnected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubConfigResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/settings/github/oauth/token": {
+      "post": {
+        "tags": [
+          "provider-settings"
+        ],
+        "summary": "Exchange a GitHub OAuth authorization code for an access token.",
+        "operationId": "exchange_github_token",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExchangeTokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Token exchanged",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExchangeTokenResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Exchange failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/settings/github/oauth/url": {
+      "get": {
+        "tags": [
+          "provider-settings"
+        ],
+        "summary": "Generate a GitHub OAuth authorization URL.",
+        "operationId": "get_github_oauth_url",
+        "responses": {
+          "200": {
+            "description": "OAuth URL",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthUrlResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "GitHub OAuth not configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/settings/github/pat": {
+      "put": {
+        "tags": [
+          "provider-settings"
+        ],
+        "summary": "Save a GitHub Personal Access Token after validating it.",
+        "operationId": "save_github_pat",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SavePatRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "PAT saved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubConfigResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tags": {
+      "get": {
+        "tags": [
+          "tags"
+        ],
+        "summary": "List all tags.",
+        "operationId": "list_tags",
+        "responses": {
+          "200": {
+            "description": "List of tags",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TagResponse"
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks": {
+      "get": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "List tasks with pagination and filters.",
+        "operationId": "list_tasks",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "repositoryId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "createdBy",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "tag",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated task list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListTasksResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Create a new task.",
+        "operationId": "create_task",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTaskRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Task created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateTaskResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Repository not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/vibe": {
+      "post": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Create a new vibe task from a template.",
+        "operationId": "create_vibe_task",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateVibeTaskRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Vibe task created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateTaskResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Template not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}": {
+      "get": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Get a task by ID.",
+        "operationId": "get_task",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Task details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Delete a task and cleanup its workspace.",
+        "operationId": "delete_task",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Task deleted"
+          },
+          "404": {
+            "description": "Task not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Update task name and description.",
+        "operationId": "update_task_metadata",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTaskMetadataRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Task updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/close": {
+      "post": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Close a task and stop its sandbox.",
+        "operationId": "close_task",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Task closed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/commands": {
+      "get": {
+        "tags": [
+          "commands"
+        ],
+        "summary": "Get commands available for a task (active commands only).",
+        "operationId": "get_available_commands",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Available commands",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CommandResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "agent"
+        ],
+        "summary": "Send a named command to the agent for a task.",
+        "operationId": "send_command",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendCommandRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Command sent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SendMessageResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task or command not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/messages": {
+      "get": {
+        "tags": [
+          "messages"
+        ],
+        "summary": "Get all messages for a task.",
+        "operationId": "get_messages",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of messages",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetMessagesResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "agent"
+        ],
+        "summary": "Send a message to the agent for a task.",
+        "operationId": "send_message",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendMessageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Message sent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SendMessageResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/messages/pending": {
+      "get": {
+        "tags": [
+          "messages"
+        ],
+        "summary": "Get pending messages for a task.",
+        "operationId": "get_pending_messages",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Pending messages",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetPendingMessagesResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/messages/{message_id}": {
+      "delete": {
+        "tags": [
+          "messages"
+        ],
+        "summary": "Delete a queued message.",
+        "operationId": "delete_queued_message",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "message_id",
+            "in": "path",
+            "description": "Message identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Message deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteMessageResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Message not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/start": {
+      "post": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Start a task (provision sandbox and begin agent).",
+        "operationId": "start_task",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Task started"
+          },
+          "400": {
+            "description": "Invalid task state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/stop": {
+      "post": {
+        "tags": [
+          "agent"
+        ],
+        "summary": "Stop the agent running on a task.",
+        "operationId": "stop_agent",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Agent stopped"
+          },
+          "404": {
+            "description": "Task not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/tags": {
+      "put": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Set tags for a task.",
+        "operationId": "set_task_tags",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetTagsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Tags updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TagResponse"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/visibility": {
+      "put": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Update task visibility (public/private).",
+        "operationId": "update_visibility",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateVisibilityRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Visibility updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid visibility value",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/uploads": {
+      "post": {
+        "tags": [
+          "file-storage"
+        ],
+        "summary": "Upload a file via multipart form data.",
+        "operationId": "upload_file",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/UploadFileBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "File uploaded successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/uploads/{file_id}": {
+      "get": {
+        "tags": [
+          "file-storage"
+        ],
+        "summary": "Download a file by ID.",
+        "operationId": "download_file",
+        "parameters": [
+          {
+            "name": "file_id",
+            "in": "path",
+            "description": "File identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "File content",
+            "content": {
+              "application/octet-stream": {}
+            }
+          },
+          "404": {
+            "description": "File not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/users": {
+      "get": {
+        "tags": [
+          "users"
+        ],
+        "summary": "List all registered users.",
+        "operationId": "list_users_handler",
+        "responses": {
+          "200": {
+            "description": "List of users",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserListResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AgentState": {
+        "type": "string",
+        "description": "Matches TS AgentStateSchema: 'idle' | 'running' | 'none'",
+        "enum": [
+          "idle",
+          "running",
+          "none"
+        ]
+      },
+      "ApiKeyCreateResponse": {
+        "type": "object",
+        "description": "POST /api/v1/auth/api-keys response (includes the full key, shown once).",
+        "required": [
+          "id",
+          "key",
+          "name",
+          "keyPrefix",
+          "createdAt"
+        ],
+        "properties": {
+          "createdAt": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "keyPrefix": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "scopes": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ApiKeyListItem": {
+        "type": "object",
+        "description": "Single item in GET /api/v1/auth/api-keys list.",
+        "required": [
+          "id",
+          "name",
+          "keyPrefix",
+          "createdAt"
+        ],
+        "properties": {
+          "createdAt": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "keyPrefix": {
+            "type": "string"
+          },
+          "lastUsedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "scopes": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "BranchEntry": {
+        "type": "object",
+        "required": [
+          "name",
+          "isDefault"
+        ],
+        "properties": {
+          "isDefault": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "BranchListResponse": {
+        "type": "object",
+        "required": [
+          "branches"
+        ],
+        "properties": {
+          "branches": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BranchEntry"
+            }
+          },
+          "defaultBranch": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CommandResponse": {
+        "type": "object",
+        "required": [
+          "name",
+          "description",
+          "prompt"
+        ],
+        "properties": {
+          "active": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "agentMode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "conditions": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "description": {
+            "type": "string"
+          },
+          "icon": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "variant": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "willNotResume": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        }
+      },
+      "CreateApiKeyRequest": {
+        "type": "object",
+        "description": "Body for POST /api/v1/auth/api-keys.",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "expiresInDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string"
+          },
+          "scopes": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "CreateCommandRequest": {
+        "type": "object",
+        "required": [
+          "name",
+          "description",
+          "prompt"
+        ],
+        "properties": {
+          "active": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "agentMode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "conditions": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "description": {
+            "type": "string"
+          },
+          "icon": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "variant": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "willNotResume": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        }
+      },
+      "CreateRepositoryRequest": {
+        "type": "object",
+        "required": [
+          "name",
+          "kind"
+        ],
+        "properties": {
+          "autoReload": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "buildCommand": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "buildOutputDirectory": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "defaultBranch": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dockerImage": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "enableInspector": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "envVars": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "plugins": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "provider": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "remoteUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "serverStartCommands": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "servers": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "setupCommands": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "startupTimeoutSeconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "systemPrompt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "visibility": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CreateTaskRequest": {
+        "type": "object",
+        "required": [
+          "repositoryId"
+        ],
+        "properties": {
+          "agentMode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "agentType": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "branch": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "contexts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MessageContextInput"
+            }
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fileIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "repositoryId": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateTaskResponse": {
+        "type": "object",
+        "required": [
+          "taskId",
+          "status",
+          "task"
+        ],
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "task": {
+            "$ref": "#/components/schemas/TaskResponse"
+          },
+          "taskId": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateVibeTaskRequest": {
+        "type": "object",
+        "required": [
+          "templateId"
+        ],
+        "properties": {
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "templateId": {
+            "type": "string"
+          }
+        }
+      },
+      "DeleteMessageResponse": {
+        "type": "object",
+        "description": "Response for DELETE /messages/{id}.",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "EnvironmentStatus": {
+        "type": "string",
+        "description": "Matches TS EnvironmentStatusSchema",
+        "enum": [
+          "not_created",
+          "initializing",
+          "ready",
+          "stopped",
+          "removing",
+          "error"
+        ]
+      },
+      "ErrorBody": {
+        "type": "object",
+        "description": "Generic error body returned by all error responses.",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "string"
+          }
+        }
+      },
+      "ExchangeTokenRequest": {
+        "type": "object",
+        "required": [
+          "code"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "state": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ExchangeTokenResponse": {
+        "type": "object",
+        "required": [
+          "connected"
+        ],
+        "properties": {
+          "connected": {
+            "type": "boolean"
+          },
+          "login": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ExecutionTarget": {
+        "type": "object",
+        "description": "Execution target returned after provisioning",
+        "required": [
+          "mode",
+          "podNamespace",
+          "serviceName",
+          "status",
+          "repositoryCloneUrl",
+          "sandboxPort",
+          "previewHostPort",
+          "servers"
+        ],
+        "properties": {
+          "mode": {
+            "type": "string"
+          },
+          "podName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "podNamespace": {
+            "type": "string"
+          },
+          "podPhase": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "previewHostPort": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "repositoryBranch": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "repositoryCloneUrl": {
+            "type": "string"
+          },
+          "sandboxPort": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "servers": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "serviceName": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/EnvironmentStatus"
+          }
+        }
+      },
+      "FigmaImportDetailResponse": {
+        "type": "object",
+        "required": [
+          "importId",
+          "hasImage",
+          "createdAt",
+          "prompt"
+        ],
+        "properties": {
+          "createdAt": {
+            "type": "string"
+          },
+          "fileId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fileName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hasImage": {
+            "type": "boolean"
+          },
+          "importId": {
+            "type": "string"
+          },
+          "nodeId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "nodeName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "prompt": {
+            "type": "string"
+          }
+        }
+      },
+      "FigmaImportResponse": {
+        "type": "object",
+        "required": [
+          "importId",
+          "hasImage",
+          "createdAt"
+        ],
+        "properties": {
+          "createdAt": {
+            "type": "string"
+          },
+          "fileId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fileName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hasImage": {
+            "type": "boolean"
+          },
+          "importId": {
+            "type": "string"
+          },
+          "nodeId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "nodeName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "GetMessagesResponse": {
+        "type": "object",
+        "description": "Response for GET /messages.",
+        "required": [
+          "messages",
+          "totalCount"
+        ],
+        "properties": {
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UiMessage"
+            }
+          },
+          "totalCount": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "GetPendingMessagesResponse": {
+        "type": "object",
+        "description": "Response for GET /messages/pending.",
+        "required": [
+          "messages",
+          "totalCount"
+        ],
+        "properties": {
+          "messages": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "totalCount": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "GitHubConfigResponse": {
+        "type": "object",
+        "required": [
+          "connected"
+        ],
+        "properties": {
+          "connected": {
+            "type": "boolean"
+          },
+          "login": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tokenType": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "HealthResponse": {
+        "type": "object",
+        "description": "Health response",
+        "required": [
+          "healthy"
+        ],
+        "properties": {
+          "healthy": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ImportClipboardRequest": {
+        "type": "object",
+        "required": [
+          "clipboardHtml"
+        ],
+        "properties": {
+          "clipboardHtml": {
+            "type": "string"
+          },
+          "includeImageInPrompt": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ImportNodeRequest": {
+        "type": "object",
+        "required": [
+          "url"
+        ],
+        "properties": {
+          "includeImageInPrompt": {
+            "type": "boolean"
+          },
+          "url": {
+            "type": "string",
+            "description": "Full Figma URL (e.g., https://www.figma.com/file/{key}/Title?node-id={id})"
+          }
+        }
+      },
+      "ListTasksResponse": {
+        "type": "object",
+        "required": [
+          "items",
+          "pagination"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TaskResponse"
+            }
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/PaginationResponse"
+          }
+        }
+      },
+      "MessageContextInput": {
+        "type": "object",
+        "required": [
+          "type",
+          "referenceId",
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object"
+          },
+          "referenceId": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        }
+      },
+      "MessageResponse": {
+        "type": "object",
+        "description": "Generic message response (logout, revoke, etc.).",
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "OAuthUrlResponse": {
+        "type": "object",
+        "required": [
+          "url"
+        ],
+        "properties": {
+          "url": {
+            "type": "string"
+          }
+        }
+      },
+      "PaginationResponse": {
+        "type": "object",
+        "required": [
+          "limit",
+          "offset",
+          "total",
+          "hasMore"
+        ],
+        "properties": {
+          "hasMore": {
+            "type": "boolean"
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "offset": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "ParseClipboardRequest": {
+        "type": "object",
+        "required": [
+          "clipboardHtml"
+        ],
+        "properties": {
+          "clipboardHtml": {
+            "type": "string"
+          }
+        }
+      },
+      "ParseClipboardResponse": {
+        "type": "object",
+        "required": [
+          "clipboardJson"
+        ],
+        "properties": {
+          "clipboardJson": {
+            "type": "object"
+          },
+          "fileName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "nodeName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ProvisionPlan": {
+        "type": "object",
+        "description": "Provision plan with all configuration needed to create a workspace",
+        "required": [
+          "repoConfig",
+          "gitCloneUrl"
+        ],
+        "properties": {
+          "anthropicApiKey": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "claudeOauthToken": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "envVars": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Custom environment variables",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "gitBranch": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "gitCloneUrl": {
+            "type": "string"
+          },
+          "gitProviderToken": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "repoConfig": {
+            "$ref": "#/components/schemas/RepoConfig"
+          }
+        }
+      },
+      "ProvisionRequest": {
+        "type": "object",
+        "description": "Provision plan sent from TS backend",
+        "required": [
+          "plan",
+          "userId"
+        ],
+        "properties": {
+          "plan": {
+            "$ref": "#/components/schemas/ProvisionPlan"
+          },
+          "userId": {
+            "type": "string"
+          }
+        }
+      },
+      "ProvisionResponse": {
+        "type": "object",
+        "description": "Provision response",
+        "required": [
+          "executionTarget"
+        ],
+        "properties": {
+          "executionTarget": {
+            "$ref": "#/components/schemas/ExecutionTarget"
+          }
+        }
+      },
+      "RepoConfig": {
+        "type": "object",
+        "description": "Repository config for provisioning and sandbox environment",
+        "required": [
+          "name",
+          "codeExecution",
+          "previewConfig"
+        ],
+        "properties": {
+          "codeExecution": {
+            "type": "object",
+            "description": "Code execution configuration (dockerImage, envVars, etc.)"
+          },
+          "dockerImage": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Per-repository sandbox image override"
+          },
+          "name": {
+            "type": "string"
+          },
+          "pluginIds": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Plugin IDs (format: {name}@{marketplace}) — sandbox resolves to paths"
+          },
+          "previewConfig": {
+            "type": "object",
+            "description": "Preview server configuration"
+          },
+          "servers": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ServerConfig"
+            },
+            "description": "Servers with allocated ports"
+          },
+          "systemPrompt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "System prompt for the agent"
+          }
+        }
+      },
+      "RepositoryResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "visibility"
+        ],
+        "properties": {
+          "autoReload": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "buildCommand": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "buildOutputDirectory": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "defaultBranch": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dockerImage": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "enableInspector": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "envVars": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "plugins": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "provider": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "remoteUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "serverStartCommands": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "servers": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "setupCommands": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "startupTimeoutSeconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "systemPrompt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updatedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "visibility": {
+            "type": "string"
+          }
+        }
+      },
+      "ResourceMetrics": {
+        "type": "object",
+        "description": "Resource metrics from sandbox GET /status",
+        "required": [
+          "memoryUsageMb",
+          "eventLoopLatencyMs",
+          "uptimeSeconds"
+        ],
+        "properties": {
+          "cpuUsagePercent": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "eventLoopLatencyMs": {
+            "type": "number",
+            "format": "double"
+          },
+          "memoryLimitMb": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "memoryUsageMb": {
+            "type": "number",
+            "format": "double"
+          },
+          "memoryUsagePercent": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "uptimeSeconds": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "SavePatRequest": {
+        "type": "object",
+        "required": [
+          "token"
+        ],
+        "properties": {
+          "token": {
+            "type": "string"
+          }
+        }
+      },
+      "SendCommandRequest": {
+        "type": "object",
+        "required": [
+          "commandName"
+        ],
+        "properties": {
+          "commandName": {
+            "type": "string"
+          },
+          "fileIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "resume": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        }
+      },
+      "SendMessageRequest": {
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "agentMode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "commandName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "contexts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MessageContextInput"
+            }
+          },
+          "fileIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "message": {
+            "type": "string"
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "resume": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "toolName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "toolResponse": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "toolUseId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "SendMessageResponse": {
+        "type": "object",
+        "required": [
+          "status",
+          "timestamp"
+        ],
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string"
+          }
+        }
+      },
+      "ServerCapabilities": {
+        "type": "object",
+        "description": "Server capabilities (deterministic from server name)",
+        "required": [
+          "addressBar",
+          "inspector",
+          "reload",
+          "openExternal",
+          "viewport",
+          "console"
+        ],
+        "properties": {
+          "addressBar": {
+            "type": "boolean"
+          },
+          "console": {
+            "type": "boolean"
+          },
+          "inspector": {
+            "type": "boolean"
+          },
+          "openExternal": {
+            "type": "boolean"
+          },
+          "reload": {
+            "type": "boolean"
+          },
+          "viewport": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ServerConfig": {
+        "type": "object",
+        "description": "Server config entry",
+        "required": [
+          "name",
+          "port"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "ServerEntry": {
+        "type": "object",
+        "description": "Single server entry in the workspace status response",
+        "required": [
+          "name",
+          "label",
+          "port",
+          "status",
+          "default",
+          "capabilities"
+        ],
+        "properties": {
+          "capabilities": {
+            "$ref": "#/components/schemas/ServerCapabilities"
+          },
+          "default": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "status": {
+            "$ref": "#/components/schemas/ServerStatus"
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ServerStatus": {
+        "type": "string",
+        "description": "Matches TS ServerStatusEnumSchema: 'stopped' | 'installing' | 'starting' | 'started' | 'failed'",
+        "enum": [
+          "stopped",
+          "installing",
+          "starting",
+          "started",
+          "failed"
+        ]
+      },
+      "SessionResponse": {
+        "type": "object",
+        "description": "GET /api/v1/auth/me response.",
+        "properties": {
+          "expiresAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "user": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/UserInfo"
+              }
+            ]
+          }
+        }
+      },
+      "SetTagsRequest": {
+        "type": "object",
+        "required": [
+          "tags"
+        ],
+        "properties": {
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "StatusResponse": {
+        "type": "object",
+        "description": "Status response",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "lastError": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "podName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/EnvironmentStatus"
+          }
+        }
+      },
+      "TagResponse": {
+        "type": "object",
+        "required": [
+          "tagId",
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "tagId": {
+            "type": "string"
+          }
+        }
+      },
+      "TaskResponse": {
+        "type": "object",
+        "required": [
+          "taskId",
+          "title",
+          "status",
+          "agentType",
+          "repositoryId",
+          "createdAt",
+          "lastMessageAt",
+          "totalCostUsd",
+          "visibility",
+          "tags"
+        ],
+        "properties": {
+          "agentType": {
+            "type": "string"
+          },
+          "branch": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "createdBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdByDisplayName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lastMessageAt": {
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "repositoryId": {
+            "type": "string"
+          },
+          "repositoryName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "shortId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "siteUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TagResponse"
+            }
+          },
+          "taskId": {
+            "type": "string"
+          },
+          "templateId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "totalCostUsd": {
+            "type": "number",
+            "format": "double"
+          },
+          "vibe": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "visibility": {
+            "type": "string"
+          }
+        }
+      },
+      "UiAssistantMeta": {
+        "type": "object",
+        "description": "Assistant message metadata.",
+        "properties": {
+          "messageId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "stopReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "usage": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/UiUsage"
+              }
+            ]
+          }
+        }
+      },
+      "UiContentBlock": {
+        "type": "object",
+        "description": "Content block within a message.",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "showInUi": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "text": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "toolInput": {
+            "type": "object"
+          },
+          "toolName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "toolUseId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "type": {
+            "type": "string"
+          }
+        }
+      },
+      "UiMessage": {
+        "type": "object",
+        "description": "UI-facing message representation.",
+        "required": [
+          "uuid",
+          "messageType",
+          "role",
+          "timestamp",
+          "content"
+        ],
+        "properties": {
+          "agentMode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "assistant": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/UiAssistantMeta",
+                "description": "Assistant-specific metadata."
+              }
+            ]
+          },
+          "content": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UiContentBlock"
+            },
+            "description": "Content blocks for this message."
+          },
+          "hasPendingUserInput": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether this assistant message has pending user input."
+          },
+          "isQueued": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "messageType": {
+            "type": "string"
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "result": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/UiResultMeta",
+                "description": "Result-specific metadata."
+              }
+            ]
+          },
+          "role": {
+            "type": "string"
+          },
+          "sessionId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "timestamp": {
+            "type": "string"
+          },
+          "toolResults": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UiToolResult"
+            },
+            "description": "Inline tool results (for assistant messages)."
+          },
+          "turnNumber": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "uuid": {
+            "type": "string"
+          }
+        }
+      },
+      "UiResultMeta": {
+        "type": "object",
+        "description": "Result message metadata.",
+        "required": [
+          "runMetrics"
+        ],
+        "properties": {
+          "runMetrics": {
+            "type": "object"
+          },
+          "turnResult": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnStatus": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "willNotResume": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        }
+      },
+      "UiToolResult": {
+        "type": "object",
+        "description": "Tool result inlined into an assistant message.",
+        "required": [
+          "toolUseId"
+        ],
+        "properties": {
+          "content": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "isError": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "toolUseId": {
+            "type": "string"
+          }
+        }
+      },
+      "UiUsage": {
+        "type": "object",
+        "description": "Token usage stats.",
+        "properties": {
+          "cacheCreationInputTokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "cacheReadInputTokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "inputTokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "outputTokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "UpdateCommandRequest": {
+        "type": "object",
+        "properties": {
+          "active": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "agentMode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "conditions": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "icon": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "prompt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "variant": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "willNotResume": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        }
+      },
+      "UpdateRepositoryRequest": {
+        "type": "object",
+        "properties": {
+          "autoReload": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "buildCommand": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "buildOutputDirectory": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "defaultBranch": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dockerImage": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "enableInspector": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "envVars": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "plugins": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "remoteUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "serverStartCommands": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "servers": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "setupCommands": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "startupTimeoutSeconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "systemPrompt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "visibility": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "UpdateTaskMetadataRequest": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "UpdateVisibilityRequest": {
+        "type": "object",
+        "required": [
+          "visibility"
+        ],
+        "properties": {
+          "visibility": {
+            "type": "string"
+          }
+        }
+      },
+      "UploadFileBody": {
+        "type": "object",
+        "description": "Doc-only type for multipart upload body.",
+        "required": [
+          "file"
+        ],
+        "properties": {
+          "file": {
+            "type": "string",
+            "format": "binary"
+          }
+        }
+      },
+      "UploadResponse": {
+        "type": "object",
+        "required": [
+          "fileId",
+          "filename",
+          "mimeType",
+          "size"
+        ],
+        "properties": {
+          "fileId": {
+            "type": "string"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "mimeType": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "UserInfo": {
+        "type": "object",
+        "description": "User info within session response.",
+        "required": [
+          "id",
+          "login",
+          "provider",
+          "role"
+        ],
+        "properties": {
+          "avatarUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "login": {
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "provider": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          }
+        }
+      },
+      "UserListItem": {
+        "type": "object",
+        "description": "Single item in GET /api/v1/users list.",
+        "required": [
+          "id",
+          "login"
+        ],
+        "properties": {
+          "avatarUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "login": {
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "UserListResponse": {
+        "type": "object",
+        "description": "GET /api/v1/users response.",
+        "required": [
+          "users"
+        ],
+        "properties": {
+          "users": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UserListItem"
+            }
+          }
+        }
+      },
+      "WorkspaceState": {
+        "type": "string",
+        "description": "Matches TS WorkspaceExistenceSchema: 'exists' | 'missing' | 'invalid'",
+        "enum": [
+          "exists",
+          "missing"
+        ]
+      },
+      "WorkspaceStatusFullResponse": {
+        "type": "object",
+        "description": "Full workspace status response to frontend (matches TS WorkspaceStatusResponse)",
+        "required": [
+          "workspaceState",
+          "environmentStatus",
+          "agentState",
+          "servers",
+          "isRunning",
+          "workspaceReady",
+          "canExecute"
+        ],
+        "properties": {
+          "agentState": {
+            "$ref": "#/components/schemas/AgentState"
+          },
+          "canExecute": {
+            "type": "boolean"
+          },
+          "environmentError": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "environmentStatus": {
+            "$ref": "#/components/schemas/EnvironmentStatus"
+          },
+          "isRunning": {
+            "type": "boolean"
+          },
+          "resources": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ResourceMetrics"
+              }
+            ]
+          },
+          "servers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ServerEntry"
+            }
+          },
+          "workspaceReady": {
+            "type": "boolean"
+          },
+          "workspaceState": {
+            "$ref": "#/components/schemas/WorkspaceState"
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "sandbox",
+      "description": "Sandbox workspace lifecycle management"
+    },
+    {
+      "name": "auth",
+      "description": "Authentication and session management"
+    },
+    {
+      "name": "api-keys",
+      "description": "API key management"
+    },
+    {
+      "name": "users",
+      "description": "User listing"
+    },
+    {
+      "name": "tasks",
+      "description": "Task CRUD operations and lifecycle"
+    },
+    {
+      "name": "messages",
+      "description": "Message retrieval and management"
+    },
+    {
+      "name": "agent",
+      "description": "Agent execution — message sending, commands, and lifecycle"
+    },
+    {
+      "name": "commands",
+      "description": "Command management"
+    },
+    {
+      "name": "file-storage",
+      "description": "File upload and download via S3"
+    },
+    {
+      "name": "figma",
+      "description": "Figma design import and clipboard parsing"
+    },
+    {
+      "name": "repositories",
+      "description": "Repository CRUD operations"
+    },
+    {
+      "name": "tags",
+      "description": "Tag listing"
+    },
+    {
+      "name": "provider-settings",
+      "description": "GitHub OAuth/PAT management"
+    }
+  ]
+}

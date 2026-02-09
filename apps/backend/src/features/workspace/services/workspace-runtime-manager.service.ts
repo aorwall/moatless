@@ -5,7 +5,7 @@ import { logger } from '../../../utils/logger'
 import { EventService } from '../../events/services/event.service'
 import { activeWorkspaces } from '../../metrics'
 import { TaskRepository } from '../../tasks/db/task.repository'
-import { SandboxControllerProvisioner } from '../provisioners/sandbox-controller-provisioner'
+import { BackendProvisioner } from '../provisioners/backend-provisioner'
 import type { WorkspaceProvisionPlan } from '../types/provision-plan.types'
 import type { WorkspaceHandle } from '../types/workspace-handle.types'
 import {
@@ -19,13 +19,13 @@ import { ProvisionPlanFactory } from './provision-plan-factory.service'
  * WorkspaceRuntimeManager - Low-level runtime state manager
  *
  * Owns all workspace provisioning, runtime state management, and driver lifecycle.
- * The sandbox controller API is the sole source of truth for workspace state.
+ * The Rust backend API is the sole source of truth for workspace state.
  * No local DB persistence — execution targets are constructed deterministically
  * from taskId (service names are deterministic).
  *
  * Responsibilities:
  * - Workspace provisioning and validation
- * - State queries via sandbox controller API
+ * - State queries via Rust backend API
  * - Driver creation (per-task)
  * - Returns enriched WorkspaceHandle with runtime state and driver
  */
@@ -41,8 +41,8 @@ export class WorkspaceRuntimeManager {
 
   constructor(
     @inject(TaskRepository) private readonly taskRepository: TaskRepository,
-    @inject(SandboxControllerProvisioner)
-    private readonly provisioner: SandboxControllerProvisioner,
+    @inject(BackendProvisioner)
+    private readonly provisioner: BackendProvisioner,
     @inject(EventService) private readonly eventService: EventService,
     @inject(ProvisionPlanFactory) private readonly planFactory: ProvisionPlanFactory,
     @inject(RedisLockServiceSymbol)
@@ -61,7 +61,7 @@ export class WorkspaceRuntimeManager {
   async ensureWorkspace(taskId: string, repositoryId?: string): Promise<WorkspaceHandle> {
     logger.debug({ taskId, repositoryId }, 'WorkspaceRuntimeManager: Ensuring workspace')
 
-    // 1. Check sandbox controller for existing workspace
+    // 1. Check backend for existing workspace
     const existingHandle = await this.tryGetExistingHandle(taskId)
     if (existingHandle) {
       return existingHandle
@@ -192,7 +192,7 @@ export class WorkspaceRuntimeManager {
   }
 
   /**
-   * Get workspace status from the sandbox controller.
+   * Get workspace status from the Rust backend.
    * Returns status and optional error information.
    */
   async getWorkspaceStatus(
@@ -257,7 +257,7 @@ export class WorkspaceRuntimeManager {
   }
 
   /**
-   * Clean up workspace artifacts via sandbox controller
+   * Clean up workspace artifacts via Rust backend
    */
   async cleanupWorkspaceArtifacts(taskId: string): Promise<void> {
     logger.debug({ taskId }, 'WorkspaceRuntimeManager: Cleaning up workspace artifacts')
@@ -428,7 +428,7 @@ export class WorkspaceRuntimeManager {
       const executionTarget = await this.provisioner.provision(taskId, plan)
 
       // Only emit 'ready' if the provisioner returned a ready target.
-      // When status is 'initializing', the sandbox controller publishes
+      // When status is 'initializing', the Rust backend publishes
       // environment:ready via Redis when the pod actually becomes healthy.
       if (executionTarget.status !== 'initializing') {
         await this.emitEnvironmentEvent(taskId, 'ready')

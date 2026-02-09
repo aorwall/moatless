@@ -5,26 +5,26 @@
  * Workspace orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
-import type { ProvisionPlanEnvVars } from './provisionPlanEnvVars'
-import type { RepoConfig } from './repoConfig'
+import type { ProvisionPlanEnvVars } from './provisionPlanEnvVars';
+import type { RepoConfig } from './repoConfig';
 
 /**
  * Provision plan with all configuration needed to create a workspace
  */
 export interface ProvisionPlan {
   /** @nullable */
-  anthropicApiKey?: string | null
+  anthropicApiKey?: string | null;
   /** @nullable */
-  claudeOauthToken?: string | null
+  claudeOauthToken?: string | null;
   /**
    * Custom environment variables
    * @nullable
    */
-  envVars?: ProvisionPlanEnvVars
+  envVars?: ProvisionPlanEnvVars;
   /** @nullable */
-  gitBranch?: string | null
-  gitCloneUrl: string
+  gitBranch?: string | null;
+  gitCloneUrl: string;
   /** @nullable */
-  gitProviderToken?: string | null
-  repoConfig: RepoConfig
+  gitProviderToken?: string | null;
+  repoConfig: RepoConfig;
 }

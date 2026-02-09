@@ -5,13 +5,13 @@
  * Workspace orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
-import type { UserInfo } from './userInfo'
+import type { UserInfo } from './userInfo';
 
 /**
  * GET /api/v1/auth/me response.
  */
 export interface SessionResponse {
   /** @nullable */
-  expiresAt?: string | null
-  user?: null | UserInfo
+  expiresAt?: string | null;
+  user?: null | UserInfo;
 }

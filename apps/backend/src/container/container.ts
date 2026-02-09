@@ -48,7 +48,7 @@ export async function initializeContainer(infrastructure: {
   await settingsService.initialize()
   appContainer.bind(SettingsService).toConstantValue(settingsService)
 
-  // Workspace provisioner is bound in bindServices() via SandboxControllerProvisioner.toSelf()
+  // Workspace provisioner is bound in bindServices() via BackendProvisioner.toSelf()
 
   return appContainer
 }
@@ -111,9 +111,7 @@ export async function bindServices(container: Container): Promise<void> {
   // They are created per-task by provisioners and are not bound to DI container.
 
   // Import workspace provisioner
-  const { SandboxControllerProvisioner } = await import(
-    '../features/workspace/provisioners/index.js'
-  )
+  const { BackendProvisioner } = await import('../features/workspace/provisioners/index.js')
 
   // Import preview feature services
   const { PreviewOrchestratorService } = await import(
@@ -296,7 +294,7 @@ export async function bindServices(container: Container): Promise<void> {
   // They are created per-task by provisioners (driver factory pattern).
 
   // Bind workspace provisioner
-  container.bind(SandboxControllerProvisioner).toSelf().inSingletonScope()
+  container.bind(BackendProvisioner).toSelf().inSingletonScope()
 
   // Bind preview feature services
   container.bind(PreviewRuntimeService).toSelf().inSingletonScope()

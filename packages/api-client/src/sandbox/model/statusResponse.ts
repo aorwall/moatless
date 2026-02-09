@@ -5,15 +5,15 @@
  * Workspace orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
-import type { EnvironmentStatus } from './environmentStatus'
+import type { EnvironmentStatus } from './environmentStatus';
 
 /**
  * Status response
  */
 export interface StatusResponse {
   /** @nullable */
-  lastError?: string | null
+  lastError?: string | null;
   /** @nullable */
-  podName?: string | null
-  status: EnvironmentStatus
+  podName?: string | null;
+  status: EnvironmentStatus;
 }

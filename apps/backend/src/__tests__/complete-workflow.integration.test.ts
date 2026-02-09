@@ -211,7 +211,7 @@ describe.skipIf(!process.env['DATABASE_URL'])('Complete Workflow Integration Tes
     // Wait a bit for background workspace setup and initial message processing
     await new Promise((resolve) => setTimeout(resolve, 2000))
 
-    // Step 2a: Verify workspace status via sandbox controller
+    // Step 2a: Verify workspace status via Rust backend
     logger.info({ taskId: createdTaskId }, 'Verifying workspace status')
     const wsStatus = await workspaceCoordinator.getWorkspaceStatus(createdTaskId)
     expect(wsStatus).toBeTruthy()

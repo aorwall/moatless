@@ -9,4 +9,4 @@
 /**
  * Preview server configuration
  */
-export type RepoConfigPreviewConfig = { [key: string]: unknown }
+export type RepoConfigPreviewConfig = { [key: string]: unknown };

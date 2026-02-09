@@ -9,10 +9,11 @@
 /**
  * Matches TS AgentStateSchema: 'idle' | 'running' | 'none'
  */
-export type AgentState = (typeof AgentState)[keyof typeof AgentState]
+export type AgentState = typeof AgentState[keyof typeof AgentState];
+
 
 export const AgentState = {
   idle: 'idle',
   running: 'running',
   none: 'none',
-} as const
+} as const;

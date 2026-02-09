@@ -127,18 +127,18 @@ proxy:
     enabled: false
   # -- Traefik entryPoint name for IngressRoutes ("web" when ALB terminates TLS, "websecure" for direct TLS)
   traefikEntryPoint: "websecure"
-  # Sandbox controller service configuration (proxy + workspace orchestration)
-  sandboxController:
-    # -- Enable sandbox controller service (replaces Node.js proxy when enabled)
+  # Backend service configuration (proxy + workspace orchestration + auth + tasks + agent)
+  backend:
+    # -- Enable backend service
     enabled: false
-    # -- Number of replicas for sandbox controller service
+    # -- Number of replicas for backend service
     replicas: 2
-    # -- Sandbox controller service image
+    # -- Backend service image
     image:
-      repository: ghcr.io/aorwall/sandbox-controller
+      repository: ghcr.io/aorwall/moatless-vibe-backend
       tag: ""
       pullPolicy: Always
-    # -- Resource limits for sandbox controller service
+    # -- Resource limits for backend service
     resources:
       limits:
         cpu: 500m

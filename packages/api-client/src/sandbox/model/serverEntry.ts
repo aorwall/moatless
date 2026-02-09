@@ -5,22 +5,22 @@
  * Workspace orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
-import type { ServerCapabilities } from './serverCapabilities'
-import type { ServerStatus } from './serverStatus'
+import type { ServerCapabilities } from './serverCapabilities';
+import type { ServerStatus } from './serverStatus';
 
 /**
  * Single server entry in the workspace status response
  */
 export interface ServerEntry {
-  capabilities: ServerCapabilities
-  default: boolean
+  capabilities: ServerCapabilities;
+  default: boolean;
   /** @nullable */
-  error?: string | null
-  label: string
-  name: string
+  error?: string | null;
+  label: string;
+  name: string;
   /** @minimum 0 */
-  port: number
-  status: ServerStatus
+  port: number;
+  status: ServerStatus;
   /** @nullable */
-  url?: string | null
+  url?: string | null;
 }

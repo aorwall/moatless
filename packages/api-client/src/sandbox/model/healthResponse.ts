@@ -10,5 +10,5 @@
  * Health response
  */
 export interface HealthResponse {
-  healthy: boolean
+  healthy: boolean;
 }

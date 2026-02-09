@@ -10,13 +10,13 @@
  * POST /api/v1/auth/api-keys response (includes the full key, shown once).
  */
 export interface ApiKeyCreateResponse {
-  createdAt: string
+  createdAt: string;
   /** @nullable */
-  expiresAt?: string | null
-  id: string
-  key: string
-  keyPrefix: string
-  name: string
+  expiresAt?: string | null;
+  id: string;
+  key: string;
+  keyPrefix: string;
+  name: string;
   /** @nullable */
-  scopes?: string[] | null
+  scopes?: string[] | null;
 }

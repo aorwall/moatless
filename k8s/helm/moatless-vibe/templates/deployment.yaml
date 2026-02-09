@@ -132,9 +132,9 @@ spec:
               value: {{ .Values.proxy.traefikEntryPoint | quote }}
             {{- end }}
             {{- end }}
-            {{- if .Values.proxy.sandboxController.enabled }}
-            - name: SANDBOX_CONTROLLER_URL
-              value: "http://{{ include "moatless-vibe.fullname" . }}-sandbox-controller:8081"
+            {{- if .Values.proxy.backend.enabled }}
+            - name: BACKEND_URL
+              value: "http://{{ include "moatless-vibe.fullname" . }}-backend:8081"
             {{- end }}
             {{- if .Values.auth.adminUserIds }}
             # Admin users configuration

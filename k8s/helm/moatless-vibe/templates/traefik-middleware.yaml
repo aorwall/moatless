@@ -8,7 +8,7 @@ metadata:
     {{- include "moatless-vibe.labels" . | nindent 4 }}
 spec:
   forwardAuth:
-    address: http://{{ include "moatless-vibe.fullname" . }}-sandbox-controller.{{ .Release.Namespace }}.svc.cluster.local:8080/api/v1/auth/verify
+    address: http://{{ include "moatless-vibe.fullname" . }}-backend.{{ .Release.Namespace }}.svc.cluster.local:8080/api/v1/auth/verify
     authRequestHeaders:
       - Cookie
       - Authorization

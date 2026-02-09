@@ -10,5 +10,5 @@
  * Generic message response (logout, revoke, etc.).
  */
 export interface MessageResponse {
-  message: string
+  message: string;
 }

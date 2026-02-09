@@ -2,7 +2,7 @@
 
 ## Context
 
-We need a Rust SDK for the Claude Code CLI, following the same pattern as the official [Python SDK](https://github.com/anthropics/claude-agent-sdk-python) and [TypeScript SDK](https://platform.claude.com/docs/en/agent-sdk/typescript). Both official SDKs work by spawning the `claude` CLI as a subprocess with `--output-format stream-json` and communicating via a bidirectional NDJSON control protocol over stdin/stdout. This Rust crate will enable the sandbox-controller (and future Rust services) to execute Claude agents natively without the Node.js sandbox app.
+We need a Rust SDK for the Claude Code CLI, following the same pattern as the official [Python SDK](https://github.com/anthropics/claude-agent-sdk-python) and [TypeScript SDK](https://platform.claude.com/docs/en/agent-sdk/typescript). Both official SDKs work by spawning the `claude` CLI as a subprocess with `--output-format stream-json` and communicating via a bidirectional NDJSON control protocol over stdin/stdout. This Rust crate will enable the Rust backend (and future Rust services) to execute Claude agents natively without the Node.js sandbox app.
 
 The crate is designed as a standalone, publishable library with no moatless-specific code.
 
@@ -62,7 +62,7 @@ The SDK is **not** a wrapper around the Anthropic API. It wraps the Claude Code 
 crates/claude-agent-sdk/
 ```
 
-Added to workspace `Cargo.toml` members alongside `sandbox-controller` and `crates/figma-clipboard`.
+Added to workspace `Cargo.toml` members alongside `backend` and `crates/figma-clipboard`.
 
 ## Module Layout
 
