@@ -1,4 +1,4 @@
-import type { UploadFileResponse } from '@moatless/types'
+import type { UploadResponse } from '@moatless/api-client'
 import type { UseMutationResult } from '@tanstack/react-query'
 import type React from 'react'
 import { useCallback } from 'react'
@@ -7,7 +7,7 @@ import { useCallback } from 'react'
  * Hook for handling image paste events in textareas/inputs
  * Automatically uploads pasted images using the provided upload mutation
  */
-export function useImagePaste(uploadMutation: UseMutationResult<UploadFileResponse, Error, File>) {
+export function useImagePaste(uploadMutation: UseMutationResult<UploadResponse, Error, File>) {
   const handlePaste = useCallback(
     (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
       const items = e.clipboardData?.items

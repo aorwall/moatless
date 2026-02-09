@@ -47,7 +47,7 @@ pub use query::{query, query_streaming, QueryHandle};
 pub use types::agents::AgentDefinition;
 pub use types::content::{ApiMessage, ContentBlock};
 pub use types::hooks::{HookEvent, HookHandler};
-pub use types::mcp::McpServerConfig;
+pub use types::mcp::{McpConnectionStatus, McpServerConfig, McpServerStatus, McpSetServersResult};
 pub use types::messages::SdkMessage;
 pub use types::options::ClaudeOptions;
 pub use types::permissions::{PermissionHandler, PermissionMode, PermissionResult};

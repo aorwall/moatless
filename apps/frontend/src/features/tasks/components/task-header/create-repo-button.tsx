@@ -1,4 +1,4 @@
-import type { RemoteRepository, RepositoryConfig } from '@moatless/types'
+import type { RepositoryResponse } from '@moatless/api-client'
 import { ExternalLink, Github } from 'lucide-react'
 import { Button } from '@/lib/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/lib/components/ui/popover'
@@ -6,7 +6,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/lib/components/ui/pop
 interface CreateRepoButtonProps {
   repositoryId: string
   taskName: string
-  repository: RepositoryConfig | undefined
+  repository: RepositoryResponse | undefined
 }
 
 export function CreateRepoButton({ repository }: CreateRepoButtonProps) {
@@ -17,8 +17,7 @@ export function CreateRepoButton({ repository }: CreateRepoButtonProps) {
 
   // Show GitHub link for remote repositories
   if (repository.kind === 'remote') {
-    const remoteRepo = repository as RemoteRepository
-    const githubUrl = remoteRepo.remote.url
+    const githubUrl = repository.remoteUrl
 
     return (
       <Popover>
@@ -31,7 +30,7 @@ export function CreateRepoButton({ repository }: CreateRepoButtonProps) {
         <PopoverContent className="w-64 p-3" align="end">
           <div className="flex flex-col gap-2">
             <a
-              href={githubUrl}
+              href={githubUrl ?? ''}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-2 text-sm text-primary hover:underline"

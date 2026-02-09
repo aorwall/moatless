@@ -1,4 +1,8 @@
-import type { Command, CreateCommandRequest, UpdateCommandRequest } from '@moatless/types'
+import type {
+  CommandResponse,
+  CreateCommandRequest,
+  UpdateCommandRequest,
+} from '@moatless/api-client'
 import * as LucideIcons from 'lucide-react'
 import { Loader2, Plus, Trash2 } from 'lucide-react'
 import type React from 'react'
@@ -83,7 +87,7 @@ export function CommandConfigurationSection() {
     setFormData(initialFormData)
   }
 
-  const handleEditCommand = (command: Command) => {
+  const handleEditCommand = (command: CommandResponse) => {
     setEditingCommand(command.name)
     setFormData({
       name: command.name,
@@ -91,10 +95,10 @@ export function CommandConfigurationSection() {
       prompt: command.prompt,
       conditions: command.conditions || {},
       icon: command.icon || '',
-      variant: command.variant || 'outline',
+      variant: (command.variant as CommandFormData['variant']) || 'outline',
       active: command.active ?? true,
       willNotResume: command.willNotResume ?? false,
-      agentMode: command.agentMode || 'edit',
+      agentMode: (command.agentMode as CommandFormData['agentMode']) || 'edit',
     })
   }
 

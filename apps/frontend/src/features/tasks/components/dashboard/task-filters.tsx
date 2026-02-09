@@ -99,7 +99,7 @@ export function TaskFilters({
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="__all__">All tags</SelectItem>
-          {tagsData?.tags.map((t) => (
+          {tagsData?.map((t) => (
             <SelectItem key={t.tagId} value={t.name}>
               {t.name}
             </SelectItem>

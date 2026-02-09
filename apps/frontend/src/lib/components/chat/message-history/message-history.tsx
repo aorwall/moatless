@@ -1,11 +1,4 @@
-import type {
-  AssistantMessage,
-  AssistantMessageContent,
-  EnvironmentStatus,
-  Message,
-  SystemMessage,
-  UserMessage,
-} from '@moatless/types'
+import type { EnvironmentStatus, UiContentBlock, UiMessage } from '@moatless/api-client'
 import { ArrowDown, ChevronDown, Terminal } from 'lucide-react'
 import React, { useCallback, useEffect, useState } from 'react'
 import { StickToBottom, useStickToBottomContext } from 'use-stick-to-bottom'
@@ -21,7 +14,7 @@ import { ThinkingIndicator } from './thinking-indicator.tsx'
 import { UserMessageComponent } from './user-message.tsx'
 
 interface MessageHistoryProps {
-  messages?: Message[]
+  messages?: UiMessage[]
   isLoading?: boolean
   error?: Error | null
   className?: string
@@ -32,7 +25,7 @@ interface MessageHistoryProps {
 }
 
 interface ToolCallGroupProps {
-  messages: AssistantMessage[]
+  messages: UiMessage[]
   expandedToolCalls: Set<string>
   onToggleToolCall: (toolUseId: string) => void
 }
@@ -90,10 +83,10 @@ function findTodoLabel(todos: TodoItem[]): string | null {
 }
 
 // Helper to extract TodoWrite tool input from message content
-function extractTodoWriteInput(content: AssistantMessageContent[]): TodoItem[] | null {
+function extractTodoWriteInput(content: UiContentBlock[]): TodoItem[] | null {
   for (const item of content) {
-    if (item.type === 'tool_use' && item.tool_name === 'TodoWrite') {
-      const toolInput = item.tool_input as { todos?: TodoItem[] }
+    if (item.type === 'tool_use' && item.toolName === 'TodoWrite') {
+      const toolInput = item.toolInput as { todos?: TodoItem[] } | undefined
       return toolInput?.todos || null
     }
   }
@@ -101,16 +94,11 @@ function extractTodoWriteInput(content: AssistantMessageContent[]): TodoItem[] |
 }
 
 // Helper to extract label from TodoWrite tool calls
-function getTodoGroupLabel(messages: AssistantMessage[]): string | null {
+function getTodoGroupLabel(messages: UiMessage[]): string | null {
   // Find the last TodoWrite tool call in the group
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i]
-    if (typeof message.content === 'string') {
-      continue
-    }
-
-    const contentArray = message.content as AssistantMessageContent[]
-    const todos = extractTodoWriteInput(contentArray)
+    const todos = extractTodoWriteInput(message.content)
 
     if (todos) {
       return findTodoLabel(todos)
@@ -125,15 +113,13 @@ function ToolCallGroup({ messages, expandedToolCalls, onToggleToolCall }: ToolCa
 
   // Extract all tool calls from all messages
   const allToolCalls: {
-    message: AssistantMessage
-    content: AssistantMessageContent
+    message: UiMessage
+    content: UiContentBlock
   }[] = []
   for (const message of messages) {
-    if (typeof message.content !== 'string') {
-      for (const content of message.content as AssistantMessageContent[]) {
-        if (content.type === 'tool_use') {
-          allToolCalls.push({ message, content })
-        }
+    for (const content of message.content) {
+      if (content.type === 'tool_use') {
+        allToolCalls.push({ message, content })
       }
     }
   }
@@ -144,7 +130,7 @@ function ToolCallGroup({ messages, expandedToolCalls, onToggleToolCall }: ToolCa
   if (totalCalls === 1) {
     return (
       <AssistantMessageComponent
-        key={messages[0].id}
+        key={messages[0].uuid}
         message={messages[0]}
         expandedToolCalls={expandedToolCalls}
         onToggleToolCall={onToggleToolCall}
@@ -156,7 +142,7 @@ function ToolCallGroup({ messages, expandedToolCalls, onToggleToolCall }: ToolCa
   const todoLabel = getTodoGroupLabel(messages)
 
   // Extract unique tool names for display when no todo label
-  const uniqueToolNames = Array.from(new Set(allToolCalls.map((tc) => tc.content.tool_name))).join(
+  const uniqueToolNames = Array.from(new Set(allToolCalls.map((tc) => tc.content.toolName))).join(
     ', ',
   )
 
@@ -192,7 +178,7 @@ function ToolCallGroup({ messages, expandedToolCalls, onToggleToolCall }: ToolCa
         <div className="p-2 space-y-2 border-t border-border/50">
           {messages.map((message) => (
             <AssistantMessageComponent
-              key={message.id}
+              key={message.uuid}
               message={message}
               expandedToolCalls={expandedToolCalls}
               onToggleToolCall={onToggleToolCall}
@@ -281,7 +267,7 @@ function MessageHistoryComponent({
               {groupedMessages.map((item) => {
                 if (Array.isArray(item)) {
                   // This is a group of tool-only messages
-                  const groupKey = item.map((m) => m.id).join('-')
+                  const groupKey = item.map((m) => m.uuid).join('-')
                   return (
                     <ToolCallGroup
                       key={groupKey}
@@ -294,19 +280,19 @@ function MessageHistoryComponent({
                 if (item.role === 'user') {
                   return (
                     <UserMessageComponent
-                      key={item.id}
-                      message={item as UserMessage}
+                      key={item.uuid}
+                      message={item}
                       onPreviewUrlClick={onPreviewUrlClick}
                     />
                   )
                 }
                 if (item.role === 'system') {
-                  return <SystemMessageComponent key={item.id} message={item as SystemMessage} />
+                  return <SystemMessageComponent key={item.uuid} message={item} />
                 }
                 return (
                   <AssistantMessageComponent
-                    key={item.id}
-                    message={item as AssistantMessage}
+                    key={item.uuid}
+                    message={item}
                     expandedToolCalls={expandedToolCalls}
                     onToggleToolCall={toggleToolCallExpansion}
                   />

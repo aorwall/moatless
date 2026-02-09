@@ -212,10 +212,25 @@ pub(crate) fn build_cli_args(options: &ClaudeOptions) -> Vec<String> {
         args.push(model.clone());
     }
 
+    // Permission prompt tool — when a PermissionHandler is set, tell CLI to
+    // send permission requests via the control protocol (stdin/stdout)
+    if options.can_use_tool.is_some() {
+        args.push("--permission-prompt-tool".to_string());
+        args.push("stdio".to_string());
+    } else if let Some(tool_name) = &options.permission_prompt_tool_name {
+        args.push("--permission-prompt-tool".to_string());
+        args.push(tool_name.clone());
+    }
+
     // Permission mode
     if let Some(mode) = &options.permission_mode {
         args.push("--permission-mode".to_string());
         args.push(mode.to_string());
+    }
+
+    // Allow dangerously skip permissions
+    if options.allow_dangerously_skip_permissions == Some(true) {
+        args.push("--allow-dangerously-skip-permissions".to_string());
     }
 
     // Session
@@ -303,14 +318,20 @@ pub(crate) fn build_cli_args(options: &ClaudeOptions) -> Vec<String> {
         }
     }
 
-    // MCP servers
+    // MCP servers — CLI expects {"mcpServers": {...}} wrapper
     if let Some(servers) = &options.mcp_servers {
         if !servers.is_empty() {
-            if let Ok(json) = serde_json::to_string(servers) {
+            let wrapper = serde_json::json!({ "mcpServers": servers });
+            if let Ok(json) = serde_json::to_string(&wrapper) {
                 args.push("--mcp-config".to_string());
                 args.push(json);
             }
         }
+    }
+
+    // Strict MCP config
+    if options.strict_mcp_config == Some(true) {
+        args.push("--strict-mcp-config".to_string());
     }
 
     // Betas
@@ -343,6 +364,16 @@ pub(crate) fn build_cli_args(options: &ClaudeOptions) -> Vec<String> {
     if let Some(agent) = &options.agent {
         args.push("--agent".to_string());
         args.push(agent.clone());
+    }
+
+    // Agents (multi-agent definitions)
+    if let Some(agents) = &options.agents {
+        if !agents.is_empty() {
+            if let Ok(json) = serde_json::to_string(agents) {
+                args.push("--agents".to_string());
+                args.push(json);
+            }
+        }
     }
 
     // Extra args
@@ -559,5 +590,163 @@ mod tests {
 
         let idx = args.iter().position(|a| a == "--betas").unwrap();
         assert_eq!(args[idx + 1], "context-1m-2025-08-07");
+    }
+
+    #[test]
+    fn build_args_with_mcp_config() {
+        use crate::types::mcp::McpServerConfig;
+
+        let mut servers = HashMap::new();
+        servers.insert(
+            "my-server".to_string(),
+            McpServerConfig::Stdio {
+                command: "npx".to_string(),
+                args: Some(vec!["-y".to_string(), "my-mcp-server".to_string()]),
+                env: None,
+            },
+        );
+        let options = ClaudeOptions {
+            mcp_servers: Some(servers),
+            ..Default::default()
+        };
+        let args = build_cli_args(&options);
+
+        let idx = args.iter().position(|a| a == "--mcp-config").unwrap();
+        let json: serde_json::Value = serde_json::from_str(&args[idx + 1]).unwrap();
+        // Must be wrapped in {"mcpServers": {...}}
+        assert!(json.get("mcpServers").is_some());
+        assert!(json["mcpServers"]["my-server"].is_object());
+    }
+
+    #[test]
+    fn build_args_with_strict_mcp_config() {
+        let options = ClaudeOptions {
+            strict_mcp_config: Some(true),
+            ..Default::default()
+        };
+        let args = build_cli_args(&options);
+        assert!(args.contains(&"--strict-mcp-config".to_string()));
+    }
+
+    #[test]
+    fn build_args_with_permission_prompt_tool() {
+        let options = ClaudeOptions {
+            permission_prompt_tool_name: Some("mcp_auth_tool".to_string()),
+            ..Default::default()
+        };
+        let args = build_cli_args(&options);
+        let idx = args
+            .iter()
+            .position(|a| a == "--permission-prompt-tool")
+            .unwrap();
+        assert_eq!(args[idx + 1], "mcp_auth_tool");
+    }
+
+    #[test]
+    fn build_args_with_permission_handler_sets_stdio() {
+        use crate::types::permissions::{PermissionContext, PermissionHandler, PermissionResult};
+        use std::sync::Arc;
+
+        struct TestHandler;
+        #[async_trait::async_trait]
+        impl PermissionHandler for TestHandler {
+            async fn can_use_tool(
+                &self,
+                _tool_name: &str,
+                _input: &serde_json::Map<String, serde_json::Value>,
+                _context: PermissionContext,
+            ) -> PermissionResult {
+                PermissionResult::Allow {
+                    updated_input: None,
+                    updated_permissions: None,
+                }
+            }
+        }
+
+        let options = ClaudeOptions {
+            can_use_tool: Some(Arc::new(TestHandler)),
+            ..Default::default()
+        };
+        let args = build_cli_args(&options);
+        let idx = args
+            .iter()
+            .position(|a| a == "--permission-prompt-tool")
+            .unwrap();
+        assert_eq!(args[idx + 1], "stdio");
+    }
+
+    #[test]
+    fn build_args_permission_handler_takes_precedence_over_tool_name() {
+        use crate::types::permissions::{PermissionContext, PermissionHandler, PermissionResult};
+        use std::sync::Arc;
+
+        struct TestHandler;
+        #[async_trait::async_trait]
+        impl PermissionHandler for TestHandler {
+            async fn can_use_tool(
+                &self,
+                _tool_name: &str,
+                _input: &serde_json::Map<String, serde_json::Value>,
+                _context: PermissionContext,
+            ) -> PermissionResult {
+                PermissionResult::Allow {
+                    updated_input: None,
+                    updated_permissions: None,
+                }
+            }
+        }
+
+        let options = ClaudeOptions {
+            can_use_tool: Some(Arc::new(TestHandler)),
+            permission_prompt_tool_name: Some("should_be_ignored".to_string()),
+            ..Default::default()
+        };
+        let args = build_cli_args(&options);
+        let idx = args
+            .iter()
+            .position(|a| a == "--permission-prompt-tool")
+            .unwrap();
+        // When both are set, handler wins and we get "stdio"
+        assert_eq!(args[idx + 1], "stdio");
+    }
+
+    #[test]
+    fn build_args_with_allow_dangerously_skip_permissions() {
+        let options = ClaudeOptions {
+            allow_dangerously_skip_permissions: Some(true),
+            ..Default::default()
+        };
+        let args = build_cli_args(&options);
+        assert!(args.contains(
+            &"--allow-dangerously-skip-permissions".to_string()
+        ));
+    }
+
+    #[test]
+    fn build_args_with_agents() {
+        use crate::types::agents::AgentDefinition;
+
+        let mut agents = HashMap::new();
+        agents.insert(
+            "reviewer".to_string(),
+            AgentDefinition {
+                description: "Reviews code".to_string(),
+                prompt: "You are a code reviewer".to_string(),
+                tools: None,
+                disallowed_tools: None,
+                model: None,
+                mcp_servers: None,
+                skills: None,
+                max_turns: None,
+            },
+        );
+        let options = ClaudeOptions {
+            agents: Some(agents),
+            ..Default::default()
+        };
+        let args = build_cli_args(&options);
+        let idx = args.iter().position(|a| a == "--agents").unwrap();
+        let json: serde_json::Value = serde_json::from_str(&args[idx + 1]).unwrap();
+        assert!(json["reviewer"].is_object());
     }
 }

@@ -41,7 +41,7 @@ export function TaskLeftHeader() {
     description,
     templateId,
     visibility,
-    createdByName,
+    createdByDisplayName,
     createdBy,
   } = task
 
@@ -85,14 +85,14 @@ export function TaskLeftHeader() {
           )}
           <span className="text-muted-foreground hidden sm:inline">•</span>
           <TaskStatusIcon task={{ status, totalCostUsd: task.totalCostUsd }} showText={false} />
-          {(createdByName || createdBy) && (
+          {(createdByDisplayName || createdBy) && (
             <>
               <span className="text-muted-foreground hidden sm:inline">•</span>
               <span
                 className="text-muted-foreground text-xs hidden sm:inline"
-                title={createdByName || createdBy}
+                title={(createdByDisplayName || createdBy) ?? undefined}
               >
-                by {createdByName || createdBy}
+                by {createdByDisplayName || createdBy}
               </span>
             </>
           )}

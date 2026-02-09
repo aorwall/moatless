@@ -1,4 +1,4 @@
-import type { ServerCapabilities, ServerEntry } from '@moatless/types'
+import type { ServerCapabilities, ServerEntry } from '@moatless/api-client'
 import { ExternalLink, MousePointer, RotateCcw } from 'lucide-react'
 import { type KeyboardEvent, useCallback, useState } from 'react'
 import { toast } from 'sonner'
@@ -59,7 +59,7 @@ export function PreviewHeader({
   const siteUrl = task?.siteUrl
 
   // Show publish button if vibe or has buildCommand
-  const hasBuildCommand = Boolean(repository?.previewConfig?.buildCommand)
+  const hasBuildCommand = Boolean(repository?.buildCommand)
   const canPublish = vibe || hasBuildCommand
 
   const [pathInput, setPathInput] = useState(path)
@@ -253,7 +253,7 @@ export function PreviewHeader({
         isNetlifyPublishEnabled ? (
           <PublishButton
             canPublish={canPublish && isSandboxRunning}
-            siteUrl={siteUrl}
+            siteUrl={siteUrl ?? undefined}
             onPublish={handlePublish}
             isPending={deployTask.isPending}
           />

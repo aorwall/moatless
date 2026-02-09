@@ -1,4 +1,4 @@
-import type { RepositoryResponse } from '@moatless/types'
+import type { RepositoryResponse } from '@moatless/api-client'
 import { FileCode, Github, Plus } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import {

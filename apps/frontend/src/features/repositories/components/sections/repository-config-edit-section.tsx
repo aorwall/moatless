@@ -1,4 +1,4 @@
-import type { UpdateRepositoryRequest } from '@moatless/types'
+import type { UpdateRepositoryRequest } from '@moatless/api-client'
 import { ArrowRight, FileCode, Loader2, Save, Trash2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
@@ -68,18 +68,19 @@ export function RepositoryConfigEditSection({
       description: repository.description || '',
       systemPrompt: repository.systemPrompt || '',
       visibility: repository.visibility || 'private',
-      codeExecution: repository.codeExecution || {},
-      previewConfig: {
-        enableInspector: true,
-        ...repository.previewConfig,
-      },
+      dockerImage: repository.dockerImage,
+      setupCommands: repository.setupCommands,
+      envVars: repository.envVars,
+      buildCommand: repository.buildCommand,
+      buildOutputDirectory: repository.buildOutputDirectory,
+      autoReload: repository.autoReload,
+      enableInspector: repository.enableInspector ?? true,
+      serverStartCommands: repository.serverStartCommands,
+      startupTimeoutSeconds: repository.startupTimeoutSeconds,
       servers: repository.servers,
-      plugins: repository.plugins || [],
+      plugins: repository.plugins,
+      remoteUrl: repository.remoteUrl || '',
     }
-
-    // Add remote URL and provider (both remote and template repositories use remote.url)
-    base.remoteUrl = repository.remote.url || ''
-    base.provider = repository.remote.provider
 
     return base
   }, [repository])
@@ -122,7 +123,7 @@ export function RepositoryConfigEditSection({
     }
 
     updateRepository.mutate(
-      { repoId: repositoryId, request: payload },
+      { repoId: repositoryId, request: payload as UpdateRepositoryRequest },
       {
         onSuccess: () => {
           setUserModifications({})
@@ -189,11 +190,12 @@ export function RepositoryConfigEditSection({
     <ConfigurationSection>
       <GeneralSettingsGroup
         repositoryKind={repository.kind}
+        provider={repository.provider}
         formData={formData}
         onUpdateField={updateField}
       />
 
-      <ChannelsGroup channels={repository.channels} repositoryId={repositoryId} />
+      <ChannelsGroup channels={undefined} repositoryId={repositoryId} />
 
       <CodeExecutionGroup formData={formData} onUpdateField={updateField} />
 

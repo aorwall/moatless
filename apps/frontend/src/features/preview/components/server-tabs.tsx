@@ -1,4 +1,4 @@
-import type { ServerEntry } from '@moatless/types'
+import type { ServerEntry } from '@moatless/api-client'
 import { cn } from '@/lib/utils'
 
 interface ServerTabsProps {

@@ -1,4 +1,4 @@
-import type { UpdateRepositoryRequest } from '@moatless/types'
+import type { UpdateRepositoryRequest } from '@moatless/api-client'
 import {
   ConfigurationGroup,
   ConfigurationInput,
@@ -18,6 +18,14 @@ interface CodeExecutionGroupProps {
 export function CodeExecutionGroup({ formData, onUpdateField }: CodeExecutionGroupProps) {
   const updateField = onUpdateField
 
+  // envVars from the API is typed as { [key: string]: unknown } | null,
+  // but we treat it as Record<string, string> for the UI
+  const envVars = (formData.envVars ?? {}) as Record<string, string>
+
+  // setupCommands from the API is typed as { [key: string]: unknown } | null,
+  // but we treat it as string[] for the UI
+  const setupCommands = (formData.setupCommands ?? []) as unknown as string[]
+
   return (
     <ConfigurationGroup title="Code Execution" showSeparator>
       <ConfigurationItem
@@ -25,25 +33,20 @@ export function CodeExecutionGroup({ formData, onUpdateField }: CodeExecutionGro
         description="Custom Docker image for the workspace container"
       >
         <ConfigurationInput
-          value={formData.codeExecution?.dockerImage || ''}
-          onChange={(e) =>
-            updateField('codeExecution', {
-              ...formData.codeExecution,
-              dockerImage: e.target.value,
-            })
-          }
+          value={formData.dockerImage || ''}
+          onChange={(e) => updateField('dockerImage', e.target.value || null)}
           placeholder="ghcr.io/org/image:latest"
         />
       </ConfigurationItem>
 
       <ConfigurationItem label="Setup Commands" description="Commands to run before executing code">
         <ConfigurationTextarea
-          value={formData.codeExecution?.setupCommands?.join('\n') || ''}
+          value={setupCommands.join('\n')}
           onChange={(e) =>
-            updateField('codeExecution', {
-              ...formData.codeExecution,
-              setupCommands: e.target.value.split('\n'),
-            })
+            updateField(
+              'setupCommands',
+              e.target.value.split('\n') as unknown as UpdateRepositoryRequest['setupCommands'],
+            )
           }
           placeholder="npm install&#10;npm run build"
           rows={4}
@@ -55,12 +58,9 @@ export function CodeExecutionGroup({ formData, onUpdateField }: CodeExecutionGro
         description="Variables available during code execution"
       >
         <EnvironmentVariablesList
-          variables={formData.codeExecution?.envVars || {}}
+          variables={envVars}
           onChange={(vars) =>
-            updateField('codeExecution', {
-              ...formData.codeExecution,
-              envVars: vars,
-            })
+            updateField('envVars', vars as unknown as UpdateRepositoryRequest['envVars'])
           }
         />
       </ConfigurationItem>

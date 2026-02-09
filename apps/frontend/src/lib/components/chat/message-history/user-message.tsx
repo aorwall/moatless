@@ -1,4 +1,5 @@
-import type { UserMessage } from '@moatless/types'
+import type { UiMessage } from '@moatless/api-client'
+import type { MessageContext } from '@moatless/types'
 import { ChevronDown, ChevronRight, Eye, FileText } from 'lucide-react'
 import { useState } from 'react'
 import { Message, MessageContent } from '@/lib/components/ai-elements/message'
@@ -8,14 +9,31 @@ import { FileAttachments } from '@/lib/components/chat/chat-input/file-attachmen
 import { cn } from '@/lib/utils'
 
 interface UserMessageProps {
-  message: UserMessage
+  message: UiMessage
   onPreviewUrlClick?: (path: string) => void
+}
+
+// Extract text content from UiMessage content blocks
+function getTextContent(message: UiMessage): string {
+  return message.content
+    .filter((c) => c.type === 'text')
+    .map((c) => c.text ?? '')
+    .join('\n')
 }
 
 export function UserMessageComponent({ message, onPreviewUrlClick }: UserMessageProps) {
   const [isExpanded, setIsExpanded] = useState(false)
-  const isHidden = message.isVisibleInTranscriptOnly
-  const isSummary = message.isCompactSummary
+  const isHidden = message.messageType === 'transcript_only'
+  const isSummary = message.messageType === 'compact_summary'
+  const textContent = getTextContent(message)
+
+  // Extract contexts and attachments from message metadata if available
+  const contexts = (message as UiMessage & { contexts?: unknown[] }).contexts as
+    | MessageContext[]
+    | undefined
+  const attachments = (message as UiMessage & { attachments?: unknown[] }).attachments as
+    | Array<{ fileId: string; filename: string; mimeType: string }>
+    | undefined
 
   // For hidden messages, show collapsed view by default
   if (isHidden) {
@@ -50,24 +68,24 @@ export function UserMessageComponent({ message, onPreviewUrlClick }: UserMessage
             </>
           )}
           <span className="text-muted-foreground/70 truncate">
-            {message.content.slice(0, 50)}
-            {message.content.length > 50 ? '...' : ''}
+            {textContent.slice(0, 50)}
+            {textContent.length > 50 ? '...' : ''}
           </span>
         </button>
 
         {isExpanded && (
           <div className="p-3 border-t border-dashed border-muted-foreground/20">
             <div className="text-sm opacity-80">
-              <Response>{message.content}</Response>
+              <Response>{textContent}</Response>
             </div>
-            {message.contexts && message.contexts.length > 0 && (
+            {contexts && contexts.length > 0 && (
               <div className="mt-2">
-                <ContextItems contexts={message.contexts} onPreviewUrlClick={onPreviewUrlClick} />
+                <ContextItems contexts={contexts} onPreviewUrlClick={onPreviewUrlClick} />
               </div>
             )}
-            {message.attachments && message.attachments.length > 0 && (
+            {attachments && attachments.length > 0 && (
               <div className="mt-2">
-                <FileAttachments files={message.attachments} />
+                <FileAttachments files={attachments} />
               </div>
             )}
           </div>
@@ -80,13 +98,11 @@ export function UserMessageComponent({ message, onPreviewUrlClick }: UserMessage
   return (
     <Message from="user">
       <MessageContent variant="flat">
-        <div className="max-w-none break-words">{message.content}</div>
-        {message.contexts && message.contexts.length > 0 && (
-          <ContextItems contexts={message.contexts} onPreviewUrlClick={onPreviewUrlClick} />
+        <div className="max-w-none break-words">{textContent}</div>
+        {contexts && contexts.length > 0 && (
+          <ContextItems contexts={contexts} onPreviewUrlClick={onPreviewUrlClick} />
         )}
-        {message.attachments && message.attachments.length > 0 && (
-          <FileAttachments files={message.attachments} />
-        )}
+        {attachments && attachments.length > 0 && <FileAttachments files={attachments} />}
       </MessageContent>
     </Message>
   )

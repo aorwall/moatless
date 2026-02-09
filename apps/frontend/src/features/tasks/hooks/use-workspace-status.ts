@@ -1,16 +1,16 @@
+import type { TaskResponse, WorkspaceStatusFullResponse } from '@moatless/api-client'
 import {
   restartHandler,
   startHandler,
   stopHandler,
 } from '@moatless/api-client/sandbox/sandbox/sandbox'
-import type { Task, WorkspaceStatusResponse } from '@moatless/types'
 import type { UseQueryOptions } from '@tanstack/react-query'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/api/query-keys'
 import { useTaskWorkspaceStatusQuery } from './use-task-queries'
 
 interface UseWorkspaceStatusOptions
-  extends Omit<UseQueryOptions<WorkspaceStatusResponse>, 'queryKey' | 'queryFn'> {
+  extends Omit<UseQueryOptions<WorkspaceStatusFullResponse>, 'queryKey' | 'queryFn'> {
   enabled?: boolean
 }
 
@@ -23,7 +23,7 @@ interface UseWorkspaceStatusOptions
  */
 export function useWorkspaceStatus(
   taskId: string,
-  task?: Task,
+  task?: TaskResponse,
   options?: UseWorkspaceStatusOptions,
 ) {
   const isEnabled = options?.enabled ?? true

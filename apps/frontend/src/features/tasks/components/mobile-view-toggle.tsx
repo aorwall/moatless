@@ -1,4 +1,4 @@
-import type { ServerEntry } from '@moatless/types'
+import type { ServerEntry } from '@moatless/api-client'
 import { FileText, MessageSquare, Monitor, Server } from 'lucide-react'
 import { cn } from '@/lib/utils'
 

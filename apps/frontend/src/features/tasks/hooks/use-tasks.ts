@@ -1,3 +1,12 @@
+import type {
+  CommandResponse,
+  CreateTaskResponse,
+  ListTasksResponse,
+  SendMessageResponse,
+  TaskResponse,
+  UiMessage,
+  WorkspaceStatusFullResponse,
+} from '@moatless/api-client'
 import { unwrapResponse } from '@moatless/api-client/custom-instance'
 import { workspaceStatusHandler } from '@moatless/api-client/sandbox/sandbox/sandbox'
 import type {
@@ -6,14 +15,7 @@ import type {
   CreateVibeTaskRequest,
   DeployResponse,
   ExitPlanModeResponse,
-  Message,
   MessageContext,
-  SendMessageResponse,
-  SimpleTaskResponse,
-  Task,
-  TaskCommandsResponse,
-  TaskListResponse,
-  WorkspaceStatusResponse,
 } from '@moatless/types'
 import type { UseMutationOptions, UseQueryOptions } from '@tanstack/react-query'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -43,7 +45,7 @@ export function useTasksList(
     createdBy?: string
     repositoryId?: string
   },
-  options?: Omit<UseQueryOptions<TaskListResponse>, 'queryKey' | 'queryFn'>,
+  options?: Omit<UseQueryOptions<ListTasksResponse>, 'queryKey' | 'queryFn'>,
 ) {
   return useQuery({
     queryKey: queryKeys.tasks.list(params),
@@ -54,7 +56,7 @@ export function useTasksList(
 
 export function useTask(
   taskId: string,
-  options?: Omit<UseQueryOptions<Task>, 'queryKey' | 'queryFn'>,
+  options?: Omit<UseQueryOptions<TaskResponse>, 'queryKey' | 'queryFn'>,
 ) {
   return useQuery({
     queryKey: queryKeys.tasks.detail(taskId),
@@ -66,16 +68,16 @@ export function useTask(
 
 // Mutation hooks
 export function useCreateTask(
-  options?: UseMutationOptions<SimpleTaskResponse, Error, CreateTaskRequest>,
-): ReturnType<typeof useMutation<SimpleTaskResponse, Error, CreateTaskRequest>> {
+  options?: UseMutationOptions<CreateTaskResponse, Error, CreateTaskRequest>,
+): ReturnType<typeof useMutation<CreateTaskResponse, Error, CreateTaskRequest>> {
   const queryClient = useQueryClient()
 
-  return useMutation<SimpleTaskResponse, Error, CreateTaskRequest>({
+  return useMutation<CreateTaskResponse, Error, CreateTaskRequest>({
     ...options,
     mutationFn: (request: CreateTaskRequest) => tasksApi.createTask(request),
     onSuccess: async (data, variables, onMutateResult, mutationContext) => {
       // Add the real task data to cache and lists
-      const response = data as SimpleTaskResponse
+      const response = data
       if (response.task) {
         // Set task detail cache
         queryClient.setQueryData(queryKeys.tasks.detail(response.taskId), response.task)
@@ -85,20 +87,21 @@ export function useCreateTask(
 
         // Add initial message to messages cache if message was provided
         if (variables.message && response.taskId) {
-          const initialMessage: Message = {
-            id: `initial-${response.taskId}`,
+          const initialMessage: UiMessage = {
+            uuid: `initial-${response.taskId}`,
             role: 'user',
-            content: variables.message,
-            timestamp: new Date(),
+            content: [{ type: 'text', text: variables.message }],
+            timestamp: new Date().toISOString(),
+            messageType: 'user',
           }
 
-          queryClient.setQueryData<Message[]>(queryKeys.tasks.messages(response.taskId), [
+          queryClient.setQueryData<UiMessage[]>(queryKeys.tasks.messages(response.taskId), [
             initialMessage,
           ])
         }
 
         // Seed workspace status cache with initializing state for instant feedback
-        queryClient.setQueryData<WorkspaceStatusResponse>(
+        queryClient.setQueryData<WorkspaceStatusFullResponse>(
           queryKeys.tasks.workspaceStatus(response.taskId),
           {
             workspaceState: 'missing',
@@ -115,7 +118,7 @@ export function useCreateTask(
         queryClient.prefetchQuery({
           queryKey: queryKeys.tasks.workspaceStatus(response.taskId),
           queryFn: () =>
-            unwrapResponse<WorkspaceStatusResponse>(workspaceStatusHandler(response.taskId)),
+            unwrapResponse<WorkspaceStatusFullResponse>(workspaceStatusHandler(response.taskId)),
           staleTime: 0,
         })
       } else {
@@ -152,7 +155,7 @@ export function useSendMessage(
     SendMessageResponse,
     Error,
     SendMessageVariables,
-    { previousMessages: Message[]; previousTask: Task | undefined }
+    { previousMessages: UiMessage[]; previousTask: TaskResponse | undefined }
   >,
 ) {
   const queryClient = useQueryClient()
@@ -161,7 +164,7 @@ export function useSendMessage(
     SendMessageResponse,
     Error,
     SendMessageVariables,
-    { previousMessages: Message[]; previousTask: Task | undefined }
+    { previousMessages: UiMessage[]; previousTask: TaskResponse | undefined }
   >({
     ...options,
     mutationKey: ['tasks', taskId, 'sendMessage'],
@@ -177,31 +180,32 @@ export function useSendMessage(
 
       // Get current messages
       const previousMessages =
-        queryClient.getQueryData<Message[]>(queryKeys.tasks.messages(taskId)) || []
+        queryClient.getQueryData<UiMessage[]>(queryKeys.tasks.messages(taskId)) || []
 
       // Get current task state for rollback
-      const previousTask = queryClient.getQueryData<Task>(queryKeys.tasks.detail(taskId))
+      const previousTask = queryClient.getQueryData<TaskResponse>(queryKeys.tasks.detail(taskId))
 
       // Create optimistic message — mark as queued when the agent is already running,
       // since the backend will save it with agentSessionId = NULL
       const isQueued = previousTask?.status === 'running'
-      const optimisticMessage: Message = {
-        id: `temp-message-${Date.now()}`,
+      const optimisticMessage: UiMessage = {
+        uuid: `temp-message-${Date.now()}`,
         role: 'user',
-        content: variables.message,
-        timestamp: new Date(),
+        content: [{ type: 'text', text: variables.message }],
+        timestamp: new Date().toISOString(),
+        messageType: 'user',
         ...(isQueued ? { isQueued: true } : {}),
       }
 
       // Update cache with new message
-      queryClient.setQueryData<Message[]>(queryKeys.tasks.messages(taskId), [
+      queryClient.setQueryData<UiMessage[]>(queryKeys.tasks.messages(taskId), [
         ...previousMessages,
         optimisticMessage,
       ])
 
       // Optimistically set task to 'running' for immediate "Thinking" indicator
       if (previousTask) {
-        queryClient.setQueryData<Task>(queryKeys.tasks.detail(taskId), {
+        queryClient.setQueryData<TaskResponse>(queryKeys.tasks.detail(taskId), {
           ...previousTask,
           status: 'running',
         })
@@ -256,12 +260,12 @@ export function useDeleteMessage(
     { status: 'deleted' },
     Error,
     string,
-    { previousMessages: Message[] }
+    { previousMessages: UiMessage[] }
   >,
 ) {
   const queryClient = useQueryClient()
 
-  return useMutation<{ status: 'deleted' }, Error, string, { previousMessages: Message[] }>({
+  return useMutation<{ status: 'deleted' }, Error, string, { previousMessages: UiMessage[] }>({
     ...options,
     mutationKey: ['tasks', taskId, 'deleteMessage'],
     mutationFn: (messageId: string) => tasksApi.deleteMessage(taskId, messageId),
@@ -271,12 +275,12 @@ export function useDeleteMessage(
       })
 
       const previousMessages =
-        queryClient.getQueryData<Message[]>(queryKeys.tasks.messages(taskId)) || []
+        queryClient.getQueryData<UiMessage[]>(queryKeys.tasks.messages(taskId)) || []
 
       // Optimistically remove the message from cache
-      queryClient.setQueryData<Message[]>(
+      queryClient.setQueryData<UiMessage[]>(
         queryKeys.tasks.messages(taskId),
-        previousMessages.filter((m) => m.id !== messageId),
+        previousMessages.filter((m) => m.uuid !== messageId),
       )
 
       return { previousMessages }
@@ -293,7 +297,7 @@ export function useDeleteMessage(
 
 export function useTaskMessages(
   taskId: string,
-  options?: Omit<UseQueryOptions<Message[]>, 'queryKey' | 'queryFn'>,
+  options?: Omit<UseQueryOptions<UiMessage[]>, 'queryKey' | 'queryFn'>,
 ) {
   return useQuery({
     queryKey: queryKeys.tasks.messages(taskId),
@@ -305,7 +309,7 @@ export function useTaskMessages(
 
 export function useTaskCommands(
   taskId: string,
-  options?: Omit<UseQueryOptions<TaskCommandsResponse>, 'queryKey' | 'queryFn'>,
+  options?: Omit<UseQueryOptions<CommandResponse[]>, 'queryKey' | 'queryFn'>,
 ) {
   return useQuery({
     queryKey: queryKeys.tasks.commands(taskId),
@@ -315,22 +319,22 @@ export function useTaskCommands(
   })
 }
 
-export function useCloseTask(taskId: string, options?: UseMutationOptions<Task, Error>) {
+export function useCloseTask(taskId: string, options?: UseMutationOptions<TaskResponse, Error>) {
   const queryClient = useQueryClient()
 
-  return useMutation<Task, Error, void>({
+  return useMutation<TaskResponse, Error, void>({
     ...options,
     mutationKey: ['tasks', taskId, 'close'],
     mutationFn: () => tasksApi.closeTask(taskId),
     onMutate: () => {
       // Snapshot the previous task data
-      const previousTask = queryClient.getQueryData<Task>(queryKeys.tasks.detail(taskId))
+      const previousTask = queryClient.getQueryData<TaskResponse>(queryKeys.tasks.detail(taskId))
 
       // Optimistically remove the task from all cached lists
       if (previousTask) {
         // Update task status to 'closed' in detail cache
         const updatedTask = { ...previousTask, status: 'closed' as const }
-        queryClient.setQueryData<Task>(queryKeys.tasks.detail(taskId), updatedTask)
+        queryClient.setQueryData<TaskResponse>(queryKeys.tasks.detail(taskId), updatedTask)
 
         // Remove the task from all cached lists for immediate UI feedback
         updateTaskInLists(queryClient, taskId, null)
@@ -460,19 +464,22 @@ export function useCreateVibeTask(
     onSuccess: async (data, variables, onMutateResult, mutationContext) => {
       // Add initial message to messages cache if message was provided
       if (variables.message && data.taskId) {
-        const initialMessage: Message = {
-          id: `initial-${data.taskId}`,
+        const initialMessage: UiMessage = {
+          uuid: `initial-${data.taskId}`,
           role: 'user',
-          content: variables.message,
-          timestamp: new Date(),
+          content: [{ type: 'text', text: variables.message }],
+          timestamp: new Date().toISOString(),
+          messageType: 'user',
         }
 
-        queryClient.setQueryData<Message[]>(queryKeys.tasks.messages(data.taskId), [initialMessage])
+        queryClient.setQueryData<UiMessage[]>(queryKeys.tasks.messages(data.taskId), [
+          initialMessage,
+        ])
       }
 
       // Seed workspace status cache with initializing state for instant feedback
       if (data.taskId) {
-        queryClient.setQueryData<WorkspaceStatusResponse>(
+        queryClient.setQueryData<WorkspaceStatusFullResponse>(
           queryKeys.tasks.workspaceStatus(data.taskId),
           {
             workspaceState: 'missing',
@@ -489,7 +496,7 @@ export function useCreateVibeTask(
         queryClient.prefetchQuery({
           queryKey: queryKeys.tasks.workspaceStatus(data.taskId),
           queryFn: () =>
-            unwrapResponse<WorkspaceStatusResponse>(workspaceStatusHandler(data.taskId)),
+            unwrapResponse<WorkspaceStatusFullResponse>(workspaceStatusHandler(data.taskId)),
           staleTime: 0,
         })
       }

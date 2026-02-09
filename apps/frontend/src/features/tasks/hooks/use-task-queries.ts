@@ -1,12 +1,12 @@
+import type { TaskResponse, WorkspaceStatusFullResponse } from '@moatless/api-client'
 import { unwrapResponse } from '@moatless/api-client/custom-instance'
 import { workspaceStatusHandler } from '@moatless/api-client/sandbox/sandbox/sandbox'
-import type { Task, WorkspaceStatusResponse } from '@moatless/types'
 import { type UseQueryOptions, useQuery } from '@tanstack/react-query'
 import { tasksApi } from '@/features/tasks/api/tasks'
 import { queryKeys } from '@/lib/api/query-keys'
 
 type TaskDetailQueryOptions = Omit<
-  UseQueryOptions<Task, Error, Task, ReturnType<typeof queryKeys.tasks.detail>>,
+  UseQueryOptions<TaskResponse, Error, TaskResponse, ReturnType<typeof queryKeys.tasks.detail>>,
   'queryKey' | 'queryFn'
 >
 
@@ -27,9 +27,9 @@ export function useTaskDetailQuery(taskId: string, options?: TaskDetailQueryOpti
 
 type TaskWorkspaceStatusQueryOptions = Omit<
   UseQueryOptions<
-    WorkspaceStatusResponse,
+    WorkspaceStatusFullResponse,
     Error,
-    WorkspaceStatusResponse,
+    WorkspaceStatusFullResponse,
     ReturnType<typeof queryKeys.tasks.workspaceStatus>
   >,
   'queryKey' | 'queryFn'
@@ -51,7 +51,7 @@ export function useTaskWorkspaceStatusQuery(
 
   return useQuery({
     queryKey: queryKeys.tasks.workspaceStatus(taskId),
-    queryFn: () => unwrapResponse<WorkspaceStatusResponse>(workspaceStatusHandler(taskId)),
+    queryFn: () => unwrapResponse<WorkspaceStatusFullResponse>(workspaceStatusHandler(taskId)),
     enabled: enabled && !!taskId,
     staleTime,
     refetchInterval,

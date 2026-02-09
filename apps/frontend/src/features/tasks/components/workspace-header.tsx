@@ -1,4 +1,4 @@
-import type { ServerEntry } from '@moatless/types'
+import type { ServerEntry } from '@moatless/api-client'
 import type { ReactNode } from 'react'
 import { ServerTabs } from '@/features/preview/components/server-tabs'
 import { useIsMobile } from '@/lib/hooks/use-mobile'

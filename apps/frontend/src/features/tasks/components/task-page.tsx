@@ -205,14 +205,14 @@ function TaskPageComponent() {
         <Preview
           taskId={taskId}
           environmentStatus={workspaceStatus?.environmentStatus}
-          environmentError={workspaceStatus?.environmentError}
+          environmentError={workspaceStatus?.environmentError ?? undefined}
           startupEvents={startupEvents}
           onToggleElementContext={handleToggleElementContext}
           onNavigationReady={handleNavigationReady}
           onTroubleshootRequest={handleTroubleshootRequest}
           servers={servers}
           activeServer={activeServerName}
-          resources={workspaceStatus?.resources}
+          resources={workspaceStatus?.resources ?? undefined}
         />
       </ErrorBoundary>
     )

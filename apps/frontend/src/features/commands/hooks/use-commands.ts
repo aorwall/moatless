@@ -1,4 +1,8 @@
-import type { Command, CreateCommandRequest, UpdateCommandRequest } from '@moatless/types'
+import type {
+  CommandResponse,
+  CreateCommandRequest,
+  UpdateCommandRequest,
+} from '@moatless/api-client'
 import type { UseMutationOptions, UseQueryOptions } from '@tanstack/react-query'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { commandsApi } from '@/features/commands/api/commands'
@@ -6,7 +10,7 @@ import { queryKeys } from '@/lib/api/query-keys'
 
 // Query hooks
 export function useCommandsList(
-  options?: Omit<UseQueryOptions<Command[]>, 'queryKey' | 'queryFn'>,
+  options?: Omit<UseQueryOptions<CommandResponse[]>, 'queryKey' | 'queryFn'>,
 ) {
   return useQuery({
     queryKey: queryKeys.commandsList(),
@@ -17,7 +21,7 @@ export function useCommandsList(
 
 export function useCommand(
   commandName: string,
-  options?: Omit<UseQueryOptions<Command>, 'queryKey' | 'queryFn'>,
+  options?: Omit<UseQueryOptions<CommandResponse>, 'queryKey' | 'queryFn'>,
 ) {
   return useQuery({
     queryKey: queryKeys.commandDetail(commandName),
@@ -29,7 +33,7 @@ export function useCommand(
 
 // Mutation hooks
 export function useCreateCommand(
-  options?: UseMutationOptions<Command, Error, CreateCommandRequest>,
+  options?: UseMutationOptions<CommandResponse, Error, CreateCommandRequest>,
 ) {
   const queryClient = useQueryClient()
 
@@ -46,7 +50,7 @@ export function useCreateCommand(
 
 export function useUpdateCommand(
   options?: UseMutationOptions<
-    Command,
+    CommandResponse,
     Error,
     { commandName: string; request: UpdateCommandRequest }
   >,

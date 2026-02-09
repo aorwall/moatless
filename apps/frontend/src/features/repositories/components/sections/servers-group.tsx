@@ -1,4 +1,5 @@
-import type { ServerConfig, UpdateRepositoryRequest } from '@moatless/types'
+import type { UpdateRepositoryRequest } from '@moatless/api-client'
+import type { ServerConfig } from '@moatless/types'
 import { ChevronDown, Plus, Server, Star, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import {
@@ -241,10 +242,12 @@ function AddServerForm({
 
 export function ServersGroup({ formData, onUpdateField }: ServersGroupProps) {
   const [showAddForm, setShowAddForm] = useState(false)
-  const servers = formData.servers ?? []
+  // servers from the API is typed as { [key: string]: unknown } | null,
+  // but we treat it as ServerConfig[] for the UI
+  const servers = (formData.servers ?? []) as unknown as ServerConfig[]
 
   const updateServers = (newServers: ServerConfig[]) => {
-    onUpdateField('servers', newServers)
+    onUpdateField('servers', newServers as unknown as UpdateRepositoryRequest['servers'])
   }
 
   const handleUpdateServer = (index: number, updated: ServerConfig) => {

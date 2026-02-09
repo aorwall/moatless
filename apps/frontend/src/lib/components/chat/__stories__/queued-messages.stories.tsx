@@ -1,4 +1,4 @@
-import type { UserMessage } from '@moatless/types'
+import type { UiMessage } from '@moatless/api-client'
 import type { Meta, StoryObj } from '@storybook/react-vite'
 import { fn } from 'storybook/test'
 import { QueuedMessages } from '../queued-messages'
@@ -21,11 +21,11 @@ const meta = {
 export default meta
 type Story = StoryObj<typeof meta>
 
-const createQueuedMessage = (content: string, id: string): UserMessage => ({
-  id,
+const createQueuedMessage = (content: string, id: string): UiMessage => ({
+  uuid: id,
   role: 'user',
-  content,
-  timestamp: new Date(),
+  content: [{ type: 'text', text: content }],
+  toolResults: [],
   isQueued: true,
 })
 

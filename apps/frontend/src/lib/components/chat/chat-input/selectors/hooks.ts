@@ -77,9 +77,9 @@ export function useBranchSelector(
   onChange?: (value: string) => void,
   enabled = true,
   repository?: {
-    kind: 'local' | 'remote' | 'template'
-    path?: string
-    useGitWorktrees?: boolean
+    kind: string
+    path?: string | null
+    useGitWorktrees?: boolean | null
   },
 ) {
   const { data, isLoading, error, isError } = useBranches(repositoryId || '', {
@@ -89,8 +89,8 @@ export function useBranchSelector(
   const items = useMemo(
     () =>
       data?.branches.map((branch) => ({
-        id: branch,
-        label: branch,
+        id: branch.name,
+        label: branch.name,
       })) || [],
     [data?.branches],
   )
@@ -151,7 +151,7 @@ export function useBranchSelector(
       icon: GitBranch,
       tooltip: 'Choose a branch',
       displayValue: selectedBranch?.label || 'Select branch',
-      currentBranch: data?.currentBranch,
+      currentBranch: data?.defaultBranch ?? undefined,
     }),
     [
       derivedValue,
@@ -162,7 +162,7 @@ export function useBranchSelector(
       items,
       repositoryId,
       selectedBranch,
-      data?.currentBranch,
+      data?.defaultBranch,
       hidden,
     ],
   )

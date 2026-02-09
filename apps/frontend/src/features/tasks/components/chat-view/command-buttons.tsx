@@ -1,4 +1,4 @@
-import type { Command } from '@moatless/types'
+import type { CommandResponse } from '@moatless/api-client'
 import {
   GitBranch,
   GitCommit,
@@ -10,8 +10,8 @@ import {
 } from 'lucide-react'
 
 interface CommandButtonsProps {
-  commands: Command[]
-  onCommandClick: (command: Command) => void
+  commands: CommandResponse[]
+  onCommandClick: (command: CommandResponse) => void
   disabled?: boolean
 }
 
@@ -43,7 +43,7 @@ export function CommandButtons({ commands, onCommandClick, disabled }: CommandBu
     <div className="relative w-full rounded-t-lg bg-background py-2">
       <div className="flex w-full select-none flex-nowrap gap-2 overflow-x-auto px-3 pb-1">
         {commands.map((command) => {
-          const Icon = getCommandIcon(command.icon)
+          const Icon = getCommandIcon(command.icon ?? undefined)
           return (
             <button
               key={command.name}

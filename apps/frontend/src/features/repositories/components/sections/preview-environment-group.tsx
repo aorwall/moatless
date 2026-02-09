@@ -1,4 +1,4 @@
-import type { UpdateRepositoryRequest } from '@moatless/types'
+import type { UpdateRepositoryRequest } from '@moatless/api-client'
 import { CollapsibleHelpSection } from '@/lib/components/collapsible-help-section'
 import {
   ConfigurationGroup,
@@ -19,6 +19,10 @@ interface PreviewEnvironmentGroupProps {
 export function PreviewEnvironmentGroup({ formData, onUpdateField }: PreviewEnvironmentGroupProps) {
   const updateField = onUpdateField
 
+  // serverStartCommands from the API is typed as { [key: string]: unknown } | null,
+  // but we treat it as string[] for the UI
+  const serverStartCommands = (formData.serverStartCommands ?? []) as unknown as string[]
+
   return (
     <ConfigurationGroup title="Preview Environment" showSeparator>
       <ConfigurationItem
@@ -26,14 +30,13 @@ export function PreviewEnvironmentGroup({ formData, onUpdateField }: PreviewEnvi
         description="Commands to start the preview server (one per line)"
       >
         <ConfigurationTextarea
-          value={formData.previewConfig?.serverStartCommands?.join('\n') || ''}
+          value={serverStartCommands.join('\n')}
           onChange={(e) => {
             const commands = e.target.value.split('\n')
-            updateField('previewConfig', {
-              ...formData.previewConfig,
-              serverStartCommands: commands,
-              enableInspector: formData.previewConfig?.enableInspector ?? true,
-            })
+            updateField(
+              'serverStartCommands',
+              commands as unknown as UpdateRepositoryRequest['serverStartCommands'],
+            )
           }}
           placeholder="npm install&#10;npm run dev"
           rows={3}
@@ -45,14 +48,8 @@ export function PreviewEnvironmentGroup({ formData, onUpdateField }: PreviewEnvi
         description="Command to build the project for production deployment"
       >
         <ConfigurationInput
-          value={formData.previewConfig?.buildCommand || ''}
-          onChange={(e) =>
-            updateField('previewConfig', {
-              ...formData.previewConfig,
-              buildCommand: e.target.value,
-              enableInspector: formData.previewConfig?.enableInspector ?? true,
-            })
-          }
+          value={formData.buildCommand || ''}
+          onChange={(e) => updateField('buildCommand', e.target.value || null)}
           placeholder="e.g., npm run build"
         />
       </ConfigurationItem>
@@ -64,14 +61,10 @@ export function PreviewEnvironmentGroup({ formData, onUpdateField }: PreviewEnvi
         <ConfigurationInput
           type="number"
           min={5}
-          value={formData.previewConfig?.startupTimeoutSeconds ?? ''}
+          value={formData.startupTimeoutSeconds ?? ''}
           onChange={(e) => {
-            const value = e.target.value ? Number(e.target.value) : undefined
-            updateField('previewConfig', {
-              ...formData.previewConfig,
-              startupTimeoutSeconds: value,
-              enableInspector: formData.previewConfig?.enableInspector ?? true,
-            })
+            const value = e.target.value ? Number(e.target.value) : null
+            updateField('startupTimeoutSeconds', value)
           }}
           placeholder="30"
         />
@@ -82,14 +75,8 @@ export function PreviewEnvironmentGroup({ formData, onUpdateField }: PreviewEnvi
         description="Server has built-in auto-reload/watch functionality. When enabled, the preview server won't restart on code changes since changes are picked up automatically."
       >
         <ConfigurationSwitch
-          checked={formData.previewConfig?.autoReload ?? false}
-          onCheckedChange={(checked) =>
-            updateField('previewConfig', {
-              ...formData.previewConfig,
-              autoReload: checked,
-              enableInspector: formData.previewConfig?.enableInspector ?? true,
-            })
-          }
+          checked={formData.autoReload ?? false}
+          onCheckedChange={(checked) => updateField('autoReload', checked)}
         />
       </ConfigurationItem>
 
@@ -98,13 +85,8 @@ export function PreviewEnvironmentGroup({ formData, onUpdateField }: PreviewEnvi
         description="Inject inspector script for element selection and debugging (may cause compatibility issues with some frameworks)"
       >
         <ConfigurationSwitch
-          checked={formData.previewConfig?.enableInspector !== false}
-          onCheckedChange={(checked) =>
-            updateField('previewConfig', {
-              ...formData.previewConfig,
-              enableInspector: checked,
-            })
-          }
+          checked={formData.enableInspector !== false}
+          onCheckedChange={(checked) => updateField('enableInspector', checked)}
         />
       </ConfigurationItem>
 

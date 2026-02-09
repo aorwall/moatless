@@ -1,4 +1,4 @@
-import type { UserMessage } from '@moatless/types'
+import type { UiMessage } from '@moatless/api-client'
 import type { Meta, StoryObj } from '@storybook/react-vite'
 import { UserMessageComponent } from '../user-message.tsx'
 
@@ -24,14 +24,13 @@ const createUserMessage = (
   content: string,
   id = 'user-msg-1',
   options?: {
-    isVisibleInTranscriptOnly?: boolean
-    isCompactSummary?: boolean
+    messageType?: string
   },
-): UserMessage => ({
-  id,
+): UiMessage => ({
+  uuid: id,
   role: 'user',
-  content,
-  timestamp: new Date(),
+  content: [{ type: 'text', text: content }],
+  toolResults: [],
   ...options,
 })
 
@@ -110,7 +109,7 @@ export const HiddenMessage: Story = {
     message: createUserMessage(
       'This is a hidden message that is only visible in the transcript. It contains context that was provided to the agent but should not be shown prominently in the chat view.',
       'hidden-msg-1',
-      { isVisibleInTranscriptOnly: true },
+      { messageType: 'transcript_only' },
     ),
   },
 }
@@ -128,7 +127,7 @@ export const SummaryMessage: Story = {
         '2. Implement silent token refresh\n' +
         '3. Add comprehensive logging',
       'summary-msg-1',
-      { isVisibleInTranscriptOnly: true, isCompactSummary: true },
+      { messageType: 'compact_summary' },
     ),
   },
 }
@@ -154,7 +153,7 @@ export const HiddenWithLongContent: Story = {
         '}\n' +
         '```',
       'hidden-long-msg-1',
-      { isVisibleInTranscriptOnly: true },
+      { messageType: 'transcript_only' },
     ),
   },
 }

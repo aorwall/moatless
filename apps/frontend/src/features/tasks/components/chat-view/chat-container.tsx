@@ -1,12 +1,5 @@
-import type {
-  AssistantMessage,
-  ClaudeModel,
-  Command,
-  Message,
-  MessageContext,
-  Question,
-  UserMessage,
-} from '@moatless/types'
+import type { CommandResponse, UiMessage } from '@moatless/api-client'
+import type { ClaudeModel, MessageContext, Question } from '@moatless/types'
 import { DEFAULT_CLAUDE_MODEL } from '@moatless/types/constants'
 import { AlertCircle, Loader2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -114,10 +107,9 @@ function ChatContainer({
   const retryWorkspaceMutation = useWorkspaceRetry(taskId)
 
   // Fetch available commands when task is not running
-  const { data: commandsData } = useTaskCommands(taskId, {
+  const { data: availableCommands = [] } = useTaskCommands(taskId, {
     enabled: !!taskId && !isTaskRunning && envStatus === 'ready',
   })
-  const availableCommands = commandsData?.commands ?? []
 
   // Local state for chat values
   const [message, setMessage] = useState('')
@@ -203,7 +195,7 @@ function ChatContainer({
     error: messagesError,
   } = useTaskMessages(taskId, {
     enabled: !!taskId,
-  }) as { data: Message[] | undefined; isLoading: boolean; error: unknown }
+  })
 
   // Task message sending hook
   const sendMessage = useSendMessage(taskId, {
@@ -216,10 +208,7 @@ function ChatContainer({
 
   // Derive queued messages from the messages list
   const queuedMessages = useMemo(
-    () =>
-      (messages ?? []).filter(
-        (m): m is UserMessage => m.role === 'user' && (m as UserMessage).isQueued === true,
-      ),
+    () => (messages ?? []).filter((m): m is UiMessage => m.role === 'user' && m.isQueued === true),
     [messages],
   )
 
@@ -238,35 +227,38 @@ function ChatContainer({
       return null
     }
 
-    const assistantMessage = lastMessage as AssistantMessage
-    if (!assistantMessage.hasPendingUserInput) {
+    if (!lastMessage.hasPendingUserInput) {
       return null
     }
 
-    // Find the pending tool call (last tool_use without a result)
-    if (!Array.isArray(assistantMessage.content)) {
-      return null
-    }
+    // Find the pending tool call (last tool_use without a result in toolResults)
+    const toolResultIds = new Set(
+      (lastMessage.toolResults ?? []).map((tr) => tr.toolUseId).filter(Boolean),
+    )
 
-    for (let i = assistantMessage.content.length - 1; i >= 0; i--) {
-      const content = assistantMessage.content[i]
-      if (content.type === 'tool_use' && !content.tool_result) {
-        if (content.tool_name === 'AskUserQuestion' && content.tool_input) {
-          const toolInput = content.tool_input as { questions?: Question[] }
+    for (let i = lastMessage.content.length - 1; i >= 0; i--) {
+      const content = lastMessage.content[i]
+      if (
+        content.type === 'tool_use' &&
+        content.toolUseId &&
+        !toolResultIds.has(content.toolUseId)
+      ) {
+        if (content.toolName === 'AskUserQuestion' && content.toolInput) {
+          const toolInput = content.toolInput as { questions?: Question[] }
           if (toolInput.questions && Array.isArray(toolInput.questions)) {
             return {
               type: 'AskUserQuestion' as const,
               questions: toolInput.questions,
-              toolUseId: content.tool_use_id,
+              toolUseId: content.toolUseId,
             }
           }
         }
-        if (content.tool_name === 'ExitPlanMode' && content.tool_input) {
-          const toolInput = content.tool_input as { plan?: string }
+        if (content.toolName === 'ExitPlanMode' && content.toolInput) {
+          const toolInput = content.toolInput as { plan?: string }
           return {
             type: 'ExitPlanMode' as const,
             plan: toolInput.plan,
-            toolUseId: content.tool_use_id,
+            toolUseId: content.toolUseId,
           }
         }
       }
@@ -345,7 +337,7 @@ function ChatContainer({
 
   // Handle command button click
   const handleCommandClick = useCallback(
-    (command: Command) => {
+    (command: CommandResponse) => {
       const commandData = {
         message: command.prompt,
         commandName: command.name,
@@ -368,7 +360,7 @@ function ChatContainer({
   // Execute a command by name — used by external callers (e.g. preview troubleshoot button)
   const executeCommandByName = useCallback(
     (commandName: string) => {
-      const command = availableCommands.find((c) => c.name === commandName) as Command | undefined
+      const command = availableCommands.find((c) => c.name === commandName)
       if (!command) {
         return
       }
@@ -427,7 +419,7 @@ function ChatContainer({
         error={messagesError as Error | null}
         isRunning={isTaskRunning}
         environmentStatus={envStatus}
-        environmentError={workspaceStatus?.environmentError}
+        environmentError={workspaceStatus?.environmentError ?? undefined}
         onPreviewUrlClick={onPreviewUrlClick}
       />
 
@@ -476,7 +468,7 @@ function ChatContainer({
       {/* Command buttons — horizontal bar above chat input */}
       {!isTaskRunning && availableCommands.length > 0 && !pendingUserInput && (
         <CommandButtons
-          commands={availableCommands as Command[]}
+          commands={availableCommands}
           onCommandClick={handleCommandClick}
           disabled={sendMessage.isPending}
         />

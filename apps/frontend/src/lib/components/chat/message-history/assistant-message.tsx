@@ -1,9 +1,5 @@
-import type {
-  AllowedPrompt,
-  AssistantMessage,
-  AssistantMessageContent,
-  Question,
-} from '@moatless/types'
+import type { UiContentBlock, UiMessage, UiToolResult } from '@moatless/api-client'
+import type { AllowedPrompt, Question } from '@moatless/types'
 import { type ImageContentBlock, isImageContentBlock } from '@moatless/types'
 import {
   CheckCircle,
@@ -21,16 +17,17 @@ import { ImageThumbnail } from './image-thumbnail'
 import { type Todo, TodoList } from './tool-calls'
 
 interface AssistantMessageProps {
-  message: AssistantMessage
+  message: UiMessage
   expandedToolCalls: Set<string>
   onToggleToolCall: (toolUseId: string) => void
 }
 
 interface ToolCallProps {
-  content: AssistantMessageContent
+  content: UiContentBlock
+  toolResult?: UiToolResult
   expanded: boolean
   onToggle: () => void
-  hasPendingUserInput?: boolean
+  hasPendingUserInput?: boolean | null
 }
 
 /**
@@ -56,13 +53,19 @@ function parseImageFromToolResult(content: string | undefined): ImageContentBloc
 }
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Component handles multiple tool types and states
-function ToolCallComponent({ content, expanded, onToggle, hasPendingUserInput }: ToolCallProps) {
+function ToolCallComponent({
+  content,
+  toolResult,
+  expanded,
+  onToggle,
+  hasPendingUserInput,
+}: ToolCallProps) {
   // Special handling for AskUserQuestion tool
-  if (content.tool_name === 'AskUserQuestion' && content.tool_input) {
-    const toolInput = content.tool_input as { questions?: Question[] }
+  if (content.toolName === 'AskUserQuestion' && content.toolInput) {
+    const toolInput = content.toolInput as { questions?: Question[] }
     if (toolInput.questions && Array.isArray(toolInput.questions)) {
       // If pending (will be rendered in input area), skip rendering here
-      if (hasPendingUserInput && !content.tool_result) {
+      if (hasPendingUserInput && !toolResult) {
         return null
       }
 
@@ -70,15 +73,15 @@ function ToolCallComponent({ content, expanded, onToggle, hasPendingUserInput }:
       let answers: Record<string, string> | undefined
       let answerText: string | undefined
 
-      if (content.tool_result?.content) {
+      if (toolResult?.content) {
         try {
-          const result = JSON.parse(content.tool_result.content)
+          const result = JSON.parse(toolResult.content)
           if (result.answers && typeof result.answers === 'object') {
             answers = result.answers
           }
         } catch {
           // Not JSON - use raw text as fallback
-          answerText = content.tool_result.content
+          answerText = toolResult.content
         }
       }
 
@@ -159,19 +162,19 @@ function ToolCallComponent({ content, expanded, onToggle, hasPendingUserInput }:
   }
 
   // Special handling for ExitPlanMode tool
-  if (content.tool_name === 'ExitPlanMode') {
+  if (content.toolName === 'ExitPlanMode') {
     // If pending (will be rendered in input area), skip rendering here
-    if (hasPendingUserInput && !content.tool_result) {
+    if (hasPendingUserInput && !toolResult) {
       return null
     }
 
-    const toolInput = content.tool_input as
+    const toolInput = content.toolInput as
       | { allowedPrompts?: AllowedPrompt[]; plan?: string }
       | undefined
     const hasPlan = !!toolInput?.plan
     const isExpandable = hasPlan
-    const isResolved = !!content.tool_result
-    const wasApproved = content.tool_result && !content.tool_result.is_error
+    const isResolved = !!toolResult
+    const wasApproved = toolResult && !toolResult.isError
 
     return (
       <div className="text-xs font-mono w-full max-w-full">
@@ -240,8 +243,8 @@ function ToolCallComponent({ content, expanded, onToggle, hasPendingUserInput }:
   }
 
   // Special handling for TodoWrite tool
-  if (content.tool_name === 'TodoWrite' && content.tool_input) {
-    const toolInput = content.tool_input as { todos?: Todo[] }
+  if (content.toolName === 'TodoWrite' && content.toolInput) {
+    const toolInput = content.toolInput as { todos?: Todo[] }
     if (toolInput.todos && Array.isArray(toolInput.todos)) {
       return (
         <div className="text-xs font-mono w-full max-w-full">
@@ -249,7 +252,7 @@ function ToolCallComponent({ content, expanded, onToggle, hasPendingUserInput }:
             <div className="w-1.5 h-1.5 bg-primary rounded-full mt-1 flex-shrink-0" />
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-1 mb-2">
-                <span className="font-medium">{content.tool_name}</span>
+                <span className="font-medium">{content.toolName}</span>
                 <span className="text-muted-foreground">({toolInput.todos.length} items)</span>
               </div>
               <TodoList todos={toolInput.todos} />
@@ -260,18 +263,18 @@ function ToolCallComponent({ content, expanded, onToggle, hasPendingUserInput }:
     }
   }
 
-  const hasResult = !!content.tool_result
-  const imageData = parseImageFromToolResult(content.tool_result?.content)
-  const resultLines = content.tool_result?.content?.split('\n') || []
+  const hasResult = !!toolResult
+  const imageData = parseImageFromToolResult(toolResult?.content ?? undefined)
+  const resultLines = toolResult?.content?.split('\n') || []
   const lineCount = resultLines.length
 
   // Format tool input for display
   const formatToolInput = () => {
-    if (!content.tool_input) {
+    if (!content.toolInput) {
       return ''
     }
 
-    const entries = Object.entries(content.tool_input)
+    const entries = Object.entries(content.toolInput)
     if (entries.length === 0) {
       return ''
     }
@@ -291,7 +294,7 @@ function ToolCallComponent({ content, expanded, onToggle, hasPendingUserInput }:
         <div
           className={cn(
             'w-1.5 h-1.5 rounded-full mt-1 flex-shrink-0',
-            content.tool_result?.is_error ? 'bg-destructive' : 'bg-primary',
+            toolResult?.isError ? 'bg-destructive' : 'bg-primary',
           )}
         />
         <div className="flex-1 min-w-0">
@@ -326,8 +329,8 @@ function ToolCallComponent({ content, expanded, onToggle, hasPendingUserInput }:
                 )}
               </span>
             )}
-            <span className="font-medium flex-shrink-0">{content.tool_name}</span>
-            {content.tool_input && (
+            <span className="font-medium flex-shrink-0">{content.toolName}</span>
+            {content.toolInput && (
               <span className="text-muted-foreground truncate min-w-0">({formatToolInput()})</span>
             )}
             {hasResult && lineCount > 0 && (
@@ -345,7 +348,7 @@ function ToolCallComponent({ content, expanded, onToggle, hasPendingUserInput }:
                   <ImageThumbnail
                     data={imageData.source.data}
                     mediaType={imageData.source.media_type}
-                    alt={`${content.tool_name} result`}
+                    alt={`${content.toolName} result`}
                     size="expanded"
                   />
                 </div>
@@ -354,7 +357,7 @@ function ToolCallComponent({ content, expanded, onToggle, hasPendingUserInput }:
                   <div className="bg-muted/30 p-1 text-muted-foreground">
                     {resultLines.map((line, index) => (
                       <div
-                        key={`${content.tool_use_id}-${index}`}
+                        key={`${content.toolUseId}-${index}`}
                         className="whitespace-pre-wrap break-all"
                       >
                         {line || ' '}
@@ -371,99 +374,171 @@ function ToolCallComponent({ content, expanded, onToggle, hasPendingUserInput }:
   )
 }
 
+/**
+ * Build a lookup map from toolUseId to toolResult for efficient retrieval
+ */
+function buildToolResultMap(message: UiMessage): Map<string, UiToolResult> {
+  const toolResultMap = new Map<string, UiToolResult>()
+  if (message.toolResults) {
+    for (const tr of message.toolResults) {
+      if (tr.toolUseId) {
+        toolResultMap.set(tr.toolUseId, tr)
+      }
+    }
+  }
+  return toolResultMap
+}
+
+/**
+ * Separate content array into text content and tool calls
+ */
+function parseMessageContent(contentArray: UiContentBlock[]): {
+  textContent: string
+  toolCalls: UiContentBlock[]
+} {
+  const textContent = contentArray
+    .filter((c) => c.type === 'text')
+    .map((c) => c.text)
+    .join('\n')
+  const toolCalls = contentArray.filter((c) => c.type === 'tool_use')
+  return { textContent, toolCalls }
+}
+
+/**
+ * Render tool calls list with result mapping
+ */
+function renderToolCalls(
+  toolCalls: UiContentBlock[],
+  toolResultMap: Map<string, UiToolResult>,
+  expandedToolCalls: Set<string>,
+  onToggleToolCall: (toolUseId: string) => void,
+  hasPendingUserInput: boolean | null | undefined,
+): React.ReactNode {
+  if (toolCalls.length === 0) {
+    return null
+  }
+
+  return (
+    <div className="space-y-2 w-full max-w-full">
+      {toolCalls.map((toolCall) => (
+        <ToolCallComponent
+          key={toolCall.toolUseId}
+          content={toolCall}
+          toolResult={toolCall.toolUseId ? toolResultMap.get(toolCall.toolUseId) : undefined}
+          expanded={expandedToolCalls.has(toolCall.toolUseId || '')}
+          onToggle={() => onToggleToolCall(toolCall.toolUseId || '')}
+          hasPendingUserInput={hasPendingUserInput}
+        />
+      ))}
+    </div>
+  )
+}
+
+/**
+ * Render a collapsed message view (for hidden/transcript-only messages)
+ */
+function renderCollapsedMessage(
+  isExpanded: boolean,
+  setIsExpanded: (value: boolean) => void,
+  isSummary: boolean,
+  previewText: string,
+  textContent: string,
+  toolCalls: UiContentBlock[],
+  toolResultMap: Map<string, UiToolResult>,
+  expandedToolCalls: Set<string>,
+  onToggleToolCall: (toolUseId: string) => void,
+  hasPendingUserInput: boolean | null | undefined,
+): React.ReactNode {
+  return (
+    <div
+      className={cn(
+        'border border-dashed rounded-lg overflow-hidden',
+        isSummary
+          ? 'border-purple-500/30 bg-purple-500/5'
+          : 'border-muted-foreground/30 bg-muted/20',
+      )}
+    >
+      <button
+        type="button"
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="w-full flex items-center gap-2 p-2 text-xs text-muted-foreground hover:bg-muted/30 transition-colors"
+      >
+        {isExpanded ? (
+          <ChevronDown className="h-3 w-3 flex-shrink-0" />
+        ) : (
+          <ChevronRight className="h-3 w-3 flex-shrink-0" />
+        )}
+        {isSummary ? (
+          <>
+            <FileText className="h-3 w-3 flex-shrink-0 text-purple-500" />
+            <span className="font-medium">Summary Response</span>
+          </>
+        ) : (
+          <>
+            <Eye className="h-3 w-3 flex-shrink-0" />
+            <span className="font-medium">Hidden Response</span>
+          </>
+        )}
+        <span className="text-muted-foreground/70 truncate">
+          {previewText.slice(0, 50)}
+          {previewText.length > 50 ? '...' : ''}
+        </span>
+      </button>
+
+      {isExpanded && (
+        <div className="p-3 border-t border-dashed border-muted-foreground/20">
+          <div className="space-y-2 opacity-80">
+            {textContent && (
+              <div className="text-sm w-full max-w-full">
+                <Response>{textContent}</Response>
+              </div>
+            )}
+
+            {renderToolCalls(
+              toolCalls,
+              toolResultMap,
+              expandedToolCalls,
+              onToggleToolCall,
+              hasPendingUserInput,
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function AssistantMessageComponent({
   message,
   expandedToolCalls,
   onToggleToolCall,
 }: AssistantMessageProps) {
   const [isExpanded, setIsExpanded] = useState(false)
-  const isHidden = message.isVisibleInTranscriptOnly
-  const isSummary = message.isCompactSummary
+  const isHidden = message.messageType === 'transcript_only'
+  const isSummary = message.messageType === 'compact_summary'
 
-  // Handle both string content (legacy/stories) and array content (backend)
-  const contentArray = Array.isArray(message.content)
-    ? message.content
-    : typeof message.content === 'string'
-      ? [{ type: 'text' as const, text: message.content }]
-      : []
+  // Build a lookup map from toolUseId to toolResult
+  const toolResultMap = buildToolResultMap(message)
 
-  // Separate text content from tool calls
-  const textContent = contentArray
-    .filter((c) => c.type === 'text')
-    .map((c) => c.text)
-    .join('\n')
-
-  const toolCalls = contentArray.filter((c) => c.type === 'tool_use')
+  // Content is always UiContentBlock[]
+  const { textContent, toolCalls } = parseMessageContent(message.content)
 
   // For hidden messages, show collapsed view by default
   if (isHidden) {
     const previewText =
       textContent || (toolCalls.length > 0 ? `${toolCalls.length} tool calls` : '')
 
-    return (
-      <div
-        className={cn(
-          'border border-dashed rounded-lg overflow-hidden',
-          isSummary
-            ? 'border-purple-500/30 bg-purple-500/5'
-            : 'border-muted-foreground/30 bg-muted/20',
-        )}
-      >
-        <button
-          type="button"
-          onClick={() => setIsExpanded(!isExpanded)}
-          className="w-full flex items-center gap-2 p-2 text-xs text-muted-foreground hover:bg-muted/30 transition-colors"
-        >
-          {isExpanded ? (
-            <ChevronDown className="h-3 w-3 flex-shrink-0" />
-          ) : (
-            <ChevronRight className="h-3 w-3 flex-shrink-0" />
-          )}
-          {isSummary ? (
-            <>
-              <FileText className="h-3 w-3 flex-shrink-0 text-purple-500" />
-              <span className="font-medium">Summary Response</span>
-            </>
-          ) : (
-            <>
-              <Eye className="h-3 w-3 flex-shrink-0" />
-              <span className="font-medium">Hidden Response</span>
-            </>
-          )}
-          <span className="text-muted-foreground/70 truncate">
-            {previewText.slice(0, 50)}
-            {previewText.length > 50 ? '...' : ''}
-          </span>
-        </button>
-
-        {isExpanded && (
-          <div className="p-3 border-t border-dashed border-muted-foreground/20">
-            <div className="space-y-2 opacity-80">
-              {/* Text content */}
-              {textContent && (
-                <div className="text-sm w-full max-w-full">
-                  <Response>{textContent}</Response>
-                </div>
-              )}
-
-              {/* Tool calls */}
-              {toolCalls.length > 0 && (
-                <div className="space-y-2 w-full max-w-full">
-                  {toolCalls.map((toolCall) => (
-                    <ToolCallComponent
-                      key={toolCall.tool_use_id}
-                      content={toolCall}
-                      expanded={expandedToolCalls.has(toolCall.tool_use_id || '')}
-                      onToggle={() => onToggleToolCall(toolCall.tool_use_id || '')}
-                      hasPendingUserInput={message.hasPendingUserInput}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
+    return renderCollapsedMessage(
+      isExpanded,
+      setIsExpanded,
+      isSummary,
+      previewText,
+      textContent,
+      toolCalls,
+      toolResultMap,
+      expandedToolCalls,
+      onToggleToolCall,
+      message.hasPendingUserInput,
     )
   }
 
@@ -478,18 +553,12 @@ export function AssistantMessageComponent({
       )}
 
       {/* Tool calls */}
-      {toolCalls.length > 0 && (
-        <div className="space-y-2 w-full max-w-full">
-          {toolCalls.map((toolCall) => (
-            <ToolCallComponent
-              key={toolCall.tool_use_id}
-              content={toolCall}
-              expanded={expandedToolCalls.has(toolCall.tool_use_id || '')}
-              onToggle={() => onToggleToolCall(toolCall.tool_use_id || '')}
-              hasPendingUserInput={message.hasPendingUserInput}
-            />
-          ))}
-        </div>
+      {renderToolCalls(
+        toolCalls,
+        toolResultMap,
+        expandedToolCalls,
+        onToggleToolCall,
+        message.hasPendingUserInput,
       )}
     </div>
   )

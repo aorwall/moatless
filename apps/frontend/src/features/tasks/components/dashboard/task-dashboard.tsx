@@ -1,4 +1,5 @@
-import { type ClaudeModel, DEFAULT_CLAUDE_MODEL, type Task } from '@moatless/types'
+import type { TaskResponse } from '@moatless/api-client'
+import { type ClaudeModel, DEFAULT_CLAUDE_MODEL } from '@moatless/types'
 import { useMemo, useState } from 'react'
 import { CreateCodeTask } from '@/features/tasks/components/create-task/create-code-task'
 import { CreateVibeTask } from '@/features/tasks/components/create-task/create-vibe-task'
@@ -127,7 +128,8 @@ export function TaskDashboard({
       return []
     }
     return [...tasksData.items].sort(
-      (a: Task, b: Task) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      (a: TaskResponse, b: TaskResponse) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
     )
   }, [tasksData?.items])
 
@@ -220,7 +222,7 @@ export function TaskDashboard({
         ) : (
           <>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {sortedTasks.map((task: Task) => {
+              {sortedTasks.map((task: TaskResponse) => {
                 return (
                   <TaskCard
                     key={task.taskId}

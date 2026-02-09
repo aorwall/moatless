@@ -1,4 +1,4 @@
-import type { Task } from '@moatless/types'
+import type { TaskResponse } from '@moatless/api-client'
 import { AlertCircle, CheckCircle, CircleDot, GitMerge, Loader2, PlayCircle } from 'lucide-react'
 import type { ReactElement } from 'react'
 
@@ -11,7 +11,7 @@ export interface TaskStatusConfig {
 /**
  * Determines if a task is currently running based on task status.
  */
-export function isTaskRunning(task: Pick<Task, 'status'>): boolean {
+export function isTaskRunning(task: Pick<TaskResponse, 'status'>): boolean {
   return task.status === 'running'
 }
 

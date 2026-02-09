@@ -103,7 +103,7 @@ function ProxyErrorOverlay({
   serverStatus,
   onReload,
 }: {
-  serverStatus: { status: string; url?: string; error?: string } | undefined
+  serverStatus: { status: string; url?: string | null; error?: string | null } | undefined
   onReload: () => void
 }) {
   if (serverStatus?.status === 'starting' || serverStatus?.status === 'installing') {
@@ -634,7 +634,7 @@ export function Preview({
         isInspectorAvailable={isInspectorAvailable}
         isInspectorDialogOpen={isInspectorDialogOpen}
         onInspectorDialogOpenChange={setIsInspectorDialogOpen}
-        serverUrl={serverStatus?.url}
+        serverUrl={serverStatus?.url ?? undefined}
         servers={servers}
         capabilities={capabilities}
         isSandboxRunning={isSandboxRunning}
@@ -795,7 +795,7 @@ export function Preview({
             {resources.cpuUsagePercent !== null && <span>CPU {resources.cpuUsagePercent}%</span>}
             <span>
               Mem {formatMemory(resources.memoryUsageMb)}
-              {resources.memoryLimitMb !== null ? `/${formatMemory(resources.memoryLimitMb)}` : ''}
+              {resources.memoryLimitMb != null ? `/${formatMemory(resources.memoryLimitMb)}` : ''}
             </span>
             <span>Loop {Math.round(resources.eventLoopLatencyMs)}ms</span>
           </div>

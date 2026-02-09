@@ -1,4 +1,4 @@
-import type { ResourceMetrics, ServerEntry } from '@moatless/types'
+import type { ResourceMetrics, ServerEntry } from '@moatless/api-client'
 
 export interface SourceLocation {
   componentId: string // data-component-id: "path:line:column" format (e.g., "src/components/ui/button.tsx:15:3")

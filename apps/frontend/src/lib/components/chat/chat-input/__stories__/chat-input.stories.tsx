@@ -1,4 +1,4 @@
-import type { UploadFileResponse } from '@moatless/types'
+import type { UploadResponse } from '@moatless/api-client'
 import type { Meta, StoryObj } from '@storybook/react-vite'
 import { Brain, Sparkles } from 'lucide-react'
 import type React from 'react'
@@ -33,24 +33,18 @@ const MockSelector = ({ icon: Icon, label }: { icon: any; label: string }) => (
   </Button>
 )
 
-const mockFiles: UploadFileResponse[] = [
+const mockFiles: UploadResponse[] = [
   {
-    id: 'file-1',
+    fileId: 'file-1',
     filename: 'screenshot.png',
-    path: 'screenshot.png',
-    absolutePath: '/tmp/screenshot.png',
     mimeType: 'image/png',
     size: 125000,
-    uploadedAt: new Date().toISOString(),
   },
   {
-    id: 'file-2',
+    fileId: 'file-2',
     filename: 'code-example.ts',
-    path: 'code-example.ts',
-    absolutePath: '/tmp/code-example.ts',
     mimeType: 'text/typescript',
     size: 3500,
-    uploadedAt: new Date().toISOString(),
   },
 ]
 
@@ -127,7 +121,7 @@ export const WithFiles = {
       <InteractiveWrapper>
         <FileAttachments
           files={files}
-          onRemove={(id) => setFiles((prev) => prev.filter((f) => f.id !== id))}
+          onRemove={(id) => setFiles((prev) => prev.filter((f) => f.fileId !== id))}
         />
       </InteractiveWrapper>
     )
@@ -177,7 +171,7 @@ export const AllFeatures = {
       >
         <FileAttachments
           files={files}
-          onRemove={(id) => setFiles((prev) => prev.filter((f) => f.id !== id))}
+          onRemove={(id) => setFiles((prev) => prev.filter((f) => f.fileId !== id))}
         />
         <div className="flex items-center justify-between gap-2">
           <Selectors>

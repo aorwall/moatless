@@ -1,4 +1,5 @@
-import type { MessageContext, UploadFileResponse } from '@moatless/types'
+import type { UploadResponse } from '@moatless/api-client'
+import type { MessageContext } from '@moatless/types'
 import type React from 'react'
 import { useCallback, useState } from 'react'
 import { toast } from 'sonner'
@@ -35,7 +36,7 @@ export interface UseTaskInputsOptions {
 
 export interface UseTaskInputsReturn {
   // File upload state and mutations
-  uploadedFiles: UploadFileResponse[]
+  uploadedFiles: UploadResponse[]
   uploadFile: ReturnType<typeof useUploadFile>
   attachmentSelector: ReturnType<typeof useAttachmentSelector>
   handleRemoveFile: (fileId: string) => void
@@ -112,7 +113,7 @@ export function useTaskInputs(options: UseTaskInputsOptions = {}): UseTaskInputs
     externalContextItems !== undefined && onContextItemsChange !== undefined
 
   // File upload state
-  const [uploadedFiles, setUploadedFiles] = useState<UploadFileResponse[]>([])
+  const [uploadedFiles, setUploadedFiles] = useState<UploadResponse[]>([])
 
   // Context items state (internal or external)
   const [internalContextItems, setInternalContextItems] = useState<MessageContext[]>([])

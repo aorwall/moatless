@@ -1,4 +1,4 @@
-import type { ServerEntry } from '@moatless/types'
+import type { ServerEntry } from '@moatless/api-client'
 import { useMemo } from 'react'
 import { useIsMobile } from '@/lib/hooks/use-mobile'
 import { Route } from '@/routes/tasks/$task-id'

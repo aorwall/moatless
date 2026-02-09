@@ -1,4 +1,5 @@
-import type { PluginInfo, UpdateRepositoryRequest } from '@moatless/types'
+import type { UpdateRepositoryRequest } from '@moatless/api-client'
+import type { PluginInfo } from '@moatless/types'
 import { Loader2, Package, Plus, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { usePlugins } from '@/features/plugins/hooks/use-plugins'
@@ -18,7 +19,9 @@ interface PluginsGroupProps {
 export function PluginsGroup({ formData, onUpdateField }: PluginsGroupProps) {
   const { data, isLoading } = usePlugins()
   const plugins = data?.plugins ?? []
-  const selectedPluginIds = formData.plugins ?? []
+  // plugins from the API is typed as { [key: string]: unknown } | null,
+  // but we treat it as string[] for the UI
+  const selectedPluginIds = (formData.plugins ?? []) as unknown as string[]
   const [isPickerOpen, setIsPickerOpen] = useState(false)
 
   // Create a map for quick plugin lookup
@@ -38,14 +41,12 @@ export function PluginsGroup({ formData, onUpdateField }: PluginsGroupProps) {
   }, [selectedPluginIds, pluginMap])
 
   const handleRemovePlugin = (pluginId: string) => {
-    onUpdateField(
-      'plugins',
-      selectedPluginIds.filter((p) => p !== pluginId),
-    )
+    const filtered = selectedPluginIds.filter((p) => p !== pluginId)
+    onUpdateField('plugins', filtered as unknown as UpdateRepositoryRequest['plugins'])
   }
 
   const handleConfirmSelection = (newSelection: string[]) => {
-    onUpdateField('plugins', newSelection)
+    onUpdateField('plugins', newSelection as unknown as UpdateRepositoryRequest['plugins'])
   }
 
   if (isLoading) {

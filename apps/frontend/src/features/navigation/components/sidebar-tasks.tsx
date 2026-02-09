@@ -1,4 +1,4 @@
-import type { Task } from '@moatless/types'
+import type { TaskResponse } from '@moatless/api-client'
 import { Link } from '@tanstack/react-router'
 import { Plus } from 'lucide-react'
 import { useState } from 'react'
@@ -56,7 +56,7 @@ function getRelativeTime(date: Date | string): string {
 }
 
 // Component for rendering individual task item
-function SidebarTaskItem({ task, repositoryName }: { task: Task; repositoryName: string }) {
+function SidebarTaskItem({ task, repositoryName }: { task: TaskResponse; repositoryName: string }) {
   const taskTitle = task.name || task.description?.split('\n')[0] || 'Untitled'
 
   return (
@@ -203,7 +203,7 @@ export function SidebarTasks() {
         <SidebarGroupContent>
           {tasks && tasks.length > 0 ? (
             <SidebarMenu>
-              {tasks.map((task: Task) => {
+              {tasks.map((task: TaskResponse) => {
                 return (
                   <SidebarTaskItem
                     key={task.taskId}

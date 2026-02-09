@@ -1,4 +1,5 @@
-import type { Event, Task } from '@moatless/types'
+import type { TaskResponse } from '@moatless/api-client'
+import type { Event } from '@moatless/types'
 import { Link } from '@tanstack/react-router'
 import { Globe, Lock, X } from 'lucide-react'
 import type React from 'react'
@@ -151,7 +152,7 @@ function extractLatestTodos(events: Event[]): Todo[] | null {
 }
 
 interface TaskCardProps {
-  task: Task
+  task: TaskResponse
   repositoryName: string
 }
 
@@ -228,7 +229,10 @@ function renderRunningTaskContent(
 }
 
 // Helper: Render completed task content
-function renderCompletedTaskContent(task: Task, latestTodos: Todo[] | null): React.ReactNode {
+function renderCompletedTaskContent(
+  task: TaskResponse,
+  latestTodos: Todo[] | null,
+): React.ReactNode {
   if (latestTodos) {
     return <TodoList todos={latestTodos} showSpinner={false} />
   }
@@ -351,9 +355,12 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
                       <Lock className="h-3 w-3 shrink-0" />
                     )}
                   </span>
-                  {(task.createdByName || task.createdBy) && (
-                    <span className="truncate" title={task.createdByName || task.createdBy}>
-                      by {task.createdByName || task.createdBy}
+                  {(task.createdByDisplayName || task.createdBy) && (
+                    <span
+                      className="truncate"
+                      title={(task.createdByDisplayName || task.createdBy) ?? undefined}
+                    >
+                      by {task.createdByDisplayName || task.createdBy}
                     </span>
                   )}
                 </div>

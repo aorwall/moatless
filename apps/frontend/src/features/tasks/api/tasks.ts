@@ -2,6 +2,12 @@ import type {
   CreateTaskRequest as ApiCreateTaskRequest,
   CreateVibeTaskRequest as ApiCreateVibeTaskRequest,
   SendMessageRequest as ApiSendMessageRequest,
+  CommandResponse,
+  CreateTaskResponse,
+  ListTasksResponse,
+  SendMessageResponse,
+  TaskResponse,
+  UiMessage,
 } from '@moatless/api-client'
 import { unwrapResponse } from '@moatless/api-client/custom-instance'
 import {
@@ -23,23 +29,11 @@ import {
   updateTaskMetadata as updateTaskMetadataHandler,
   updateVisibility as updateVisibilityHandler,
 } from '@moatless/api-client/sandbox/tasks/tasks'
-import type {
-  CreateTaskRequest,
-  CreateVibeTaskRequest,
-  Message,
-  MessageContext,
-  SendMessageResponse,
-  SimpleTaskResponse,
-  Task,
-  TaskCommandsResponse,
-  TaskListResponse,
-} from '@moatless/types'
+import type { CreateTaskRequest, CreateVibeTaskRequest, MessageContext } from '@moatless/types'
 
 export const tasksApi = {
   async getActiveTasks(): Promise<string[]> {
-    const response = (await unwrapResponse(
-      listTasksHandler({ status: 'active' }),
-    )) as unknown as TaskListResponse
+    const response = await unwrapResponse<ListTasksResponse>(listTasksHandler({ status: 'active' }))
     return response.items.map((task) => task.taskId)
   },
 
@@ -51,8 +45,8 @@ export const tasksApi = {
     tag?: string
     createdBy?: string
     repositoryId?: string
-  }): Promise<TaskListResponse> {
-    const result = await unwrapResponse(
+  }): Promise<ListTasksResponse> {
+    return await unwrapResponse(
       listTasksHandler({
         status: params?.status || (params?.activeOnly ? 'active' : undefined),
         limit: params?.limit,
@@ -62,24 +56,18 @@ export const tasksApi = {
         repositoryId: params?.repositoryId,
       }),
     )
-    return result as unknown as TaskListResponse
   },
 
-  async getTask(taskId: string): Promise<Task> {
-    const result = await unwrapResponse(getTaskHandler(taskId))
-    return result as unknown as Task
+  async getTask(taskId: string): Promise<TaskResponse> {
+    return await unwrapResponse(getTaskHandler(taskId))
   },
 
-  async getTaskMetadata(taskId: string): Promise<Task> {
-    const result = await unwrapResponse(getTaskHandler(taskId))
-    return result as unknown as Task
+  async getTaskMetadata(taskId: string): Promise<TaskResponse> {
+    return await unwrapResponse(getTaskHandler(taskId))
   },
 
-  async createTask(request: CreateTaskRequest): Promise<SimpleTaskResponse> {
-    const result = await unwrapResponse(
-      createTaskHandler(request as unknown as ApiCreateTaskRequest),
-    )
-    return result as unknown as SimpleTaskResponse
+  async createTask(request: CreateTaskRequest): Promise<CreateTaskResponse> {
+    return await unwrapResponse(createTaskHandler(request as unknown as ApiCreateTaskRequest))
   },
 
   async sendMessage(
@@ -97,14 +85,13 @@ export const tasksApi = {
       toolResponse?: unknown
     },
   ): Promise<SendMessageResponse> {
-    const result = await unwrapResponse(
+    return await unwrapResponse(
       sendMessageHandler(taskId, variables as unknown as ApiSendMessageRequest),
     )
-    return result as unknown as SendMessageResponse
   },
 
   // Deprecated: Use createTask instead
-  triggerAgent(request: CreateTaskRequest): Promise<SimpleTaskResponse> {
+  triggerAgent(request: CreateTaskRequest): Promise<CreateTaskResponse> {
     return this.createTask(request)
   },
 
@@ -119,21 +106,17 @@ export const tasksApi = {
     return { status: 'deleted' }
   },
 
-  async getTaskMessages(taskId: string): Promise<Message[]> {
-    const response = (await unwrapResponse(getMessagesHandler(taskId))) as unknown as {
-      messages: Message[]
-    }
+  async getTaskMessages(taskId: string): Promise<UiMessage[]> {
+    const response = await unwrapResponse<{ messages: UiMessage[] }>(getMessagesHandler(taskId))
     return response.messages
   },
 
-  async getTaskCommands(taskId: string): Promise<TaskCommandsResponse> {
-    const commands = await unwrapResponse(getAvailableCommandsHandler(taskId))
-    return { commands } as unknown as TaskCommandsResponse
+  async getTaskCommands(taskId: string): Promise<CommandResponse[]> {
+    return await unwrapResponse(getAvailableCommandsHandler(taskId))
   },
 
-  async closeTask(taskId: string): Promise<Task> {
-    const result = await unwrapResponse(closeTaskHandler(taskId))
-    return result as unknown as Task
+  async closeTask(taskId: string): Promise<TaskResponse> {
+    return await unwrapResponse(closeTaskHandler(taskId))
   },
 
   async deleteTask(taskId: string): Promise<{ status: string }> {
@@ -149,9 +132,9 @@ export const tasksApi = {
   async createVibeTask(
     request: CreateVibeTaskRequest,
   ): Promise<{ taskId: string; status: string }> {
-    const response = (await unwrapResponse(
+    const response = await unwrapResponse<CreateTaskResponse>(
       createVibeTaskHandler(request as unknown as ApiCreateVibeTaskRequest),
-    )) as unknown as SimpleTaskResponse
+    )
     return { taskId: response.taskId, status: response.status }
   },
 

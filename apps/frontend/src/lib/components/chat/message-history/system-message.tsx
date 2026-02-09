@@ -1,17 +1,26 @@
-import type { SystemMessage } from '@moatless/types'
+import type { UiMessage } from '@moatless/api-client'
 import { ChevronDown, ChevronRight, Settings } from 'lucide-react'
 import { useState } from 'react'
 import { Response } from '@/lib/components/ai-elements/response'
 import { cn } from '@/lib/utils'
 
 interface SystemMessageProps {
-  message: SystemMessage
+  message: UiMessage
+}
+
+// Extract text content from UiMessage content blocks
+function getTextContent(message: UiMessage): string {
+  return message.content
+    .filter((c) => c.type === 'text')
+    .map((c) => c.text ?? '')
+    .join('\n')
 }
 
 export function SystemMessageComponent({ message }: SystemMessageProps) {
   const [isExpanded, setIsExpanded] = useState(false)
-  const isHidden = message.isVisibleInTranscriptOnly
-  const isSummary = message.isCompactSummary
+  const isHidden = message.messageType === 'transcript_only'
+  const isSummary = message.messageType === 'compact_summary'
+  const textContent = getTextContent(message)
 
   // For hidden/summary messages, show collapsed with expand option
   if (isHidden && !isExpanded) {
@@ -44,7 +53,7 @@ export function SystemMessageComponent({ message }: SystemMessageProps) {
 
       {isExpanded && (
         <div className="ml-5 border-l-2 border-muted pl-3">
-          <Response>{message.content}</Response>
+          <Response>{textContent}</Response>
         </div>
       )}
     </div>

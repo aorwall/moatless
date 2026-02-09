@@ -1,10 +1,9 @@
 import type {
-  Event,
-  EventType,
   ResourceMetrics,
   ServerEntry,
-  WorkspaceStatusResponse,
-} from '@moatless/types'
+  WorkspaceStatusFullResponse,
+} from '@moatless/api-client'
+import type { Event, EventType } from '@moatless/types'
 import { useQueryClient } from '@tanstack/react-query'
 import type React from 'react'
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
@@ -61,9 +60,9 @@ export function GlobalEventStreamProvider({
   const updateWorkspaceStatus = useCallback(
     (
       event: Event,
-      old: WorkspaceStatusResponse | undefined,
-    ): WorkspaceStatusResponse | undefined => {
-      const current: WorkspaceStatusResponse = old ?? {
+      old: WorkspaceStatusFullResponse | undefined,
+    ): WorkspaceStatusFullResponse | undefined => {
+      const current: WorkspaceStatusFullResponse = old ?? {
         workspaceState: 'missing',
         environmentStatus: 'not_created',
         agentState: 'none',
@@ -109,10 +108,10 @@ export function GlobalEventStreamProvider({
           return current
         }
         case 'workspace': {
-          // Only update if subType is a valid WorkspaceExistence
-          const validStates = ['exists', 'missing', 'invalid']
+          // Only update if subType is a valid WorkspaceState
+          const validStates = ['exists', 'missing']
           if (validStates.includes(event.subType || '')) {
-            return { ...current, workspaceState: event.subType as 'exists' | 'missing' | 'invalid' }
+            return { ...current, workspaceState: event.subType as 'exists' | 'missing' }
           }
           return current
         }
@@ -140,7 +139,7 @@ export function GlobalEventStreamProvider({
       // Apply optimistic updates for workspace status events
       if (event.type === 'agent' || event.type === 'environment' || event.type === 'workspace') {
         const queryKey = queryKeys.tasks.workspaceStatus(event.taskId)
-        queryClient.setQueryData(queryKey, (old: WorkspaceStatusResponse | undefined) =>
+        queryClient.setQueryData(queryKey, (old: WorkspaceStatusFullResponse | undefined) =>
           updateWorkspaceStatus(event, old),
         )
       }
@@ -149,7 +148,7 @@ export function GlobalEventStreamProvider({
       // entry inside the workspace status `servers` array by serverName
       if (event.type === 'server') {
         const wsKey = queryKeys.tasks.workspaceStatus(event.taskId)
-        queryClient.setQueryData(wsKey, (old: WorkspaceStatusResponse | undefined) => {
+        queryClient.setQueryData(wsKey, (old: WorkspaceStatusFullResponse | undefined) => {
           if (!old) {
             return old
           }
@@ -169,7 +168,7 @@ export function GlobalEventStreamProvider({
       // Apply optimistic updates for resource metrics events
       if (event.type === 'resources') {
         const wsKey = queryKeys.tasks.workspaceStatus(event.taskId)
-        queryClient.setQueryData(wsKey, (old: WorkspaceStatusResponse | undefined) => {
+        queryClient.setQueryData(wsKey, (old: WorkspaceStatusFullResponse | undefined) => {
           if (!old) {
             return old
           }

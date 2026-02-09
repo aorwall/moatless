@@ -1,4 +1,5 @@
-import type { Event, Task, TaskListResponse } from '@moatless/types'
+import type { ListTasksResponse, TaskResponse } from '@moatless/api-client'
+import type { Event } from '@moatless/types'
 import type { QueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/api/query-keys'
 
@@ -9,7 +10,7 @@ import { queryKeys } from '@/lib/api/query-keys'
 export function updateTaskInLists(
   queryClient: QueryClient,
   taskId: string,
-  updates: Partial<Task> | Task | null,
+  updates: Partial<TaskResponse> | TaskResponse | null,
   isAdd = false,
 ) {
   // Get all cached task list queries - look for any query that starts with ['tasks']
@@ -24,9 +25,9 @@ export function updateTaskInLists(
   const updateTaskListData = (
     queryClient: QueryClient,
     queryKey: readonly unknown[],
-    data: TaskListResponse,
+    data: ListTasksResponse,
     taskId: string,
-    updates: Partial<Task> | Task | null,
+    updates: Partial<TaskResponse> | TaskResponse | null,
     isAdd: boolean,
   ): void => {
     if (updates === null) {
@@ -37,7 +38,7 @@ export function updateTaskInLists(
       // Add new task to the beginning of the list
       const existingTask = data.items.find((task) => task.taskId === taskId)
       if (!existingTask) {
-        const updatedTasks = [updates as Task, ...data.items]
+        const updatedTasks = [updates as TaskResponse, ...data.items]
         queryClient.setQueryData(queryKey, { ...data, items: updatedTasks })
       }
     } else {
@@ -56,7 +57,7 @@ export function updateTaskInLists(
       continue
     }
 
-    const data = query.state.data as TaskListResponse | undefined
+    const data = query.state.data as ListTasksResponse | undefined
     if (data?.items && Array.isArray(data.items)) {
       updateTaskListData(queryClient, query.queryKey, data, taskId, updates, isAdd)
     }
@@ -78,7 +79,7 @@ export function removeTaskFromLists(queryClient: QueryClient, taskId: string) {
   for (const query of taskListQueries) {
     // Only process queries that contain 'list' in their key (task list queries)
     if (query.queryKey.includes('list')) {
-      const data = query.state.data as TaskListResponse | undefined
+      const data = query.state.data as ListTasksResponse | undefined
       if (data?.items && Array.isArray(data.items)) {
         const updatedTasks = data.items.filter((task) => task.taskId !== taskId)
         queryClient.setQueryData(query.queryKey, {
@@ -91,7 +92,7 @@ export function removeTaskFromLists(queryClient: QueryClient, taskId: string) {
 }
 
 // Helper: Get task updates for task events
-function getTaskEventUpdates(event: Event): Partial<Task> {
+function getTaskEventUpdates(event: Event): Partial<TaskResponse> {
   if (event.subType === 'open') {
     return { status: 'open' }
   }
@@ -102,8 +103,8 @@ function getTaskEventUpdates(event: Event): Partial<Task> {
 }
 
 // Helper: Get task updates for task turn events
-function getTaskTurnUpdates(event: Event): Partial<Task> {
-  const timestamp = new Date(event.timestamp || Date.now())
+function getTaskTurnUpdates(event: Event): Partial<TaskResponse> {
+  const timestamp = new Date(event.timestamp || Date.now()).toISOString()
 
   if (event.subType === 'active') {
     return { status: 'running' }
@@ -115,8 +116,8 @@ function getTaskTurnUpdates(event: Event): Partial<Task> {
 }
 
 // Helper: Get task updates for agent events
-function getAgentEventUpdates(event: Event): Partial<Task> {
-  const timestamp = new Date(event.timestamp || Date.now())
+function getAgentEventUpdates(event: Event): Partial<TaskResponse> {
+  const timestamp = new Date(event.timestamp || Date.now()).toISOString()
 
   if (event.subType === 'started') {
     return { status: 'running' }
@@ -141,7 +142,7 @@ export function applyTaskEventUpdate(queryClient: QueryClient, event: Event): vo
   const taskId = event.taskId
 
   // Get updates based on event type
-  let taskUpdates: Partial<Task> = {}
+  let taskUpdates: Partial<TaskResponse> = {}
 
   switch (event.type) {
     case 'task':
@@ -158,7 +159,7 @@ export function applyTaskEventUpdate(queryClient: QueryClient, event: Event): vo
   // Apply updates if we have any
   if (Object.keys(taskUpdates).length > 0) {
     // Get current task data if it exists
-    const currentTask = queryClient.getQueryData<Task>(queryKeys.tasks.detail(taskId))
+    const currentTask = queryClient.getQueryData<TaskResponse>(queryKeys.tasks.detail(taskId))
 
     // Update task detail cache only if it exists
     if (currentTask) {

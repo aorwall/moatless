@@ -1,4 +1,4 @@
-import type { AssistantMessage, AssistantMessageContent } from '@moatless/types'
+import type { UiContentBlock, UiMessage } from '@moatless/api-client'
 import type { Meta, StoryObj } from '@storybook/react-vite'
 import { useState } from 'react'
 import { AssistantMessageComponent } from '../assistant-message.tsx'
@@ -26,7 +26,7 @@ function InteractiveAssistantMessage({
   message,
   initialExpanded = [],
 }: {
-  message: AssistantMessage
+  message: UiMessage
   initialExpanded?: string[]
 }) {
   const [expandedToolCalls, setExpandedToolCalls] = useState<Set<string>>(new Set(initialExpanded))
@@ -52,21 +52,20 @@ function InteractiveAssistantMessage({
   )
 }
 
-const createAssistantMessage = (
-  content: string | AssistantMessageContent[],
-  id = 'assistant-msg-1',
-): AssistantMessage => ({
-  id,
+const createAssistantMessage = (content: UiContentBlock[], id = 'assistant-msg-1'): UiMessage => ({
+  uuid: id,
   role: 'assistant',
   content,
-  timestamp: new Date(),
+  toolResults: [],
 })
+
+const textContent = (text: string): UiContentBlock[] => [{ type: 'text', text }]
 
 export const SimpleText = {
   render: () => (
     <InteractiveAssistantMessage
       message={createAssistantMessage(
-        "I'll help you fix the authentication bug. Let me analyze the code first.",
+        textContent("I'll help you fix the authentication bug. Let me analyze the code first."),
       )}
     />
   ),
@@ -76,23 +75,25 @@ export const WithMarkdown = {
   render: () => (
     <InteractiveAssistantMessage
       message={createAssistantMessage(
-        '## Solution Found\n\n' +
-          'The issue is in the `authenticate` function:\n\n' +
-          '```javascript\n' +
-          'function authenticate(user) {\n' +
-          '  // Missing null check\n' +
-          '  if (!token) {\n' +
-          '    throw new Error("Token service not initialized");\n' +
-          '  }\n' +
-          '  return token.verify(user.token);\n' +
-          '}\n' +
-          '```\n\n' +
-          'This should resolve the **undefined token** error.\n\n' +
-          '### Steps to fix:\n\n' +
-          '- Initialize the token service before use\n' +
-          '- Add proper null checks for the token\n' +
-          '- Handle errors gracefully with try-catch\n' +
-          '- Update unit tests to cover this scenario',
+        textContent(
+          '## Solution Found\n\n' +
+            'The issue is in the `authenticate` function:\n\n' +
+            '```javascript\n' +
+            'function authenticate(user) {\n' +
+            '  // Missing null check\n' +
+            '  if (!token) {\n' +
+            '    throw new Error("Token service not initialized");\n' +
+            '  }\n' +
+            '  return token.verify(user.token);\n' +
+            '}\n' +
+            '```\n\n' +
+            'This should resolve the **undefined token** error.\n\n' +
+            '### Steps to fix:\n\n' +
+            '- Initialize the token service before use\n' +
+            '- Add proper null checks for the token\n' +
+            '- Handle errors gracefully with try-catch\n' +
+            '- Update unit tests to cover this scenario',
+        ),
       )}
     />
   ),
@@ -100,31 +101,25 @@ export const WithMarkdown = {
 
 export const WithMultipleToolCalls = {
   render: () => {
-    const content: AssistantMessageContent[] = [
+    const content: UiContentBlock[] = [
       {
         type: 'text',
         text: "I'll check both the authentication and token files to understand the issue.",
       },
       {
         type: 'tool_use',
-        tool_use_id: 'read-auth',
-        tool_name: 'Read',
-        tool_input: {
+        toolUseId: 'read-auth',
+        toolName: 'Read',
+        toolInput: {
           file_path: '/src/auth/authenticate.js',
-        },
-        tool_result: {
-          content: 'authenticate.js content here...',
         },
       },
       {
         type: 'tool_use',
-        tool_use_id: 'read-token',
-        tool_name: 'Read',
-        tool_input: {
+        toolUseId: 'read-token',
+        toolName: 'Read',
+        toolInput: {
           file_path: '/src/auth/token.js',
-        },
-        tool_result: {
-          content: 'token.js content here...',
         },
       },
       {
@@ -132,22 +127,38 @@ export const WithMultipleToolCalls = {
         text: 'Found the issue! The token service needs to be imported.',
       },
     ]
-    return <InteractiveAssistantMessage message={createAssistantMessage(content)} />
+    return (
+      <InteractiveAssistantMessage
+        message={{
+          ...createAssistantMessage(content),
+          toolResults: [
+            {
+              toolUseId: 'read-auth',
+              content: 'authenticate.js content here...',
+            },
+            {
+              toolUseId: 'read-token',
+              content: 'token.js content here...',
+            },
+          ],
+        }}
+      />
+    )
   },
 } as unknown as Story
 
 export const WithTodoWrite = {
   render: () => {
-    const content: AssistantMessageContent[] = [
+    const content: UiContentBlock[] = [
       {
         type: 'text',
         text: "I'll create a task list to track the authentication fixes:",
       },
       {
         type: 'tool_use',
-        tool_use_id: 'todo-1',
-        tool_name: 'TodoWrite',
-        tool_input: {
+        toolUseId: 'todo-1',
+        toolName: 'TodoWrite',
+        toolInput: {
           todos: [
             {
               id: '1',
@@ -176,31 +187,37 @@ export const WithTodoWrite = {
             },
           ],
         },
-        tool_result: {
-          content: 'Todos have been modified successfully.',
-        },
       },
     ]
-    return <InteractiveAssistantMessage message={createAssistantMessage(content)} />
+    return (
+      <InteractiveAssistantMessage
+        message={{
+          ...createAssistantMessage(content),
+          toolResults: [
+            {
+              toolUseId: 'todo-1',
+              content: 'Todos have been modified successfully.',
+            },
+          ],
+        }}
+      />
+    )
   },
 } as unknown as Story
 
 export const WithError = {
   render: () => {
-    const content: AssistantMessageContent[] = [
+    const content: UiContentBlock[] = [
       {
         type: 'text',
         text: 'Let me check that file:',
       },
       {
         type: 'tool_use',
-        tool_use_id: 'read-error',
-        tool_name: 'Read',
-        tool_input: {
+        toolUseId: 'read-error',
+        toolName: 'Read',
+        toolInput: {
           file_path: '/nonexistent/file.js',
-        },
-        tool_result: {
-          content: 'Error: File not found: /nonexistent/file.js',
         },
       },
       {
@@ -208,6 +225,18 @@ export const WithError = {
         text: "The file doesn't exist. Let me search for it in the project:",
       },
     ]
-    return <InteractiveAssistantMessage message={createAssistantMessage(content)} />
+    return (
+      <InteractiveAssistantMessage
+        message={{
+          ...createAssistantMessage(content),
+          toolResults: [
+            {
+              toolUseId: 'read-error',
+              content: 'Error: File not found: /nonexistent/file.js',
+            },
+          ],
+        }}
+      />
+    )
   },
 } as unknown as Story

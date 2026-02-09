@@ -1,4 +1,4 @@
-import type { Task, WorkspaceStatusResponse } from '@moatless/types'
+import type { TaskResponse, WorkspaceStatusFullResponse } from '@moatless/api-client'
 import { AlertCircle, CheckCircle, Clock, XCircle } from 'lucide-react'
 import { getTaskStatusConfig } from '@/features/tasks/utils/task-status'
 import { Badge } from '@/lib/components/ui/badge'
@@ -6,7 +6,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/lib/components/ui/pop
 
 interface WorkspaceStatusPopupProps {
   totalCostUsd: number
-  workspace?: WorkspaceStatusResponse
+  workspace?: WorkspaceStatusFullResponse
 }
 
 function WorkspaceStatusPopup({ totalCostUsd, workspace }: WorkspaceStatusPopupProps) {
@@ -72,8 +72,8 @@ function WorkspaceStatusPopup({ totalCostUsd, workspace }: WorkspaceStatusPopupP
 }
 
 interface TaskStatusIconProps {
-  task: Pick<Task, 'status' | 'totalCostUsd'>
-  workspace?: WorkspaceStatusResponse
+  task: Pick<TaskResponse, 'status' | 'totalCostUsd'>
+  workspace?: WorkspaceStatusFullResponse
   showText?: boolean
   className?: string
 }

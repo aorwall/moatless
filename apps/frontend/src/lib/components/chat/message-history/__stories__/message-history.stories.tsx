@@ -1,9 +1,4 @@
-import type {
-  AssistantMessage,
-  AssistantMessageContent,
-  Message,
-  UserMessage,
-} from '@moatless/types'
+import type { UiContentBlock, UiMessage, UiToolResult } from '@moatless/api-client'
 import type { Meta, StoryObj } from '@storybook/react-vite'
 import React from 'react'
 import { MessageHistory } from '../message-history.tsx'
@@ -31,31 +26,32 @@ const createUserMessage = (
   content: string,
   id: string,
   options?: {
-    isVisibleInTranscriptOnly?: boolean
-    isCompactSummary?: boolean
+    messageType?: string
   },
-): UserMessage => ({
-  id,
+): UiMessage => ({
+  uuid: id,
   role: 'user',
-  content,
-  timestamp: new Date(),
+  content: [{ type: 'text', text: content }],
+  toolResults: [],
   ...options,
 })
 
 const createAssistantMessage = (
-  content: string | AssistantMessageContent[],
+  content: UiContentBlock[],
   id: string,
   options?: {
-    isVisibleInTranscriptOnly?: boolean
-    isCompactSummary?: boolean
+    messageType?: string
+    toolResults?: UiToolResult[]
   },
-): AssistantMessage => ({
-  id,
+): UiMessage => ({
+  uuid: id,
   role: 'assistant',
   content,
-  timestamp: new Date(),
+  toolResults: options?.toolResults ?? [],
   ...options,
 })
+
+const textBlocks = (text: string): UiContentBlock[] => [{ type: 'text', text }]
 
 // Stories
 export const EmptyConversation: Story = {
@@ -85,15 +81,19 @@ export const SimpleConversation: Story = {
     messages: [
       createUserMessage('Hello, can you help me with authentication?', 'msg-1'),
       createAssistantMessage(
-        "Of course! I'd be happy to help you with authentication. What specific aspect are you working on?",
+        textBlocks(
+          "Of course! I'd be happy to help you with authentication. What specific aspect are you working on?",
+        ),
         'msg-2',
       ),
       createUserMessage('I need to implement JWT token refresh', 'msg-3'),
       createAssistantMessage(
-        "I'll help you implement JWT token refresh. Let me first check your current authentication setup.",
+        textBlocks(
+          "I'll help you implement JWT token refresh. Let me first check your current authentication setup.",
+        ),
         'msg-4',
       ),
-    ] as Message[],
+    ],
     isLoading: false,
   },
 }
@@ -110,13 +110,10 @@ export const WithToolCalls: Story = {
           },
           {
             type: 'tool_use',
-            tool_use_id: 'tool-1',
-            tool_name: 'Read',
-            tool_input: {
+            toolUseId: 'tool-1',
+            toolName: 'Read',
+            toolInput: {
               file_path: '/src/auth/authenticate.js',
-            },
-            tool_result: {
-              content: 'function authenticate(user) {\n  return token.verify(user.token);\n}',
             },
           },
           {
@@ -125,8 +122,16 @@ export const WithToolCalls: Story = {
           },
         ],
         'msg-2',
+        {
+          toolResults: [
+            {
+              toolUseId: 'tool-1',
+              content: 'function authenticate(user) {\n  return token.verify(user.token);\n}',
+            },
+          ],
+        },
       ),
-    ] as Message[],
+    ],
     isLoading: false,
   },
 }
@@ -139,43 +144,49 @@ export const GroupedToolCalls: Story = {
         [
           {
             type: 'tool_use',
-            tool_use_id: 'grep-1',
-            tool_name: 'Grep',
-            tool_input: { pattern: 'authenticate', path: '/src' },
-            tool_result: { content: 'Found 5 matches' },
+            toolUseId: 'grep-1',
+            toolName: 'Grep',
+            toolInput: { pattern: 'authenticate', path: '/src' },
           },
         ],
         'msg-2',
+        {
+          toolResults: [{ toolUseId: 'grep-1', content: 'Found 5 matches' }],
+        },
       ),
       createAssistantMessage(
         [
           {
             type: 'tool_use',
-            tool_use_id: 'read-1',
-            tool_name: 'Read',
-            tool_input: { file_path: '/src/auth.js' },
-            tool_result: { content: 'auth.js content' },
+            toolUseId: 'read-1',
+            toolName: 'Read',
+            toolInput: { file_path: '/src/auth.js' },
           },
         ],
         'msg-3',
+        {
+          toolResults: [{ toolUseId: 'read-1', content: 'auth.js content' }],
+        },
       ),
       createAssistantMessage(
         [
           {
             type: 'tool_use',
-            tool_use_id: 'read-2',
-            tool_name: 'Read',
-            tool_input: { file_path: '/src/token.js' },
-            tool_result: { content: 'token.js content' },
+            toolUseId: 'read-2',
+            toolName: 'Read',
+            toolInput: { file_path: '/src/token.js' },
           },
         ],
         'msg-4',
+        {
+          toolResults: [{ toolUseId: 'read-2', content: 'token.js content' }],
+        },
       ),
       createAssistantMessage(
-        'Found all the authentication files. They need some refactoring.',
+        textBlocks('Found all the authentication files. They need some refactoring.'),
         'msg-5',
       ),
-    ] as Message[],
+    ],
     isLoading: false,
   },
 }
@@ -185,7 +196,7 @@ export const LongConversation: Story = {
     messages: [
       createUserMessage('Hello, I need help with authentication', 'msg-1'),
       createAssistantMessage(
-        'Hi! I can help you with authentication. What issue are you facing?',
+        textBlocks('Hi! I can help you with authentication. What issue are you facing?'),
         'msg-2',
       ),
       createUserMessage(
@@ -200,42 +211,54 @@ export const LongConversation: Story = {
           },
           {
             type: 'tool_use',
-            tool_use_id: 'read-1',
-            tool_name: 'Read',
-            tool_input: {
+            toolUseId: 'read-1',
+            toolName: 'Read',
+            toolInput: {
               file_path:
                 '/Users/developer/projects/enterprise-app/backend/src/modules/authentication/services/token-management/jwt-validator/implementations/v2/TokenValidationService.ts',
-            },
-            tool_result: {
-              content:
-                'export class TokenValidationService {\n  validate(token: string) { /* ... */ }\n}',
             },
           },
         ],
         'msg-4',
+        {
+          toolResults: [
+            {
+              toolUseId: 'read-1',
+              content:
+                'export class TokenValidationService {\n  validate(token: string) { /* ... */ }\n}',
+            },
+          ],
+        },
       ),
       createUserMessage('Can you also check the refresh token service?', 'msg-5'),
       createAssistantMessage(
         [
           {
             type: 'tool_use',
-            tool_use_id: 'read-2',
-            tool_name: 'Read',
-            tool_input: {
+            toolUseId: 'read-2',
+            toolName: 'Read',
+            toolInput: {
               file_path:
                 '/Users/developer/projects/enterprise-app/backend/src/modules/authentication/services/token-management/refresh-token/implementations/RefreshTokenService.ts',
-            },
-            tool_result: {
-              content:
-                'export class RefreshTokenService {\n  refresh(token: string) { /* ... */ }\n}',
             },
           },
         ],
         'msg-6',
+        {
+          toolResults: [
+            {
+              toolUseId: 'read-2',
+              content:
+                'export class RefreshTokenService {\n  refresh(token: string) { /* ... */ }\n}',
+            },
+          ],
+        },
       ),
       createUserMessage('What did you find?', 'msg-7'),
       createAssistantMessage(
-        'Both services look good. The token validation is working correctly, and the refresh mechanism is properly implemented.',
+        textBlocks(
+          'Both services look good. The token validation is working correctly, and the refresh mechanism is properly implemented.',
+        ),
         'msg-8',
       ),
       createUserMessage(
@@ -243,16 +266,16 @@ export const LongConversation: Story = {
         'msg-9',
       ),
       createAssistantMessage(
-        'I see the issue - those paths should be relative. Let me fix that for you.',
+        textBlocks('I see the issue - those paths should be relative. Let me fix that for you.'),
         'msg-10',
       ),
       createAssistantMessage(
         [
           {
             type: 'tool_use',
-            tool_use_id: 'edit-1',
-            tool_name: 'Edit',
-            tool_input: {
+            toolUseId: 'edit-1',
+            toolName: 'Edit',
+            toolInput: {
               file_path:
                 '/Users/developer/projects/enterprise-app/backend/src/modules/authentication/configuration/services.config.json',
               old_string:
@@ -260,12 +283,17 @@ export const LongConversation: Story = {
               new_string:
                 '"./services/token-management/jwt-validator/implementations/v2/TokenValidationService.ts"',
             },
-            tool_result: {
-              content: 'File updated successfully',
-            },
           },
         ],
         'msg-11',
+        {
+          toolResults: [
+            {
+              toolUseId: 'edit-1',
+              content: 'File updated successfully',
+            },
+          ],
+        },
       ),
       createUserMessage('Great! Can you also update the middleware path?', 'msg-12'),
       createAssistantMessage(
@@ -276,25 +304,32 @@ export const LongConversation: Story = {
           },
           {
             type: 'tool_use',
-            tool_use_id: 'edit-2',
-            tool_name: 'Edit',
-            tool_input: {
+            toolUseId: 'edit-2',
+            toolName: 'Edit',
+            toolInput: {
               file_path:
                 '/Users/developer/projects/enterprise-app/backend/src/modules/authentication/middleware/validation/token-expiry-check/ExpiryValidationMiddleware.ts',
               old_string: 'old code',
               new_string: 'new code',
             },
-            tool_result: {
-              content:
-                'Successfully updated /Users/developer/projects/enterprise-app/backend/src/modules/authentication/middleware/validation/token-expiry-check/ExpiryValidationMiddleware.ts',
-            },
           },
         ],
         'msg-13',
+        {
+          toolResults: [
+            {
+              toolUseId: 'edit-2',
+              content:
+                'Successfully updated /Users/developer/projects/enterprise-app/backend/src/modules/authentication/middleware/validation/token-expiry-check/ExpiryValidationMiddleware.ts',
+            },
+          ],
+        },
       ),
       createUserMessage('Thanks! Does this affect the hashing utility?', 'msg-14'),
       createAssistantMessage(
-        "No, the hashing utility at `/Users/developer/projects/enterprise-app/backend/src/modules/authentication/utilities/crypto/hashing/algorithms/SHA256HashingUtility.ts` is independent and doesn't need changes.",
+        textBlocks(
+          "No, the hashing utility at `/Users/developer/projects/enterprise-app/backend/src/modules/authentication/utilities/crypto/hashing/algorithms/SHA256HashingUtility.ts` is independent and doesn't need changes.",
+        ),
         'msg-15',
       ),
       createUserMessage('Perfect! One more thing - can you run the tests?', 'msg-16'),
@@ -302,24 +337,31 @@ export const LongConversation: Story = {
         [
           {
             type: 'tool_use',
-            tool_use_id: 'bash-1',
-            tool_name: 'Bash',
-            tool_input: {
+            toolUseId: 'bash-1',
+            toolName: 'Bash',
+            toolInput: {
               command: 'npm test',
-            },
-            tool_result: {
-              content: 'Running tests...\n✓ All tests passed\n\nTest files: 25\nTests passed: 150',
             },
           },
         ],
         'msg-17',
+        {
+          toolResults: [
+            {
+              toolUseId: 'bash-1',
+              content: 'Running tests...\n✓ All tests passed\n\nTest files: 25\nTests passed: 150',
+            },
+          ],
+        },
       ),
       createUserMessage('Excellent! Everything is working now.', 'msg-18'),
       createAssistantMessage(
-        'Great! All the authentication files have been updated and tests are passing. The configuration now uses relative paths which is much better for portability.',
+        textBlocks(
+          'Great! All the authentication files have been updated and tests are passing. The configuration now uses relative paths which is much better for portability.',
+        ),
         'msg-19',
       ),
-    ] as Message[],
+    ],
     isLoading: false,
   },
 }
@@ -336,9 +378,9 @@ export const WithTodos: Story = {
           },
           {
             type: 'tool_use',
-            tool_use_id: 'todo-1',
-            tool_name: 'TodoWrite',
-            tool_input: {
+            toolUseId: 'todo-1',
+            toolName: 'TodoWrite',
+            toolInput: {
               todos: [
                 {
                   id: '1',
@@ -359,17 +401,21 @@ export const WithTodos: Story = {
                 { id: '5', content: 'Update documentation', status: 'pending' },
               ],
             },
-            tool_result: { content: 'Todos updated' },
           },
         ],
         'msg-2',
+        {
+          toolResults: [{ toolUseId: 'todo-1', content: 'Todos updated' }],
+        },
       ),
       createUserMessage('Great! How is the progress?', 'msg-3'),
       createAssistantMessage(
-        "I've completed the analysis and fixed the token initialization. Currently working on adding error handling.",
+        textBlocks(
+          "I've completed the analysis and fixed the token initialization. Currently working on adding error handling.",
+        ),
         'msg-4',
       ),
-    ] as Message[],
+    ],
     isLoading: false,
   },
 }
@@ -393,10 +439,9 @@ export const MixedContent: Story = {
           },
           {
             type: 'tool_use',
-            tool_use_id: 'glob-1',
-            tool_name: 'Glob',
-            tool_input: { pattern: '**/auth*.{js,ts}' },
-            tool_result: { content: 'No authentication files found' },
+            toolUseId: 'glob-1',
+            toolName: 'Glob',
+            toolInput: { pattern: '**/auth*.{js,ts}' },
           },
           {
             type: 'text',
@@ -404,14 +449,17 @@ export const MixedContent: Story = {
           },
         ],
         'msg-2',
+        {
+          toolResults: [{ toolUseId: 'glob-1', content: 'No authentication files found' }],
+        },
       ),
       createAssistantMessage(
         [
           {
             type: 'tool_use',
-            tool_use_id: 'todo-2',
-            tool_name: 'TodoWrite',
-            tool_input: {
+            toolUseId: 'todo-2',
+            toolName: 'TodoWrite',
+            toolInput: {
               todos: [
                 { id: '1', content: 'Create auth service', status: 'pending' },
                 {
@@ -434,31 +482,35 @@ export const MixedContent: Story = {
         [
           {
             type: 'tool_use',
-            tool_use_id: 'write-1',
-            tool_name: 'Write',
-            tool_input: {
+            toolUseId: 'write-1',
+            toolName: 'Write',
+            toolInput: {
               file_path: '/src/auth/authService.js',
               content: 'class AuthService { ... }',
             },
-            tool_result: { content: 'File created successfully' },
           },
         ],
         'msg-4',
+        {
+          toolResults: [{ toolUseId: 'write-1', content: 'File created successfully' }],
+        },
       ),
       createUserMessage('Can you add error handling?', 'msg-5'),
       createAssistantMessage(
-        '```javascript\n' +
-          'try {\n' +
-          '  const token = await authService.authenticate(credentials);\n' +
-          '  return { success: true, token };\n' +
-          '} catch (error) {\n' +
-          '  console.error("Authentication failed:", error);\n' +
-          '  return { success: false, error: error.message };\n' +
-          '}\n' +
-          '```',
+        textBlocks(
+          '```javascript\n' +
+            'try {\n' +
+            '  const token = await authService.authenticate(credentials);\n' +
+            '  return { success: true, token };\n' +
+            '} catch (error) {\n' +
+            '  console.error("Authentication failed:", error);\n' +
+            '  return { success: false, error: error.message };\n' +
+            '}\n' +
+            '```',
+        ),
         'msg-6',
       ),
-    ] as Message[],
+    ],
     isLoading: false,
   },
 }
@@ -468,11 +520,13 @@ export const ThinkingState: Story = {
     messages: [
       createUserMessage('Can you help me refactor the authentication module?', 'msg-1'),
       createAssistantMessage(
-        "I'll help you refactor the authentication module. Let me first analyze the current code structure.",
+        textBlocks(
+          "I'll help you refactor the authentication module. Let me first analyze the current code structure.",
+        ),
         'msg-2',
       ),
       createUserMessage('Also check if there are any security issues', 'msg-3'),
-    ] as Message[],
+    ],
     isLoading: false,
     isRunning: true,
   },
@@ -480,10 +534,10 @@ export const ThinkingState: Story = {
 
 export const AutoScrollBehavior: Story = {
   render: () => {
-    const [messages, setMessages] = React.useState<Message[]>([
+    const [messages, setMessages] = React.useState<UiMessage[]>([
       createUserMessage('Hello! Can you help me with auto-scrolling?', 'msg-1'),
       createAssistantMessage(
-        'Sure! Let me demonstrate how auto-scrolling works when new messages arrive.',
+        textBlocks('Sure! Let me demonstrate how auto-scrolling works when new messages arrive.'),
         'msg-2',
       ),
     ])
@@ -495,7 +549,10 @@ export const AutoScrollBehavior: Story = {
       const isUser = counterRef.current % 2 === 1
       const newMessage = isUser
         ? createUserMessage(`User message #${Math.floor(counterRef.current / 2) + 1}`, newId)
-        : createAssistantMessage(`Assistant response #${Math.floor(counterRef.current / 2)}`, newId)
+        : createAssistantMessage(
+            textBlocks(`Assistant response #${Math.floor(counterRef.current / 2)}`),
+            newId,
+          )
 
       setMessages((prev) => [...prev, newMessage])
       counterRef.current += 1
@@ -560,7 +617,9 @@ export const AutoScrollBehavior: Story = {
                 setMessages([
                   createUserMessage('Hello! Can you help me with auto-scrolling?', 'msg-1'),
                   createAssistantMessage(
-                    'Sure! Let me demonstrate how auto-scrolling works when new messages arrive.',
+                    textBlocks(
+                      'Sure! Let me demonstrate how auto-scrolling works when new messages arrive.',
+                    ),
                     'msg-2',
                   ),
                 ])
@@ -586,11 +645,14 @@ export const WithHiddenMessages: Story = {
   args: {
     messages: [
       createUserMessage('Help me understand the authentication flow', 'msg-1'),
-      createAssistantMessage("I'll analyze the authentication system for you.", 'msg-2'),
+      createAssistantMessage(
+        textBlocks("I'll analyze the authentication system for you."),
+        'msg-2',
+      ),
       createUserMessage(
         'This is context that was provided to the agent about the project setup and configuration.',
         'msg-3',
-        { isVisibleInTranscriptOnly: true },
+        { messageType: 'transcript_only' },
       ),
       createAssistantMessage(
         [
@@ -600,24 +662,28 @@ export const WithHiddenMessages: Story = {
           },
           {
             type: 'tool_use',
-            tool_use_id: 'read-1',
-            tool_name: 'Read',
-            tool_input: { file_path: '/src/auth/service.ts' },
-            tool_result: { content: 'Authentication service code...' },
+            toolUseId: 'read-1',
+            toolName: 'Read',
+            toolInput: { file_path: '/src/auth/service.ts' },
           },
         ],
         'msg-4',
+        {
+          toolResults: [{ toolUseId: 'read-1', content: 'Authentication service code...' }],
+        },
       ),
       createAssistantMessage(
-        'Internal reasoning about the code structure and potential issues.',
+        textBlocks('Internal reasoning about the code structure and potential issues.'),
         'msg-5',
-        { isVisibleInTranscriptOnly: true },
+        { messageType: 'transcript_only' },
       ),
       createAssistantMessage(
-        'The authentication flow looks good, but I recommend adding error handling for token expiry.',
+        textBlocks(
+          'The authentication flow looks good, but I recommend adding error handling for token expiry.',
+        ),
         'msg-6',
       ),
-    ] as Message[],
+    ],
     isLoading: false,
   },
 }
@@ -636,21 +702,25 @@ export const WithSummaryMessages: Story = {
           '2. REST API with versioning\n' +
           '3. JWT authentication',
         'summary-1',
-        { isVisibleInTranscriptOnly: true, isCompactSummary: true },
+        { messageType: 'compact_summary' },
       ),
       createUserMessage("Now let's work on the authentication implementation", 'msg-1'),
       createAssistantMessage(
-        "Based on our previous discussion, I'll implement JWT authentication with the PostgreSQL database.",
+        textBlocks(
+          "Based on our previous discussion, I'll implement JWT authentication with the PostgreSQL database.",
+        ),
         'msg-2',
       ),
       createAssistantMessage(
-        '## Implementation Plan Summary\n\n' +
-          '1. Create user model\n' +
-          '2. Implement JWT service\n' +
-          '3. Add auth middleware\n' +
-          '4. Create login/logout endpoints',
+        textBlocks(
+          '## Implementation Plan Summary\n\n' +
+            '1. Create user model\n' +
+            '2. Implement JWT service\n' +
+            '3. Add auth middleware\n' +
+            '4. Create login/logout endpoints',
+        ),
         'summary-2',
-        { isVisibleInTranscriptOnly: true, isCompactSummary: true },
+        { messageType: 'compact_summary' },
       ),
       createUserMessage('Looks good! Please proceed with the implementation.', 'msg-3'),
       createAssistantMessage(
@@ -661,18 +731,20 @@ export const WithSummaryMessages: Story = {
           },
           {
             type: 'tool_use',
-            tool_use_id: 'write-1',
-            tool_name: 'Write',
-            tool_input: {
+            toolUseId: 'write-1',
+            toolName: 'Write',
+            toolInput: {
               file_path: '/src/auth/jwt.service.ts',
               content: 'JWT service implementation...',
             },
-            tool_result: { content: 'File created successfully' },
           },
         ],
         'msg-4',
+        {
+          toolResults: [{ toolUseId: 'write-1', content: 'File created successfully' }],
+        },
       ),
-    ] as Message[],
+    ],
     isLoading: false,
   },
 }
@@ -682,28 +754,32 @@ export const MixedHiddenAndNormal: Story = {
     messages: [
       createUserMessage('I need help debugging my application', 'msg-1'),
       createUserMessage('System context: Node.js v18, TypeScript 5.0, Express 4.18', 'hidden-1', {
-        isVisibleInTranscriptOnly: true,
+        messageType: 'transcript_only',
       }),
       createAssistantMessage(
-        "I'll help you debug. Let me first check your project structure.",
+        textBlocks("I'll help you debug. Let me first check your project structure."),
         'msg-2',
       ),
       createAssistantMessage(
         [
           {
             type: 'tool_use',
-            tool_use_id: 'glob-1',
-            tool_name: 'Glob',
-            tool_input: { pattern: '**/*.ts' },
-            tool_result: { content: 'Found 25 TypeScript files' },
+            toolUseId: 'glob-1',
+            toolName: 'Glob',
+            toolInput: { pattern: '**/*.ts' },
           },
         ],
         'msg-3',
+        {
+          toolResults: [{ toolUseId: 'glob-1', content: 'Found 25 TypeScript files' }],
+        },
       ),
       createAssistantMessage(
-        'Internal analysis: The project appears to be a standard Express application with potential issues in error handling.',
+        textBlocks(
+          'Internal analysis: The project appears to be a standard Express application with potential issues in error handling.',
+        ),
         'hidden-2',
-        { isVisibleInTranscriptOnly: true },
+        { messageType: 'transcript_only' },
       ),
       createUserMessage('The app crashes when I try to authenticate', 'msg-4'),
       createAssistantMessage(
@@ -714,34 +790,40 @@ export const MixedHiddenAndNormal: Story = {
           },
           {
             type: 'tool_use',
-            tool_use_id: 'read-1',
-            tool_name: 'Read',
-            tool_input: { file_path: '/src/auth/index.ts' },
-            tool_result: { content: 'export * from "./authenticate"' },
+            toolUseId: 'read-1',
+            toolName: 'Read',
+            toolInput: { file_path: '/src/auth/index.ts' },
           },
         ],
         'msg-5',
+        {
+          toolResults: [{ toolUseId: 'read-1', content: 'export * from "./authenticate"' }],
+        },
       ),
       createAssistantMessage(
-        '## Debug Session Summary\n\n' +
-          'Issue identified: Missing error handler in auth middleware\n' +
-          'Root cause: Uncaught promise rejection\n' +
-          'Fix: Add try-catch wrapper',
+        textBlocks(
+          '## Debug Session Summary\n\n' +
+            'Issue identified: Missing error handler in auth middleware\n' +
+            'Root cause: Uncaught promise rejection\n' +
+            'Fix: Add try-catch wrapper',
+        ),
         'summary-1',
-        { isVisibleInTranscriptOnly: true, isCompactSummary: true },
+        { messageType: 'compact_summary' },
       ),
       createAssistantMessage(
-        "I found the issue! The authentication middleware is missing error handling. Here's how to fix it:\n\n" +
-          '```typescript\n' +
-          'try {\n' +
-          '  await authenticate(req, res, next);\n' +
-          '} catch (error) {\n' +
-          '  next(error);\n' +
-          '}\n' +
-          '```',
+        textBlocks(
+          "I found the issue! The authentication middleware is missing error handling. Here's how to fix it:\n\n" +
+            '```typescript\n' +
+            'try {\n' +
+            '  await authenticate(req, res, next);\n' +
+            '} catch (error) {\n' +
+            '  next(error);\n' +
+            '}\n' +
+            '```',
+        ),
         'msg-6',
       ),
-    ] as Message[],
+    ],
     isLoading: false,
   },
 }

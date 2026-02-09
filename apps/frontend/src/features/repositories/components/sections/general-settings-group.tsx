@@ -1,4 +1,4 @@
-import type { UpdateRepositoryRequest } from '@moatless/types'
+import type { UpdateRepositoryRequest } from '@moatless/api-client'
 import {
   ConfigurationGroup,
   ConfigurationInput,
@@ -8,7 +8,8 @@ import {
 } from '@/lib/components/configuration'
 
 interface GeneralSettingsGroupProps {
-  repositoryKind: 'remote' | 'template'
+  repositoryKind: string
+  provider?: string | null
   formData: Partial<UpdateRepositoryRequest>
   onUpdateField: <K extends keyof UpdateRepositoryRequest>(
     field: K,
@@ -18,6 +19,7 @@ interface GeneralSettingsGroupProps {
 
 export function GeneralSettingsGroup({
   repositoryKind,
+  provider,
   formData,
   onUpdateField,
 }: GeneralSettingsGroupProps) {
@@ -44,7 +46,7 @@ export function GeneralSettingsGroup({
       >
         <ConfigurationSelect
           value={formData.visibility || 'private'}
-          onValueChange={(value) => onUpdateField('visibility', value as 'private' | 'public')}
+          onValueChange={(value) => onUpdateField('visibility', value)}
           options={[
             {
               value: 'private',
@@ -69,13 +71,13 @@ export function GeneralSettingsGroup({
       >
         <ConfigurationInput
           value={formData.remoteUrl || ''}
-          onChange={(e) => onUpdateField('remoteUrl', e.target.value || undefined)}
+          onChange={(e) => onUpdateField('remoteUrl', e.target.value || null)}
           placeholder="https://github.com/owner/repo"
         />
       </ConfigurationItem>
 
       <ConfigurationItem label="Provider" description="Git provider type (GitHub or GitLab)">
-        <ConfigurationInput value={formData.provider || ''} disabled className="bg-muted" />
+        <ConfigurationInput value={provider || ''} disabled className="bg-muted" />
       </ConfigurationItem>
     </ConfigurationGroup>
   )

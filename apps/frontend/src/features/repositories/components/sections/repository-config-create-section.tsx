@@ -1,9 +1,7 @@
-import type { CreateRepositoryRequest } from '@moatless/types'
-import { CreateRepositorySchema } from '@moatless/types'
+import type { CreateRepositoryRequest } from '@moatless/api-client'
 import type React from 'react'
 import { useState } from 'react'
 import { toast } from 'sonner'
-import type { z } from 'zod'
 import { useCreateRepository } from '@/features/repositories/hooks/use-repositories'
 
 import {
@@ -13,7 +11,6 @@ import {
   ConfigurationSectionWrapper as ConfigurationSection,
 } from '@/lib/components/configuration'
 import { Button } from '@/lib/components/ui/button'
-import { useZodForm } from '@/lib/hooks/use-zod-form'
 import { getErrorMessage } from '@/lib/utils/error'
 
 interface RepositoryConfigCreateSectionProps {
@@ -26,11 +23,9 @@ export function RepositoryConfigCreateSection({
   onSuccess,
 }: RepositoryConfigCreateSectionProps) {
   const createRepository = useCreateRepository()
-  const { errors, validate, clearErrors } = useZodForm({
-    schema: CreateRepositorySchema,
-  })
 
   const [inputValue, setInputValue] = useState('')
+  const [inputError, setInputError] = useState<string | null>(null)
 
   // Helper: Detect provider from Git URL
   const detectProvider = (url: string): 'github' | 'gitlab' => {
@@ -59,21 +54,6 @@ export function RepositoryConfigCreateSection({
     }
     // Return the last segment (repo/project name)
     return match[3] || null
-  }
-
-  // Helper: Show validation errors
-  const showValidationErrors = (result: {
-    success: false
-    error: z.ZodError<CreateRepositoryRequest>
-  }): void => {
-    const errorCount = result.error.issues.length
-    if (errorCount === 1) {
-      const error = result.error.issues[0]
-      const fieldName = error.path[0] || 'field'
-      toast.error(`Please check the ${String(fieldName)} field: ${error.message}`)
-    } else {
-      toast.error(`Please check the form for ${errorCount} validation errors`)
-    }
   }
 
   const handleSubmit = () => {
@@ -108,17 +88,9 @@ export function RepositoryConfigCreateSection({
       name: repoName,
       remoteUrl: trimmedInput,
       provider: provider,
-      codeExecution: {},
     }
 
-    const result = validate(repositoryData)
-
-    if (!result.success) {
-      showValidationErrors(result)
-      return
-    }
-
-    createRepository.mutate(result.data, {
+    createRepository.mutate(repositoryData, {
       onSuccess: (data) => {
         toast.success('Repository created successfully')
         onSuccess(data.id)
@@ -133,7 +105,7 @@ export function RepositoryConfigCreateSection({
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setInputValue(e.target.value)
-    clearErrors()
+    setInputError(null)
   }
 
   return (
@@ -147,14 +119,10 @@ export function RepositoryConfigCreateSection({
             value={inputValue}
             onChange={handleInputChange}
             placeholder="https://github.com/owner/repo or https://gitlab.com/group/project"
-            className={(errors as { remoteUrl?: string }).remoteUrl ? 'border-destructive' : ''}
+            className={inputError ? 'border-destructive' : ''}
             autoFocus
           />
-          {(errors as { remoteUrl?: string }).remoteUrl && (
-            <p className="text-sm text-destructive mt-1">
-              {(errors as { remoteUrl?: string }).remoteUrl}
-            </p>
-          )}
+          {inputError && <p className="text-sm text-destructive mt-1">{inputError}</p>}
         </ConfigurationItem>
       </ConfigurationGroup>
 

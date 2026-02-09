@@ -9,6 +9,7 @@ use crate::protocol::orchestrator::Orchestrator;
 use crate::protocol::request_tracker::RequestTracker;
 use crate::transport::SubprocessTransport;
 use crate::types::control::{ControlRequestEnvelope, OutgoingControlRequest};
+use crate::types::mcp::McpServerConfig;
 use crate::types::messages::{SdkMessage, UserMessage};
 use crate::types::options::ClaudeOptions;
 use crate::types::permissions::PermissionMode;
@@ -52,6 +53,40 @@ impl QueryHandle {
     pub async fn set_max_thinking_tokens(&self, tokens: Option<i64>) -> Result<()> {
         self.send_control_request(OutgoingControlRequest::SetMaxThinkingTokens {
             max_thinking_tokens: tokens,
+        })
+        .await?;
+        Ok(())
+    }
+
+    /// Get the status of all MCP servers.
+    pub async fn mcp_status(&self) -> Result<()> {
+        self.send_control_request(OutgoingControlRequest::McpStatus)
+            .await?;
+        Ok(())
+    }
+
+    /// Set/replace the MCP server configuration at runtime.
+    pub async fn set_mcp_servers(
+        &self,
+        servers: std::collections::HashMap<String, McpServerConfig>,
+    ) -> Result<()> {
+        self.send_control_request(OutgoingControlRequest::McpSetServers { servers })
+            .await?;
+        Ok(())
+    }
+
+    /// Reconnect a specific MCP server by name.
+    pub async fn reconnect_mcp_server(&self, server_name: String) -> Result<()> {
+        self.send_control_request(OutgoingControlRequest::McpReconnect { server_name })
+            .await?;
+        Ok(())
+    }
+
+    /// Toggle an MCP server on or off.
+    pub async fn toggle_mcp_server(&self, server_name: String, enabled: bool) -> Result<()> {
+        self.send_control_request(OutgoingControlRequest::McpToggle {
+            server_name,
+            enabled,
         })
         .await?;
         Ok(())

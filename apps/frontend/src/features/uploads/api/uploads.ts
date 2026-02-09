@@ -4,12 +4,10 @@ import {
   getDownloadFileUrl,
   uploadFile as uploadFileHandler,
 } from '@moatless/api-client/sandbox/file-storage/file-storage'
-import type { UploadFileResponse } from '@moatless/types'
 
 export const uploadsApi = {
-  async uploadFile(file: File): Promise<UploadFileResponse> {
-    const result = await unwrapResponse<UploadResponse>(uploadFileHandler({ file }))
-    return result as unknown as UploadFileResponse
+  async uploadFile(file: File): Promise<UploadResponse> {
+    return await unwrapResponse(uploadFileHandler({ file }))
   },
 
   getFileUrl(fileId: string): string {

@@ -2,9 +2,8 @@ import type {
   BranchListResponse,
   CreateRepositoryRequest,
   RepositoryResponse,
-  TemplateRepository,
   UpdateRepositoryRequest,
-} from '@moatless/types'
+} from '@moatless/api-client'
 import type { UseMutationOptions, UseQueryOptions } from '@tanstack/react-query'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useMemo } from 'react'
@@ -39,7 +38,7 @@ export function useTemplateRepositories(options?: { enabled?: boolean }) {
     if (!allRepos) {
       return []
     }
-    return allRepos.filter((repo): repo is TemplateRepository => repo.kind === 'template')
+    return allRepos.filter((repo) => repo.kind === 'template')
   }, [allRepos])
 
   return {

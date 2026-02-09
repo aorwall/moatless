@@ -1,4 +1,4 @@
-import type { UpdateRepositoryRequest } from '@moatless/types'
+import type { UpdateRepositoryRequest } from '@moatless/api-client'
 import {
   ConfigurationGroup,
   ConfigurationItem,

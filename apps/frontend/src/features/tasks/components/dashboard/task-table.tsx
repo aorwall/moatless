@@ -1,4 +1,4 @@
-import type { Task } from '@moatless/types'
+import type { TaskResponse } from '@moatless/api-client'
 import { Link } from '@tanstack/react-router'
 import { type ColumnDef, flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
@@ -31,7 +31,7 @@ function formatDate(date: Date | string): string {
   })
 }
 
-const columns: ColumnDef<Task>[] = [
+const columns: ColumnDef<TaskResponse>[] = [
   {
     id: 'status',
     header: 'Status',
@@ -95,7 +95,7 @@ const columns: ColumnDef<Task>[] = [
     header: 'Created By',
     cell: ({ row }) => (
       <span className="text-muted-foreground text-sm">
-        {row.original.createdByName || row.original.createdBy || '-'}
+        {row.original.createdByDisplayName || row.original.createdBy || '-'}
       </span>
     ),
   },
@@ -118,7 +118,7 @@ const columns: ColumnDef<Task>[] = [
 ]
 
 interface TaskTableProps {
-  tasks: Task[]
+  tasks: TaskResponse[]
   total: number
   page: number
   pageSize: number

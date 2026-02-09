@@ -1,41 +1,47 @@
-import type { AssistantMessage, Message, UserMessage } from '@moatless/types'
+import type { UiMessage } from '@moatless/api-client'
 import { render, screen } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import { MessageHistory } from '../message-history'
 
 describe('MessageHistory - Tier 1 State Machine Tests', () => {
-  const createUserMessage = (id: string, content: string): UserMessage => ({
-    id,
+  const createUserMessage = (id: string, content: string): UiMessage => ({
+    uuid: id,
     role: 'user',
-    content,
-    timestamp: new Date(),
+    content: [{ type: 'text', text: content }],
+    toolResults: [],
+    messageType: 'user',
+    timestamp: new Date().toISOString(),
   })
 
-  const createAssistantMessage = (id: string, content: string): AssistantMessage => ({
-    id,
+  const createAssistantMessage = (id: string, content: string): UiMessage => ({
+    uuid: id,
     role: 'assistant',
     content: [{ type: 'text', text: content }],
-    timestamp: new Date(),
+    toolResults: [],
+    messageType: 'assistant',
+    timestamp: new Date().toISOString(),
   })
 
-  const createToolUseMessage = (id: string, toolName: string): AssistantMessage => ({
-    id,
+  const createToolUseMessage = (id: string, toolName: string): UiMessage => ({
+    uuid: id,
     role: 'assistant',
     content: [
       {
         type: 'tool_use',
-        tool_use_id: `tool-${id}`,
-        tool_name: toolName,
-        tool_input: { test: 'data' },
+        toolUseId: `tool-${id}`,
+        toolName,
+        toolInput: { test: 'data' },
       },
     ],
-    timestamp: new Date(),
+    toolResults: [],
+    messageType: 'assistant',
+    timestamp: new Date().toISOString(),
   })
 
   describe('Message Rendering', () => {
     it('renders user messages', () => {
-      const messages: Message[] = [createUserMessage('1', 'Hello')]
+      const messages: UiMessage[] = [createUserMessage('1', 'Hello')]
 
       render(<MessageHistory messages={messages} />)
 
@@ -43,7 +49,7 @@ describe('MessageHistory - Tier 1 State Machine Tests', () => {
     })
 
     it('renders assistant messages', () => {
-      const messages: Message[] = [createAssistantMessage('1', 'Hi there')]
+      const messages: UiMessage[] = [createAssistantMessage('1', 'Hi there')]
 
       render(<MessageHistory messages={messages} />)
 
@@ -51,7 +57,7 @@ describe('MessageHistory - Tier 1 State Machine Tests', () => {
     })
 
     it('renders multiple messages in order', () => {
-      const messages: Message[] = [
+      const messages: UiMessage[] = [
         createUserMessage('1', 'First message'),
         createAssistantMessage('2', 'Second message'),
         createUserMessage('3', 'Third message'),
@@ -66,7 +72,7 @@ describe('MessageHistory - Tier 1 State Machine Tests', () => {
 
   describe('Tool Call Grouping', () => {
     it('groups consecutive tool-only messages', () => {
-      const messages: Message[] = [
+      const messages: UiMessage[] = [
         createToolUseMessage('1', 'Read'),
         createToolUseMessage('2', 'Write'),
         createUserMessage('3', 'User message'),
@@ -78,7 +84,7 @@ describe('MessageHistory - Tier 1 State Machine Tests', () => {
     })
 
     it('expands tool call group on click', async () => {
-      const messages: Message[] = [
+      const messages: UiMessage[] = [
         createToolUseMessage('1', 'Read'),
         createToolUseMessage('2', 'Write'),
       ]
@@ -94,7 +100,7 @@ describe('MessageHistory - Tier 1 State Machine Tests', () => {
     })
 
     it('shows tool count summary', () => {
-      const messages: Message[] = [
+      const messages: UiMessage[] = [
         createToolUseMessage('1', 'Read'),
         createToolUseMessage('2', 'Read'),
         createToolUseMessage('3', 'Write'),
@@ -109,7 +115,7 @@ describe('MessageHistory - Tier 1 State Machine Tests', () => {
 
   describe('Loading State', () => {
     it('does not show skeleton when messages exist', () => {
-      const messages: Message[] = [createUserMessage('1', 'Hello')]
+      const messages: UiMessage[] = [createUserMessage('1', 'Hello')]
 
       render(<MessageHistory messages={messages} isLoading />)
 
@@ -143,7 +149,7 @@ describe('MessageHistory - Tier 1 State Machine Tests', () => {
 
   describe('Running State', () => {
     it('shows thinking indicator when running', () => {
-      const messages: Message[] = [createUserMessage('1', 'Hello')]
+      const messages: UiMessage[] = [createUserMessage('1', 'Hello')]
 
       render(<MessageHistory messages={messages} isRunning />)
 
@@ -151,7 +157,7 @@ describe('MessageHistory - Tier 1 State Machine Tests', () => {
     })
 
     it('does not show thinking indicator when not running', () => {
-      const messages: Message[] = [createUserMessage('1', 'Hello')]
+      const messages: UiMessage[] = [createUserMessage('1', 'Hello')]
 
       render(<MessageHistory messages={messages} />)
 
@@ -161,7 +167,7 @@ describe('MessageHistory - Tier 1 State Machine Tests', () => {
 
   describe('Tool Call Expansion', () => {
     it('renders tool use messages', () => {
-      const messages: Message[] = [createToolUseMessage('1', 'Read')]
+      const messages: UiMessage[] = [createToolUseMessage('1', 'Read')]
 
       const { container } = render(<MessageHistory messages={messages} />)
 
