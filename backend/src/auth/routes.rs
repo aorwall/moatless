@@ -66,6 +66,7 @@ pub struct AuthState {
         verify_handler,
         me_handler,
         logout_handler,
+        exchange_api_key_handler,
         create_api_key_handler,
         list_api_keys_handler,
         revoke_api_key_handler,
@@ -81,6 +82,7 @@ pub fn auth_router(state: AuthState) -> (axum::Router, utoipa::openapi::OpenApi)
         .routes(routes!(verify_handler))
         .routes(routes!(me_handler))
         .routes(routes!(logout_handler))
+        .routes(routes!(exchange_api_key_handler))
         .routes(routes!(create_api_key_handler, list_api_keys_handler))
         .routes(routes!(revoke_api_key_handler))
         .routes(routes!(list_users_handler))
@@ -508,6 +510,70 @@ async fn logout_get_handler(
     headers: HeaderMap,
 ) -> Result<Response, AuthError> {
     do_logout(&state, &headers).await
+}
+
+// ============================================================================
+// POST /api/v1/auth/api-key/session — exchange API key for session cookie
+// ============================================================================
+
+/// Exchange a valid API key for a session cookie (for local dev auth).
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/api-key/session",
+    tag = "auth",
+    responses(
+        (status = 200, description = "Session created", body = SessionResponse),
+        (status = 401, description = "Invalid API key", body = ErrorBody)
+    )
+)]
+async fn exchange_api_key_handler(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+) -> Result<Response, AuthError> {
+    let auth_header = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .ok_or(AuthError::Unauthorized)?;
+
+    if !auth_header.starts_with("Bearer mvk_") {
+        return Err(AuthError::InvalidApiKey);
+    }
+
+    let key = &auth_header[7..]; // strip "Bearer "
+    let payload = api_key::validate_key(&state.db, key)
+        .await?
+        .ok_or(AuthError::InvalidApiKey)?;
+
+    let user = crate::db::users::get_user(&state.db, &payload.user_id)
+        .await?
+        .ok_or(AuthError::Unauthorized)?;
+
+    let session_id = session::create_session_from_user(
+        &state.db,
+        &user,
+        payload.group_id.as_deref(),
+        state.config.session_max_age_secs,
+    )
+    .await?;
+
+    let session_cookie = cookie::build_session_cookie(
+        &state.config,
+        &session_id,
+        state.config.session_max_age_secs,
+    );
+
+    let session_row = session::validate_session(&state.db, &session_id)
+        .await?
+        .ok_or(AuthError::Unauthorized)?;
+
+    let body = session_to_response(&session_row);
+
+    let mut resp_headers = HeaderMap::new();
+    if let Ok(v) = session_cookie.parse() {
+        resp_headers.insert(header::SET_COOKIE, v);
+    }
+
+    Ok((resp_headers, Json(body)).into_response())
 }
 
 // ============================================================================

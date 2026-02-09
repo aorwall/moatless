@@ -60,6 +60,14 @@ pub fn generate_secret_name(task_id: &str) -> String {
     truncate_k8s(format!("moatless-task-{sanitized}-secrets"))
 }
 
+/// Generate a deterministic secret name for a user's credentials.
+///
+/// Format: `moatless-user-{sanitized_user_id}-credentials` (max 63 chars).
+pub fn generate_user_secret_name(user_id: &str) -> String {
+    let sanitized = sanitize_k8s_name(user_id, 30);
+    truncate_k8s(format!("moatless-user-{sanitized}-credentials"))
+}
+
 /// Generate a unique pod name for a task.
 ///
 /// Format: `moatless-{sanitized_repo}-{sanitized_task}-{hex_timestamp}` (max 63 chars).
@@ -126,6 +134,18 @@ mod tests {
     fn test_generate_secret_name_sanitizes() {
         let name = generate_secret_name("TASK_ID");
         assert_eq!(name, "moatless-task-task-id-secrets");
+    }
+
+    #[test]
+    fn test_generate_user_secret_name() {
+        let name = generate_user_secret_name("user-123");
+        assert_eq!(name, "moatless-user-user-123-credentials");
+    }
+
+    #[test]
+    fn test_generate_user_secret_name_sanitizes() {
+        let name = generate_user_secret_name("USER_ID");
+        assert_eq!(name, "moatless-user-user-id-credentials");
     }
 
     #[test]

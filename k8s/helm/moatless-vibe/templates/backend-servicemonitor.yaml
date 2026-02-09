@@ -1,4 +1,4 @@
-{{- if and .Values.proxy.enabled .Values.proxy.backend.enabled .Values.monitoring.prometheus.enabled -}}
+{{- if .Values.monitoring.prometheus.enabled -}}
 apiVersion: {{ .Values.monitoring.prometheus.apiVersion }}
 kind: ServiceMonitor
 metadata:

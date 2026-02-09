@@ -116,7 +116,7 @@ export async function startDockerSandbox(
   cmd += ` -e "DATA_DIR=/opt/moatless/data"`
   cmd += ` -e "LOG_LEVEL=info"`
   cmd += ` -e "TASK_ID=${containerName}"`
-  cmd += ` -e "TASK_AUTH_TOKEN=test-token-for-integration-tests"`
+  cmd += ` -e "USER_AUTH_TOKEN=test-token-for-integration-tests"`
   cmd += ` -e "BACKEND_API_URL=http://localhost:8000"`
 
   // Add Claude token if available

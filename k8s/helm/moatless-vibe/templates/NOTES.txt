@@ -1,4 +1,4 @@
-🚀 Moatless Vibe has been deployed!
+Moatless Vibe has been deployed!
 
 {{- if .Values.ingress.enabled }}
 Access your application at:
@@ -7,33 +7,38 @@ Access your application at:
 {{- end }}
 {{- else }}
 Get the application URL by running:
-  export POD_NAME=$(kubectl get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "moatless-vibe.name" . }},app.kubernetes.io/instance={{ .Release.Name }}" -o jsonpath="{.items[0].metadata.name}")
-  kubectl --namespace {{ .Release.Namespace }} port-forward $POD_NAME 8000:{{ .Values.service.port }}
-  echo "Visit http://localhost:8000"
+  # Frontend (nginx)
+  export POD_NAME=$(kubectl get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "moatless-vibe.name" . }},app.kubernetes.io/instance={{ .Release.Name }},app.kubernetes.io/component=app" -o jsonpath="{.items[0].metadata.name}")
+  kubectl --namespace {{ .Release.Namespace }} port-forward $POD_NAME 8080:80
+  echo "Visit http://localhost:8080"
+
+  # Backend API
+  export BACKEND_POD=$(kubectl get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "moatless-vibe.name" . }},app.kubernetes.io/instance={{ .Release.Name }},app.kubernetes.io/component=backend" -o jsonpath="{.items[0].metadata.name}")
+  kubectl --namespace {{ .Release.Namespace }} port-forward $BACKEND_POD 8080:8080
 {{- end }}
 
 {{- if .Values.kubernetes.enabled }}
 
-📦 Kubernetes Execution Mode is ENABLED
+Kubernetes Execution Mode is ENABLED
 Sandbox pods will be created in namespace: {{ include "moatless-vibe.sandboxNamespace" . }}
 Sandbox image: {{ include "moatless-vibe.sandboxImage" . }}
 {{- end }}
 
 {{- if .Values.redis.enabled }}
 
-🔴 Redis is deployed with the chart (development mode)
+Redis is deployed with the chart (development mode)
 Redis URL: {{ include "moatless-vibe.redisUrl" . }}
-⚠️  For production, use a managed Redis service (AWS ElastiCache, Azure Cache, etc.)
+For production, use a managed Redis service (AWS ElastiCache, Azure Cache, etc.)
 {{- else }}
 
-🔴 Using external Redis
+Using external Redis
 Redis URL: {{ include "moatless-vibe.redisUrl" . }}
 {{- end }}
 
 {{- if not .Values.externalSecrets.enabled }}
 {{- if not .Values.secrets.create }}
 
-⚠️  IMPORTANT: You need to create secrets!
+IMPORTANT: You need to create secrets!
 
 Create a secret with your API keys:
   kubectl create secret generic {{ include "moatless-vibe.secretsName" . }} \
@@ -46,7 +51,7 @@ Create a secret with your API keys:
 
 {{- if .Values.kubernetes.enabled }}
 
-🔧 Recommended Node-Level Tuning (EKS)
+Recommended Node-Level Tuning (EKS)
 Set on nodes via Karpenter userData, DaemonSet, or launch template:
 
   Required sysctls:
@@ -61,4 +66,4 @@ Set on nodes via Karpenter userData, DaemonSet, or launch template:
   configuring kubelet --allowed-unsafe-sysctls=net.core.somaxconn,net.ipv4.tcp_syn_retries
 {{- end }}
 
-📚 For more information, visit: https://github.com/aorwall/moatless-swarm-ui
+For more information, visit: https://github.com/aorwall/moatless-swarm-ui

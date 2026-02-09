@@ -1,23 +1,9 @@
-import { buildPath, type RouteParams, type RouteSuccess } from '@moatless/api-contract'
-import { getServerStatusRoute } from '@moatless/api-contract/preview.ts'
-import { getWorkspaceLogsRoute } from '@moatless/api-contract/workspace.ts'
-import { apiClient } from '@/lib/api/client'
-
-type ServerStatus = RouteSuccess<typeof getServerStatusRoute>
-type ServerLogsResponse = RouteSuccess<typeof getWorkspaceLogsRoute>
+import { unwrapResponse } from '@moatless/api-client/custom-instance'
+import { serverStatusHandler } from '@moatless/api-client/sandbox/sandbox/sandbox'
+import type { ServerStatus } from '@moatless/types'
 
 export const serverApi = {
-  async getServerStatus(
-    taskId: RouteParams<typeof getServerStatusRoute>['taskId'],
-  ): Promise<ServerStatus> {
-    const path = buildPath(getServerStatusRoute, { taskId })
-    return await apiClient.get<ServerStatus>(path)
-  },
-
-  async getServerLogs(
-    taskId: RouteParams<typeof getWorkspaceLogsRoute>['taskId'],
-  ): Promise<ServerLogsResponse> {
-    const path = buildPath(getWorkspaceLogsRoute, { taskId })
-    return await apiClient.get<ServerLogsResponse>(path)
+  async getServerStatus(taskId: string): Promise<ServerStatus> {
+    return await unwrapResponse<ServerStatus>(serverStatusHandler(taskId))
   },
 }

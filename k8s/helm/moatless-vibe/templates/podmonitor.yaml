@@ -1,17 +1,2 @@
-{{- if .Values.monitoring.prometheus.enabled }}
-apiVersion: {{ .Values.monitoring.prometheus.apiVersion | default "monitoring.coreos.com/v1" }}
-kind: PodMonitor
-metadata:
-  name: {{ include "moatless-vibe.fullname" . }}
-  namespace: {{ .Release.Namespace }}
-  labels:
-    {{- include "moatless-vibe.labels" . | nindent 4 }}
-spec:
-  selector:
-    matchLabels:
-      {{- include "moatless-vibe.selectorLabels" . | nindent 6 }}
-  podMetricsEndpoints:
-    - port: http
-      path: /metrics
-      interval: {{ .Values.monitoring.prometheus.scrapeInterval | default "30s" }}
-{{- end }}
+{{- /* PodMonitor removed — nginx frontend does not expose /metrics.
+       Use backend-servicemonitor.yaml for Rust backend metrics. */ -}}

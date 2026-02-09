@@ -16,15 +16,3 @@ export function useServerStatus(
     ...options,
   })
 }
-
-export function useServerLogs(
-  taskId: string,
-  options?: Omit<UseQueryOptions<{ logs: string; lines: number }>, 'queryKey' | 'queryFn'>,
-) {
-  return useQuery({
-    queryKey: queryKeys.tasks.serverLogs(taskId),
-    queryFn: () => serverApi.getServerLogs(taskId),
-    enabled: !!taskId,
-    ...options,
-  })
-}

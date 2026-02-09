@@ -28,54 +28,49 @@ function sessionFromHeaders(c: Context): UserSession {
   }
 }
 
-async function validateTaskToken(c: Context): Promise<void> {
-  const taskToken = c.req.header('X-Task-Token') as string
-  const taskTokenSecret = process.env['TASK_TOKEN_SECRET']
-  if (!taskTokenSecret) {
+async function validateUserToken(c: Context): Promise<void> {
+  const userToken = c.req.header('X-User-Token') as string
+  const tokenSecret = process.env['TASK_TOKEN_SECRET']
+  if (!tokenSecret) {
     logger.error('TASK_TOKEN_SECRET not configured')
     throw new HTTPException(500, { message: 'Server configuration error' })
   }
 
-  const secretKey = new TextEncoder().encode(taskTokenSecret)
-  const { payload } = await jose.jwtVerify(taskToken, secretKey)
+  const secretKey = new TextEncoder().encode(tokenSecret)
+  const { payload } = await jose.jwtVerify(userToken, secretKey)
 
-  const taskId = payload['taskId']
   const userId = payload['userId']
+  const login = payload['login']
 
-  if (typeof taskId !== 'string' || typeof userId !== 'string') {
+  if (typeof userId !== 'string') {
     throw new HTTPException(401, { message: 'Invalid token payload' })
   }
 
-  const routeTaskId = c.req.param('taskId')
-  if (routeTaskId && taskId !== routeTaskId) {
-    logger.warn({ tokenTaskId: taskId, routeTaskId }, 'Token taskId mismatch')
-    throw new HTTPException(403, { message: 'Token not valid for this task' })
-  }
+  const taskId = c.req.header('X-Task-Id')
 
   const syntheticSession: UserSession = {
-    id: `task-token-${taskId}`,
-    provider: 'task-token',
+    id: `user-token-${userId}`,
+    provider: 'user-token',
     userId,
-    userLogin: `task-${taskId}`,
+    userLogin: typeof login === 'string' ? login : userId,
     userEmail: null,
     userName: null,
     avatarUrl: null,
     role: 'user',
     accessToken: '',
     createdAt: new Date(),
-    expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+    expiresAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
   }
 
   c.set('session', syntheticSession)
-  c.set('taskClaims', { taskId, userId })
-  logger.debug({ taskId, userId }, 'Task token authenticated')
+  logger.debug({ userId, taskId }, 'User token authenticated')
 }
 
 /**
  * Authentication middleware
  *
  * After the auth migration to the Rust backend, this middleware handles:
- * 1. Task token auth (X-Task-Token) — sandbox containers call Node.js directly, bypassing Traefik
+ * 1. User token auth (X-User-Token) — sandbox containers call Node.js with per-user JWT
  * 2. ForwardAuth headers (X-User-*) — set by Traefik after Rust validates session/API key
  *
  * Session and API key validation is now done by the Rust service via Traefik ForwardAuth.
@@ -95,23 +90,23 @@ export const auth = async (c: Context, next: Next) => {
     return next()
   }
 
-  // 1. Task token auth (sandbox containers → Node.js, bypasses Traefik)
-  if (c.req.header('X-Task-Token')) {
+  // 1. User token auth (sandbox containers → Node.js)
+  if (c.req.header('X-User-Token')) {
     try {
-      await validateTaskToken(c)
+      await validateUserToken(c)
       return next()
     } catch (error) {
       if (error instanceof HTTPException) {
         throw error
       }
       if (error instanceof jose.errors.JWTExpired) {
-        throw new HTTPException(401, { message: 'Task token expired' })
+        throw new HTTPException(401, { message: 'User token expired' })
       }
       if (error instanceof jose.errors.JWTInvalid) {
-        throw new HTTPException(401, { message: 'Invalid task token' })
+        throw new HTTPException(401, { message: 'Invalid user token' })
       }
-      logger.warn({ err: error }, 'Task token validation error')
-      throw new HTTPException(401, { message: 'Task token validation failed' })
+      logger.warn({ err: error }, 'User token validation error')
+      throw new HTTPException(401, { message: 'User token validation failed' })
     }
   }
 

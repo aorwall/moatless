@@ -1,60 +1,103 @@
 import tailwindcss from "@tailwindcss/vite";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import type { Plugin } from "vite";
+import { defineConfig, loadEnv } from "vite";
 import tsconfigPaths from "vite-tsconfig-paths";
 
-export default defineConfig({
-	plugins: [
-		react(),
-		tsconfigPaths(),
-		tailwindcss(),
-		tanstackRouter({
-			routesDirectory: "./src/routes",
-			generatedRouteTree: "./src/routeTree.gen.ts",
-			routeFileIgnorePattern:
-				"\\.test\\.(ts|tsx|js|jsx)$|\\.spec\\.(ts|tsx|js|jsx)$",
-		})
-	],
-	server: {
-		port: process.env.PORT ? Number(process.env.PORT) : 3000,
-		proxy: {
-			"/api/v1/auth": {
-				target: "http://localhost:8080",
-				changeOrigin: true,
-			},
-			"/api/v1/users": {
-				target: "http://localhost:8080",
-				changeOrigin: true,
-			},
-			"/api/v1/events/stream": {
-				target: "http://localhost:8080",
-				changeOrigin: true,
-			},
-			"/api/sandbox": {
-				target: "http://localhost:8080",
-				changeOrigin: true,
-			},
-			"/api": {
-				target: "http://localhost:8000",
-				changeOrigin: true,
-			},
+/**
+ * Vite plugin that exchanges an API key for a session cookie on startup.
+ * This lets local dev servers authenticate against a remote backend without
+ * needing OAuth callbacks (which redirect to the remote URL, not localhost).
+ */
+function apiKeyAuthPlugin(target: string, apiKey: string): Plugin {
+	let sessionCookie: string | null = null;
+
+	return {
+		name: "api-key-auth",
+		configureServer(server) {
+			// Exchange API key for session when the dev server starts
+			server.httpServer?.once("listening", async () => {
+				try {
+					const res = await fetch(
+						`${target}/api/v1/auth/api-key/session`,
+						{
+							method: "POST",
+							headers: { Authorization: `Bearer ${apiKey}` },
+						},
+					);
+					if (!res.ok) {
+						console.warn(
+							`API key auth failed: ${res.status} ${res.statusText}`,
+						);
+						return;
+					}
+					const setCookie = res.headers.get("set-cookie");
+					if (setCookie) {
+						sessionCookie = setCookie.split(";")[0];
+						console.log("API key auth: session cookie acquired");
+					}
+				} catch (e) {
+					console.warn("API key auth exchange failed:", e);
+				}
+			});
+
+			// Inject session cookie on all proxied /api requests
+			server.middlewares.use((req, _res, next) => {
+				if (sessionCookie && req.url?.startsWith("/api")) {
+					req.headers.cookie = sessionCookie;
+				}
+				next();
+			});
 		},
-	},
-	build: {
-		outDir: "dist",
-		sourcemap: true,
-		rollupOptions: {
-			output: {
-				manualChunks: {
-					'vendor-react': ['react', 'react-dom'],
-					'vendor-tanstack': ['@tanstack/react-query', '@tanstack/react-router'],
-					'vendor-radix': ['@radix-ui/react-dialog', '@radix-ui/react-popover', '@radix-ui/react-select', '@radix-ui/react-scroll-area', '@radix-ui/react-tabs', '@radix-ui/react-tooltip'],
-					'vendor-markdown': ['react-markdown', 'react-syntax-highlighter', 'remark-gfm'],
-					'vendor-icons': ['lucide-react'],
+	};
+}
+
+export default defineConfig(({ mode }) => {
+	const env = loadEnv(mode, process.cwd(), "VITE_");
+	const remoteApi = env.VITE_REMOTE_API;
+	const apiKey = env.VITE_API_KEY;
+	const target = remoteApi || "http://localhost:8080";
+
+	return {
+		plugins: [
+			react(),
+			tsconfigPaths(),
+			tailwindcss(),
+			tanstackRouter({
+				routesDirectory: "./src/routes",
+				generatedRouteTree: "./src/routeTree.gen.ts",
+				routeFileIgnorePattern:
+					"\\.test\\.(ts|tsx|js|jsx)$|\\.spec\\.(ts|tsx|js|jsx)$",
+			}),
+			...(apiKey ? [apiKeyAuthPlugin(target, apiKey)] : []),
+		],
+		server: {
+			port: process.env.PORT ? Number(process.env.PORT) : 3000,
+			proxy: {
+				"/api": {
+					target,
+					changeOrigin: true,
+					secure: false,
+					...(remoteApi && { cookieDomainRewrite: "" }),
 				},
 			},
 		},
-	},
-	appType: "spa",
+		build: {
+			outDir: "dist",
+			sourcemap: true,
+			rollupOptions: {
+				output: {
+					manualChunks: {
+						'vendor-react': ['react', 'react-dom'],
+						'vendor-tanstack': ['@tanstack/react-query', '@tanstack/react-router'],
+						'vendor-radix': ['@radix-ui/react-dialog', '@radix-ui/react-popover', '@radix-ui/react-select', '@radix-ui/react-scroll-area', '@radix-ui/react-tabs', '@radix-ui/react-tooltip'],
+						'vendor-markdown': ['react-markdown', 'react-syntax-highlighter', 'remark-gfm'],
+						'vendor-icons': ['lucide-react'],
+					},
+				},
+			},
+		},
+		appType: "spa",
+	};
 });

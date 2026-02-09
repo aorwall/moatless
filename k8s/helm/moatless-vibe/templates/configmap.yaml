@@ -1,3 +1,4 @@
+{{- /* ConfigMap retained for backwards compatibility — no longer referenced by the frontend deployment */ -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -5,10 +6,4 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "moatless-vibe.labels" . | nindent 4 }}
-data:
-  NODE_ENV: "production"
-  LOG_LEVEL: {{ .Values.config.logLevel | quote }}
-  CORS_ORIGIN: {{ .Values.config.corsOrigin | quote }}
-  PORT: {{ .Values.service.port | quote }}
-  HOST: "0.0.0.0"
-  WORKSPACE_DIR: "/workspace"
+data: {}

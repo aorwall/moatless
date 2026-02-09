@@ -1,7 +1,7 @@
 import { type ClaudeModel, DEFAULT_CLAUDE_MODEL } from '@moatless/types'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { FigmaImportDialog } from '@/features/figma/components/figma-import-dialog'
 import {
@@ -9,7 +9,6 @@ import {
   useRepositoriesList,
   useRepository,
 } from '@/features/repositories'
-import { SettingsDialog, useFigmaConfig } from '@/features/settings'
 import { useTaskInputs } from '@/features/tasks/hooks/use-task-inputs'
 import { useCreateTask } from '@/features/tasks/hooks/use-tasks'
 import { ApiError } from '@/lib/api/client'
@@ -71,10 +70,6 @@ export function CreateCodeTask({
   const [message, setMessage] = useState(defaultMessage || '')
   const [branch, setBranch] = useState('')
   const [repoDialogOpen, setRepoDialogOpen] = useState(false)
-  const [settingsDialogOpen, setSettingsDialogOpen] = useState(false)
-
-  // Check Figma configuration status
-  const { data: figmaConfig } = useFigmaConfig()
 
   // Check if model selector should be shown
   const isModelSelectorEnabled = useFeatureFlag('SHOW_MODEL_SELECTOR')
@@ -161,14 +156,10 @@ export function CreateCodeTask({
     )
   }
 
-  // Handle Figma import click - check config and open appropriate dialog
-  const handleFigmaImportClick = useCallback(() => {
-    if (figmaConfig?.connected) {
-      taskInputs.setFigmaDialogOpen(true)
-    } else {
-      setSettingsDialogOpen(true)
-    }
-  }, [figmaConfig?.connected, taskInputs])
+  // Handle Figma import click - FigmaImportDialog handles unconfigured case internally
+  const handleFigmaImportClick = () => {
+    taskInputs.setFigmaDialogOpen(true)
+  }
 
   const canSubmit = !!repositoryId
 
@@ -322,12 +313,6 @@ export function CreateCodeTask({
         open={taskInputs.figmaDialogOpen}
         onOpenChange={taskInputs.setFigmaDialogOpen}
         importMutation={taskInputs.figmaUrlImport}
-      />
-
-      <SettingsDialog
-        open={settingsDialogOpen}
-        onOpenChange={setSettingsDialogOpen}
-        defaultSection="figma"
       />
     </div>
   )

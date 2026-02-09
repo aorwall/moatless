@@ -30,7 +30,6 @@ export type AppBindings = {
   Variables: {
     requestId: string
     session?: UserSession
-    taskClaims?: { taskId: string; userId: string }
   }
 }
 

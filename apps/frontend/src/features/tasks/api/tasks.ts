@@ -23,8 +23,6 @@ import {
   updateTaskMetadata as updateTaskMetadataHandler,
   updateVisibility as updateVisibilityHandler,
 } from '@moatless/api-client/sandbox/tasks/tasks'
-import { buildPath } from '@moatless/api-contract'
-import { deployRoute } from '@moatless/api-contract/tasks.ts'
 import type {
   CreateTaskRequest,
   CreateVibeTaskRequest,
@@ -36,7 +34,6 @@ import type {
   TaskCommandsResponse,
   TaskListResponse,
 } from '@moatless/types'
-import { apiClient } from '@/lib/api/client'
 
 export const tasksApi = {
   async getActiveTasks(): Promise<string[]> {
@@ -144,9 +141,9 @@ export const tasksApi = {
     return { status: 'deleted' }
   },
 
-  async deployTask(taskId: string): Promise<{ success: boolean }> {
-    const path = buildPath(deployRoute, { taskId })
-    return await apiClient.post<{ success: boolean }>(path)
+  // TODO: Deploy endpoint not implemented in Rust backend
+  deployTask(_taskId: string): Promise<{ success: boolean }> {
+    return Promise.resolve({ success: false })
   },
 
   async createVibeTask(

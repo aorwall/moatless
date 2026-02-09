@@ -33,6 +33,9 @@ pub struct SandboxApiState {
         handlers::start_handler,
         handlers::restart_handler,
         handlers::cleanup_handler,
+        handlers::server_status_handler,
+        handlers::server_logs_handler,
+        handlers::search_files_handler,
     )
 )]
 pub struct SandboxApiDoc;
@@ -48,29 +51,13 @@ pub fn api_router(state: SandboxApiState) -> (axum::Router, utoipa::openapi::Ope
         .routes(routes!(handlers::start_handler))
         .routes(routes!(handlers::restart_handler))
         .routes(routes!(handlers::cleanup_handler))
-        .with_state(state.clone())
+        .routes(routes!(handlers::server_status_handler))
+        .routes(routes!(handlers::server_logs_handler))
+        .routes(routes!(handlers::search_files_handler))
+        .with_state(state)
         .split_for_parts();
 
-    // Convert to plain Router and add non-OpenAPI endpoints.
-    // The new preview/workspace routes need state, so we add them before
-    // the stateless health endpoints.
-    let preview_routes = axum::Router::new()
-        .route(
-            "/api/sandbox/v1/tasks/{task_id}/server/status",
-            axum::routing::get(handlers::server_status_handler),
-        )
-        .route(
-            "/api/sandbox/v1/tasks/{task_id}/servers/{server_name}/logs",
-            axum::routing::get(handlers::server_logs_handler),
-        )
-        .route(
-            "/api/sandbox/v1/tasks/{task_id}/search-files",
-            axum::routing::post(handlers::search_files_handler),
-        )
-        .with_state(state);
-
     let router: axum::Router = Into::<axum::Router>::into(router)
-        .merge(preview_routes)
         .route("/health", axum::routing::get(health_handler))
         .route("/healthz", axum::routing::get(health_handler));
 

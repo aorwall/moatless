@@ -16,7 +16,6 @@ pub fn build_pod_from_template(
     plan: &ProvisionPlan,
     pvc_name: Option<&str>,
     secret_name: Option<&str>,
-    task_auth_token: &str,
 ) -> Result<Pod, String> {
     let mut pod: Pod =
         serde_yaml::from_str(template_content).map_err(|e| format!("Failed to parse pod template: {e}"))?;
@@ -127,7 +126,6 @@ pub fn build_pod_from_template(
         if let Some(ref token) = plan.claude_oauth_token {
             task_env.push(serde_json::json!({"name": "CLAUDE_CODE_OAUTH_TOKEN", "value": token}));
         }
-        task_env.push(serde_json::json!({"name": "TASK_AUTH_TOKEN", "value": task_auth_token}));
     }
 
     // Custom env vars from repository config

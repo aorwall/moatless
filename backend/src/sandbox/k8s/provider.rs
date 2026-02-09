@@ -66,7 +66,7 @@ impl SandboxProvider for K8sSandboxProvider {
             }
         }
 
-        // 2. Generate task auth JWT
+        // 2. Resolve user login for JWT generation
         let task_token_secret = self
             .config
             .task_token_secret
@@ -74,21 +74,43 @@ impl SandboxProvider for K8sSandboxProvider {
             .ok_or_else(|| SandboxError::ConfigMissing("TASK_TOKEN_SECRET".to_string()))?
             .clone();
 
-        let task_auth_token =
-            jwt::generate_task_auth_token(task_id, &request.user_id, &task_token_secret)
-                .map_err(|e| SandboxError::JwtError(e.to_string()))?;
+        let user_login = if let Some(ref pool) = self.db_pool {
+            match crate::db::users::get_user(pool, &request.user_id).await {
+                Ok(Some(user)) => user.login,
+                _ => request.user_id.clone(), // Fallback to user_id as login
+            }
+        } else {
+            request.user_id.clone()
+        };
 
-        // 3. Create PVC + Secret in parallel
-        let credentials = TaskCredentials {
+        // 3. Check existing user secret for a valid token, reuse or regenerate
+        let existing_creds = secret::read_user_credentials(&self.k8s, &request.user_id).await;
+        let user_auth_token = match existing_creds
+            .as_ref()
+            .and_then(|c| c.user_auth_token.as_deref())
+        {
+            Some(token) if !jwt::is_token_near_expiry(token, &task_token_secret, 7 * 24 * 3600) => {
+                // Token still valid and not near expiry — reuse it
+                token.to_string()
+            }
+            _ => {
+                // No token or near expiry — generate a fresh one
+                jwt::generate_user_auth_token(&request.user_id, &user_login, &task_token_secret)
+                    .map_err(|e| SandboxError::JwtError(e.to_string()))?
+            }
+        };
+
+        // 4. Create PVC + user secret in parallel
+        let credentials = UserCredentials {
             github_token: plan.git_provider_token.clone(),
             anthropic_api_key: plan.anthropic_api_key.clone(),
             claude_oauth_token: plan.claude_oauth_token.clone(),
-            task_auth_token: Some(task_auth_token.clone()),
+            user_auth_token: Some(user_auth_token),
         };
 
         let (pvc_result, secret_result) = tokio::join!(
             self.create_or_find_pvc(task_id),
-            self.create_or_find_secret(task_id, &credentials),
+            self.create_or_find_user_secret(&request.user_id, &credentials),
         );
 
         let pvc_name = match pvc_result {
@@ -108,7 +130,7 @@ impl SandboxProvider for K8sSandboxProvider {
             }
         };
 
-        // 4. Build pod from template (used as Deployment pod template)
+        // 5. Build pod from template (used as Deployment pod template)
         let pod = pod_builder::build_pod_from_template(
             &self.pod_template,
             &self.config,
@@ -116,7 +138,6 @@ impl SandboxProvider for K8sSandboxProvider {
             plan,
             pvc_name.as_deref(),
             secret_name.as_deref(),
-            &task_auth_token,
         )
         .map_err(SandboxError::PodBuildError)?;
 
@@ -399,8 +420,10 @@ impl SandboxProvider for K8sSandboxProvider {
         if let Err(e) = pvc::delete_task_pvc(&self.k8s, task_id).await {
             warn!(task_id = %task_id, error = %e, "Failed to delete PVC");
         }
+        // Delete legacy task secret if it exists (migration cleanup).
+        // User secrets are NOT deleted — they are shared across tasks.
         if let Err(e) = secret::delete_task_secret(&self.k8s, task_id).await {
-            warn!(task_id = %task_id, error = %e, "Failed to delete secret");
+            warn!(task_id = %task_id, error = %e, "Failed to delete legacy task secret");
         }
 
         self.status_cache.invalidate(task_id).await;
@@ -505,21 +528,21 @@ impl K8sSandboxProvider {
             .map_err(|e| e.to_string())
     }
 
-    /// Create or find existing secret (updating credentials if found).
-    async fn create_or_find_secret(
+    /// Create or find existing user secret (updating credentials if found).
+    async fn create_or_find_user_secret(
         &self,
-        task_id: &str,
-        credentials: &TaskCredentials,
+        user_id: &str,
+        credentials: &UserCredentials,
     ) -> Result<String, String> {
-        if let Some(name) = secret::find_task_secret(&self.k8s, task_id).await {
-            secret::update_task_secret(&self.k8s, task_id, credentials)
+        if let Some(name) = secret::find_user_secret(&self.k8s, user_id).await {
+            secret::update_user_secret(&self.k8s, user_id, credentials)
                 .await
                 .map_err(|e| e.to_string())?;
-            info!(task_id, secret_name = %name, "Found existing secret, updated credentials");
+            info!(user_id, secret_name = %name, "Found existing user secret, updated credentials");
             return Ok(name);
         }
 
-        secret::create_task_secret(&self.k8s, task_id, credentials)
+        secret::create_user_secret(&self.k8s, user_id, credentials)
             .await
             .map_err(|e| e.to_string())
     }

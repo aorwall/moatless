@@ -21,7 +21,6 @@
   },
   "dependencies": {
     "@moatless/api-client": "workspace:*",
-    "@moatless/api-contract": "workspace:*",
     "@moatless/diff-viewer": "workspace:*",
     "@moatless/figma": "workspace:*",
     "@moatless/types": "workspace:*",

@@ -1,95 +1,63 @@
-# Node modules and build artifacts
-node_modules/
-apps/*/node_modules/
-packages/*/node_modules/
+# Exclude everything first, then whitelist what each Dockerfile needs
+**/*
+
+# Root config files
+!package.json
+!bun.lock
+!turbo.json
+!tsconfig.json
+!README.md
+!LICENSE
+
+# Docker config
+!docker/
+
+# All workspace package.json files (needed for bun install in app image)
+!apps/frontend/package.json
+!apps/backend/package.json
+!apps/sandbox/package.json
+!apps/file-explorer/package.json
+!packages/types/package.json
+!packages/api-client/package.json
+!packages/api-contract/package.json
+!packages/diff-viewer/package.json
+!packages/figma/package.json
+!packages/events/package.json
+!packages/messaging/package.json
+!packages/inspector/package.json
+!packages/sandbox-api-contract/package.json
+!packages/sandbox-schemas/package.json
+!packages/shell-utils/package.json
+
+# Frontend source and workspace dependencies (app image build)
+# frontend → types, api-client, api-contract, diff-viewer, figma; types → shell-utils
+!apps/frontend/
+!packages/types/
+!packages/api-client/
+!packages/api-contract/
+!packages/diff-viewer/
+!packages/figma/
+!packages/shell-utils/
+
+# Exclude node_modules within included dirs
 **/node_modules/
 
-# Development files
-.git/
-.github/
-.vscode/
-.env*
-*.env
-.DS_Store
-Thumbs.db
-
-# Logs
-*.log
-logs/
-npm-debug.log*
-pnpm-debug.log*
-
-# Coverage and test files
-coverage/
-.nyc_output/
-test-results/
-playwright-report/
-**/__tests__/
-**/*.test.*
-**/*.spec.*
-
-# Build outputs (keep sandbox and package dist)
-apps/frontend/dist/
-*.tsbuildinfo
-
-# Documentation and example files
-docs/
-*.md
-!README.md
-!LICENSE
-
-# Development tools
-.husky/
-.vscode/
-.idea/
-
-# Data directories
-data/
-workspaces/
-tmp/
-temp/
-
-# Package manager files (keep needed ones)
-.pnpm-store/
-pnpm-lock.yaml
-yarn.lock
-package-lock.json
-
-# Only include what we need for Docker build:
-# - dist/ (built application)
-# - bin/ (CLI entry point) 
-# - package.json (package metadata)
-# - README.md, LICENSE (package files)
-# - docker/ (Docker configuration)
-
-# Optimize Docker build context by excluding everything else
-# This reduces context size and improves cache efficiency
-**/*
-!dist/
-!bin/
+# Backend migrations (sandbox image)
 !apps/backend/drizzle/
 !apps/backend/drizzle-postgres/
+
+# Pre-built artifacts (sandbox image)
+!dist/
+!bin/
 !apps/sandbox/bin/
 !apps/sandbox/dist/
-!apps/sandbox/package.json
-!packages/events/dist/
-!packages/events/package.json
-!packages/messaging/dist/
-!packages/messaging/package.json
-!packages/sandbox-api-contract/dist/
-!packages/sandbox-api-contract/package.json
-!packages/sandbox-schemas/dist/
-!packages/sandbox-schemas/package.json
-!packages/shell-utils/dist/
-!packages/shell-utils/package.json
-!packages/types/dist/
-!packages/types/package.json
-!packages/inspector/dist/
-!packages/inspector/package.json
-!package.json
-!README.md
-!LICENSE
-!docker/
 !apps/sandbox/skills/
+!packages/events/dist/
+!packages/messaging/dist/
+!packages/sandbox-api-contract/dist/
+!packages/sandbox-schemas/dist/
+!packages/inspector/dist/
+!packages/shell-utils/dist/
+!packages/types/dist/
 !apps/file-explorer/
 !dev-browser/

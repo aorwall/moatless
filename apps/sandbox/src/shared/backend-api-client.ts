@@ -11,14 +11,14 @@ export interface BackendApiClient {
 
 /**
  * Create a lightweight backend API client for sandbox-to-backend communication.
- * Returns undefined if backendApiUrl or taskAuthToken are not configured (graceful degradation).
+ * Returns undefined if backendApiUrl or userAuthToken are not configured (graceful degradation).
  */
 export function createBackendApiClient(config: SandboxConfig): BackendApiClient | undefined {
-  if (!(config.backendApiUrl && config.taskAuthToken)) {
+  if (!(config.backendApiUrl && config.userAuthToken)) {
     clientLogger.debug(
       {
         hasBackendApiUrl: !!config.backendApiUrl,
-        hasTaskAuthToken: !!config.taskAuthToken,
+        hasUserAuthToken: !!config.userAuthToken,
       },
       'Backend API client not configured, sandbox-to-backend calls disabled',
     )
@@ -26,15 +26,17 @@ export function createBackendApiClient(config: SandboxConfig): BackendApiClient 
   }
 
   const baseUrl = config.backendApiUrl.replace(/\/+$/, '')
-  const token = config.taskAuthToken
+  const token = config.userAuthToken
+  const taskId = config.taskId
 
   clientLogger.info({ baseUrl }, 'Backend API client initialized')
 
   async function request(method: string, path: string, body?: unknown): Promise<Response> {
     const url = `${baseUrl}${path}`
     const headers: Record<string, string> = {
-      'X-Task-Token': token,
       'Content-Type': 'application/json',
+      'X-User-Token': token,
+      'X-Task-Id': taskId,
     }
 
     const response = await fetch(url, {

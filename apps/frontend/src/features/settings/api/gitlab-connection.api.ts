@@ -1,38 +1,19 @@
-import { buildPath, type RouteRequestJson, type RouteSuccess } from '@moatless/api-contract'
-import {
-  deleteGitLabConfigRoute,
-  getGitLabConfigRoute,
-  saveGitLabPATRoute,
-} from '@moatless/api-contract/settings'
-import { apiClient } from '@/lib/api/client'
+import type { GitLabConfigResponse, GitLabPATRequest } from '@moatless/types'
 
-type GitLabConfigResponse = RouteSuccess<typeof getGitLabConfigRoute>
-type DisconnectGitLabResponse = RouteSuccess<typeof deleteGitLabConfigRoute>
-type SaveGitLabPATRequest = RouteRequestJson<typeof saveGitLabPATRoute>
-type SaveGitLabPATResponse = RouteSuccess<typeof saveGitLabPATRoute>
+type DisconnectGitLabResponse = { success: boolean; message: string }
+type SaveGitLabPATResponse = { success: boolean; message: string }
 
+// TODO: GitLab endpoints not implemented in Rust backend
 export const gitlabConnectionApi = {
-  /**
-   * Get user's GitLab connection configuration
-   */
-  getConfig: async (): Promise<GitLabConfigResponse> => {
-    const path = buildPath(getGitLabConfigRoute)
-    return await apiClient.get<GitLabConfigResponse>(path)
+  getConfig: (): Promise<GitLabConfigResponse> => {
+    return Promise.resolve({ connected: false, oauthEnabled: false } as GitLabConfigResponse)
   },
 
-  /**
-   * Disconnect GitLab service connection
-   */
-  disconnect: async (): Promise<DisconnectGitLabResponse> => {
-    const path = buildPath(deleteGitLabConfigRoute)
-    return await apiClient.delete<DisconnectGitLabResponse>(path)
+  disconnect: (): Promise<DisconnectGitLabResponse> => {
+    return Promise.resolve({ success: false, message: 'Not implemented' })
   },
 
-  /**
-   * Save Personal Access Token
-   */
-  savePAT: async (request: SaveGitLabPATRequest): Promise<SaveGitLabPATResponse> => {
-    const path = buildPath(saveGitLabPATRoute)
-    return await apiClient.put<SaveGitLabPATResponse>(path, request)
+  savePAT: (_request: GitLabPATRequest): Promise<SaveGitLabPATResponse> => {
+    return Promise.resolve({ success: false, message: 'Not implemented' })
   },
 }

@@ -4,9 +4,7 @@ import { meHandler } from '@moatless/api-client/sandbox/auth/auth'
 import { useQuery } from '@tanstack/react-query'
 import { redirectToLogin } from '@/lib/api/query-client'
 
-const API_BASE_URL = import.meta.env.PROD
-  ? ''
-  : import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const API_BASE_URL = import.meta.env.PROD ? '' : (import.meta.env.VITE_API_URL ?? '')
 
 /**
  * Hook to get the current authenticated user

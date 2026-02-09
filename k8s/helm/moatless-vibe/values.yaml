@@ -4,10 +4,10 @@
 # -- Number of API replicas
 replicaCount: 1
 
-# Main web application image (lightweight, ~150MB)
+# Static frontend nginx image
 image:
   # -- Docker image repository
-  repository: ghcr.io/aorwall/moatless-vibe
+  repository: aorwall/moatless-vibe
   # -- Image pull policy
   pullPolicy: Always
   # -- Overrides the image tag (default: chart appVersion)
@@ -16,7 +16,7 @@ image:
 # Sandbox image (full dev environment, ~5-8GB)
 sandboxImage:
   # -- Docker image repository for sandbox pods
-  repository: ghcr.io/aorwall/moatless-vibe-worker
+  repository: aorwall/moatless-vibe-worker
   # -- Image pull policy for sandbox pods
   pullPolicy: Always
   # -- Overrides the sandbox image tag (default: same as main image tag)
@@ -55,8 +55,8 @@ securityContext: {}
 service:
   # -- Service type
   type: ClusterIP
-  # -- API service port
-  port: 8000
+  # -- Frontend service port (nginx)
+  port: 80
 
 ingress:
   # -- Enable ingress
@@ -127,25 +127,25 @@ proxy:
     enabled: false
   # -- Traefik entryPoint name for IngressRoutes ("web" when ALB terminates TLS, "websecure" for direct TLS)
   traefikEntryPoint: "websecure"
-  # Backend service configuration (proxy + workspace orchestration + auth + tasks + agent)
+  # Backend service configuration (proxy + workspace orchestration + auth + tasks + agent + all API routes)
   backend:
-    # -- Enable backend service
-    enabled: false
+    # -- Backend service is always deployed (handles all API traffic)
+    enabled: true
     # -- Number of replicas for backend service
     replicas: 2
     # -- Backend service image
     image:
-      repository: ghcr.io/aorwall/moatless-vibe-backend
+      repository: aorwall/moatless-vibe-backend
       tag: ""
       pullPolicy: Always
-    # -- Resource limits for backend service
+    # -- Resource limits for backend service (handles all API traffic)
     resources:
       limits:
-        cpu: 500m
-        memory: 128Mi
+        cpu: "1"
+        memory: 512Mi
       requests:
-        cpu: 50m
-        memory: 32Mi
+        cpu: 250m
+        memory: 128Mi
     # -- Log level (RUST_LOG format)
     logLevel: "info"
     # -- Pod annotations
@@ -188,11 +188,11 @@ certManager:
 
 resources:
   limits:
-    cpu: "2"
-    memory: 4Gi
+    cpu: 200m
+    memory: 128Mi
   requests:
-    cpu: 500m
-    memory: 1Gi
+    cpu: 50m
+    memory: 32Mi
 
 # -- Node selector
 nodeSelector: {}
@@ -317,10 +317,10 @@ kubernetes:
   namespace: ""
   # -- Sandbox image override (object format with repository + tag, or full image string)
   # Examples:
-  #   --set kubernetes.sandboxImage.repository=ghcr.io/aorwall/moatless-vibe-worker
+  #   --set kubernetes.sandboxImage.repository=aorwall/moatless-vibe-worker
   #   --set kubernetes.sandboxImage.tag=v1.0.0
   # Or as a full string:
-  #   --set kubernetes.sandboxImage=ghcr.io/aorwall/moatless-vibe-worker:v1.0.0
+  #   --set kubernetes.sandboxImage=aorwall/moatless-vibe-worker:v1.0.0
   # Defaults to sandboxImage section below if not set
   sandboxImage:
     repository: ""
@@ -416,22 +416,20 @@ externalSecrets:
   # -- Name of existing secret
   secretName: "vibe-secrets"
 
-# Health checks
+# Health checks (nginx /health endpoint)
 livenessProbe:
   httpGet:
     path: /health
     port: http
-  initialDelaySeconds: 30
-  periodSeconds: 30
-  timeoutSeconds: 10
+  initialDelaySeconds: 5
+  periodSeconds: 15
 
 readinessProbe:
   httpGet:
     path: /health
     port: http
-  initialDelaySeconds: 10
-  periodSeconds: 10
-  timeoutSeconds: 5
+  initialDelaySeconds: 2
+  periodSeconds: 5
 
 # RBAC for managing sandbox pods, PVCs, secrets, and services
 rbac:
@@ -467,10 +465,6 @@ rbac:
 # Extra environment variables (dynamically injected into deployment)
 # Add any custom environment variables here as key-value pairs
 extraEnv:
-  # Authentication provider: "auth0", "github", or "none"
-  AUTH_PROVIDER: "none"
-  # Frontend URL for OAuth callbacks
-  FRONTEND_URL: "https://vibe.example.com"
   # Auth0 configuration (when AUTH_PROVIDER=auth0)
   # AUTH0_DOMAIN: "your-tenant.auth0.com"
   # AUTH0_CLIENT_ID: "your-client-id"

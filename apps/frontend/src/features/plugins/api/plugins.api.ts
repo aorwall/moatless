@@ -1,57 +1,29 @@
-import { buildPath, type RouteRequestJson, type RouteSuccess } from '@moatless/api-contract'
-import {
-  addMarketplaceRoute,
-  deleteMarketplaceRoute,
-  listMarketplacesRoute,
-  listPluginsRoute,
-  syncMarketplaceRoute,
-} from '@moatless/api-contract/plugins'
-import { apiClient } from '@/lib/api/client'
+import type {
+  AddMarketplaceRequest,
+  MarketplaceListResponse,
+  PluginListResponse,
+  PluginMarketplace,
+} from '@moatless/types'
 
-type ListPluginsResponse = RouteSuccess<typeof listPluginsRoute>
-type ListMarketplacesResponse = RouteSuccess<typeof listMarketplacesRoute>
-type AddMarketplaceRequest = RouteRequestJson<typeof addMarketplaceRoute>
-type AddMarketplaceResponse = RouteSuccess<typeof addMarketplaceRoute>
-type SyncMarketplaceResponse = RouteSuccess<typeof syncMarketplaceRoute>
-
+// TODO: Plugin/marketplace endpoints not implemented in Rust backend
 export const pluginsApi = {
-  /**
-   * List all available plugins from all marketplaces
-   */
-  listPlugins: async (): Promise<ListPluginsResponse> => {
-    const path = buildPath(listPluginsRoute)
-    return await apiClient.get<ListPluginsResponse>(path)
+  listPlugins: (): Promise<PluginListResponse> => {
+    return Promise.resolve({ plugins: [] } as PluginListResponse)
   },
 
-  /**
-   * List all plugin marketplaces
-   */
-  listMarketplaces: async (): Promise<ListMarketplacesResponse> => {
-    const path = buildPath(listMarketplacesRoute)
-    return await apiClient.get<ListMarketplacesResponse>(path)
+  listMarketplaces: (): Promise<MarketplaceListResponse> => {
+    return Promise.resolve({ marketplaces: [] } as MarketplaceListResponse)
   },
 
-  /**
-   * Add a new plugin marketplace by cloning from a GitHub repository
-   */
-  addMarketplace: async (request: AddMarketplaceRequest): Promise<AddMarketplaceResponse> => {
-    const path = buildPath(addMarketplaceRoute)
-    return await apiClient.post<AddMarketplaceResponse>(path, request)
+  addMarketplace: (_request: AddMarketplaceRequest): Promise<PluginMarketplace> => {
+    return Promise.resolve({} as PluginMarketplace)
   },
 
-  /**
-   * Remove a plugin marketplace
-   */
-  removeMarketplace: async (marketplaceId: string): Promise<void> => {
-    const path = buildPath(deleteMarketplaceRoute, { marketplaceId })
-    return await apiClient.delete<void>(path)
+  removeMarketplace: (_marketplaceId: string): Promise<void> => {
+    return Promise.resolve()
   },
 
-  /**
-   * Sync a marketplace from remote
-   */
-  syncMarketplace: async (marketplaceId: string): Promise<SyncMarketplaceResponse> => {
-    const path = buildPath(syncMarketplaceRoute, { marketplaceId })
-    return await apiClient.post<SyncMarketplaceResponse>(path)
+  syncMarketplace: (_marketplaceId: string): Promise<PluginMarketplace> => {
+    return Promise.resolve({} as PluginMarketplace)
   },
 }

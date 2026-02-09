@@ -1,7 +1,7 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "Sandbox Controller API",
+    "title": "Moatless Vibe Backend API",
     "description": "Workspace orchestration and authentication for Moatless Vibe",
     "version": "0.1.0"
   },
@@ -202,6 +202,148 @@
         }
       }
     },
+    "/api/sandbox/v1/tasks/{task_id}/search-files": {
+      "post": {
+        "tags": [
+          "sandbox"
+        ],
+        "summary": "Search files in a task's sandbox workspace.",
+        "operationId": "search_files_handler",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SearchFilesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "File search results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FileSearchResult"
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sandbox/v1/tasks/{task_id}/server/status": {
+      "get": {
+        "tags": [
+          "sandbox"
+        ],
+        "summary": "Get server status for all servers in a task's sandbox.",
+        "operationId": "server_status_handler",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Server status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerStatusResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sandbox/v1/tasks/{task_id}/servers/{server_name}/logs": {
+      "get": {
+        "tags": [
+          "sandbox"
+        ],
+        "summary": "Stream server logs via SSE.",
+        "description": "Returns a Server-Sent Events stream of log lines for the given server.\nThe response body cannot be represented in OpenAPI (SSE streaming).",
+        "operationId": "server_logs_handler",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "server_name",
+            "in": "path",
+            "description": "Server name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SSE stream of server log lines"
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/sandbox/v1/tasks/{task_id}/start": {
       "post": {
         "tags": [
@@ -313,6 +455,37 @@
           },
           "500": {
             "description": "Stop failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/api-key/session": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Exchange a valid API key for a session cookie (for local dev auth).",
+        "operationId": "exchange_api_key_handler",
+        "responses": {
+          "200": {
+            "description": "Session created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid API key",
             "content": {
               "application/json": {
                 "schema": {
@@ -524,6 +697,252 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/v1/channels/configs": {
+      "get": {
+        "tags": [
+          "channels"
+        ],
+        "summary": "List channel configs with optional filters.",
+        "operationId": "list_configs",
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "query",
+            "description": "Filter by provider",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "repositoryId",
+            "in": "query",
+            "description": "Filter by repository",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Config list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ChannelConfigResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "channels"
+        ],
+        "summary": "Create a new channel config.",
+        "operationId": "create_config",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateChannelConfigRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Config created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelConfigResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Repository not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/channels/configs/{id}": {
+      "get": {
+        "tags": [
+          "channels"
+        ],
+        "summary": "Get a channel config by ID.",
+        "operationId": "get_config",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Channel config ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Config details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelConfigResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "channels"
+        ],
+        "summary": "Update a channel config.",
+        "operationId": "update_config",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Channel config ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateChannelConfigRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Config updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelConfigResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "channels"
+        ],
+        "summary": "Delete a channel config.",
+        "operationId": "delete_config",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Channel config ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Config deleted"
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/channels/slack/webhook": {
+      "post": {
+        "tags": [
+          "channels"
+        ],
+        "summary": "Handle Slack Events API webhook.",
+        "operationId": "slack_webhook",
+        "requestBody": {
+          "description": "Slack Events API payload",
+          "content": {
+            "text/plain": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook processed"
+          },
+          "401": {
+            "description": "Invalid signature"
           }
         }
       }
@@ -2478,6 +2897,73 @@
           }
         }
       },
+      "ChannelConfigResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "provider",
+          "sourceId",
+          "repositoryId",
+          "routingMode",
+          "active",
+          "createdBy",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "createdBy": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "ongoingTaskId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "promptTemplate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "provider": {
+            "type": "string"
+          },
+          "providerConfig": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "repositoryId": {
+            "type": "string"
+          },
+          "routingMode": {
+            "type": "string"
+          },
+          "sourceId": {
+            "type": "string"
+          },
+          "sourceName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        }
+      },
       "CommandResponse": {
         "type": "object",
         "required": [
@@ -2559,6 +3045,47 @@
             "items": {
               "type": "string"
             }
+          }
+        }
+      },
+      "CreateChannelConfigRequest": {
+        "type": "object",
+        "required": [
+          "provider",
+          "sourceId",
+          "repositoryId",
+          "routingMode"
+        ],
+        "properties": {
+          "promptTemplate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "provider": {
+            "type": "string"
+          },
+          "providerConfig": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "repositoryId": {
+            "type": "string"
+          },
+          "routingMode": {
+            "type": "string"
+          },
+          "sourceId": {
+            "type": "string"
+          },
+          "sourceName": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -3069,6 +3596,28 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "FileSearchResult": {
+        "type": "object",
+        "description": "Single file search result from sandbox.",
+        "required": [
+          "path",
+          "name"
+        ],
+        "properties": {
+          "fileType": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
           }
         }
       },
@@ -3626,6 +4175,26 @@
           }
         }
       },
+      "SearchFilesRequest": {
+        "type": "object",
+        "description": "Request body for file search in sandbox.",
+        "required": [
+          "query"
+        ],
+        "properties": {
+          "limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "query": {
+            "type": "string"
+          }
+        }
+      },
       "SendCommandRequest": {
         "type": "object",
         "required": [
@@ -3831,6 +4400,50 @@
           }
         }
       },
+      "ServerSnapshot": {
+        "type": "object",
+        "description": "Server snapshot from sandbox GET /status",
+        "required": [
+          "name",
+          "label",
+          "port",
+          "builtin",
+          "status"
+        ],
+        "properties": {
+          "builtin": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "pid": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "port": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
       "ServerStatus": {
         "type": "string",
         "description": "Matches TS ServerStatusEnumSchema: 'stopped' | 'installing' | 'starting' | 'started' | 'failed'",
@@ -3841,6 +4454,21 @@
           "started",
           "failed"
         ]
+      },
+      "ServerStatusResponse": {
+        "type": "object",
+        "description": "Server status response proxied from sandbox pod.",
+        "required": [
+          "servers"
+        ],
+        "properties": {
+          "servers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ServerSnapshot"
+            }
+          }
+        }
       },
       "SessionResponse": {
         "type": "object",
@@ -4288,6 +4916,41 @@
           }
         }
       },
+      "UpdateChannelConfigRequest": {
+        "type": "object",
+        "properties": {
+          "active": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "promptTemplate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "providerConfig": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "routingMode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sourceName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "UpdateCommandRequest": {
         "type": "object",
         "properties": {
@@ -4716,6 +5379,10 @@
     {
       "name": "provider-settings",
       "description": "GitHub OAuth/PAT management"
+    },
+    {
+      "name": "channels",
+      "description": "Channel integration management and webhooks"
     }
   ]
 }

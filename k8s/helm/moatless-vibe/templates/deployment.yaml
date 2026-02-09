@@ -13,15 +13,10 @@ spec:
       app.kubernetes.io/component: app
   template:
     metadata:
+      {{- with .Values.podAnnotations }}
       annotations:
-        {{- if .Values.monitoring.prometheus.enabled }}
-        prometheus.io/scrape: "true"
-        prometheus.io/path: "/metrics"
-        prometheus.io/port: "{{ .Values.service.port }}"
-        {{- end }}
-        {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
-        {{- end }}
+      {{- end }}
       labels:
         {{- include "moatless-vibe.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: app
@@ -31,147 +26,14 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "moatless-vibe.serviceAccountName" . }}
-      {{- with .Values.podSecurityContext }}
-      securityContext:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
       containers:
-        - name: api
-          {{- with .Values.securityContext }}
-          securityContext:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
+        - name: frontend
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http
-              containerPort: {{ .Values.service.port }}
+              containerPort: 80
               protocol: TCP
-          env:
-            # Fix for Bun/Node TLS certificate verification with K8s API
-            - name: NODE_EXTRA_CA_CERTS
-              value: "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
-            # Redis configuration for event streaming
-            - name: REDIS_URL
-              value: {{ include "moatless-vibe.redisUrl" . | quote }}
-            - name: REDIS_CONSUMER_GROUP
-              value: "main-app-consumers"
-            - name: REDIS_CONSUMER_ID
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.name
-            {{- if .Values.kubernetes.enabled }}
-            # Kubernetes execution mode
-            - name: K8S_NAMESPACE
-              value: {{ include "moatless-vibe.sandboxNamespace" . | quote }}
-            - name: K8S_SANDBOX_IMAGE
-              value: {{ include "moatless-vibe.sandboxImage" . | quote }}
-            - name: K8S_SERVICE_ACCOUNT
-              value: {{ include "moatless-vibe.serviceAccountName" . | quote }}
-            - name: K8S_POD_STARTUP_TIMEOUT
-              value: {{ .Values.kubernetes.podStartupTimeout | quote }}
-            - name: K8S_HEALTH_CHECK_INTERVAL
-              value: {{ .Values.kubernetes.healthCheckInterval | quote }}
-            - name: K8S_RESOURCE_LIMIT_CPU
-              value: {{ .Values.kubernetes.sandboxResources.limits.cpu | quote }}
-            - name: K8S_RESOURCE_LIMIT_MEMORY
-              value: {{ .Values.kubernetes.sandboxResources.limits.memory | quote }}
-            - name: K8S_RESOURCE_REQUEST_CPU
-              value: {{ .Values.kubernetes.sandboxResources.requests.cpu | quote }}
-            - name: K8S_RESOURCE_REQUEST_MEMORY
-              value: {{ .Values.kubernetes.sandboxResources.requests.memory | quote }}
-            # Sandbox pods will call back to this service for task metadata updates
-            - name: BACKEND_API_URL
-              value: "http://{{ include "moatless-vibe.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}"
-            # Workspace inactivity timeout
-            - name: WORKSPACE_INACTIVITY_TIMEOUT_MINUTES
-              value: {{ .Values.kubernetes.inactivityTimeoutMinutes | quote }}
-            {{- end }}
-            {{- if eq .Values.storage.backend "s3" }}
-            # S3 storage configuration for file uploads
-            - name: FILE_STORAGE_BACKEND
-              value: "s3"
-            - name: S3_BUCKET_NAME
-              value: {{ .Values.storage.s3.bucketName | quote }}
-            - name: S3_REGION
-              value: {{ .Values.storage.s3.region | quote }}
-            - name: S3_KEY_PREFIX
-              value: {{ .Values.storage.s3.keyPrefix | quote }}
-            - name: SHARED_STORAGE_PVC_NAME
-              value: {{ include "moatless-vibe.fullname" . }}-shared-storage
-            {{- else if eq .Values.storage.backend "azure-blob" }}
-            # Azure Blob storage configuration for file uploads
-            - name: FILE_STORAGE_BACKEND
-              value: "azure-blob"
-            - name: AZURE_STORAGE_ACCOUNT
-              value: {{ .Values.storage.azureBlob.accountName | quote }}
-            - name: AZURE_STORAGE_CONTAINER
-              value: {{ .Values.storage.azureBlob.containerName | quote }}
-            - name: AZURE_STORAGE_KEY_PREFIX
-              value: {{ .Values.storage.azureBlob.keyPrefix | quote }}
-            - name: SHARED_STORAGE_PVC_NAME
-              value: {{ include "moatless-vibe.fullname" . }}-shared-storage
-            {{- end }}
-            - name: SANDBOX_UPLOAD_MOUNT_PATH
-              value: {{ .Values.storage.sandboxMountPath | quote }}
-            {{- if .Values.proxy.enabled }}
-            # Hostname-based routing configuration
-            - name: USE_HOSTNAME_ROUTING
-              value: "true"
-            - name: PROXY_DOMAIN
-              value: {{ .Values.proxy.domain | quote }}
-            - name: PROXY_PROTOCOL
-              value: {{ .Values.proxy.protocol | quote }}
-            # Traefik IngressRoute configuration
-            - name: TRAEFIK_AUTH_MIDDLEWARE_NAME
-              value: {{ .Values.proxy.authMiddlewareName | default "preview-auth" | quote }}
-            - name: TRAEFIK_AUTH_MIDDLEWARE_NAMESPACE
-              value: {{ .Release.Namespace | quote }}
-            {{- if .Values.proxy.traefikEntryPoint }}
-            - name: TRAEFIK_ENTRY_POINT
-              value: {{ .Values.proxy.traefikEntryPoint | quote }}
-            {{- end }}
-            {{- end }}
-            {{- if .Values.proxy.backend.enabled }}
-            - name: BACKEND_URL
-              value: "http://{{ include "moatless-vibe.fullname" . }}-backend:8081"
-            {{- end }}
-            {{- if .Values.auth.adminUserIds }}
-            # Admin users configuration
-            - name: ADMIN_USER_IDS
-              value: {{ .Values.auth.adminUserIds | join "," | quote }}
-            {{- end }}
-            {{- if .Values.auth.adminReadAll }}
-            # Enable admin users to read all entities regardless of visibility
-            - name: ADMIN_READ_ALL
-              value: "true"
-            {{- end }}
-            # Dynamic extra env vars from values
-            {{- range $key, $value := .Values.extraEnv }}
-            - name: {{ $key }}
-              value: {{ $value | quote }}
-            {{- end }}
-            # Dynamic secret env vars from secrets
-            {{- range $key, $value := .Values.extraSecretEnv }}
-            {{- if $value }}
-            - name: {{ $key }}
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "moatless-vibe.secretsName" $ }}
-                  key: {{ $key }}
-            {{- end }}
-            {{- end }}
-          envFrom:
-            - configMapRef:
-                name: {{ include "moatless-vibe.fullname" . }}-config
-            - secretRef:
-                name: {{ include "moatless-vibe.secretsName" . }}
-          volumeMounts:
-            {{- if .Values.kubernetes.enabled }}
-            - name: sandbox-pod-template
-              mountPath: /etc/moatless
-              readOnly: true
-            {{- end }}
           {{- with .Values.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
@@ -184,12 +46,6 @@ spec:
           readinessProbe:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-      volumes:
-        {{- if .Values.kubernetes.enabled }}
-        - name: sandbox-pod-template
-          configMap:
-            name: {{ include "moatless-vibe.fullname" . }}-sandbox-pod-template
-        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

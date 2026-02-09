@@ -1,16 +1,13 @@
-import { Bot, Figma, Github, Gitlab, Globe, Key, Package, Settings, Terminal } from 'lucide-react'
+import { Bot, Figma, Github, Gitlab, Key, Package, Terminal } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { useAuth } from '@/features/auth'
 import {
   ApiKeyConfigurationSection,
   ClaudeConfigurationSection,
   CommandConfigurationSection,
   FigmaConfigurationSection,
-  GeneralConfigurationSection,
   GitHubConfigurationSection,
   GitLabConfigurationSection,
   MarketplaceConfigurationSection,
-  PublishConfigurationSection,
 } from '@/features/settings'
 import { SidebarDialog } from '@/lib/components/ui/sidebar-dialog'
 import { useFeatureFlag } from '@/lib/hooks/use-feature-flag'
@@ -24,25 +21,14 @@ interface SettingsDialogProps {
 export function SettingsDialog({
   open,
   onOpenChange,
-  defaultSection = 'general',
+  defaultSection = 'github',
 }: SettingsDialogProps) {
   const [activeSection, setActiveSection] = useState(defaultSection)
-  const { isAdmin } = useAuth()
-  const isNetlifyPublishEnabled = useFeatureFlag('NETLIFY_PUBLISH')
   const showClaudeSettings = useFeatureFlag('SHOW_CLAUDE_SETTINGS')
   const isGitLabEnabled = useFeatureFlag('GITLAB_ENABLED')
 
   const sections = useMemo(() => {
     const allSections = []
-
-    // System settings sections - admin only
-    if (isAdmin) {
-      allSections.push({
-        id: 'general',
-        label: 'General',
-        icon: <Settings className="h-4 w-4" />,
-      })
-    }
 
     // Claude settings - controlled by SHOW_CLAUDE_SETTINGS flag
     if (showClaudeSettings) {
@@ -94,17 +80,8 @@ export function SettingsDialog({
       icon: <Package className="h-4 w-4" />,
     })
 
-    // Only include publish section if feature flag is enabled
-    if (isNetlifyPublishEnabled) {
-      allSections.push({
-        id: 'publish',
-        label: 'Publish',
-        icon: <Globe className="h-4 w-4" />,
-      })
-    }
-
     return allSections
-  }, [isNetlifyPublishEnabled, isAdmin, showClaudeSettings, isGitLabEnabled])
+  }, [showClaudeSettings, isGitLabEnabled])
 
   return (
     <SidebarDialog open={open} onOpenChange={onOpenChange}>
@@ -124,7 +101,6 @@ export function SettingsDialog({
       </SidebarDialog.Sidebar>
 
       <SidebarDialog.Content title={sections.find((s) => s.id === activeSection)?.label}>
-        {activeSection === 'general' && <GeneralConfigurationSection key="general" />}
         {activeSection === 'claude' && <ClaudeConfigurationSection key="claude" />}
         {activeSection === 'github' && <GitHubConfigurationSection key="github" />}
         {activeSection === 'gitlab' && <GitLabConfigurationSection key="gitlab" />}
@@ -132,7 +108,6 @@ export function SettingsDialog({
         {activeSection === 'api-keys' && <ApiKeyConfigurationSection key="api-keys" />}
         {activeSection === 'marketplaces' && <MarketplaceConfigurationSection key="marketplaces" />}
         {activeSection === 'commands' && <CommandConfigurationSection key="commands" />}
-        {activeSection === 'publish' && <PublishConfigurationSection key="publish" />}
       </SidebarDialog.Content>
     </SidebarDialog>
   )

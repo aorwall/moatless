@@ -122,7 +122,7 @@ export function registerPluginRoutes(app: OpenAPIHono<AppBindings>) {
   /**
    * GET /api/v1/plugins/{pluginId}/download
    * Download a plugin as a TAR archive for sandbox use.
-   * Authenticated via X-Task-Token header.
+   * Authenticated via X-User-Token header.
    */
   app.openapi(downloadPluginRoute, async (c) => {
     try {

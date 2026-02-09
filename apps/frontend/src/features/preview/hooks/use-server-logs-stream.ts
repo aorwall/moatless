@@ -1,5 +1,8 @@
-import { SERVER_LOGS_PATH } from '@moatless/api-contract/preview'
 import { useCallback, useEffect, useRef, useState } from 'react'
+
+// SSE streaming — api-client can't generate a streaming fetch.
+// Path from OpenAPI spec: GET /api/sandbox/v1/tasks/{task_id}/servers/{server_name}/logs
+const SERVER_LOGS_PATH = '/api/sandbox/v1/tasks/:taskId/servers/:serverName/logs'
 
 interface UseServerLogsStreamResult {
   logs: string
@@ -18,7 +21,7 @@ interface LogStreamEvent {
 
 // Get API base URL (same logic as client.ts)
 const getApiBaseUrl = () => {
-  return import.meta.env.PROD ? '' : import.meta.env.VITE_API_URL || 'http://localhost:8000'
+  return import.meta.env.PROD ? '' : (import.meta.env.VITE_API_URL ?? '')
 }
 
 // Helper: Process a single NDJSON line

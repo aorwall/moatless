@@ -1,61 +1,41 @@
-import { buildPath, type RouteRequestJson, type RouteSuccess } from '@moatless/api-contract'
-import {
-  deleteFigmaConfigRoute,
-  exchangeFigmaTokenRoute,
-  getFigmaConfigRoute,
-  getFigmaOAuthUrlRoute,
-  saveFigmaPATRoute,
-} from '@moatless/api-contract/figma'
-import { apiClient } from '@/lib/api/client'
+import type {
+  FigmaOAuthTokenRequest,
+  FigmaOAuthUrlResponse,
+  FigmaPATRequest,
+} from '@moatless/types'
 
-type FigmaOAuthUrlResponse = RouteSuccess<typeof getFigmaOAuthUrlRoute>
-type FigmaConfigResponse = RouteSuccess<typeof getFigmaConfigRoute>
-type ExchangeFigmaTokenRequest = RouteRequestJson<typeof exchangeFigmaTokenRoute>
-type ExchangeFigmaTokenResponse = RouteSuccess<typeof exchangeFigmaTokenRoute>
-type DisconnectFigmaResponse = RouteSuccess<typeof deleteFigmaConfigRoute>
-type SaveFigmaPATRequest = RouteRequestJson<typeof saveFigmaPATRoute>
-type SaveFigmaPATResponse = RouteSuccess<typeof saveFigmaPATRoute>
+interface FigmaConfigResponse {
+  connected: boolean
+  oauthEnabled: boolean
+  authMethod?: 'oauth' | 'pat'
+  figmaUserId?: string
+  connectedAt?: string
+  expiresAt?: string
+}
 
+type ExchangeFigmaTokenResponse = { success: boolean; message: string }
+type DisconnectFigmaResponse = { success: boolean; message: string }
+type SaveFigmaPATResponse = { success: boolean; message: string }
+
+// TODO: Figma config endpoints not implemented in Rust backend
 export const figmaApi = {
-  /**
-   * Get Figma OAuth authorization URL
-   */
-  getOAuthUrl: async (): Promise<FigmaOAuthUrlResponse> => {
-    const path = buildPath(getFigmaOAuthUrlRoute)
-    return await apiClient.get<FigmaOAuthUrlResponse>(path)
+  getOAuthUrl: (): Promise<FigmaOAuthUrlResponse> => {
+    return Promise.resolve({ authUrl: '', state: '' } as FigmaOAuthUrlResponse)
   },
 
-  /**
-   * Exchange OAuth code for access token
-   */
-  exchangeToken: async (
-    request: ExchangeFigmaTokenRequest,
-  ): Promise<ExchangeFigmaTokenResponse> => {
-    const path = buildPath(exchangeFigmaTokenRoute)
-    return await apiClient.post<ExchangeFigmaTokenResponse>(path, request)
+  exchangeToken: (_request: FigmaOAuthTokenRequest): Promise<ExchangeFigmaTokenResponse> => {
+    return Promise.resolve({ success: false, message: 'Not implemented' })
   },
 
-  /**
-   * Get user's Figma configuration
-   */
-  getConfig: async (): Promise<FigmaConfigResponse> => {
-    const path = buildPath(getFigmaConfigRoute)
-    return await apiClient.get<FigmaConfigResponse>(path)
+  getConfig: (): Promise<FigmaConfigResponse> => {
+    return Promise.resolve({ connected: false, oauthEnabled: false })
   },
 
-  /**
-   * Disconnect Figma OAuth
-   */
-  disconnect: async (): Promise<DisconnectFigmaResponse> => {
-    const path = buildPath(deleteFigmaConfigRoute)
-    return await apiClient.delete<DisconnectFigmaResponse>(path)
+  disconnect: (): Promise<DisconnectFigmaResponse> => {
+    return Promise.resolve({ success: false, message: 'Not implemented' })
   },
 
-  /**
-   * Save Personal Access Token
-   */
-  savePAT: async (request: SaveFigmaPATRequest): Promise<SaveFigmaPATResponse> => {
-    const path = buildPath(saveFigmaPATRoute)
-    return await apiClient.put<SaveFigmaPATResponse>(path, request)
+  savePAT: (_request: FigmaPATRequest): Promise<SaveFigmaPATResponse> => {
+    return Promise.resolve({ success: false, message: 'Not implemented' })
   },
 }

@@ -245,6 +245,18 @@ pub async fn cleanup_handler(
 // =============================================================================
 
 /// Get server status for all servers in a task's sandbox.
+#[utoipa::path(
+    get,
+    path = "/api/sandbox/v1/tasks/{task_id}/server/status",
+    tag = "sandbox",
+    params(
+        ("task_id" = String, Path, description = "Task identifier")
+    ),
+    responses(
+        (status = 200, description = "Server status", body = ServerStatusResponse),
+        (status = 500, description = "Internal error", body = ErrorBody)
+    )
+)]
 pub async fn server_status_handler(
     State(state): State<SandboxApiState>,
     Path(task_id): Path<String>,
@@ -259,6 +271,22 @@ pub async fn server_status_handler(
 }
 
 /// Stream server logs via SSE.
+///
+/// Returns a Server-Sent Events stream of log lines for the given server.
+/// The response body cannot be represented in OpenAPI (SSE streaming).
+#[utoipa::path(
+    get,
+    path = "/api/sandbox/v1/tasks/{task_id}/servers/{server_name}/logs",
+    tag = "sandbox",
+    params(
+        ("task_id" = String, Path, description = "Task identifier"),
+        ("server_name" = String, Path, description = "Server name")
+    ),
+    responses(
+        (status = 200, description = "SSE stream of server log lines"),
+        (status = 500, description = "Internal error", body = ErrorBody)
+    )
+)]
 pub async fn server_logs_handler(
     State(state): State<SandboxApiState>,
     Path((task_id, server_name)): Path<(String, String)>,
@@ -271,6 +299,19 @@ pub async fn server_logs_handler(
 }
 
 /// Search files in a task's sandbox workspace.
+#[utoipa::path(
+    post,
+    path = "/api/sandbox/v1/tasks/{task_id}/search-files",
+    tag = "sandbox",
+    params(
+        ("task_id" = String, Path, description = "Task identifier")
+    ),
+    request_body = SearchFilesRequest,
+    responses(
+        (status = 200, description = "File search results", body = Vec<FileSearchResult>),
+        (status = 500, description = "Internal error", body = ErrorBody)
+    )
+)]
 pub async fn search_files_handler(
     State(state): State<SandboxApiState>,
     Path(task_id): Path<String>,

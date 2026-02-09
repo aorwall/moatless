@@ -85,7 +85,7 @@ pub async fn build_provision_request(
 }
 
 /// Resolve credentials with fallback chain:
-/// 1. Read from existing K8s Secret (from a previous provision)
+/// 1. Read from existing per-user K8s Secret
 /// 2. Query `provider_tokens` table (user-linked tokens)
 /// 3. Fall back to environment variables
 async fn resolve_credentials(
@@ -94,11 +94,15 @@ async fn resolve_credentials(
     pool: &DbPool,
     user_id: Option<&str>,
 ) -> (Option<String>, Option<String>, Option<String>) {
-    // Step 1: Try K8s Secret first
-    let k8s_creds = secret::read_task_credentials(k8s, task_id).await;
-    let mut git_token = k8s_creds.as_ref().and_then(|c| c.github_token.clone());
-    let mut anthropic = k8s_creds.as_ref().and_then(|c| c.anthropic_api_key.clone());
-    let mut claude = k8s_creds.as_ref().and_then(|c| c.claude_oauth_token.clone());
+    // Step 1: Try per-user K8s Secret
+    let user_creds = if let Some(uid) = user_id {
+        secret::read_user_credentials(k8s, uid).await
+    } else {
+        None
+    };
+    let mut git_token = user_creds.as_ref().and_then(|c| c.github_token.clone());
+    let mut anthropic = user_creds.as_ref().and_then(|c| c.anthropic_api_key.clone());
+    let mut claude = user_creds.as_ref().and_then(|c| c.claude_oauth_token.clone());
 
     // Step 2: Fill gaps from provider_tokens table
     if let Some(uid) = user_id {

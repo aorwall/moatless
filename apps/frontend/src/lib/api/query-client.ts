@@ -1,9 +1,7 @@
 import { QueryCache, QueryClient } from '@tanstack/react-query'
 
 // API base URL for auth redirects
-const API_BASE_URL = import.meta.env.PROD
-  ? ''
-  : import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const API_BASE_URL = import.meta.env.PROD ? '' : (import.meta.env.VITE_API_URL ?? '')
 
 const AUTH_REDIRECT_KEY = 'auth_redirect_ts'
 const AUTH_REDIRECT_COOLDOWN_MS = 30_000

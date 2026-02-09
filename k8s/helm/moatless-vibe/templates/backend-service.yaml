@@ -1,4 +1,3 @@
-{{- if and .Values.proxy.enabled .Values.proxy.backend.enabled -}}
 apiVersion: v1
 kind: Service
 metadata:
@@ -14,10 +13,6 @@ spec:
       targetPort: http
       protocol: TCP
       name: http
-    - port: 8081
-      targetPort: internal
-      protocol: TCP
-      name: internal
     - port: 9090
       targetPort: metrics
       protocol: TCP
@@ -25,4 +20,3 @@ spec:
   selector:
     {{- include "moatless-vibe.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: backend
-{{- end }}

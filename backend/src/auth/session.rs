@@ -128,6 +128,48 @@ pub async fn create_session(
     Ok(session_id)
 }
 
+/// Create a new session from a user row (for API key → session exchange).
+///
+/// Unlike `create_session`, this doesn't require OAuth tokens — it creates
+/// a session with `provider = "api-key"` and no token fields.
+pub async fn create_session_from_user(
+    pool: &DbPool,
+    user: &UserRow,
+    group_id: Option<&str>,
+    session_max_age_secs: u64,
+) -> Result<String, crate::auth::error::AuthError> {
+    let now = Utc::now();
+    let expires_at = now + chrono::Duration::seconds(session_max_age_secs as i64);
+    let session_id = generate_session_id();
+
+    let session = SessionRow {
+        id: session_id.clone(),
+        provider: "api-key".to_string(),
+        user_id: user.id.clone(),
+        user_login: user.login.clone(),
+        user_email: user.email.clone(),
+        user_name: user.name.clone(),
+        avatar_url: user.avatar_url.clone(),
+        role: user.role.clone(),
+        access_token: None,
+        id_token: None,
+        token_type: None,
+        scope: None,
+        group_id: group_id.map(String::from),
+        created_at: now,
+        expires_at,
+    };
+    sessions::insert_session(pool, &session).await?;
+
+    info!(
+        user_login = %user.login,
+        user_id = %user.id,
+        "Created session from API key"
+    );
+
+    Ok(session_id)
+}
+
 /// Validate a session by ID. Returns None if expired or not found.
 pub async fn validate_session(
     pool: &DbPool,

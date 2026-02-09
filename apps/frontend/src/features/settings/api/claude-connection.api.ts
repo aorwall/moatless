@@ -1,48 +1,27 @@
-import { buildPath, type RouteRequestJson, type RouteSuccess } from '@moatless/api-contract'
-import {
-  deleteClaudeConfigRoute,
-  getClaudeConfigRoute,
-  getClaudeOAuthUrlRoute,
-  saveClaudePATRoute,
-} from '@moatless/api-contract/settings'
-import { apiClient } from '@/lib/api/client'
+import type {
+  ClaudeConnectionConfig,
+  ClaudeOAuthUrlResponse,
+  ClaudePATRequest,
+} from '@moatless/types'
 
-type ClaudeOAuthUrlResponse = RouteSuccess<typeof getClaudeOAuthUrlRoute>
-type ClaudeConfigResponse = RouteSuccess<typeof getClaudeConfigRoute>
-type DisconnectClaudeResponse = RouteSuccess<typeof deleteClaudeConfigRoute>
-type SaveClaudePATRequest = RouteRequestJson<typeof saveClaudePATRoute>
-type SaveClaudePATResponse = RouteSuccess<typeof saveClaudePATRoute>
+type DisconnectClaudeResponse = { success: boolean; message: string }
+type SaveClaudePATResponse = { success: boolean; message: string }
 
+// TODO: Claude connection endpoints not implemented in Rust backend
 export const claudeConnectionApi = {
-  /**
-   * Get Claude OAuth authorization URL
-   */
-  getOAuthUrl: async (): Promise<ClaudeOAuthUrlResponse> => {
-    const path = buildPath(getClaudeOAuthUrlRoute)
-    return await apiClient.get<ClaudeOAuthUrlResponse>(path)
+  getOAuthUrl: (): Promise<ClaudeOAuthUrlResponse> => {
+    return Promise.resolve({ authUrl: '', state: '' } as ClaudeOAuthUrlResponse)
   },
 
-  /**
-   * Get user's Claude connection configuration
-   */
-  getConfig: async (): Promise<ClaudeConfigResponse> => {
-    const path = buildPath(getClaudeConfigRoute)
-    return await apiClient.get<ClaudeConfigResponse>(path)
+  getConfig: (): Promise<ClaudeConnectionConfig> => {
+    return Promise.resolve({ connected: false, oauthEnabled: false } as ClaudeConnectionConfig)
   },
 
-  /**
-   * Disconnect Claude service connection
-   */
-  disconnect: async (): Promise<DisconnectClaudeResponse> => {
-    const path = buildPath(deleteClaudeConfigRoute)
-    return await apiClient.delete<DisconnectClaudeResponse>(path)
+  disconnect: (): Promise<DisconnectClaudeResponse> => {
+    return Promise.resolve({ success: false, message: 'Not implemented' })
   },
 
-  /**
-   * Save Personal Access Token
-   */
-  savePAT: async (request: SaveClaudePATRequest): Promise<SaveClaudePATResponse> => {
-    const path = buildPath(saveClaudePATRoute)
-    return await apiClient.put<SaveClaudePATResponse>(path, request)
+  savePAT: (_request: ClaudePATRequest): Promise<SaveClaudePATResponse> => {
+    return Promise.resolve({ success: false, message: 'Not implemented' })
   },
 }

@@ -106,7 +106,7 @@ data:
             - name: REDIS_URL
               value: {{ include "moatless-vibe.redisUrl" . | quote }}
             - name: BACKEND_API_URL
-              value: "http://{{ include "moatless-vibe.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}"
+              value: "http://{{ include "moatless-vibe.fullname" . }}-backend.{{ .Release.Namespace }}.svc.cluster.local:8080"
             - name: UV_THREADPOOL_SIZE
               value: "16"
             - name: NODE_OPTIONS

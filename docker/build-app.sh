@@ -44,7 +44,7 @@ while [[ $# -gt 0 ]]; do
     --help)
       echo "Usage: $0 [OPTIONS]"
       echo ""
-      echo "Build moatless-vibe app Docker image."
+      echo "Build moatless-vibe app Docker image (nginx + static frontend)."
       echo ""
       echo "Options:"
       echo "  --tag TAG         Docker image tag (default: latest)"
@@ -78,6 +78,13 @@ echo "Docker Hub: ${DOCKERHUB_NAME}"
 # Change to repository root
 cd "$(dirname "$0")/.."
 
+# Rebuild the project before Docker build to catch errors early
+echo -e "${YELLOW}Rebuilding project...${NC}"
+bun install --frozen-lockfile
+bunx turbo run build --filter=@moatless/frontend
+echo -e "${GREEN}✓ Project build successful${NC}"
+echo ""
+
 # Validate multi-arch requires push
 if [ "$MULTI_ARCH" = true ] && [ "$PUSH" = false ]; then
   echo -e "${RED}Error: Multi-arch builds require --push (multi-arch images can't be loaded locally)${NC}"
@@ -95,15 +102,6 @@ if [ "$MULTI_ARCH" = true ]; then
   echo -e "${GREEN}✓ Using buildx builder: $BUILDER_NAME${NC}"
   echo ""
 fi
-
-# Build the npm package first
-echo -e "${YELLOW}Building npm package...${NC}"
-bun build:package
-if [ $? -ne 0 ]; then
-  echo -e "${RED}✗ Package build failed!${NC}"
-  exit 1
-fi
-echo -e "${GREEN}✓ Package build successful!${NC}"
 
 # Build command - use buildx for multi-arch, regular docker build otherwise
 if [ "$MULTI_ARCH" = true ]; then

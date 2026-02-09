@@ -62,13 +62,13 @@ pub struct ServerConfig {
     pub port: u16,
 }
 
-/// Task credentials for K8s Secret
+/// Per-user credentials for K8s Secret
 #[derive(Debug, Clone, Serialize)]
-pub struct TaskCredentials {
+pub struct UserCredentials {
     pub github_token: Option<String>,
     pub anthropic_api_key: Option<String>,
     pub claude_oauth_token: Option<String>,
-    pub task_auth_token: Option<String>,
+    pub user_auth_token: Option<String>,
 }
 
 /// Matches TS WorkspaceExistenceSchema: 'exists' | 'missing' | 'invalid'
@@ -334,7 +334,7 @@ pub struct WorkspaceStatusFullResponse {
 // =============================================================================
 
 /// Request body for file search in sandbox.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct SearchFilesRequest {
     pub query: String,
     pub limit: Option<u32>,

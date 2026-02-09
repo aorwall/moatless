@@ -1,17 +1,23 @@
-import { buildPath, type RouteSuccess } from '@moatless/api-contract'
-import { searchWorkspaceFilesRoute } from '@moatless/api-contract/workspace.ts'
+import type { FileSearchResult } from '@moatless/api-client'
+import { unwrapResponse } from '@moatless/api-client/custom-instance'
+import { searchFilesHandler } from '@moatless/api-client/sandbox/sandbox/sandbox'
 import { useMutation } from '@tanstack/react-query'
-import { apiClient } from '@/lib/api/client'
 
-type FileSearchResponse = RouteSuccess<typeof searchWorkspaceFilesRoute>
+interface WorkspaceFileSearchResponse {
+  files: { path: string; matches: number }[]
+  totalMatches: number
+}
 
 export function useFileSearch(taskId: string) {
-  return useMutation<FileSearchResponse, Error, string>({
+  return useMutation<WorkspaceFileSearchResponse, Error, string>({
     mutationFn: async (query: string) => {
-      const path = buildPath(searchWorkspaceFilesRoute, { taskId })
-      return await apiClient.post<FileSearchResponse>(path, {
-        query,
-      })
+      const results = await unwrapResponse<FileSearchResult[]>(
+        searchFilesHandler(taskId, { query }),
+      )
+      return {
+        files: results.map((r) => ({ path: r.path, matches: 1 })),
+        totalMatches: results.length,
+      }
     },
   })
 }

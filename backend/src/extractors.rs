@@ -1,17 +1,21 @@
-//! Request extractors for authentication via Traefik ForwardAuth headers.
+//! Request extractors for authentication via Traefik ForwardAuth headers
+//! or user auth tokens (for sandbox-to-backend calls).
 
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
+use crate::sandbox::jwt;
 use crate::state::AppState;
 
-/// Authenticated user extracted from ForwardAuth headers.
+/// Authenticated user extracted from ForwardAuth headers or user auth token.
 ///
-/// Traefik's ForwardAuth middleware calls our `/auth/verify` endpoint,
-/// which sets `X-User-Id`, `X-User-Login`, etc. headers on the
-/// proxied request. This extractor reads those headers.
+/// Two auth paths:
+/// 1. **ForwardAuth** (via Traefik): reads `X-User-Id`, `X-User-Login`, etc.
+/// 2. **User token** (sandbox→backend): reads `X-User-Token` header, verifies JWT
+///
+/// The `task_id` field is populated from the `X-Task-Id` header when present.
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct AuthUser {
@@ -20,6 +24,7 @@ pub struct AuthUser {
     pub role: Option<String>,
     pub provider: Option<String>,
     pub group_id: Option<String>,
+    pub task_id: Option<String>,
 }
 
 /// Error returned when auth headers are missing.
@@ -36,47 +41,84 @@ impl FromRequestParts<AppState> for AuthUser {
 
     async fn from_request_parts(
         parts: &mut Parts,
-        _state: &AppState,
+        state: &AppState,
     ) -> Result<Self, Self::Rejection> {
-        let user_id = parts
+        // Read X-Task-Id header (used by both auth paths)
+        let task_id = parts
+            .headers
+            .get("x-task-id")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
+
+        // Path 1: Try ForwardAuth headers first (X-User-Id present)
+        if let Some(user_id) = parts
             .headers
             .get("x-user-id")
             .and_then(|v| v.to_str().ok())
             .map(|s| s.to_string())
-            .ok_or_else(|| AuthError("Missing X-User-Id header".to_string()))?;
+        {
+            let login = parts
+                .headers
+                .get("x-user-login")
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| user_id.clone());
 
-        let login = parts
+            let role = parts
+                .headers
+                .get("x-user-role")
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.to_string());
+
+            let provider = parts
+                .headers
+                .get("x-user-provider")
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.to_string());
+
+            let group_id = parts
+                .headers
+                .get("x-group-id")
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.to_string());
+
+            return Ok(AuthUser {
+                user_id,
+                login,
+                role,
+                provider,
+                group_id,
+                task_id,
+            });
+        }
+
+        // Path 2: Try X-User-Token header (sandbox→backend JWT auth)
+        if let Some(token) = parts
             .headers
-            .get("x-user-login")
+            .get("x-user-token")
             .and_then(|v| v.to_str().ok())
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| user_id.clone());
+        {
+            let secret = state
+                .config
+                .task_token_secret
+                .as_deref()
+                .ok_or_else(|| AuthError("Token verification not configured".to_string()))?;
 
-        let role = parts
-            .headers
-            .get("x-user-role")
-            .and_then(|v| v.to_str().ok())
-            .map(|s| s.to_string());
+            let claims = jwt::verify_user_auth_token(token, secret)
+                .map_err(|e| AuthError(format!("Invalid user token: {e}")))?;
 
-        let provider = parts
-            .headers
-            .get("x-user-provider")
-            .and_then(|v| v.to_str().ok())
-            .map(|s| s.to_string());
+            return Ok(AuthUser {
+                user_id: claims.user_id,
+                login: claims.login,
+                role: None,
+                provider: Some("user-token".to_string()),
+                group_id: None,
+                task_id,
+            });
+        }
 
-        let group_id = parts
-            .headers
-            .get("x-group-id")
-            .and_then(|v| v.to_str().ok())
-            .map(|s| s.to_string());
-
-        Ok(AuthUser {
-            user_id,
-            login,
-            role,
-            provider,
-            group_id,
-        })
+        // Neither auth path succeeded
+        Err(AuthError("Missing X-User-Id or X-User-Token header".to_string()))
     }
 }
 

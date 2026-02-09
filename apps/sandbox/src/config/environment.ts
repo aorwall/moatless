@@ -105,10 +105,10 @@ export interface SandboxConfig {
   backendApiUrl?: string
 
   /**
-   * JWT token for authenticating sandbox-to-backend API calls
-   * Read from TASK_AUTH_TOKEN env var
+   * Long-lived user auth token for sandbox-to-backend API calls
+   * Read from USER_AUTH_TOKEN env var
    */
-  taskAuthToken?: string
+  userAuthToken?: string
 }
 
 /**
@@ -201,7 +201,7 @@ export function loadConfig(): SandboxConfig {
     repoConfig,
     agentConfig,
     backendApiUrl: process.env['BACKEND_API_URL'],
-    taskAuthToken: process.env['TASK_AUTH_TOKEN'],
+    userAuthToken: process.env['USER_AUTH_TOKEN'],
   }
 
   return _config

@@ -24,7 +24,7 @@ spec:
               service:
                 name: {{ .Values.proxyIngress.targetServiceName | default "traefik" }}
                 port:
-                  number: {{ .Values.proxyIngress.targetServicePort | default 8000 }}
+                  number: {{ .Values.proxyIngress.targetServicePort | default 80 }}
   {{- if .Values.proxyIngress.tls }}
   {{- with .Values.proxyIngress.tls }}
   tls:

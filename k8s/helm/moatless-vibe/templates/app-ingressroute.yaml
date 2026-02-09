@@ -77,8 +77,8 @@ spec:
         - name: {{ .Values.proxy.authMiddlewareName | default "preview-auth" }}
           namespace: {{ .Release.Namespace }}
       services:
-        - name: {{ $fullname }}
-          port: {{ .Values.service.port }}
+        - name: {{ $fullname }}-backend
+          port: 8080
 ---
 # Frontend/SPA catch-all — NO ForwardAuth (public assets, SPA handles auth redirects)
 apiVersion: traefik.io/v1alpha1

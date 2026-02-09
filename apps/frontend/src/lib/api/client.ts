@@ -4,7 +4,7 @@ import type { ApiErrorResponse } from '@moatless/types'
 // In development, use the configured API URL or default to localhost
 const API_BASE_URL = import.meta.env.PROD
   ? '' // Empty string for relative URLs in production
-  : import.meta.env.VITE_API_URL || 'http://localhost:8000'
+  : (import.meta.env.VITE_API_URL ?? '')
 
 export class ApiError extends Error {
   constructor(

@@ -1,61 +1,57 @@
-import { buildPath, type RouteRequestJson, type RouteSuccess } from '@moatless/api-contract'
+import { unwrapResponse } from '@moatless/api-client/custom-instance'
 import {
-  deleteGitHubConfigRoute,
-  exchangeGitHubTokenRoute,
-  getGitHubConfigRoute,
-  getGitHubOAuthUrlRoute,
-  saveGitHubPATRoute,
-} from '@moatless/api-contract/settings'
-import { apiClient } from '@/lib/api/client'
+  deleteGithubConfig as deleteGithubConfigHandler,
+  exchangeGithubToken as exchangeGithubTokenHandler,
+  getGithubConfig as getGithubConfigHandler,
+  getGithubOauthUrl as getGithubOauthUrlHandler,
+  saveGithubPat as saveGithubPatHandler,
+} from '@moatless/api-client/sandbox/provider-settings/provider-settings'
+import type {
+  GitHubConfigResponse,
+  GitHubOAuthTokenRequest,
+  GitHubOAuthUrlResponse,
+  GitHubPATRequest,
+} from '@moatless/types'
 
-type GitHubOAuthUrlResponse = RouteSuccess<typeof getGitHubOAuthUrlRoute>
-type GitHubConfigResponse = RouteSuccess<typeof getGitHubConfigRoute>
-type ExchangeGitHubTokenRequest = RouteRequestJson<typeof exchangeGitHubTokenRoute>
-type ExchangeGitHubTokenResponse = RouteSuccess<typeof exchangeGitHubTokenRoute>
-type DisconnectGitHubResponse = RouteSuccess<typeof deleteGitHubConfigRoute>
-type SaveGitHubPATRequest = RouteRequestJson<typeof saveGitHubPATRoute>
-type SaveGitHubPATResponse = RouteSuccess<typeof saveGitHubPATRoute>
+type ExchangeGitHubTokenResponse = { success: boolean; message: string }
+type DisconnectGitHubResponse = { success: boolean; message: string }
+type SaveGitHubPATResponse = { success: boolean; message: string }
 
 export const githubConnectionApi = {
   /**
    * Get GitHub OAuth authorization URL
    */
   getOAuthUrl: async (): Promise<GitHubOAuthUrlResponse> => {
-    const path = buildPath(getGitHubOAuthUrlRoute)
-    return await apiClient.get<GitHubOAuthUrlResponse>(path)
+    return await unwrapResponse<GitHubOAuthUrlResponse>(getGithubOauthUrlHandler())
   },
 
   /**
    * Exchange OAuth code for access token
    */
-  exchangeToken: async (
-    request: ExchangeGitHubTokenRequest,
-  ): Promise<ExchangeGitHubTokenResponse> => {
-    const path = buildPath(exchangeGitHubTokenRoute)
-    return await apiClient.post<ExchangeGitHubTokenResponse>(path, request)
+  exchangeToken: async (request: GitHubOAuthTokenRequest): Promise<ExchangeGitHubTokenResponse> => {
+    return await unwrapResponse<ExchangeGitHubTokenResponse>(exchangeGithubTokenHandler(request))
   },
 
   /**
    * Get user's GitHub connection configuration
    */
   getConfig: async (): Promise<GitHubConfigResponse> => {
-    const path = buildPath(getGitHubConfigRoute)
-    return await apiClient.get<GitHubConfigResponse>(path)
+    return await unwrapResponse<GitHubConfigResponse>(getGithubConfigHandler())
   },
 
   /**
    * Disconnect GitHub service connection
    */
   disconnect: async (): Promise<DisconnectGitHubResponse> => {
-    const path = buildPath(deleteGitHubConfigRoute)
-    return await apiClient.delete<DisconnectGitHubResponse>(path)
+    return await unwrapResponse<DisconnectGitHubResponse>(deleteGithubConfigHandler())
   },
 
   /**
    * Save Personal Access Token
    */
-  savePAT: async (request: SaveGitHubPATRequest): Promise<SaveGitHubPATResponse> => {
-    const path = buildPath(saveGitHubPATRoute)
-    return await apiClient.put<SaveGitHubPATResponse>(path, request)
+  savePAT: async (request: GitHubPATRequest): Promise<SaveGitHubPATResponse> => {
+    return await unwrapResponse<SaveGitHubPATResponse>(
+      saveGithubPatHandler({ token: request.accessToken }),
+    )
   },
 }

@@ -150,7 +150,7 @@ export const syncMarketplaceRoute = createRoute({
 /**
  * GET /api/v1/plugins/{pluginId}/download
  * Download a plugin as a TAR archive for sandbox use.
- * Authenticated via X-Task-Token header.
+ * Authenticated via X-User-Token header.
  */
 export const downloadPluginRoute = createRoute({
   method: 'get',
@@ -181,7 +181,7 @@ export const downloadPluginRoute = createRoute({
 /**
  * GET /api/v1/plugins/{pluginId}/version
  * Get plugin version for cache validation.
- * Authenticated via X-Task-Token header.
+ * Authenticated via X-User-Token header.
  */
 export const getPluginVersionRoute = createRoute({
   method: 'get',

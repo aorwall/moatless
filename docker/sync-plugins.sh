@@ -3,9 +3,10 @@
 # This script is called from docker-entrypoint-sandbox.sh
 #
 # Required environment variables:
-# - REPO_CONFIG: JSON containing agentConfig.pluginPaths array
-# - TASK_AUTH_TOKEN: JWT token for authenticating with backend API
+# - USER_AUTH_TOKEN: JWT for authenticating with backend API
 # - BACKEND_API_URL: Base URL for backend API (e.g., http://backend:8000)
+# - REPO_CONFIG: JSON containing agentConfig.pluginPaths array
+# - TASK_ID: Task identifier (sent as X-Task-Id header)
 #
 # Optional:
 # - PLUGINS_DIR: Directory to sync plugins to (default: /opt/moatless/plugins)
@@ -16,8 +17,8 @@
 PLUGINS_DIR="${PLUGINS_DIR:-/opt/moatless/plugins}"
 
 # Check required environment variables
-if [ -z "$TASK_AUTH_TOKEN" ]; then
-    echo "Warning: TASK_AUTH_TOKEN not set, skipping plugin sync"
+if [ -z "$USER_AUTH_TOKEN" ]; then
+    echo "Warning: USER_AUTH_TOKEN not set, skipping plugin sync"
     exit 0
 fi
 
@@ -30,6 +31,18 @@ if [ -z "$REPO_CONFIG" ]; then
     echo "No REPO_CONFIG set, skipping plugin sync"
     exit 0
 fi
+
+# Helper to run curl with auth headers
+auth_curl() {
+    curl -sSL -H "X-User-Token: $USER_AUTH_TOKEN" -H "X-Task-Id: $TASK_ID" "$@"
+}
+
+# Helper to run curl with -w and -o options for HTTP code capture
+auth_curl_download() {
+    local url="$1"
+    local output="$2"
+    curl -sSL -w "%{http_code}" -H "X-User-Token: $USER_AUTH_TOKEN" -H "X-Task-Id: $TASK_ID" "$url" -o "$output" 2>/dev/null || echo "000"
+}
 
 # Ensure plugins directory exists
 mkdir -p "$PLUGINS_DIR"
@@ -77,8 +90,7 @@ echo "$PLUGIN_PATHS" | while IFS= read -r rel_path; do
         cached_version=$(cat "$target_dir/.synced" 2>/dev/null || echo "")
 
         # Get current version from backend
-        current_version=$(curl -sSL \
-            -H "X-Task-Token: $TASK_AUTH_TOKEN" \
+        current_version=$(auth_curl \
             "${BACKEND_API_URL}/api/v1/plugins/${plugin_id}/version" 2>/dev/null | \
             jq -r '.version // empty' 2>/dev/null || echo "")
 
@@ -95,10 +107,9 @@ echo "$PLUGIN_PATHS" | while IFS= read -r rel_path; do
     mkdir -p "$target_dir"
 
     # Download and extract plugin TAR archive
-    HTTP_CODE=$(curl -sSL -w "%{http_code}" \
-        -H "X-Task-Token: $TASK_AUTH_TOKEN" \
+    HTTP_CODE=$(auth_curl_download \
         "${BACKEND_API_URL}/api/v1/plugins/${plugin_id}/download" \
-        -o /tmp/plugin.tar 2>/dev/null || echo "000")
+        /tmp/plugin.tar)
 
     if [ "$HTTP_CODE" != "200" ]; then
         echo "Warning: Failed to download plugin $plugin_id (HTTP $HTTP_CODE)"
@@ -117,8 +128,7 @@ echo "$PLUGIN_PATHS" | while IFS= read -r rel_path; do
     rm -f /tmp/plugin.tar
 
     # Get and store version for cache validation
-    version=$(curl -sSL \
-        -H "X-Task-Token: $TASK_AUTH_TOKEN" \
+    version=$(auth_curl \
         "${BACKEND_API_URL}/api/v1/plugins/${plugin_id}/version" 2>/dev/null | \
         jq -r '.version // empty' 2>/dev/null || echo "")
 
