@@ -3,7 +3,7 @@
 //! Eliminates ~97% of DB hits on the hot `verify_handler` path by caching
 //! the minimal payload needed for ForwardAuth responses.
 
-use chrono::NaiveDateTime;
+use chrono::{DateTime, Utc};
 use moka::future::Cache;
 use std::sync::Arc;
 use std::time::Duration;
@@ -17,7 +17,7 @@ pub struct VerifyPayload {
     pub role: String,
     pub provider: String,
     pub group_id: Option<String>,
-    pub expires_at: NaiveDateTime,
+    pub expires_at: DateTime<Utc>,
 }
 
 /// Two-cache auth verifier: one for sessions, one for API keys.

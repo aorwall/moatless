@@ -1,6 +1,6 @@
 //! Provider tokens table queries.
 
-use chrono::NaiveDateTime;
+use chrono::{DateTime, Utc};
 use super::DbPool;
 
 #[derive(sqlx::FromRow, Debug)]
@@ -14,8 +14,8 @@ pub struct ProviderTokenRow {
     pub scope: Option<String>,
     pub provider_user_id: Option<String>,
     pub provider_login: Option<String>,
-    pub connected_at: NaiveDateTime,
-    pub expires_at: Option<NaiveDateTime>,
+    pub connected_at: DateTime<Utc>,
+    pub expires_at: Option<DateTime<Utc>>,
 }
 
 /// Upsert a provider token (insert or update on conflict).

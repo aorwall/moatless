@@ -1,6 +1,6 @@
 //! API key service — generate, validate, revoke.
 
-use chrono::NaiveDateTime;
+use chrono::{DateTime, Utc};
 use rand::Rng;
 use sha2::{Digest, Sha256};
 use tracing::{debug, info, warn};
@@ -17,7 +17,7 @@ pub struct ApiKeyPayload {
     pub user_id: String,
     pub user_name: Option<String>,
     pub group_id: Option<String>,
-    pub expires_at: Option<NaiveDateTime>,
+    pub expires_at: Option<DateTime<Utc>>,
 }
 
 /// Result of creating a new API key.
@@ -28,8 +28,8 @@ pub struct ApiKeyCreateResult {
     pub name: String,
     pub key_prefix: String,
     pub scopes: Option<Vec<String>>,
-    pub expires_at: Option<NaiveDateTime>,
-    pub created_at: NaiveDateTime,
+    pub expires_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
 }
 
 /// Generate a new API key for a user.
@@ -38,7 +38,7 @@ pub async fn generate_key(
     user_id: &str,
     name: &str,
     scopes: Option<Vec<String>>,
-    expires_at: Option<NaiveDateTime>,
+    expires_at: Option<DateTime<Utc>>,
     group_id: Option<&str>,
 ) -> Result<ApiKeyCreateResult, crate::auth::error::AuthError> {
     let key_bytes: [u8; KEY_BYTES] = rand::rng().random();
@@ -52,7 +52,7 @@ pub async fn generate_key(
     let id_bytes: [u8; 16] = rand::rng().random();
     let id = hex::encode(id_bytes);
 
-    let now = chrono::Utc::now().naive_utc();
+    let now = chrono::Utc::now();
 
     let row = ApiKeyRow {
         id: id.clone(),
@@ -100,7 +100,7 @@ pub async fn validate_key(
 
     // Check expiration
     if let Some(exp) = row.expires_at {
-        if chrono::Utc::now().naive_utc() > exp {
+        if chrono::Utc::now() > exp {
             debug!(key_id = %row.id, "API key expired");
             return Ok(None);
         }
@@ -145,7 +145,7 @@ pub async fn validate_key_cached(
     // Check cache first
     if let Some(cached) = cache.get_api_key(&key_hash).await {
         // Check expiry (MAX means no expiry)
-        let now = chrono::Utc::now().naive_utc();
+        let now = chrono::Utc::now();
         if now > cached.expires_at {
             cache.invalidate_api_key(&key_hash).await;
             return Ok(None);
@@ -162,7 +162,7 @@ pub async fn validate_key_cached(
     // Use MAX for keys without expiry so the cache expiry check always passes
     let expires_at = payload
         .expires_at
-        .unwrap_or(NaiveDateTime::MAX);
+        .unwrap_or(DateTime::<Utc>::MAX_UTC);
 
     let verify = crate::auth::cache::VerifyPayload {
         user_id: payload.user_id,

@@ -28,7 +28,7 @@ pub async fn create_session(
     group_id: Option<&str>,
     session_max_age_secs: u64,
 ) -> Result<String, crate::auth::error::AuthError> {
-    let now = Utc::now().naive_utc();
+    let now = Utc::now();
     let expires_at = now + chrono::Duration::seconds(session_max_age_secs as i64);
 
     // Upsert user
@@ -140,7 +140,7 @@ pub async fn validate_session(
     };
 
     // Check expiry
-    let now = Utc::now().naive_utc();
+    let now = Utc::now();
     if now > session.expires_at {
         info!(session_id = %session_id, "Session expired");
         if let Err(e) = sessions::delete_session(pool, session_id).await {
@@ -164,7 +164,7 @@ pub async fn validate_session_cached(
 ) -> Result<Option<crate::auth::cache::VerifyPayload>, crate::auth::error::AuthError> {
     // Check cache first
     if let Some(cached) = cache.get_session(session_id).await {
-        let now = Utc::now().naive_utc();
+        let now = Utc::now();
         if now > cached.expires_at {
             // Cached entry is expired — evict and fire-and-forget DB cleanup
             cache.invalidate_session(session_id).await;

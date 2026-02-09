@@ -1,7 +1,7 @@
 //! Session table queries.
 
 use super::DbPool;
-use chrono::NaiveDateTime;
+use chrono::{DateTime, Utc};
 
 #[derive(sqlx::FromRow, Debug)]
 pub struct SessionRow {
@@ -18,8 +18,8 @@ pub struct SessionRow {
     pub scope: Option<String>,
     pub role: String,
     pub group_id: Option<String>,
-    pub created_at: NaiveDateTime,
-    pub expires_at: NaiveDateTime,
+    pub created_at: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
 }
 
 /// Get session by ID.

@@ -533,7 +533,7 @@ async fn create_api_key_handler(
     let session = authenticate_from_cookie(&state, &headers).await?;
 
     let expires_at = body.expires_in_days.map(|days| {
-        chrono::Utc::now().naive_utc() + chrono::Duration::days(days as i64)
+        chrono::Utc::now() + chrono::Duration::days(days as i64)
     });
 
     let result = api_key::generate_key(

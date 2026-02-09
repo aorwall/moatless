@@ -1,6 +1,6 @@
 //! API keys table queries.
 
-use chrono::NaiveDateTime;
+use chrono::{DateTime, Utc};
 use super::DbPool;
 
 #[derive(sqlx::FromRow, Debug)]
@@ -12,9 +12,9 @@ pub struct ApiKeyRow {
     pub key_prefix: String,
     pub scopes: Option<String>,
     pub group_id: Option<String>,
-    pub last_used_at: Option<NaiveDateTime>,
-    pub expires_at: Option<NaiveDateTime>,
-    pub created_at: NaiveDateTime,
+    pub last_used_at: Option<DateTime<Utc>>,
+    pub expires_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
 }
 
 /// Insert a new API key.

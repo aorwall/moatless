@@ -3,6 +3,7 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
+use tracing::error;
 
 #[derive(Debug, thiserror::Error)]
 pub enum RepositoryError {
@@ -28,10 +29,13 @@ impl IntoResponse for RepositoryError {
             RepositoryError::NotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
             RepositoryError::Conflict(_) => (StatusCode::CONFLICT, self.to_string()),
             RepositoryError::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
-            RepositoryError::Db(_) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Internal database error".to_string(),
-            ),
+            RepositoryError::Db(e) => {
+                error!(error = %e, "Repository database error");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal database error".to_string(),
+                )
+            }
             RepositoryError::ProviderError(_) => (StatusCode::BAD_GATEWAY, self.to_string()),
         };
 

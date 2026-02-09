@@ -2,6 +2,7 @@
 
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use tracing::error;
 
 #[derive(Debug)]
 pub enum ProviderSettingsError {
@@ -16,10 +17,13 @@ impl IntoResponse for ProviderSettingsError {
         let (status, msg) = match self {
             Self::NotFound(m) => (StatusCode::NOT_FOUND, m),
             Self::BadRequest(m) => (StatusCode::BAD_REQUEST, m),
-            Self::Db(e) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Database error: {e}"),
-            ),
+            Self::Db(e) => {
+                error!(error = %e, "Provider settings database error");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Database error: {e}"),
+                )
+            }
             Self::ProviderError(m) => (StatusCode::BAD_GATEWAY, m),
         };
         (status, msg).into_response()

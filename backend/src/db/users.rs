@@ -1,6 +1,6 @@
 //! User table queries.
 
-use chrono::NaiveDateTime;
+use chrono::{DateTime, Utc};
 use super::DbPool;
 
 #[derive(sqlx::FromRow, Debug)]
@@ -12,8 +12,8 @@ pub struct UserRow {
     pub avatar_url: Option<String>,
     pub provider: String,
     pub role: String,
-    pub created_at: NaiveDateTime,
-    pub last_login_at: NaiveDateTime,
+    pub created_at: DateTime<Utc>,
+    pub last_login_at: DateTime<Utc>,
 }
 
 /// Get user by ID.

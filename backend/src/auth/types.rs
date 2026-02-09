@@ -3,7 +3,7 @@
 //! Following the pattern from `sandbox/types.rs` — all types are `Serialize`
 //! with `#[serde(rename_all = "camelCase")]` for JSON consistency.
 
-use chrono::NaiveDateTime;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -122,15 +122,15 @@ pub struct MessageResponse {
 }
 
 // ============================================================================
-// Helpers for converting NaiveDateTime to RFC3339 strings
+// Helpers for converting DateTime<Utc> to RFC3339 strings
 // ============================================================================
 
-/// Format a NaiveDateTime as an RFC3339 string (assuming UTC).
-pub fn format_datetime(dt: NaiveDateTime) -> String {
-    dt.and_utc().to_rfc3339()
+/// Format a DateTime<Utc> as an RFC3339 string.
+pub fn format_datetime(dt: DateTime<Utc>) -> String {
+    dt.to_rfc3339()
 }
 
-/// Format an optional NaiveDateTime as an optional RFC3339 string.
-pub fn format_datetime_opt(dt: Option<NaiveDateTime>) -> Option<String> {
+/// Format an optional DateTime<Utc> as an optional RFC3339 string.
+pub fn format_datetime_opt(dt: Option<DateTime<Utc>>) -> Option<String> {
     dt.map(format_datetime)
 }
