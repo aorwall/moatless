@@ -1,7 +1,5 @@
 import { unwrapResponse } from '@moatless/api-client/custom-instance'
 import { workspaceStatusHandler } from '@moatless/api-client/sandbox/sandbox/sandbox'
-import type { RouteSuccess } from '@moatless/api-contract'
-import type { closeTaskRoute } from '@moatless/api-contract/tasks.ts'
 import type {
   AskUserQuestionResponse,
   CreateTaskRequest,
@@ -317,13 +315,10 @@ export function useTaskCommands(
   })
 }
 
-export function useCloseTask(
-  taskId: string,
-  options?: UseMutationOptions<RouteSuccess<typeof closeTaskRoute>, Error>,
-) {
+export function useCloseTask(taskId: string, options?: UseMutationOptions<Task, Error>) {
   const queryClient = useQueryClient()
 
-  return useMutation<RouteSuccess<typeof closeTaskRoute>, Error, void>({
+  return useMutation<Task, Error, void>({
     ...options,
     mutationKey: ['tasks', taskId, 'close'],
     mutationFn: () => tasksApi.closeTask(taskId),

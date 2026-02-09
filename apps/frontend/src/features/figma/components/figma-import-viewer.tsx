@@ -51,7 +51,7 @@ export function FigmaImportViewer({ importId, onClose }: FigmaImportViewerProps)
                   <div className="flex-1 flex items-center justify-center min-h-0">
                     <img
                       src={figmaApi.getImageUrl(importId)}
-                      alt={figmaImport.nodeName}
+                      alt={figmaImport.nodeName ?? undefined}
                       className="max-h-full max-w-full rounded-lg object-contain"
                     />
                   </div>

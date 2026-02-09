@@ -1,73 +1,62 @@
+import { unwrapResponse } from '@moatless/api-client/custom-instance'
 import {
-  buildPath,
-  type RouteParams,
-  type RouteRequestJson,
-  type RouteSuccess,
-} from '@moatless/api-contract'
-import {
-  convertToTemplateRoute,
-  createRepositoryRoute,
-  deleteRepositoryRoute,
-  getRepositoryBranchesRoute,
-  getRepositoryRoute,
-  listRepositoriesRoute,
-  updateRepositoryRoute,
-} from '@moatless/api-contract/repositories.ts'
-import type { BranchListResponse } from '@moatless/types'
-import { apiClient } from '@/lib/api/client'
-
-type RepositoryListResponse = RouteSuccess<typeof listRepositoriesRoute>
-type RepositoryResponse = RouteSuccess<typeof getRepositoryRoute>
-type CreateRepositoryRequest = RouteRequestJson<typeof createRepositoryRoute>
-type UpdateRepositoryRequest = RouteRequestJson<typeof updateRepositoryRoute>
+  convertToTemplate as convertToTemplateHandler,
+  createRepository as createRepositoryHandler,
+  deleteRepository as deleteRepositoryHandler,
+  getBranches as getBranchesHandler,
+  getRepository as getRepositoryHandler,
+  listRepositories as listRepositoriesHandler,
+  updateRepository as updateRepositoryHandler,
+} from '@moatless/api-client/sandbox/repositories/repositories'
+import type {
+  BranchListResponse,
+  CreateRepositoryRequest,
+  RepositoryResponse,
+  UpdateRepositoryRequest,
+} from '@moatless/types'
 
 export const repositoriesApi = {
   async listRepositories(): Promise<RepositoryResponse[]> {
-    const path = buildPath(listRepositoriesRoute)
-    const response = await apiClient.get<RepositoryListResponse>(path)
-    return response.repositories
+    const result = await unwrapResponse(listRepositoriesHandler())
+    return result as unknown as RepositoryResponse[]
   },
 
-  async getRepository(
-    repoId: RouteParams<typeof getRepositoryRoute>['repositoryId'],
-  ): Promise<RepositoryResponse> {
-    const path = buildPath(getRepositoryRoute, { repositoryId: repoId })
-    return await apiClient.get<RepositoryResponse>(path)
+  async getRepository(repoId: string): Promise<RepositoryResponse> {
+    const result = await unwrapResponse(getRepositoryHandler(repoId))
+    return result as unknown as RepositoryResponse
   },
 
   async createRepository(request: CreateRepositoryRequest): Promise<RepositoryResponse> {
-    const path = buildPath(createRepositoryRoute)
-    return await apiClient.post<RepositoryResponse>(path, request)
+    const result = await unwrapResponse(
+      createRepositoryHandler(request as unknown as Parameters<typeof createRepositoryHandler>[0]),
+    )
+    return result as unknown as RepositoryResponse
   },
 
   async updateRepository(
-    repoId: RouteParams<typeof updateRepositoryRoute>['repositoryId'],
+    repoId: string,
     request: UpdateRepositoryRequest,
   ): Promise<RepositoryResponse> {
-    const path = buildPath(updateRepositoryRoute, { repositoryId: repoId })
-    return await apiClient.put<RepositoryResponse>(path, request)
+    const result = await unwrapResponse(
+      updateRepositoryHandler(
+        repoId,
+        request as unknown as Parameters<typeof updateRepositoryHandler>[1],
+      ),
+    )
+    return result as unknown as RepositoryResponse
   },
 
-  async deleteRepository(
-    repoId: RouteParams<typeof deleteRepositoryRoute>['repositoryId'],
-  ): Promise<void> {
-    const path = buildPath(deleteRepositoryRoute, { repositoryId: repoId })
-    await apiClient.delete(path)
+  async deleteRepository(repoId: string): Promise<void> {
+    await unwrapResponse<void>(deleteRepositoryHandler(repoId))
   },
 
-  async convertToTemplate(
-    repoId: RouteParams<typeof convertToTemplateRoute>['repositoryId'],
-  ): Promise<RepositoryResponse> {
-    const path = buildPath(convertToTemplateRoute, { repositoryId: repoId })
-    return await apiClient.post<RepositoryResponse>(path)
+  async convertToTemplate(repoId: string): Promise<RepositoryResponse> {
+    const result = await unwrapResponse(convertToTemplateHandler(repoId))
+    return result as unknown as RepositoryResponse
   },
 
-  async getBranches(
-    repoId: RouteParams<typeof getRepositoryBranchesRoute>['repositoryId'],
-  ): Promise<BranchListResponse> {
-    const path = buildPath(getRepositoryBranchesRoute, {
-      repositoryId: repoId,
-    })
-    return await apiClient.get<BranchListResponse>(path)
+  async getBranches(repoId: string): Promise<BranchListResponse> {
+    const result = await unwrapResponse(getBranchesHandler(repoId))
+    return result as unknown as BranchListResponse
   },
 }

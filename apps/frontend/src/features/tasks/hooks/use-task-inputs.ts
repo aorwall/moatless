@@ -199,9 +199,9 @@ export function useTaskInputs(options: UseTaskInputsOptions = {}): UseTaskInputs
     onSuccess: (data) => {
       handleFigmaImportSuccess({
         importId: data.importId,
-        fileId: data.fileId,
-        fileName: data.fileName,
-        nodeName: data.nodeName,
+        fileId: data.fileId ?? '',
+        fileName: data.fileName ?? '',
+        nodeName: data.nodeName ?? '',
         hasImage: data.hasImage,
       })
       setFigmaDialogOpen(false)
@@ -226,8 +226,8 @@ export function useTaskInputs(options: UseTaskInputsOptions = {}): UseTaskInputs
           referenceId: result.importId,
           data: {
             importId: result.importId,
-            fileName: result.fileName,
-            nodeName: result.nodeName,
+            fileName: result.fileName ?? '',
+            nodeName: result.nodeName ?? '',
             hasImage: result.hasImage,
           },
         }

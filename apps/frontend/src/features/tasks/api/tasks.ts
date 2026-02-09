@@ -1,36 +1,48 @@
-import { buildPath, type RouteRequestJson, type RouteSuccess } from '@moatless/api-contract'
+import type {
+  CreateTaskRequest as ApiCreateTaskRequest,
+  CreateVibeTaskRequest as ApiCreateVibeTaskRequest,
+  SendMessageRequest as ApiSendMessageRequest,
+} from '@moatless/api-client'
+import { unwrapResponse } from '@moatless/api-client/custom-instance'
 import {
-  closeTaskRoute,
-  createTaskRoute,
-  deleteMessageRoute,
-  deleteTaskRoute,
-  deployRoute,
-  getCommandsRoute,
-  getMessagesRoute,
-  getTaskRoute,
-  listTasksRoute,
-  sendMessageRoute,
-  stopAgentRoute,
-  updateTaskMetadataRoute,
-  updateTaskVisibilityRoute,
-} from '@moatless/api-contract/tasks.ts'
+  sendMessage as sendMessageHandler,
+  stopAgent as stopAgentHandler,
+} from '@moatless/api-client/sandbox/agent/agent'
+import { getAvailableCommands as getAvailableCommandsHandler } from '@moatless/api-client/sandbox/commands/commands'
+import {
+  deleteQueuedMessage as deleteQueuedMessageHandler,
+  getMessages as getMessagesHandler,
+} from '@moatless/api-client/sandbox/messages/messages'
+import {
+  closeTask as closeTaskHandler,
+  createTask as createTaskHandler,
+  createVibeTask as createVibeTaskHandler,
+  deleteTask as deleteTaskHandler,
+  getTask as getTaskHandler,
+  listTasks as listTasksHandler,
+  updateTaskMetadata as updateTaskMetadataHandler,
+  updateVisibility as updateVisibilityHandler,
+} from '@moatless/api-client/sandbox/tasks/tasks'
+import { buildPath } from '@moatless/api-contract'
+import { deployRoute } from '@moatless/api-contract/tasks.ts'
 import type {
   CreateTaskRequest,
   CreateVibeTaskRequest,
   Message,
   MessageContext,
+  SendMessageResponse,
+  SimpleTaskResponse,
+  Task,
+  TaskCommandsResponse,
+  TaskListResponse,
 } from '@moatless/types'
 import { apiClient } from '@/lib/api/client'
 
-type TaskListResponse = RouteSuccess<typeof listTasksRoute>
-type SimpleTaskResponse = RouteSuccess<typeof createTaskRoute>
-
 export const tasksApi = {
   async getActiveTasks(): Promise<string[]> {
-    const path = buildPath(listTasksRoute)
-    const response = await apiClient.get<TaskListResponse>(path, {
-      status: 'active',
-    })
+    const response = (await unwrapResponse(
+      listTasksHandler({ status: 'active' }),
+    )) as unknown as TaskListResponse
     return response.items.map((task) => task.taskId)
   },
 
@@ -43,30 +55,34 @@ export const tasksApi = {
     createdBy?: string
     repositoryId?: string
   }): Promise<TaskListResponse> {
-    const path = buildPath(listTasksRoute)
-    return await apiClient.get<TaskListResponse>(path, {
-      status: params?.status || (params?.activeOnly ? 'active' : undefined),
-      limit: params?.limit,
-      offset: params?.offset,
-      tag: params?.tag,
-      createdBy: params?.createdBy,
-      repositoryId: params?.repositoryId,
-    })
+    const result = await unwrapResponse(
+      listTasksHandler({
+        status: params?.status || (params?.activeOnly ? 'active' : undefined),
+        limit: params?.limit,
+        offset: params?.offset,
+        tag: params?.tag,
+        createdBy: params?.createdBy,
+        repositoryId: params?.repositoryId,
+      }),
+    )
+    return result as unknown as TaskListResponse
   },
 
-  async getTask(taskId: string): Promise<RouteSuccess<typeof getTaskRoute>> {
-    const path = buildPath(getTaskRoute, { taskId })
-    return await apiClient.get<RouteSuccess<typeof getTaskRoute>>(path)
+  async getTask(taskId: string): Promise<Task> {
+    const result = await unwrapResponse(getTaskHandler(taskId))
+    return result as unknown as Task
   },
 
-  async getTaskMetadata(taskId: string): Promise<RouteSuccess<typeof getTaskRoute>> {
-    const path = buildPath(getTaskRoute, { taskId })
-    return await apiClient.get<RouteSuccess<typeof getTaskRoute>>(path)
+  async getTaskMetadata(taskId: string): Promise<Task> {
+    const result = await unwrapResponse(getTaskHandler(taskId))
+    return result as unknown as Task
   },
 
-  async createTask(request: RouteRequestJson<typeof createTaskRoute>): Promise<SimpleTaskResponse> {
-    const path = buildPath(createTaskRoute)
-    return await apiClient.post<SimpleTaskResponse>(path, request)
+  async createTask(request: CreateTaskRequest): Promise<SimpleTaskResponse> {
+    const result = await unwrapResponse(
+      createTaskHandler(request as unknown as ApiCreateTaskRequest),
+    )
+    return result as unknown as SimpleTaskResponse
   },
 
   async sendMessage(
@@ -83,9 +99,11 @@ export const tasksApi = {
       toolName?: 'AskUserQuestion' | 'ExitPlanMode'
       toolResponse?: unknown
     },
-  ): Promise<RouteSuccess<typeof sendMessageRoute>> {
-    const path = buildPath(sendMessageRoute, { taskId })
-    return await apiClient.post<RouteSuccess<typeof sendMessageRoute>>(path, variables)
+  ): Promise<SendMessageResponse> {
+    const result = await unwrapResponse(
+      sendMessageHandler(taskId, variables as unknown as ApiSendMessageRequest),
+    )
+    return result as unknown as SendMessageResponse
   },
 
   // Deprecated: Use createTask instead
@@ -94,66 +112,65 @@ export const tasksApi = {
   },
 
   // Deprecated: Use deleteTask instead
-  async stopAgent(taskId: string): Promise<RouteSuccess<typeof stopAgentRoute>> {
-    const path = buildPath(stopAgentRoute, { taskId })
-    return await apiClient.post<RouteSuccess<typeof stopAgentRoute>>(path)
+  async stopAgent(taskId: string): Promise<{ status: string; taskId: string }> {
+    await unwrapResponse<void>(stopAgentHandler(taskId))
+    return { status: 'stopped', taskId }
   },
 
-  async deleteMessage(
-    taskId: string,
-    messageId: string,
-  ): Promise<RouteSuccess<typeof deleteMessageRoute>> {
-    const path = buildPath(deleteMessageRoute, { taskId, messageId })
-    return await apiClient.delete<RouteSuccess<typeof deleteMessageRoute>>(path)
+  async deleteMessage(taskId: string, messageId: string): Promise<{ status: 'deleted' }> {
+    await unwrapResponse<void>(deleteQueuedMessageHandler(taskId, messageId))
+    return { status: 'deleted' }
   },
 
   async getTaskMessages(taskId: string): Promise<Message[]> {
-    const path = buildPath(getMessagesRoute, { taskId })
-    const response = await apiClient.get<RouteSuccess<typeof getMessagesRoute>>(path)
+    const response = (await unwrapResponse(getMessagesHandler(taskId))) as unknown as {
+      messages: Message[]
+    }
     return response.messages
   },
 
-  async getTaskCommands(taskId: string): Promise<RouteSuccess<typeof getCommandsRoute>> {
-    const path = buildPath(getCommandsRoute, { taskId })
-    return await apiClient.get<RouteSuccess<typeof getCommandsRoute>>(path)
+  async getTaskCommands(taskId: string): Promise<TaskCommandsResponse> {
+    const commands = await unwrapResponse(getAvailableCommandsHandler(taskId))
+    return { commands } as unknown as TaskCommandsResponse
   },
 
-  async closeTask(taskId: string): Promise<RouteSuccess<typeof closeTaskRoute>> {
-    const path = buildPath(closeTaskRoute, { taskId })
-    return await apiClient.post<RouteSuccess<typeof closeTaskRoute>>(path)
+  async closeTask(taskId: string): Promise<Task> {
+    const result = await unwrapResponse(closeTaskHandler(taskId))
+    return result as unknown as Task
   },
 
-  async deleteTask(taskId: string): Promise<RouteSuccess<typeof deleteTaskRoute>> {
-    const path = buildPath(deleteTaskRoute, { taskId })
-    return await apiClient.delete<RouteSuccess<typeof deleteTaskRoute>>(path)
+  async deleteTask(taskId: string): Promise<{ status: string }> {
+    await unwrapResponse<void>(deleteTaskHandler(taskId))
+    return { status: 'deleted' }
   },
 
-  async deployTask(taskId: string): Promise<RouteSuccess<typeof deployRoute>> {
+  async deployTask(taskId: string): Promise<{ success: boolean }> {
     const path = buildPath(deployRoute, { taskId })
-    return await apiClient.post<RouteSuccess<typeof deployRoute>>(path)
+    return await apiClient.post<{ success: boolean }>(path)
   },
 
   async createVibeTask(
     request: CreateVibeTaskRequest,
   ): Promise<{ taskId: string; status: string }> {
-    return await apiClient.post<{ taskId: string; status: string }>('/api/v1/tasks/vibe', request)
+    const response = (await unwrapResponse(
+      createVibeTaskHandler(request as unknown as ApiCreateVibeTaskRequest),
+    )) as unknown as SimpleTaskResponse
+    return { taskId: response.taskId, status: response.status }
   },
 
   async updateTaskVisibility(
     taskId: string,
     visibility: 'private' | 'public',
-  ): Promise<RouteSuccess<typeof updateTaskVisibilityRoute>> {
-    const path = buildPath(updateTaskVisibilityRoute, { taskId })
-    return await apiClient.patch<RouteSuccess<typeof updateTaskVisibilityRoute>>(path, {
-      visibility,
-    })
+  ): Promise<{ success: true }> {
+    await unwrapResponse(updateVisibilityHandler(taskId, { visibility }))
+    return { success: true }
   },
 
   async updateTaskMetadata(
     taskId: string,
     updates: { name?: string; description?: string },
-  ): Promise<RouteSuccess<typeof updateTaskMetadataRoute>> {
-    const path = buildPath(updateTaskMetadataRoute, { taskId })
-    return await apiClient.patch<RouteSuccess<typeof updateTaskMetadataRoute>>(path, updates)
+  ): Promise<{ success: boolean }> {
+    await unwrapResponse(updateTaskMetadataHandler(taskId, updates))
+    return { success: true }
   },
 }

@@ -1,11 +1,10 @@
-import { buildPath } from '@moatless/api-contract'
-import { listTagsRoute } from '@moatless/api-contract/tags'
-import type { TagListResponse } from '@moatless/types'
-import { apiClient } from '@/lib/api/client'
+import { unwrapResponse } from '@moatless/api-client/custom-instance'
+import { listTags as listTagsHandler } from '@moatless/api-client/sandbox/tags/tags'
+import type { Tag, TagListResponse } from '@moatless/types'
 
 export const tagsApi = {
   async listTags(): Promise<TagListResponse> {
-    const path = buildPath(listTagsRoute)
-    return await apiClient.get<TagListResponse>(path)
+    const tags = (await unwrapResponse(listTagsHandler())) as unknown as Tag[]
+    return { tags }
   },
 }
