@@ -1,0 +1,16 @@
+{
+  "name": "@moatless/sandbox-docker-tests",
+  "license": "AGPL-3.0-or-later",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:integration": "vitest run sandbox-docker-grpc.integration"
+  },
+  "devDependencies": {
+    "@grpc/grpc-js": "^1.12.0",
+    "@grpc/proto-loader": "^0.7.0",
+    "vitest": "^3.2.4"
+  }
+}
