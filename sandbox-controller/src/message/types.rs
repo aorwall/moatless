@@ -1,9 +1,10 @@
 //! Message request/response types for UI consumption.
 
 use serde::Serialize;
+use utoipa::ToSchema;
 
 /// UI-facing message representation.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UiMessage {
     pub uuid: String,
@@ -33,7 +34,7 @@ pub struct UiMessage {
 }
 
 /// Content block within a message.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UiContentBlock {
     #[serde(rename = "type")]
@@ -45,13 +46,14 @@ pub struct UiContentBlock {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Object)]
     pub tool_input: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub show_in_ui: Option<bool>,
 }
 
 /// Tool result inlined into an assistant message.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UiToolResult {
     pub tool_use_id: String,
@@ -60,7 +62,7 @@ pub struct UiToolResult {
 }
 
 /// Assistant message metadata.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UiAssistantMeta {
     pub message_id: Option<String>,
@@ -70,7 +72,7 @@ pub struct UiAssistantMeta {
 }
 
 /// Token usage stats.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UiUsage {
     pub input_tokens: Option<i32>,
@@ -80,17 +82,18 @@ pub struct UiUsage {
 }
 
 /// Result message metadata.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UiResultMeta {
     pub turn_status: Option<String>,
     pub turn_result: Option<String>,
     pub will_not_resume: Option<bool>,
+    #[schema(value_type = Object)]
     pub run_metrics: Option<serde_json::Value>,
 }
 
 /// Response for GET /messages.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct GetMessagesResponse {
     pub messages: Vec<UiMessage>,
@@ -98,15 +101,16 @@ pub struct GetMessagesResponse {
 }
 
 /// Response for GET /messages/pending.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct GetPendingMessagesResponse {
+    #[schema(value_type = Vec<Object>)]
     pub messages: Vec<serde_json::Value>,
     pub total_count: usize,
 }
 
 /// Response for DELETE /messages/{id}.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct DeleteMessageResponse {
     pub status: String,
 }

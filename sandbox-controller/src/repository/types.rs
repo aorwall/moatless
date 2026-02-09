@@ -1,10 +1,11 @@
 //! Repository request/response types.
 
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 use crate::db::models::RepositoryRow;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateRepositoryRequest {
     pub name: String,
@@ -16,10 +17,15 @@ pub struct CreateRepositoryRequest {
     pub description: Option<String>,
     pub provider: Option<String>,
     pub visibility: Option<String>,
+    #[schema(value_type = Option<Object>)]
     pub servers: Option<serde_json::Value>,
+    #[schema(value_type = Option<Object>)]
     pub plugins: Option<serde_json::Value>,
+    #[schema(value_type = Option<Object>)]
     pub env_vars: Option<serde_json::Value>,
+    #[schema(value_type = Option<Object>)]
     pub setup_commands: Option<serde_json::Value>,
+    #[schema(value_type = Option<Object>)]
     pub server_start_commands: Option<serde_json::Value>,
     pub startup_timeout_seconds: Option<i32>,
     pub build_command: Option<String>,
@@ -28,7 +34,7 @@ pub struct CreateRepositoryRequest {
     pub auto_reload: Option<bool>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateRepositoryRequest {
     pub name: Option<String>,
@@ -38,10 +44,15 @@ pub struct UpdateRepositoryRequest {
     pub system_prompt: Option<String>,
     pub description: Option<String>,
     pub visibility: Option<String>,
+    #[schema(value_type = Option<Object>)]
     pub servers: Option<serde_json::Value>,
+    #[schema(value_type = Option<Object>)]
     pub plugins: Option<serde_json::Value>,
+    #[schema(value_type = Option<Object>)]
     pub env_vars: Option<serde_json::Value>,
+    #[schema(value_type = Option<Object>)]
     pub setup_commands: Option<serde_json::Value>,
+    #[schema(value_type = Option<Object>)]
     pub server_start_commands: Option<serde_json::Value>,
     pub startup_timeout_seconds: Option<i32>,
     pub build_command: Option<String>,
@@ -50,7 +61,7 @@ pub struct UpdateRepositoryRequest {
     pub auto_reload: Option<bool>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RepositoryResponse {
     pub id: String,
@@ -63,10 +74,15 @@ pub struct RepositoryResponse {
     pub description: Option<String>,
     pub provider: Option<String>,
     pub visibility: String,
+    #[schema(value_type = Option<Object>)]
     pub servers: Option<serde_json::Value>,
+    #[schema(value_type = Option<Object>)]
     pub plugins: Option<serde_json::Value>,
+    #[schema(value_type = Option<Object>)]
     pub env_vars: Option<serde_json::Value>,
+    #[schema(value_type = Option<Object>)]
     pub setup_commands: Option<serde_json::Value>,
+    #[schema(value_type = Option<Object>)]
     pub server_start_commands: Option<serde_json::Value>,
     pub startup_timeout_seconds: Option<i32>,
     pub build_command: Option<String>,
@@ -78,14 +94,14 @@ pub struct RepositoryResponse {
     pub updated_at: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct BranchListResponse {
     pub branches: Vec<BranchEntry>,
     pub default_branch: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct BranchEntry {
     pub name: String,

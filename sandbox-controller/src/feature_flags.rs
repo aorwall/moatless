@@ -31,3 +31,46 @@ fn env_flag(name: &str, default: bool) -> bool {
         .map(|v| v == "true" || v == "1")
         .unwrap_or(default)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn env_flag_true_string() {
+        let key = "TEST_FF_TRUE_STR_1";
+        std::env::set_var(key, "true");
+        assert!(env_flag(key, false));
+        std::env::remove_var(key);
+    }
+
+    #[test]
+    fn env_flag_one_string() {
+        let key = "TEST_FF_ONE_STR_2";
+        std::env::set_var(key, "1");
+        assert!(env_flag(key, false));
+        std::env::remove_var(key);
+    }
+
+    #[test]
+    fn env_flag_false_string() {
+        let key = "TEST_FF_FALSE_STR_3";
+        std::env::set_var(key, "false");
+        assert!(!env_flag(key, true));
+        std::env::remove_var(key);
+    }
+
+    #[test]
+    fn env_flag_unset_default_true() {
+        let key = "TEST_FF_UNSET_TRUE_4";
+        std::env::remove_var(key);
+        assert!(env_flag(key, true));
+    }
+
+    #[test]
+    fn env_flag_unset_default_false() {
+        let key = "TEST_FF_UNSET_FALSE_5";
+        std::env::remove_var(key);
+        assert!(!env_flag(key, false));
+    }
+}

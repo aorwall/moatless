@@ -1,8 +1,9 @@
 //! Task request/response types.
 
 use serde::{Deserialize, Serialize};
+use utoipa::{IntoParams, ToSchema};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateTaskRequest {
     pub repository_id: String,
@@ -19,7 +20,7 @@ pub struct CreateTaskRequest {
     pub file_ids: Vec<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateVibeTaskRequest {
     pub template_id: String,
@@ -27,36 +28,37 @@ pub struct CreateVibeTaskRequest {
     pub name: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 #[allow(dead_code)]
 pub struct MessageContextInput {
     #[serde(rename = "type")]
     pub context_type: String,
     pub reference_id: String,
+    #[schema(value_type = Object)]
     pub data: serde_json::Value,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateTaskMetadataRequest {
     pub name: Option<String>,
     pub description: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateVisibilityRequest {
     pub visibility: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SetTagsRequest {
     pub tags: Vec<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, IntoParams)]
 #[serde(rename_all = "camelCase")]
 pub struct ListTasksQuery {
     pub limit: Option<i64>,
@@ -67,7 +69,7 @@ pub struct ListTasksQuery {
     pub tag: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskResponse {
     pub task_id: String,
@@ -92,14 +94,14 @@ pub struct TaskResponse {
     pub tags: Vec<TagResponse>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct TagResponse {
     pub tag_id: String,
     pub name: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateTaskResponse {
     pub task_id: String,
@@ -107,14 +109,14 @@ pub struct CreateTaskResponse {
     pub task: TaskResponse,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ListTasksResponse {
     pub items: Vec<TaskResponse>,
     pub pagination: PaginationResponse,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct PaginationResponse {
     pub limit: i64,

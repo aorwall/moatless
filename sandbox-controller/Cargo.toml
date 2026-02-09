@@ -101,3 +101,6 @@ urlencoding = "2"
 
 [dev-dependencies]
 tokio-test = "0.4"
+sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "postgres", "migrate"] }
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"

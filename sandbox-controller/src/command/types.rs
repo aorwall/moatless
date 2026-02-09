@@ -1,13 +1,15 @@
 //! Command request/response types.
 
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateCommandRequest {
     pub name: String,
     pub description: String,
     pub prompt: String,
+    #[schema(value_type = Option<Object>)]
     pub conditions: Option<serde_json::Value>,
     pub icon: Option<String>,
     pub variant: Option<String>,
@@ -16,11 +18,12 @@ pub struct CreateCommandRequest {
     pub agent_mode: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateCommandRequest {
     pub description: Option<String>,
     pub prompt: Option<String>,
+    #[schema(value_type = Option<Object>)]
     pub conditions: Option<serde_json::Value>,
     pub icon: Option<String>,
     pub variant: Option<String>,
@@ -29,13 +32,14 @@ pub struct UpdateCommandRequest {
     pub agent_mode: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CommandResponse {
     pub name: String,
     pub description: String,
     pub prompt: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<Object>)]
     pub conditions: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,

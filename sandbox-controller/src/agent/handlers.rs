@@ -11,7 +11,20 @@ use super::error::AgentError;
 use super::orchestration;
 use super::types::*;
 
-/// POST /api/v1/tasks/{task_id}/messages
+/// Send a message to the agent for a task.
+#[utoipa::path(
+    post,
+    path = "/api/v1/tasks/{task_id}/messages",
+    tag = "agent",
+    params(
+        ("task_id" = String, Path, description = "Task identifier")
+    ),
+    request_body = SendMessageRequest,
+    responses(
+        (status = 200, description = "Message sent", body = SendMessageResponse),
+        (status = 404, description = "Task not found", body = crate::sandbox::types::ErrorBody)
+    )
+)]
 pub async fn send_message(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -55,7 +68,20 @@ pub async fn send_message(
     }))
 }
 
-/// POST /api/v1/tasks/{task_id}/commands
+/// Send a named command to the agent for a task.
+#[utoipa::path(
+    post,
+    path = "/api/v1/tasks/{task_id}/commands",
+    tag = "agent",
+    params(
+        ("task_id" = String, Path, description = "Task identifier")
+    ),
+    request_body = SendCommandRequest,
+    responses(
+        (status = 200, description = "Command sent", body = SendMessageResponse),
+        (status = 404, description = "Task or command not found", body = crate::sandbox::types::ErrorBody)
+    )
+)]
 pub async fn send_command(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -88,7 +114,19 @@ pub async fn send_command(
     }))
 }
 
-/// POST /api/v1/tasks/{task_id}/stop
+/// Stop the agent running on a task.
+#[utoipa::path(
+    post,
+    path = "/api/v1/tasks/{task_id}/stop",
+    tag = "agent",
+    params(
+        ("task_id" = String, Path, description = "Task identifier")
+    ),
+    responses(
+        (status = 204, description = "Agent stopped"),
+        (status = 404, description = "Task not found", body = crate::sandbox::types::ErrorBody)
+    )
+)]
 pub async fn stop_agent(
     State(state): State<AppState>,
     auth: AuthUser,

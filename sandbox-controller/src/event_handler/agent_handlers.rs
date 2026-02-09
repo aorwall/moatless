@@ -383,3 +383,149 @@ fn extract_skill_names(payload: &serde_json::Value) -> Vec<String> {
 
     names
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    // ── extract_skill_names ──────────────────────────────────────────
+
+    #[test]
+    fn extract_single_skill() {
+        let payload = json!({
+            "content": [{
+                "type": "tool_use",
+                "name": "Skill",
+                "input": { "skill": "commit" }
+            }]
+        });
+        assert_eq!(extract_skill_names(&payload), vec!["commit"]);
+    }
+
+    #[test]
+    fn extract_multiple_skills() {
+        let payload = json!({
+            "content": [
+                { "type": "tool_use", "name": "Skill", "input": { "skill": "commit" } },
+                { "type": "tool_use", "name": "Skill", "input": { "skill": "review-pr" } }
+            ]
+        });
+        assert_eq!(extract_skill_names(&payload), vec!["commit", "review-pr"]);
+    }
+
+    #[test]
+    fn extract_ignores_non_skill_tools() {
+        let payload = json!({
+            "content": [
+                { "type": "tool_use", "name": "Read", "input": { "path": "/tmp" } },
+                { "type": "tool_use", "name": "Skill", "input": { "skill": "deploy" } }
+            ]
+        });
+        assert_eq!(extract_skill_names(&payload), vec!["deploy"]);
+    }
+
+    #[test]
+    fn extract_ignores_non_tool_use_blocks() {
+        let payload = json!({
+            "content": [
+                { "type": "text", "text": "hello" },
+                { "type": "tool_use", "name": "Skill", "input": { "skill": "test" } }
+            ]
+        });
+        assert_eq!(extract_skill_names(&payload), vec!["test"]);
+    }
+
+    #[test]
+    fn extract_empty_content() {
+        let payload = json!({ "content": [] });
+        assert!(extract_skill_names(&payload).is_empty());
+    }
+
+    #[test]
+    fn extract_no_content_key() {
+        let payload = json!({ "other": "data" });
+        assert!(extract_skill_names(&payload).is_empty());
+    }
+
+    #[test]
+    fn extract_from_message_content_key() {
+        let payload = json!({
+            "message_content": [{
+                "type": "tool_use",
+                "name": "Skill",
+                "input": { "skill": "plan" }
+            }]
+        });
+        assert_eq!(extract_skill_names(&payload), vec!["plan"]);
+    }
+
+    #[test]
+    fn extract_skill_missing_input() {
+        let payload = json!({
+            "content": [{
+                "type": "tool_use",
+                "name": "Skill"
+            }]
+        });
+        assert!(extract_skill_names(&payload).is_empty());
+    }
+
+    // ── build_result_text ────────────────────────────────────────────
+
+    #[test]
+    fn build_result_text_none() {
+        assert_eq!(
+            build_result_text(&None),
+            "Agent completed (no result data)"
+        );
+    }
+
+    #[test]
+    fn build_result_text_success_with_detail() {
+        let r = SdkResultMessage {
+            is_error: Some(false),
+            subtype: Some("completed".to_string()),
+            result: Some(json!("All tasks done")),
+            total_cost_usd: None,
+            usage: None,
+        };
+        assert_eq!(build_result_text(&Some(r)), "Agent completed: All tasks done");
+    }
+
+    #[test]
+    fn build_result_text_success_empty_result() {
+        let r = SdkResultMessage {
+            is_error: Some(false),
+            subtype: Some("finished".to_string()),
+            result: None,
+            total_cost_usd: None,
+            usage: None,
+        };
+        assert_eq!(build_result_text(&Some(r)), "Agent finished");
+    }
+
+    #[test]
+    fn build_result_text_error() {
+        let r = SdkResultMessage {
+            is_error: Some(true),
+            subtype: Some("crashed".to_string()),
+            result: Some(json!("OOM")),
+            total_cost_usd: None,
+            usage: None,
+        };
+        assert_eq!(build_result_text(&Some(r)), "Agent crashed with error: OOM");
+    }
+
+    #[test]
+    fn build_result_text_missing_subtype() {
+        let r = SdkResultMessage {
+            is_error: None,
+            subtype: None,
+            result: Some(json!("done")),
+            total_cost_usd: None,
+            usage: None,
+        };
+        assert_eq!(build_result_text(&Some(r)), "Agent unknown: done");
+    }
+}

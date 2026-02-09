@@ -2,34 +2,5 @@
 
 pub mod error;
 pub mod handlers;
+pub mod routes;
 pub mod types;
-
-use axum::routing::{get, post};
-use axum::Router;
-
-use crate::state::AppState;
-
-/// Build the figma router.
-pub fn figma_router() -> Router<AppState> {
-    Router::new()
-        .route(
-            "/api/v1/figma/import-clipboard",
-            post(handlers::import_clipboard),
-        )
-        .route(
-            "/api/v1/figma/import-node",
-            post(handlers::import_node),
-        )
-        .route(
-            "/api/v1/figma/parse-clipboard",
-            post(handlers::parse_clipboard),
-        )
-        .route(
-            "/api/v1/figma/imports/{import_id}",
-            get(handlers::get_import),
-        )
-        .route(
-            "/api/v1/figma/imports/{import_id}/image",
-            get(handlers::get_import_image),
-        )
-}

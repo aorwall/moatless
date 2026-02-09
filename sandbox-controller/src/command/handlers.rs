@@ -12,7 +12,17 @@ use super::defaults::default_commands;
 use super::error::CommandError;
 use super::types::*;
 
-/// POST /api/v1/commands
+/// Create a new command.
+#[utoipa::path(
+    post,
+    path = "/api/v1/commands",
+    tag = "commands",
+    request_body = CreateCommandRequest,
+    responses(
+        (status = 200, description = "Command created", body = CommandResponse),
+        (status = 409, description = "Command already exists", body = crate::sandbox::types::ErrorBody)
+    )
+)]
 pub async fn create_command(
     State(state): State<AppState>,
     _auth: AuthUser,
@@ -39,7 +49,15 @@ pub async fn create_command(
     Ok(Json(CommandResponse::from(row)))
 }
 
-/// GET /api/v1/commands
+/// List all commands.
+#[utoipa::path(
+    get,
+    path = "/api/v1/commands",
+    tag = "commands",
+    responses(
+        (status = 200, description = "List of commands", body = Vec<CommandResponse>)
+    )
+)]
 pub async fn list_commands(
     State(state): State<AppState>,
     _auth: AuthUser,
@@ -50,7 +68,19 @@ pub async fn list_commands(
     Ok(Json(commands))
 }
 
-/// GET /api/v1/commands/{name}
+/// Get a command by name.
+#[utoipa::path(
+    get,
+    path = "/api/v1/commands/{name}",
+    tag = "commands",
+    params(
+        ("name" = String, Path, description = "Command name")
+    ),
+    responses(
+        (status = 200, description = "Command details", body = CommandResponse),
+        (status = 404, description = "Command not found", body = crate::sandbox::types::ErrorBody)
+    )
+)]
 pub async fn get_command(
     State(state): State<AppState>,
     _auth: AuthUser,
@@ -63,7 +93,20 @@ pub async fn get_command(
     Ok(Json(CommandResponse::from(row)))
 }
 
-/// PATCH /api/v1/commands/{name}
+/// Update a command by name.
+#[utoipa::path(
+    patch,
+    path = "/api/v1/commands/{name}",
+    tag = "commands",
+    params(
+        ("name" = String, Path, description = "Command name")
+    ),
+    request_body = UpdateCommandRequest,
+    responses(
+        (status = 200, description = "Command updated", body = CommandResponse),
+        (status = 404, description = "Command not found", body = crate::sandbox::types::ErrorBody)
+    )
+)]
 pub async fn update_command(
     State(state): State<AppState>,
     _auth: AuthUser,
@@ -95,7 +138,19 @@ pub async fn update_command(
     Ok(Json(CommandResponse::from(row)))
 }
 
-/// DELETE /api/v1/commands/{name}
+/// Delete a command by name.
+#[utoipa::path(
+    delete,
+    path = "/api/v1/commands/{name}",
+    tag = "commands",
+    params(
+        ("name" = String, Path, description = "Command name")
+    ),
+    responses(
+        (status = 204, description = "Command deleted"),
+        (status = 404, description = "Command not found", body = crate::sandbox::types::ErrorBody)
+    )
+)]
 pub async fn delete_command(
     State(state): State<AppState>,
     _auth: AuthUser,
@@ -108,7 +163,18 @@ pub async fn delete_command(
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
-/// GET /api/v1/tasks/{task_id}/commands
+/// Get commands available for a task (active commands only).
+#[utoipa::path(
+    get,
+    path = "/api/v1/tasks/{task_id}/commands",
+    tag = "commands",
+    params(
+        ("task_id" = String, Path, description = "Task identifier")
+    ),
+    responses(
+        (status = 200, description = "Available commands", body = Vec<CommandResponse>)
+    )
+)]
 pub async fn get_available_commands(
     State(state): State<AppState>,
     _auth: AuthUser,

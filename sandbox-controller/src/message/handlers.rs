@@ -11,7 +11,19 @@ use super::error::MessageError;
 use super::transform;
 use super::types::*;
 
-/// GET /api/v1/tasks/{task_id}/messages
+/// Get all messages for a task.
+#[utoipa::path(
+    get,
+    path = "/api/v1/tasks/{task_id}/messages",
+    tag = "messages",
+    params(
+        ("task_id" = String, Path, description = "Task identifier")
+    ),
+    responses(
+        (status = 200, description = "List of messages", body = GetMessagesResponse),
+        (status = 404, description = "Task not found", body = crate::sandbox::types::ErrorBody)
+    )
+)]
 pub async fn get_messages(
     State(state): State<AppState>,
     _auth: AuthUser,
@@ -27,7 +39,19 @@ pub async fn get_messages(
     }))
 }
 
-/// GET /api/v1/tasks/{task_id}/messages/pending
+/// Get pending messages for a task.
+#[utoipa::path(
+    get,
+    path = "/api/v1/tasks/{task_id}/messages/pending",
+    tag = "messages",
+    params(
+        ("task_id" = String, Path, description = "Task identifier")
+    ),
+    responses(
+        (status = 200, description = "Pending messages", body = GetPendingMessagesResponse),
+        (status = 404, description = "Task not found", body = crate::sandbox::types::ErrorBody)
+    )
+)]
 pub async fn get_pending_messages(
     State(state): State<AppState>,
     _auth: AuthUser,
@@ -67,7 +91,20 @@ pub async fn get_pending_messages(
     }))
 }
 
-/// DELETE /api/v1/tasks/{task_id}/messages/{message_id}
+/// Delete a queued message.
+#[utoipa::path(
+    delete,
+    path = "/api/v1/tasks/{task_id}/messages/{message_id}",
+    tag = "messages",
+    params(
+        ("task_id" = String, Path, description = "Task identifier"),
+        ("message_id" = String, Path, description = "Message identifier")
+    ),
+    responses(
+        (status = 200, description = "Message deleted", body = DeleteMessageResponse),
+        (status = 404, description = "Message not found", body = crate::sandbox::types::ErrorBody)
+    )
+)]
 pub async fn delete_queued_message(
     State(state): State<AppState>,
     _auth: AuthUser,

@@ -2,31 +2,6 @@
 //!
 //! Serves a unified API on port 8080. Authenticated via Traefik ForwardAuth.
 
-// Allow dead code for newly added modules — functions/types will be wired up
-// incrementally as frontend migration proceeds.
-#![allow(dead_code)]
-
-mod agent;
-mod auth;
-mod command;
-mod config;
-mod db;
-mod event_handler;
-mod events;
-mod extractors;
-mod feature_flags;
-mod figma;
-mod file_storage;
-mod message;
-mod metrics;
-mod provider_settings;
-mod repository;
-mod sandbox;
-mod sse;
-mod state;
-mod tag;
-mod task;
-
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -38,15 +13,24 @@ use tracing_subscriber::EnvFilter;
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 
+use sandbox_controller::auth;
+use sandbox_controller::config::Config;
+use sandbox_controller::db;
+use sandbox_controller::event_handler;
+use sandbox_controller::events::RedisEventPublisher;
+use sandbox_controller::feature_flags;
+use sandbox_controller::metrics;
+use sandbox_controller::sandbox;
+use sandbox_controller::sse;
+use sandbox_controller::state::AppState;
+use sandbox_controller::{agent, command, figma, file_storage, message, provider_settings, repository, tag, task};
+
 use auth::cache::AuthCache;
 use auth::routes::{AuthState, OAuthProviders};
-use config::Config;
-use events::RedisEventPublisher;
 use sandbox::k8s::client::K8sClient;
 use sandbox::k8s::status_cache::StatusCache;
 use sse::consumer::RedisStreamConsumer;
 use sse::routes::{sse_router, SseState};
-use state::AppState;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -193,18 +177,35 @@ fn dump_openapi() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Build the merged OpenAPI spec from sandbox + auth doc structs.
+/// Build the merged OpenAPI spec from all API doc structs.
 ///
-/// Both `SandboxApiDoc` and `AuthApiDoc` have their paths registered via
-/// `#[openapi(paths(...))]`, so we can build the full spec without constructing
-/// any routers or providing real state.
+/// All `*ApiDoc` structs have their paths registered via `#[openapi(paths(...))]`,
+/// so we can build the full spec without constructing any routers or providing real state.
 fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     use sandbox::routes::SandboxApiDoc;
     use auth::routes::AuthApiDoc;
+    use task::routes::TaskApiDoc;
+    use message::routes::MessageApiDoc;
+    use agent::routes::AgentApiDoc;
+    use command::routes::CommandApiDoc;
+    use file_storage::routes::FileStorageApiDoc;
+    use figma::routes::FigmaApiDoc;
+    use repository::routes::RepositoryApiDoc;
+    use tag::routes::TagApiDoc;
+    use provider_settings::routes::ProviderSettingsApiDoc;
     use utoipa::OpenApi;
 
     let mut merged = SandboxApiDoc::openapi();
     merged.merge(AuthApiDoc::openapi());
+    merged.merge(TaskApiDoc::openapi());
+    merged.merge(MessageApiDoc::openapi());
+    merged.merge(AgentApiDoc::openapi());
+    merged.merge(CommandApiDoc::openapi());
+    merged.merge(FileStorageApiDoc::openapi());
+    merged.merge(FigmaApiDoc::openapi());
+    merged.merge(RepositoryApiDoc::openapi());
+    merged.merge(TagApiDoc::openapi());
+    merged.merge(ProviderSettingsApiDoc::openapi());
 
     merged.info = utoipa::openapi::InfoBuilder::new()
         .title("Sandbox Controller API")
@@ -306,16 +307,21 @@ async fn start_api_server(
             s3: s3_client,
         };
 
-        router = router
-            .merge(task::task_router().with_state(app_state.clone()))
-            .merge(message::message_router().with_state(app_state.clone()))
-            .merge(agent::agent_router().with_state(app_state.clone()))
-            .merge(command::command_router().with_state(app_state.clone()))
-            .merge(file_storage::file_storage_router().with_state(app_state.clone()))
-            .merge(figma::figma_router().with_state(app_state.clone()))
-            .merge(repository::repository_router().with_state(app_state.clone()))
-            .merge(tag::tag_router().with_state(app_state.clone()))
-            .merge(provider_settings::provider_settings_router().with_state(app_state.clone()));
+        let modules = vec![
+            task::routes::task_router(app_state.clone()),
+            message::routes::message_router(app_state.clone()),
+            agent::routes::agent_router(app_state.clone()),
+            command::routes::command_router(app_state.clone()),
+            file_storage::routes::file_storage_router(app_state.clone()),
+            figma::routes::figma_router(app_state.clone()),
+            repository::routes::repository_router(app_state.clone()),
+            tag::routes::tag_router(app_state.clone()),
+            provider_settings::routes::provider_settings_router(app_state.clone()),
+        ];
+        for (module_router, module_api) in modules {
+            router = router.merge(module_router);
+            merged_api.merge(module_api);
+        }
 
         info!("Task/message/agent/command/file/figma/repository/tag/provider routes registered");
 

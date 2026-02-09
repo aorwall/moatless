@@ -12,7 +12,17 @@ use crate::state::AppState;
 use super::error::TaskError;
 use super::types::*;
 
-/// POST /api/v1/tasks
+/// Create a new task.
+#[utoipa::path(
+    post,
+    path = "/api/v1/tasks",
+    tag = "tasks",
+    request_body = CreateTaskRequest,
+    responses(
+        (status = 200, description = "Task created", body = CreateTaskResponse),
+        (status = 404, description = "Repository not found", body = crate::sandbox::types::ErrorBody)
+    )
+)]
 pub async fn create_task(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -95,7 +105,17 @@ pub async fn create_task(
     }))
 }
 
-/// POST /api/v1/tasks/vibe
+/// Create a new vibe task from a template.
+#[utoipa::path(
+    post,
+    path = "/api/v1/tasks/vibe",
+    tag = "tasks",
+    request_body = CreateVibeTaskRequest,
+    responses(
+        (status = 200, description = "Vibe task created", body = CreateTaskResponse),
+        (status = 404, description = "Template not found", body = crate::sandbox::types::ErrorBody)
+    )
+)]
 pub async fn create_vibe_task(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -165,7 +185,16 @@ pub async fn create_vibe_task(
     }))
 }
 
-/// GET /api/v1/tasks
+/// List tasks with pagination and filters.
+#[utoipa::path(
+    get,
+    path = "/api/v1/tasks",
+    tag = "tasks",
+    params(ListTasksQuery),
+    responses(
+        (status = 200, description = "Paginated task list", body = ListTasksResponse)
+    )
+)]
 pub async fn list_tasks(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -242,7 +271,19 @@ pub async fn list_tasks(
     }))
 }
 
-/// GET /api/v1/tasks/{task_id}
+/// Get a task by ID.
+#[utoipa::path(
+    get,
+    path = "/api/v1/tasks/{task_id}",
+    tag = "tasks",
+    params(
+        ("task_id" = String, Path, description = "Task identifier")
+    ),
+    responses(
+        (status = 200, description = "Task details", body = TaskResponse),
+        (status = 404, description = "Task not found", body = crate::sandbox::types::ErrorBody)
+    )
+)]
 pub async fn get_task(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -256,7 +297,20 @@ pub async fn get_task(
     Ok(Json(resp))
 }
 
-/// PATCH /api/v1/tasks/{task_id}
+/// Update task name and description.
+#[utoipa::path(
+    patch,
+    path = "/api/v1/tasks/{task_id}",
+    tag = "tasks",
+    params(
+        ("task_id" = String, Path, description = "Task identifier")
+    ),
+    request_body = UpdateTaskMetadataRequest,
+    responses(
+        (status = 200, description = "Task updated", body = TaskResponse),
+        (status = 404, description = "Task not found", body = crate::sandbox::types::ErrorBody)
+    )
+)]
 pub async fn update_task_metadata(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -290,7 +344,19 @@ pub async fn update_task_metadata(
     Ok(Json(resp))
 }
 
-/// DELETE /api/v1/tasks/{task_id}
+/// Delete a task and cleanup its workspace.
+#[utoipa::path(
+    delete,
+    path = "/api/v1/tasks/{task_id}",
+    tag = "tasks",
+    params(
+        ("task_id" = String, Path, description = "Task identifier")
+    ),
+    responses(
+        (status = 204, description = "Task deleted"),
+        (status = 404, description = "Task not found", body = crate::sandbox::types::ErrorBody)
+    )
+)]
 pub async fn delete_task(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -310,7 +376,19 @@ pub async fn delete_task(
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
-/// POST /api/v1/tasks/{task_id}/close
+/// Close a task and stop its sandbox.
+#[utoipa::path(
+    post,
+    path = "/api/v1/tasks/{task_id}/close",
+    tag = "tasks",
+    params(
+        ("task_id" = String, Path, description = "Task identifier")
+    ),
+    responses(
+        (status = 200, description = "Task closed", body = TaskResponse),
+        (status = 404, description = "Task not found", body = crate::sandbox::types::ErrorBody)
+    )
+)]
 pub async fn close_task(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -354,7 +432,20 @@ pub async fn close_task(
     Ok(Json(resp))
 }
 
-/// POST /api/v1/tasks/{task_id}/start
+/// Start a task (provision sandbox and begin agent).
+#[utoipa::path(
+    post,
+    path = "/api/v1/tasks/{task_id}/start",
+    tag = "tasks",
+    params(
+        ("task_id" = String, Path, description = "Task identifier")
+    ),
+    responses(
+        (status = 204, description = "Task started"),
+        (status = 400, description = "Invalid task state", body = crate::sandbox::types::ErrorBody),
+        (status = 404, description = "Task not found", body = crate::sandbox::types::ErrorBody)
+    )
+)]
 pub async fn start_task(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -378,7 +469,20 @@ pub async fn start_task(
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
-/// PUT /api/v1/tasks/{task_id}/tags
+/// Set tags for a task.
+#[utoipa::path(
+    put,
+    path = "/api/v1/tasks/{task_id}/tags",
+    tag = "tasks",
+    params(
+        ("task_id" = String, Path, description = "Task identifier")
+    ),
+    request_body = SetTagsRequest,
+    responses(
+        (status = 200, description = "Tags updated", body = Vec<TagResponse>),
+        (status = 404, description = "Task not found", body = crate::sandbox::types::ErrorBody)
+    )
+)]
 pub async fn set_task_tags(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -404,7 +508,21 @@ pub async fn set_task_tags(
     Ok(Json(response))
 }
 
-/// PUT /api/v1/tasks/{task_id}/visibility
+/// Update task visibility (public/private).
+#[utoipa::path(
+    put,
+    path = "/api/v1/tasks/{task_id}/visibility",
+    tag = "tasks",
+    params(
+        ("task_id" = String, Path, description = "Task identifier")
+    ),
+    request_body = UpdateVisibilityRequest,
+    responses(
+        (status = 200, description = "Visibility updated", body = TaskResponse),
+        (status = 400, description = "Invalid visibility value", body = crate::sandbox::types::ErrorBody),
+        (status = 404, description = "Task not found", body = crate::sandbox::types::ErrorBody)
+    )
+)]
 pub async fn update_visibility(
     State(state): State<AppState>,
     auth: AuthUser,

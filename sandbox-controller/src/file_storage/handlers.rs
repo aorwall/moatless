@@ -16,7 +16,18 @@ use super::error::FileStorageError;
 use super::s3;
 use super::types::UploadResponse;
 
-/// POST /api/v1/uploads (multipart)
+/// Upload a file via multipart form data.
+#[utoipa::path(
+    post,
+    path = "/api/v1/uploads",
+    tag = "file-storage",
+    request_body(content_type = "multipart/form-data", content = super::types::UploadFileBody),
+    responses(
+        (status = 200, description = "File uploaded successfully", body = UploadResponse),
+        (status = 400, description = "Bad request", body = crate::sandbox::types::ErrorBody),
+        (status = 500, description = "Internal error", body = crate::sandbox::types::ErrorBody)
+    )
+)]
 pub async fn upload_file(
     State(state): State<AppState>,
     _auth: AuthUser,
@@ -89,7 +100,19 @@ pub async fn upload_file(
     }))
 }
 
-/// GET /api/v1/uploads/{file_id}
+/// Download a file by ID.
+#[utoipa::path(
+    get,
+    path = "/api/v1/uploads/{file_id}",
+    tag = "file-storage",
+    params(
+        ("file_id" = String, Path, description = "File identifier")
+    ),
+    responses(
+        (status = 200, description = "File content", content_type = "application/octet-stream"),
+        (status = 404, description = "File not found", body = crate::sandbox::types::ErrorBody)
+    )
+)]
 pub async fn download_file(
     State(state): State<AppState>,
     _auth: AuthUser,

@@ -1,10 +1,11 @@
 //! Agent request/response types.
 
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 use crate::task::types::MessageContextInput;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 #[allow(dead_code)]
 pub struct SendMessageRequest {
@@ -20,10 +21,11 @@ pub struct SendMessageRequest {
     // Tool response fields
     pub tool_use_id: Option<String>,
     pub tool_name: Option<String>,
+    #[schema(value_type = Option<Object>)]
     pub tool_response: Option<serde_json::Value>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 #[allow(dead_code)]
 pub struct SendCommandRequest {
@@ -34,7 +36,7 @@ pub struct SendCommandRequest {
     pub file_ids: Vec<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SendMessageResponse {
     pub status: String,

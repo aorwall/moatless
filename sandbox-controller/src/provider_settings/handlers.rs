@@ -11,9 +11,16 @@ use super::error::ProviderSettingsError;
 use super::github_client;
 use super::types::*;
 
-/// GET /api/v1/settings/github/config
-///
-/// Returns whether the user has a connected GitHub account.
+/// Get current GitHub configuration for the user.
+#[utoipa::path(
+    get,
+    path = "/api/v1/settings/github/config",
+    tag = "provider-settings",
+    responses(
+        (status = 200, description = "GitHub config", body = GitHubConfigResponse),
+        (status = 401, description = "Not authenticated", body = crate::sandbox::types::ErrorBody)
+    )
+)]
 pub async fn get_github_config(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -44,9 +51,17 @@ pub async fn get_github_config(
     }
 }
 
-/// PUT /api/v1/settings/github/pat
-///
 /// Save a GitHub Personal Access Token after validating it.
+#[utoipa::path(
+    put,
+    path = "/api/v1/settings/github/pat",
+    tag = "provider-settings",
+    request_body = SavePatRequest,
+    responses(
+        (status = 200, description = "PAT saved", body = GitHubConfigResponse),
+        (status = 400, description = "Invalid token", body = crate::sandbox::types::ErrorBody)
+    )
+)]
 pub async fn save_github_pat(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -77,9 +92,16 @@ pub async fn save_github_pat(
     }))
 }
 
-/// GET /api/v1/settings/github/oauth/url
-///
 /// Generate a GitHub OAuth authorization URL.
+#[utoipa::path(
+    get,
+    path = "/api/v1/settings/github/oauth/url",
+    tag = "provider-settings",
+    responses(
+        (status = 200, description = "OAuth URL", body = OAuthUrlResponse),
+        (status = 400, description = "GitHub OAuth not configured", body = crate::sandbox::types::ErrorBody)
+    )
+)]
 pub async fn get_github_oauth_url(
     State(state): State<AppState>,
     _auth: AuthUser,
@@ -115,9 +137,17 @@ pub async fn get_github_oauth_url(
     Ok(Json(OAuthUrlResponse { url }))
 }
 
-/// POST /api/v1/settings/github/oauth/token
-///
 /// Exchange a GitHub OAuth authorization code for an access token.
+#[utoipa::path(
+    post,
+    path = "/api/v1/settings/github/oauth/token",
+    tag = "provider-settings",
+    request_body = ExchangeTokenRequest,
+    responses(
+        (status = 200, description = "Token exchanged", body = ExchangeTokenResponse),
+        (status = 400, description = "Exchange failed", body = crate::sandbox::types::ErrorBody)
+    )
+)]
 pub async fn exchange_github_token(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -168,9 +198,16 @@ pub async fn exchange_github_token(
     }))
 }
 
-/// DELETE /api/v1/settings/github/config
-///
 /// Disconnect GitHub by deleting the stored token.
+#[utoipa::path(
+    delete,
+    path = "/api/v1/settings/github/config",
+    tag = "provider-settings",
+    responses(
+        (status = 200, description = "GitHub disconnected", body = GitHubConfigResponse),
+        (status = 401, description = "Not authenticated", body = crate::sandbox::types::ErrorBody)
+    )
+)]
 pub async fn delete_github_config(
     State(state): State<AppState>,
     auth: AuthUser,

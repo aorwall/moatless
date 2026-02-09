@@ -13,7 +13,17 @@ use crate::state::AppState;
 use super::error::RepositoryError;
 use super::types::*;
 
-/// POST /api/v1/repositories
+/// Create a new repository.
+#[utoipa::path(
+    post,
+    path = "/api/v1/repositories",
+    tag = "repositories",
+    request_body = CreateRepositoryRequest,
+    responses(
+        (status = 201, description = "Repository created", body = RepositoryResponse),
+        (status = 409, description = "Repository already exists", body = crate::sandbox::types::ErrorBody)
+    )
+)]
 pub async fn create_repository(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -65,7 +75,15 @@ pub async fn create_repository(
     Ok((StatusCode::CREATED, Json(resp)))
 }
 
-/// GET /api/v1/repositories
+/// List all repositories for the current user.
+#[utoipa::path(
+    get,
+    path = "/api/v1/repositories",
+    tag = "repositories",
+    responses(
+        (status = 200, description = "List of repositories", body = Vec<RepositoryResponse>)
+    )
+)]
 pub async fn list_repositories(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -75,7 +93,19 @@ pub async fn list_repositories(
     Ok(Json(repos))
 }
 
-/// GET /api/v1/repositories/{repository_id}
+/// Get a repository by ID.
+#[utoipa::path(
+    get,
+    path = "/api/v1/repositories/{repository_id}",
+    tag = "repositories",
+    params(
+        ("repository_id" = String, Path, description = "Repository identifier")
+    ),
+    responses(
+        (status = 200, description = "Repository details", body = RepositoryResponse),
+        (status = 404, description = "Repository not found", body = crate::sandbox::types::ErrorBody)
+    )
+)]
 pub async fn get_repository(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -88,7 +118,20 @@ pub async fn get_repository(
     Ok(Json(row.into()))
 }
 
-/// PUT /api/v1/repositories/{repository_id}
+/// Update a repository by ID.
+#[utoipa::path(
+    put,
+    path = "/api/v1/repositories/{repository_id}",
+    tag = "repositories",
+    params(
+        ("repository_id" = String, Path, description = "Repository identifier")
+    ),
+    request_body = UpdateRepositoryRequest,
+    responses(
+        (status = 200, description = "Repository updated", body = RepositoryResponse),
+        (status = 404, description = "Repository not found", body = crate::sandbox::types::ErrorBody)
+    )
+)]
 pub async fn update_repository(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -131,7 +174,19 @@ pub async fn update_repository(
     Ok(Json(updated.into()))
 }
 
-/// DELETE /api/v1/repositories/{repository_id}
+/// Delete a repository by ID (soft delete).
+#[utoipa::path(
+    delete,
+    path = "/api/v1/repositories/{repository_id}",
+    tag = "repositories",
+    params(
+        ("repository_id" = String, Path, description = "Repository identifier")
+    ),
+    responses(
+        (status = 204, description = "Repository deleted"),
+        (status = 404, description = "Repository not found", body = crate::sandbox::types::ErrorBody)
+    )
+)]
 pub async fn delete_repository(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -147,7 +202,20 @@ pub async fn delete_repository(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// POST /api/v1/repositories/{repository_id}/convert-to-template
+/// Convert a remote repository to a template.
+#[utoipa::path(
+    post,
+    path = "/api/v1/repositories/{repository_id}/convert-to-template",
+    tag = "repositories",
+    params(
+        ("repository_id" = String, Path, description = "Repository identifier")
+    ),
+    responses(
+        (status = 200, description = "Repository converted to template", body = RepositoryResponse),
+        (status = 400, description = "Cannot convert", body = crate::sandbox::types::ErrorBody),
+        (status = 404, description = "Repository not found", body = crate::sandbox::types::ErrorBody)
+    )
+)]
 pub async fn convert_to_template(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -178,7 +246,20 @@ pub async fn convert_to_template(
     Ok(Json(updated.into()))
 }
 
-/// GET /api/v1/repositories/{repository_id}/branches
+/// Get branches for a repository.
+#[utoipa::path(
+    get,
+    path = "/api/v1/repositories/{repository_id}/branches",
+    tag = "repositories",
+    params(
+        ("repository_id" = String, Path, description = "Repository identifier")
+    ),
+    responses(
+        (status = 200, description = "Branch list", body = BranchListResponse),
+        (status = 400, description = "Bad request", body = crate::sandbox::types::ErrorBody),
+        (status = 404, description = "Repository not found", body = crate::sandbox::types::ErrorBody)
+    )
+)]
 pub async fn get_branches(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -351,4 +432,46 @@ async fn fetch_gitlab_branches(
         .map_err(|e| RepositoryError::ProviderError(format!("Failed to parse GitLab response: {e}")))?;
 
     Ok(branches.into_iter().map(|b| b.name).collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_github_https_with_git_suffix() {
+        let (owner, repo) = parse_github_owner_repo("https://github.com/owner/repo.git").unwrap();
+        assert_eq!(owner, "owner");
+        assert_eq!(repo, "repo");
+    }
+
+    #[test]
+    fn parse_github_https_without_git_suffix() {
+        let (owner, repo) = parse_github_owner_repo("https://github.com/my-org/my-repo").unwrap();
+        assert_eq!(owner, "my-org");
+        assert_eq!(repo, "my-repo");
+    }
+
+    #[test]
+    fn parse_github_trailing_slash() {
+        let (owner, repo) = parse_github_owner_repo("https://github.com/owner/repo/").unwrap();
+        assert_eq!(owner, "owner");
+        assert_eq!(repo, "repo");
+    }
+
+    #[test]
+    fn parse_github_too_few_parts() {
+        // A single segment after splitting by '/' won't have 2 parts
+        let result = parse_github_owner_repo("x");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn parse_gitlab_url_still_extracts() {
+        // parse_github_owner_repo doesn't validate host — it extracts last 2 path segments
+        let (owner, repo) =
+            parse_github_owner_repo("https://gitlab.com/group/project.git").unwrap();
+        assert_eq!(owner, "group");
+        assert_eq!(repo, "project");
+    }
 }

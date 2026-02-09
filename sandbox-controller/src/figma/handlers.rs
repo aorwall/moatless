@@ -17,7 +17,17 @@ use crate::state::AppState;
 use super::error::FigmaError;
 use super::types::*;
 
-/// POST /api/v1/figma/import-clipboard
+/// Import a Figma design from clipboard HTML.
+#[utoipa::path(
+    post,
+    path = "/api/v1/figma/import-clipboard",
+    tag = "figma",
+    request_body = ImportClipboardRequest,
+    responses(
+        (status = 200, description = "Import created", body = FigmaImportResponse),
+        (status = 400, description = "Parse error", body = crate::sandbox::types::ErrorBody)
+    )
+)]
 pub async fn import_clipboard(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -68,7 +78,17 @@ pub async fn import_clipboard(
     }))
 }
 
-/// POST /api/v1/figma/import-node
+/// Import a Figma design from a Figma URL.
+#[utoipa::path(
+    post,
+    path = "/api/v1/figma/import-node",
+    tag = "figma",
+    request_body = ImportNodeRequest,
+    responses(
+        (status = 200, description = "Import created", body = FigmaImportResponse),
+        (status = 400, description = "Bad request", body = crate::sandbox::types::ErrorBody)
+    )
+)]
 pub async fn import_node(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -213,7 +233,17 @@ pub async fn import_node(
     }))
 }
 
-/// POST /api/v1/figma/parse-clipboard
+/// Parse clipboard HTML into structured Figma data.
+#[utoipa::path(
+    post,
+    path = "/api/v1/figma/parse-clipboard",
+    tag = "figma",
+    request_body = ParseClipboardRequest,
+    responses(
+        (status = 200, description = "Parsed clipboard", body = ParseClipboardResponse),
+        (status = 400, description = "Parse error", body = crate::sandbox::types::ErrorBody)
+    )
+)]
 pub async fn parse_clipboard(
     State(_state): State<AppState>,
     _auth: AuthUser,
@@ -232,7 +262,19 @@ pub async fn parse_clipboard(
     }))
 }
 
-/// GET /api/v1/figma/imports/{import_id}
+/// Get details of a Figma import.
+#[utoipa::path(
+    get,
+    path = "/api/v1/figma/imports/{import_id}",
+    tag = "figma",
+    params(
+        ("import_id" = String, Path, description = "Import identifier")
+    ),
+    responses(
+        (status = 200, description = "Import details", body = FigmaImportDetailResponse),
+        (status = 404, description = "Import not found", body = crate::sandbox::types::ErrorBody)
+    )
+)]
 pub async fn get_import(
     State(state): State<AppState>,
     _auth: AuthUser,
@@ -277,7 +319,19 @@ pub async fn get_import(
     }))
 }
 
-/// GET /api/v1/figma/imports/{import_id}/image
+/// Get the image for a Figma import.
+#[utoipa::path(
+    get,
+    path = "/api/v1/figma/imports/{import_id}/image",
+    tag = "figma",
+    params(
+        ("import_id" = String, Path, description = "Import identifier")
+    ),
+    responses(
+        (status = 200, description = "Image content", content_type = "image/png"),
+        (status = 404, description = "Image not found", body = crate::sandbox::types::ErrorBody)
+    )
+)]
 pub async fn get_import_image(
     State(state): State<AppState>,
     _auth: AuthUser,
@@ -359,4 +413,57 @@ fn parse_figma_url(url: &str) -> Result<(String, String), FigmaError> {
     let node_id = node_id.replace('-', ":");
 
     Ok((file_key, node_id))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_figma_file_url() {
+        let url = "https://www.figma.com/file/abc123/My-Design?node-id=1-2";
+        let (key, node) = parse_figma_url(url).unwrap();
+        assert_eq!(key, "abc123");
+        assert_eq!(node, "1:2"); // dashes converted to colons
+    }
+
+    #[test]
+    fn parse_figma_design_url() {
+        let url = "https://www.figma.com/design/xyz789/Title?node-id=10-20&t=abc";
+        let (key, node) = parse_figma_url(url).unwrap();
+        assert_eq!(key, "xyz789");
+        assert_eq!(node, "10:20");
+    }
+
+    #[test]
+    fn parse_figma_url_missing_file_key() {
+        let url = "https://www.figma.com/other/page?node-id=1-2";
+        let result = parse_figma_url(url);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Cannot extract file key"));
+    }
+
+    #[test]
+    fn parse_figma_url_missing_node_id() {
+        let url = "https://www.figma.com/file/abc123/My-Design";
+        let result = parse_figma_url(url);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Cannot extract node-id"));
+    }
+
+    #[test]
+    fn parse_figma_url_node_id_no_dashes() {
+        let url = "https://www.figma.com/file/abc123/Title?node-id=42";
+        let (key, node) = parse_figma_url(url).unwrap();
+        assert_eq!(key, "abc123");
+        assert_eq!(node, "42"); // no dashes to convert
+    }
+
+    #[test]
+    fn parse_figma_url_complex_node_id() {
+        let url = "https://www.figma.com/design/k/T?node-id=100-200-300&mode=dev";
+        let (key, node) = parse_figma_url(url).unwrap();
+        assert_eq!(key, "k");
+        assert_eq!(node, "100:200:300");
+    }
 }

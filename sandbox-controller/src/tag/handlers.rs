@@ -7,17 +7,18 @@ use axum::Json;
 use crate::db::tag_dao;
 use crate::state::AppState;
 
-use serde::Serialize;
+use super::types::TagResponse;
 
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TagResponse {
-    pub tag_id: String,
-    pub name: String,
-    pub description: Option<String>,
-}
-
-/// GET /api/v1/tags
+/// List all tags.
+#[utoipa::path(
+    get,
+    path = "/api/v1/tags",
+    tag = "tags",
+    responses(
+        (status = 200, description = "List of tags", body = Vec<TagResponse>),
+        (status = 500, description = "Internal error", body = crate::sandbox::types::ErrorBody)
+    )
+)]
 pub async fn list_tags(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<TagResponse>>, (StatusCode, String)> {
