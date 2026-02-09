@@ -1,0 +1,625 @@
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::HashMap;
+
+use super::content::{ApiMessage, ModelUsage, PermissionDenial, Usage};
+use super::mcp::McpServerEntry;
+use super::options::PluginEntry;
+use super::permissions::PermissionMode;
+
+/// The core SDK message type — a union of all 16 message variants
+/// that the Claude CLI can emit over NDJSON stdout.
+///
+/// Custom deserialization is required because:
+/// - `"system"` type has 8 subtypes dispatched via `subtype` field
+/// - `"result"` has success vs error variants dispatched via `subtype`
+/// - Some types like `"user"` branch on `isReplay`
+#[derive(Debug, Clone)]
+pub enum SdkMessage {
+    /// type: "assistant" — a complete assistant turn
+    Assistant(AssistantMessage),
+    /// type: "user" — a user message (without replay)
+    User(UserMessage),
+    /// type: "user" with isReplay: true
+    UserReplay(UserMessageReplay),
+    /// type: "result" — final result (success or error)
+    Result(ResultMessage),
+    /// type: "system", subtype: "init"
+    System(SystemInitMessage),
+    /// type: "system", subtype: "compact_boundary"
+    CompactBoundary(CompactBoundaryMessage),
+    /// type: "system", subtype: "status"
+    Status(StatusMessage),
+    /// type: "system", subtype: "hook_started"
+    HookStarted(HookStartedMessage),
+    /// type: "system", subtype: "hook_progress"
+    HookProgress(HookProgressMessage),
+    /// type: "system", subtype: "hook_response"
+    HookResponse(HookResponseMessage),
+    /// type: "system", subtype: "task_notification"
+    TaskNotification(TaskNotificationMessage),
+    /// type: "system", subtype: "files_persisted"
+    FilesPersisted(FilesPersistedMessage),
+    /// type: "stream_event" — partial assistant message (streaming)
+    StreamEvent(PartialAssistantMessage),
+    /// type: "tool_progress"
+    ToolProgress(ToolProgressMessage),
+    /// type: "auth_status"
+    AuthStatus(AuthStatusMessage),
+    /// type: "tool_use_summary"
+    ToolUseSummary(ToolUseSummaryMessage),
+}
+
+impl SdkMessage {
+    /// Parse a raw JSON value into an `SdkMessage`, returning `None` if unrecognized.
+    pub fn from_value(value: Value) -> Option<Self> {
+        let msg_type = value.get("type")?.as_str()?;
+
+        match msg_type {
+            "assistant" => serde_json::from_value::<AssistantMessage>(value)
+                .ok()
+                .map(SdkMessage::Assistant),
+            "user" => {
+                let is_replay = value
+                    .get("isReplay")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                if is_replay {
+                    serde_json::from_value::<UserMessageReplay>(value)
+                        .ok()
+                        .map(SdkMessage::UserReplay)
+                } else {
+                    serde_json::from_value::<UserMessage>(value)
+                        .ok()
+                        .map(SdkMessage::User)
+                }
+            }
+            "result" => {
+                let subtype = value.get("subtype").and_then(|v| v.as_str());
+                match subtype {
+                    Some("success") => serde_json::from_value::<ResultSuccess>(value)
+                        .ok()
+                        .map(|r| SdkMessage::Result(ResultMessage::Success(r))),
+                    _ => serde_json::from_value::<ResultError>(value)
+                        .ok()
+                        .map(|r| SdkMessage::Result(ResultMessage::Error(r))),
+                }
+            }
+            "system" => {
+                let subtype = value.get("subtype").and_then(|v| v.as_str())?;
+                match subtype {
+                    "init" => serde_json::from_value::<SystemInitMessage>(value)
+                        .ok()
+                        .map(SdkMessage::System),
+                    "compact_boundary" => serde_json::from_value::<CompactBoundaryMessage>(value)
+                        .ok()
+                        .map(SdkMessage::CompactBoundary),
+                    "status" => serde_json::from_value::<StatusMessage>(value)
+                        .ok()
+                        .map(SdkMessage::Status),
+                    "hook_started" => serde_json::from_value::<HookStartedMessage>(value)
+                        .ok()
+                        .map(SdkMessage::HookStarted),
+                    "hook_progress" => serde_json::from_value::<HookProgressMessage>(value)
+                        .ok()
+                        .map(SdkMessage::HookProgress),
+                    "hook_response" => serde_json::from_value::<HookResponseMessage>(value)
+                        .ok()
+                        .map(SdkMessage::HookResponse),
+                    "task_notification" => {
+                        serde_json::from_value::<TaskNotificationMessage>(value)
+                            .ok()
+                            .map(SdkMessage::TaskNotification)
+                    }
+                    "files_persisted" => serde_json::from_value::<FilesPersistedMessage>(value)
+                        .ok()
+                        .map(SdkMessage::FilesPersisted),
+                    _ => None,
+                }
+            }
+            "stream_event" => serde_json::from_value::<PartialAssistantMessage>(value)
+                .ok()
+                .map(SdkMessage::StreamEvent),
+            "tool_progress" => serde_json::from_value::<ToolProgressMessage>(value)
+                .ok()
+                .map(SdkMessage::ToolProgress),
+            "auth_status" => serde_json::from_value::<AuthStatusMessage>(value)
+                .ok()
+                .map(SdkMessage::AuthStatus),
+            "tool_use_summary" => serde_json::from_value::<ToolUseSummaryMessage>(value)
+                .ok()
+                .map(SdkMessage::ToolUseSummary),
+            _ => None,
+        }
+    }
+}
+
+// ---------- Assistant ----------
+
+/// A complete assistant turn message.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AssistantMessage {
+    pub uuid: String,
+    pub session_id: String,
+    pub message: ApiMessage,
+    pub parent_tool_use_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<AssistantMessageError>,
+}
+
+/// Error classification for assistant messages.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AssistantMessageError {
+    AuthenticationFailed,
+    BillingError,
+    RateLimit,
+    InvalidRequest,
+    ServerError,
+    Unknown,
+}
+
+// ---------- User ----------
+
+/// A user message.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserMessage {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub uuid: Option<String>,
+    pub session_id: String,
+    pub message: ApiMessage,
+    pub parent_tool_use_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "isSynthetic")]
+    pub is_synthetic: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_use_result: Option<Value>,
+}
+
+/// A replayed user message (from session resume).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserMessageReplay {
+    pub uuid: String,
+    pub session_id: String,
+    pub message: ApiMessage,
+    pub parent_tool_use_id: Option<String>,
+    #[serde(rename = "isReplay")]
+    pub is_replay: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "isSynthetic")]
+    pub is_synthetic: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_use_result: Option<Value>,
+}
+
+// ---------- Result ----------
+
+/// The final result message — either success or error.
+#[derive(Debug, Clone)]
+pub enum ResultMessage {
+    Success(ResultSuccess),
+    Error(ResultError),
+}
+
+/// Successful result.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResultSuccess {
+    pub uuid: String,
+    pub session_id: String,
+    pub duration_ms: u64,
+    pub duration_api_ms: u64,
+    pub is_error: bool,
+    pub num_turns: u32,
+    pub result: String,
+    pub total_cost_usd: f64,
+    pub usage: Usage,
+    #[serde(rename = "modelUsage")]
+    pub model_usage: HashMap<String, ModelUsage>,
+    pub permission_denials: Vec<PermissionDenial>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub structured_output: Option<Value>,
+}
+
+/// Error result.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResultError {
+    pub subtype: String,
+    pub uuid: String,
+    pub session_id: String,
+    pub duration_ms: u64,
+    pub duration_api_ms: u64,
+    pub is_error: bool,
+    pub num_turns: u32,
+    pub total_cost_usd: f64,
+    pub usage: Usage,
+    #[serde(rename = "modelUsage")]
+    pub model_usage: HashMap<String, ModelUsage>,
+    pub permission_denials: Vec<PermissionDenial>,
+    pub errors: Vec<String>,
+}
+
+// ---------- System Init ----------
+
+/// API key source.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ApiKeySource {
+    User,
+    Project,
+    Org,
+    Temporary,
+}
+
+/// System init message — sent once at startup.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SystemInitMessage {
+    pub uuid: String,
+    pub session_id: String,
+    pub tools: Vec<String>,
+    pub model: String,
+    pub mcp_servers: Vec<McpServerEntry>,
+    #[serde(rename = "permissionMode")]
+    pub permission_mode: PermissionMode,
+    pub cwd: String,
+    #[serde(rename = "apiKeySource")]
+    pub api_key_source: ApiKeySource,
+    pub slash_commands: Vec<String>,
+    pub output_style: String,
+    pub skills: Vec<String>,
+    pub plugins: Vec<PluginEntry>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agents: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub betas: Option<Vec<String>>,
+    pub claude_code_version: String,
+}
+
+// ---------- System Subtypes ----------
+
+/// Compact boundary message — marks a context compaction event.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompactBoundaryMessage {
+    pub uuid: String,
+    pub session_id: String,
+    pub compact_metadata: CompactMetadata,
+}
+
+/// Metadata about a compaction event.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompactMetadata {
+    pub trigger: String,
+    pub pre_tokens: u64,
+}
+
+/// Status message.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StatusMessage {
+    pub uuid: String,
+    pub session_id: String,
+    pub status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "permissionMode")]
+    pub permission_mode: Option<PermissionMode>,
+}
+
+/// Hook started notification.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HookStartedMessage {
+    pub uuid: String,
+    pub session_id: String,
+    pub hook_id: String,
+    pub hook_name: String,
+    pub hook_event: String,
+}
+
+/// Hook progress update.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HookProgressMessage {
+    pub uuid: String,
+    pub session_id: String,
+    pub hook_id: String,
+    pub hook_name: String,
+    pub hook_event: String,
+    pub stdout: String,
+    pub stderr: String,
+    pub output: String,
+}
+
+/// Hook response (completion).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HookResponseMessage {
+    pub uuid: String,
+    pub session_id: String,
+    pub hook_id: String,
+    pub hook_name: String,
+    pub hook_event: String,
+    pub output: String,
+    pub stdout: String,
+    pub stderr: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i32>,
+    pub outcome: String,
+}
+
+/// Task notification from a subagent.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskNotificationMessage {
+    pub uuid: String,
+    pub session_id: String,
+    pub task_id: String,
+    pub status: String,
+    pub output_file: String,
+    pub summary: String,
+}
+
+/// Files persisted event.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FilesPersistedMessage {
+    pub uuid: String,
+    pub session_id: String,
+    pub files: Vec<PersistedFile>,
+    pub failed: Vec<FailedFile>,
+    pub processed_at: String,
+}
+
+/// A successfully persisted file.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PersistedFile {
+    pub filename: String,
+    pub file_id: String,
+}
+
+/// A file that failed to persist.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FailedFile {
+    pub filename: String,
+    pub error: String,
+}
+
+// ---------- Stream Event ----------
+
+/// Partial assistant message (streaming).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PartialAssistantMessage {
+    pub uuid: String,
+    pub session_id: String,
+    pub event: Value,
+    pub parent_tool_use_id: Option<String>,
+}
+
+// ---------- Tool Progress ----------
+
+/// Tool progress update.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolProgressMessage {
+    pub uuid: String,
+    pub session_id: String,
+    pub tool_use_id: String,
+    pub tool_name: String,
+    pub parent_tool_use_id: Option<String>,
+    pub elapsed_time_seconds: f64,
+}
+
+// ---------- Auth Status ----------
+
+/// Authentication status update.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthStatusMessage {
+    pub uuid: String,
+    pub session_id: String,
+    #[serde(rename = "isAuthenticating")]
+    pub is_authenticating: bool,
+    pub output: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+// ---------- Tool Use Summary ----------
+
+/// Tool use summary message.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolUseSummaryMessage {
+    pub uuid: String,
+    pub session_id: String,
+    pub summary: String,
+    pub preceding_tool_use_ids: Vec<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_assistant_message() {
+        let json = serde_json::json!({
+            "type": "assistant",
+            "uuid": "abc-123",
+            "session_id": "sess-1",
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {"type": "text", "text": "Hello!"}
+                ]
+            },
+            "parent_tool_use_id": null
+        });
+
+        let msg = SdkMessage::from_value(json).unwrap();
+        assert!(matches!(msg, SdkMessage::Assistant(_)));
+    }
+
+    #[test]
+    fn parse_result_success() {
+        let json = serde_json::json!({
+            "type": "result",
+            "subtype": "success",
+            "uuid": "abc-123",
+            "session_id": "sess-1",
+            "duration_ms": 1234,
+            "duration_api_ms": 1000,
+            "is_error": false,
+            "num_turns": 3,
+            "result": "Done!",
+            "total_cost_usd": 0.05,
+            "usage": {
+                "input_tokens": 100,
+                "output_tokens": 50
+            },
+            "modelUsage": {},
+            "permission_denials": []
+        });
+
+        let msg = SdkMessage::from_value(json).unwrap();
+        assert!(matches!(msg, SdkMessage::Result(ResultMessage::Success(_))));
+    }
+
+    #[test]
+    fn parse_result_error() {
+        let json = serde_json::json!({
+            "type": "result",
+            "subtype": "error_max_turns",
+            "uuid": "abc-123",
+            "session_id": "sess-1",
+            "duration_ms": 5000,
+            "duration_api_ms": 4500,
+            "is_error": true,
+            "num_turns": 10,
+            "total_cost_usd": 0.25,
+            "usage": {
+                "input_tokens": 500,
+                "output_tokens": 200
+            },
+            "modelUsage": {},
+            "permission_denials": [],
+            "errors": ["Max turns exceeded"]
+        });
+
+        let msg = SdkMessage::from_value(json).unwrap();
+        assert!(matches!(msg, SdkMessage::Result(ResultMessage::Error(_))));
+    }
+
+    #[test]
+    fn parse_system_init() {
+        let json = serde_json::json!({
+            "type": "system",
+            "subtype": "init",
+            "uuid": "abc-123",
+            "session_id": "sess-1",
+            "tools": ["Read", "Write", "Bash"],
+            "model": "claude-sonnet-4-5-20250929",
+            "mcp_servers": [],
+            "permissionMode": "default",
+            "cwd": "/tmp",
+            "apiKeySource": "user",
+            "slash_commands": [],
+            "output_style": "normal",
+            "skills": [],
+            "plugins": [],
+            "claude_code_version": "1.0.0"
+        });
+
+        let msg = SdkMessage::from_value(json).unwrap();
+        assert!(matches!(msg, SdkMessage::System(_)));
+    }
+
+    #[test]
+    fn parse_stream_event() {
+        let json = serde_json::json!({
+            "type": "stream_event",
+            "uuid": "abc-123",
+            "session_id": "sess-1",
+            "event": {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "Hi"}},
+            "parent_tool_use_id": null
+        });
+
+        let msg = SdkMessage::from_value(json).unwrap();
+        assert!(matches!(msg, SdkMessage::StreamEvent(_)));
+    }
+
+    #[test]
+    fn parse_tool_progress() {
+        let json = serde_json::json!({
+            "type": "tool_progress",
+            "uuid": "abc-123",
+            "session_id": "sess-1",
+            "tool_use_id": "tool-1",
+            "tool_name": "Bash",
+            "parent_tool_use_id": null,
+            "elapsed_time_seconds": 2.5
+        });
+
+        let msg = SdkMessage::from_value(json).unwrap();
+        assert!(matches!(msg, SdkMessage::ToolProgress(_)));
+    }
+
+    #[test]
+    fn parse_auth_status() {
+        let json = serde_json::json!({
+            "type": "auth_status",
+            "uuid": "abc-123",
+            "session_id": "sess-1",
+            "isAuthenticating": true,
+            "output": ["Authenticating..."]
+        });
+
+        let msg = SdkMessage::from_value(json).unwrap();
+        assert!(matches!(msg, SdkMessage::AuthStatus(_)));
+    }
+
+    #[test]
+    fn parse_hook_started() {
+        let json = serde_json::json!({
+            "type": "system",
+            "subtype": "hook_started",
+            "uuid": "abc-123",
+            "session_id": "sess-1",
+            "hook_id": "hook-1",
+            "hook_name": "pre-tool-use",
+            "hook_event": "PreToolUse"
+        });
+
+        let msg = SdkMessage::from_value(json).unwrap();
+        assert!(matches!(msg, SdkMessage::HookStarted(_)));
+    }
+
+    #[test]
+    fn parse_compact_boundary() {
+        let json = serde_json::json!({
+            "type": "system",
+            "subtype": "compact_boundary",
+            "uuid": "abc-123",
+            "session_id": "sess-1",
+            "compact_metadata": {
+                "trigger": "auto",
+                "pre_tokens": 50000
+            }
+        });
+
+        let msg = SdkMessage::from_value(json).unwrap();
+        assert!(matches!(msg, SdkMessage::CompactBoundary(_)));
+    }
+
+    #[test]
+    fn parse_tool_use_summary() {
+        let json = serde_json::json!({
+            "type": "tool_use_summary",
+            "uuid": "abc-123",
+            "session_id": "sess-1",
+            "summary": "Created file foo.rs",
+            "preceding_tool_use_ids": ["tool-1", "tool-2"]
+        });
+
+        let msg = SdkMessage::from_value(json).unwrap();
+        assert!(matches!(msg, SdkMessage::ToolUseSummary(_)));
+    }
+
+    #[test]
+    fn unknown_type_returns_none() {
+        let json = serde_json::json!({
+            "type": "unknown_future_type",
+            "uuid": "abc-123"
+        });
+
+        assert!(SdkMessage::from_value(json).is_none());
+    }
+}

@@ -2,6 +2,7 @@
 members = [
     "backend",
     "crates/figma-clipboard",
+    "crates/claude-agent-sdk",
 ]
 resolver = "2"
 
