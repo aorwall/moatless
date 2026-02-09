@@ -1,10 +1,11 @@
 -- Consolidated schema for sqlx::test
 -- Derived from Drizzle migrations 0000–0027 (final state after all ALTERs)
+-- Idempotent: safe to run against an existing Drizzle-managed database.
 
 -- =========================================================================
 -- Users
 -- =========================================================================
-CREATE TABLE "users" (
+CREATE TABLE IF NOT EXISTS "users" (
     "id" text PRIMARY KEY NOT NULL,
     "login" text NOT NULL,
     "email" text,
@@ -19,7 +20,7 @@ CREATE TABLE "users" (
 -- =========================================================================
 -- Sessions
 -- =========================================================================
-CREATE TABLE "sessions" (
+CREATE TABLE IF NOT EXISTS "sessions" (
     "id" text PRIMARY KEY NOT NULL,
     "provider" text NOT NULL,
     "user_id" text NOT NULL,
@@ -40,7 +41,7 @@ CREATE TABLE "sessions" (
 -- =========================================================================
 -- API keys
 -- =========================================================================
-CREATE TABLE "api_keys" (
+CREATE TABLE IF NOT EXISTS "api_keys" (
     "id" text PRIMARY KEY NOT NULL,
     "user_id" text NOT NULL,
     "name" text NOT NULL,
@@ -55,7 +56,7 @@ CREATE TABLE "api_keys" (
 -- =========================================================================
 -- Provider tokens
 -- =========================================================================
-CREATE TABLE "provider_tokens" (
+CREATE TABLE IF NOT EXISTS "provider_tokens" (
     "id" serial PRIMARY KEY NOT NULL,
     "user_id" text NOT NULL,
     "provider" text NOT NULL,
@@ -71,7 +72,7 @@ CREATE TABLE "provider_tokens" (
 -- =========================================================================
 -- Repositories
 -- =========================================================================
-CREATE TABLE "repositories" (
+CREATE TABLE IF NOT EXISTS "repositories" (
     "id" text PRIMARY KEY NOT NULL,
     "kind" text NOT NULL,
     "name" text NOT NULL,
@@ -98,13 +99,13 @@ CREATE TABLE "repositories" (
     "plugins" jsonb
 );
 
-CREATE INDEX "repositories_created_by_idx" ON "repositories" USING btree ("created_by");
-CREATE INDEX "repositories_visibility_idx" ON "repositories" USING btree ("visibility");
+CREATE INDEX IF NOT EXISTS "repositories_created_by_idx" ON "repositories" USING btree ("created_by");
+CREATE INDEX IF NOT EXISTS "repositories_visibility_idx" ON "repositories" USING btree ("visibility");
 
 -- =========================================================================
 -- Tasks
 -- =========================================================================
-CREATE TABLE "tasks" (
+CREATE TABLE IF NOT EXISTS "tasks" (
     "id" serial,
     "task_id" text NOT NULL,
     "short_id" text,
@@ -127,18 +128,18 @@ CREATE TABLE "tasks" (
     "created_at_db" timestamptz DEFAULT now()
 );
 
-CREATE UNIQUE INDEX "tasks_task_id_idx" ON "tasks" USING btree ("task_id");
-CREATE UNIQUE INDEX "tasks_short_id_idx" ON "tasks" USING btree ("short_id");
-CREATE INDEX "tasks_status_idx" ON "tasks" USING btree ("status");
-CREATE INDEX "tasks_repository_idx" ON "tasks" USING btree ("repository_id");
-CREATE INDEX "tasks_last_message_idx" ON "tasks" USING btree ("last_message_at");
-CREATE INDEX "tasks_created_by_idx" ON "tasks" USING btree ("created_by");
-CREATE INDEX "tasks_visibility_idx" ON "tasks" USING btree ("visibility");
+CREATE UNIQUE INDEX IF NOT EXISTS "tasks_task_id_idx" ON "tasks" USING btree ("task_id");
+CREATE UNIQUE INDEX IF NOT EXISTS "tasks_short_id_idx" ON "tasks" USING btree ("short_id");
+CREATE INDEX IF NOT EXISTS "tasks_status_idx" ON "tasks" USING btree ("status");
+CREATE INDEX IF NOT EXISTS "tasks_repository_idx" ON "tasks" USING btree ("repository_id");
+CREATE INDEX IF NOT EXISTS "tasks_last_message_idx" ON "tasks" USING btree ("last_message_at");
+CREATE INDEX IF NOT EXISTS "tasks_created_by_idx" ON "tasks" USING btree ("created_by");
+CREATE INDEX IF NOT EXISTS "tasks_visibility_idx" ON "tasks" USING btree ("visibility");
 
 -- =========================================================================
 -- Task messages
 -- =========================================================================
-CREATE TABLE "task_messages" (
+CREATE TABLE IF NOT EXISTS "task_messages" (
     "id" serial PRIMARY KEY NOT NULL,
     "task_id" text NOT NULL,
     "uuid" text NOT NULL,
@@ -178,14 +179,14 @@ CREATE TABLE "task_messages" (
     "created_at" timestamptz DEFAULT now() NOT NULL
 );
 
-CREATE UNIQUE INDEX "task_messages_uuid_idx" ON "task_messages" USING btree ("uuid");
-CREATE INDEX "task_messages_task_idx" ON "task_messages" USING btree ("task_id", "timestamp", "id");
-CREATE INDEX "task_messages_unacknowledged_idx" ON "task_messages" ("task_id", "agent_session_id");
+CREATE UNIQUE INDEX IF NOT EXISTS "task_messages_uuid_idx" ON "task_messages" USING btree ("uuid");
+CREATE INDEX IF NOT EXISTS "task_messages_task_idx" ON "task_messages" USING btree ("task_id", "timestamp", "id");
+CREATE INDEX IF NOT EXISTS "task_messages_unacknowledged_idx" ON "task_messages" ("task_id", "agent_session_id");
 
 -- =========================================================================
 -- Task message contexts
 -- =========================================================================
-CREATE TABLE "task_message_contexts" (
+CREATE TABLE IF NOT EXISTS "task_message_contexts" (
     "id" serial PRIMARY KEY NOT NULL,
     "task_message_id" integer NOT NULL,
     "type" text NOT NULL,
@@ -194,17 +195,24 @@ CREATE TABLE "task_message_contexts" (
     "created_at" timestamptz DEFAULT now() NOT NULL
 );
 
-ALTER TABLE "task_message_contexts"
-    ADD CONSTRAINT "task_message_contexts_task_message_id_task_messages_id_fk"
-    FOREIGN KEY ("task_message_id") REFERENCES "task_messages"("id") ON DELETE cascade ON UPDATE no action;
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'task_message_contexts_task_message_id_task_messages_id_fk'
+    ) THEN
+        ALTER TABLE "task_message_contexts"
+            ADD CONSTRAINT "task_message_contexts_task_message_id_task_messages_id_fk"
+            FOREIGN KEY ("task_message_id") REFERENCES "task_messages"("id") ON DELETE cascade ON UPDATE no action;
+    END IF;
+END $$;
 
-CREATE INDEX "task_message_contexts_message_idx" ON "task_message_contexts" USING btree ("task_message_id");
-CREATE INDEX "task_message_contexts_reference_idx" ON "task_message_contexts" USING btree ("reference_id");
+CREATE INDEX IF NOT EXISTS "task_message_contexts_message_idx" ON "task_message_contexts" USING btree ("task_message_id");
+CREATE INDEX IF NOT EXISTS "task_message_contexts_reference_idx" ON "task_message_contexts" USING btree ("reference_id");
 
 -- =========================================================================
 -- Task message content blocks
 -- =========================================================================
-CREATE TABLE "task_message_content_blocks" (
+CREATE TABLE IF NOT EXISTS "task_message_content_blocks" (
     "id" serial PRIMARY KEY NOT NULL,
     "task_message_id" integer NOT NULL,
     "sort_order" integer DEFAULT 0 NOT NULL,
@@ -219,16 +227,23 @@ CREATE TABLE "task_message_content_blocks" (
     "created_at" timestamptz DEFAULT now() NOT NULL
 );
 
-ALTER TABLE "task_message_content_blocks"
-    ADD CONSTRAINT "task_message_content_blocks_task_message_id_task_messages_id_fk"
-    FOREIGN KEY ("task_message_id") REFERENCES "task_messages"("id") ON DELETE cascade ON UPDATE no action;
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'task_message_content_blocks_task_message_id_task_messages_id_fk'
+    ) THEN
+        ALTER TABLE "task_message_content_blocks"
+            ADD CONSTRAINT "task_message_content_blocks_task_message_id_task_messages_id_fk"
+            FOREIGN KEY ("task_message_id") REFERENCES "task_messages"("id") ON DELETE cascade ON UPDATE no action;
+    END IF;
+END $$;
 
-CREATE INDEX "task_message_content_blocks_message_idx" ON "task_message_content_blocks" USING btree ("task_message_id");
+CREATE INDEX IF NOT EXISTS "task_message_content_blocks_message_idx" ON "task_message_content_blocks" USING btree ("task_message_id");
 
 -- =========================================================================
 -- Tags
 -- =========================================================================
-CREATE TABLE "tags" (
+CREATE TABLE IF NOT EXISTS "tags" (
     "id" serial PRIMARY KEY NOT NULL,
     "tag_id" text NOT NULL,
     "name" text NOT NULL,
@@ -236,26 +251,26 @@ CREATE TABLE "tags" (
     "created_at" timestamptz DEFAULT now() NOT NULL
 );
 
-CREATE UNIQUE INDEX "tags_tag_id_idx" ON "tags" USING btree ("tag_id");
-CREATE UNIQUE INDEX "tags_name_idx" ON "tags" USING btree ("name");
+CREATE UNIQUE INDEX IF NOT EXISTS "tags_tag_id_idx" ON "tags" USING btree ("tag_id");
+CREATE UNIQUE INDEX IF NOT EXISTS "tags_name_idx" ON "tags" USING btree ("name");
 
 -- =========================================================================
 -- Task tags
 -- =========================================================================
-CREATE TABLE "task_tags" (
+CREATE TABLE IF NOT EXISTS "task_tags" (
     "id" serial PRIMARY KEY NOT NULL,
     "task_id" text NOT NULL,
     "tag_id" text NOT NULL,
     "created_at" timestamptz DEFAULT now() NOT NULL
 );
 
-CREATE UNIQUE INDEX "task_tags_task_id_tag_id_idx" ON "task_tags" USING btree ("task_id", "tag_id");
-CREATE INDEX "task_tags_tag_id_idx" ON "task_tags" USING btree ("tag_id");
+CREATE UNIQUE INDEX IF NOT EXISTS "task_tags_task_id_tag_id_idx" ON "task_tags" USING btree ("task_id", "tag_id");
+CREATE INDEX IF NOT EXISTS "task_tags_tag_id_idx" ON "task_tags" USING btree ("tag_id");
 
 -- =========================================================================
 -- Commands
 -- =========================================================================
-CREATE TABLE "commands" (
+CREATE TABLE IF NOT EXISTS "commands" (
     "name" text PRIMARY KEY NOT NULL,
     "description" text NOT NULL,
     "prompt" text NOT NULL,
@@ -267,12 +282,12 @@ CREATE TABLE "commands" (
     "agent_mode" text
 );
 
-CREATE INDEX "commands_active_idx" ON "commands" USING btree ("active");
+CREATE INDEX IF NOT EXISTS "commands_active_idx" ON "commands" USING btree ("active");
 
 -- =========================================================================
 -- File metadata
 -- =========================================================================
-CREATE TABLE "file_metadata" (
+CREATE TABLE IF NOT EXISTS "file_metadata" (
     "file_id" text PRIMARY KEY NOT NULL,
     "filename" text NOT NULL,
     "mime_type" text NOT NULL,
@@ -283,7 +298,7 @@ CREATE TABLE "file_metadata" (
 -- =========================================================================
 -- Figma imports
 -- =========================================================================
-CREATE TABLE "figma_imports" (
+CREATE TABLE IF NOT EXISTS "figma_imports" (
     "import_id" text PRIMARY KEY NOT NULL,
     "file_id" text,
     "file_key" text,

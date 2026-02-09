@@ -80,7 +80,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let db_pool = if let Some(ref database_url) = config.database_url {
         match db::create_pool(database_url).await {
             Ok(pool) => {
-                info!("Database pool initialized (auto-provisioning enabled)");
+                info!("Database pool initialized");
+                // Run pending migrations
+                if let Err(e) = db::run_migrations(&pool).await {
+                    tracing::error!(error = %e, "Database migration failed");
+                    std::process::exit(1);
+                }
+                info!("Database migrations complete");
                 Some(pool)
             }
             Err(e) => {

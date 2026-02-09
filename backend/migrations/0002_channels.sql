@@ -1,7 +1,7 @@
 -- =========================================================================
 -- Channel Configurations
 -- =========================================================================
-CREATE TABLE "channel_configs" (
+CREATE TABLE IF NOT EXISTS "channel_configs" (
     "id" text PRIMARY KEY NOT NULL,
     "provider" text NOT NULL,
     "source_id" text NOT NULL,
@@ -17,17 +17,17 @@ CREATE TABLE "channel_configs" (
     "updated_at" timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE UNIQUE INDEX "channel_configs_provider_source_idx"
+CREATE UNIQUE INDEX IF NOT EXISTS "channel_configs_provider_source_idx"
     ON "channel_configs" ("provider", "source_id");
-CREATE INDEX "channel_configs_repository_idx"
+CREATE INDEX IF NOT EXISTS "channel_configs_repository_idx"
     ON "channel_configs" ("repository_id");
-CREATE INDEX "channel_configs_active_idx"
+CREATE INDEX IF NOT EXISTS "channel_configs_active_idx"
     ON "channel_configs" ("active");
 
 -- =========================================================================
 -- Channel Threads
 -- =========================================================================
-CREATE TABLE "channel_threads" (
+CREATE TABLE IF NOT EXISTS "channel_threads" (
     "id" serial PRIMARY KEY NOT NULL,
     "config_id" text NOT NULL REFERENCES "channel_configs"("id"),
     "task_id" text NOT NULL,
@@ -37,6 +37,6 @@ CREATE TABLE "channel_threads" (
     "created_at" timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX "channel_threads_task_idx" ON "channel_threads" ("task_id");
-CREATE UNIQUE INDEX "channel_threads_config_thread_idx"
+CREATE INDEX IF NOT EXISTS "channel_threads_task_idx" ON "channel_threads" ("task_id");
+CREATE UNIQUE INDEX IF NOT EXISTS "channel_threads_config_thread_idx"
     ON "channel_threads" ("config_id", "external_thread_id");
