@@ -233,6 +233,7 @@ impl EventHandlerConsumer {
         match key.as_str() {
             "taskTurn.completed" | "agent.completed" => {
                 agent_handlers::handle_agent_completed(&self.state, event).await;
+                self.notify_channels(event).await;
             }
             "agent.message" => {
                 agent_handlers::handle_agent_message(&self.state, event).await;
@@ -242,6 +243,7 @@ impl EventHandlerConsumer {
             }
             "agent.error" | "taskTurn.error" => {
                 agent_handlers::handle_agent_error(&self.state, event).await;
+                self.notify_channels(event).await;
             }
             "task.metadata.updated" => {
                 agent_handlers::handle_task_metadata_updated(&self.state, event).await;
@@ -249,6 +251,18 @@ impl EventHandlerConsumer {
             _ => {
                 // Not an event we handle — skip silently
             }
+        }
+    }
+
+    /// Notify channel providers about task events (if any channels are configured).
+    async fn notify_channels(&self, event: &AgentEvent) {
+        if let Some(ref providers) = self.state.channel_providers {
+            crate::channel::outbound::handle_channel_notification(
+                &self.state,
+                providers,
+                event,
+            )
+            .await;
         }
     }
 }

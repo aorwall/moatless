@@ -4,6 +4,7 @@
 
 pub mod agent;
 pub mod auth;
+pub mod channel;
 pub mod command;
 pub mod config;
 pub mod db;

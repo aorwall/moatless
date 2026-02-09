@@ -161,6 +161,16 @@ pub struct Config {
     pub s3_region: String,
     /// Mount path inside sandbox pods for uploaded files (default: "/mnt/uploads")
     pub sandbox_file_mount_path: String,
+
+    // =========================================================================
+    // Channel integration settings
+    // =========================================================================
+    /// Slack bot token (SLACK_BOT_TOKEN)
+    pub slack_bot_token: Option<String>,
+    /// Slack signing secret for webhook verification (SLACK_SIGNING_SECRET)
+    pub slack_signing_secret: Option<String>,
+    /// Slack bot user ID for filtering own messages (SLACK_BOT_USER_ID)
+    pub slack_bot_user_id: Option<String>,
 }
 
 impl Config {
@@ -283,6 +293,10 @@ impl Config {
                 .unwrap_or_else(|_| "us-east-1".to_string()),
             sandbox_file_mount_path: env::var("SANDBOX_FILE_MOUNT_PATH")
                 .unwrap_or_else(|_| "/mnt/uploads".to_string()),
+
+            slack_bot_token: env::var("SLACK_BOT_TOKEN").ok(),
+            slack_signing_secret: env::var("SLACK_SIGNING_SECRET").ok(),
+            slack_bot_user_id: env::var("SLACK_BOT_USER_ID").ok(),
         }
     }
 }

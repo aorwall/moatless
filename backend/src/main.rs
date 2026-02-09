@@ -23,7 +23,7 @@ use moatless_vibe_backend::metrics;
 use moatless_vibe_backend::sandbox;
 use moatless_vibe_backend::sse;
 use moatless_vibe_backend::state::AppState;
-use moatless_vibe_backend::{agent, command, figma, file_storage, message, provider_settings, repository, tag, task};
+use moatless_vibe_backend::{agent, channel, command, figma, file_storage, message, provider_settings, repository, tag, task};
 
 use auth::cache::AuthCache;
 use auth::routes::{AuthState, OAuthProviders};
@@ -193,6 +193,7 @@ fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     use repository::routes::RepositoryApiDoc;
     use tag::routes::TagApiDoc;
     use provider_settings::routes::ProviderSettingsApiDoc;
+    use channel::routes::ChannelApiDoc;
     use utoipa::OpenApi;
 
     let mut merged = SandboxApiDoc::openapi();
@@ -206,6 +207,7 @@ fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     merged.merge(RepositoryApiDoc::openapi());
     merged.merge(TagApiDoc::openapi());
     merged.merge(ProviderSettingsApiDoc::openapi());
+    merged.merge(ChannelApiDoc::openapi());
 
     merged.info = utoipa::openapi::InfoBuilder::new()
         .title("Moatless Vibe Backend API")
@@ -214,6 +216,32 @@ fn build_merged_openapi() -> utoipa::openapi::OpenApi {
         .build();
 
     merged
+}
+
+/// Build channel providers from config.
+fn build_channel_providers(config: &Config) -> Option<channel::provider::ChannelProviders> {
+    let mut providers = channel::provider::ChannelProviders::new();
+    let mut has_any = false;
+
+    if let (Some(ref token), Some(ref secret)) =
+        (&config.slack_bot_token, &config.slack_signing_secret)
+    {
+        let slack = channel::slack::provider::SlackProvider::new(
+            token,
+            secret,
+            config.slack_bot_user_id.clone(),
+        );
+        providers.register(Arc::new(slack));
+        has_any = true;
+        info!("Slack channel provider configured");
+    }
+
+    if has_any {
+        Some(providers)
+    } else {
+        info!("No channel providers configured");
+        None
+    }
 }
 
 /// Build OAuth providers from config.
@@ -299,12 +327,16 @@ async fn start_api_server(
 
     // Add new API routes if database is available
     if let Some(pool) = db_pool {
+        // Build channel providers
+        let channel_providers = build_channel_providers(config);
+
         let app_state = AppState {
             db: pool,
             config: Arc::new(config.clone()),
             sandbox: sandbox_provider,
             events: event_publisher,
             s3: s3_client,
+            channel_providers: channel_providers.map(Arc::new),
         };
 
         let modules = vec![
@@ -317,6 +349,7 @@ async fn start_api_server(
             repository::routes::repository_router(app_state.clone()),
             tag::routes::tag_router(app_state.clone()),
             provider_settings::routes::provider_settings_router(app_state.clone()),
+            channel::routes::channel_router(app_state.clone()),
         ];
         for (module_router, module_api) in modules {
             router = router.merge(module_router);

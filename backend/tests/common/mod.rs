@@ -138,6 +138,9 @@ pub fn test_config() -> Config {
         s3_key_prefix: "test".into(),
         s3_region: "us-east-1".into(),
         sandbox_file_mount_path: "/tmp/test".into(),
+        slack_bot_token: None,
+        slack_signing_secret: None,
+        slack_bot_user_id: None,
     }
 }
 
@@ -150,6 +153,7 @@ pub fn test_app_state(pool: PgPool) -> AppState {
         sandbox: Arc::new(MockSandboxProvider),
         events: None,
         s3: None,
+        channel_providers: None,
     }
 }
 

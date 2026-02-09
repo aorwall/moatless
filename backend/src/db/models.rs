@@ -270,3 +270,43 @@ pub struct ProviderTokenRow {
     pub created_at: Option<DateTime<Utc>>,
     pub updated_at: Option<DateTime<Utc>>,
 }
+
+// =========================================================================
+// Channel configs
+// =========================================================================
+
+/// Row from the `channel_configs` table.
+#[derive(sqlx::FromRow, Debug, Clone)]
+#[allow(dead_code)]
+pub struct ChannelConfigRow {
+    pub id: String,
+    pub provider: String,
+    pub source_id: String,
+    pub source_name: Option<String>,
+    pub repository_id: String,
+    pub routing_mode: String,
+    pub prompt_template: Option<String>,
+    pub active: bool,
+    pub provider_config: Option<serde_json::Value>,
+    pub ongoing_task_id: Option<String>,
+    pub created_by: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+// =========================================================================
+// Channel threads
+// =========================================================================
+
+/// Row from the `channel_threads` table.
+#[derive(sqlx::FromRow, Debug, Clone)]
+#[allow(dead_code)]
+pub struct ChannelThreadRow {
+    pub id: i32,
+    pub config_id: String,
+    pub task_id: String,
+    pub external_thread_id: String,
+    pub properties: serde_json::Value,
+    pub last_message_at: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
+}

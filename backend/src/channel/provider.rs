@@ -1,0 +1,121 @@
+//! ChannelProvider trait and ChannelProviders registry.
+
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use serde::{Deserialize, Serialize};
+
+use std::any::Any;
+
+use crate::db::models::{ChannelConfigRow, ChannelThreadRow};
+use crate::db::DbPool;
+
+use super::error::ChannelError;
+use super::types::{MessageStatus, OutboundReply};
+
+/// Channel provider identifier.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChannelType {
+    Slack,
+    Email,
+}
+
+impl ChannelType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Slack => "slack",
+            Self::Email => "email",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "slack" => Some(Self::Slack),
+            "email" => Some(Self::Email),
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Display for ChannelType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// Channel provider handles outbound messaging, user resolution, and context fetching.
+///
+/// Inbound message handling is NOT part of this trait — each provider implements
+/// its own ingress (webhook handler, WebSocket consumer, poll loop, etc.)
+/// that produces `InboundMessage` for the shared routing pipeline.
+#[async_trait::async_trait]
+pub trait ChannelProvider: Send + Sync {
+    /// Channel type identifier.
+    fn channel_type(&self) -> ChannelType;
+
+    /// Downcast support for provider-specific operations.
+    fn as_any(&self) -> &dyn Any;
+
+    /// Resolve an external identity (Slack user ID, email address) to a system user ID.
+    async fn resolve_user(
+        &self,
+        identity: &str,
+        db: &DbPool,
+    ) -> Result<Option<String>, ChannelError>;
+
+    /// Send a reply back to the channel thread.
+    async fn send_reply(
+        &self,
+        thread: &ChannelThreadRow,
+        config: &ChannelConfigRow,
+        message: &OutboundReply,
+    ) -> Result<(), ChannelError>;
+
+    /// Set a status indicator (e.g., Slack emoji reaction). Default: no-op.
+    async fn set_status(
+        &self,
+        _thread: &ChannelThreadRow,
+        _config: &ChannelConfigRow,
+        _status: MessageStatus,
+    ) -> Result<(), ChannelError> {
+        Ok(())
+    }
+
+    /// Fetch thread context for enriching agent messages (e.g., Slack thread replies).
+    /// Returns formatted context string or None if not supported.
+    async fn fetch_context(
+        &self,
+        _thread: &ChannelThreadRow,
+        _config: &ChannelConfigRow,
+        _limit: usize,
+    ) -> Result<Option<String>, ChannelError> {
+        Ok(None)
+    }
+}
+
+/// Registry of channel providers keyed by ChannelType.
+#[derive(Clone)]
+pub struct ChannelProviders {
+    providers: HashMap<ChannelType, Arc<dyn ChannelProvider>>,
+}
+
+impl ChannelProviders {
+    pub fn new() -> Self {
+        Self {
+            providers: HashMap::new(),
+        }
+    }
+
+    pub fn register(&mut self, provider: Arc<dyn ChannelProvider>) {
+        self.providers.insert(provider.channel_type(), provider);
+    }
+
+    pub fn get(&self, channel_type: ChannelType) -> Option<&Arc<dyn ChannelProvider>> {
+        self.providers.get(&channel_type)
+    }
+
+    pub fn get_by_name(&self, name: &str) -> Option<&Arc<dyn ChannelProvider>> {
+        ChannelType::from_str(name).and_then(|ct| self.providers.get(&ct))
+    }
+}

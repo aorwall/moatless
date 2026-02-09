@@ -5,6 +5,8 @@
 //! messages, commands, tags, and file metadata.
 
 pub mod api_keys;
+pub mod channel_config_dao;
+pub mod channel_thread_dao;
 pub mod command_dao;
 pub mod figma_import_dao;
 pub mod file_meta_dao;

@@ -2595,6 +2595,7 @@ dependencies = [
  "figma-clipboard",
  "futures",
  "hex",
+ "hmac",
  "http-body-util",
  "hyper 1.8.1",
  "hyper-util",

@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use crate::channel::provider::ChannelProviders;
 use crate::config::Config;
 use crate::db::DbPool;
 use crate::events::RedisEventPublisher;
@@ -22,4 +23,6 @@ pub struct AppState {
     pub events: Option<RedisEventPublisher>,
     /// Optional S3 client for file uploads/downloads.
     pub s3: Option<aws_sdk_s3::Client>,
+    /// Optional channel providers for Slack/Email integrations.
+    pub channel_providers: Option<Arc<ChannelProviders>>,
 }
