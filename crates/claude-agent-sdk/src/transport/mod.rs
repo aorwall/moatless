@@ -47,6 +47,7 @@ impl StdinWriter for ChildStdinWriter {
     async fn write_json_line(&self, json: &str) -> Result<()> {
         use crate::error::SdkError;
         use tokio::io::AsyncWriteExt;
+        log_stdin_line(json);
         let mut stdin = self.inner.lock().await;
         stdin
             .write_all(json.as_bytes())
@@ -58,6 +59,40 @@ impl StdinWriter for ChildStdinWriter {
             .map_err(SdkError::SpawnError)?;
         stdin.flush().await.map_err(SdkError::SpawnError)?;
         Ok(())
+    }
+}
+
+/// Log a stdin JSON line with a concise summary instead of the full JSON.
+fn log_stdin_line(json: &str) {
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(json) {
+        let msg_type = value
+            .get("type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("?");
+        let request_id = value.get("request_id").and_then(|v| v.as_str());
+        let subtype = value
+            .get("request")
+            .and_then(|r| r.get("subtype"))
+            .and_then(|v| v.as_str())
+            .or_else(|| {
+                value
+                    .get("response")
+                    .and_then(|r| r.get("subtype"))
+                    .and_then(|v| v.as_str())
+            });
+
+        let mut summary = format!("type={}", msg_type);
+        if let Some(rid) = request_id {
+            summary.push_str(&format!(" req={}", rid));
+        }
+        if let Some(st) = subtype {
+            summary.push_str(&format!(" subtype={}", st));
+        }
+        tracing::debug!("CLI stdin: {}", summary);
+    } else if json.len() > 200 {
+        tracing::debug!("CLI stdin: (non-JSON, {} bytes)", json.len());
+    } else {
+        tracing::debug!("CLI stdin: {}", json);
     }
 }
 

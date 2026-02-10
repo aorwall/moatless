@@ -182,14 +182,18 @@ impl Orchestrator {
                             updated_input,
                             updated_permissions,
                         } => {
+                            // CLI's Zod schema requires `updatedInput` to be a record
+                            // for `behavior: "allow"` responses. Use the updated input
+                            // if provided, otherwise fall back to the original input.
+                            let input_value = match updated_input {
+                                Some(map) => serde_json::Value::Object(map),
+                                None => serde_json::Value::Object(input),
+                            };
                             let mut resp = serde_json::json!({
                                 "behavior": "allow",
                                 "toolUseID": tool_use_id,
+                                "updatedInput": input_value,
                             });
-                            if let Some(input) = updated_input {
-                                resp["updatedInput"] =
-                                    serde_json::Value::Object(input);
-                            }
                             if let Some(perms) = updated_permissions {
                                 resp["updatedPermissions"] =
                                     serde_json::to_value(perms).unwrap_or_default();
@@ -219,13 +223,14 @@ impl Orchestrator {
                         }
                     }
                 } else {
-                    // No permission handler — auto-allow
+                    // No permission handler — auto-allow with original input
                     ControlResponsePayload {
                         subtype: "success".to_string(),
                         request_id: request_id.clone(),
                         response: Some(serde_json::json!({
                             "behavior": "allow",
                             "toolUseID": tool_use_id,
+                            "updatedInput": serde_json::Value::Object(input),
                         })),
                         error: None,
                     }

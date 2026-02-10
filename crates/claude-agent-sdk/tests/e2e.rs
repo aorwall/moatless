@@ -64,12 +64,25 @@ fn init_tracing() {
         .try_init();
 }
 
+/// Collect auth-related env vars to forward explicitly to the CLI subprocess.
+fn auth_env() -> Option<HashMap<String, String>> {
+    let mut env = HashMap::new();
+    if let Ok(token) = std::env::var("CLAUDE_CODE_OAUTH_TOKEN") {
+        env.insert("CLAUDE_CODE_OAUTH_TOKEN".to_string(), token);
+    }
+    if let Ok(key) = std::env::var("ANTHROPIC_API_KEY") {
+        env.insert("ANTHROPIC_API_KEY".to_string(), key);
+    }
+    if env.is_empty() { None } else { Some(env) }
+}
+
 /// Default options for E2E tests: haiku model, 1 turn, skip permissions.
 fn e2e_options() -> ClaudeOptions {
     ClaudeOptions {
         model: Some(TEST_MODEL.to_string()),
         max_turns: Some(1),
         allow_dangerously_skip_permissions: Some(true),
+        env: auth_env(),
         ..Default::default()
     }
 }
@@ -325,6 +338,7 @@ async fn test_permission_handler_is_invoked() {
             can_use_tool: Some(Arc::new(CapturingPermissionHandler {
                 invocations: invocations.clone(),
             })),
+            env: auth_env(),
             ..Default::default()
         };
 
@@ -418,6 +432,7 @@ async fn test_permission_handler_deny_blocks_tool() {
             max_turns: Some(2),
             cwd: Some(tmp.to_string_lossy().to_string()),
             can_use_tool: Some(Arc::new(DenyAllPermissionHandler)),
+            env: auth_env(),
             ..Default::default()
         };
 
@@ -513,6 +528,7 @@ async fn test_hook_handler_is_invoked() {
             hook_handler: Some(Arc::new(CapturingHookHandler {
                 invocations: invocations.clone(),
             })),
+            env: auth_env(),
             ..Default::default()
         };
 
@@ -593,6 +609,7 @@ async fn test_sdk_mcp_tool_is_called() {
             allow_dangerously_skip_permissions: Some(true),
             allowed_tools: Some(vec!["mcp__test-calc__add".to_string()]),
             sdk_mcp_servers: Some(sdk_mcp_servers),
+            env: auth_env(),
             ..Default::default()
         };
 
@@ -674,6 +691,7 @@ async fn test_streaming_client_multi_turn() {
             model: Some(TEST_MODEL.to_string()),
             max_turns: Some(1),
             allow_dangerously_skip_permissions: Some(true),
+            env: auth_env(),
             ..Default::default()
         };
 

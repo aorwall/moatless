@@ -1,0 +1,46 @@
+# Dockerfile for running pre-compiled Rust SDK E2E test binaries.
+# Test binaries are cross-compiled on host and passed via --build-context.
+# Verifies that CLAUDE_CODE_OAUTH_TOKEN works inside Docker.
+#
+# Build (via scripts/test-docker.sh):
+#   docker build -f crates/claude-agent-sdk/Dockerfile.test --build-context binaries=/tmp/sdk-test-bins -t claude-sdk-test .
+# Run:
+#   docker run --rm -e CLAUDE_CODE_OAUTH_TOKEN -e CLAUDE_SDK_E2E=1 claude-sdk-test
+
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl \
+        git \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js 22 (required by Claude CLI at runtime)
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Claude Code CLI (as root, then copy to /usr/local/bin)
+RUN curl -fsSL https://claude.ai/install.sh | bash \
+    && cp /root/.local/bin/claude /usr/local/bin/claude \
+    && chmod 755 /usr/local/bin/claude
+
+# Create non-root user (Claude CLI rejects --dangerously-skip-permissions as root)
+RUN groupadd --gid 1000 testuser \
+    && useradd --uid 1000 --gid 1000 -m -s /bin/bash testuser
+
+# Copy pre-compiled test binaries from host (cross-compiled for linux)
+ARG TARGETARCH
+COPY --from=binaries ${TARGETARCH}/ /test-bins/
+RUN chmod +x /test-bins/*
+
+# Create workspace directory for tests that need file system access
+RUN mkdir -p /workspace && git init /workspace && chown -R testuser:testuser /workspace
+
+USER testuser
+WORKDIR /workspace
+
+RUN claude --version
+
+ENTRYPOINT ["sh", "-c"]
+CMD ["CLAUDE_SDK_E2E=1 /test-bins/sdk-e2e --ignored --nocapture"]

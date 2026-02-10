@@ -297,6 +297,8 @@ mod tests {
         assert_eq!(resp["request_id"], "req-1");
         assert_eq!(resp["response"]["behavior"], "allow");
         assert_eq!(resp["response"]["toolUseID"], "tu-1");
+        // updatedInput must always be present (CLI Zod schema requires it)
+        assert!(resp["response"]["updatedInput"].is_object());
     }
 
     #[tokio::test]
@@ -326,6 +328,8 @@ mod tests {
         let resp = &response["response"];
         assert_eq!(resp["response"]["behavior"], "allow");
         assert_eq!(resp["response"]["toolUseID"], "tu-3");
+        // updatedInput must always be present (CLI Zod schema requires it)
+        assert!(resp["response"]["updatedInput"].is_object());
     }
 
     #[tokio::test]

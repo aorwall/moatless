@@ -4,10 +4,13 @@ use tokio::process::{Child, ChildStdin, ChildStdout};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
-use tracing::{info, warn};
+use serde_json::{Map, Value};
+use tracing::{debug, info, trace, warn};
 
 use crate::error::{Result, SdkError};
-use crate::types::control::RawStdoutMessage;
+use crate::types::content::ContentBlock;
+use crate::types::control::{ControlResponseInner, IncomingControlRequestInner, RawStdoutMessage};
+use crate::types::messages::{ResultMessage, SdkMessage};
 use crate::types::options::{ClaudeOptions, SystemPrompt};
 
 /// Manages the Claude CLI subprocess: spawning, reading NDJSON, writing, and cleanup.
@@ -113,7 +116,9 @@ impl SubprocessTransport {
                 }
             })?;
 
-            return Ok(Some(RawStdoutMessage::from_value(value)));
+            let msg = RawStdoutMessage::from_value(value);
+            log_stdout_message(&msg);
+            return Ok(Some(msg));
         }
     }
 
@@ -146,20 +151,55 @@ impl SubprocessTransport {
         }
 
         // Wait with timeout
-        match tokio::time::timeout(std::time::Duration::from_secs(5), self.child.wait()).await {
-            Ok(Ok(status)) => {
-                if status.success() {
-                    info!(code = status.code(), "CLI process exited");
-                } else {
-                    warn!(code = status.code(), "CLI process exited with error");
-                }
-            }
+        let exit_status = match tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            self.child.wait(),
+        )
+        .await
+        {
+            Ok(Ok(status)) => Some(status),
             Ok(Err(e)) => {
                 warn!(error = %e, "Error waiting for CLI process");
+                None
             }
             Err(_) => {
                 warn!("CLI process did not exit within 5s, force killing");
                 let _ = self.child.kill().await;
+                None
+            }
+        };
+
+        // Collect stderr output from the background drain task
+        let stderr_lines = collect_stderr(&mut self._stderr_task).await;
+
+        // Log exit status with full context
+        if let Some(status) = exit_status {
+            if status.success() {
+                info!(code = status.code(), "CLI process exited");
+            } else {
+                // On Unix, a signal-killed process has code() == None;
+                // use the signal number from .signal() instead.
+                #[cfg(unix)]
+                let signal = std::os::unix::process::ExitStatusExt::signal(&status);
+                #[cfg(not(unix))]
+                let signal: Option<i32> = None;
+
+                warn!(
+                    code = status.code(),
+                    signal = signal,
+                    stderr_lines = stderr_lines.len(),
+                    "CLI process exited with error"
+                );
+
+                // Log last stderr lines for debugging (cap at 20 lines)
+                let tail = if stderr_lines.len() > 20 {
+                    &stderr_lines[stderr_lines.len() - 20..]
+                } else {
+                    &stderr_lines
+                };
+                for line in tail {
+                    debug!(line = %line, "CLI stderr (tail)");
+                }
             }
         }
     }
@@ -405,11 +445,333 @@ async fn drain_stderr(
     let mut collected = Vec::new();
 
     while let Ok(Some(line)) = lines.next_line().await {
-        warn!(line = %line, "CLI stderr");
+        debug!(line = %line, "CLI stderr");
         collected.push(line);
     }
 
     collected
+}
+
+/// Collect stderr lines from the drain task (with a short timeout).
+async fn collect_stderr(task: &mut JoinHandle<Vec<String>>) -> Vec<String> {
+    match tokio::time::timeout(std::time::Duration::from_secs(2), task).await {
+        Ok(Ok(lines)) => lines,
+        Ok(Err(e)) => {
+            debug!(error = %e, "Stderr drain task panicked");
+            Vec::new()
+        }
+        Err(_) => {
+            debug!("Stderr drain task did not complete within 2s");
+            Vec::new()
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Pretty-print logging helpers
+// ---------------------------------------------------------------------------
+
+/// Log a parsed stdout message at the appropriate level with human-readable formatting.
+fn log_stdout_message(msg: &RawStdoutMessage) {
+    match msg {
+        RawStdoutMessage::Sdk(sdk_msg) => match sdk_msg {
+            SdkMessage::Assistant(m) => {
+                let uuid_short = short_id(&m.uuid);
+                let blocks = format_content_blocks(&m.message.content);
+                debug!("CLI stdout: assistant (uuid={})\n{}", uuid_short, blocks);
+            }
+            SdkMessage::User(m) => {
+                let blocks = format_content_blocks(&m.message.content);
+                debug!("CLI stdout: user\n{}", blocks);
+            }
+            SdkMessage::UserReplay(m) => {
+                let uuid_short = short_id(&m.uuid);
+                let blocks = format_content_blocks(&m.message.content);
+                debug!("CLI stdout: user_replay (uuid={})\n{}", uuid_short, blocks);
+            }
+            SdkMessage::Result(ResultMessage::Success(r)) => {
+                let dur = r.duration_ms as f64 / 1000.0;
+                let text = indent(&r.result, "  ");
+                info!(
+                    "CLI stdout: result success turns={} duration={:.1}s cost=${:.4}\n{}",
+                    r.num_turns, dur, r.total_cost_usd, text
+                );
+            }
+            SdkMessage::Result(ResultMessage::Error(r)) => {
+                let dur = r.duration_ms as f64 / 1000.0;
+                let errors = r.errors.join("; ");
+                warn!(
+                    "CLI stdout: result error subtype={} turns={} duration={:.1}s cost=${:.4} errors={}",
+                    r.subtype, r.num_turns, dur, r.total_cost_usd, errors
+                );
+            }
+            SdkMessage::System(m) => {
+                let session_short = short_id(&m.session_id);
+                info!(
+                    "CLI stdout: system init session={} model={} tools={}",
+                    session_short,
+                    m.model,
+                    m.tools.len()
+                );
+            }
+            SdkMessage::Status(m) => {
+                let status = m.status.as_deref().unwrap_or("?");
+                debug!("CLI stdout: status={}", status);
+            }
+            SdkMessage::CompactBoundary(m) => {
+                debug!(
+                    "CLI stdout: compact_boundary trigger={} pre_tokens={}",
+                    m.compact_metadata.trigger, m.compact_metadata.pre_tokens
+                );
+            }
+            SdkMessage::HookStarted(m) => {
+                debug!(
+                    "CLI stdout: hook_started id={} name={} event={}",
+                    m.hook_id, m.hook_name, m.hook_event
+                );
+            }
+            SdkMessage::HookProgress(m) => {
+                debug!(
+                    "CLI stdout: hook_progress id={} name={}",
+                    m.hook_id, m.hook_name
+                );
+            }
+            SdkMessage::HookResponse(m) => {
+                debug!(
+                    "CLI stdout: hook_response id={} name={} outcome={}",
+                    m.hook_id, m.hook_name, m.outcome
+                );
+            }
+            SdkMessage::TaskNotification(m) => {
+                debug!(
+                    "CLI stdout: task_notification task={} status={}",
+                    m.task_id, m.status
+                );
+            }
+            SdkMessage::FilesPersisted(m) => {
+                debug!(
+                    "CLI stdout: files_persisted files={} failed={}",
+                    m.files.len(),
+                    m.failed.len()
+                );
+            }
+            SdkMessage::StreamEvent(_) => {
+                trace!("CLI stdout: stream_event");
+            }
+            SdkMessage::ToolProgress(m) => {
+                trace!(
+                    "CLI stdout: tool_progress tool={} elapsed={:.1}s",
+                    m.tool_name, m.elapsed_time_seconds
+                );
+            }
+            SdkMessage::AuthStatus(m) => {
+                debug!(
+                    "CLI stdout: auth_status authenticating={}",
+                    m.is_authenticating
+                );
+            }
+            SdkMessage::ToolUseSummary(m) => {
+                debug!("CLI stdout: tool_use_summary {}", truncate(&m.summary, 120));
+            }
+        },
+        RawStdoutMessage::IncomingControlRequest {
+            request_id,
+            request,
+        } => match request {
+            IncomingControlRequestInner::CanUseTool {
+                tool_name, input, ..
+            } => {
+                let input_summary = format_tool_input(tool_name, input);
+                debug!(
+                    "CLI stdout: control_request can_use_tool req={}\n  tool: {}\n{}",
+                    request_id, tool_name, input_summary
+                );
+            }
+            IncomingControlRequestInner::HookCallback { callback_id, .. } => {
+                debug!(
+                    "CLI stdout: control_request hook_callback req={} callback={}",
+                    request_id, callback_id
+                );
+            }
+            IncomingControlRequestInner::McpMessage { server_name, .. } => {
+                debug!(
+                    "CLI stdout: control_request mcp_message req={} server={}",
+                    request_id, server_name
+                );
+            }
+        },
+        RawStdoutMessage::ControlResponse(resp) => match resp {
+            ControlResponseInner::Success { request_id, .. } => {
+                debug!("CLI stdout: control_response success req={}", request_id);
+            }
+            ControlResponseInner::Error {
+                request_id, error, ..
+            } => {
+                debug!(
+                    "CLI stdout: control_response error req={} error={}",
+                    request_id,
+                    truncate(error, 200)
+                );
+            }
+        },
+        RawStdoutMessage::ControlCancelRequest { request_id } => {
+            debug!("CLI stdout: control_cancel req={}", request_id);
+        }
+        RawStdoutMessage::KeepAlive => {
+            trace!("CLI stdout: keep_alive");
+        }
+        RawStdoutMessage::Unknown(value) => {
+            let type_str = value
+                .get("type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("?");
+            debug!(raw = %value, "CLI stdout: unknown type={}", type_str);
+        }
+    }
+}
+
+/// Format content blocks into a human-readable multi-line string.
+fn format_content_blocks(blocks: &[ContentBlock]) -> String {
+    use std::fmt::Write;
+
+    if blocks.is_empty() {
+        return "  (no content)".to_string();
+    }
+
+    let mut out = String::new();
+    for block in blocks {
+        match block {
+            ContentBlock::Text { text } => {
+                let _ = writeln!(out, "  Text:");
+                out.push_str(&indent(&truncate(text, 1000), "    "));
+                out.push('\n');
+            }
+            ContentBlock::ToolUse { id, name, input } => {
+                let _ = writeln!(out, "  ToolUse[{}]: {}", id, name);
+                let input_str =
+                    serde_json::to_string_pretty(input).unwrap_or_else(|_| input.to_string());
+                out.push_str(&indent(&truncate(&input_str, 500), "    "));
+                out.push('\n');
+            }
+            ContentBlock::ToolResult {
+                tool_use_id,
+                content,
+                is_error,
+            } => {
+                let status = if is_error.unwrap_or(false) {
+                    "err"
+                } else {
+                    "ok"
+                };
+                let _ = writeln!(out, "  ToolResult[{}]: {}", tool_use_id, status);
+                if let Some(content) = content {
+                    let content_str = match content {
+                        Value::String(s) => s.clone(),
+                        other => serde_json::to_string_pretty(other)
+                            .unwrap_or_else(|_| other.to_string()),
+                    };
+                    out.push_str(&indent(&truncate(&content_str, 500), "    "));
+                    out.push('\n');
+                }
+            }
+            ContentBlock::Thinking { thinking, .. } => {
+                let _ = writeln!(out, "  Thinking:");
+                out.push_str(&indent(&truncate(thinking, 500), "    "));
+                out.push('\n');
+            }
+            ContentBlock::Image { source } => {
+                let _ = writeln!(out, "  Image: (media={})", source.media_type);
+            }
+            ContentBlock::ServerToolUse { id, name, input } => {
+                let _ = writeln!(out, "  ServerToolUse[{}]: {}", id, name);
+                let input_str =
+                    serde_json::to_string_pretty(input).unwrap_or_else(|_| input.to_string());
+                out.push_str(&indent(&truncate(&input_str, 500), "    "));
+                out.push('\n');
+            }
+            ContentBlock::WebSearchToolResult {
+                tool_use_id,
+                content,
+            } => {
+                let _ = writeln!(out, "  WebSearchToolResult[{}]", tool_use_id);
+                if let Some(content) = content {
+                    let content_str = serde_json::to_string_pretty(content)
+                        .unwrap_or_else(|_| content.to_string());
+                    out.push_str(&indent(&truncate(&content_str, 500), "    "));
+                    out.push('\n');
+                }
+            }
+        }
+    }
+    // Trim trailing newlines
+    while out.ends_with('\n') {
+        out.pop();
+    }
+    out
+}
+
+/// Format tool input for CanUseTool control requests, showing key fields for well-known tools.
+fn format_tool_input(tool_name: &str, input: &Map<String, Value>) -> String {
+    let key_fields: &[&str] = match tool_name {
+        "Bash" => &["command", "description"],
+        "Read" => &["file_path"],
+        "Write" => &["file_path"],
+        "Edit" | "MultiEdit" => &["file_path"],
+        "Glob" => &["pattern", "path"],
+        "Grep" => &["pattern", "path", "glob"],
+        _ => &[],
+    };
+
+    let mut out = String::new();
+    for &field in key_fields {
+        if let Some(val) = input.get(field) {
+            let val_str = match val {
+                Value::String(s) => truncate(s, 200),
+                other => truncate(&other.to_string(), 200),
+            };
+            out.push_str(&format!("  input.{}: {}\n", field, val_str));
+        }
+    }
+
+    // If no key fields were found, show all keys
+    if out.is_empty() {
+        let keys: Vec<&str> = input.keys().map(|k| k.as_str()).collect();
+        out.push_str(&format!("  input keys: [{}]\n", keys.join(", ")));
+    }
+
+    out.trim_end().to_string()
+}
+
+/// Return the first 8 characters of an ID string.
+fn short_id(id: &str) -> &str {
+    let end = id.len().min(8);
+    // Ensure we're at a char boundary
+    let mut e = end;
+    while e > 0 && !id.is_char_boundary(e) {
+        e -= 1;
+    }
+    &id[..e]
+}
+
+/// Indent each line of text with the given prefix.
+fn indent(text: &str, prefix: &str) -> String {
+    text.lines()
+        .map(|line| format!("{}{}", prefix, line))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Truncate a string to max_len bytes, appending a note if truncated.
+fn truncate(s: &str, max_len: usize) -> String {
+    if s.len() <= max_len {
+        return s.to_string();
+    }
+    // Find valid UTF-8 boundary
+    let mut end = max_len;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}...[+{} bytes]", &s[..end], s.len() - end)
 }
 
 #[cfg(test)]
