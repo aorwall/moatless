@@ -43,7 +43,11 @@ while [[ $# -gt 0 ]]; do
     --local)
       MULTI_ARCH=false
       PUSH=false
-      PLATFORM="linux/amd64"
+      case "$(uname -m)" in
+        x86_64|amd64)  PLATFORM="linux/amd64" ;;
+        aarch64|arm64) PLATFORM="linux/arm64" ;;
+        *) echo -e "${RED}Unsupported host architecture: $(uname -m)${NC}"; exit 1 ;;
+      esac
       shift
       ;;
     --dev-browser-dir)
@@ -131,24 +135,71 @@ if [ "$MULTI_ARCH" = true ]; then
 fi
 
 # Cleanup function for staged files
+BINARIES_DIR=""
 cleanup() {
   if [ "$CLEANUP_DEV_BROWSER" = true ]; then
     echo -e "${YELLOW}Cleaning up staged dev-browser plugin...${NC}"
     rm -rf dev-browser
   fi
+  if [ -n "$BINARIES_DIR" ] && [ -d "$BINARIES_DIR" ]; then
+    echo -e "${YELLOW}Cleaning up staged binaries...${NC}"
+    rm -rf "$BINARIES_DIR"
+  fi
 }
 trap cleanup EXIT
 
-# Build sandbox app first (needed for sandbox images)
-# Use --filter=sandbox... to only build sandbox and its dependencies, skipping frontend/backend
-if [ "$BUILD_SANDBOX_JS" = true ]; then
-  echo -e "${YELLOW}Building sandbox application...${NC}"
-  bunx turbo run build --filter=@moatless/sandbox...
-  if [ $? -ne 0 ]; then
-    echo -e "${RED}✗ Build failed!${NC}"
+# Cross-compile Rust sandbox binary for target architectures (needed by Dockerfile.sandbox)
+if [ "$BUILD_BASE" = true ]; then
+  if ! command -v cargo-zigbuild &> /dev/null; then
+    echo -e "${RED}Error: cargo-zigbuild required for cross-compilation.${NC}"
+    echo -e "${RED}Install: cargo install cargo-zigbuild && pip3 install ziglang${NC}"
     exit 1
   fi
-  echo -e "${GREEN}✓ Build successful!${NC}"
+
+  # Zig linker needs more file descriptors
+  ulimit -n 10240 2>/dev/null || true
+
+  # Resolve workspace target dir (cargo puts binaries at workspace root)
+  TARGET_DIR="$(cargo metadata --format-version 1 --no-deps 2>/dev/null | python3 -c 'import sys,json; print(json.load(sys.stdin)["target_directory"])')"
+
+  # Determine which architectures to build
+  TARGETS=()
+  if echo "$PLATFORM" | grep -q "amd64"; then
+    TARGETS+=("x86_64-unknown-linux-gnu")
+  fi
+  if echo "$PLATFORM" | grep -q "arm64"; then
+    TARGETS+=("aarch64-unknown-linux-gnu")
+  fi
+
+  # Stage binaries into a temp dir: amd64/sandbox, arm64/sandbox
+  BINARIES_DIR="$(mktemp -d)"
+  mkdir -p "$BINARIES_DIR/amd64" "$BINARIES_DIR/arm64"
+
+  for TARGET in "${TARGETS[@]}"; do
+    echo -e "${YELLOW}Cross-compiling sandbox for ${TARGET}...${NC}"
+    cargo zigbuild -p moatless-sandbox --release --target "$TARGET"
+    if [ $? -ne 0 ]; then
+      echo -e "${RED}✗ Rust sandbox build failed for ${TARGET}!${NC}"
+      exit 1
+    fi
+
+    # Map Rust target triple to Docker TARGETARCH
+    case "$TARGET" in
+      x86_64-*)  ARCH_DIR="amd64" ;;
+      aarch64-*) ARCH_DIR="arm64" ;;
+    esac
+    cp "${TARGET_DIR}/${TARGET}/release/sandbox" "$BINARIES_DIR/$ARCH_DIR/sandbox"
+    echo -e "${GREEN}✓ sandbox binary staged for ${ARCH_DIR}${NC}"
+  done
+  echo ""
+fi
+
+# Build sandbox-js prerequisites (file-explorer, dev-browser)
+if [ "$BUILD_SANDBOX_JS" = true ]; then
+  # Build file-explorer (still TypeScript)
+  echo -e "${YELLOW}Building file-explorer...${NC}"
+  bunx turbo run build --filter=@moatless/file-explorer
+  echo -e "${GREEN}✓ File-explorer build successful!${NC}"
   echo ""
 
   # Stage dev-browser plugin into build context
@@ -177,6 +228,7 @@ fi
 build_image() {
   local dockerfile=$1
   local image_name=$2
+  local extra_args="${3:-}"
   local ghcr_name="${REGISTRY}/${image_name}:${TAG}"
   local dockerhub_name="aorwall/${image_name}:${TAG}"
 
@@ -196,6 +248,10 @@ build_image() {
 
   if [ "$USE_CACHE" = false ]; then
     BUILD_CMD="$BUILD_CMD --no-cache"
+  fi
+
+  if [ -n "$extra_args" ]; then
+    BUILD_CMD="$BUILD_CMD $extra_args"
   fi
 
   BUILD_CMD="$BUILD_CMD -f docker/${dockerfile} ."
@@ -235,7 +291,7 @@ build_image() {
 
 # Build images in order
 if [ "$BUILD_BASE" = true ]; then
-  build_image "Dockerfile.sandbox" "moatless-vibe-sandbox"
+  build_image "Dockerfile.sandbox" "moatless-vibe-sandbox" "--build-context binaries=${BINARIES_DIR}"
 fi
 
 if [ "$BUILD_SANDBOX_JS" = true ]; then

@@ -50,8 +50,10 @@
 !dist/
 !bin/
 !apps/sandbox/bin/
-!apps/sandbox/dist/
 !apps/sandbox/skills/
+
+# Pre-built Rust sandbox binary
+!target/release/sandbox
 !packages/events/dist/
 !packages/messaging/dist/
 !packages/sandbox-api-contract/dist/
@@ -61,3 +63,14 @@
 !packages/types/dist/
 !apps/file-explorer/
 !dev-browser/
+
+# Rust workspace (SDK test Docker image)
+!Cargo.toml
+!Cargo.lock
+!crates/
+!sandbox/
+!backend/
+!scripts/
+
+# Exclude Rust build artifacts from whitelisted dirs
+**/target/

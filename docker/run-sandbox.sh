@@ -82,7 +82,7 @@ while [[ $# -gt 0 ]]; do
       echo "Inside the container:"
       echo "  - Check env vars: env | grep -E 'CLAUDE|PORT|GIT'"
       echo "  - Check cloned repo: ls /opt/moatless/repo"
-      echo "  - Start sandbox: cd /app/sandbox && bun run start"
+      echo "  - Start sandbox: /usr/local/bin/sandbox"
       exit 0
       ;;
     *)
@@ -215,7 +215,7 @@ echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━�
 echo -e "${GREEN}Inside the container, you can:${NC}"
 echo -e "  1. Check environment: ${YELLOW}env | grep -E 'CLAUDE|PORT|GIT'${NC}"
 echo -e "  2. Clone the repo manually: ${YELLOW}git clone \$GIT_CLONE_URL \$WORKSPACE_DIR${NC}"
-echo -e "  3. Start sandbox server: ${YELLOW}cd /app/sandbox && bun run start${NC}"
+echo -e "  3. Start sandbox server: ${YELLOW}/usr/local/bin/sandbox${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e ""
 

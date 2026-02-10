@@ -91,6 +91,11 @@ RUN cp /root/.local/bin/claude /usr/local/bin/claude && \
     claude --version && \
     (claude --version 2>/dev/null || echo "unknown") > /opt/moatless/.claude-cli-version
 
+# Copy pre-built Rust sandbox binary (from named build context, per-arch)
+ARG TARGETARCH
+COPY --from=binaries ${TARGETARCH}/sandbox /usr/local/bin/sandbox
+RUN chmod +x /usr/local/bin/sandbox
+
 # Environment variables for sandbox paths
 # HOME: Standard Linux home directory
 # WORKSPACE_DIR: Repository workspace (separate from home)

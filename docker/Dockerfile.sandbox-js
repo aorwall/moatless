@@ -38,50 +38,6 @@ COPY docker/docker-entrypoint-sandbox.sh /usr/local/bin/
 COPY docker/sync-plugins.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint-sandbox.sh /usr/local/bin/sync-plugins.sh
 
-# Create sandbox application directory and install npm dependencies first
-# (before copying package.json which has workspace:* deps that npm can't handle)
-# Include dependencies from workspace packages: @moatless/types needs @hono/zod-openapi
-# NOTE: Sandbox is installed at /app/sandbox to avoid being overwritten by volume mounts to /opt/moatless/
-RUN mkdir -p /app/sandbox && \
-    cd /app/sandbox && \
-    npm init -y && \
-    npm install --save --omit=dev \
-    @anthropic-ai/claude-agent-sdk \
-    @hono/node-server \
-    @hono/zod-openapi \
-    hono \
-    ioredis \
-    pino \
-    pino-pretty \
-    postgres \
-    zod
-
-# Copy the sandbox application
-COPY apps/sandbox/dist /app/sandbox/dist
-COPY apps/sandbox/package.json /app/sandbox/
-
-# Copy workspace packages that sandbox depends on
-COPY packages/events/dist /app/sandbox/node_modules/@moatless/events/dist
-COPY packages/events/package.json /app/sandbox/node_modules/@moatless/events/
-
-COPY packages/messaging/dist /app/sandbox/node_modules/@moatless/messaging/dist
-COPY packages/messaging/package.json /app/sandbox/node_modules/@moatless/messaging/
-
-COPY packages/sandbox-api-contract/dist /app/sandbox/node_modules/@moatless/sandbox-api-contract/dist
-COPY packages/sandbox-api-contract/package.json /app/sandbox/node_modules/@moatless/sandbox-api-contract/
-
-COPY packages/sandbox-schemas/dist /app/sandbox/node_modules/@moatless/sandbox-schemas/dist
-COPY packages/sandbox-schemas/package.json /app/sandbox/node_modules/@moatless/sandbox-schemas/
-
-COPY packages/shell-utils/dist /app/sandbox/node_modules/@moatless/shell-utils/dist
-COPY packages/shell-utils/package.json /app/sandbox/node_modules/@moatless/shell-utils/
-
-COPY packages/types/dist /app/sandbox/node_modules/@moatless/types/dist
-COPY packages/types/package.json /app/sandbox/node_modules/@moatless/types/
-
-COPY packages/inspector/dist /app/sandbox/node_modules/@moatless/inspector/dist
-COPY packages/inspector/package.json /app/sandbox/node_modules/@moatless/inspector/
-
 # Copy generic server management script to /usr/local/bin (survives /opt/moatless volume mount)
 COPY apps/sandbox/bin/server /usr/local/bin/server
 RUN chmod +x /usr/local/bin/server

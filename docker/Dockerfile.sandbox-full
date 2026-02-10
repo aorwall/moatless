@@ -80,37 +80,8 @@ COPY docker/docker-entrypoint-sandbox.sh /usr/local/bin/
 COPY docker/sync-plugins.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint-sandbox.sh /usr/local/bin/sync-plugins.sh
 
-# Create sandbox application directory
-# NOTE: Sandbox is installed at /app/sandbox to avoid being overwritten by volume mounts to /opt/moatless/
-RUN mkdir -p /app/sandbox/node_modules
-
-# Copy the sandbox application and its workspace dependencies
-COPY apps/sandbox/dist /app/sandbox/dist
-COPY apps/sandbox/package.json /app/sandbox/
-
-# Copy workspace packages that sandbox depends on
-COPY packages/events/dist /app/sandbox/node_modules/@moatless/events/dist
-COPY packages/events/package.json /app/sandbox/node_modules/@moatless/events/
-
-COPY packages/sandbox-api-contract/dist /app/sandbox/node_modules/@moatless/sandbox-api-contract/dist
-COPY packages/sandbox-api-contract/package.json /app/sandbox/node_modules/@moatless/sandbox-api-contract/
-
-COPY packages/sandbox-schemas/dist /app/sandbox/node_modules/@moatless/sandbox-schemas/dist
-COPY packages/sandbox-schemas/package.json /app/sandbox/node_modules/@moatless/sandbox-schemas/
-
-COPY packages/shell-utils/dist /app/sandbox/node_modules/@moatless/shell-utils/dist
-COPY packages/shell-utils/package.json /app/sandbox/node_modules/@moatless/shell-utils/
-
-COPY packages/types/dist /app/sandbox/node_modules/@moatless/types/dist
-COPY packages/types/package.json /app/sandbox/node_modules/@moatless/types/
-
-COPY packages/inspector/dist /app/sandbox/node_modules/@moatless/inspector/dist
-COPY packages/inspector/package.json /app/sandbox/node_modules/@moatless/inspector/
-
-# Install npm dependencies for sandbox and Playwright browsers
-RUN cd /app/sandbox && \
-    npm install --omit=dev --ignore-scripts 2>/dev/null || true && \
-    npx playwright install --with-deps chromium
+# Install Playwright browsers
+RUN npx playwright install --with-deps chromium
 
 # Copy generic server management script to /usr/local/bin (survives /opt/moatless volume mount)
 COPY apps/sandbox/bin/server /usr/local/bin/server
@@ -123,8 +94,7 @@ COPY apps/sandbox/bin/file-explorer /usr/local/bin/file-explorer
 RUN chmod +x /usr/local/bin/file-explorer
 
 # Fix ownership
-RUN chown -R moatless:moatless /app/sandbox && \
-    chown -R moatless:moatless /app/file-explorer && \
+RUN chown -R moatless:moatless /app/file-explorer && \
     chown -R moatless:moatless /opt/playwright-browsers && \
     chown -R moatless:moatless /usr/share/moatless-skills
 
