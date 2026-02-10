@@ -1,8 +1,10 @@
 [workspace]
 members = [
     "backend",
+    "sandbox",
     "crates/figma-clipboard",
     "crates/claude-agent-sdk",
+    "crates/sandbox-proto",
 ]
 resolver = "2"
 

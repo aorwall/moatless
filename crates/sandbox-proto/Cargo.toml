@@ -1,0 +1,13 @@
+[package]
+name = "sandbox-proto"
+version = "0.1.0"
+edition = "2021"
+description = "gRPC proto definitions for sandbox ↔ backend communication"
+license = "AGPL-3.0-or-later"
+
+[dependencies]
+tonic = "0.12"
+prost = "0.13"
+
+[build-dependencies]
+tonic-build = "0.12"

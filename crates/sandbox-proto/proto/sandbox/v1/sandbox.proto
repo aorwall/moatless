@@ -1,0 +1,138 @@
+syntax = "proto3";
+package sandbox.v1;
+
+// ── Backend gRPC API (sandbox is the client) ────────────────────
+
+service BackendSandboxService {
+  // Publish agent event (replaces Redis XADD from sandbox)
+  rpc PublishEvent(PublishEventRequest) returns (PublishEventResponse);
+
+  // Fetch pending user messages for this task
+  rpc GetPendingMessages(GetPendingMessagesRequest) returns (GetPendingMessagesResponse);
+
+  // Fetch credentials for sandbox initialization (auth via gRPC metadata)
+  rpc GetCredentials(GetCredentialsRequest) returns (GetCredentialsResponse);
+}
+
+message PublishEventRequest {
+  string task_id = 1;
+  string event_type = 2;       // "task", "taskTurn", "environment"
+  string sub_type = 3;         // "agent_started", "message", "agent_completed", etc.
+  optional string agent_type = 4;
+  optional int32 turn_number = 5;
+  bool is_error = 6;
+  string payload_json = 7;     // JSON string (preserved for existing consumer compatibility)
+}
+
+message PublishEventResponse {
+  string event_id = 1;
+}
+
+message GetPendingMessagesRequest {
+  string task_id = 1;
+  string auth_token = 2;
+}
+
+message GetPendingMessagesResponse {
+  repeated PendingMessage messages = 1;
+}
+
+message PendingMessage {
+  repeated ContentBlock content = 1;
+  optional string model = 2;
+  optional string system_prompt = 3;
+  optional bool resume = 4;
+  optional string agent_type = 5;
+}
+
+message ContentBlock {
+  oneof block {
+    TextBlock text = 1;
+    ImageBlock image = 2;
+  }
+}
+
+message TextBlock {
+  string text = 1;
+}
+
+message ImageBlock {
+  string url = 1;
+  string media_type = 2;
+}
+
+message GetCredentialsRequest {
+  string task_id = 1;
+  // auth via gRPC metadata (authorization: Bearer <token>), not message fields
+}
+
+message GetCredentialsResponse {
+  // Key = env var name (e.g. "GITHUB_TOKEN", "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN")
+  // Extensible: add new credentials without proto changes
+  map<string, string> credentials = 1;
+}
+
+// ── Sandbox gRPC API (backend is the client) ────────────────────
+
+service SandboxService {
+  rpc ExecuteAgent(ExecuteAgentRequest) returns (ExecuteAgentResponse);
+  rpc StopAgent(StopAgentRequest) returns (StopAgentResponse);
+  rpc NotifyMessages(NotifyMessagesRequest) returns (NotifyMessagesResponse);
+  rpc GetStatus(GetStatusRequest) returns (GetStatusResponse);
+  rpc CheckHealth(HealthCheckRequest) returns (HealthCheckResponse);
+  rpc SearchFiles(SearchFilesRequest) returns (SearchFilesResponse);
+  rpc GetServerStatus(GetServerStatusRequest) returns (GetServerStatusResponse);
+  rpc StreamServerLogs(GetServerLogsRequest) returns (stream LogLine);
+}
+
+message ExecuteAgentRequest {
+  repeated ContentBlock content = 1;
+  optional string model = 2;
+  optional string system_prompt = 3;
+  optional bool resume = 4;
+  optional string agent_type = 5;
+}
+
+message ExecuteAgentResponse {}
+
+message StopAgentRequest {}
+message StopAgentResponse {}
+
+message NotifyMessagesRequest {}
+message NotifyMessagesResponse {}
+
+message GetStatusRequest {}
+message GetStatusResponse {
+  string status_json = 1;     // JSON string matching existing /status response shape
+}
+
+message HealthCheckRequest {}
+message HealthCheckResponse {
+  bool healthy = 1;
+}
+
+message SearchFilesRequest {
+  string query = 1;
+  int32 limit = 2;
+}
+
+message SearchFilesResponse {
+  repeated string files = 1;
+}
+
+message GetServerStatusRequest {
+  string name = 1;
+}
+
+message GetServerStatusResponse {
+  string status_json = 1;     // JSON string matching existing server status shape
+}
+
+message GetServerLogsRequest {
+  string name = 1;
+  optional int32 lines = 2;
+}
+
+message LogLine {
+  string line = 1;
+}
