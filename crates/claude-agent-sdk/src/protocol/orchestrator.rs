@@ -1,15 +1,18 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::error::{Result, SdkError};
-use crate::transport::SubprocessTransport;
+use crate::mcp::SdkMcpServer;
+use crate::transport::{StdinWriter, Transport};
 use crate::types::control::{
     ControlResponseEnvelope, ControlResponseInner, ControlResponsePayload,
     IncomingControlRequestInner, RawStdoutMessage,
 };
+use crate::types::hooks::{HookHandler, HookOutput};
 use crate::types::messages::SdkMessage;
 use crate::types::permissions::{PermissionContext, PermissionHandler, PermissionResult};
 
@@ -23,21 +26,26 @@ impl Orchestrator {
     /// Spawn the orchestrator background task.
     ///
     /// Returns a join handle for the background task.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn spawn(
-        mut transport: SubprocessTransport,
+        mut transport: Box<dyn Transport>,
         message_tx: mpsc::Sender<Result<SdkMessage>>,
         request_tracker: Arc<Mutex<RequestTracker>>,
         permission_handler: Option<Arc<dyn PermissionHandler>>,
-        stdin: Arc<tokio::sync::Mutex<tokio::process::ChildStdin>>,
+        hook_handler: Option<Arc<dyn HookHandler>>,
+        sdk_mcp_servers: Option<HashMap<String, SdkMcpServer>>,
+        stdin_writer: Arc<dyn StdinWriter>,
         cancellation_token: CancellationToken,
     ) -> JoinHandle<()> {
         tokio::spawn(async move {
             let result = Self::run_loop(
-                &mut transport,
+                &mut *transport,
                 &message_tx,
                 &request_tracker,
                 permission_handler.as_deref(),
-                &stdin,
+                hook_handler.as_deref(),
+                sdk_mcp_servers.as_ref(),
+                &stdin_writer,
                 &cancellation_token,
             )
             .await;
@@ -63,16 +71,19 @@ impl Orchestrator {
             // Close the transport
             transport.close().await;
 
-            debug!("Orchestrator shutdown complete");
+            info!("Orchestrator shutdown complete");
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn run_loop(
-        transport: &mut SubprocessTransport,
+        transport: &mut dyn Transport,
         message_tx: &mpsc::Sender<Result<SdkMessage>>,
         request_tracker: &Arc<Mutex<RequestTracker>>,
         permission_handler: Option<&dyn PermissionHandler>,
-        stdin: &Arc<tokio::sync::Mutex<tokio::process::ChildStdin>>,
+        hook_handler: Option<&dyn HookHandler>,
+        sdk_mcp_servers: Option<&HashMap<String, SdkMcpServer>>,
+        stdin_writer: &Arc<dyn StdinWriter>,
         cancellation_token: &CancellationToken,
     ) -> Result<()> {
         loop {
@@ -84,15 +95,20 @@ impl Orchestrator {
             };
 
             let Some(msg) = msg else {
-                debug!("Transport EOF — orchestrator exiting");
+                info!("Transport EOF — orchestrator exiting");
                 return Ok(());
             };
 
             match msg {
                 RawStdoutMessage::Sdk(sdk_msg) => {
+                    let is_result = matches!(&sdk_msg, SdkMessage::Result(_));
                     if message_tx.send(Ok(sdk_msg)).await.is_err() {
-                        debug!("Consumer dropped — orchestrator exiting");
+                        warn!("Consumer dropped — orchestrator exiting");
                         return Ok(());
+                    }
+                    if is_result {
+                        info!("Result message delivered — ending message stream");
+                        return Ok(()); // Drops message_tx → recv() returns None naturally
                     }
                 }
                 RawStdoutMessage::IncomingControlRequest {
@@ -103,7 +119,9 @@ impl Orchestrator {
                         request_id,
                         request,
                         permission_handler,
-                        stdin,
+                        hook_handler,
+                        sdk_mcp_servers,
+                        stdin_writer,
                     )
                     .await;
                 }
@@ -136,7 +154,9 @@ impl Orchestrator {
         request_id: String,
         request: IncomingControlRequestInner,
         permission_handler: Option<&dyn PermissionHandler>,
-        stdin: &Arc<tokio::sync::Mutex<tokio::process::ChildStdin>>,
+        hook_handler: Option<&dyn HookHandler>,
+        sdk_mcp_servers: Option<&HashMap<String, SdkMcpServer>>,
+        stdin_writer: &Arc<dyn StdinWriter>,
     ) {
         match request {
             IncomingControlRequestInner::CanUseTool {
@@ -211,51 +231,94 @@ impl Orchestrator {
                     }
                 };
 
-                let envelope = ControlResponseEnvelope {
-                    msg_type: "control_response".to_string(),
-                    response,
-                };
-
-                if let Ok(json) = serde_json::to_string(&envelope) {
-                    let mut stdin_guard = stdin.lock().await;
-                    use tokio::io::AsyncWriteExt;
-                    let _ = stdin_guard.write_all(json.as_bytes()).await;
-                    let _ = stdin_guard.write_all(b"\n").await;
-                    let _ = stdin_guard.flush().await;
-                }
+                Self::write_control_response(response, stdin_writer).await;
             }
             IncomingControlRequestInner::HookCallback {
                 callback_id,
-                input: _,
-                tool_use_id: _,
+                input,
+                tool_use_id,
             } => {
-                // Hook callbacks are not yet implemented — respond with empty success
-                debug!(callback_id = %callback_id, "Hook callback received — auto-responding");
-                let envelope = ControlResponseEnvelope {
-                    msg_type: "control_response".to_string(),
-                    response: ControlResponsePayload {
-                        subtype: "success".to_string(),
-                        request_id: request_id.clone(),
-                        response: Some(serde_json::json!({})),
-                        error: None,
-                    },
+                let response_value = if let Some(handler) = hook_handler {
+                    debug!(callback_id = %callback_id, "Hook callback received — invoking handler");
+                    let output = handler
+                        .on_hook(&input, tool_use_id.as_deref())
+                        .await;
+                    // Serialize HookOutput into the response JSON
+                    match output {
+                        HookOutput::Async(async_output) => {
+                            serde_json::to_value(async_output).unwrap_or_default()
+                        }
+                        HookOutput::Sync(sync_output) => {
+                            serde_json::to_value(sync_output).unwrap_or_default()
+                        }
+                    }
+                } else {
+                    // No hook handler — auto-respond with empty success (continue)
+                    debug!(callback_id = %callback_id, "Hook callback received — auto-responding (no handler)");
+                    serde_json::json!({})
                 };
 
-                if let Ok(json) = serde_json::to_string(&envelope) {
-                    let mut stdin_guard = stdin.lock().await;
-                    use tokio::io::AsyncWriteExt;
-                    let _ = stdin_guard.write_all(json.as_bytes()).await;
-                    let _ = stdin_guard.write_all(b"\n").await;
-                    let _ = stdin_guard.flush().await;
-                }
+                let response = ControlResponsePayload {
+                    subtype: "success".to_string(),
+                    request_id: request_id.clone(),
+                    response: Some(response_value),
+                    error: None,
+                };
+
+                Self::write_control_response(response, stdin_writer).await;
             }
             IncomingControlRequestInner::McpMessage {
                 server_name,
-                message: _,
+                message,
             } => {
-                // MCP message forwarding not yet implemented
-                debug!(server_name = %server_name, "MCP message received — ignoring");
+                if let Some(servers) = sdk_mcp_servers {
+                    if let Some(server) = servers.get(&server_name) {
+                        debug!(server_name = %server_name, "MCP message received — routing to SDK server");
+                        let mcp_response = server.handle_message(&message).await;
+
+                        // Wrap as { mcp_response: <jsonrpc_response> } per the protocol
+                        let response_payload = if mcp_response.is_null() {
+                            serde_json::json!({ "mcp_response": { "jsonrpc": "2.0", "result": {}, "id": 0 } })
+                        } else {
+                            serde_json::json!({ "mcp_response": mcp_response })
+                        };
+
+                        let response = ControlResponsePayload {
+                            subtype: "success".to_string(),
+                            request_id: request_id.clone(),
+                            response: Some(response_payload),
+                            error: None,
+                        };
+                        Self::write_control_response(response, stdin_writer).await;
+                    } else {
+                        warn!(server_name = %server_name, "SDK MCP server not found");
+                        let response = ControlResponsePayload {
+                            subtype: "error".to_string(),
+                            request_id: request_id.clone(),
+                            response: None,
+                            error: Some(format!("SDK MCP server '{server_name}' not found")),
+                        };
+                        Self::write_control_response(response, stdin_writer).await;
+                    }
+                } else {
+                    debug!(server_name = %server_name, "MCP message received — no SDK servers registered");
+                }
             }
+        }
+    }
+
+    /// Write a control response envelope to stdin.
+    async fn write_control_response(
+        response: ControlResponsePayload,
+        stdin_writer: &Arc<dyn StdinWriter>,
+    ) {
+        let envelope = ControlResponseEnvelope {
+            msg_type: "control_response".to_string(),
+            response,
+        };
+
+        if let Ok(json) = serde_json::to_string(&envelope) {
+            let _ = stdin_writer.write_json_line(&json).await;
         }
     }
 

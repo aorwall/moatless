@@ -4,7 +4,7 @@ use tokio::process::{Child, ChildStdin, ChildStdout};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, warn};
+use tracing::{info, warn};
 
 use crate::error::{Result, SdkError};
 use crate::types::control::RawStdoutMessage;
@@ -29,7 +29,7 @@ impl SubprocessTransport {
             .clone()
             .unwrap_or_default();
 
-        debug!(cli_path = %cli_path, args = ?args, "Spawning Claude CLI");
+        info!(cli_path = %cli_path, args = ?args, "Spawning Claude CLI");
 
         let mut cmd = tokio::process::Command::new(&cli_path);
         cmd.args(&args)
@@ -47,11 +47,14 @@ impl SubprocessTransport {
 
         let mut child = cmd.spawn().map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
-                SdkError::CliNotFound { path: cli_path }
+                SdkError::CliNotFound { path: cli_path.clone() }
             } else {
                 SdkError::SpawnError(e)
             }
         })?;
+
+        let pid = child.id().unwrap_or(0);
+        info!(cli_path = %cli_path, pid, "Claude CLI subprocess spawned");
 
         let stdin = child
             .stdin
@@ -145,7 +148,11 @@ impl SubprocessTransport {
         // Wait with timeout
         match tokio::time::timeout(std::time::Duration::from_secs(5), self.child.wait()).await {
             Ok(Ok(status)) => {
-                debug!(status = ?status, "CLI process exited");
+                if status.success() {
+                    info!(code = status.code(), "CLI process exited");
+                } else {
+                    warn!(code = status.code(), "CLI process exited with error");
+                }
             }
             Ok(Err(e)) => {
                 warn!(error = %e, "Error waiting for CLI process");
@@ -398,7 +405,7 @@ async fn drain_stderr(
     let mut collected = Vec::new();
 
     while let Ok(Some(line)) = lines.next_line().await {
-        debug!(stderr_line = %line, "CLI stderr");
+        warn!(line = %line, "CLI stderr");
         collected.push(line);
     }
 

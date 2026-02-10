@@ -34,6 +34,7 @@
 
 pub mod client;
 pub mod error;
+pub mod mcp;
 pub mod query;
 pub mod types;
 
@@ -46,7 +47,7 @@ pub use error::{Result, SdkError};
 pub use query::{query, query_streaming, QueryHandle};
 pub use types::agents::AgentDefinition;
 pub use types::content::{ApiMessage, ContentBlock};
-pub use types::hooks::{HookEvent, HookHandler};
+pub use types::hooks::{HookDefinition, HookEvent, HookHandler, HookOutput, SyncHookOutput};
 pub use types::mcp::{McpConnectionStatus, McpServerConfig, McpServerStatus, McpSetServersResult};
 pub use types::messages::SdkMessage;
 pub use types::options::ClaudeOptions;

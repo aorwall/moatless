@@ -244,6 +244,8 @@ pub struct ResultError {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ApiKeySource {
+    /// No API key configured (e.g., using Max plan).
+    None,
     User,
     Project,
     Org,

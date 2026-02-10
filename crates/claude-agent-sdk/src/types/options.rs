@@ -5,8 +5,10 @@ use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
 use super::agents::AgentDefinition;
+use super::hooks::{HookDefinition, HookHandler};
 use super::mcp::McpServerConfig;
 use super::permissions::{PermissionHandler, PermissionMode};
+use crate::mcp::SdkMcpServer;
 
 /// All options for configuring a Claude CLI invocation.
 #[derive(Default)]
@@ -46,6 +48,10 @@ pub struct ClaudeOptions {
 
     // -- MCP & Plugins --
     pub mcp_servers: Option<HashMap<String, McpServerConfig>>,
+    /// In-process SDK MCP servers. These are handled locally by the SDK
+    /// without spawning separate processes. Keys are server names used
+    /// in tool naming: `mcp__<server_name>__<tool_name>`.
+    pub sdk_mcp_servers: Option<HashMap<String, SdkMcpServer>>,
     pub plugins: Option<Vec<PluginConfig>>,
     pub strict_mcp_config: Option<bool>,
 
@@ -72,9 +78,19 @@ pub struct ClaudeOptions {
     pub env: Option<HashMap<String, String>>,
     pub extra_args: Option<HashMap<String, Option<String>>>,
 
+    // -- Hooks --
+    /// Hook definitions to register with the CLI in the Initialize request.
+    /// These tell the CLI which events should trigger HookCallback requests.
+    pub hooks: Option<Vec<HookDefinition>>,
+
     // -- Callbacks (runtime only, not serializable) --
     pub stderr_callback: Option<Box<dyn Fn(String) + Send + Sync>>,
     pub can_use_tool: Option<Arc<dyn PermissionHandler>>,
+    /// Handler for hook callbacks from the CLI.
+    /// When the CLI sends a HookCallback control request, this handler is invoked
+    /// to determine the response. If `None`, hook callbacks are auto-responded
+    /// with an empty success (default behavior — continue with no modifications).
+    pub hook_handler: Option<Arc<dyn HookHandler>>,
     pub cancellation_token: Option<CancellationToken>,
 }
 

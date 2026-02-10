@@ -1,5 +1,3 @@
-use tokio::sync::mpsc;
-
 use crate::error::Result;
 use crate::query::{query_streaming, QueryHandle};
 use crate::types::content::{ApiMessage, ContentBlock};
@@ -9,10 +7,11 @@ use crate::types::options::ClaudeOptions;
 /// A multi-turn Claude client that manages a persistent session.
 ///
 /// Unlike `query()` which is a one-shot function, `ClaudeClient` maintains
-/// a session and allows sending multiple messages over time.
+/// a subprocess and allows sending multiple messages over time. Callers are
+/// responsible for extracting `session_id` from `SdkMessage::System` init
+/// messages and passing it explicitly to `send()`.
 pub struct ClaudeClient {
     handle: QueryHandle,
-    session_id: Option<String>,
 }
 
 impl ClaudeClient {
@@ -20,17 +19,18 @@ impl ClaudeClient {
     /// This spawns the Claude CLI subprocess and initializes the session.
     pub async fn new(options: ClaudeOptions) -> Result<Self> {
         let handle = query_streaming(options).await?;
-        Ok(Self {
-            handle,
-            session_id: None,
-        })
+        Ok(Self { handle })
     }
 
     /// Send a text message to the Claude CLI.
-    pub async fn send(&self, message: &str) -> Result<()> {
+    ///
+    /// The `session_id` should be extracted from the `SdkMessage::System` init
+    /// message received during the first turn. For the initial `send()` before
+    /// any messages have been received, pass an empty string.
+    pub async fn send(&self, message: &str, session_id: &str) -> Result<()> {
         let user_msg = UserMessage {
             uuid: None,
-            session_id: self.session_id.clone().unwrap_or_default(),
+            session_id: session_id.to_string(),
             message: ApiMessage {
                 role: "user".to_string(),
                 content: vec![ContentBlock::Text {
@@ -45,19 +45,9 @@ impl ClaudeClient {
         self.handle.send_user_message(&user_msg).await
     }
 
-    /// Access the message receiver for consuming SDK messages.
-    pub fn messages(&mut self) -> &mut mpsc::Receiver<Result<SdkMessage>> {
-        &mut self.handle.messages
-    }
-
-    /// Get the session ID (available after the init message is received).
-    pub fn session_id(&self) -> Option<&str> {
-        self.session_id.as_deref()
-    }
-
-    /// Update the session ID from a system init message.
-    pub fn update_session_id(&mut self, session_id: String) {
-        self.session_id = Some(session_id);
+    /// Receive the next SDK message.
+    pub async fn recv(&mut self) -> Option<Result<SdkMessage>> {
+        self.handle.messages.recv().await
     }
 
     /// Interrupt the current turn.
