@@ -97,6 +97,11 @@ nanoid = "0.4"
 # Figma clipboard parsing
 figma-clipboard = { path = "../crates/figma-clipboard" }
 
+# gRPC (sandbox ↔ backend communication)
+sandbox-proto = { path = "../crates/sandbox-proto" }
+tonic = "0.12"
+prost = "0.13"
+
 # URL encoding
 urlencoding = "2"
 

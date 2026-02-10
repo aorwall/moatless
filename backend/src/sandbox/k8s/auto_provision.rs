@@ -7,7 +7,6 @@ use std::env;
 use tracing::{info, warn};
 
 use super::client::K8sClient;
-use super::secret;
 use crate::db::models::RepositoryRow;
 use crate::db::{provider_token_dao, repository_dao, task_dao, DbPool};
 use crate::sandbox::error::SandboxError;
@@ -85,55 +84,47 @@ pub async fn build_provision_request(
 }
 
 /// Resolve credentials with fallback chain:
-/// 1. Read from existing per-user K8s Secret
-/// 2. Query `provider_tokens` table (user-linked tokens)
-/// 3. Fall back to environment variables
+/// 1. Query `provider_tokens` table (user-linked tokens)
+/// 2. Fall back to environment variables
+///
+/// Note: K8s Secret reading was removed — credentials are now fetched
+/// on-demand by the sandbox via gRPC `GetCredentials`.
 async fn resolve_credentials(
-    k8s: &K8sClient,
+    _k8s: &K8sClient,
     task_id: &str,
     pool: &DbPool,
     user_id: Option<&str>,
 ) -> (Option<String>, Option<String>, Option<String>) {
-    // Step 1: Try per-user K8s Secret
-    let user_creds = if let Some(uid) = user_id {
-        secret::read_user_credentials(k8s, uid).await
-    } else {
-        None
-    };
-    let mut git_token = user_creds.as_ref().and_then(|c| c.github_token.clone());
-    let mut anthropic = user_creds.as_ref().and_then(|c| c.anthropic_api_key.clone());
-    let mut claude = user_creds.as_ref().and_then(|c| c.claude_oauth_token.clone());
+    let mut git_token: Option<String> = None;
+    let mut anthropic: Option<String> = None;
+    let mut claude: Option<String> = None;
 
-    // Step 2: Fill gaps from provider_tokens table
+    // Step 1: Fill from provider_tokens table
     if let Some(uid) = user_id {
-        if git_token.is_none() {
-            match provider_token_dao::find_provider_token(pool, uid, "github").await {
-                Ok(Some(row)) => {
-                    info!(task_id = %task_id, "Auto-provision: GitHub token resolved from provider_tokens");
-                    git_token = Some(row.access_token);
-                }
-                Ok(None) => {}
-                Err(e) => {
-                    warn!(task_id = %task_id, error = %e, "Auto-provision: failed to query provider_tokens for github");
-                }
+        match provider_token_dao::find_provider_token(pool, uid, "github").await {
+            Ok(Some(row)) => {
+                info!(task_id = %task_id, "Auto-provision: GitHub token resolved from provider_tokens");
+                git_token = Some(row.access_token);
+            }
+            Ok(None) => {}
+            Err(e) => {
+                warn!(task_id = %task_id, error = %e, "Auto-provision: failed to query provider_tokens for github");
             }
         }
 
-        if anthropic.is_none() && claude.is_none() {
-            match provider_token_dao::find_provider_token(pool, uid, "claude").await {
-                Ok(Some(row)) => {
-                    info!(task_id = %task_id, "Auto-provision: Claude token resolved from provider_tokens");
-                    claude = Some(row.access_token);
-                }
-                Ok(None) => {}
-                Err(e) => {
-                    warn!(task_id = %task_id, error = %e, "Auto-provision: failed to query provider_tokens for claude");
-                }
+        match provider_token_dao::find_provider_token(pool, uid, "claude").await {
+            Ok(Some(row)) => {
+                info!(task_id = %task_id, "Auto-provision: Claude token resolved from provider_tokens");
+                claude = Some(row.access_token);
+            }
+            Ok(None) => {}
+            Err(e) => {
+                warn!(task_id = %task_id, error = %e, "Auto-provision: failed to query provider_tokens for claude");
             }
         }
     }
 
-    // Step 3: Fill remaining gaps from environment variables
+    // Step 2: Fill remaining gaps from environment variables
     if git_token.is_none() {
         git_token = env::var("GITHUB_PAT").ok();
     }
@@ -179,6 +170,14 @@ fn build_repo_config(repo: &RepositoryRow) -> RepoConfig {
         code_execution,
         preview_config,
     }
+}
+
+/// Public accessor for building server configs from a repository row.
+///
+/// Used by `provider.rs` as a fallback when gRPC is unreachable —
+/// derives server entries from DB so the frontend can display them.
+pub fn build_server_configs(repo: &RepositoryRow) -> Vec<ServerConfig> {
+    build_servers(repo)
 }
 
 /// Build the servers list from the DB `servers` JSONB column.

@@ -14,17 +14,26 @@ pub async fn create_sandbox_service(
     k8s: &K8sClient,
     task_id: &str,
     server_ports: &BTreeMap<String, u16>,
+    grpc_port: u16,
 ) -> Result<String, kube::Error> {
     let services: Api<Service> = Api::namespaced(k8s.client.clone(), k8s.namespace());
     let service_name = generate_service_name(task_id);
 
-    // Always expose sandbox port; add server ports from config
-    let mut ports = vec![serde_json::json!({
-        "name": "sandbox",
-        "port": 8001,
-        "targetPort": 8001,
-        "protocol": "TCP",
-    })];
+    // Always expose sandbox HTTP + gRPC ports; add server ports from config
+    let mut ports = vec![
+        serde_json::json!({
+            "name": "http",
+            "port": 8001,
+            "targetPort": 8001,
+            "protocol": "TCP",
+        }),
+        serde_json::json!({
+            "name": "grpc",
+            "port": grpc_port,
+            "targetPort": grpc_port,
+            "protocol": "TCP",
+        }),
+    ];
 
     for (name, port) in server_ports {
         ports.push(serde_json::json!({

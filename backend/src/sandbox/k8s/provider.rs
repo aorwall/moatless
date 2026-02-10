@@ -27,6 +27,7 @@ use crate::events::RedisEventPublisher;
 use crate::sandbox::error::SandboxError;
 use crate::sandbox::jwt;
 use crate::sandbox::provider::SandboxProvider;
+use crate::sandbox::sandbox_state::SandboxStateCache;
 use crate::sandbox::types::*;
 
 /// Kubernetes-based sandbox provider.
@@ -39,6 +40,8 @@ pub struct K8sSandboxProvider {
     pub db_pool: Option<DbPool>,
     /// Optional Redis event publisher for environment lifecycle events.
     pub event_publisher: Option<RedisEventPublisher>,
+    /// Optional shared Redis sandbox state cache (L2, cross-replica).
+    pub sandbox_state: Option<SandboxStateCache>,
 }
 
 #[async_trait]
@@ -100,20 +103,8 @@ impl SandboxProvider for K8sSandboxProvider {
             }
         };
 
-        // 4. Create PVC + user secret in parallel
-        let credentials = UserCredentials {
-            github_token: plan.git_provider_token.clone(),
-            anthropic_api_key: plan.anthropic_api_key.clone(),
-            claude_oauth_token: plan.claude_oauth_token.clone(),
-            user_auth_token: Some(user_auth_token),
-        };
-
-        let (pvc_result, secret_result) = tokio::join!(
-            self.create_or_find_pvc(task_id),
-            self.create_or_find_user_secret(&request.user_id, &credentials),
-        );
-
-        let pvc_name = match pvc_result {
+        // 4. Create PVC (no more per-user secrets — credentials fetched via gRPC)
+        let pvc_name = match self.create_or_find_pvc(task_id).await {
             Ok(name) if !name.is_empty() => Some(name),
             Ok(_) => None,
             Err(e) => {
@@ -122,22 +113,14 @@ impl SandboxProvider for K8sSandboxProvider {
             }
         };
 
-        let secret_name = match secret_result {
-            Ok(name) => Some(name),
-            Err(e) => {
-                warn!(task_id = %task_id, error = %e, "Failed to create secret, using inline env vars");
-                None
-            }
-        };
-
-        // 5. Build pod from template (used as Deployment pod template)
+        // 5. Build pod from template with USER_AUTH_TOKEN as plain env var
         let pod = pod_builder::build_pod_from_template(
             &self.pod_template,
             &self.config,
             task_id,
             plan,
             pvc_name.as_deref(),
-            secret_name.as_deref(),
+            Some(&user_auth_token),
         )
         .map_err(SandboxError::PodBuildError)?;
 
@@ -155,7 +138,7 @@ impl SandboxProvider for K8sSandboxProvider {
         .await?;
 
         let service_name =
-            service::create_sandbox_service(&self.k8s, task_id, &server_ports).await?;
+            service::create_sandbox_service(&self.k8s, task_id, &server_ports, self.config.sandbox_grpc_port).await?;
 
         // 5b. Create Traefik IngressRoutes (if proxy_domain is configured)
         if self.config.proxy_domain.is_some() {
@@ -177,13 +160,16 @@ impl SandboxProvider for K8sSandboxProvider {
             status: EnvironmentStatus::Initializing,
             repository_clone_url: plan.git_clone_url.clone(),
             repository_branch: plan.git_branch.clone(),
-            sandbox_port: 8001,
+            sandbox_port: self.config.sandbox_grpc_port,
             preview_host_port: 3000,
             servers: servers_map,
         };
 
-        // Invalidate status cache
+        // Invalidate caches
         self.status_cache.invalidate(task_id).await;
+        if let Some(ref state_cache) = self.sandbox_state {
+            state_cache.delete(task_id).await;
+        }
 
         info!(
             task_id = %task_id,
@@ -201,7 +187,7 @@ impl SandboxProvider for K8sSandboxProvider {
     }
 
     async fn status(&self, task_id: &str) -> Result<StatusResponse, SandboxError> {
-        // Check cache first
+        // L1: Check moka cache first
         if let Some(cached) = self.status_cache.get(task_id).await {
             return Ok(StatusResponse {
                 status: cached.phase.to_environment_status(),
@@ -210,7 +196,31 @@ impl SandboxProvider for K8sSandboxProvider {
             });
         }
 
-        // Check Deployment replicas first (for Stopped detection)
+        // L2: Check Redis cache
+        if let Some(ref state_cache) = self.sandbox_state {
+            if let Some(cached) = state_cache.get_if_fresh(task_id).await {
+                // Populate L1 from L2
+                let phase = env_status_to_pod_phase(&cached.environment_status);
+                self.status_cache
+                    .insert(
+                        task_id,
+                        CachedPodStatus {
+                            phase,
+                            pod_name: cached.pod_name.clone(),
+                            last_error: cached.environment_error.clone(),
+                        },
+                    )
+                    .await;
+
+                return Ok(StatusResponse {
+                    status: cached.environment_status,
+                    pod_name: cached.pod_name,
+                    last_error: cached.environment_error,
+                });
+            }
+        }
+
+        // L3: Check Deployment replicas first (for Stopped detection)
         let phase = self.resolve_pod_phase(task_id).await;
         let pod_name = if phase == PodPhase::Running || phase == PodPhase::Pending {
             self.get_task_pod_name(task_id).await
@@ -218,7 +228,7 @@ impl SandboxProvider for K8sSandboxProvider {
             None
         };
 
-        // Cache the result
+        // Populate L1
         self.status_cache
             .insert(
                 task_id,
@@ -241,6 +251,45 @@ impl SandboxProvider for K8sSandboxProvider {
         &self,
         task_id: &str,
     ) -> Result<WorkspaceStatusFullResponse, SandboxError> {
+        // L2: Check Redis cache for fresh full state
+        if let Some(ref state_cache) = self.sandbox_state {
+            if let Some(cached) = state_cache.get_if_fresh(task_id).await {
+                let servers = cached
+                    .servers
+                    .iter()
+                    .map(|s| {
+                        let url = self.build_proxy_url(task_id, s.port);
+                        ServerEntry {
+                            name: s.name.clone(),
+                            label: s.label.clone(),
+                            port: s.port,
+                            status: ServerStatus::from(s.status.as_str()),
+                            url,
+                            error: s.error.clone(),
+                            default: s.name == "preview",
+                            capabilities: get_server_capabilities(&s.name),
+                        }
+                    })
+                    .collect();
+
+                let workspace_ready = cached.environment_status == EnvironmentStatus::Ready;
+                let can_execute = workspace_ready
+                    || cached.environment_status == EnvironmentStatus::Stopped;
+
+                return Ok(WorkspaceStatusFullResponse {
+                    workspace_state: cached.workspace_state,
+                    environment_status: cached.environment_status,
+                    environment_error: cached.environment_error,
+                    agent_state: cached.agent_state,
+                    servers,
+                    is_running: cached.is_running,
+                    workspace_ready,
+                    can_execute,
+                    resources: cached.resources,
+                });
+            }
+        }
+
         let service_name = generate_service_name(task_id);
 
         // 1. Resolve pod phase (checks Deployment replicas for Stopped detection)
@@ -251,8 +300,36 @@ impl SandboxProvider for K8sSandboxProvider {
         // 2. If running, fetch sandbox snapshot for agent + server info
         if is_running {
             if let Some(snapshot) =
-                health::fetch_sandbox_status(&service_name, self.k8s.namespace(), 8001).await
+                health::fetch_sandbox_status(&service_name, self.k8s.namespace(), self.config.sandbox_grpc_port).await
             {
+                let agent_state = AgentState::from(snapshot.agent.state.as_str());
+                let agent_running = matches!(agent_state, AgentState::Running);
+
+                // Write to Redis L2 cache
+                if let Some(ref state_cache) = self.sandbox_state {
+                    let pod_name = self.get_task_pod_name(task_id).await;
+                    let cached = CachedSandboxState {
+                        environment_status: environment_status.clone(),
+                        environment_error: None,
+                        workspace_state: WorkspaceState::Exists,
+                        pod_name,
+                        agent_state: agent_state.clone(),
+                        servers: snapshot.servers.iter().map(|s| ServerSnapshot {
+                            name: s.name.clone(),
+                            label: s.label.clone(),
+                            port: s.port,
+                            builtin: s.builtin,
+                            status: s.status.clone(),
+                            error: s.error.clone(),
+                            pid: s.pid,
+                        }).collect(),
+                        resources: snapshot.resources.clone(),
+                        is_running: agent_running,
+                        updated_at: chrono::Utc::now().timestamp_millis(),
+                    };
+                    state_cache.set(task_id, &cached).await;
+                }
+
                 let servers = snapshot
                     .servers
                     .iter()
@@ -271,9 +348,6 @@ impl SandboxProvider for K8sSandboxProvider {
                     })
                     .collect();
 
-                let agent_state = AgentState::from(snapshot.agent.state.as_str());
-                let agent_running = matches!(agent_state, AgentState::Running);
-
                 return Ok(WorkspaceStatusFullResponse {
                     workspace_state: WorkspaceState::Exists,
                     environment_status,
@@ -287,16 +361,54 @@ impl SandboxProvider for K8sSandboxProvider {
                 });
             }
 
-            // Sandbox /status failed but pod is running — application not yet serving
+            // gRPC status call failed but pod is running — try stale cache as fallback
+            if let Some(ref state_cache) = self.sandbox_state {
+                if let Some(cached) = state_cache.get(task_id).await {
+                    if !cached.servers.is_empty() {
+                        let servers = cached
+                            .servers
+                            .iter()
+                            .map(|s| {
+                                let url = self.build_proxy_url(task_id, s.port);
+                                ServerEntry {
+                                    name: s.name.clone(),
+                                    label: s.label.clone(),
+                                    port: s.port,
+                                    status: ServerStatus::from(s.status.as_str()),
+                                    url,
+                                    error: s.error.clone(),
+                                    default: s.name == "preview",
+                                    capabilities: get_server_capabilities(&s.name),
+                                }
+                            })
+                            .collect();
+
+                        return Ok(WorkspaceStatusFullResponse {
+                            workspace_state: WorkspaceState::Exists,
+                            environment_status,
+                            environment_error: None,
+                            agent_state: cached.agent_state,
+                            servers,
+                            is_running: cached.is_running,
+                            workspace_ready: true,
+                            can_execute: true,
+                            resources: cached.resources,
+                        });
+                    }
+                }
+            }
+
+            // No cache or cache had empty servers — derive from repo config in DB
+            let servers = self.servers_from_repo_config(task_id).await;
             return Ok(WorkspaceStatusFullResponse {
                 workspace_state: WorkspaceState::Exists,
-                environment_status: EnvironmentStatus::Initializing,
+                environment_status,
                 environment_error: None,
                 agent_state: AgentState::None,
-                servers: vec![],
+                servers,
                 is_running: false,
-                workspace_ready: false,
-                can_execute: false,
+                workspace_ready: true,
+                can_execute: true,
                 resources: None,
             });
         }
@@ -326,7 +438,7 @@ impl SandboxProvider for K8sSandboxProvider {
     async fn health(&self, task_id: &str) -> HealthResponse {
         let service_name = generate_service_name(task_id);
         let healthy =
-            health::check_service_health(&service_name, self.k8s.namespace(), 8001).await;
+            health::check_service_health(&service_name, self.k8s.namespace(), self.config.sandbox_grpc_port).await;
         HealthResponse { healthy }
     }
 
@@ -334,11 +446,24 @@ impl SandboxProvider for K8sSandboxProvider {
         info!(task_id = %task_id, "Stopping workspace (scaling Deployment to 0)");
 
         // Scale Deployment to 0 — keeps Service and IngressRoutes alive
-        deployment::scale_deployment(&self.k8s, task_id, 0)
-            .await
-            .map_err(SandboxError::KubeError)?;
+        match deployment::find_deployment(&self.k8s, task_id).await {
+            Ok(Some(_)) => {
+                deployment::scale_deployment(&self.k8s, task_id, 0)
+                    .await
+                    .map_err(SandboxError::KubeError)?;
+            }
+            Ok(None) => {
+                info!(task_id = %task_id, "No deployment found, nothing to stop");
+            }
+            Err(e) => {
+                return Err(SandboxError::KubeError(e));
+            }
+        }
 
         self.status_cache.invalidate(task_id).await;
+        if let Some(ref state_cache) = self.sandbox_state {
+            state_cache.delete(task_id).await;
+        }
 
         if let Some(ref publisher) = self.event_publisher {
             publisher
@@ -375,6 +500,9 @@ impl SandboxProvider for K8sSandboxProvider {
         }
 
         self.status_cache.invalidate(task_id).await;
+        if let Some(ref state_cache) = self.sandbox_state {
+            state_cache.delete(task_id).await;
+        }
         info!(task_id = %task_id, "Workspace started successfully");
         Ok(())
     }
@@ -397,6 +525,9 @@ impl SandboxProvider for K8sSandboxProvider {
             .map_err(SandboxError::KubeError)?;
 
         self.status_cache.invalidate(task_id).await;
+        if let Some(ref state_cache) = self.sandbox_state {
+            state_cache.delete(task_id).await;
+        }
 
         // Publish initializing event + watch for pod readiness
         self.publish_and_watch_readiness(task_id).await;
@@ -427,6 +558,9 @@ impl SandboxProvider for K8sSandboxProvider {
         }
 
         self.status_cache.invalidate(task_id).await;
+        if let Some(ref state_cache) = self.sandbox_state {
+            state_cache.delete(task_id).await;
+        }
         Ok(())
     }
 
@@ -436,7 +570,7 @@ impl SandboxProvider for K8sSandboxProvider {
     ) -> Result<ServerStatusResponse, SandboxError> {
         let service_name = generate_service_name(task_id);
         let snapshot =
-            health::fetch_sandbox_status(&service_name, self.k8s.namespace(), 8001)
+            health::fetch_sandbox_status(&service_name, self.k8s.namespace(), self.config.sandbox_grpc_port)
                 .await
                 .ok_or_else(|| {
                     SandboxError::NotReady(format!(
@@ -458,9 +592,9 @@ impl SandboxProvider for K8sSandboxProvider {
         let namespace = self.k8s.namespace().to_string();
         let server_name = server_name.to_string();
 
-        let stream = health::stream_server_logs(&service_name, &namespace, 8001, &server_name)
+        let stream = health::stream_server_logs(&service_name, &namespace, self.config.sandbox_grpc_port, &server_name)
             .await
-            .map_err(|e| SandboxError::Internal(e))?;
+            .map_err(SandboxError::Internal)?;
 
         Ok(stream)
     }
@@ -473,9 +607,9 @@ impl SandboxProvider for K8sSandboxProvider {
     ) -> Result<Vec<FileSearchResult>, SandboxError> {
         let service_name = generate_service_name(task_id);
         let results =
-            health::search_sandbox_files(&service_name, self.k8s.namespace(), 8001, query, limit)
+            health::search_sandbox_files(&service_name, self.k8s.namespace(), self.config.sandbox_grpc_port, query, limit)
                 .await
-                .map_err(|e| SandboxError::Internal(e))?;
+                .map_err(SandboxError::Internal)?;
 
         Ok(results)
     }
@@ -501,6 +635,7 @@ impl K8sSandboxProvider {
         let bg_k8s = self.k8s.clone();
         let bg_task_id = task_id.to_string();
         let bg_timeout = self.config.k8s_pod_startup_timeout_secs;
+        let bg_grpc_port = self.config.sandbox_grpc_port;
         let bg_cache = self.status_cache.clone();
         let bg_publisher = self.event_publisher.clone();
         tokio::spawn(async move {
@@ -509,6 +644,7 @@ impl K8sSandboxProvider {
                 task_id: bg_task_id,
                 service_name,
                 timeout_secs: bg_timeout,
+                sandbox_grpc_port: bg_grpc_port,
                 status_cache: bg_cache,
                 event_publisher: bg_publisher,
             };
@@ -574,7 +710,7 @@ impl K8sSandboxProvider {
 
         match pods_api.list(&lp).await {
             Ok(list) => {
-                if let Some(pod) = list.items.first() {
+                if let Some(pod) = pick_best_pod(&list.items) {
                     let is_terminating = pod.metadata.deletion_timestamp.is_some();
                     let raw_phase = pod
                         .status
@@ -606,7 +742,7 @@ impl K8sSandboxProvider {
             ListParams::default().labels(&format!("moatless.io/task-id={task_id}"));
 
         if let Ok(list) = pods_api.list(&lp).await {
-            list.items.first().and_then(|p| p.metadata.name.clone())
+            pick_best_pod(&list.items).and_then(|p| p.metadata.name.clone())
         } else {
             None
         }
@@ -665,7 +801,7 @@ impl K8sSandboxProvider {
             PodPhase::Running => {
                 let service_name = generate_service_name(task_id);
                 let healthy =
-                    health::check_service_health(&service_name, self.k8s.namespace(), 8001)
+                    health::check_service_health(&service_name, self.k8s.namespace(), self.config.sandbox_grpc_port)
                         .await;
 
                 if healthy {
@@ -679,7 +815,7 @@ impl K8sSandboxProvider {
                         status: EnvironmentStatus::Ready,
                         repository_clone_url: plan.git_clone_url.clone(),
                         repository_branch: plan.git_branch.clone(),
-                        sandbox_port: 8001,
+                        sandbox_port: self.config.sandbox_grpc_port,
                         preview_host_port: 3000,
                         servers: servers_map,
                     };
@@ -730,5 +866,101 @@ impl K8sSandboxProvider {
                 self.config.proxy_protocol, task_id, port, domain
             )
         })
+    }
+
+    /// Derive server entries from the repository config in the DB.
+    ///
+    /// Used as a last-resort fallback when gRPC is unreachable and there's
+    /// no stale Redis cache. Returns configured servers with `Starting`
+    /// status so the frontend shows them while the sandbox boots.
+    async fn servers_from_repo_config(&self, task_id: &str) -> Vec<ServerEntry> {
+        let Some(ref pool) = self.db_pool else {
+            return vec![];
+        };
+
+        let repo_servers = match crate::db::task_dao::find_by_id_internal(pool, task_id).await {
+            Ok(Some(task)) => {
+                match crate::db::repository_dao::find_repository_by_id(pool, &task.repository_id).await {
+                    Ok(Some(repo)) => {
+                        auto_provision::build_server_configs(&repo)
+                    }
+                    Ok(None) | Err(_) => return vec![],
+                }
+            }
+            Ok(None) | Err(_) => return vec![],
+        };
+
+        repo_servers
+            .into_iter()
+            .map(|s| {
+                let url = self.build_proxy_url(task_id, s.port);
+                ServerEntry {
+                    label: s.name.clone(),
+                    default: s.name == "preview",
+                    capabilities: get_server_capabilities(&s.name),
+                    name: s.name,
+                    port: s.port,
+                    status: ServerStatus::Starting,
+                    url,
+                    error: None,
+                }
+            })
+            .collect()
+    }
+}
+
+/// Pick the best pod from a list when multiple pods exist for a task.
+///
+/// During Deployment rolling updates, both old (terminating) and new pods may
+/// coexist.  We prefer the non-terminating pod so that status reflects the
+/// replacement rather than the dying pod.
+///
+/// Priority among non-terminating pods: Running > Pending > Unknown > everything else.
+/// If ALL pods are terminating, return the first one (genuinely removing).
+fn pick_best_pod(pods: &[Pod]) -> Option<&Pod> {
+    if pods.is_empty() {
+        return None;
+    }
+
+    // Split into non-terminating and terminating
+    let (alive, terminating): (Vec<_>, Vec<_>) = pods
+        .iter()
+        .partition(|p| p.metadata.deletion_timestamp.is_none());
+
+    if alive.is_empty() {
+        // All pods are terminating — return first (genuinely removing)
+        return pods.first();
+    }
+
+    // Among alive pods, pick by phase priority
+    fn phase_priority(pod: &Pod) -> u8 {
+        match pod
+            .status
+            .as_ref()
+            .and_then(|s| s.phase.as_deref())
+            .unwrap_or("Unknown")
+        {
+            "Running" => 0,
+            "Pending" => 1,
+            "Unknown" => 2,
+            _ => 3,
+        }
+    }
+
+    alive
+        .into_iter()
+        .min_by_key(|p| phase_priority(p))
+        .or(terminating.first().copied())
+}
+
+/// Convert `EnvironmentStatus` back to an approximate `PodPhase` for L1 cache compat.
+fn env_status_to_pod_phase(status: &EnvironmentStatus) -> PodPhase {
+    match status {
+        EnvironmentStatus::NotCreated => PodPhase::NotFound,
+        EnvironmentStatus::Initializing => PodPhase::Pending,
+        EnvironmentStatus::Ready => PodPhase::Running,
+        EnvironmentStatus::Stopped => PodPhase::Stopped,
+        EnvironmentStatus::Removing => PodPhase::Terminating,
+        EnvironmentStatus::Error => PodPhase::Failed,
     }
 }

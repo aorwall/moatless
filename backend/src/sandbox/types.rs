@@ -72,7 +72,7 @@ pub struct UserCredentials {
 }
 
 /// Matches TS WorkspaceExistenceSchema: 'exists' | 'missing' | 'invalid'
-#[derive(Debug, Clone, Serialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum WorkspaceState {
     Exists,
@@ -80,7 +80,7 @@ pub enum WorkspaceState {
 }
 
 /// Matches TS EnvironmentStatusSchema
-#[derive(Debug, Clone, PartialEq, Serialize, ToSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum EnvironmentStatus {
     NotCreated,
@@ -105,7 +105,7 @@ impl std::fmt::Display for EnvironmentStatus {
 }
 
 /// Matches TS AgentStateSchema: 'idle' | 'running' | 'none'
-#[derive(Debug, Clone, Serialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum AgentState {
     Idle,
@@ -248,19 +248,24 @@ impl From<&str> for PodPhase {
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)]
 pub struct AgentSnapshot {
+    #[serde(alias = "status")]
     pub state: String,
-    #[serde(rename = "hasAgent")]
+    #[serde(rename = "hasAgent", default)]
     pub has_agent: bool,
+    #[serde(alias = "lastError")]
     pub error: Option<String>,
 }
 
 /// Server snapshot from sandbox GET /status
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[allow(dead_code)]
 pub struct ServerSnapshot {
     pub name: String,
+    #[serde(default)]
     pub label: String,
+    #[serde(default)]
     pub port: u16,
+    #[serde(default)]
     pub builtin: bool,
     pub status: String,
     pub error: Option<String>,
@@ -311,6 +316,27 @@ pub struct ServerEntry {
     pub error: Option<String>,
     pub default: bool,
     pub capabilities: ServerCapabilities,
+}
+
+/// Cached sandbox state stored in Redis Hash (`moatless:sandbox:state`).
+///
+/// Stores the full workspace state for cross-replica caching. Writers include
+/// the pod lifecycle watcher (environment fields) and the status endpoint (full state).
+/// `ServerSnapshot` is stored instead of `ServerEntry` to keep the cache config-independent
+/// — proxy URLs and capabilities are computed on read.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CachedSandboxState {
+    pub environment_status: EnvironmentStatus,
+    pub environment_error: Option<String>,
+    pub workspace_state: WorkspaceState,
+    pub pod_name: Option<String>,
+    pub agent_state: AgentState,
+    pub servers: Vec<ServerSnapshot>,
+    pub resources: Option<ResourceMetrics>,
+    pub is_running: bool,
+    /// Unix timestamp millis — for freshness check
+    pub updated_at: i64,
 }
 
 /// Full workspace status response to frontend (matches TS WorkspaceStatusResponse)

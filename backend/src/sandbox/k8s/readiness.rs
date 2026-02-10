@@ -2,7 +2,7 @@
 //!
 //! Runs as a fire-and-forget tokio task after provisioning.
 //! Phase 1: Watches K8s pod conditions (event-driven via watcher) until Ready.
-//! Phase 2: Polls `:8001/status` for per-server readiness (preview, files, etc.).
+//! Phase 2: Polls sandbox status via gRPC for per-server readiness (preview, files, etc.).
 
 use futures::TryStreamExt;
 use k8s_openapi::api::core::v1::{Event as K8sEvent, Pod};
@@ -10,7 +10,7 @@ use kube::api::Api;
 use kube::runtime::watcher::{self, Config as WatcherConfig};
 use std::collections::{HashMap, HashSet};
 use tokio::task::JoinHandle;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use super::client::K8sClient;
 use super::health;
@@ -25,6 +25,7 @@ pub(super) struct BackgroundReadinessChecker {
     pub(super) task_id: String,
     pub(super) service_name: String,
     pub(super) timeout_secs: u64,
+    pub(super) sandbox_grpc_port: u16,
     pub(super) status_cache: StatusCache,
     pub(super) event_publisher: Option<RedisEventPublisher>,
 }
@@ -80,15 +81,27 @@ impl BackgroundReadinessChecker {
 
         match phase1_result {
             Some(Ok(true)) => {
-                // Pod ready — publish event, enter Phase 2
+                // Pod K8s-ready — now verify gRPC is reachable before declaring ready
                 self.status_cache.invalidate(&self.task_id).await;
                 info!(
                     task_id = %self.task_id,
                     elapsed_secs = start.elapsed().as_secs(),
-                    "Pod is ready (background check)"
+                    "Pod is ready (K8s), verifying gRPC connectivity"
                 );
-                self.publish_event("ready", None).await;
-                self.monitor_servers(start).await;
+
+                if self.wait_for_grpc_ready(start).await {
+                    info!(
+                        task_id = %self.task_id,
+                        elapsed_secs = start.elapsed().as_secs(),
+                        "Sandbox is ready (gRPC verified)"
+                    );
+                    self.publish_event("ready", None).await;
+                    self.monitor_servers(start).await;
+                } else {
+                    let msg = "Pod is K8s-ready but gRPC not reachable after 15s";
+                    warn!(task_id = %self.task_id, "{msg}");
+                    self.publish_event("error", Some(msg)).await;
+                }
             }
             Some(Ok(false)) => {
                 // Terminal error — already published inside wait_for_pod_ready
@@ -235,6 +248,52 @@ impl BackgroundReadinessChecker {
         })
     }
 
+    /// Wait for the sandbox gRPC endpoint to become reachable.
+    /// Polls check_service_health() every 500ms for up to 15s.
+    /// Returns true on first successful health check, false on timeout.
+    async fn wait_for_grpc_ready(&self, overall_start: std::time::Instant) -> bool {
+        const GRPC_READY_TIMEOUT_SECS: u64 = 15;
+        const GRPC_READY_POLL_MS: u64 = 500;
+
+        let deadline = std::time::Instant::now()
+            + std::time::Duration::from_secs(GRPC_READY_TIMEOUT_SECS);
+        let interval = std::time::Duration::from_millis(GRPC_READY_POLL_MS);
+        let mut attempts: u32 = 0;
+
+        loop {
+            attempts += 1;
+            if health::check_service_health(
+                &self.service_name,
+                self.k8s.namespace(),
+                self.sandbox_grpc_port,
+            )
+            .await
+            {
+                info!(
+                    task_id = %self.task_id,
+                    attempts,
+                    elapsed_secs = overall_start.elapsed().as_secs(),
+                    "gRPC health check passed"
+                );
+                return true;
+            }
+            if std::time::Instant::now() >= deadline {
+                warn!(
+                    task_id = %self.task_id,
+                    attempts,
+                    "gRPC health check timed out after {GRPC_READY_TIMEOUT_SECS}s"
+                );
+                return false;
+            }
+            debug!(
+                task_id = %self.task_id,
+                attempt = attempts,
+                "gRPC not yet reachable, retrying"
+            );
+            tokio::time::sleep(interval).await;
+        }
+    }
+
     /// Phase 2: Monitor individual server statuses after the pod is ready.
     ///
     /// Polls the sandbox `/status` endpoint to track when servers (preview, files, etc.)
@@ -263,7 +322,7 @@ impl BackgroundReadinessChecker {
             match health::fetch_sandbox_status(
                 &self.service_name,
                 self.k8s.namespace(),
-                8001,
+                self.sandbox_grpc_port,
             )
             .await
             {

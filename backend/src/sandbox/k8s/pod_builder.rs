@@ -9,13 +9,16 @@ use crate::config::Config;
 use crate::sandbox::types::ProvisionPlan;
 
 /// Build a Pod spec from a YAML template with task-specific environment injection.
+///
+/// `user_auth_token` is passed as a plain env var. Credentials (GITHUB_TOKEN, etc.)
+/// are fetched on-demand by the sandbox via gRPC `GetCredentials` — no K8s Secrets needed.
 pub fn build_pod_from_template(
     template_content: &str,
     config: &Config,
     task_id: &str,
     plan: &ProvisionPlan,
     pvc_name: Option<&str>,
-    secret_name: Option<&str>,
+    user_auth_token: Option<&str>,
 ) -> Result<Pod, String> {
     let mut pod: Pod =
         serde_yaml::from_str(template_content).map_err(|e| format!("Failed to parse pod template: {e}"))?;
@@ -115,17 +118,9 @@ pub fn build_pod_from_template(
         }
     }
 
-    // Only include credentials inline if no secret is provided
-    if secret_name.is_none() {
-        if let Some(ref token) = plan.git_provider_token {
-            task_env.push(serde_json::json!({"name": "GITHUB_TOKEN", "value": token}));
-        }
-        if let Some(ref key) = plan.anthropic_api_key {
-            task_env.push(serde_json::json!({"name": "ANTHROPIC_API_KEY", "value": key}));
-        }
-        if let Some(ref token) = plan.claude_oauth_token {
-            task_env.push(serde_json::json!({"name": "CLAUDE_CODE_OAUTH_TOKEN", "value": token}));
-        }
+    // Pass USER_AUTH_TOKEN as plain env var — sandbox uses it to fetch credentials via gRPC
+    if let Some(token) = user_auth_token {
+        task_env.push(serde_json::json!({"name": "USER_AUTH_TOKEN", "value": token}));
     }
 
     // Custom env vars from repository config
@@ -158,17 +153,6 @@ pub fn build_pod_from_template(
                         serde_json::from_value(env_var.clone())
                             .map_err(|e| format!("Failed to parse env var: {e}"))?;
                     env.push(var);
-                }
-
-                // Add envFrom for secret reference
-                if let Some(secret) = secret_name {
-                    let env_from = container.env_from.get_or_insert_with(Vec::new);
-                    let source: k8s_openapi::api::core::v1::EnvFromSource =
-                        serde_json::from_value(serde_json::json!({
-                            "secretRef": {"name": secret, "optional": false}
-                        }))
-                        .map_err(|e| format!("Failed to parse envFrom: {e}"))?;
-                    env_from.push(source);
                 }
 
                 // Override startup probe
