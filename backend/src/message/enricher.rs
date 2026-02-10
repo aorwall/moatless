@@ -1,4 +1,4 @@
-//! Agent request builder — construct enriched content blocks from user input.
+//! Message content enricher — construct enriched content blocks from user input.
 
 use serde_json::Value;
 

@@ -2,7 +2,6 @@
 
 #![allow(dead_code)]
 
-pub mod agent;
 pub mod auth;
 pub mod channel;
 pub mod command;
@@ -19,6 +18,7 @@ pub mod metrics;
 pub mod provider_settings;
 pub mod repository;
 pub mod sandbox;
+pub mod sandbox_grpc_server;
 pub mod sse;
 pub mod state;
 pub mod tag;

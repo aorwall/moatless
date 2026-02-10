@@ -1,19 +1,15 @@
-//! Agent orchestration — free async functions for message/task flows.
+//! Message sending orchestration — send_message_flow and send_tool_response_flow.
 
-use std::sync::Arc;
-
-use crate::db::{message_dao, task_dao};
+use crate::db::message_dao;
 use crate::db::models::{TaskMessageContentBlockRow, TaskMessageContextRow, TaskMessageRow};
-use crate::db::task_dao::TaskPatch;
-use crate::sandbox::k8s::naming::generate_service_name;
+use crate::db::task_dao::{self, TaskPatch};
 use crate::state::AppState;
 use crate::task::types::MessageContextInput;
 
-use super::error::AgentError;
-use super::notify;
-use super::request_builder;
+use super::enricher;
+use super::error::MessageError;
 
-/// The main message flow — called by handlers and by task creation.
+/// The main message flow — called by message handlers, task creation, and channel inbound.
 pub async fn send_message_flow(
     state: &AppState,
     task_id: &str,
@@ -22,13 +18,14 @@ pub async fn send_message_flow(
     agent_mode: Option<&str>,
     file_ids: &[String],
     contexts: &[MessageContextInput],
-) -> Result<(), AgentError> {
+) -> Result<(), MessageError> {
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let msg_uuid = uuid::Uuid::new_v4().to_string();
 
     // Build enriched content blocks (includes figma, preview, element contexts + file attachments)
     let enriched_blocks =
-        request_builder::build_content_blocks(&state.db, &state.config, message, contexts, file_ids).await;
+        enricher::build_content_blocks(&state.db, &state.config, message, contexts, file_ids)
+            .await;
     let content = serde_json::to_value(&enriched_blocks).unwrap_or_else(|_| {
         serde_json::json!([{ "type": "text", "text": message }])
     });
@@ -93,9 +90,9 @@ pub async fn send_message_flow(
     let contexts: Vec<TaskMessageContextRow> = vec![];
     message_dao::append(&state.db, &msg_row, &contexts, &[ui_block])
         .await
-        .map_err(|e| AgentError::Internal(format!("Failed to persist message: {e}")))?;
+        .map_err(|e| MessageError::Internal(format!("Failed to persist message: {e}")))?;
 
-    tracing::info!(task_id = %task_id, "Message persisted, notifying sandbox");
+    tracing::info!(task_id = %task_id, "Message persisted");
 
     // Update task status to running
     task_dao::update_task(
@@ -108,21 +105,7 @@ pub async fn send_message_flow(
         },
     )
     .await
-    .map_err(|e| AgentError::Internal(format!("Failed to update task status: {e}")))?;
-
-    // Notify sandbox pod (fire-and-forget)
-    let svc_name = generate_service_name(task_id);
-    let namespace = state.config.sandbox_namespace.clone();
-    notify::notify_sandbox(&namespace, &svc_name, state.config.sandbox_grpc_port).await;
-
-    // Ensure workspace is provisioned in background
-    let sandbox = Arc::clone(&state.sandbox);
-    let tid = task_id.to_string();
-    tokio::spawn(async move {
-        if let Err(e) = sandbox.start(&tid).await {
-            tracing::warn!(task_id = %tid, error = %e, "Background workspace start failed");
-        }
-    });
+    .map_err(|e| MessageError::Internal(format!("Failed to update task status: {e}")))?;
 
     Ok(())
 }
@@ -134,7 +117,7 @@ pub async fn send_tool_response_flow(
     tool_use_id: &str,
     _tool_name: &str,
     tool_response: Option<&serde_json::Value>,
-) -> Result<(), AgentError> {
+) -> Result<(), MessageError> {
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let msg_uuid = uuid::Uuid::new_v4().to_string();
 
@@ -192,78 +175,9 @@ pub async fn send_tool_response_flow(
     let blocks: Vec<TaskMessageContentBlockRow> = vec![];
     message_dao::append(&state.db, &msg_row, &contexts, &blocks)
         .await
-        .map_err(|e| AgentError::Internal(format!("Failed to persist tool response: {e}")))?;
+        .map_err(|e| MessageError::Internal(format!("Failed to persist tool response: {e}")))?;
 
     tracing::info!(task_id = %task_id, tool_use_id = %tool_use_id, "Tool response sent");
-
-    // Notify sandbox
-    let svc_name = generate_service_name(task_id);
-    notify::notify_sandbox(&state.config.sandbox_namespace, &svc_name, state.config.sandbox_grpc_port).await;
-
-    Ok(())
-}
-
-/// Start task flow — provision workspace, wait for ready, then set status.
-pub async fn start_task_flow(state: &AppState, task_id: &str) -> Result<(), AgentError> {
-    tracing::info!(task_id = %task_id, "Starting task flow, provisioning workspace");
-
-    // Ensure workspace is started/provisioned
-    state
-        .sandbox
-        .start(task_id)
-        .await
-        .map_err(|e| AgentError::Internal(format!("Failed to start workspace: {e}")))?;
-
-    // Poll workspace status with timeout
-    let timeout = tokio::time::Duration::from_secs(30);
-    let start = tokio::time::Instant::now();
-
-    loop {
-        if start.elapsed() > timeout {
-            return Err(AgentError::Internal("Workspace not ready after 30s".to_string()));
-        }
-
-        let status = state.sandbox.status(task_id).await;
-        if let Ok(s) = status {
-            let env_status = format!("{:?}", s.status);
-            if env_status.contains("Ready") || env_status.contains("Running") {
-                break;
-            }
-        }
-
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-    }
-
-    tracing::info!(task_id = %task_id, "Workspace ready, task started");
-
-    // Update task status
-    task_dao::update_task(
-        &state.db,
-        task_id,
-        &TaskPatch {
-            status: Some("running".to_string()),
-            ..Default::default()
-        },
-    )
-    .await
-    .map_err(|e| AgentError::Internal(format!("Failed to update task: {e}")))?;
-
-    // Emit event
-    if let Some(ref events) = state.events {
-        events
-            .publish_task_turn_event(
-                task_id,
-                "active",
-                None,
-                None,
-                serde_json::json!({}),
-            )
-            .await;
-    }
-
-    // Notify sandbox
-    let svc_name = generate_service_name(task_id);
-    notify::notify_sandbox(&state.config.sandbox_namespace, &svc_name, state.config.sandbox_grpc_port).await;
 
     Ok(())
 }
