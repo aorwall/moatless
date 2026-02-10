@@ -38,7 +38,10 @@ function TaskPageComponent() {
     // k8s_event is not in the EnvironmentStatus enum but arrives via raw JSON SSE,
     // so we need to check the untyped subType before discriminated-union narrowing.
     const rawSubType = (event as { subType?: string }).subType
-    if (event.type === 'environment' && rawSubType === 'k8s_event') {
+    if (
+      event.type === 'environment' &&
+      (rawSubType === 'k8s_event' || rawSubType === 'sandbox_event')
+    ) {
       const payload = (event as { payload?: Record<string, unknown> }).payload ?? {}
       setStartupEvents((prev) => [
         ...prev,

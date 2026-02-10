@@ -33,6 +33,21 @@ jobs:
           VERSION="${VERSION#v}"
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
 
+      # === BUILD RUST SANDBOX BINARY ===
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - name: Build Rust sandbox binary
+        run: |
+          cargo build -p moatless-sandbox --release
+          mkdir -p /tmp/sandbox-binaries/amd64
+          cp target/release/sandbox /tmp/sandbox-binaries/amd64/sandbox
+
       # === BUILD & PUSH RC IMAGES ===
       - name: Login to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
@@ -50,6 +65,7 @@ jobs:
         run: |
           docker build \
             --platform linux/amd64 \
+            --build-context binaries=/tmp/sandbox-binaries \
             -f docker/Dockerfile.sandbox \
             -t moatless-vibe-sandbox:local \
             .

@@ -13,11 +13,11 @@
       "apps/backend/**/*.ts",
       "apps/backend/**/*.js",
       "!apps/backend/dist/**",
-      "apps/sandbox/**/*.ts",
-      "!apps/sandbox/dist/**",
       "apps/file-explorer/**/*.ts",
       "apps/file-explorer/**/*.tsx",
       "!apps/file-explorer/dist/**",
+      "apps/sandbox/src/**",
+      "!apps/sandbox/dist/**",
       "packages/*/src/**",
       "!packages/figma/**"
     ]

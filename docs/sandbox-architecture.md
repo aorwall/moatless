@@ -25,12 +25,13 @@
 
 The sandbox is an isolated per-task execution environment that runs the Claude Code agent and supporting services. It provides file operations, git integration, preview server management, and browser automation—all scoped to a single task's workspace.
 
-- **Runtime**: Bun + Hono HTTP server
-- **Port**: 8001 (configurable via `PORT`)
+- **Runtime**: Native Rust binary (axum HTTP + tonic gRPC server)
+- **HTTP Port**: 8001 (health probes only)
+- **gRPC Port**: 50052 (all backend↔sandbox communication)
 - **Deployment**: Docker container (local dev) or Kubernetes pod (production)
-- **Source**: `apps/sandbox/`
+- **Source**: `sandbox/` (Rust crate), proto definitions in `crates/sandbox-proto/`
 
-Each sandbox instance is ephemeral and bound to exactly one task. The backend creates a new container/pod per task and communicates with it over HTTP.
+Each sandbox instance is ephemeral and bound to exactly one task. The backend creates a new container/pod per task and communicates with it over gRPC.
 
 ---
 
@@ -38,11 +39,12 @@ Each sandbox instance is ephemeral and bound to exactly one task. The backend cr
 
 ```
 /
-├── app/
-│   └── sandbox/                         # Sandbox application (survives volume mounts)
-│       ├── dist/                        # Compiled TypeScript
-│       ├── node_modules/                # Dependencies
-│       └── package.json
+├── usr/local/bin/
+│   ├── sandbox                          # Rust sandbox binary
+│   ├── claude                           # Claude Code CLI
+│   ├── server                           # Server management script
+│   ├── file-explorer                    # File explorer wrapper
+│   └── docker-entrypoint-sandbox.sh     # Container entrypoint
 │
 ├── opt/moatless/
 │   ├── repo/                            # Workspace (git clone target, may be volume-mounted)
@@ -67,12 +69,9 @@ Each sandbox instance is ephemeral and bound to exactly one task. The backend cr
 │   │   └── scripts/
 │   │       └── browser-client.ts
 │   └── skill-rules.json
-│
-└── usr/local/bin/
-    └── docker-entrypoint-sandbox.sh     # Container entrypoint
 ```
 
-**Volume Mount Consideration**: The workspace directory (`/opt/moatless/repo`) may be volume-mounted for persistent storage. The sandbox application lives at `/app/sandbox` to avoid being overwritten by workspace volume mounts.
+**Volume Mount Consideration**: The workspace directory (`/opt/moatless/repo`) may be volume-mounted for persistent storage. The sandbox binary lives at `/usr/local/bin/sandbox` to avoid being overwritten by workspace volume mounts.
 
 ---
 
@@ -99,7 +98,7 @@ Container Start
 │     Parse REPO_CONFIG JSON → /opt/moatless/data/preview-server.config.json
 │
 ├─ 6. Start sandbox application (background)
-│     bun run /app/sandbox/dist/index.js &
+│     /usr/local/bin/sandbox &
 │
 ├─ 7. Run setup commands (from REPO_CONFIG.codeExecution.setupCommands)
 │     Execute sequentially in workspace directory
@@ -160,8 +159,8 @@ main()
 | `CLAUDE_CODE_OAUTH_TOKEN` | No | — | OAuth token for Claude Code agent |
 | `CLAUDE_BIN_DIR` | No | `/usr/bin` | Directory containing Claude CLI binary |
 | `CLAUDE_CONFIG_DIR` | No | `/opt/moatless/.claude` | Claude configuration directory |
-| `REDIS_URL` | No | `redis://localhost:6379` | Redis URL for event streaming |
-| `DATABASE_URL` | No | — | PostgreSQL URL for event persistence |
+| `BACKEND_GRPC_URL` | No | — | Backend gRPC endpoint for events/messages |
+| `GRPC_PORT` | No | `50052` | gRPC server port for SandboxService |
 
 ### REPO_CONFIG Structure
 
@@ -197,62 +196,28 @@ Generated from `REPO_CONFIG.previewConfig` and written to `/opt/moatless/data/pr
 
 ---
 
-## HTTP API
+## API
 
-All endpoints are served on the configured `PORT` (default 8001).
-
-### Health & Workspace
+### HTTP (port 8001, health probes only)
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/health` | Health check: `{ status, mode, workspaceDir, taskId }` |
-| `GET` | `/workspace/status` | Workspace readiness: `{ taskId, workspaceDir, status }` |
+| `GET` | `/health` | K8s liveness/readiness/startup probe |
 
-### Agent Execution
+### gRPC SandboxService (port 50052)
 
-**Note:** The primary execution path is via Redis Streams queue (AgentRequestConsumer). HTTP endpoints are secondary/fallback.
+All operational communication uses gRPC. The backend calls these RPCs:
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/execute-agent` | Start agent execution (HTTP fallback, events via Redis) |
-| `POST` | `/stream-events` | Start agent with SSE event stream response |
-| `POST` | `/stop-agent` | Stop running agent |
-| `GET` | `/agent-status` | Agent state: `{ state, error? }` |
-| `POST` | `/user-input-response` | Submit response for interactive tools |
-
-### File Operations
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/files/list` | List files in workspace |
-| `POST` | `/files/read` | Read file content |
-| `POST` | `/files/write` | Write file content |
-| `GET` | `/files/search` | Search files by name/content |
-
-### Git Operations
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/git/status` | Branch, ahead/behind, changes summary |
-| `POST` | `/git/diff` | Detailed file-level diff |
-| `POST` | `/git/changes` | Working directory changes |
-
-### Preview Server
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/server/status` | Preview server status (from status.json + PID check) |
-| `GET` | `/server/logs` | Tail preview server log file (query: `?lines=N`) |
-| `GET` | `/server/logs/stream` | Stream logs via SSE |
-| `ALL` | `/preview/*` | Proxy to preview server with inspector injection |
-
-### Browser
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/browser/start` | Start Chromium browser server |
-| `GET` | `/browser/stop` | Stop browser server |
-| `POST` | `/browser/screenshot` | Capture page screenshot |
+| RPC | Description |
+|-----|-------------|
+| `ExecuteAgent` | Start agent execution with content, model, system prompt |
+| `StopAgent` | Stop running agent |
+| `NotifyMessages` | Wake message polling consumer |
+| `GetStatus` | Combined agent + servers snapshot (JSON) |
+| `CheckHealth` | Health check |
+| `SearchFiles` | Search workspace files by query |
+| `GetServerStatus` | Single server status (JSON) |
+| `StreamServerLogs` | Stream server logs (server-streaming RPC) |
 
 ---
 
@@ -641,28 +606,24 @@ Defines activation conditions for each skill:
 
 ## Event System
 
-**File**: `src/features/events/services/sandbox-event.service.ts`
+**File**: `src/events.rs` (`GrpcEventPublisher`)
 
-The `SandboxEventService` extends `BaseEventService` from `@moatless/messaging` and emits structured events to both file storage and Redis for real-time streaming to the backend.
+The `GrpcEventPublisher` publishes structured events to the backend via gRPC `PublishEvent` RPC. The backend then writes events to Redis Streams internally for SSE fan-out and event handler processing.
 
-### Event Structure
+### Event Structure (gRPC)
 
-```typescript
-interface Event {
-  eventId: string
-  type: 'agent' | 'server' | string
-  subType: string
-  taskId: string
-  agentType?: string
-  timestamp: Date
-  isError: boolean
-  payload: Record<string, unknown>
-}
-```
+Events are sent as `PublishEventRequest` messages with fields:
+- `task_id`: Task this event belongs to
+- `event_type`: "task", "taskTurn", or "environment"
+- `sub_type`: e.g. "agent_started", "message", "agent_completed"
+- `agent_type`: Optional agent type identifier
+- `turn_number`: Optional turn number
+- `is_error`: Whether this is an error event
+- `payload_json`: JSON string payload (preserved for backend consumer compatibility)
 
 ### Transport
 
-Events are published to Redis Streams at key `task-events:{taskId}`. The backend's `TaskEventHandler` subscribes to these streams and processes events to update state and broadcast to SSE clients.
+Events are published via gRPC `PublishEvent` to the backend's `BackendSandboxService`. The backend writes them to Redis Streams at key `task-events:{taskId}`, where existing SSE consumers and event handlers process them unchanged.
 
 ### Event Types Emitted
 
@@ -685,93 +646,62 @@ Events include unique `eventId` values (UUIDs). The `BaseEventService` maintains
 
 ## Communication with Backend
 
-The sandbox communicates with the backend through three channels:
+The sandbox communicates with the backend entirely via gRPC, using two services defined in `crates/sandbox-proto/`:
 
-### 1. Redis Streams Queue (Backend → Sandbox) - PRIMARY
+### 1. SandboxService (Backend → Sandbox, gRPC port 50052)
 
-The primary agent execution path uses Redis Streams for reliable request delivery:
-
-```
-Backend                           Redis                           Sandbox
-  │                                 │                                │
-  ├─ AgentRequestService           │                                │
-  │   .publish(request) ─────────► │                                │
-  │                                 │                                │
-  │                                 ├─ XADD agent-requests:*        │
-  │                                 │                                │
-  │                                 │  AgentRequestConsumer ◄───────┤
-  │                                 │  (polling with XREADGROUP)    │
-  │                                 │                                │
-  │                                 │                                ├─ Execute agent
-  │                                 │                                ├─ XACK on completion
-```
-
-**Benefits:**
-- Reliable delivery with consumer groups
-- Automatic redelivery of unACKed messages
-- Request batching (up to 10 messages)
-- Workspace can start before requests arrive
-
-### 2. HTTP API (Backend → Sandbox) - SECONDARY
-
-The backend's `RemoteEnvironmentDriver` calls sandbox HTTP endpoints for control and queries:
+The backend calls the sandbox's gRPC server for commands and queries:
 
 ```
-Backend                                    Sandbox
+Backend (gRPC Client)                      Sandbox (gRPC Server :50052)
   │                                          │
-  ├─ GET /server/status ──────────────────►  │ (status check)
-  ├─ GET /server/logs?lines=100 ──────────►  │ (log fetch)
-  ├─ GET /server/logs/stream ─────────────►  │ (log streaming)
-  ├─ POST /execute-agent ─────────────────►  │ (fallback agent start)
-  ├─ POST /stop-agent ────────────────────►  │ (stop agent)
-  ├─ GET /agent-status ───────────────────►  │ (agent state)
-  ├─ POST /files/read ────────────────────►  │ (read file)
-  ├─ GET /git/status ─────────────────────►  │ (git info)
-  └─ POST /browser/screenshot ────────────►  │ (capture)
+  ├─ ExecuteAgent(content, model) ────────►  │ (start agent execution)
+  ├─ StopAgent() ─────────────────────────►  │ (stop running agent)
+  ├─ NotifyMessages() ────────────────────►  │ (wake message consumer)
+  ├─ GetStatus() ─────────────────────────►  │ (combined status snapshot)
+  ├─ CheckHealth() ───────────────────────►  │ (health check)
+  ├─ SearchFiles(query, limit) ───────────►  │ (search workspace files)
+  ├─ GetServerStatus(name) ───────────────►  │ (server status)
+  └─ StreamServerLogs(name, lines) ───────►  │ (streaming server logs)
 ```
 
-### 3. Event-Driven Updates (Sandbox → Backend)
+### 2. BackendSandboxService (Sandbox → Backend, gRPC port 50051)
 
-The sandbox pushes events via Redis Streams, which the backend's `TaskEventHandler` consumes:
+The sandbox calls the backend's gRPC server to publish events and fetch messages:
 
 ```
-Sandbox                     Redis                      Backend              Client
-  │                           │                          │                    │
-  ├─ emitEvent() ──────────►  │                          │                    │
-  │                           ├─ XADD task-events:* ──►  │                    │
-  │                           │                          ├─ TaskEventHandler  │
-  │                           │                          │   processes event  │
-  │                           │                          ├─ Update state      │
-  │                           │                          └─ SSE broadcast ──► │
+Sandbox (gRPC Client)                      Backend (gRPC Server :50051)
+  │                                          │
+  ├─ PublishEvent(task_id, type, payload) ─►  │ → writes to Redis → SSE → Frontend
+  └─ GetPendingMessages(task_id, token) ──►  │ → returns queued user messages
 ```
+
+**Event flow**: Sandbox publishes events via gRPC `PublishEvent`. The backend writes them to Redis Streams (internally), where existing SSE consumers and event handlers process them — unchanged from before.
+
+**Message flow**: Sandbox polls for pending messages via gRPC `GetPendingMessages` (with Notify-based wakeup via `NotifyMessages`), replacing the previous HTTP polling.
 
 ### Complete Agent Execution Flow
 
 ```
-Backend                              Redis                               Sandbox
-  │                                    │                                    │
-  ├─ AgentRequestService.publish() ──► │                                    │
-  │                                    ├─ XADD agent-requests:{taskId} ──►  │
-  │                                    │                                    │
-  │                                    │        AgentRequestConsumer ◄──────┤
-  │                                    │        (XREADGROUP blocking read)  │
-  │                                    │                                    │
-  │                                    │                        Batch requests
-  │                                    │                                    │
-  │                                    │                        AgentService
-  │                                    │                        .executeBatchedRequest()
-  │                                    │                                    │
-  │                                    │                        ClaudeCodeAgent
-  │                                    │                        .runBatched()
-  │                                    │                                    │
-  │                                    │  ◄── emitEvent(agent:started) ─────┤
-  │                                    │  ◄── emitEvent(agent:message) ─────┤
-  │                                    │  ◄── emitEvent(agent:completed) ───┤
-  │                                    │                                    │
-  ├─ TaskEventHandler               ◄──┤                                    │
-  │   processes events                 │                        XACK messages
-  │                                    │                                    │
-  └─ SSE broadcast to clients          │                                    │
+Backend                                          Sandbox
+  │                                                │
+  ├─ Persist user message to DB                    │
+  ├─ NotifyMessages() (gRPC) ──────────────────►   │
+  │                                                ├─ MessageConsumer wakes
+  │                                                ├─ GetPendingMessages() (gRPC) ──►
+  │  ◄─── returns pending messages ────────────────┤
+  │                                                │
+  │                                                ├─ Batch messages
+  │                                                ├─ AgentExecutor.run_batched()
+  │                                                │
+  │  ◄─── PublishEvent(agent:started) ─────────────┤
+  │  ◄─── PublishEvent(agent:message) ─────────────┤
+  │  ◄─── PublishEvent(agent:completed) ───────────┤
+  │                                                │
+  ├─ Redis XADD (internal)                         │
+  ├─ SSE consumers → broadcast to frontend         │
+  ├─ Event handler → DB writes, notifications      │
+  │                                                │
 ```
 
 ---
@@ -812,7 +742,7 @@ Runs as non-root user `moatless` (UID 1000) with home at `/home/moatless`.
 
 | Path | Purpose |
 |------|---------|
-| `/app/sandbox` | Sandbox application (pre-installed, survives volume mounts) |
+| `/usr/local/bin/sandbox` | Rust sandbox binary |
 | `/opt/moatless/repo` | Workspace directory (git clone target) |
 | `/opt/moatless/data` | Runtime data (events, screenshots, preview artifacts) |
 | `/opt/moatless/.claude` | Claude Code configuration |
