@@ -1,0 +1,57 @@
+[package]
+name = "moatless-sandbox"
+version = "0.1.0"
+edition = "2021"
+authors = ["Moatless Team"]
+description = "Sandbox runtime for Moatless Vibe workspace pods"
+license = "AGPL-3.0-or-later"
+
+[lib]
+name = "moatless_sandbox"
+path = "src/lib.rs"
+
+[[bin]]
+name = "sandbox"
+path = "src/main.rs"
+
+[dependencies]
+# Claude Agent SDK
+claude-agent-sdk = { path = "../crates/claude-agent-sdk" }
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+
+# HTTP server
+axum = { version = "0.8", features = ["macros"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Error handling
+thiserror = "2"
+
+# Observability
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# UUID + timestamps
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+# gRPC (backend communication — replaces Redis + HTTP polling)
+sandbox-proto = { path = "../crates/sandbox-proto" }
+tonic = "0.12"
+prost = "0.13"
+tokio-stream = "0.1"
+
+# CORS + tracing middleware
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+
+# Async streams + traits
+futures = "0.3"
+async-trait = "0.1"
+
+# File matching
+glob = "0.3"
