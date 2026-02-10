@@ -1,5 +1,9 @@
 //! Message DAO — queries for task message data access.
 
+use std::collections::HashMap;
+
+use chrono::{DateTime, Utc};
+
 use super::models::{TaskMessageContentBlockRow, TaskMessageContextRow, TaskMessageRow};
 use super::DbPool;
 
@@ -289,4 +293,28 @@ pub async fn delete_queued(
     .await?;
 
     Ok(result.rows_affected() > 0)
+}
+
+/// Get the latest message timestamp for each of the given task IDs (batch).
+///
+/// Task IDs with no messages are absent from the returned map.
+pub async fn get_latest_message_times(
+    pool: &DbPool,
+    task_ids: &[String],
+) -> Result<HashMap<String, DateTime<Utc>>, sqlx::Error> {
+    if task_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let rows: Vec<(String, DateTime<Utc>)> = sqlx::query_as(
+        r#"SELECT task_id, MAX(created_at) AS latest_at
+           FROM task_messages
+           WHERE task_id = ANY($1)
+           GROUP BY task_id"#,
+    )
+    .bind(task_ids)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows.into_iter().collect())
 }

@@ -81,9 +81,19 @@ pub async fn create_task(
             .await;
     }
 
+    // Always provision sandbox
+    match state.sandbox.start(&task_id).await {
+        Ok(()) => {
+            tracing::info!(task_id = %task_id, "Sandbox provisioning started (initializing)");
+        }
+        Err(e) => {
+            tracing::warn!(task_id = %task_id, error = %e, "Failed to provision sandbox");
+        }
+    }
+
     // If a message was provided, send it to the agent
     if let Some(message) = req.message {
-        if let Err(e) = crate::agent::orchestration::send_message_flow(
+        if let Err(e) = crate::message::send::send_message_flow(
             &state,
             &task_id,
             &message,
@@ -163,8 +173,18 @@ pub async fn create_vibe_task(
             .await;
     }
 
+    // Always provision sandbox
+    match state.sandbox.start(&task_id).await {
+        Ok(()) => {
+            tracing::info!(task_id = %task_id, "Sandbox provisioning started (initializing)");
+        }
+        Err(e) => {
+            tracing::warn!(task_id = %task_id, error = %e, "Failed to provision sandbox");
+        }
+    }
+
     if let Some(message) = req.message {
-        if let Err(e) = crate::agent::orchestration::send_message_flow(
+        if let Err(e) = crate::message::send::send_message_flow(
             &state,
             &task_id,
             &message,
@@ -413,9 +433,9 @@ pub async fn close_task(
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
-    // Stop sandbox (best-effort)
-    if let Err(e) = state.sandbox.stop(&task_id).await {
-        tracing::warn!(task_id = %task_id, error = %e, "Failed to stop sandbox on close");
+    // Cleanup sandbox (best-effort)
+    if let Err(e) = state.sandbox.cleanup(&task_id).await {
+        tracing::warn!(task_id = %task_id, error = %e, "Failed to cleanup sandbox on close");
     }
     tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Task closed");
 
@@ -479,9 +499,53 @@ pub async fn start_task(
     }
 
     tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Starting task");
-    crate::agent::orchestration::start_task_flow(&state, &task_id)
-        .await
+
+    state.sandbox.start(&task_id).await
         .map_err(|e| TaskError::Internal(e.to_string()))?;
+
+    tracing::info!(task_id = %task_id, "Sandbox start initiated (initializing)");
+    Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
+/// Stop the agent running on a task.
+#[utoipa::path(
+    post,
+    path = "/api/v1/tasks/{task_id}/stop",
+    tag = "tasks",
+    params(
+        ("task_id" = String, Path, description = "Task identifier")
+    ),
+    responses(
+        (status = 204, description = "Agent stopped"),
+        (status = 404, description = "Task not found", body = crate::sandbox::types::ErrorBody)
+    )
+)]
+pub async fn stop_task(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(task_id): Path<String>,
+) -> Result<axum::http::StatusCode, TaskError> {
+    let _task = task_dao::find_by_id(&state.db, &task_id, &auth.user_id)
+        .await?
+        .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
+
+    // Stop the sandbox agent process
+    if let Err(e) = state.sandbox.stop(&task_id).await {
+        tracing::warn!(task_id = %task_id, error = %e, "Failed to stop sandbox agent");
+    }
+
+    // Update task status
+    task_dao::update_task(
+        &state.db,
+        &task_id,
+        &TaskPatch {
+            status: Some("open".to_string()),
+            ..Default::default()
+        },
+    )
+    .await?;
+
+    tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Agent stopped");
 
     Ok(axum::http::StatusCode::NO_CONTENT)
 }

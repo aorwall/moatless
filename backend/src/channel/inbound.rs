@@ -88,7 +88,7 @@ pub async fn process_inbound(
     let message_text = apply_prompt_template(&config, &msg.text);
 
     // Send message to the task
-    if let Err(e) = crate::agent::orchestration::send_message_flow(
+    if let Err(e) = crate::message::send::send_message_flow(
         state,
         &task_id,
         &message_text,
@@ -110,6 +110,9 @@ pub async fn process_inbound(
             "Failed to send message: {e}"
         )));
     }
+
+    // Notify sandbox that a new message is available (fire-and-forget).
+    crate::sandbox::notify::notify_sandbox_for_task(state, &task_id).await;
 
     info!(task_id = %task_id, provider = config.provider, "Channel message routed to task");
     Ok(task_id)

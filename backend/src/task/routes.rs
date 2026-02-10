@@ -20,6 +20,7 @@ use crate::state::AppState;
         handlers::delete_task,
         handlers::close_task,
         handlers::start_task,
+        handlers::stop_task,
         handlers::set_task_tags,
         handlers::update_visibility,
     )
@@ -34,6 +35,7 @@ pub fn task_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenApi) 
         .routes(routes!(handlers::get_task, handlers::update_task_metadata, handlers::delete_task))
         .routes(routes!(handlers::close_task))
         .routes(routes!(handlers::start_task))
+        .routes(routes!(handlers::stop_task))
         .routes(routes!(handlers::set_task_tags))
         .routes(routes!(handlers::update_visibility))
         .with_state(state)

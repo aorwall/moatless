@@ -42,6 +42,12 @@ pub struct Config {
     /// Metrics port (default: 9090)
     pub metrics_port: u16,
 
+    /// gRPC port for sandbox communication (default: 50051)
+    pub grpc_port: u16,
+
+    /// gRPC port on sandbox pods (default: 50052)
+    pub sandbox_grpc_port: u16,
+
     /// Kubernetes namespace for sandbox pods
     pub sandbox_namespace: String,
 
@@ -171,6 +177,16 @@ pub struct Config {
     pub slack_signing_secret: Option<String>,
     /// Slack bot user ID for filtering own messages (SLACK_BOT_USER_ID)
     pub slack_bot_user_id: Option<String>,
+
+    // =========================================================================
+    // Idle sandbox reaper settings
+    // =========================================================================
+    /// Whether the idle sandbox reaper is enabled (default: true)
+    pub sandbox_idle_reaper_enabled: bool,
+    /// Stop sandboxes idle longer than this (minutes, default: 60)
+    pub sandbox_idle_timeout_minutes: u64,
+    /// How often to check for idle sandboxes (seconds, default: 300 = 5 min)
+    pub sandbox_idle_check_interval_secs: u64,
 }
 
 impl Config {
@@ -189,6 +205,16 @@ impl Config {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(9090),
+
+            grpc_port: env::var("GRPC_PORT")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(50051),
+
+            sandbox_grpc_port: env::var("SANDBOX_GRPC_PORT")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(50052),
 
             sandbox_namespace: env::var("SANDBOX_NAMESPACE")
                 .unwrap_or_else(|_| "workspaces".to_string()),
@@ -297,6 +323,18 @@ impl Config {
             slack_bot_token: env::var("SLACK_BOT_TOKEN").ok(),
             slack_signing_secret: env::var("SLACK_SIGNING_SECRET").ok(),
             slack_bot_user_id: env::var("SLACK_BOT_USER_ID").ok(),
+
+            sandbox_idle_reaper_enabled: env::var("SANDBOX_IDLE_REAPER_ENABLED")
+                .map(|v| v != "false" && v != "0")
+                .unwrap_or(true),
+            sandbox_idle_timeout_minutes: env::var("SANDBOX_IDLE_TIMEOUT_MINUTES")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(60),
+            sandbox_idle_check_interval_secs: env::var("SANDBOX_IDLE_CHECK_INTERVAL_SECS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(300),
         }
     }
 }

@@ -1,4 +1,4 @@
-//! Moatless Vibe Backend - Workspace orchestration, auth, tasks, and agent API
+//! Moatless Vibe Backend - Workspace orchestration, auth, tasks, and messaging API
 //!
 //! Serves a unified API on port 8080. Authenticated via Traefik ForwardAuth.
 
@@ -21,14 +21,16 @@ use moatless_vibe_backend::events::RedisEventPublisher;
 use moatless_vibe_backend::feature_flags;
 use moatless_vibe_backend::metrics;
 use moatless_vibe_backend::sandbox;
+use moatless_vibe_backend::sandbox_grpc_server::BackendSandboxServiceImpl;
 use moatless_vibe_backend::sse;
 use moatless_vibe_backend::state::AppState;
-use moatless_vibe_backend::{agent, channel, command, figma, file_storage, message, provider_settings, repository, tag, task};
+use moatless_vibe_backend::{channel, command, figma, file_storage, message, provider_settings, repository, tag, task};
 
 use auth::cache::AuthCache;
 use auth::routes::{AuthState, OAuthProviders};
 use sandbox::k8s::client::K8sClient;
 use sandbox::k8s::status_cache::StatusCache;
+use sandbox::sandbox_state::SandboxStateCache;
 use sse::consumer::RedisStreamConsumer;
 use sse::routes::{sse_router, SseState};
 
@@ -161,6 +163,54 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         cancel_for_signal.cancel();
     });
 
+    // Create shared Redis sandbox state cache (L2)
+    let sandbox_state_cache = if let Some(ref redis_url) = config.redis_url {
+        match redis::Client::open(redis_url.as_str()) {
+            Ok(client) => match redis::aio::ConnectionManager::new(client).await {
+                Ok(conn) => {
+                    info!("Sandbox state cache (Redis L2) initialized");
+                    Some(SandboxStateCache::new(conn))
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "Failed to connect Redis for sandbox state cache");
+                    None
+                }
+            },
+            Err(e) => {
+                tracing::warn!(error = %e, "Failed to create Redis client for sandbox state cache");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    // Spawn gRPC server for sandbox communication
+    {
+        let grpc_events = event_publisher.clone();
+        let grpc_db = db_pool.clone();
+        let grpc_port = config.grpc_port;
+        let grpc_token_secret = config.task_token_secret.clone();
+        tokio::spawn(async move {
+            let svc = BackendSandboxServiceImpl {
+                events: grpc_events,
+                db: grpc_db,
+                task_token_secret: grpc_token_secret,
+            };
+            let addr = std::net::SocketAddr::from(([0, 0, 0, 0], grpc_port));
+            info!(port = grpc_port, "Starting backend gRPC server");
+            if let Err(e) = tonic::transport::Server::builder()
+                .add_service(
+                    sandbox_proto::backend_sandbox_service_server::BackendSandboxServiceServer::new(svc),
+                )
+                .serve(addr)
+                .await
+            {
+                tracing::error!(error = %e, "gRPC server failed");
+            }
+        });
+    }
+
     start_api_server(
         &config,
         k8s,
@@ -169,6 +219,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         event_publisher,
         sse_state,
         s3_client,
+        sandbox_state_cache,
         cancel,
     )
     .await?;
@@ -192,7 +243,6 @@ fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     use auth::routes::AuthApiDoc;
     use task::routes::TaskApiDoc;
     use message::routes::MessageApiDoc;
-    use agent::routes::AgentApiDoc;
     use command::routes::CommandApiDoc;
     use file_storage::routes::FileStorageApiDoc;
     use figma::routes::FigmaApiDoc;
@@ -206,7 +256,6 @@ fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     merged.merge(AuthApiDoc::openapi());
     merged.merge(TaskApiDoc::openapi());
     merged.merge(MessageApiDoc::openapi());
-    merged.merge(AgentApiDoc::openapi());
     merged.merge(CommandApiDoc::openapi());
     merged.merge(FileStorageApiDoc::openapi());
     merged.merge(FigmaApiDoc::openapi());
@@ -274,6 +323,7 @@ async fn start_api_server(
     event_publisher: Option<RedisEventPublisher>,
     sse_state: SseState,
     s3_client: Option<aws_sdk_s3::Client>,
+    sandbox_state_cache: Option<SandboxStateCache>,
     cancel: CancellationToken,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use sandbox::k8s::provider::K8sSandboxProvider;
@@ -293,14 +343,34 @@ async fn start_api_server(
 
     let provider = K8sSandboxProvider {
         config: Arc::new(config.clone()),
-        k8s,
-        status_cache,
+        k8s: k8s.clone(),
+        status_cache: status_cache.clone(),
         pod_template: Arc::new(pod_template),
         db_pool: db_pool.clone(),
         event_publisher: event_publisher.clone(),
+        sandbox_state: sandbox_state_cache.clone(),
     };
 
     let sandbox_provider: Arc<dyn sandbox::provider::SandboxProvider> = Arc::new(provider);
+
+    // Clone K8s client before it's moved into the pod watcher (needed by idle reaper)
+    let reaper_k8s = k8s.clone();
+
+    // Spawn pod lifecycle watcher (requires both Redis event publisher and state cache)
+    if let (Some(ref publisher), Some(ref state_cache)) =
+        (&event_publisher, &sandbox_state_cache)
+    {
+        sandbox::k8s::pod_watcher::spawn_pod_lifecycle_watcher(
+            k8s,
+            publisher.clone(),
+            status_cache,
+            state_cache.clone(),
+            cancel.clone(),
+        );
+        info!("Pod lifecycle watcher spawned");
+    } else {
+        info!("Pod lifecycle watcher disabled (requires Redis)");
+    }
 
     let sandbox_state = SandboxApiState {
         provider: Arc::clone(&sandbox_provider),
@@ -343,12 +413,12 @@ async fn start_api_server(
             events: event_publisher,
             s3: s3_client,
             channel_providers: channel_providers.map(Arc::new),
+            sandbox_state: sandbox_state_cache,
         };
 
         let modules = vec![
             task::routes::task_router(app_state.clone()),
             message::routes::message_router(app_state.clone()),
-            agent::routes::agent_router(app_state.clone()),
             command::routes::command_router(app_state.clone()),
             file_storage::routes::file_storage_router(app_state.clone()),
             figma::routes::figma_router(app_state.clone()),
@@ -362,14 +432,14 @@ async fn start_api_server(
             merged_api.merge(module_api);
         }
 
-        info!("Task/message/agent/command/file/figma/repository/tag/provider routes registered");
+        info!("Task/message/command/file/figma/repository/tag/provider routes registered");
 
         // Spawn event handler consumer if Redis is available
         if let Some(ref redis_url) = config.redis_url {
             match redis::Client::open(redis_url.as_str()) {
                 Ok(client) => match redis::aio::ConnectionManager::new(client).await {
                     Ok(conn) => {
-                        let handler_state = app_state;
+                        let handler_state = app_state.clone();
                         let handler_cancel = cancel.clone();
                         tokio::spawn(event_handler::spawn_event_handler(
                             conn,
@@ -386,6 +456,24 @@ async fn start_api_server(
                     tracing::warn!(error = %e, "Failed to create Redis client for event handler");
                 }
             }
+        }
+
+        // Spawn idle sandbox reaper
+        if app_state.config.sandbox_idle_reaper_enabled {
+            sandbox::idle_reaper::spawn_idle_reaper(
+                reaper_k8s,
+                app_state.db.clone(),
+                Arc::clone(&app_state.sandbox),
+                Arc::clone(&app_state.config),
+                cancel.clone(),
+            );
+            info!(
+                idle_timeout_minutes = app_state.config.sandbox_idle_timeout_minutes,
+                check_interval_secs = app_state.config.sandbox_idle_check_interval_secs,
+                "Idle sandbox reaper spawned"
+            );
+        } else {
+            info!("Idle sandbox reaper disabled");
         }
     } else {
         info!("New API routes disabled (no database)");

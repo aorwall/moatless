@@ -7,6 +7,7 @@ use crate::config::Config;
 use crate::db::DbPool;
 use crate::events::RedisEventPublisher;
 use crate::sandbox::provider::SandboxProvider;
+use crate::sandbox::sandbox_state::SandboxStateCache;
 
 /// Shared application state for task/message/agent/command/file routes.
 ///
@@ -25,4 +26,6 @@ pub struct AppState {
     pub s3: Option<aws_sdk_s3::Client>,
     /// Optional channel providers for Slack/Email integrations.
     pub channel_providers: Option<Arc<ChannelProviders>>,
+    /// Optional Redis sandbox state cache for embedding status in task responses.
+    pub sandbox_state: Option<SandboxStateCache>,
 }

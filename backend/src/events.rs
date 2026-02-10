@@ -115,6 +115,18 @@ impl RedisEventPublisher {
             .await;
     }
 
+    /// Publish an agent lifecycle event (e.g. "completed", "error", "message", "stopped").
+    pub async fn publish_agent_event(
+        &self,
+        task_id: &str,
+        sub_type: &str,
+        agent_type: Option<&str>,
+        payload: serde_json::Value,
+    ) {
+        self.publish_event(task_id, "agent", sub_type, agent_type, None, payload)
+            .await;
+    }
+
     /// Publish a task turn event (e.g. "active", "completed", "failed").
     pub async fn publish_task_turn_event(
         &self,

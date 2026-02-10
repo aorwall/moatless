@@ -92,6 +92,12 @@ pub struct TaskResponse {
     pub created_by_display_name: Option<String>,
     pub visibility: String,
     pub tags: Vec<TagResponse>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub environment_status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_state: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_running: Option<bool>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]

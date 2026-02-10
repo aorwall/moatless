@@ -10,13 +10,17 @@ use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
-/// Consumer group name — independent from the Node.js backend's group.
-const CONSUMER_GROUP: &str = "sse-consumers";
+/// Consumer group name prefix. Each pod gets its own group (`sse-{hostname}`)
+/// so that every pod receives every message — required for SSE fan-out where
+/// any pod may have connected frontend clients.
+const CONSUMER_GROUP_PREFIX: &str = "sse";
 
 /// Redis stream consumer that fans out events to SSE clients.
 pub struct RedisStreamConsumer {
     conn: ConnectionManager,
     consumer_id: String,
+    /// Per-pod consumer group name (e.g. `sse-backend-abc12`).
+    consumer_group: String,
     tx: broadcast::Sender<String>,
     cancel: CancellationToken,
 }
@@ -28,9 +32,12 @@ impl RedisStreamConsumer {
         tx: broadcast::Sender<String>,
         cancel: CancellationToken,
     ) -> Self {
+        // Each pod gets its own consumer group so every pod sees every message.
+        let consumer_group = format!("{CONSUMER_GROUP_PREFIX}-{consumer_id}");
         Self {
             conn,
             consumer_id,
+            consumer_group,
             tx,
             cancel,
         }
@@ -38,7 +45,7 @@ impl RedisStreamConsumer {
 
     /// Run the consumer loop until cancelled.
     pub async fn run(mut self) {
-        info!(consumer_id = %self.consumer_id, group = CONSUMER_GROUP, "SSE Redis consumer started");
+        info!(consumer_id = %self.consumer_id, group = %self.consumer_group, "SSE Redis consumer started");
 
         loop {
             if self.cancel.is_cancelled() {
@@ -84,7 +91,7 @@ impl RedisStreamConsumer {
         // XREADGROUP GROUP sse-consumers {id} BLOCK 5000 COUNT 50 STREAMS s1 s2 ... > > ...
         let mut cmd = redis::cmd("XREADGROUP");
         cmd.arg("GROUP")
-            .arg(CONSUMER_GROUP)
+            .arg(&self.consumer_group)
             .arg(&self.consumer_id)
             .arg("BLOCK")
             .arg(5000_u64)
@@ -138,7 +145,7 @@ impl RedisStreamConsumer {
         let result: Result<String, redis::RedisError> = redis::cmd("XGROUP")
             .arg("CREATE")
             .arg(stream)
-            .arg(CONSUMER_GROUP)
+            .arg(&self.consumer_group)
             .arg("$") // Start from new messages only
             .arg("MKSTREAM")
             .query_async(&mut self.conn)
@@ -146,7 +153,7 @@ impl RedisStreamConsumer {
 
         match result {
             Ok(_) => {
-                debug!(stream = %stream, "Created consumer group {CONSUMER_GROUP}");
+                debug!(stream = %stream, group = %self.consumer_group, "Created consumer group");
             }
             Err(e) => {
                 let msg = e.to_string();
@@ -211,7 +218,7 @@ impl RedisStreamConsumer {
             if !entry_ids.is_empty() {
                 let ack_result: Result<i64, redis::RedisError> = {
                     let mut cmd = redis::cmd("XACK");
-                    cmd.arg(&stream_name).arg(CONSUMER_GROUP);
+                    cmd.arg(&stream_name).arg(&self.consumer_group);
                     for id in &entry_ids {
                         cmd.arg(id);
                     }
