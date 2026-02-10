@@ -7,7 +7,7 @@ metadata:
     {{- include "moatless-vibe.labels" . | nindent 4 }}
     app.kubernetes.io/component: backend
 spec:
-  replicas: {{ .Values.proxy.backend.replicas | default 2 }}
+  replicas: {{ .Values.backend.replicas | default 2 }}
   selector:
     matchLabels:
       {{- include "moatless-vibe.selectorLabels" . | nindent 6 }}
@@ -17,7 +17,7 @@ spec:
       labels:
         {{- include "moatless-vibe.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: backend
-      {{- with .Values.proxy.backend.podAnnotations }}
+      {{- with .Values.backend.podAnnotations }}
       annotations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
@@ -29,14 +29,17 @@ spec:
       serviceAccountName: {{ include "moatless-vibe.serviceAccountName" . }}
       containers:
         - name: backend
-          image: "{{ .Values.proxy.backend.image.repository }}:{{ .Values.proxy.backend.image.tag | default .Chart.AppVersion }}"
-          imagePullPolicy: {{ .Values.proxy.backend.image.pullPolicy }}
+          image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
           ports:
             - containerPort: 8080
               name: http
               protocol: TCP
             - containerPort: 9090
               name: metrics
+              protocol: TCP
+            - containerPort: {{ .Values.backend.grpcPort | default 50051 }}
+              name: grpc
               protocol: TCP
           env:
             - name: PROXY_PORT
@@ -51,13 +54,17 @@ spec:
             {{- end }}
             - name: METRICS_PORT
               value: "9090"
+            - name: GRPC_PORT
+              value: {{ .Values.backend.grpcPort | default 50051 | quote }}
+            - name: SANDBOX_GRPC_PORT
+              value: {{ .Values.kubernetes.sandboxGrpcPort | default 50052 | quote }}
             - name: SANDBOX_NAMESPACE
               value: {{ .Values.kubernetes.namespace | default .Release.Namespace | quote }}
             - name: RUST_LOG
-              value: {{ .Values.proxy.backend.logLevel | default "info" | quote }}
+              value: {{ .Values.backend.logLevel | default "info" | quote }}
             - name: SANDBOX_POD_TEMPLATE_PATH
               value: "/etc/moatless/sandbox-pod-template.yaml"
-            {{- with .Values.proxy.backend.sandboxImage }}
+            {{- with .Values.backend.sandboxImage }}
             - name: K8S_SANDBOX_IMAGE
               value: {{ . | quote }}
             {{- end }}
@@ -91,7 +98,7 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
-            {{- with .Values.proxy.backend.sharedStoragePvcName }}
+            {{- with .Values.backend.sharedStoragePvcName }}
             - name: SHARED_STORAGE_PVC_NAME
               value: {{ . | quote }}
             {{- end }}
@@ -210,7 +217,6 @@ spec:
             - name: WORKSPACE_INACTIVITY_TIMEOUT_MINUTES
               value: {{ .Values.kubernetes.inactivityTimeoutMinutes | quote }}
             {{- end }}
-            {{- if .Values.proxy.enabled }}
             # Hostname-based routing configuration
             - name: USE_HOSTNAME_ROUTING
               value: "true"
@@ -218,7 +224,6 @@ spec:
               value: {{ .Values.proxy.authMiddlewareName | default "preview-auth" | quote }}
             - name: TRAEFIK_AUTH_MIDDLEWARE_NAMESPACE
               value: {{ .Release.Namespace | quote }}
-            {{- end }}
             # Admin users configuration
             {{- if .Values.auth.adminUserIds }}
             - name: ADMIN_USER_IDS
@@ -247,7 +252,7 @@ spec:
             - secretRef:
                 name: {{ include "moatless-vibe.secretsName" . }}
           resources:
-            {{- toYaml .Values.proxy.backend.resources | nindent 12 }}
+            {{- toYaml .Values.backend.resources | nindent 12 }}
           volumeMounts:
             - name: sandbox-pod-template
               mountPath: /etc/moatless

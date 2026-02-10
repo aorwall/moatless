@@ -52,7 +52,6 @@ See `helm/moatless-vibe/values.yaml` for all available configuration options.
 | `ingress.className` | Ingress controller class | `webapprouting.kubernetes.azure.com` |
 | `ingress.hosts[0].host` | Main API hostname | `moatless.xyz` |
 | `proxyIngress.host` | Preview proxy wildcard hostname | `*.proxy.moatless.xyz` |
-| `proxy.enabled` | Enable hostname-based preview routing | `true` |
 | `kubernetes.enabled` | Enable Kubernetes execution mode for workers | `true` |
 | `persistence.enabled` | Enable persistent storage | `false` |
 

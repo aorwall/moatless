@@ -1,4 +1,3 @@
-{{- if and .Values.ingress.enabled .Values.proxy.enabled }}
 {{- $host := (index .Values.ingress.hosts 0).host }}
 {{- $fullname := include "moatless-vibe.fullname" . }}
 {{- $entryPoint := .Values.proxy.traefikEntryPoint | default "web" }}
@@ -98,4 +97,3 @@ spec:
       services:
         - name: {{ $fullname }}
           port: {{ .Values.service.port }}
-{{- end }}

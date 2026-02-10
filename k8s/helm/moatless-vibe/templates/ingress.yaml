@@ -34,14 +34,8 @@ spec:
             pathType: Prefix
             backend:
               service:
-                {{- if $.Values.proxy.enabled }}
                 name: {{ $.Values.proxyIngress.targetServiceName | default "traefik" }}
                 port:
                   number: {{ $.Values.proxyIngress.targetServicePort | default 80 }}
-                {{- else }}
-                name: {{ include "moatless-vibe.fullname" $ }}
-                port:
-                  number: {{ $.Values.service.port }}
-                {{- end }}
     {{- end }}
 {{- end }}

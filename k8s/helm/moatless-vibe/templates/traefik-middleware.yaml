@@ -1,4 +1,4 @@
-{{- if and .Values.proxy.enabled .Values.proxy.traefikMiddleware.enabled }}
+{{- if .Values.proxy.traefikMiddleware.enabled }}
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:

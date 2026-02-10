@@ -24,7 +24,6 @@ roleRef:
   kind: Role
   name: {{ include "moatless-vibe.fullname" . }}-pod-manager
   apiGroup: rbac.authorization.k8s.io
-{{- if .Values.proxy.enabled }}
 ---
 # Traefik IngressRoute management permissions
 # IngressRoutes are CRDs managed by the backend during workspace provisioning
@@ -55,5 +54,4 @@ roleRef:
   kind: Role
   name: {{ include "moatless-vibe.fullname" . }}-ingressroute-manager
   apiGroup: rbac.authorization.k8s.io
-{{- end }}
 {{- end }}

@@ -41,9 +41,8 @@ serviceAccount:
 # -- Pod annotations
 podAnnotations: {}
 
-# -- Pod security context
-# fsGroup ensures PVC-backed volumes have proper group ownership (GID 1000)
-# Containers run as root to allow npm/npx installs, Playwright, etc.
+# -- Pod security context (DEPRECATED: use kubernetes.sandboxPodSecurityContext)
+# Only consumed by sandbox pods. Kept as fallback for backward compatibility.
 podSecurityContext:
   fsGroup: 1000
 
@@ -112,8 +111,6 @@ proxyIngress:
 
 # Hostname-based proxy configuration
 proxy:
-  # -- Enable hostname-based routing for previews
-  enabled: true
   # -- Domain for proxy routing (e.g., preview.example.com)
   domain: "preview.example.com"
   # -- Protocol (http or https)
@@ -127,33 +124,34 @@ proxy:
     enabled: false
   # -- Traefik entryPoint name for IngressRoutes ("web" when ALB terminates TLS, "websecure" for direct TLS)
   traefikEntryPoint: "websecure"
-  # Backend service configuration (proxy + workspace orchestration + auth + tasks + agent + all API routes)
-  backend:
-    # -- Backend service is always deployed (handles all API traffic)
-    enabled: true
-    # -- Number of replicas for backend service
-    replicas: 2
-    # -- Backend service image
-    image:
-      repository: aorwall/moatless-vibe-backend
-      tag: ""
-      pullPolicy: Always
-    # -- Resource limits for backend service (handles all API traffic)
-    resources:
-      limits:
-        cpu: "1"
-        memory: 512Mi
-      requests:
-        cpu: 250m
-        memory: 128Mi
-    # -- Log level (RUST_LOG format)
-    logLevel: "info"
-    # -- Pod annotations
-    podAnnotations: {}
-    # -- Sandbox image for sandbox pods
-    sandboxImage: ""
-    # -- Shared storage PVC name for plugins
-    sharedStoragePvcName: ""
+
+# Backend service configuration (proxy + workspace orchestration + auth + tasks + agent + all API routes)
+backend:
+  # -- Number of replicas for backend service
+  replicas: 2
+  # -- Backend service image
+  image:
+    repository: aorwall/moatless-vibe-backend
+    tag: ""
+    pullPolicy: Always
+  # -- Resource limits for backend service (handles all API traffic)
+  resources:
+    limits:
+      cpu: "1"
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 128Mi
+  # -- gRPC port for backend-to-sandbox communication
+  grpcPort: 50051
+  # -- Log level (RUST_LOG format)
+  logLevel: "info"
+  # -- Pod annotations
+  podAnnotations: {}
+  # -- Sandbox image for sandbox pods
+  sandboxImage: ""
+  # -- Shared storage PVC name for plugins
+  sharedStoragePvcName: ""
 
 # Traefik Dashboard (requires Traefik api.dashboard=true)
 traefikDashboard:
@@ -335,6 +333,8 @@ kubernetes:
     requests:
       cpu: "1"
       memory: 2Gi
+  # -- gRPC port on sandbox pods (for backend→sandbox communication)
+  sandboxGrpcPort: 50052
   # -- Pod startup timeout in seconds
   podStartupTimeout: 120
   # -- Health check interval in seconds
@@ -354,7 +354,7 @@ kubernetes:
     # -- Node environment
     nodeEnv: "production"
     # -- Log level for sandbox pods (defaults to config.logLevel if empty)
-    logLevel: ""
+    logLevel: "info"
     # -- Workspace directory inside the sandbox container
     workspaceDir: "/opt/moatless/repo"
     # -- Data directory inside the sandbox container
@@ -370,6 +370,14 @@ kubernetes:
   # -- Tolerations for sandbox pods (overrides top-level tolerations)
   # If empty, falls back to top-level tolerations
   sandboxTolerations: []
+  # -- Affinity rules for sandbox pods (no fallback to top-level affinity)
+  # Top-level affinity contains anti-affinity for app pods (label: moatless-vibe)
+  # which doesn't match sandbox pods (label: moatless-sandbox).
+  sandboxAffinity: {}
+  # -- Pod security context for sandbox pods
+  # fsGroup ensures PVC-backed volumes have proper group ownership (GID 1000)
+  sandboxPodSecurityContext:
+    fsGroup: 1000
   # -- Pod-level sysctls for sandbox pods (must be "safe" or allowed by kubelet)
   # Only namespaced/safe sysctls are included by default. These work on K8s 1.29+.
   # For K8s < 1.29, remove the tcp_keepalive_* entries (they require --allowed-unsafe-sysctls).
@@ -461,6 +469,9 @@ rbac:
     - apiGroups: ["apps"]
       resources: ["replicasets"]
       verbs: ["get", "list", "delete"]
+    - apiGroups: ["coordination.k8s.io"]
+      resources: ["leases"]
+      verbs: ["get", "create", "update", "patch"]
 
 # Extra environment variables (dynamically injected into deployment)
 # Add any custom environment variables here as key-value pairs
