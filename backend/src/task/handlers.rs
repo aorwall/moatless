@@ -3,6 +3,8 @@
 use axum::extract::{Path, Query, State};
 use axum::Json;
 
+use moatless_events::TaskSubType;
+
 use crate::db::{repository_dao, tag_dao, task_dao, users};
 use crate::db::models::TaskRow;
 use crate::db::task_dao::TaskPatch;
@@ -74,7 +76,7 @@ pub async fn create_task(
         events
             .publish_task_event(
                 &task_id,
-                "open",
+                TaskSubType::Open,
                 Some(&row.agent_type),
                 serde_json::json!({}),
             )
@@ -169,7 +171,7 @@ pub async fn create_vibe_task(
 
     if let Some(ref events) = state.events {
         events
-            .publish_task_event(&task_id, "open", Some("claude-code"), serde_json::json!({}))
+            .publish_task_event(&task_id, TaskSubType::Open, Some("claude-code"), serde_json::json!({}))
             .await;
     }
 
@@ -453,7 +455,7 @@ pub async fn close_task(
         events
             .publish_task_event(
                 &task_id,
-                "closed",
+                TaskSubType::Closed,
                 Some(&row.agent_type),
                 serde_json::json!({}),
             )

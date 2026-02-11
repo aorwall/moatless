@@ -12,7 +12,7 @@ export const EventTypeSchema = z.enum([
   'task', // Task lifecycle
   'taskTurn', // Task turn execution
   'workspace', // Workspace operations
-  'environment', // Environment setup/status, TODO: Replace this with workspace event  and replace workspace status with the status set on environment
+  'sandbox', // Sandbox lifecycle (was 'environment')
   'agent', // Agent lifecycle + messages + results
   'server', // Preview server management
   'navigation', // Preview navigation events, TODO: Investigate if we use / can use this
@@ -111,7 +111,7 @@ export const TaskEventSchema = BaseEventSchema.extend({
 // Task turn event
 export const TaskTurnEventSchema = BaseEventSchema.extend({
   type: z.literal('taskTurn'),
-  subType: z.enum(['active', 'completed', 'error']),
+  subType: z.enum(['active', 'completed', 'error', 'stopped']),
   agentType: z.string(),
   turnNumber: z.number(),
   payload: TaskTurnPayloadSchema,
@@ -124,9 +124,9 @@ export const WorkspaceEventSchema = BaseEventSchema.extend({
   payload: EventPayloadSchema,
 })
 
-// Environment event
-export const EnvironmentEventSchema = BaseEventSchema.extend({
-  type: z.literal('environment'),
+// Sandbox lifecycle event (was EnvironmentEventSchema)
+export const SandboxEventSchema = BaseEventSchema.extend({
+  type: z.literal('sandbox'),
   subType: EnvironmentStatusSchema,
   payload: EventPayloadSchema,
 })
@@ -185,7 +185,7 @@ export const EventSchema = z.discriminatedUnion('type', [
   TaskEventSchema,
   TaskTurnEventSchema,
   WorkspaceEventSchema,
-  EnvironmentEventSchema,
+  SandboxEventSchema,
   ServerEventSchema,
   NavigationEventSchema,
   PreviewEventSchema,

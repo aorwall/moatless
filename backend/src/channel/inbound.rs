@@ -161,7 +161,7 @@ async fn create_task_for_channel(
         events
             .publish_task_event(
                 &task_id,
-                "open",
+                moatless_events::TaskSubType::Open,
                 Some("claude-code"),
                 serde_json::json!({"channel": config.provider, "source_id": config.source_id}),
             )

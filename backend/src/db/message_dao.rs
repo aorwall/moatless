@@ -295,6 +295,25 @@ pub async fn delete_queued(
     Ok(result.rows_affected() > 0)
 }
 
+/// Get the `message_type` of the most recent message for a task.
+///
+/// Returns `None` if no messages exist, or `Some("result")` / `Some("user")` / etc.
+pub async fn get_last_message_type(
+    pool: &DbPool,
+    task_id: &str,
+) -> Result<Option<String>, sqlx::Error> {
+    let row: Option<(String,)> = sqlx::query_as(
+        r#"SELECT message_type FROM task_messages
+           WHERE task_id = $1
+           ORDER BY timestamp DESC, id DESC
+           LIMIT 1"#,
+    )
+    .bind(task_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.map(|r| r.0))
+}
+
 /// Get the latest message timestamp for each of the given task IDs (batch).
 ///
 /// Task IDs with no messages are absent from the returned map.

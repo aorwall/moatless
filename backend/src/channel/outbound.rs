@@ -97,7 +97,13 @@ pub async fn handle_channel_notification(
                 }
             }
 
-            _ => {}
+            _ => {
+                debug!(
+                    task_id = %event.task_id,
+                    event_key = %key,
+                    "Event type not handled for channel notifications"
+                );
+            }
         }
     }
 }

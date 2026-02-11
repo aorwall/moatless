@@ -1,5 +1,7 @@
 //! Agent event handlers — process agent.completed, agent.stopped, agent.error events.
 
+use moatless_events::{TaskSubType, TaskTurnSubType};
+
 use crate::db::{message_dao, tag_dao, task_dao};
 use crate::db::models::{TaskMessageContentBlockRow, TaskMessageContextRow, TaskMessageRow};
 use crate::db::task_dao::TaskPatch;
@@ -7,17 +9,58 @@ use crate::state::AppState;
 
 use super::types::{AgentEvent, SdkResultMessage};
 
+/// Check if a result message already exists for the current turn (after the last user message).
+/// Returns `true` if a duplicate should be skipped.
+async fn has_result_for_current_turn(state: &AppState, task_id: &str) -> bool {
+    let last_result = match message_dao::get_last_result(&state.db, task_id).await {
+        Ok(Some(r)) => r,
+        _ => return false,
+    };
+
+    let (messages, _, _) = match message_dao::get_all(&state.db, task_id).await {
+        Ok(data) => data,
+        Err(_) => return false,
+    };
+
+    let last_user_ts = messages
+        .iter()
+        .rev()
+        .find(|m| m.message_type == "user")
+        .map(|m| m.timestamp.as_str());
+
+    match last_user_ts {
+        Some(user_ts) => last_result.timestamp.as_str() >= user_ts,
+        None => true, // No user messages at all, result already exists
+    }
+}
+
 /// Handle `agent.completed` event.
 ///
 /// Parses the SDK result, determines turn status, appends result message,
 /// updates task, and emits events.
 pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
+    // Idempotency: skip if a result already exists for the current turn
+    if has_result_for_current_turn(state, &event.task_id).await {
+        tracing::debug!(task_id = %event.task_id, "Skipping agent.completed — result already exists for current turn");
+        return;
+    }
     let sdk_result: Option<SdkResultMessage> =
-        serde_json::from_value(event.payload.clone()).ok();
+        match serde_json::from_value(event.payload.clone()) {
+            Ok(r) => Some(r),
+            Err(e) => {
+                tracing::warn!(
+                    task_id = %event.task_id,
+                    error = %e,
+                    "Failed to parse agent.completed payload — treating as error"
+                );
+                None
+            }
+        };
 
     let (turn_status, will_not_resume, task_status) = match &sdk_result {
         Some(r) if r.is_error.unwrap_or(false) => ("error", true, "error"),
-        _ => ("completed", false, "open"),
+        Some(_) => ("completed", false, "open"),
+        None => ("error", true, "error"),
     };
 
     // Build result text
@@ -72,20 +115,29 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
 
     // Emit events
     if let Some(ref events) = state.events {
+        let turn_sub = match turn_status {
+            "error" => TaskTurnSubType::Error,
+            _ => TaskTurnSubType::Completed,
+        };
         events
             .publish_task_turn_event(
                 &event.task_id,
-                turn_status,
+                turn_sub,
                 event.agent_type.as_deref(),
                 event.turn_number,
                 event.payload.clone(),
             )
             .await;
 
+        let task_sub = match task_status {
+            "open" => TaskSubType::Open,
+            "closed" => TaskSubType::Closed,
+            _ => TaskSubType::Updated,
+        };
         events
             .publish_task_event(
                 &event.task_id,
-                task_status,
+                task_sub,
                 event.agent_type.as_deref(),
                 serde_json::json!({}),
             )
@@ -95,6 +147,12 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
 
 /// Handle `agent.stopped` event — user requested stop.
 pub async fn handle_agent_stopped(state: &AppState, event: &AgentEvent) {
+    // Idempotency: skip if a result already exists for the current turn
+    if has_result_for_current_turn(state, &event.task_id).await {
+        tracing::debug!(task_id = %event.task_id, "Skipping agent.stopped — result already exists for current turn");
+        return;
+    }
+
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let msg_uuid = uuid::Uuid::new_v4().to_string();
 
@@ -142,7 +200,7 @@ pub async fn handle_agent_stopped(state: &AppState, event: &AgentEvent) {
         events
             .publish_task_turn_event(
                 &event.task_id,
-                "stopped",
+                TaskTurnSubType::Stopped,
                 event.agent_type.as_deref(),
                 event.turn_number,
                 event.payload.clone(),
@@ -153,6 +211,23 @@ pub async fn handle_agent_stopped(state: &AppState, event: &AgentEvent) {
 
 /// Handle `agent.error` event.
 pub async fn handle_agent_error(state: &AppState, event: &AgentEvent) {
+    // Guard: only create error result if task has messages and last isn't already a result
+    match message_dao::get_last_message_type(&state.db, &event.task_id).await {
+        Ok(None) => {
+            tracing::debug!(task_id = %event.task_id, "Skipping agent.error — no messages exist for task");
+            return;
+        }
+        Ok(Some(ref t)) if t == "result" => {
+            tracing::debug!(task_id = %event.task_id, "Skipping agent.error — last message is already a result");
+            return;
+        }
+        Ok(Some(_)) => {} // Has messages, last is not result — proceed
+        Err(e) => {
+            tracing::warn!(task_id = %event.task_id, error = %e, "Failed to check message state for agent.error");
+            return; // Fail safe: don't create orphan results
+        }
+    }
+
     let error_msg = event
         .payload
         .get("error")
@@ -192,7 +267,7 @@ pub async fn handle_agent_error(state: &AppState, event: &AgentEvent) {
         &state.db,
         &event.task_id,
         &TaskPatch {
-            status: Some("error".to_string()),
+            status: Some("open".to_string()),
             last_message_at: Some(now),
             ..Default::default()
         },
@@ -206,7 +281,7 @@ pub async fn handle_agent_error(state: &AppState, event: &AgentEvent) {
         events
             .publish_task_turn_event(
                 &event.task_id,
-                "error",
+                TaskTurnSubType::Error,
                 event.agent_type.as_deref(),
                 event.turn_number,
                 event.payload.clone(),
@@ -294,7 +369,7 @@ fn build_result_text(sdk_result: &Option<SdkResultMessage>) -> String {
                 }
             }
         }
-        None => "Agent completed (no result data)".to_string(),
+        None => "Agent completed (unreadable result)".to_string(),
     }
 }
 
@@ -477,7 +552,7 @@ mod tests {
     fn build_result_text_none() {
         assert_eq!(
             build_result_text(&None),
-            "Agent completed (no result data)"
+            "Agent completed (unreadable result)"
         );
     }
 

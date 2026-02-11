@@ -72,7 +72,7 @@ pub fn transform_to_ui(
                 ui_messages.push(ui_msg);
             }
             "result" => {
-                let ui_msg = transform_result(msg);
+                let ui_msg = transform_result(msg, &msg_blocks);
                 ui_messages.push(ui_msg);
             }
             _ => {}
@@ -211,7 +211,24 @@ fn transform_system(msg: &TaskMessageRow) -> UiMessage {
     }
 }
 
-fn transform_result(msg: &TaskMessageRow) -> UiMessage {
+fn transform_result(msg: &TaskMessageRow, blocks: &[&TaskMessageContentBlockRow]) -> UiMessage {
+    let content = if blocks.is_empty() {
+        extract_text_from_content(&msg.message_content)
+    } else {
+        blocks
+            .iter()
+            .filter(|b| b.show_in_ui)
+            .map(|b| UiContentBlock {
+                block_type: b.block_type.clone(),
+                text: b.text_content.clone(),
+                tool_use_id: None,
+                tool_name: None,
+                tool_input: None,
+                show_in_ui: Some(true),
+            })
+            .collect()
+    };
+
     UiMessage {
         uuid: msg.uuid.clone(),
         message_type: msg.message_type.clone(),
@@ -222,7 +239,7 @@ fn transform_result(msg: &TaskMessageRow) -> UiMessage {
         agent_mode: None,
         model: None,
         is_queued: None,
-        content: vec![],
+        content,
         tool_results: vec![],
         has_pending_user_input: None,
         assistant: None,

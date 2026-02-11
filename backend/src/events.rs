@@ -1,4 +1,4 @@
-//! Redis event publisher for environment and task lifecycle events.
+//! Redis event publisher for sandbox and task lifecycle events.
 //!
 //! Publishes events to Redis Streams that the frontend consumes via SSE.
 //! The stream format must match exactly:
@@ -6,16 +6,20 @@
 //! ```text
 //! XADD task-events:{taskId} MAXLEN ~ {max} *
 //!   eventId {uuid}
-//!   type environment|task|taskTurn
+//!   type sandbox|task|taskTurn|agent|server|resources
 //!   payload {fullEventJson}
 //! ```
 
+use moatless_events::{
+    AgentSubType, EventType, SandboxSubType, ServerEventPayload, ServerSubType, SubType,
+    TaskSubType, TaskTurnSubType,
+};
 use redis::aio::ConnectionManager;
 use serde::Serialize;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
-/// Publishes environment lifecycle events to Redis Streams.
+/// Publishes lifecycle events to Redis Streams.
 ///
 /// Uses `ConnectionManager` for automatic reconnection. All publish
 /// operations are fire-and-forget — failures are logged but never
@@ -73,75 +77,169 @@ impl RedisEventPublisher {
         }
     }
 
-    /// Publish an environment lifecycle event.
-    ///
-    /// Fire-and-forget: logs warnings on failure, never returns errors.
-    pub async fn publish_environment_event(
+    // =========================================================================
+    // Typed publish methods
+    // =========================================================================
+
+    /// Publish a sandbox lifecycle event (renamed from `publish_environment_event`).
+    pub async fn publish_sandbox_event(
         &self,
         task_id: &str,
-        sub_type: &str,
+        sub_type: SandboxSubType,
         error_message: Option<&str>,
     ) {
         let payload = match error_message {
             Some(msg) => serde_json::json!({ "error": msg }),
             None => serde_json::json!({}),
         };
-        self.publish_environment_event_with_payload(task_id, sub_type, payload)
+        self.publish_sandbox_event_with_payload(task_id, sub_type, payload)
             .await;
     }
 
-    /// Publish an environment lifecycle event with a custom JSON payload.
-    ///
-    /// Fire-and-forget: logs warnings on failure, never returns errors.
-    pub async fn publish_environment_event_with_payload(
+    /// Publish a sandbox lifecycle event with a custom JSON payload.
+    pub async fn publish_sandbox_event_with_payload(
         &self,
         task_id: &str,
-        sub_type: &str,
+        sub_type: SandboxSubType,
         payload: serde_json::Value,
     ) {
-        self.publish_event(task_id, "environment", sub_type, None, None, payload)
-            .await;
+        self.publish_event_typed(
+            task_id,
+            EventType::Sandbox,
+            sub_type.into(),
+            None,
+            None,
+            payload,
+        )
+        .await;
     }
 
-    /// Publish a task lifecycle event (e.g. "open", "closed", "running").
+    /// Publish a server container event.
+    pub async fn publish_server_event(
+        &self,
+        task_id: &str,
+        sub_type: ServerSubType,
+        payload: &ServerEventPayload,
+    ) {
+        let payload_value = serde_json::to_value(payload).unwrap_or_default();
+        self.publish_event_typed(
+            task_id,
+            EventType::Server,
+            sub_type.into(),
+            None,
+            None,
+            payload_value,
+        )
+        .await;
+    }
+
+    /// Publish a task lifecycle event (e.g. "open", "closed").
     pub async fn publish_task_event(
         &self,
         task_id: &str,
-        sub_type: &str,
+        sub_type: TaskSubType,
         agent_type: Option<&str>,
         payload: serde_json::Value,
     ) {
-        self.publish_event(task_id, "task", sub_type, agent_type, None, payload)
-            .await;
+        self.publish_event_typed(
+            task_id,
+            EventType::Task,
+            sub_type.into(),
+            agent_type,
+            None,
+            payload,
+        )
+        .await;
     }
 
     /// Publish an agent lifecycle event (e.g. "completed", "error", "message", "stopped").
     pub async fn publish_agent_event(
         &self,
         task_id: &str,
-        sub_type: &str,
+        sub_type: AgentSubType,
         agent_type: Option<&str>,
         payload: serde_json::Value,
     ) {
-        self.publish_event(task_id, "agent", sub_type, agent_type, None, payload)
-            .await;
+        self.publish_event_typed(
+            task_id,
+            EventType::Agent,
+            sub_type.into(),
+            agent_type,
+            None,
+            payload,
+        )
+        .await;
     }
 
-    /// Publish a task turn event (e.g. "active", "completed", "failed").
+    /// Publish a task turn event (e.g. "active", "completed", "error").
     pub async fn publish_task_turn_event(
         &self,
         task_id: &str,
+        sub_type: TaskTurnSubType,
+        agent_type: Option<&str>,
+        turn_number: Option<i32>,
+        payload: serde_json::Value,
+    ) {
+        self.publish_event_typed(
+            task_id,
+            EventType::TaskTurn,
+            sub_type.into(),
+            agent_type,
+            turn_number,
+            payload,
+        )
+        .await;
+    }
+
+    /// Publish a raw event with string types — used only by the gRPC server
+    /// to forward events from the sandbox without re-parsing sub_types.
+    pub async fn publish_raw_event(
+        &self,
+        task_id: &str,
+        event_type: &str,
         sub_type: &str,
         agent_type: Option<&str>,
         turn_number: Option<i32>,
         payload: serde_json::Value,
     ) {
-        self.publish_event(task_id, "taskTurn", sub_type, agent_type, turn_number, payload)
-            .await;
+        self.publish_event_internal(
+            task_id,
+            event_type,
+            sub_type,
+            agent_type,
+            turn_number,
+            payload,
+        )
+        .await;
+    }
+
+    // =========================================================================
+    // Internal
+    // =========================================================================
+
+    /// Internal: typed event publish.
+    async fn publish_event_typed(
+        &self,
+        task_id: &str,
+        event_type: EventType,
+        sub_type: SubType,
+        agent_type: Option<&str>,
+        turn_number: Option<i32>,
+        payload: serde_json::Value,
+    ) {
+        self.publish_event_internal(
+            task_id,
+            event_type.as_str(),
+            sub_type.as_str(),
+            agent_type,
+            turn_number,
+            payload,
+        )
+        .await;
     }
 
     /// Internal: publish a generic event to the Redis stream.
-    async fn publish_event(
+    async fn publish_event_internal(
         &self,
         task_id: &str,
         event_type: &str,
@@ -152,7 +250,7 @@ impl RedisEventPublisher {
     ) {
         let event_id = Uuid::new_v4().to_string();
         let timestamp = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-        let is_error = sub_type == "error" || sub_type == "server_failed";
+        let is_error = sub_type == "error" || sub_type == "failed";
 
         let event = StreamEvent {
             event_id: event_id.clone(),

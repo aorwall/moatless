@@ -94,18 +94,17 @@ pub async fn send_message_flow(
 
     tracing::info!(task_id = %task_id, "Message persisted");
 
-    // Update task status to running
+    // Update task last_message_at (running state is derived on frontend)
     task_dao::update_task(
         &state.db,
         task_id,
         &TaskPatch {
-            status: Some("running".to_string()),
             last_message_at: Some(now),
             ..Default::default()
         },
     )
     .await
-    .map_err(|e| MessageError::Internal(format!("Failed to update task status: {e}")))?;
+    .map_err(|e| MessageError::Internal(format!("Failed to update task: {e}")))?;
 
     Ok(())
 }

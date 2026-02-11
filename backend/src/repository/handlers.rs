@@ -285,7 +285,7 @@ pub async fn get_branches(
             ))
         })?;
 
-    let branches = match provider {
+    let result = match provider {
         "github" => fetch_github_branches(remote_url, &token.access_token).await?,
         "gitlab" => fetch_gitlab_branches(remote_url, &token.access_token).await?,
         _ => {
@@ -295,7 +295,23 @@ pub async fn get_branches(
         }
     };
 
-    let default_branch = repo.default_branch.clone();
+    let default_branch = repo
+        .default_branch
+        .clone()
+        .or(result.default_branch.clone());
+
+    // Persist provider-reported default_branch back to DB if missing
+    if repo.default_branch.is_none() {
+        if let Some(ref branch) = default_branch {
+            let patch = RepositoryPatch {
+                default_branch: Some(Some(branch.clone())),
+                ..Default::default()
+            };
+            let _ = repository_dao::update(&state.db, &repository_id, &patch).await;
+        }
+    }
+
+    let branches = result.branches;
 
     // Sort: default branch first, then alphabetical
     let mut entries: Vec<BranchEntry> = branches
@@ -325,6 +341,12 @@ pub async fn get_branches(
 // Provider branch helpers
 // =============================================================================
 
+/// Result from fetching branches from a provider, including the detected default branch.
+struct BranchFetchResult {
+    branches: Vec<String>,
+    default_branch: Option<String>,
+}
+
 /// Parse a GitHub remote URL into owner/repo.
 fn parse_github_owner_repo(remote_url: &str) -> Option<(String, String)> {
     // Handles: https://github.com/owner/repo.git or https://github.com/owner/repo
@@ -341,16 +363,18 @@ fn parse_github_owner_repo(remote_url: &str) -> Option<(String, String)> {
     }
 }
 
-/// Fetch branches from GitHub API.
+/// Fetch branches from GitHub API, including the default branch from the repo endpoint.
 async fn fetch_github_branches(
     remote_url: &str,
     token: &str,
-) -> Result<Vec<String>, RepositoryError> {
+) -> Result<BranchFetchResult, RepositoryError> {
     let (owner, repo) = parse_github_owner_repo(remote_url).ok_or_else(|| {
         RepositoryError::BadRequest(format!("Cannot parse GitHub URL: {remote_url}"))
     })?;
 
     let client = reqwest::Client::new();
+
+    // Fetch branches
     let resp = client
         .get(format!(
             "https://api.github.com/repos/{owner}/{repo}/branches?per_page=100"
@@ -380,14 +404,40 @@ async fn fetch_github_branches(
         .await
         .map_err(|e| RepositoryError::ProviderError(format!("Failed to parse GitHub response: {e}")))?;
 
-    Ok(branches.into_iter().map(|b| b.name).collect())
+    // Fetch repo metadata to get default_branch (best-effort)
+    let default_branch = match client
+        .get(format!("https://api.github.com/repos/{owner}/{repo}"))
+        .header("Authorization", format!("Bearer {token}"))
+        .header("User-Agent", "moatless-vibe-backend")
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .await
+    {
+        Ok(repo_resp) if repo_resp.status().is_success() => {
+            #[derive(serde::Deserialize)]
+            struct GhRepo {
+                default_branch: Option<String>,
+            }
+            repo_resp
+                .json::<GhRepo>()
+                .await
+                .ok()
+                .and_then(|r| r.default_branch)
+        }
+        _ => None,
+    };
+
+    Ok(BranchFetchResult {
+        branches: branches.into_iter().map(|b| b.name).collect(),
+        default_branch,
+    })
 }
 
-/// Fetch branches from GitLab API.
+/// Fetch branches from GitLab API, detecting the default branch from the response.
 async fn fetch_gitlab_branches(
     remote_url: &str,
     token: &str,
-) -> Result<Vec<String>, RepositoryError> {
+) -> Result<BranchFetchResult, RepositoryError> {
     // For GitLab we need the project ID (URL-encoded path)
     // https://gitlab.com/owner/repo → owner%2Frepo
     let url = remote_url
@@ -424,6 +474,7 @@ async fn fetch_gitlab_branches(
     #[derive(serde::Deserialize)]
     struct GlBranch {
         name: String,
+        default: Option<bool>,
     }
 
     let branches: Vec<GlBranch> = resp
@@ -431,7 +482,15 @@ async fn fetch_gitlab_branches(
         .await
         .map_err(|e| RepositoryError::ProviderError(format!("Failed to parse GitLab response: {e}")))?;
 
-    Ok(branches.into_iter().map(|b| b.name).collect())
+    let default_branch = branches
+        .iter()
+        .find(|b| b.default == Some(true))
+        .map(|b| b.name.clone());
+
+    Ok(BranchFetchResult {
+        branches: branches.into_iter().map(|b| b.name).collect(),
+        default_branch,
+    })
 }
 
 #[cfg(test)]

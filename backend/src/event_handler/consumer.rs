@@ -197,7 +197,7 @@ impl EventHandlerConsumer {
                     if let Ok(event) = serde_json::from_str::<AgentEvent>(&payload_str) {
                         self.dispatch_event(&event).await;
                     } else {
-                        debug!(entry_id = %entry_id, "Failed to parse event payload, skipping");
+                        warn!(entry_id = %entry_id, "Failed to parse event payload, ACKing to prevent redelivery");
                     }
                 }
 
@@ -248,8 +248,20 @@ impl EventHandlerConsumer {
             "task.metadata.updated" => {
                 agent_handlers::handle_task_metadata_updated(&self.state, event).await;
             }
+            // Known SSE-only event types — forwarded to frontend but not processed here
+            key if key.starts_with("sandbox.") || key.starts_with("server.") || key.starts_with("resources.") => {
+                debug!(
+                    task_id = %event.task_id,
+                    event_key = %key,
+                    "SSE-only event type, skipping"
+                );
+            }
             _ => {
-                // Not an event we handle — skip silently
+                warn!(
+                    task_id = %event.task_id,
+                    event_key = %key,
+                    "Unhandled event type — event not processed"
+                );
             }
         }
     }
