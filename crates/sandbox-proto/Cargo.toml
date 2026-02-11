@@ -8,6 +8,7 @@ license = "AGPL-3.0-or-later"
 [dependencies]
 tonic = "0.12"
 prost = "0.13"
+moatless-events = { path = "../events" }
 
 [build-dependencies]
 tonic-build = "0.12"

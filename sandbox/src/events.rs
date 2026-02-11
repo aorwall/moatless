@@ -7,6 +7,7 @@
 //! directly to Redis from the sandbox. The public API is unchanged —
 //! all publish methods are fire-and-forget.
 
+use moatless_events::{AgentSubType, EventType, TaskSubType, TaskTurnSubType};
 use sandbox_proto::PublishEventRequest;
 use tracing::debug;
 
@@ -36,11 +37,10 @@ impl GrpcEventPublisher {
     pub async fn publish_task_event(
         &self,
         task_id: &str,
-        sub_type: &str,
-        agent_type: Option<&str>,
+        sub_type: TaskSubType,
         payload: serde_json::Value,
     ) {
-        self.publish_event(task_id, "task", sub_type, agent_type, None, payload)
+        self.publish_event(task_id, EventType::Task, sub_type.as_str(), payload)
             .await;
     }
 
@@ -51,11 +51,10 @@ impl GrpcEventPublisher {
     pub async fn publish_agent_event(
         &self,
         task_id: &str,
-        sub_type: &str,
-        agent_type: Option<&str>,
+        sub_type: AgentSubType,
         payload: serde_json::Value,
     ) {
-        self.publish_event(task_id, "agent", sub_type, agent_type, None, payload)
+        self.publish_event(task_id, EventType::Agent, sub_type.as_str(), payload)
             .await;
     }
 
@@ -64,12 +63,10 @@ impl GrpcEventPublisher {
     pub async fn publish_task_turn_event(
         &self,
         task_id: &str,
-        sub_type: &str,
-        agent_type: Option<&str>,
-        turn_number: Option<i32>,
+        sub_type: TaskTurnSubType,
         payload: serde_json::Value,
     ) {
-        self.publish_event(task_id, "taskTurn", sub_type, agent_type, turn_number, payload)
+        self.publish_event(task_id, EventType::TaskTurn, sub_type.as_str(), payload)
             .await;
     }
 
@@ -77,14 +74,10 @@ impl GrpcEventPublisher {
     async fn publish_event(
         &self,
         task_id: &str,
-        event_type: &str,
+        event_type: EventType,
         sub_type: &str,
-        agent_type: Option<&str>,
-        turn_number: Option<i32>,
         payload: serde_json::Value,
     ) {
-        let is_error = sub_type == "error" || sub_type == "server_failed";
-
         let payload_json = match serde_json::to_string(&payload) {
             Ok(json) => json,
             Err(e) => {
@@ -100,14 +93,13 @@ impl GrpcEventPublisher {
             "Publishing event via gRPC"
         );
 
+        let proto_event_type: sandbox_proto::EventType = event_type.into();
+
         self.client
             .publish_event(PublishEventRequest {
                 task_id: task_id.to_string(),
-                event_type: event_type.to_string(),
+                event_type: proto_event_type as i32,
                 sub_type: sub_type.to_string(),
-                agent_type: agent_type.map(|s| s.to_string()),
-                turn_number,
-                is_error,
                 payload_json,
             })
             .await;

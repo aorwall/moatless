@@ -97,56 +97,41 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         let payload: serde_json::Value =
             serde_json::from_str(&event.payload_json).unwrap_or_default();
 
-        // Route to the appropriate publish method based on event type
-        match event.event_type.as_str() {
-            "environment" => {
-                publisher
-                    .publish_environment_event_with_payload(&event.task_id, &event.sub_type, payload)
-                    .await;
+        // Convert proto EventType enum to moatless_events type
+        let proto_event_type = sandbox_proto::EventType::try_from(event.event_type);
+
+        let event_type_str = match proto_event_type {
+            Ok(sandbox_proto::EventType::Task) => "task",
+            Ok(sandbox_proto::EventType::TaskTurn) => "taskTurn",
+            Ok(sandbox_proto::EventType::Sandbox) => "sandbox",
+            Ok(sandbox_proto::EventType::Agent) => "agent",
+            Ok(sandbox_proto::EventType::Server) => "server",
+            Ok(sandbox_proto::EventType::Resources) => "resources",
+            Err(_) => {
+                warn!(
+                    event_type = event.event_type,
+                    task_id = %event.task_id,
+                    "Unknown proto EventType value, rejecting"
+                );
+                return Err(Status::invalid_argument(format!(
+                    "Unknown event_type: {}",
+                    event.event_type
+                )));
             }
-            "task" => {
-                publisher
-                    .publish_task_event(
-                        &event.task_id,
-                        &event.sub_type,
-                        event.agent_type.as_deref(),
-                        payload,
-                    )
-                    .await;
-            }
-            "agent" => {
-                publisher
-                    .publish_agent_event(
-                        &event.task_id,
-                        &event.sub_type,
-                        event.agent_type.as_deref(),
-                        payload,
-                    )
-                    .await;
-            }
-            "taskTurn" => {
-                publisher
-                    .publish_task_turn_event(
-                        &event.task_id,
-                        &event.sub_type,
-                        event.agent_type.as_deref(),
-                        event.turn_number,
-                        payload,
-                    )
-                    .await;
-            }
-            other => {
-                warn!(event_type = %other, "Unknown event type, publishing as task event");
-                publisher
-                    .publish_task_event(
-                        &event.task_id,
-                        &event.sub_type,
-                        event.agent_type.as_deref(),
-                        payload,
-                    )
-                    .await;
-            }
-        }
+        };
+
+        // Use raw publish — the sandbox already provides typed sub_type strings
+        // and the backend doesn't need to re-parse them for the Redis path.
+        publisher
+            .publish_raw_event(
+                &event.task_id,
+                event_type_str,
+                &event.sub_type,
+                None,
+                None,
+                payload,
+            )
+            .await;
 
         // Generate event ID matching the format publishers use
         let event_id = uuid::Uuid::new_v4().to_string();

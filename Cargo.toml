@@ -2,6 +2,7 @@
 members = [
     "backend",
     "sandbox",
+    "crates/events",
     "crates/figma-clipboard",
     "crates/claude-agent-sdk",
     "crates/sandbox-proto",

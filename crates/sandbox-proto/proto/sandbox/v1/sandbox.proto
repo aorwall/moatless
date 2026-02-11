@@ -14,14 +14,20 @@ service BackendSandboxService {
   rpc GetCredentials(GetCredentialsRequest) returns (GetCredentialsResponse);
 }
 
+enum EventType {
+  EVENT_TYPE_TASK = 0;
+  EVENT_TYPE_TASK_TURN = 1;
+  EVENT_TYPE_SANDBOX = 2;
+  EVENT_TYPE_AGENT = 3;
+  EVENT_TYPE_SERVER = 4;
+  EVENT_TYPE_RESOURCES = 5;
+}
+
 message PublishEventRequest {
   string task_id = 1;
-  string event_type = 2;       // "task", "taskTurn", "environment"
-  string sub_type = 3;         // "agent_started", "message", "agent_completed", etc.
-  optional string agent_type = 4;
-  optional int32 turn_number = 5;
-  bool is_error = 6;
-  string payload_json = 7;     // JSON string (preserved for existing consumer compatibility)
+  EventType event_type = 2;    // Typed event category
+  string sub_type = 3;         // Validated by receiver (varies per event_type)
+  string payload_json = 4;     // JSON string payload
 }
 
 message PublishEventResponse {
@@ -78,11 +84,7 @@ service SandboxService {
   rpc ExecuteAgent(ExecuteAgentRequest) returns (ExecuteAgentResponse);
   rpc StopAgent(StopAgentRequest) returns (StopAgentResponse);
   rpc NotifyMessages(NotifyMessagesRequest) returns (NotifyMessagesResponse);
-  rpc GetStatus(GetStatusRequest) returns (GetStatusResponse);
-  rpc CheckHealth(HealthCheckRequest) returns (HealthCheckResponse);
   rpc SearchFiles(SearchFilesRequest) returns (SearchFilesResponse);
-  rpc GetServerStatus(GetServerStatusRequest) returns (GetServerStatusResponse);
-  rpc StreamServerLogs(GetServerLogsRequest) returns (stream LogLine);
 }
 
 message ExecuteAgentRequest {
@@ -101,16 +103,6 @@ message StopAgentResponse {}
 message NotifyMessagesRequest {}
 message NotifyMessagesResponse {}
 
-message GetStatusRequest {}
-message GetStatusResponse {
-  string status_json = 1;     // JSON string matching existing /status response shape
-}
-
-message HealthCheckRequest {}
-message HealthCheckResponse {
-  bool healthy = 1;
-}
-
 message SearchFilesRequest {
   string query = 1;
   int32 limit = 2;
@@ -118,21 +110,4 @@ message SearchFilesRequest {
 
 message SearchFilesResponse {
   repeated string files = 1;
-}
-
-message GetServerStatusRequest {
-  string name = 1;
-}
-
-message GetServerStatusResponse {
-  string status_json = 1;     // JSON string matching existing server status shape
-}
-
-message GetServerLogsRequest {
-  string name = 1;
-  optional int32 lines = 2;
-}
-
-message LogLine {
-  string line = 1;
 }

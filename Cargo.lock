@@ -2683,6 +2683,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "moatless-events"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "utoipa",
+]
+
+[[package]]
 name = "moatless-sandbox"
 version = "0.1.0"
 dependencies = [
@@ -2692,6 +2701,7 @@ dependencies = [
  "claude-agent-sdk",
  "futures",
  "glob",
+ "moatless-events",
  "prost",
  "sandbox-proto",
  "serde",
@@ -2733,6 +2743,7 @@ dependencies = [
  "kube",
  "metrics",
  "metrics-exporter-prometheus",
+ "moatless-events",
  "moka",
  "nanoid",
  "prost",
@@ -3756,6 +3767,7 @@ dependencies = [
 name = "sandbox-proto"
 version = "0.1.0"
 dependencies = [
+ "moatless-events",
  "prost",
  "tonic",
  "tonic-build",
