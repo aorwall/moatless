@@ -62,8 +62,22 @@ spec:
               value: {{ .Values.kubernetes.namespace | default .Release.Namespace | quote }}
             - name: RUST_LOG
               value: {{ .Values.backend.logLevel | default "info" | quote }}
-            - name: SANDBOX_POD_TEMPLATE_PATH
-              value: "/etc/moatless/sandbox-pod-template.yaml"
+            - name: SANDBOX_IMAGE
+              value: {{ include "moatless-vibe.sandboxImage" . | quote }}
+            - name: SANDBOX_IMAGE_PULL_POLICY
+              value: {{ .Values.sandboxImage.pullPolicy | default "Always" | quote }}
+            - name: FILES_SERVER_IMAGE
+              value: "{{ .Values.kubernetes.filesServerImage.repository }}:{{ .Values.kubernetes.filesServerImage.tag | default "latest" }}"
+            - name: PREVIEW_SERVER_IMAGE
+              value: "{{ .Values.kubernetes.previewServerImage.repository }}:{{ .Values.kubernetes.previewServerImage.tag | default "latest" }}"
+            - name: SERVER_RESOURCES_CPU_LIMIT
+              value: {{ .Values.kubernetes.serverResources.limits.cpu | quote }}
+            - name: SERVER_RESOURCES_MEMORY_LIMIT
+              value: {{ .Values.kubernetes.serverResources.limits.memory | quote }}
+            - name: SERVER_RESOURCES_CPU_REQUEST
+              value: {{ .Values.kubernetes.serverResources.requests.cpu | quote }}
+            - name: SERVER_RESOURCES_MEMORY_REQUEST
+              value: {{ .Values.kubernetes.serverResources.requests.memory | quote }}
             {{- with .Values.backend.sandboxImage }}
             - name: K8S_SANDBOX_IMAGE
               value: {{ . | quote }}
@@ -253,10 +267,6 @@ spec:
                 name: {{ include "moatless-vibe.secretsName" . }}
           resources:
             {{- toYaml .Values.backend.resources | nindent 12 }}
-          volumeMounts:
-            - name: sandbox-pod-template
-              mountPath: /etc/moatless
-              readOnly: true
           livenessProbe:
             httpGet:
               path: /health
@@ -271,10 +281,6 @@ spec:
             initialDelaySeconds: 2
             periodSeconds: 5
             timeoutSeconds: 3
-      volumes:
-        - name: sandbox-pod-template
-          configMap:
-            name: {{ include "moatless-vibe.fullname" . }}-sandbox-pod-template
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

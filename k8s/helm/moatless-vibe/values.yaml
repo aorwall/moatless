@@ -333,6 +333,21 @@ kubernetes:
     requests:
       cpu: "1"
       memory: 2Gi
+  # -- Server container images (dynamic containers alongside sandbox)
+  filesServerImage:
+    repository: aorwall/moatless-vibe-files-server
+    tag: ""
+  previewServerImage:
+    repository: aorwall/moatless-vibe-preview-server
+    tag: ""
+  # -- Resource limits for server containers
+  serverResources:
+    limits:
+      cpu: "500m"
+      memory: 512Mi
+    requests:
+      cpu: "100m"
+      memory: 128Mi
   # -- gRPC port on sandbox pods (for backend→sandbox communication)
   sandboxGrpcPort: 50052
   # -- Pod startup timeout in seconds
