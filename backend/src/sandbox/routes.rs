@@ -28,7 +28,7 @@ pub struct SandboxApiState {
         handlers::provision_handler,
         handlers::status_handler,
         handlers::health_check_handler,
-        handlers::workspace_status_handler,
+        handlers::sandbox_status_handler,
         handlers::stop_handler,
         handlers::start_handler,
         handlers::restart_handler,
@@ -46,7 +46,7 @@ pub fn api_router(state: SandboxApiState) -> (axum::Router, utoipa::openapi::Ope
         .routes(routes!(handlers::provision_handler))
         .routes(routes!(handlers::status_handler))
         .routes(routes!(handlers::health_check_handler))
-        .routes(routes!(handlers::workspace_status_handler))
+        .routes(routes!(handlers::sandbox_status_handler))
         .routes(routes!(handlers::stop_handler))
         .routes(routes!(handlers::start_handler))
         .routes(routes!(handlers::restart_handler))

@@ -42,7 +42,7 @@ impl SandboxProvider for MockSandboxProvider {
         }
     }
 
-    async fn workspace_status(
+    async fn sandbox_status(
         &self,
         _task_id: &str,
     ) -> Result<WorkspaceStatusFullResponse, SandboxError> {
@@ -100,8 +100,16 @@ pub fn test_config() -> Config {
     Config {
         port: 0,
         metrics_port: 0,
+        grpc_port: 50051,
+        sandbox_grpc_port: 50052,
         sandbox_namespace: "test".into(),
-        sandbox_pod_template_path: None,
+        sandbox_image: "test-sandbox:latest".into(),
+        files_server_image: "test-files-server:latest".into(),
+        preview_server_image: "test-preview-server:latest".into(),
+        server_resources_cpu_limit: "500m".into(),
+        server_resources_memory_limit: "512Mi".into(),
+        server_resources_cpu_request: "100m".into(),
+        server_resources_memory_request: "128Mi".into(),
         k8s_sandbox_storage_enabled: false,
         k8s_sandbox_storage_size: "1Gi".into(),
         k8s_sandbox_storage_class: None,
@@ -141,6 +149,9 @@ pub fn test_config() -> Config {
         slack_bot_token: None,
         slack_signing_secret: None,
         slack_bot_user_id: None,
+        sandbox_idle_reaper_enabled: false,
+        sandbox_idle_timeout_minutes: 60,
+        sandbox_idle_check_interval_secs: 300,
     }
 }
 
@@ -154,6 +165,7 @@ pub fn test_app_state(pool: PgPool) -> AppState {
         events: None,
         s3: None,
         channel_providers: None,
+        sandbox_state: None,
     }
 }
 

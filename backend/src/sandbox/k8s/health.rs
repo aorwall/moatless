@@ -1,76 +1,83 @@
-//! Health check and status fetching for sandbox pods via gRPC.
+//! Health check and status fetching for sandbox pods.
 //!
-//! All sandbox communication now uses gRPC instead of HTTP.
+//! All status detection uses K8s-native mechanisms (pod conditions, container
+//! statuses, readiness probes). Agent state comes via event publishing to Redis.
 
 use axum::response::sse::Event;
 use futures::stream::BoxStream;
-use tracing::{debug, warn};
+use k8s_openapi::api::core::v1::Pod;
+use kube::api::{Api, ListParams, LogParams};
+use tracing::warn;
 
+use super::client::K8sClient;
+use super::pod_status::extract_container_observed_statuses;
 use crate::sandbox::grpc_client::SandboxGrpcClient;
-use crate::sandbox::types::{FileSearchResult, SandboxSnapshotStatus};
+use crate::sandbox::types::{ContainerObservedStatus, FileSearchResult};
 
-/// Check if a sandbox pod is healthy via its gRPC health endpoint.
-pub async fn check_pod_health(host: &str, port: u16) -> bool {
-    let url = format!("http://{host}:{port}");
-    let client = match SandboxGrpcClient::connect(&url) {
-        Ok(c) => c,
-        Err(_) => return false,
-    };
-    client.check_health().await
-}
-
-/// Check health using K8s service DNS via gRPC.
-pub async fn check_service_health(service_name: &str, namespace: &str, port: u16) -> bool {
-    let client = match SandboxGrpcClient::for_service(service_name, namespace, port) {
-        Ok(c) => c,
-        Err(_) => return false,
-    };
-    client.check_health().await
-}
-
-/// Fetch the sandbox snapshot status from a running sandbox pod via gRPC.
+/// Fetch server container statuses from K8s API.
 ///
-/// Returns `None` if the request fails or times out.
-pub async fn fetch_sandbox_status(
-    service_name: &str,
-    namespace: &str,
-    port: u16,
-) -> Option<SandboxSnapshotStatus> {
-    let client = match SandboxGrpcClient::for_service(service_name, namespace, port) {
-        Ok(c) => c,
-        Err(e) => {
-            warn!(service_name, error = %e, "Failed to create gRPC client for status");
-            return None;
+/// Reads containerStatuses from the pod matching the task ID,
+/// excludes the "sandbox" container, and returns observed statuses.
+pub async fn fetch_server_container_statuses(
+    k8s: &K8sClient,
+    task_id: &str,
+) -> Vec<ContainerObservedStatus> {
+    let pods_api: Api<Pod> = Api::namespaced(k8s.client.clone(), k8s.namespace());
+    let lp = ListParams::default().labels(&format!("moatless.io/task-id={task_id}"));
+
+    match pods_api.list(&lp).await {
+        Ok(list) => {
+            if let Some(pod) = list.items.first() {
+                extract_container_observed_statuses(pod)
+            } else {
+                vec![]
+            }
         }
-    };
-    client.get_status().await
+        Err(e) => {
+            warn!(task_id, error = %e, "Failed to fetch pod for container statuses");
+            vec![]
+        }
+    }
 }
 
-/// Stream server logs from the sandbox pod via gRPC, converted to SSE events.
-pub async fn stream_server_logs(
-    service_name: &str,
-    namespace: &str,
-    port: u16,
-    server_name: &str,
+/// Stream server container logs via K8s API, converted to SSE events.
+pub async fn stream_container_logs_k8s(
+    k8s: &K8sClient,
+    task_id: &str,
+    container_name: &str,
+    tail_lines: i64,
 ) -> Result<BoxStream<'static, Result<Event, crate::sandbox::error::SandboxError>>, String> {
-    let client = SandboxGrpcClient::for_service(service_name, namespace, port)
-        .map_err(|e| format!("Failed to create gRPC client: {e}"))?;
+    let pods_api: Api<Pod> = Api::namespaced(k8s.client.clone(), k8s.namespace());
+    let lp = ListParams::default().labels(&format!("moatless.io/task-id={task_id}"));
 
-    let mut stream = client
-        .stream_server_logs(server_name, Some(500))
-        .await?;
+    let pod_name = pods_api
+        .list(&lp)
+        .await
+        .map_err(|e| format!("Failed to list pods: {e}"))?
+        .items
+        .first()
+        .and_then(|p| p.metadata.name.clone())
+        .ok_or_else(|| format!("No pod found for task {task_id}"))?;
+
+    let log_params = LogParams {
+        container: Some(container_name.to_string()),
+        follow: true,
+        tail_lines: Some(tail_lines),
+        ..Default::default()
+    };
+
+    let log_stream = pods_api
+        .log_stream(&pod_name, &log_params)
+        .await
+        .map_err(|e| format!("Failed to stream logs: {e}"))?;
 
     let event_stream = async_stream::stream! {
-        use futures::StreamExt;
-        while let Some(result) = stream.next().await {
-            match result {
-                Ok(log_line) => {
-                    yield Ok(Event::default().data(log_line.line));
-                }
-                Err(e) => {
-                    debug!(error = %e, "Server log stream ended");
-                    break;
-                }
+        use futures::AsyncBufReadExt;
+        let mut lines = log_stream.lines();
+        while let Some(line_result) = futures::StreamExt::next(&mut lines).await {
+            match line_result {
+                Ok(line) => yield Ok(Event::default().data(line)),
+                Err(_) => break,
             }
         }
     };

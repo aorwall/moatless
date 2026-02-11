@@ -1,19 +1,18 @@
 //! gRPC client wrapper for calling sandbox pods.
 //!
 //! Replaces all HTTP calls to sandbox pods (health, status, execute-agent,
-//! stop-agent, notify-messages, search-files, server-logs) with gRPC.
+//! stop-agent, notify-messages, search-files) with gRPC.
+//! Server management is handled by K8s (separate containers).
 
 use std::time::Duration;
 
 use sandbox_proto::sandbox_service_client::SandboxServiceClient;
 use sandbox_proto::{
-    ExecuteAgentRequest, GetServerLogsRequest, GetServerStatusRequest, GetStatusRequest,
-    HealthCheckRequest, NotifyMessagesRequest, SearchFilesRequest, StopAgentRequest,
+    ExecuteAgentRequest, NotifyMessagesRequest,
+    SearchFilesRequest, StopAgentRequest,
 };
 use tonic::transport::Channel;
-use tracing::{debug, warn};
-
-use crate::sandbox::types::SandboxSnapshotStatus;
+use tracing::debug;
 
 /// Wrapper around `SandboxServiceClient` for calling sandbox pods via gRPC.
 #[derive(Clone)]
@@ -48,44 +47,6 @@ impl SandboxGrpcClient {
         Ok(Self {
             client: SandboxServiceClient::new(channel),
         })
-    }
-
-    /// Check if the sandbox pod is healthy.
-    pub async fn check_health(&self) -> bool {
-        let mut client = self.client.clone();
-        let result = tokio::time::timeout(Duration::from_secs(2), async {
-            client.check_health(HealthCheckRequest {}).await
-        })
-        .await;
-
-        match result {
-            Ok(Ok(resp)) => resp.into_inner().healthy,
-            _ => false,
-        }
-    }
-
-    /// Fetch the sandbox snapshot status.
-    pub async fn get_status(&self) -> Option<SandboxSnapshotStatus> {
-        let mut client = self.client.clone();
-        let result = tokio::time::timeout(Duration::from_secs(2), async {
-            client.get_status(GetStatusRequest {}).await
-        })
-        .await;
-
-        match result {
-            Ok(Ok(resp)) => {
-                let json_str = resp.into_inner().status_json;
-                serde_json::from_str(&json_str).ok()
-            }
-            Ok(Err(e)) => {
-                warn!(error = %e, "Failed to get sandbox status via gRPC");
-                None
-            }
-            Err(_) => {
-                warn!("Sandbox status gRPC request timed out after 2s");
-                None
-            }
-        }
     }
 
     /// Execute agent on the sandbox.
@@ -139,39 +100,5 @@ impl SandboxGrpcClient {
             Ok(Err(e)) => Err(format!("gRPC search files failed: {e}")),
             Err(_) => Err("Search files gRPC request timed out".to_string()),
         }
-    }
-
-    /// Get server status from the sandbox.
-    pub async fn get_server_status(
-        &self,
-        name: &str,
-    ) -> Result<String, String> {
-        let mut client = self.client.clone();
-        let resp = client
-            .get_server_status(GetServerStatusRequest {
-                name: name.to_string(),
-            })
-            .await
-            .map_err(|e| format!("gRPC server status failed: {e}"))?;
-
-        Ok(resp.into_inner().status_json)
-    }
-
-    /// Stream server logs from the sandbox.
-    pub async fn stream_server_logs(
-        &self,
-        name: &str,
-        lines: Option<i32>,
-    ) -> Result<tonic::Streaming<sandbox_proto::LogLine>, String> {
-        let mut client = self.client.clone();
-        let resp = client
-            .stream_server_logs(GetServerLogsRequest {
-                name: name.to_string(),
-                lines,
-            })
-            .await
-            .map_err(|e| format!("gRPC stream server logs failed: {e}"))?;
-
-        Ok(resp.into_inner())
     }
 }

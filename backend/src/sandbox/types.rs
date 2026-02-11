@@ -4,6 +4,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use utoipa::ToSchema;
 
+// Re-export pod_status functions that were previously defined here
+pub use crate::sandbox::k8s::pod_status::extract_container_observed_statuses;
+
 /// Generic error body returned by all error responses.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ErrorBody {
@@ -147,28 +150,11 @@ impl From<&str> for ServerStatus {
     }
 }
 
-/// Execution target returned after provisioning
-#[derive(Debug, Clone, Serialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ExecutionTarget {
-    pub mode: String,
-    pub pod_name: Option<String>,
-    pub pod_namespace: String,
-    pub service_name: String,
-    pub pod_phase: Option<String>,
-    pub status: EnvironmentStatus,
-    pub repository_clone_url: String,
-    pub repository_branch: Option<String>,
-    pub sandbox_port: u16,
-    pub preview_host_port: u16,
-    pub servers: HashMap<String, u16>,
-}
-
 /// Provision response
 #[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ProvisionResponse {
-    pub execution_target: ExecutionTarget,
+    pub status: EnvironmentStatus,
 }
 
 /// Status response
@@ -244,18 +230,6 @@ impl From<&str> for PodPhase {
 // Workspace status types (sandbox snapshot + frontend response)
 // =============================================================================
 
-/// Agent snapshot from sandbox GET /status
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-pub struct AgentSnapshot {
-    #[serde(alias = "status")]
-    pub state: String,
-    #[serde(rename = "hasAgent", default)]
-    pub has_agent: bool,
-    #[serde(alias = "lastError")]
-    pub error: Option<String>,
-}
-
 /// Server snapshot from sandbox GET /status
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[allow(dead_code)]
@@ -272,6 +246,21 @@ pub struct ServerSnapshot {
     pub pid: Option<u32>,
 }
 
+impl ServerSnapshot {
+    /// Build a snapshot from config with a given status (e.g. "stopped").
+    pub fn from_config(name: &str, port: u16, status: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            label: name.to_string(),
+            port,
+            builtin: false,
+            status: status.to_string(),
+            error: None,
+            pid: None,
+        }
+    }
+}
+
 /// Resource metrics from sandbox GET /status
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -282,14 +271,6 @@ pub struct ResourceMetrics {
     pub cpu_usage_percent: Option<f64>,
     pub event_loop_latency_ms: f64,
     pub uptime_seconds: f64,
-}
-
-/// Combined snapshot from sandbox GET /status
-#[derive(Debug, Deserialize)]
-pub struct SandboxSnapshotStatus {
-    pub agent: AgentSnapshot,
-    pub servers: Vec<ServerSnapshot>,
-    pub resources: Option<ResourceMetrics>,
 }
 
 /// Server capabilities (deterministic from server name)
@@ -383,6 +364,81 @@ pub struct ServerStatusResponse {
     pub servers: Vec<ServerSnapshot>,
 }
 
+// =============================================================================
+// Container status types (K8s API-based server monitoring)
+// =============================================================================
+
+/// Observed state of a K8s container.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ContainerState {
+    Running,
+    Waiting,
+    Terminated,
+    Unknown,
+}
+
+/// Observed status of a single container in a pod (from K8s API).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContainerObservedStatus {
+    pub name: String,
+    pub ready: bool,
+    pub started: bool,
+    pub state: ContainerState,
+    pub restart_count: i32,
+    pub waiting_reason: Option<String>,
+}
+
+impl ContainerObservedStatus {
+    /// Map container probes to a server status string for the frontend.
+    pub fn to_server_status(&self) -> &'static str {
+        use crate::sandbox::k8s::pod_status::SERVER_FAILURE_REASONS;
+
+        if self.ready && self.started {
+            "started"
+        } else if self.started {
+            "starting"
+        } else if self.restart_count > 2 {
+            "failed"
+        } else {
+            match (&self.state, self.waiting_reason.as_deref()) {
+                (ContainerState::Waiting, Some(reason))
+                    if SERVER_FAILURE_REASONS.contains(&reason) =>
+                {
+                    "failed"
+                }
+                (ContainerState::Running, _) => "starting",
+                (ContainerState::Waiting, _) => "starting",
+                (ContainerState::Terminated, _) => "stopped",
+                (ContainerState::Unknown, _) => "stopped",
+            }
+        }
+    }
+}
+
+/// Build a `ContainerObservedStatus` for testing convenience.
+#[cfg(test)]
+impl ContainerObservedStatus {
+    fn test(
+        name: &str,
+        ready: bool,
+        started: bool,
+        state: ContainerState,
+        restart_count: i32,
+        waiting_reason: Option<&str>,
+    ) -> Self {
+        Self {
+            name: name.to_string(),
+            ready,
+            started,
+            state,
+            restart_count,
+            waiting_reason: waiting_reason.map(String::from),
+        }
+    }
+}
+
 /// Get capabilities for a server by name (mirrors TS getServerCapabilities)
 pub fn get_server_capabilities(name: &str) -> ServerCapabilities {
     match name {
@@ -411,4 +467,222 @@ pub fn get_server_capabilities(name: &str) -> ServerCapabilities {
             console: false,
         },
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // =========================================================================
+    // ContainerObservedStatus::to_server_status()
+    // =========================================================================
+
+    #[test]
+    fn server_status_ready_and_started_is_started() {
+        let cs = ContainerObservedStatus::test(
+            "preview-server",
+            true,
+            true,
+            ContainerState::Running,
+            0,
+            None,
+        );
+        assert_eq!(cs.to_server_status(), "started");
+    }
+
+    #[test]
+    fn server_status_started_not_ready_is_starting() {
+        let cs = ContainerObservedStatus::test(
+            "preview-server",
+            false,
+            true,
+            ContainerState::Running,
+            0,
+            None,
+        );
+        assert_eq!(cs.to_server_status(), "starting");
+    }
+
+    #[test]
+    fn server_status_high_restarts_is_failed() {
+        let cs = ContainerObservedStatus::test(
+            "preview-server",
+            false,
+            false,
+            ContainerState::Running,
+            3,
+            None,
+        );
+        assert_eq!(cs.to_server_status(), "failed");
+    }
+
+    #[test]
+    fn server_status_waiting_err_image_pull_is_failed() {
+        let cs = ContainerObservedStatus::test(
+            "files-server",
+            false,
+            false,
+            ContainerState::Waiting,
+            0,
+            Some("ErrImagePull"),
+        );
+        assert_eq!(cs.to_server_status(), "failed");
+    }
+
+    #[test]
+    fn server_status_waiting_image_pull_backoff_is_failed() {
+        let cs = ContainerObservedStatus::test(
+            "files-server",
+            false,
+            false,
+            ContainerState::Waiting,
+            0,
+            Some("ImagePullBackOff"),
+        );
+        assert_eq!(cs.to_server_status(), "failed");
+    }
+
+    #[test]
+    fn server_status_waiting_invalid_image_name_is_failed() {
+        let cs = ContainerObservedStatus::test(
+            "preview-server",
+            false,
+            false,
+            ContainerState::Waiting,
+            0,
+            Some("InvalidImageName"),
+        );
+        assert_eq!(cs.to_server_status(), "failed");
+    }
+
+    #[test]
+    fn server_status_waiting_crash_loop_backoff_is_failed() {
+        let cs = ContainerObservedStatus::test(
+            "preview-server",
+            false,
+            false,
+            ContainerState::Waiting,
+            0,
+            Some("CrashLoopBackOff"),
+        );
+        assert_eq!(cs.to_server_status(), "failed");
+    }
+
+    #[test]
+    fn server_status_waiting_container_creating_is_starting() {
+        let cs = ContainerObservedStatus::test(
+            "preview-server",
+            false,
+            false,
+            ContainerState::Waiting,
+            0,
+            Some("ContainerCreating"),
+        );
+        assert_eq!(cs.to_server_status(), "starting");
+    }
+
+    #[test]
+    fn server_status_waiting_no_reason_is_starting() {
+        let cs = ContainerObservedStatus::test(
+            "preview-server",
+            false,
+            false,
+            ContainerState::Waiting,
+            0,
+            None,
+        );
+        assert_eq!(cs.to_server_status(), "starting");
+    }
+
+    #[test]
+    fn server_status_terminated_is_stopped() {
+        let cs = ContainerObservedStatus::test(
+            "preview-server",
+            false,
+            false,
+            ContainerState::Terminated,
+            0,
+            None,
+        );
+        assert_eq!(cs.to_server_status(), "stopped");
+    }
+
+    #[test]
+    fn server_status_unknown_is_stopped() {
+        let cs = ContainerObservedStatus::test(
+            "preview-server",
+            false,
+            false,
+            ContainerState::Unknown,
+            0,
+            None,
+        );
+        assert_eq!(cs.to_server_status(), "stopped");
+    }
+
+    #[test]
+    fn server_status_running_not_started_is_starting() {
+        let cs = ContainerObservedStatus::test(
+            "preview-server",
+            false,
+            false,
+            ContainerState::Running,
+            0,
+            None,
+        );
+        assert_eq!(cs.to_server_status(), "starting");
+    }
+
+    // =========================================================================
+    // PodPhase::to_environment_status()
+    // =========================================================================
+
+    #[test]
+    fn pod_phase_pending_maps_to_initializing() {
+        assert_eq!(
+            PodPhase::Pending.to_environment_status(),
+            EnvironmentStatus::Initializing
+        );
+    }
+
+    #[test]
+    fn pod_phase_running_maps_to_ready() {
+        assert_eq!(
+            PodPhase::Running.to_environment_status(),
+            EnvironmentStatus::Ready
+        );
+    }
+
+    #[test]
+    fn pod_phase_stopped_maps_to_stopped() {
+        assert_eq!(
+            PodPhase::Stopped.to_environment_status(),
+            EnvironmentStatus::Stopped
+        );
+    }
+
+    #[test]
+    fn pod_phase_not_found_maps_to_not_created() {
+        assert_eq!(
+            PodPhase::NotFound.to_environment_status(),
+            EnvironmentStatus::NotCreated
+        );
+    }
+
+    #[test]
+    fn pod_phase_failed_maps_to_error() {
+        assert_eq!(
+            PodPhase::Failed.to_environment_status(),
+            EnvironmentStatus::Error
+        );
+    }
+
+    #[test]
+    fn pod_phase_terminating_maps_to_removing() {
+        assert_eq!(
+            PodPhase::Terminating.to_environment_status(),
+            EnvironmentStatus::Removing
+        );
+    }
+
 }

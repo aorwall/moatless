@@ -51,8 +51,29 @@ pub struct Config {
     /// Kubernetes namespace for sandbox pods
     pub sandbox_namespace: String,
 
-    /// Path to sandbox pod YAML template
-    pub sandbox_pod_template_path: Option<String>,
+    /// Default sandbox container image
+    pub sandbox_image: String,
+
+    /// Image pull policy for sandbox pod containers (default: "Always")
+    pub sandbox_image_pull_policy: String,
+
+    /// Docker image for files-server containers (default: aorwall/moatless-vibe-files-server:latest)
+    pub files_server_image: String,
+
+    /// Docker image for preview-server containers (default: aorwall/moatless-vibe-preview-server:latest)
+    pub preview_server_image: String,
+
+    /// CPU limit for server containers (default: "500m")
+    pub server_resources_cpu_limit: String,
+
+    /// Memory limit for server containers (default: "512Mi")
+    pub server_resources_memory_limit: String,
+
+    /// CPU request for server containers (default: "100m")
+    pub server_resources_cpu_request: String,
+
+    /// Memory request for server containers (default: "128Mi")
+    pub server_resources_memory_request: String,
 
     /// Whether PVC storage is enabled for sandbox pods
     pub k8s_sandbox_storage_enabled: bool,
@@ -219,7 +240,29 @@ impl Config {
             sandbox_namespace: env::var("SANDBOX_NAMESPACE")
                 .unwrap_or_else(|_| "workspaces".to_string()),
 
-            sandbox_pod_template_path: env::var("SANDBOX_POD_TEMPLATE_PATH").ok(),
+            sandbox_image: env::var("SANDBOX_IMAGE")
+                .unwrap_or_else(|_| "ghcr.io/aorwall/moatless-vibe-sandbox:latest".to_string()),
+
+            sandbox_image_pull_policy: env::var("SANDBOX_IMAGE_PULL_POLICY")
+                .unwrap_or_else(|_| "Always".to_string()),
+
+            files_server_image: env::var("FILES_SERVER_IMAGE")
+                .unwrap_or_else(|_| "aorwall/moatless-vibe-files-server:latest".to_string()),
+
+            preview_server_image: env::var("PREVIEW_SERVER_IMAGE")
+                .unwrap_or_else(|_| "aorwall/moatless-vibe-preview-server:latest".to_string()),
+
+            server_resources_cpu_limit: env::var("SERVER_RESOURCES_CPU_LIMIT")
+                .unwrap_or_else(|_| "500m".to_string()),
+
+            server_resources_memory_limit: env::var("SERVER_RESOURCES_MEMORY_LIMIT")
+                .unwrap_or_else(|_| "512Mi".to_string()),
+
+            server_resources_cpu_request: env::var("SERVER_RESOURCES_CPU_REQUEST")
+                .unwrap_or_else(|_| "100m".to_string()),
+
+            server_resources_memory_request: env::var("SERVER_RESOURCES_MEMORY_REQUEST")
+                .unwrap_or_else(|_| "128Mi".to_string()),
 
             k8s_sandbox_storage_enabled: env::var("K8S_SANDBOX_STORAGE_ENABLED")
                 .map(|v| v == "true" || v == "1")

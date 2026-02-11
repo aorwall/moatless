@@ -7,7 +7,7 @@
 use k8s_openapi::api::coordination::v1::Lease;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::MicroTime;
 use k8s_openapi::jiff;
-use kube::api::{Api, Patch, PatchParams, PostParams};
+use kube::api::{Api, PostParams};
 use tracing::{debug, info};
 
 use super::client::K8sClient;
@@ -40,6 +40,16 @@ impl LeaderElection {
             identity,
             lease_duration_secs: 15,
         }
+    }
+
+    /// Set a custom lease duration (in seconds).
+    ///
+    /// The lease duration must be **longer** than the interval between
+    /// `try_acquire_or_renew` calls, otherwise the lease will always
+    /// appear expired and leadership will be re-acquired every cycle.
+    pub fn with_lease_duration(mut self, secs: i32) -> Self {
+        self.lease_duration_secs = secs;
+        self
     }
 
     /// Try to acquire or renew the lease.
@@ -81,12 +91,13 @@ impl LeaderElection {
                 if holder == Some(self.identity.as_str()) {
                     // We hold it — renew
                     self.update_lease(&lease).await?;
-                    debug!(identity = %self.identity, "Renewed leadership");
+                    debug!(identity = %self.identity, lease = %self.lease_name, "Renewed leadership");
                     Ok(true)
                 } else if is_expired {
                     // Expired — take over
                     info!(
                         identity = %self.identity,
+                        lease = %self.lease_name,
                         prev_holder = ?holder,
                         "Taking over expired lease"
                     );
@@ -95,6 +106,7 @@ impl LeaderElection {
                 } else {
                     debug!(
                         identity = %self.identity,
+                        lease = %self.lease_name,
                         holder = ?holder,
                         "Not leader, lease held by another"
                     );
@@ -104,7 +116,7 @@ impl LeaderElection {
             Err(kube::Error::Api(ref e)) if e.code == 404 => {
                 // Lease doesn't exist — create it
                 self.create_lease().await?;
-                info!(identity = %self.identity, "Acquired leadership (created lease)");
+                info!(identity = %self.identity, lease = %self.lease_name, "Acquired leadership (created lease)");
                 Ok(true)
             }
             Err(e) => Err(e),
@@ -134,7 +146,7 @@ impl LeaderElection {
             Ok(_) => Ok(()),
             Err(kube::Error::Api(ref e)) if e.code == 409 => {
                 // Another replica created it first — not fatal
-                debug!(identity = %self.identity, "Lease already exists (race)");
+                debug!(identity = %self.identity, lease = %self.lease_name, "Lease already exists (race)");
                 Ok(())
             }
             Err(e) => Err(e),
@@ -143,32 +155,19 @@ impl LeaderElection {
 
     /// Update an existing Lease (renew or take over).
     ///
-    /// Uses the Lease's `resourceVersion` for optimistic concurrency.
+    /// Uses `replace` (PUT) with the existing `resourceVersion` for
+    /// optimistic concurrency. This is more reliable than merge-patch
+    /// because the full object is written back atomically.
     async fn update_lease(&self, existing: &Lease) -> Result<(), kube::Error> {
         let now = jiff::Timestamp::now();
-        let rv = existing
-            .metadata
-            .resource_version
-            .as_deref()
-            .unwrap_or("");
-
-        let patch = serde_json::json!({
-            "metadata": {
-                "resourceVersion": rv,
-            },
-            "spec": {
-                "holderIdentity": self.identity,
-                "leaseDurationSeconds": self.lease_duration_secs,
-                "renewTime": MicroTime(now),
-            }
-        });
+        let mut lease = existing.clone();
+        let spec = lease.spec.get_or_insert_with(Default::default);
+        spec.holder_identity = Some(self.identity.clone());
+        spec.lease_duration_seconds = Some(self.lease_duration_secs);
+        spec.renew_time = Some(MicroTime(now));
 
         self.leases
-            .patch(
-                &self.lease_name,
-                &PatchParams::apply("moatless-pod-watcher"),
-                &Patch::Merge(&patch),
-            )
+            .replace(&self.lease_name, &PostParams::default(), &lease)
             .await?;
 
         Ok(())

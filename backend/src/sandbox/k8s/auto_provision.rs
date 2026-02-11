@@ -180,6 +180,22 @@ pub fn build_server_configs(repo: &RepositoryRow) -> Vec<ServerConfig> {
     build_servers(repo)
 }
 
+/// Get the canonical server configs for a task.
+///
+/// Resolves task_id → task → repository → build_server_configs (with port assignment).
+/// Returns Err on DB failures or missing rows so callers can log appropriately.
+pub async fn get_server_configs(pool: &DbPool, task_id: &str) -> Result<Vec<ServerConfig>, String> {
+    let task = task_dao::find_by_id_internal(pool, task_id)
+        .await
+        .map_err(|e| format!("Failed to fetch task {task_id}: {e}"))?
+        .ok_or_else(|| format!("Task {task_id} not found"))?;
+    let repo = repository_dao::find_repository_by_id(pool, &task.repository_id)
+        .await
+        .map_err(|e| format!("Failed to fetch repository {}: {e}", task.repository_id))?
+        .ok_or_else(|| format!("Repository {} not found", task.repository_id))?;
+    Ok(build_server_configs(&repo))
+}
+
 /// Build the servers list from the DB `servers` JSONB column.
 ///
 /// Mirrors the TS `autoPopulateServers` + `assignMissingPorts` logic:

@@ -1,6 +1,15 @@
-//! Pod spec builder from YAML template with environment injection.
+//! Code-generated Pod spec with dynamic server containers.
+//!
+//! Generates the full Pod spec in Rust code — no YAML template needed.
+//! Server containers are created dynamically from the repo config.
 
-use k8s_openapi::api::core::v1::Pod;
+use k8s_openapi::api::core::v1::{
+    Capabilities, Container, ContainerPort, EmptyDirVolumeSource, EnvVar, HTTPGetAction, Pod,
+    PodSpec, PersistentVolumeClaimVolumeSource, Probe, ResourceRequirements, SecurityContext,
+    TCPSocketAction, Volume, VolumeMount,
+};
+use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
+use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
 use std::collections::{BTreeMap, HashMap};
 use tracing::{debug, info};
 
@@ -8,209 +17,469 @@ use super::naming::generate_pod_name;
 use crate::config::Config;
 use crate::sandbox::types::ProvisionPlan;
 
-/// Build a Pod spec from a YAML template with task-specific environment injection.
+/// Build a complete Pod spec from config + plan (no template).
 ///
-/// `user_auth_token` is passed as a plain env var. Credentials (GITHUB_TOKEN, etc.)
-/// are fetched on-demand by the sandbox via gRPC `GetCredentials` — no K8s Secrets needed.
-pub fn build_pod_from_template(
-    template_content: &str,
+/// Generates the sandbox container, dynamic server containers, volumes,
+/// probes, and security contexts entirely in code.
+pub fn build_pod(
     config: &Config,
     task_id: &str,
     plan: &ProvisionPlan,
     pvc_name: Option<&str>,
     user_auth_token: Option<&str>,
 ) -> Result<Pod, String> {
-    let mut pod: Pod =
-        serde_yaml::from_str(template_content).map_err(|e| format!("Failed to parse pod template: {e}"))?;
-
     let pod_name = generate_pod_name(&plan.repo_config.name, task_id);
     let namespace = config.sandbox_namespace.clone();
 
-    // Set metadata
-    pod.metadata.name = Some(pod_name.clone());
-    pod.metadata.namespace = Some(namespace.clone());
-
-    // Set labels
-    let labels = pod.metadata.labels.get_or_insert_with(BTreeMap::new);
+    // ── Labels ──────────────────────────────────────────────────────
+    let mut labels = BTreeMap::new();
     labels.insert("moatless.io/task-id".to_string(), task_id.to_string());
+    labels.insert(
+        "app.kubernetes.io/name".to_string(),
+        "moatless-workspace".to_string(),
+    );
+    labels.insert(
+        "app.kubernetes.io/component".to_string(),
+        "sandbox".to_string(),
+    );
+    labels.insert(
+        "app.kubernetes.io/managed-by".to_string(),
+        "moatless".to_string(),
+    );
 
-    // Set annotations
-    let annotations = pod.metadata.annotations.get_or_insert_with(BTreeMap::new);
+    // ── Annotations ─────────────────────────────────────────────────
+    let mut annotations = BTreeMap::new();
     annotations.insert(
         "moatless.io/repository-url".to_string(),
         plan.git_clone_url.clone(),
     );
-    annotations.insert(
-        "moatless.io/created-at".to_string(),
-        chrono_now_iso(),
-    );
+    annotations.insert("moatless.io/created-at".to_string(), chrono_now_iso());
 
-    // Build task-specific env vars
-    let mut task_env: Vec<serde_json::Value> = vec![
-        serde_json::json!({"name": "TASK_ID", "value": task_id}),
-        serde_json::json!({"name": "GIT_CLONE_URL", "value": plan.git_clone_url}),
+    // ── Volumes ─────────────────────────────────────────────────────
+    let mut volumes = vec![
+        Volume {
+            name: "tmp".to_string(),
+            empty_dir: Some(EmptyDirVolumeSource {
+                medium: Some("Memory".to_string()),
+                size_limit: Some(Quantity("512Mi".to_string())),
+            }),
+            ..Default::default()
+        },
+        Volume {
+            name: "build-cache".to_string(),
+            empty_dir: Some(EmptyDirVolumeSource {
+                size_limit: Some(Quantity("1536Mi".to_string())),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        Volume {
+            name: "shared-data".to_string(),
+            empty_dir: Some(EmptyDirVolumeSource::default()),
+            ..Default::default()
+        },
     ];
 
-    if let Some(ref branch) = plan.git_branch {
-        task_env.push(serde_json::json!({"name": "GIT_BRANCH", "value": branch}));
-    }
-    // Build REPO_CONFIG env var from RepoConfig fields
-    {
-        let rc = &plan.repo_config;
-        if rc.system_prompt.is_some()
-            || rc.code_execution.is_some()
-            || rc.preview_config.is_some()
-            || rc.servers.is_some()
-            || rc.plugin_ids.is_some()
-        {
-            // Enrich servers with startCommands from previewConfig
-            let enriched_servers: Vec<serde_json::Value> = match &rc.servers {
-                Some(servers) => servers
-                    .iter()
-                    .map(|s| {
-                        let mut entry = serde_json::json!({
-                            "name": s.name,
-                            "port": s.port,
-                        });
-                        match s.name.as_str() {
-                            "files" => {
-                                entry["startCommands"] = serde_json::json!(["file-explorer"]);
-                            }
-                            "preview" => {
-                                if let Some(ref pc) = rc.preview_config {
-                                    if let Some(cmds) = pc.get("serverStartCommands") {
-                                        entry["startCommands"] = cmds.clone();
-                                    }
-                                    if let Some(timeout) = pc.get("startupTimeoutSeconds") {
-                                        entry["startupTimeoutSeconds"] = timeout.clone();
-                                    }
-                                }
-                            }
-                            _ => {}
-                        }
-                        entry
-                    })
-                    .collect(),
-                None => vec![],
-            };
-
-            let mut repo_config_map = serde_json::Map::new();
-            if let Some(ref sp) = rc.system_prompt {
-                repo_config_map.insert("systemPrompt".into(), serde_json::json!(sp));
-            }
-            if let Some(ref ce) = rc.code_execution {
-                repo_config_map.insert("codeExecution".into(), ce.clone());
-            }
-            if let Some(ref pc) = rc.preview_config {
-                repo_config_map.insert("previewConfig".into(), pc.clone());
-            }
-            if !enriched_servers.is_empty() {
-                repo_config_map.insert("servers".into(), serde_json::json!(enriched_servers));
-            }
-            if let Some(ref pi) = rc.plugin_ids {
-                repo_config_map.insert("pluginIds".into(), serde_json::json!(pi));
-            }
-            let repo_config_value = serde_json::Value::Object(repo_config_map);
-            task_env.push(serde_json::json!({
-                "name": "REPO_CONFIG",
-                "value": repo_config_value.to_string()
-            }));
-        }
+    if let Some(pvc) = pvc_name {
+        volumes.push(Volume {
+            name: "workspace-data".to_string(),
+            persistent_volume_claim: Some(PersistentVolumeClaimVolumeSource {
+                claim_name: pvc.to_string(),
+                read_only: Some(false),
+            }),
+            ..Default::default()
+        });
     }
 
-    // Pass USER_AUTH_TOKEN as plain env var — sandbox uses it to fetch credentials via gRPC
-    if let Some(token) = user_auth_token {
-        task_env.push(serde_json::json!({"name": "USER_AUTH_TOKEN", "value": token}));
-    }
+    // ── Sandbox container ───────────────────────────────────────────
+    let sandbox_container = build_sandbox_container(config, task_id, plan, pvc_name, user_auth_token)?;
 
-    // Custom env vars from repository config
-    if let Some(ref env_vars) = plan.env_vars {
-        for (key, value) in env_vars {
-            task_env.push(serde_json::json!({"name": key, "value": value}));
-        }
-    }
+    // ── Server containers ───────────────────────────────────────────
+    let server_containers = build_server_containers(config, plan, pvc_name)?;
 
-    // Modify the pod spec: inject env vars into sandbox container
-    if let Some(ref mut spec) = pod.spec {
-        // Compute startup probe failure threshold
-        let startup_timeout = config.k8s_pod_startup_timeout_secs;
-        let startup_probe_period: u64 = 5;
-        let failure_threshold = (startup_timeout / startup_probe_period) + 6; // +30s buffer
+    // ── Assemble Pod ────────────────────────────────────────────────
+    let mut all_containers = vec![sandbox_container];
+    all_containers.extend(server_containers);
 
-        for container in spec.containers.iter_mut() {
-            if container.name == "sandbox" {
-                // Override image if specified in repo config (skip empty strings)
-                if let Some(ref image) = plan.repo_config.docker_image {
-                    if !image.is_empty() {
-                        container.image = Some(image.clone());
-                    }
-                }
+    let pod = Pod {
+        metadata: k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta {
+            name: Some(pod_name.clone()),
+            namespace: Some(namespace.clone()),
+            labels: Some(labels),
+            annotations: Some(annotations),
+            ..Default::default()
+        },
+        spec: Some(PodSpec {
+            containers: all_containers,
+            volumes: Some(volumes),
+            restart_policy: Some("Always".to_string()),
+            termination_grace_period_seconds: Some(30),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
 
-                // Append env vars
-                let env = container.env.get_or_insert_with(Vec::new);
-                for env_var in &task_env {
-                    let var: k8s_openapi::api::core::v1::EnvVar =
-                        serde_json::from_value(env_var.clone())
-                            .map_err(|e| format!("Failed to parse env var: {e}"))?;
-                    env.push(var);
-                }
-
-                // Override startup probe
-                let probe: k8s_openapi::api::core::v1::Probe =
-                    serde_json::from_value(serde_json::json!({
-                        "httpGet": {"path": "/health", "port": 8001},
-                        "periodSeconds": startup_probe_period,
-                        "timeoutSeconds": 5,
-                        "failureThreshold": failure_threshold,
-                    }))
-                    .map_err(|e| format!("Failed to parse startup probe: {e}"))?;
-                container.startup_probe = Some(probe);
-
-                // Add PVC volume mount
-                if pvc_name.is_some() {
-                    let mounts = container.volume_mounts.get_or_insert_with(Vec::new);
-                    let mount: k8s_openapi::api::core::v1::VolumeMount =
-                        serde_json::from_value(serde_json::json!({
-                            "name": "workspace-data",
-                            "mountPath": "/opt/moatless",
-                        }))
-                        .map_err(|e| format!("Failed to parse volume mount: {e}"))?;
-                    mounts.push(mount);
-                }
-            }
-        }
-
-        // Add PVC volume
-        if let Some(pvc) = pvc_name {
-            let volumes = spec.volumes.get_or_insert_with(Vec::new);
-            let volume: k8s_openapi::api::core::v1::Volume =
-                serde_json::from_value(serde_json::json!({
-                    "name": "workspace-data",
-                    "persistentVolumeClaim": {"claimName": pvc},
-                }))
-                .map_err(|e| format!("Failed to parse volume: {e}"))?;
-            volumes.push(volume);
-        }
-    }
-
-    info!(task_id, pod_name = %pod_name, namespace = %namespace, "Pod spec built from template");
-    debug!(task_id, env_count = task_env.len(), "Injected environment variables");
+    let server_count = plan.repo_config.servers.as_ref().map(|s| s.len()).unwrap_or(0);
+    info!(
+        task_id,
+        pod_name = %pod_name,
+        namespace = %namespace,
+        server_count,
+        "Pod spec built (code-generated)"
+    );
+    debug!(task_id, "Pod spec: {:?}", pod.spec.as_ref().map(|s| s.containers.iter().map(|c| &c.name).collect::<Vec<_>>()));
 
     Ok(pod)
 }
 
-/// Get current time as ISO 8601 string (no chrono dependency — use simple format)
+/// Build the main sandbox container.
+fn build_sandbox_container(
+    config: &Config,
+    task_id: &str,
+    plan: &ProvisionPlan,
+    pvc_name: Option<&str>,
+    user_auth_token: Option<&str>,
+) -> Result<Container, String> {
+    // Resolve image: repo config override → default sandbox image
+    let image = plan
+        .repo_config
+        .docker_image
+        .as_ref()
+        .filter(|s| !s.is_empty())
+        .cloned()
+        .unwrap_or_else(|| config.sandbox_image.clone());
+
+    // Build env vars
+    let mut env = vec![
+        env_var("TASK_ID", task_id),
+        env_var("GIT_CLONE_URL", &plan.git_clone_url),
+        env_var("BACKEND_GRPC_URL", &format!(
+            "http://moatless-vibe-backend.{}.svc.cluster.local:{}",
+            config.sandbox_namespace, config.grpc_port
+        )),
+    ];
+
+    if let Some(ref branch) = plan.git_branch {
+        env.push(env_var("GIT_BRANCH", branch));
+    }
+
+    // REPO_CONFIG env var (pass-through for sandbox)
+    if let Some(repo_config_json) = build_repo_config_json(plan) {
+        env.push(env_var("REPO_CONFIG", &repo_config_json));
+    }
+
+    if let Some(token) = user_auth_token {
+        env.push(env_var("USER_AUTH_TOKEN", token));
+    }
+
+    // Custom env vars from repo config
+    if let Some(ref env_vars) = plan.env_vars {
+        for (key, value) in env_vars {
+            env.push(env_var(key, value));
+        }
+    }
+
+    // Startup probe
+    let startup_timeout = config.k8s_pod_startup_timeout_secs;
+    let startup_probe_period: i32 = 5;
+    let failure_threshold = ((startup_timeout / startup_probe_period as u64) + 6) as i32;
+
+    let startup_probe = Probe {
+        http_get: Some(HTTPGetAction {
+            path: Some("/health".to_string()),
+            port: IntOrString::Int(8001),
+            ..Default::default()
+        }),
+        period_seconds: Some(startup_probe_period),
+        timeout_seconds: Some(5),
+        failure_threshold: Some(failure_threshold),
+        ..Default::default()
+    };
+
+    // Volume mounts
+    let mut volume_mounts = vec![
+        VolumeMount {
+            name: "tmp".to_string(),
+            mount_path: "/tmp".to_string(),
+            ..Default::default()
+        },
+        VolumeMount {
+            name: "build-cache".to_string(),
+            mount_path: "/opt/moatless/build-cache".to_string(),
+            ..Default::default()
+        },
+        VolumeMount {
+            name: "shared-data".to_string(),
+            mount_path: "/opt/moatless/data".to_string(),
+            ..Default::default()
+        },
+    ];
+
+    if pvc_name.is_some() {
+        volume_mounts.push(VolumeMount {
+            name: "workspace-data".to_string(),
+            mount_path: "/opt/moatless".to_string(),
+            ..Default::default()
+        });
+    }
+
+    Ok(Container {
+        name: "sandbox".to_string(),
+        image: Some(image),
+        image_pull_policy: Some(config.sandbox_image_pull_policy.clone()),
+        ports: Some(vec![
+            ContainerPort {
+                container_port: 8001,
+                name: Some("http".to_string()),
+                protocol: Some("TCP".to_string()),
+                ..Default::default()
+            },
+            ContainerPort {
+                container_port: config.sandbox_grpc_port as i32,
+                name: Some("grpc".to_string()),
+                protocol: Some("TCP".to_string()),
+                ..Default::default()
+            },
+        ]),
+        env: Some(env),
+        startup_probe: Some(startup_probe),
+        volume_mounts: Some(volume_mounts),
+        security_context: Some(drop_all_security_context()),
+        ..Default::default()
+    })
+}
+
+/// Build server containers from repo config.
+fn build_server_containers(
+    config: &Config,
+    plan: &ProvisionPlan,
+    pvc_name: Option<&str>,
+) -> Result<Vec<Container>, String> {
+    let servers = match &plan.repo_config.servers {
+        Some(s) if !s.is_empty() => s,
+        _ => return Ok(vec![]),
+    };
+
+    let mut containers = Vec::new();
+
+    for server in servers {
+        let container_name = format!("{}-server", server.name);
+        let port = server.port;
+
+        let (image, command, args, env) = match server.name.as_str() {
+            "files" => {
+                let img = config.files_server_image.clone();
+                let env = vec![
+                    env_var("FILE_EXPLORER_PORT", &port.to_string()),
+                    env_var("WORKSPACE_PATH", "/opt/moatless/repo"),
+                    env_var("DATA_DIR", "/opt/moatless/data"),
+                ];
+                // No command override — image default CMD runs file-explorer
+                (img, None, None, env)
+            }
+            _ => {
+                // Preview or custom servers — use preview-server image with K8s command override
+                let img = config.preview_server_image.clone();
+                let mut env = vec![
+                    env_var("PORT", &port.to_string()),
+                    env_var("HOST", "0.0.0.0"),
+                    env_var("WORKSPACE_PATH", "/opt/moatless/repo"),
+                    env_var("DATA_DIR", "/opt/moatless/data"),
+                ];
+
+                // Build command from previewConfig.serverStartCommands
+                let start_commands = extract_server_start_commands(plan);
+
+                let (cmd, cmd_args) = if !start_commands.is_empty() {
+                    let joined = start_commands.join(" && ");
+                    let full_cmd = format!("cd /opt/moatless/repo && {joined}");
+                    (
+                        Some(vec!["bash".to_string(), "-c".to_string()]),
+                        Some(vec![full_cmd]),
+                    )
+                } else {
+                    // Fallback: run npm dev
+                    env.push(env_var("NODE_ENV", "development"));
+                    (
+                        Some(vec!["bash".to_string(), "-c".to_string()]),
+                        Some(vec!["cd /opt/moatless/repo && npm install && npm run dev".to_string()]),
+                    )
+                };
+
+                (img, cmd, cmd_args, env)
+            }
+        };
+
+        // Volume mounts — server containers need PVC + shared-data + build-cache
+        let mut volume_mounts = vec![
+            VolumeMount {
+                name: "shared-data".to_string(),
+                mount_path: "/opt/moatless/data".to_string(),
+                ..Default::default()
+            },
+            VolumeMount {
+                name: "build-cache".to_string(),
+                mount_path: "/opt/moatless/build-cache".to_string(),
+                ..Default::default()
+            },
+        ];
+
+        if pvc_name.is_some() {
+            volume_mounts.push(VolumeMount {
+                name: "workspace-data".to_string(),
+                mount_path: "/opt/moatless".to_string(),
+                ..Default::default()
+            });
+        }
+
+        // Readiness probe — TCP check on server port
+        let readiness_probe = Probe {
+            tcp_socket: Some(TCPSocketAction {
+                port: IntOrString::Int(port as i32),
+                ..Default::default()
+            }),
+            period_seconds: Some(5),
+            failure_threshold: Some(3),
+            initial_delay_seconds: Some(5),
+            ..Default::default()
+        };
+
+        // Resource limits
+        let resources = ResourceRequirements {
+            limits: Some(BTreeMap::from([
+                ("cpu".to_string(), Quantity(config.server_resources_cpu_limit.clone())),
+                ("memory".to_string(), Quantity(config.server_resources_memory_limit.clone())),
+            ])),
+            requests: Some(BTreeMap::from([
+                ("cpu".to_string(), Quantity(config.server_resources_cpu_request.clone())),
+                ("memory".to_string(), Quantity(config.server_resources_memory_request.clone())),
+            ])),
+            ..Default::default()
+        };
+
+        containers.push(Container {
+            name: container_name,
+            image: Some(image),
+            image_pull_policy: Some(config.sandbox_image_pull_policy.clone()),
+            command,
+            args,
+            ports: Some(vec![ContainerPort {
+                container_port: port as i32,
+                name: Some("http".to_string()),
+                protocol: Some("TCP".to_string()),
+                ..Default::default()
+            }]),
+            env: Some(env),
+            readiness_probe: Some(readiness_probe),
+            volume_mounts: Some(volume_mounts),
+            resources: Some(resources),
+            security_context: Some(drop_all_security_context()),
+            ..Default::default()
+        });
+    }
+
+    Ok(containers)
+}
+
+/// Build REPO_CONFIG JSON string for the sandbox container.
+///
+/// This is a pass-through of the repo config fields that the sandbox
+/// needs (system prompt, code execution, plugin IDs, etc.).
+/// Server start commands are NOT included — they're handled by K8s command/args.
+fn build_repo_config_json(plan: &ProvisionPlan) -> Option<String> {
+    let rc = &plan.repo_config;
+    if rc.system_prompt.is_none()
+        && rc.code_execution.is_none()
+        && rc.preview_config.is_none()
+        && rc.servers.is_none()
+        && rc.plugin_ids.is_none()
+    {
+        return None;
+    }
+
+    let mut map = serde_json::Map::new();
+    if let Some(ref sp) = rc.system_prompt {
+        map.insert("systemPrompt".into(), serde_json::json!(sp));
+    }
+    if let Some(ref ce) = rc.code_execution {
+        map.insert("codeExecution".into(), ce.clone());
+    }
+    if let Some(ref pc) = rc.preview_config {
+        map.insert("previewConfig".into(), pc.clone());
+    }
+    if let Some(ref servers) = rc.servers {
+        // Pass server names and ports (no startCommands — handled by K8s)
+        let server_entries: Vec<serde_json::Value> = servers
+            .iter()
+            .map(|s| serde_json::json!({"name": s.name, "port": s.port}))
+            .collect();
+        map.insert("servers".into(), serde_json::json!(server_entries));
+    }
+    if let Some(ref pi) = rc.plugin_ids {
+        map.insert("pluginIds".into(), serde_json::json!(pi));
+    }
+
+    Some(serde_json::Value::Object(map).to_string())
+}
+
+/// Extract server start commands from previewConfig.serverStartCommands.
+fn extract_server_start_commands(plan: &ProvisionPlan) -> Vec<String> {
+    plan.repo_config
+        .preview_config
+        .as_ref()
+        .and_then(|pc| pc.get("serverStartCommands"))
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Security context that drops all capabilities except those needed at runtime.
+///
+/// DAC_OVERRIDE is required because the container runs as root (UID 0) but
+/// the home directory (/home/moatless) is owned by the moatless user (UID 1000).
+/// Without DAC_OVERRIDE, root cannot write to those directories (e.g. gh CLI
+/// config, Claude onboarding flag), causing sandbox init to fail.
+///
+/// TODO: Harden by switching to runAsUser: 1000 (moatless) in the pod security
+/// context and removing DAC_OVERRIDE. This requires ensuring all workspace dirs,
+/// volume mounts, and build caches are accessible to UID 1000 (via fsGroup or
+/// proper ownership in the Dockerfile).
+fn drop_all_security_context() -> SecurityContext {
+    SecurityContext {
+        capabilities: Some(Capabilities {
+            drop: Some(vec!["ALL".to_string()]),
+            add: Some(vec![
+                "NET_BIND_SERVICE".to_string(),
+                "DAC_OVERRIDE".to_string(),
+            ]),
+        }),
+        ..Default::default()
+    }
+}
+
+/// Create an EnvVar.
+fn env_var(name: &str, value: &str) -> EnvVar {
+    EnvVar {
+        name: name.to_string(),
+        value: Some(value.to_string()),
+        ..Default::default()
+    }
+}
+
+/// Get current time as ISO 8601 string (no chrono dependency — use simple format).
 fn chrono_now_iso() -> String {
-    // Use system time to produce a rough ISO timestamp
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-    // Simple epoch seconds — callers only use this for ordering
     format!("{now}Z")
 }
 
-/// Build servers name→port map from plan
+/// Build servers name→port map from plan.
 pub fn build_servers_map(plan: &ProvisionPlan) -> HashMap<String, u16> {
     let mut servers = HashMap::new();
     if let Some(ref server_configs) = plan.repo_config.servers {

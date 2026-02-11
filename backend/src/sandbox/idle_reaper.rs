@@ -39,11 +39,15 @@ pub fn spawn_idle_reaper(
     let idle_timeout = chrono::Duration::minutes(config.sandbox_idle_timeout_minutes as i64);
 
     tokio::spawn(async move {
+        // Lease duration must exceed the check interval so the lease
+        // doesn't expire between cycles. Use 2x the interval as buffer.
+        let lease_duration_secs = (config.sandbox_idle_check_interval_secs * 2) as i32;
         let leader_election = LeaderElection::new_with_name(
             &k8s,
             identity.clone(),
             "moatless-idle-reaper".to_string(),
-        );
+        )
+        .with_lease_duration(lease_duration_secs);
 
         loop {
             if cancel.is_cancelled() {

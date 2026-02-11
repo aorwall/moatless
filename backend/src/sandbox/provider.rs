@@ -29,8 +29,8 @@ pub trait SandboxProvider: Send + Sync {
     /// Check the health of a sandbox.
     async fn health(&self, task_id: &str) -> HealthResponse;
 
-    /// Get full workspace status (pod status + sandbox snapshot + proxy URLs).
-    async fn workspace_status(
+    /// Get full sandbox status (pod status + sandbox snapshot + proxy URLs).
+    async fn sandbox_status(
         &self,
         task_id: &str,
     ) -> Result<WorkspaceStatusFullResponse, SandboxError>;

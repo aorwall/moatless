@@ -29,7 +29,7 @@ use moatless_vibe_backend::{channel, command, figma, file_storage, message, prov
 use auth::cache::AuthCache;
 use auth::routes::{AuthState, OAuthProviders};
 use sandbox::k8s::client::K8sClient;
-use sandbox::k8s::status_cache::StatusCache;
+use sandbox::k8s::status_resolver::StatusResolver;
 use sandbox::sandbox_state::SandboxStateCache;
 use sse::consumer::RedisStreamConsumer;
 use sse::routes::{sse_router, SseState};
@@ -152,7 +152,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Initialize K8s client and start API server
     let k8s = K8sClient::new(config.sandbox_namespace.clone()).await?;
-    let status_cache = StatusCache::new(10);
     info!("K8s client initialized");
 
     // Install graceful shutdown handler
@@ -214,7 +213,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     start_api_server(
         &config,
         k8s,
-        status_cache,
         db_pool,
         event_publisher,
         sse_state,
@@ -252,6 +250,22 @@ fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     use channel::routes::ChannelApiDoc;
     use utoipa::OpenApi;
 
+    // Event schemas (no paths — schema-only doc for generated TS types)
+    #[derive(OpenApi)]
+    #[openapi(
+        components(schemas(
+            moatless_events::EventType,
+            moatless_events::SandboxSubType,
+            moatless_events::ServerSubType,
+            moatless_events::AgentSubType,
+            moatless_events::TaskSubType,
+            moatless_events::TaskTurnSubType,
+            moatless_events::ServerEventPayload,
+            moatless_events::StreamEvent,
+        ))
+    )]
+    struct EventsApiDoc;
+
     let mut merged = SandboxApiDoc::openapi();
     merged.merge(AuthApiDoc::openapi());
     merged.merge(TaskApiDoc::openapi());
@@ -263,6 +277,7 @@ fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     merged.merge(TagApiDoc::openapi());
     merged.merge(ProviderSettingsApiDoc::openapi());
     merged.merge(ChannelApiDoc::openapi());
+    merged.merge(EventsApiDoc::openapi());
 
     merged.info = utoipa::openapi::InfoBuilder::new()
         .title("Moatless Vibe Backend API")
@@ -318,7 +333,6 @@ fn build_oauth_providers(config: &Config) -> OAuthProviders {
 async fn start_api_server(
     config: &Config,
     k8s: K8sClient,
-    status_cache: StatusCache,
     db_pool: Option<db::DbPool>,
     event_publisher: Option<RedisEventPublisher>,
     sse_state: SseState,
@@ -329,23 +343,17 @@ async fn start_api_server(
     use sandbox::k8s::provider::K8sSandboxProvider;
     use sandbox::routes::{api_router, SandboxApiState};
 
-    // Load pod template
-    let template_path = config
-        .sandbox_pod_template_path
-        .as_deref()
-        .ok_or("SANDBOX_POD_TEMPLATE_PATH not configured")?;
-
-    let pod_template = tokio::fs::read_to_string(template_path)
-        .await
-        .map_err(|e| format!("Failed to read pod template from {template_path}: {e}"))?;
-
-    info!(template_path, "Pod template loaded");
+    let status_resolver = StatusResolver::new(
+        k8s.clone(),
+        sandbox_state_cache.clone(),
+        Arc::new(config.clone()),
+        db_pool.clone(),
+    );
 
     let provider = K8sSandboxProvider {
         config: Arc::new(config.clone()),
         k8s: k8s.clone(),
-        status_cache: status_cache.clone(),
-        pod_template: Arc::new(pod_template),
+        status_resolver,
         db_pool: db_pool.clone(),
         event_publisher: event_publisher.clone(),
         sandbox_state: sandbox_state_cache.clone(),
@@ -363,8 +371,8 @@ async fn start_api_server(
         sandbox::k8s::pod_watcher::spawn_pod_lifecycle_watcher(
             k8s,
             publisher.clone(),
-            status_cache,
             state_cache.clone(),
+            db_pool.clone(),
             cancel.clone(),
         );
         info!("Pod lifecycle watcher spawned");

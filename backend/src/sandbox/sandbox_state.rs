@@ -1,11 +1,11 @@
 //! Shared Redis sandbox state cache (provider-agnostic).
 //!
 //! Stores `CachedSandboxState` per task in a single Redis Hash
-//! (`moatless:sandbox:state`). Serves as an L2 cache between the
-//! per-instance moka cache and live K8s/sandbox API calls.
+//! (`moatless:sandbox:state`). The pod_watcher is the sole writer
+//! (single-writer pattern); all replicas read via `StatusResolver`.
 //!
-//! Writers: pod lifecycle watcher, status endpoint, lifecycle operations.
-//! Readers: status endpoint (any replica).
+//! Writers: pod lifecycle watcher (full state), lifecycle operations (delete on cleanup).
+//! Readers: StatusResolver (any replica).
 
 use std::collections::HashMap;
 
@@ -14,7 +14,7 @@ use redis::AsyncCommands;
 use tracing::{debug, warn};
 
 use crate::sandbox::types::{
-    AgentState, CachedSandboxState, EnvironmentStatus, WorkspaceState,
+    AgentState, CachedSandboxState, EnvironmentStatus, ServerSnapshot, WorkspaceState,
 };
 
 /// Redis Hash-backed sandbox state cache shared across replicas.
@@ -85,6 +85,32 @@ impl SandboxStateCache {
         }
     }
 
+    /// Initialize or overwrite the cache entry with environment status and servers.
+    ///
+    /// Used on provision (Initializing + stopped servers) and reconciliation
+    /// (Stopped + stopped servers). Always writes the provided servers —
+    /// never leaves them empty.
+    pub async fn init_state(
+        &self,
+        task_id: &str,
+        environment_status: EnvironmentStatus,
+        servers: Vec<ServerSnapshot>,
+    ) {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let state = CachedSandboxState {
+            environment_status,
+            environment_error: None,
+            workspace_state: WorkspaceState::Exists,
+            pod_name: None,
+            agent_state: AgentState::None,
+            servers,
+            resources: None,
+            is_running: false,
+            updated_at: now_ms,
+        };
+        self.set(task_id, &state).await;
+    }
+
     /// Delete the task's entry from the Hash (cache invalidation).
     pub async fn delete(&self, task_id: &str) {
         let mut conn = self.conn.clone();
@@ -95,6 +121,35 @@ impl SandboxStateCache {
             warn!(task_id, error = %e, "Failed to delete sandbox state from Redis");
         } else {
             debug!(task_id, "Sandbox state deleted from Redis");
+        }
+    }
+
+    /// Get all cached sandbox states (HGETALL).
+    /// Used by leader reconciliation to compare Redis state against live K8s state.
+    pub async fn get_all(&self) -> HashMap<String, CachedSandboxState> {
+        let mut conn = self.conn.clone();
+        let result: Result<HashMap<String, String>, redis::RedisError> =
+            conn.hgetall(Self::HASH_KEY).await;
+
+        match result {
+            Ok(entries) => {
+                let mut map = HashMap::with_capacity(entries.len());
+                for (task_id, json) in entries {
+                    match serde_json::from_str::<CachedSandboxState>(&json) {
+                        Ok(state) => {
+                            map.insert(task_id, state);
+                        }
+                        Err(e) => {
+                            warn!(task_id, error = %e, "Failed to deserialize cached sandbox state in get_all");
+                        }
+                    }
+                }
+                map
+            }
+            Err(e) => {
+                warn!(error = %e, "Failed to HGETALL sandbox states from Redis");
+                HashMap::new()
+            }
         }
     }
 
@@ -133,6 +188,58 @@ impl SandboxStateCache {
                 HashMap::new()
             }
         }
+    }
+
+    /// Full state update: environment + servers in a single Redis write.
+    ///
+    /// Used by the pod_watcher to write both environment and server container
+    /// state atomically. Preserves existing servers if the new list is empty.
+    pub async fn update_full_state(
+        &self,
+        task_id: &str,
+        environment_status: EnvironmentStatus,
+        pod_name: Option<String>,
+        environment_error: Option<String>,
+        servers: Vec<crate::sandbox::types::ServerSnapshot>,
+    ) {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let is_ready = environment_status == EnvironmentStatus::Ready;
+
+        let state = if let Some(mut existing) = self.get(task_id).await {
+            existing.environment_status = environment_status;
+            existing.environment_error = environment_error;
+            existing.pod_name = pod_name;
+            existing.updated_at = now_ms;
+            // Only update servers if we have data; preserve existing otherwise
+            if !servers.is_empty() {
+                existing.servers = servers;
+            }
+            // Clear runtime fields when not ready
+            if !is_ready {
+                existing.agent_state = AgentState::None;
+                existing.resources = None;
+                existing.is_running = false;
+            }
+            existing
+        } else {
+            CachedSandboxState {
+                environment_status,
+                environment_error,
+                workspace_state: if is_ready {
+                    WorkspaceState::Exists
+                } else {
+                    WorkspaceState::Missing
+                },
+                pod_name,
+                agent_state: AgentState::None,
+                servers,
+                resources: None,
+                is_running: false,
+                updated_at: now_ms,
+            }
+        };
+
+        self.set(task_id, &state).await;
     }
 
     /// Partial update: only environment-related fields.

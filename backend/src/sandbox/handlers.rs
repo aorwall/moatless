@@ -107,14 +107,14 @@ pub async fn health_check_handler(
         (status = 500, description = "Internal error", body = ErrorBody)
     )
 )]
-pub async fn workspace_status_handler(
+pub async fn sandbox_status_handler(
     State(state): State<SandboxApiState>,
     Path(task_id): Path<String>,
 ) -> impl IntoResponse {
-    match state.provider.workspace_status(&task_id).await {
+    match state.provider.sandbox_status(&task_id).await {
         Ok(resp) => Json(resp).into_response(),
         Err(e) => {
-            error!(task_id = %task_id, error = %e, "workspace status failed");
+            error!(task_id = %task_id, error = %e, "sandbox status failed");
             e.into_response()
         }
     }
