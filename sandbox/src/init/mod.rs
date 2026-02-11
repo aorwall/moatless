@@ -7,7 +7,7 @@
 //! this phase. On completion, `InitPhase::Ready` is set and health returns 200.
 //!
 //! **Phase 2 (workspace setup)**: Runs after health is ready. Copies
-//! prebuilt deps, sets up build cache, runs setup commands, starts servers.
+//! prebuilt deps, sets up build cache, runs setup commands.
 //! These are non-fatal — failures are logged but don't affect health.
 
 mod credentials;
@@ -15,6 +15,8 @@ mod dirs;
 mod git;
 mod workspace;
 
+use moatless_events::SandboxSubType;
+use sandbox_proto::PublishEventRequest;
 use tracing::{error, info, warn};
 
 use crate::state::SandboxState;
@@ -37,6 +39,8 @@ pub enum InitPhase {
 /// Publish a sandbox init event via gRPC.
 ///
 /// These events appear in the frontend's StartupTimeline alongside K8s events.
+/// Uses `EventType::Sandbox` with `SandboxSubType::Initializing` — the sandbox
+/// IS initializing while these events fire. Detailed info goes in the payload.
 async fn publish_sandbox_event(
     state: &SandboxState,
     reason: &str,
@@ -57,13 +61,12 @@ async fn publish_sandbox_event(
         }
     };
 
-    let req = sandbox_proto::PublishEventRequest {
+    let proto_event_type: sandbox_proto::EventType = moatless_events::EventType::Sandbox.into();
+
+    let req = PublishEventRequest {
         task_id: state.config.task_id.clone(),
-        event_type: "environment".to_string(),
-        sub_type: "sandbox_event".to_string(),
-        agent_type: None,
-        turn_number: None,
-        is_error: is_warning,
+        event_type: proto_event_type as i32,
+        sub_type: SandboxSubType::Initializing.as_str().to_string(),
         payload_json,
     };
 
@@ -82,12 +85,22 @@ pub async fn run_init(state: SandboxState) {
     // Phase 1: Core init — must complete before health returns 200
     if let Err(e) = run_core_init(&state).await {
         error!(error = %e, "Core initialization failed");
-        *state.init_phase.write().await = InitPhase::Failed(e);
-        return;
+        // Write termination message for K8s to surface in pod status.
+        // Then exit — K8s will restart the container and eventually trigger
+        // CrashLoopBackOff, which the readiness checker detects as a permanent failure.
+        let _ = std::fs::write("/dev/termination-log", &e);
+        std::process::exit(1);
     }
 
     // Mark as ready — health endpoint now returns 200
     *state.init_phase.write().await = InitPhase::Ready;
+
+    // Write workspace-ready sentinel for server containers.
+    // Server containers poll for this file before starting.
+    let ready_path = format!("{}/.workspace-ready", state.config.data_dir);
+    if let Err(e) = tokio::fs::write(&ready_path, "ready").await {
+        warn!(error = %e, "Failed to write workspace-ready sentinel");
+    }
 
     publish_sandbox_event(
         &state,
@@ -116,7 +129,6 @@ pub async fn run_init(state: SandboxState) {
 async fn run_core_init(state: &SandboxState) -> Result<(), String> {
     // 1. Ensure directories exist
     dirs::ensure_directories(&state.config);
-    dirs::ensure_symlinks();
 
     // 2. Fetch credentials from backend via gRPC
     {
@@ -210,13 +222,10 @@ async fn run_core_init(state: &SandboxState) -> Result<(), String> {
 /// Steps:
 /// 1. Copy prebuilt dependencies (node_modules, etc.)
 /// 2. Set up build cache
-/// 3. Write server configs
-/// 4. Run setup commands
-/// 5. Start servers
+/// 3. Run setup commands
 async fn run_workspace_setup(state: &SandboxState) {
     workspace::copy_prebuilt_deps(&state.config).await;
     workspace::setup_build_cache(&state.config).await;
-    workspace::write_server_configs(&state.config).await;
 
     for cmd in &state.config.setup_commands {
         publish_sandbox_event(
@@ -231,34 +240,6 @@ async fn run_workspace_setup(state: &SandboxState) {
             warn!("{msg}");
             publish_sandbox_event(state, "SetupFailed", &msg, true).await;
             // Non-fatal — continue with remaining setup
-        }
-    }
-
-    for server in &state.config.servers {
-        match workspace::start_server(&state.config, &server.name).await {
-            Ok(()) => {
-                let port_info = server
-                    .port
-                    .map(|p| format!(" (port {p})"))
-                    .unwrap_or_default();
-                publish_sandbox_event(
-                    state,
-                    "ServerStarted",
-                    &format!("Started server: {}{port_info}", server.name),
-                    false,
-                )
-                .await;
-            }
-            Err(e) => {
-                warn!(server = %server.name, error = %e, "Server start failed");
-                publish_sandbox_event(
-                    state,
-                    "ServerFailed",
-                    &format!("Failed to start server: {}", server.name),
-                    true,
-                )
-                .await;
-            }
         }
     }
 

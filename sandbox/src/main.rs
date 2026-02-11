@@ -1,7 +1,7 @@
 //! Moatless Sandbox — runtime service for workspace pods.
 //!
-//! Provides gRPC API for agent execution, status, file search, and server
-//! monitoring. HTTP is kept only for K8s health probes.
+//! Provides gRPC API for agent execution, status, and file search.
+//! HTTP is kept only for K8s health probes.
 //! Runs inside each workspace container/pod.
 
 use std::net::SocketAddr;
@@ -23,7 +23,6 @@ use moatless_sandbox::config::Config;
 use moatless_sandbox::events::GrpcEventPublisher;
 use moatless_sandbox::grpc_server::SandboxServiceImpl;
 use moatless_sandbox::init::InitPhase;
-use moatless_sandbox::server::registry::ServerRegistry;
 use moatless_sandbox::state::SandboxState;
 
 #[tokio::main]
@@ -55,17 +54,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create event publisher backed by gRPC
     let event_publisher = GrpcEventPublisher::new(backend_client.clone());
 
-    // Initialize server registry and start background monitor
-    let servers = Arc::new(ServerRegistry::new(&config.servers, &config.data_dir));
-    servers.spawn_monitor_loop();
-
     // Build shared state with init phase tracking
     let state = SandboxState {
         config: Arc::new(config.clone()),
         events: event_publisher,
         agent: Arc::new(agent::agent_state::AgentState::new()),
         consumer_notify: Arc::new(tokio::sync::Notify::new()),
-        servers,
         backend_client,
         init_phase: Arc::new(RwLock::new(InitPhase::Starting)),
         credentials: Arc::new(RwLock::new(std::collections::HashMap::new())),
@@ -90,7 +84,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // Spawn init task — handles credential fetching, git clone, server startup
+    // Spawn init task — handles credential fetching, git clone, workspace setup
     let init_state = state.clone();
     tokio::spawn(moatless_sandbox::init::run_init(init_state));
     info!("Init task spawned");

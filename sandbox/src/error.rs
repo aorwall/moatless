@@ -17,9 +17,6 @@ pub enum SandboxError {
     #[error("No pending interactive prompt")]
     NoPendingPrompt,
 
-    #[error("Server not found: {0}")]
-    ServerNotFound(String),
-
     #[error("SDK error: {0}")]
     Sdk(#[from] claude_agent_sdk::SdkError),
 
@@ -42,7 +39,6 @@ impl IntoResponse for SandboxError {
             Self::AgentAlreadyRunning => (StatusCode::CONFLICT, self.to_string()),
             Self::AgentNotRunning => (StatusCode::BAD_REQUEST, self.to_string()),
             Self::NoPendingPrompt => (StatusCode::BAD_REQUEST, self.to_string()),
-            Self::ServerNotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
             _ => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
         };
 

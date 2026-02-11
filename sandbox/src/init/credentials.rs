@@ -23,7 +23,7 @@ pub async fn fetch_and_apply_credentials(state: &SandboxState) -> Result<(), Str
 
     for attempt in 1..=max_retries {
         match backend_client.get_credentials(task_id).await {
-            Ok(resp) => {
+            Ok(mut resp) => {
                 let credential_names: Vec<&str> = resp.credentials.keys().map(|k| k.as_str()).collect();
                 info!(
                     task_id = %task_id,
@@ -40,6 +40,16 @@ pub async fn fetch_and_apply_credentials(state: &SandboxState) -> Result<(), Str
                     unsafe {
                         std::env::set_var(key, value);
                     }
+                }
+
+                // Alias GITHUB_TOKEN → GH_TOKEN for `gh` CLI compatibility
+                if let Some(token) = resp.credentials.get("GITHUB_TOKEN").cloned() {
+                    resp.credentials.entry("GH_TOKEN".to_string()).or_insert_with(|| {
+                        unsafe {
+                            std::env::set_var("GH_TOKEN", &token);
+                        }
+                        token
+                    });
                 }
 
                 // Store credentials in state for passing to agent subprocess

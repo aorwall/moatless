@@ -10,7 +10,6 @@ use crate::backend_client::BackendClient;
 use crate::config::Config;
 use crate::events::GrpcEventPublisher;
 use crate::init::InitPhase;
-use crate::server::registry::ServerRegistry;
 
 /// Shared state passed to all axum handlers via `State` extractor.
 ///
@@ -25,8 +24,6 @@ pub struct SandboxState {
     pub agent: Arc<AgentState>,
     /// Notification channel to wake the message polling consumer.
     pub consumer_notify: Arc<tokio::sync::Notify>,
-    /// Server process registry (file-explorer, preview, etc.).
-    pub servers: Arc<ServerRegistry>,
     /// gRPC client for backend communication (message polling).
     pub backend_client: BackendClient,
     /// Current initialization phase — tracked for health probes and consumer gating.

@@ -68,7 +68,7 @@ pub async fn configure_git(_config: &Config) -> Result<(), String> {
     Ok(())
 }
 
-/// Clone a repository using `gh repo clone`.
+/// Clone a repository, trying `gh repo clone` first then falling back to `git clone`.
 pub async fn clone_repository(config: &Config) -> Result<(), String> {
     let Some(ref clone_url) = config.git_clone_url else {
         return Ok(());
@@ -87,6 +87,9 @@ pub async fn clone_repository(config: &Config) -> Result<(), String> {
         .trim_end_matches(".git")
         .to_string();
 
+    info!(repo = %repo_path, branch = ?config.git_branch, "Cloning repository");
+
+    // Try gh repo clone first
     let mut args = vec!["repo", "clone", &repo_path, &config.workspace_dir, "--"];
     args.push("--depth");
     args.push("1");
@@ -98,11 +101,32 @@ pub async fn clone_repository(config: &Config) -> Result<(), String> {
         args.push(&branch_owned);
     }
 
-    info!(repo = %repo_path, branch = ?config.git_branch, "Cloning repository");
-    run_command("gh", &args).await?;
-    info!("Repository cloned successfully");
+    match run_command("gh", &args).await {
+        Ok(()) => {
+            info!("Repository cloned successfully");
+            return Ok(());
+        }
+        Err(e) => {
+            warn!(error = %e, "gh repo clone failed, falling back to git clone");
+        }
+    }
 
-    Ok(())
+    // Fallback: git clone with HTTPS token auth
+    if let Ok(token) = std::env::var("GITHUB_TOKEN") {
+        let https_url = format!("https://x-access-token:{token}@github.com/{repo_path}.git");
+        let mut git_args = vec!["clone", "--depth", "1"];
+        if let Some(ref branch) = config.git_branch {
+            git_args.push("--branch");
+            git_args.push(branch);
+        }
+        git_args.push(&https_url);
+        git_args.push(&config.workspace_dir);
+        run_command("git", &git_args).await?;
+        info!("Repository cloned successfully (git fallback)");
+        return Ok(());
+    }
+
+    Err("gh repo clone failed and GITHUB_TOKEN not set for git fallback".to_string())
 }
 
 /// Resolve git user name and email from the GitHub API.

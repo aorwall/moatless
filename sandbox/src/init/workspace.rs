@@ -1,4 +1,4 @@
-//! Workspace setup: server configs, node_modules, setup commands, server start.
+//! Workspace setup: node_modules, build cache, setup commands.
 
 use std::path::Path;
 
@@ -103,68 +103,6 @@ pub async fn setup_build_cache(config: &Config) {
     }
 }
 
-/// Write server config files from REPO_CONFIG.
-pub async fn write_server_configs(config: &Config) {
-    let Some(ref raw) = config.repo_config_raw else {
-        return;
-    };
-
-    // Parse servers from raw config JSON
-    let parsed: serde_json::Value = match serde_json::from_str(raw) {
-        Ok(v) => v,
-        Err(_) => return,
-    };
-
-    let servers = match parsed.get("servers").and_then(|s| s.as_array()) {
-        Some(arr) => arr,
-        None => return,
-    };
-
-    for srv in servers {
-        let Some(name) = srv.get("name").and_then(|n| n.as_str()) else {
-            continue;
-        };
-        let port = srv.get("port").and_then(|p| p.as_u64()).unwrap_or(0);
-        let start_commands = srv
-            .get("startCommands")
-            .cloned()
-            .unwrap_or(serde_json::json!([]));
-        let timeout = srv
-            .get("startupTimeoutSeconds")
-            .and_then(|t| t.as_u64())
-            .unwrap_or(30);
-
-        let config_json = serde_json::json!({
-            "port": port,
-            "startCommands": start_commands,
-            "startupTimeoutSeconds": timeout,
-            "workspacePath": config.workspace_dir,
-        });
-
-        let config_path = format!("{}/{name}-server.config.json", config.data_dir);
-        if let Err(e) = fs::write(&config_path, config_json.to_string()).await {
-            warn!(server = %name, error = %e, "Failed to write server config");
-        } else {
-            info!(server = %name, port, "Wrote server config");
-        }
-
-        // Write initial "starting" status if server has commands
-        if start_commands
-            .as_array()
-            .map(|a| !a.is_empty())
-            .unwrap_or(false)
-        {
-            let status_path = format!("{}/{name}-server.status.json", config.data_dir);
-            let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
-            let status = serde_json::json!({
-                "status": "starting",
-                "startedAt": now,
-            });
-            let _ = fs::write(&status_path, status.to_string()).await;
-        }
-    }
-}
-
 /// Run a single setup command in the workspace directory.
 pub async fn run_setup_command(config: &Config, cmd: &str) -> Result<(), String> {
     if cmd.is_empty() {
@@ -187,25 +125,3 @@ pub async fn run_setup_command(config: &Config, cmd: &str) -> Result<(), String>
     Ok(())
 }
 
-/// Start a server via the generic `server` command.
-pub async fn start_server(config: &Config, name: &str) -> Result<(), String> {
-    let server_bin = "/usr/local/bin/server";
-    if !Path::new(server_bin).exists() {
-        return Err("server binary not found".to_string());
-    }
-
-    info!(server = %name, "Starting server");
-    let output = Command::new(server_bin)
-        .args([name, "start"])
-        .current_dir(&config.data_dir)
-        .output()
-        .await
-        .map_err(|e| format!("Failed to run server start: {e}"))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("server start failed: {stderr}"));
-    }
-
-    Ok(())
-}

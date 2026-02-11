@@ -11,5 +11,4 @@ pub mod events;
 pub mod files;
 pub mod grpc_server;
 pub mod init;
-pub mod server;
 pub mod state;

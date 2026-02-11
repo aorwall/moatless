@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use claude_agent_sdk::SdkMessage;
+use moatless_events::AgentSubType;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
@@ -23,14 +24,12 @@ pub fn spawn_agent_execution(state: SandboxState, request: AgentRunRequest) {
             state.agent.set_error(e.to_string()).await;
 
             // Publish error event
-            state.events
-                .publish_agent_event(
-                    &state.config.task_id,
-                    "error",
-                    Some("claude-code"),
-                    serde_json::json!({ "error": e.to_string() }),
-                )
-                .await;
+            publish_agent_event(
+                &state,
+                AgentSubType::Error,
+                serde_json::json!({ "error": e.to_string() }),
+            )
+            .await;
         }
     });
 }
@@ -45,17 +44,17 @@ async fn execute_agent(
 
     let prompt = request.extract_text();
     let agent_type = request.agent_type.clone();
-    let agent_type_str = agent_type.as_deref().unwrap_or("claude-code");
+    let _agent_type_str = agent_type.as_deref().unwrap_or("claude-code");
 
     info!(
         task_id = %state.config.task_id,
         prompt_len = prompt.len(),
-        agent_type = agent_type_str,
+        agent_type = _agent_type_str,
         "Starting agent execution"
     );
 
     // Publish agent started event
-    publish_agent_event(state, "started", agent_type_str, serde_json::json!({})).await;
+    publish_agent_event(state, AgentSubType::Started, serde_json::json!({})).await;
 
     // Read credentials from state to pass as env vars to the agent subprocess
     let credentials = state.credentials.read().await;
@@ -78,8 +77,7 @@ async fn execute_agent(
             state.agent.set_error(e.to_string()).await;
             publish_agent_event(
                 state,
-                "error",
-                agent_type_str,
+                AgentSubType::Error,
                 serde_json::json!({ "error": e.to_string() }),
             )
             .await;
@@ -121,7 +119,7 @@ async fn execute_agent(
 
                 // Serialize the full message as the event payload
                 let payload = serde_json::to_value(&assistant).unwrap_or_default();
-                publish_agent_event(state, "message", agent_type_str, payload).await;
+                publish_agent_event(state, AgentSubType::Message, payload).await;
             }
             SdkMessage::Result(result) => {
                 let (is_error, session_id, payload) = match &result {
@@ -168,10 +166,10 @@ async fn execute_agent(
                 // the is_error flag from the payload and routes accordingly.
                 // Only use "agent_error" for ResultMessage::Error or executor-level failures.
                 let sub_type = match &result {
-                    claude_agent_sdk::types::messages::ResultMessage::Success(_) => "completed",
-                    claude_agent_sdk::types::messages::ResultMessage::Error(_) => "error",
+                    claude_agent_sdk::types::messages::ResultMessage::Success(_) => AgentSubType::Completed,
+                    claude_agent_sdk::types::messages::ResultMessage::Error(_) => AgentSubType::Error,
                 };
-                publish_agent_event(state, sub_type, agent_type_str, payload).await;
+                publish_agent_event(state, sub_type, payload).await;
 
                 // Record error in agent state so it's visible via status endpoint
                 if is_error {
@@ -240,11 +238,10 @@ fn truncate(s: &str, max: usize) -> &str {
 /// Helper to publish an agent event via gRPC.
 async fn publish_agent_event(
     state: &SandboxState,
-    sub_type: &str,
-    agent_type: &str,
+    sub_type: AgentSubType,
     payload: serde_json::Value,
 ) {
     state.events
-        .publish_agent_event(&state.config.task_id, sub_type, Some(agent_type), payload)
+        .publish_agent_event(&state.config.task_id, sub_type, payload)
         .await;
 }

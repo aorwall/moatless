@@ -1,25 +1,22 @@
 //! gRPC server implementing `SandboxService`.
 //!
 //! Receives commands from the backend (execute agent, stop agent, notify
-//! messages, status checks, file search, server logs). Replaces the
-//! HTTP endpoints on port 8001/8765.
-
-use std::time::Duration;
+//! messages, status checks, file search). Server management is handled
+//! by K8s (separate containers), not by the sandbox.
 
 use tonic::{Request, Response, Status};
-use tracing::{info, warn};
+use tracing::info;
 
 use sandbox_proto::sandbox_service_server::SandboxService;
 use sandbox_proto::{
-    ExecuteAgentRequest, ExecuteAgentResponse, GetServerLogsRequest, GetServerStatusRequest,
-    GetServerStatusResponse, GetStatusRequest, GetStatusResponse, HealthCheckRequest,
-    HealthCheckResponse, LogLine, NotifyMessagesRequest, NotifyMessagesResponse,
+    ExecuteAgentRequest, ExecuteAgentResponse, NotifyMessagesRequest, NotifyMessagesResponse,
     SearchFilesRequest, SearchFilesResponse, StopAgentRequest, StopAgentResponse,
 };
 
 use crate::agent::claude_code::spawn_agent_execution;
 use crate::agent::types::{AgentRunRequest, AgentStatus, ContentBlock, ImageSource};
 use crate::state::SandboxState;
+
 
 /// gRPC server for sandbox commands.
 pub struct SandboxServiceImpl {
@@ -105,54 +102,6 @@ impl SandboxService for SandboxServiceImpl {
         Ok(Response::new(NotifyMessagesResponse {}))
     }
 
-    async fn get_status(
-        &self,
-        _request: Request<GetStatusRequest>,
-    ) -> Result<Response<GetStatusResponse>, Status> {
-        let agent_status = self.state.agent.status().await;
-        let last_session_id = self.state.agent.last_session_id().await;
-        let last_error = self.state.agent.last_error().await;
-        let has_pending_prompt = self.state.agent.has_pending_prompt().await;
-
-        let server_statuses = match tokio::time::timeout(
-            Duration::from_secs(1),
-            self.state.servers.get_all_statuses(),
-        )
-        .await
-        {
-            Ok(statuses) => statuses,
-            Err(_) => {
-                warn!("Server status collection timed out after 1s, returning empty list");
-                vec![]
-            }
-        };
-
-        let status_json = serde_json::json!({
-            "taskId": self.state.config.task_id,
-            "agent": {
-                "state": agent_status,
-                "hasAgent": agent_status != AgentStatus::Stopped && agent_status != AgentStatus::Idle,
-                "error": last_error,
-                "lastSessionId": last_session_id,
-                "hasPendingPrompt": has_pending_prompt,
-            },
-            "servers": server_statuses,
-        });
-
-        Ok(Response::new(GetStatusResponse {
-            status_json: status_json.to_string(),
-        }))
-    }
-
-    async fn check_health(
-        &self,
-        _request: Request<HealthCheckRequest>,
-    ) -> Result<Response<HealthCheckResponse>, Status> {
-        let phase = self.state.init_phase.read().await;
-        let healthy = matches!(*phase, crate::init::InitPhase::Ready);
-        Ok(Response::new(HealthCheckResponse { healthy }))
-    }
-
     async fn search_files(
         &self,
         request: Request<SearchFilesRequest>,
@@ -176,61 +125,5 @@ impl SandboxService for SandboxServiceImpl {
             .unwrap_or_default();
 
         Ok(Response::new(SearchFilesResponse { files }))
-    }
-
-    async fn get_server_status(
-        &self,
-        request: Request<GetServerStatusRequest>,
-    ) -> Result<Response<GetServerStatusResponse>, Status> {
-        let name = request.into_inner().name;
-
-        let status = self
-            .state
-            .servers
-            .get_status(&name)
-            .await
-            .ok_or_else(|| Status::not_found(format!("Server not found: {name}")))?;
-
-        let status_json = serde_json::to_string(&status)
-            .map_err(|e| Status::internal(format!("Serialization error: {e}")))?;
-
-        Ok(Response::new(GetServerStatusResponse { status_json }))
-    }
-
-    type StreamServerLogsStream =
-        tokio_stream::wrappers::ReceiverStream<Result<LogLine, Status>>;
-
-    async fn stream_server_logs(
-        &self,
-        request: Request<GetServerLogsRequest>,
-    ) -> Result<Response<Self::StreamServerLogsStream>, Status> {
-        let req = request.into_inner();
-        let max_lines = req.lines.unwrap_or(500) as usize;
-
-        let logs = self
-            .state
-            .servers
-            .get_logs(&req.name, max_lines)
-            .await
-            .ok_or_else(|| Status::not_found(format!("Server not found: {}", req.name)))?;
-
-        let (tx, rx) = tokio::sync::mpsc::channel(128);
-
-        // Send each log line as a streaming response
-        tokio::spawn(async move {
-            for line in logs.lines() {
-                if tx
-                    .send(Ok(LogLine {
-                        line: line.to_string(),
-                    }))
-                    .await
-                    .is_err()
-                {
-                    break;
-                }
-            }
-        });
-
-        Ok(Response::new(tokio_stream::wrappers::ReceiverStream::new(rx)))
     }
 }

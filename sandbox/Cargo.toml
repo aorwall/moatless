@@ -40,6 +40,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
 
+# Typed event system (shared with backend)
+moatless-events = { path = "../crates/events" }
+
 # gRPC (backend communication — replaces Redis + HTTP polling)
 sandbox-proto = { path = "../crates/sandbox-proto" }
 tonic = "0.12"

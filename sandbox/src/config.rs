@@ -7,21 +7,6 @@ use std::env;
 
 use serde::Deserialize;
 
-/// Server configuration from REPO_CONFIG.
-#[derive(Debug, Clone, Deserialize)]
-#[allow(dead_code)]
-pub struct ServerConfig {
-    pub name: String,
-    #[serde(default)]
-    pub label: Option<String>,
-    #[serde(default)]
-    pub command: Option<String>,
-    #[serde(default)]
-    pub port: Option<u16>,
-    #[serde(default)]
-    pub builtin: Option<bool>,
-}
-
 /// Agent-specific configuration parsed from REPO_CONFIG.
 #[derive(Debug, Clone, Default)]
 #[allow(dead_code)]
@@ -47,8 +32,6 @@ pub struct CodeExecutionConfig {
 #[serde(rename_all = "camelCase")]
 struct RepoConfigFile {
     #[serde(default)]
-    servers: Vec<ServerConfig>,
-    #[serde(default)]
     agent_config: Option<RepoAgentConfig>,
     #[serde(default)]
     code_execution: Option<CodeExecutionConfig>,
@@ -73,7 +56,6 @@ struct RepoAgentConfig {
 
 /// Parsed REPO_CONFIG result.
 struct ParsedRepoConfig {
-    servers: Vec<ServerConfig>,
     agent_config: AgentConfig,
     setup_commands: Vec<String>,
     plugin_ids: Vec<String>,
@@ -105,8 +87,6 @@ pub struct Config {
     pub user_auth_token: Option<String>,
     /// Agent-specific configuration
     pub agent_config: AgentConfig,
-    /// Server configurations from REPO_CONFIG
-    pub servers: Vec<ServerConfig>,
     /// Path to the Claude CLI binary
     pub claude_cli_path: String,
 
@@ -171,7 +151,6 @@ impl Config {
             user_auth_token: env::var("USER_AUTH_TOKEN").ok(),
 
             agent_config: parsed.agent_config,
-            servers: parsed.servers,
 
             claude_cli_path: env::var("SANDBOX_CLAUDE_EXECUTABLE_PATH")
                 .unwrap_or_else(|_| "/usr/local/bin/claude".to_string()),
@@ -193,7 +172,6 @@ fn parse_repo_config() -> ParsedRepoConfig {
         Ok(v) if !v.is_empty() => v,
         _ => {
             return ParsedRepoConfig {
-                servers: Vec::new(),
                 agent_config: AgentConfig::default(),
                 setup_commands: Vec::new(),
                 plugin_ids: Vec::new(),
@@ -206,7 +184,6 @@ fn parse_repo_config() -> ParsedRepoConfig {
         Err(e) => {
             tracing::warn!(error = %e, "Failed to parse REPO_CONFIG");
             return ParsedRepoConfig {
-                servers: Vec::new(),
                 agent_config: AgentConfig::default(),
                 setup_commands: Vec::new(),
                 plugin_ids: Vec::new(),
@@ -233,7 +210,6 @@ fn parse_repo_config() -> ParsedRepoConfig {
     let plugin_ids = repo_config.plugin_ids.unwrap_or_default();
 
     ParsedRepoConfig {
-        servers: repo_config.servers,
         agent_config,
         setup_commands,
         plugin_ids,
