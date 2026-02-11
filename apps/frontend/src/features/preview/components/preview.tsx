@@ -11,6 +11,7 @@ import { DeviceFrame } from './device-frame'
 import { InspectorOverlay } from './inspector-overlay'
 import { LogsPanel } from './logs-panel'
 import { PreviewHeader } from './preview-header'
+import { RecentEvents } from './recent-events'
 import { StartupTimeline } from './startup-timeline'
 
 type EnvironmentStatusType = NonNullable<PreviewProps['environmentStatus']>
@@ -151,6 +152,7 @@ function ProxyErrorOverlay({
   )
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Preview is a complex component managing iframe lifecycle, inspector, and console state
 export function Preview({
   taskId,
   environmentStatus,
@@ -163,6 +165,7 @@ export function Preview({
   servers,
   activeServer,
   resources,
+  sandboxEvents,
   className,
 }: PreviewProps) {
   // Hook for retrying/starting sandbox
@@ -661,6 +664,9 @@ export function Preview({
                   {environmentStatus === 'initializing' &&
                     startupEvents &&
                     startupEvents.length > 0 && <StartupTimeline events={startupEvents} />}
+                  {environmentStatus === 'initializing' &&
+                    sandboxEvents &&
+                    sandboxEvents.length > 0 && <RecentEvents events={sandboxEvents} />}
                   {getSandboxStatusConfig(environmentStatus, environmentError).showRetry && (
                     <>
                       <Button
@@ -779,6 +785,7 @@ export function Preview({
                 consoleLogs={consoleLogs}
                 serverName={activeServerEntry?.name}
                 showConsoleTab={showConsole}
+                sandboxEvents={sandboxEvents}
               />
             </ResizablePanel>
           )}
@@ -811,6 +818,7 @@ export function Preview({
               consoleLogs={consoleLogs}
               serverName={activeServerEntry?.name}
               showConsoleTab={showConsole}
+              sandboxEvents={sandboxEvents}
             />
           </div>
         )}

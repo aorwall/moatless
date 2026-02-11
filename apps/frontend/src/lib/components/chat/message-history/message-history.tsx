@@ -9,6 +9,7 @@ import { getErrorMessage } from '@/lib/utils/error.ts'
 import { AssistantMessageComponent } from './assistant-message.tsx'
 import { EnvironmentIndicator } from './environment-indicator.tsx'
 import { MessageHistorySkeleton } from './message-history-skeleton.tsx'
+import { ResultMessageComponent } from './result-message.tsx'
 import { SystemMessageComponent } from './system-message.tsx'
 import { ThinkingIndicator } from './thinking-indicator.tsx'
 import { UserMessageComponent } from './user-message.tsx'
@@ -276,6 +277,9 @@ function MessageHistoryComponent({
                       onToggleToolCall={toggleToolCallExpansion}
                     />
                   )
+                }
+                if (item.messageType === 'result') {
+                  return <ResultMessageComponent key={item.uuid} message={item} />
                 }
                 if (item.role === 'user') {
                   return (

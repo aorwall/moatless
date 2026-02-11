@@ -81,7 +81,7 @@ export function GlobalEventStreamProvider({
             return { ...current, agentState: 'idle', isRunning: false }
           }
           break
-        case 'environment': {
+        case 'sandbox': {
           // Only update if subType is a valid EnvironmentStatus
           const validStatuses = [
             'not_created',
@@ -137,7 +137,7 @@ export function GlobalEventStreamProvider({
       }
 
       // Apply optimistic updates for workspace status events
-      if (event.type === 'agent' || event.type === 'environment' || event.type === 'workspace') {
+      if (event.type === 'agent' || event.type === 'sandbox' || event.type === 'workspace') {
         const queryKey = queryKeys.tasks.workspaceStatus(event.taskId)
         queryClient.setQueryData(queryKey, (old: WorkspaceStatusFullResponse | undefined) =>
           updateWorkspaceStatus(event, old),

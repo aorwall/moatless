@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { useTaskEventSubscription } from '@/features/events'
 import { Preview } from '@/features/preview'
-import type { ElementInfo, StartupEvent } from '@/features/preview/types'
+import type { ElementInfo, SandboxEvent, StartupEvent } from '@/features/preview/types'
 import { useWorkspaceStatus } from '@/features/tasks'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
@@ -34,32 +34,58 @@ function TaskPageComponent() {
   // K8s startup events for the initializing overlay
   const [startupEvents, setStartupEvents] = useState<StartupEvent[]>([])
 
+  // Sandbox/server lifecycle events for Events tab and recent events box
+  const [sandboxEvents, setSandboxEvents] = useState<SandboxEvent[]>([])
+
   const handleTaskEvent = useCallback((event: Event) => {
-    // k8s_event is not in the EnvironmentStatus enum but arrives via raw JSON SSE,
-    // so we need to check the untyped subType before discriminated-union narrowing.
     const rawSubType = (event as { subType?: string }).subType
-    if (
-      event.type === 'environment' &&
-      (rawSubType === 'k8s_event' || rawSubType === 'sandbox_event')
-    ) {
+    if (event.type === 'sandbox' || event.type === 'server') {
+      // Collect all sandbox/server events for the Events tab
       const payload = (event as { payload?: Record<string, unknown> }).payload ?? {}
-      setStartupEvents((prev) => [
+      setSandboxEvents((prev) => [
         ...prev,
         {
-          reason: String(payload.reason ?? ''),
-          message: String(payload.message ?? ''),
-          eventType: String(payload.eventType ?? 'Normal'),
+          eventId: event.eventId,
+          type: event.type as 'sandbox' | 'server',
+          subType: rawSubType ?? '',
           timestamp: event.timestamp
             ? new Date(event.timestamp).toISOString()
             : new Date().toISOString(),
+          isError: event.isError,
+          message: payload.message != null ? String(payload.message) : undefined,
+          reason: payload.reason != null ? String(payload.reason) : undefined,
+          payload,
         },
       ])
     }
-    if (
-      event.type === 'environment' &&
-      (rawSubType === 'ready' || rawSubType === 'error' || rawSubType === 'stopped')
-    ) {
-      setStartupEvents([])
+
+    if (event.type === 'sandbox') {
+      // Sandbox init events now arrive as subType "initializing" with reason/message in payload.
+      // Also handle legacy k8s_event/sandbox_event subTypes for backwards compatibility.
+      if (
+        rawSubType === 'initializing' ||
+        rawSubType === 'k8s_event' ||
+        rawSubType === 'sandbox_event'
+      ) {
+        const payload = (event as { payload?: Record<string, unknown> }).payload ?? {}
+        // Only add to startup timeline if payload has detail fields (reason/message)
+        if (payload.reason || payload.message) {
+          setStartupEvents((prev) => [
+            ...prev,
+            {
+              reason: String(payload.reason ?? ''),
+              message: String(payload.message ?? ''),
+              eventType: String(payload.eventType ?? 'Normal'),
+              timestamp: event.timestamp
+                ? new Date(event.timestamp).toISOString()
+                : new Date().toISOString(),
+            },
+          ])
+        }
+      }
+      if (rawSubType === 'ready' || rawSubType === 'error' || rawSubType === 'stopped') {
+        setStartupEvents([])
+      }
     }
   }, [])
 
@@ -216,6 +242,7 @@ function TaskPageComponent() {
           servers={servers}
           activeServer={activeServerName}
           resources={workspaceStatus?.resources ?? undefined}
+          sandboxEvents={sandboxEvents}
         />
       </ErrorBoundary>
     )

@@ -34,8 +34,8 @@ export const EVENT_INVALIDATION_MAP = {
     // Workspace operations affect multiple areas
     '*': [queryKeys.tasks.workspaceStatus, queryKeys.tasks.workspaceSetup],
   },
-  environment: {
-    // Environment changes only affect workspace status
+  sandbox: {
+    // Sandbox lifecycle changes only affect workspace status
     '*': [queryKeys.tasks.workspaceStatus],
   },
   server: {
@@ -56,9 +56,9 @@ export const STATUS_AFFECTING_SUBTYPES = {
   task: ['created', 'open', 'closed', 'updated'], // All task subtypes affect status
   taskTurn: ['active', 'completed', 'error', 'updated'], // Execution changes and screenshot updates affect status
   agent: ['started', 'stopped', 'completed', 'error'], // Only state changes, not messages
-  environment: ['ready', 'error'], // Only final states affect status
+  sandbox: ['ready', 'error'], // Only final states affect status
   workspace: ['ready', 'destroyed', 'error'], // Only final states affect status
-  server: ['started', 'stopped', 'error'], // Only state changes affect status
+  server: ['starting', 'started', 'stopped', 'failed'], // Only state changes affect status
   navigation: [],
   preview: [], // Preview events don't affect task status
   resources: [], // Resource metrics don't affect task status

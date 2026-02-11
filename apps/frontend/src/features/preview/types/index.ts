@@ -28,6 +28,17 @@ export interface StartupEvent {
   timestamp: string
 }
 
+export interface SandboxEvent {
+  eventId: string
+  type: 'sandbox' | 'server'
+  subType: string
+  timestamp: string
+  isError: boolean
+  message?: string
+  reason?: string
+  payload: Record<string, unknown>
+}
+
 export interface PreviewProps {
   taskId: string
   environmentStatus?: 'not_created' | 'initializing' | 'ready' | 'stopped' | 'removing' | 'error'
@@ -45,6 +56,8 @@ export interface PreviewProps {
   activeServer?: string
   /** Resource metrics from the sandbox container (CPU, memory, event loop) */
   resources?: ResourceMetrics
+  /** Sandbox and server lifecycle events for the Events tab / recent events box */
+  sandboxEvents?: SandboxEvent[]
   className?: string
 }
 

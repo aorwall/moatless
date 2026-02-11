@@ -197,19 +197,11 @@ export function useSendMessage(
         ...(isQueued ? { isQueued: true } : {}),
       }
 
-      // Update cache with new message
+      // Update cache with new message (running state is derived from messages + envStatus)
       queryClient.setQueryData<UiMessage[]>(queryKeys.tasks.messages(taskId), [
         ...previousMessages,
         optimisticMessage,
       ])
-
-      // Optimistically set task to 'running' for immediate "Thinking" indicator
-      if (previousTask) {
-        queryClient.setQueryData<TaskResponse>(queryKeys.tasks.detail(taskId), {
-          ...previousTask,
-          status: 'running',
-        })
-      }
 
       // Return context for rollback
       return { previousMessages, previousTask }

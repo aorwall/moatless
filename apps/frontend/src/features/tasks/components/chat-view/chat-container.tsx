@@ -1,7 +1,7 @@
 import type { CommandResponse, UiMessage } from '@moatless/api-client'
 import type { ClaudeModel, MessageContext, Question } from '@moatless/types'
 import { DEFAULT_CLAUDE_MODEL } from '@moatless/types/constants'
-import { AlertCircle, Loader2 } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { FigmaImportDialog } from '@/features/figma/components/figma-import-dialog'
@@ -96,7 +96,6 @@ function ChatContainer({
 
   const { data: task } = useTaskDetailQuery(taskId)
   const status = task?.status
-  const isTaskRunning = status === 'running'
 
   // Poll workspace status only while the task remains open (hook handles gating)
   const workspaceStatusQuery = useWorkspaceStatus(taskId, task)
@@ -105,6 +104,23 @@ function ChatContainer({
 
   // Retry workspace mutation for handling failed provisioning
   const retryWorkspaceMutation = useWorkspaceRetry(taskId)
+
+  // Fetch messages for this task (needed early for derived running state)
+  const {
+    data: messages,
+    isLoading: isLoadingMessages,
+    error: messagesError,
+  } = useTaskMessages(taskId, {
+    enabled: !!taskId,
+  })
+
+  // Running = last non-queued message is not a result AND sandbox is ready
+  const isTaskRunning = useMemo(() => {
+    const lastNonQueuedMessage = messages?.filter((m) => !m.isQueued)?.at(-1)
+    const hasUnfinishedWork =
+      lastNonQueuedMessage != null && lastNonQueuedMessage.messageType !== 'result'
+    return hasUnfinishedWork && envStatus === 'ready'
+  }, [messages, envStatus])
 
   // Fetch available commands when task is not running
   const { data: availableCommands = [] } = useTaskCommands(taskId, {
@@ -187,15 +203,6 @@ function ChatContainer({
 
   // Stop agent mutation
   const stopAgent = useStopAgent(taskId)
-
-  // Fetch messages for this task
-  const {
-    data: messages,
-    isLoading: isLoadingMessages,
-    error: messagesError,
-  } = useTaskMessages(taskId, {
-    enabled: !!taskId,
-  })
 
   // Task message sending hook
   const sendMessage = useSendMessage(taskId, {
@@ -422,21 +429,6 @@ function ChatContainer({
         environmentError={workspaceStatus?.environmentError ?? undefined}
         onPreviewUrlClick={onPreviewUrlClick}
       />
-
-      {/* Error banner for failed tasks */}
-      {task?.status === 'error' && (
-        <div className="mx-4 mb-2 px-4 py-3 bg-destructive/10 border border-destructive/20 rounded-lg">
-          <div className="flex items-start gap-2">
-            <AlertCircle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
-            <div className="min-w-0 flex-1">
-              <p className="text-sm text-destructive font-medium">Agent Error</p>
-              <p className="text-sm text-muted-foreground whitespace-pre-wrap">
-                Task failed. Check the message history for details.
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Workspace error banner with retry button */}
       {envStatus === 'error' && workspaceStatus?.environmentError && (

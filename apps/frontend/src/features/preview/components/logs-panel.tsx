@@ -1,9 +1,11 @@
-import { ChevronDown, ChevronUp, Server, Terminal } from 'lucide-react'
+import { Activity, ChevronDown, ChevronUp, Server, Terminal } from 'lucide-react'
 import { useState } from 'react'
 import { ServerLogsViewer } from '@/features/tasks/components/server-logs-viewer/server-logs-viewer'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/lib/components/ui/tabs'
 import { cn } from '@/lib/utils'
+import type { SandboxEvent } from '../types'
 import { ConsoleLogs } from './console-logs'
+import { EventLog } from './event-log'
 
 interface ConsoleLog {
   id: string
@@ -23,6 +25,8 @@ interface LogsPanelProps {
   serverName?: string
   /** Whether to show the Console tab (only for servers with iframe console) */
   showConsoleTab?: boolean
+  /** Sandbox and server lifecycle events */
+  sandboxEvents?: SandboxEvent[]
 }
 
 export function LogsPanel({
@@ -32,6 +36,7 @@ export function LogsPanel({
   consoleLogs = [],
   serverName,
   showConsoleTab = true,
+  sandboxEvents = [],
 }: LogsPanelProps) {
   const [activeTab, setActiveTab] = useState('server')
 
@@ -62,6 +67,10 @@ export function LogsPanel({
                   <span className="ml-1">Console</span>
                 </TabsTrigger>
               )}
+              <TabsTrigger value="events" className="text-xs h-7">
+                <Activity className="h-3 w-3" />
+                <span className="ml-1">Events</span>
+              </TabsTrigger>
             </TabsList>
           )}
 
@@ -90,6 +99,9 @@ export function LogsPanel({
               <ConsoleLogs logs={consoleLogs} />
             </TabsContent>
           )}
+          <TabsContent value="events" className="h-full m-0 overflow-hidden">
+            <EventLog events={sandboxEvents} />
+          </TabsContent>
         </div>
       )}
     </Tabs>

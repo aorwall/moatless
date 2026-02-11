@@ -107,7 +107,7 @@ function getTaskTurnUpdates(event: Event): Partial<TaskResponse> {
   const timestamp = new Date(event.timestamp || Date.now()).toISOString()
 
   if (event.subType === 'active') {
-    return { status: 'running' }
+    return {} // Running state is derived from messages + envStatus
   }
   if (event.subType === 'completed' || event.subType === 'error') {
     return { status: 'open', lastMessageAt: timestamp }
@@ -120,7 +120,7 @@ function getAgentEventUpdates(event: Event): Partial<TaskResponse> {
   const timestamp = new Date(event.timestamp || Date.now()).toISOString()
 
   if (event.subType === 'started') {
-    return { status: 'running' }
+    return {} // Running state is derived from messages + envStatus
   }
   if (event.subType === 'stopped' || event.subType === 'completed') {
     return { status: 'open', lastMessageAt: timestamp }
