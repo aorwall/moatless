@@ -6,7 +6,7 @@
 #
 # For the lightweight JS-only image, use Dockerfile.sandbox-js instead.
 
-ARG BASE_IMAGE=ghcr.io/aorwall/moatless-vibe-sandbox:latest
+ARG BASE_IMAGE=aorwall/moatless-vibe-sandbox:latest
 FROM ${BASE_IMAGE}
 
 USER root
@@ -83,19 +83,8 @@ RUN chmod +x /usr/local/bin/docker-entrypoint-sandbox.sh /usr/local/bin/sync-plu
 # Install Playwright browsers
 RUN npx playwright install --with-deps chromium
 
-# Copy generic server management script to /usr/local/bin (survives /opt/moatless volume mount)
-COPY apps/sandbox/bin/server /usr/local/bin/server
-RUN chmod +x /usr/local/bin/server
-
-# Copy file-explorer pre-built artifacts and package manifest
-COPY apps/file-explorer/dist /app/file-explorer/dist
-COPY apps/file-explorer/package.json /app/file-explorer/
-COPY apps/sandbox/bin/file-explorer /usr/local/bin/file-explorer
-RUN chmod +x /usr/local/bin/file-explorer
-
 # Fix ownership
-RUN chown -R moatless:moatless /app/file-explorer && \
-    chown -R moatless:moatless /opt/playwright-browsers && \
+RUN chown -R moatless:moatless /opt/playwright-browsers && \
     chown -R moatless:moatless /usr/share/moatless-skills
 
 # Switch to non-root user for runtime
@@ -111,8 +100,8 @@ ENV NODE_ENV=production
 ENV TZ="UTC"
 ENV UV_THREADPOOL_SIZE=16
 
-# Expose ports: sandbox API (8001), preview server (3000), file explorer (4000)
-EXPOSE 8001 4000
+# Expose ports: sandbox API (8001) and gRPC (50052)
+EXPOSE 8001 50052
 
 # Set entrypoint
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint-sandbox.sh"]

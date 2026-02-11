@@ -9,7 +9,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Default values
-REGISTRY="ghcr.io/aorwall"
+REGISTRY="aorwall"
 TAG="latest"
 PLATFORM="linux/amd64,linux/arm64"
 MULTI_ARCH=true
@@ -99,7 +99,7 @@ while [[ $# -gt 0 ]]; do
       echo "  --help            Show this help message"
       echo ""
       echo "Examples:"
-      echo "  $0                        # Build multi-arch and push to GHCR + Docker Hub (default)"
+      echo "  $0                        # Build multi-arch and push to Docker Hub (default)"
       echo "  $0 --local                # Build single-arch locally (no push)"
       echo "  $0 --only sandbox-js      # Build only sandbox-js"
       echo "  $0 --skip-base            # Build sandbox-js only (assumes base exists)"
@@ -229,8 +229,7 @@ build_image() {
   local dockerfile=$1
   local image_name=$2
   local extra_args="${3:-}"
-  local ghcr_name="${REGISTRY}/${image_name}:${TAG}"
-  local dockerhub_name="aorwall/${image_name}:${TAG}"
+  local full_image="${REGISTRY}/${image_name}:${TAG}"
 
   echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
   echo -e "${GREEN}Building ${image_name}...${NC}"
@@ -238,9 +237,9 @@ build_image() {
 
   # Use buildx for multi-arch, regular docker build otherwise
   if [ "$MULTI_ARCH" = true ]; then
-    BUILD_CMD="docker buildx build --platform $PLATFORM --push -t ${ghcr_name} -t ${dockerhub_name}"
+    BUILD_CMD="docker buildx build --platform $PLATFORM --push -t ${full_image}"
   else
-    BUILD_CMD="docker build -t ${ghcr_name} -t ${dockerhub_name}"
+    BUILD_CMD="docker build -t ${full_image}"
     if [ -n "$PLATFORM" ]; then
       BUILD_CMD="$BUILD_CMD --platform $PLATFORM"
     fi
@@ -264,20 +263,12 @@ build_image() {
 
     # For non-multi-arch builds, push separately if requested
     if [ "$MULTI_ARCH" = false ] && [ "$PUSH" = true ]; then
-      echo -e "${YELLOW}Pushing ${ghcr_name}...${NC}"
-      docker push "${ghcr_name}"
+      echo -e "${YELLOW}Pushing ${full_image}...${NC}"
+      docker push "${full_image}"
       if [ $? -eq 0 ]; then
-        echo -e "${GREEN}✓ Pushed ${ghcr_name}${NC}"
+        echo -e "${GREEN}✓ Pushed ${full_image}${NC}"
       else
-        echo -e "${RED}✗ Push failed for ${ghcr_name}${NC}"
-        exit 1
-      fi
-      echo -e "${YELLOW}Pushing ${dockerhub_name}...${NC}"
-      docker push "${dockerhub_name}"
-      if [ $? -eq 0 ]; then
-        echo -e "${GREEN}✓ Pushed ${dockerhub_name}${NC}"
-      else
-        echo -e "${RED}✗ Push failed for ${dockerhub_name}${NC}"
+        echo -e "${RED}✗ Push failed for ${full_image}${NC}"
         exit 1
       fi
     fi
@@ -305,22 +296,18 @@ echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━�
 
 if [ "$MULTI_ARCH" = true ]; then
   echo -e "\n${GREEN}Built multi-arch images (amd64 + arm64) and pushed to:${NC}"
-  echo -e "  - GHCR: ${REGISTRY}/moatless-vibe-sandbox-*:${TAG}"
-  echo -e "  - Docker Hub: aorwall/moatless-vibe-sandbox-*:${TAG}"
+  echo -e "  - ${REGISTRY}/moatless-vibe-sandbox-*:${TAG}"
 else
   echo -e "\n${GREEN}Built images:${NC}"
   docker images | grep -E "REPOSITORY|moatless-vibe-sandbox" | head -5
   if [ "$PUSH" = true ]; then
     echo -e "\n${GREEN}Pushed to:${NC}"
-    echo -e "  - GHCR: ${REGISTRY}/moatless-vibe-sandbox-*:${TAG}"
-    echo -e "  - Docker Hub: aorwall/moatless-vibe-sandbox-*:${TAG}"
+    echo -e "  - ${REGISTRY}/moatless-vibe-sandbox-*:${TAG}"
   fi
 fi
 
 echo -e "\n${GREEN}To use in Kubernetes:${NC}"
 echo "  K8S_SANDBOX_IMAGE=${REGISTRY}/moatless-vibe-sandbox-js:${TAG}"
-echo "  # or from Docker Hub:"
-echo "  K8S_SANDBOX_IMAGE=aorwall/moatless-vibe-sandbox-js:${TAG}"
 
 if [ "$MULTI_ARCH" = true ]; then
   echo -e "\n${GREEN}To use with Docker (works on both amd64 and arm64):${NC}"

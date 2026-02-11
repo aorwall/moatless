@@ -2,7 +2,7 @@
 # Only includes: Ubuntu, Node.js, npm, Claude Code CLI, git, essential tools
 # No Bun, pnpm, yarn, Python, Rust, Go, Java - those go in sandbox-js or sandbox-full
 #
-# Published as: ghcr.io/aorwall/moatless-vibe-sandbox:latest
+# Published as: aorwall/moatless-vibe-sandbox:latest
 
 FROM ubuntu:24.04
 
@@ -79,9 +79,10 @@ RUN userdel -r ubuntu 2>/dev/null || true \
 RUN mkdir -p /opt/moatless/data /mnt/plugins \
     && chown -R $USERNAME:$USERNAME /opt/moatless /mnt/plugins
 
-# Create cache directory in home (following Linux FHS standard: ~/.cache)
+# Create cache and config directories in home (following Linux FHS standard)
 RUN mkdir -p /home/$USERNAME/.cache \
-    && chown -R $USERNAME:$USERNAME /home/$USERNAME/.cache
+    /home/$USERNAME/.config/gh \
+    && chown -R $USERNAME:$USERNAME /home/$USERNAME
 
 # Install Claude Code CLI as root
 WORKDIR /home/moatless

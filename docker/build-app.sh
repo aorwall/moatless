@@ -9,7 +9,7 @@ NC='\033[0m' # No Color
 
 # Default values
 IMAGE_NAME="moatless-vibe"
-REGISTRY="ghcr.io/aorwall"
+REGISTRY="aorwall"
 TAG="latest"
 PLATFORM="linux/amd64,linux/arm64"
 MULTI_ARCH=true
@@ -55,7 +55,7 @@ while [[ $# -gt 0 ]]; do
       echo "  --help            Show this help message"
       echo ""
       echo "Examples:"
-      echo "  $0                        # Build multi-arch and push to GHCR + Docker Hub (default)"
+      echo "  $0                        # Build multi-arch and push to Docker Hub (default)"
       echo "  $0 --local                # Build single-arch locally (no push)"
       echo "  $0 --no-cache             # Force rebuild all layers (use after code changes)"
       exit 0
@@ -67,13 +67,11 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Image names for both registries
-GHCR_NAME="${REGISTRY}/${IMAGE_NAME}:${TAG}"
-DOCKERHUB_NAME="aorwall/${IMAGE_NAME}:${TAG}"
+# Image name
+FULL_IMAGE="${REGISTRY}/${IMAGE_NAME}:${TAG}"
 
 echo -e "${GREEN}Building Moatless Vibe App Docker image...${NC}"
-echo "GHCR: ${GHCR_NAME}"
-echo "Docker Hub: ${DOCKERHUB_NAME}"
+echo "Image: ${FULL_IMAGE}"
 
 # Change to repository root
 cd "$(dirname "$0")/.."
@@ -105,9 +103,9 @@ fi
 
 # Build command - use buildx for multi-arch, regular docker build otherwise
 if [ "$MULTI_ARCH" = true ]; then
-  BUILD_CMD="docker buildx build --platform $PLATFORM --push -t ${GHCR_NAME} -t ${DOCKERHUB_NAME}"
+  BUILD_CMD="docker buildx build --platform $PLATFORM --push -t ${FULL_IMAGE}"
 else
-  BUILD_CMD="docker build -t ${GHCR_NAME} -t ${DOCKERHUB_NAME}"
+  BUILD_CMD="docker build -t ${FULL_IMAGE}"
   if [ -n "$PLATFORM" ]; then
     BUILD_CMD="$BUILD_CMD --platform $PLATFORM"
   fi
@@ -130,20 +128,12 @@ if [ $? -eq 0 ]; then
 
   # For non-multi-arch builds, push separately if requested
   if [ "$MULTI_ARCH" = false ] && [ "$PUSH" = true ]; then
-    echo -e "\n${YELLOW}Pushing ${GHCR_NAME}...${NC}"
-    docker push "${GHCR_NAME}"
+    echo -e "\n${YELLOW}Pushing ${FULL_IMAGE}...${NC}"
+    docker push "${FULL_IMAGE}"
     if [ $? -eq 0 ]; then
-      echo -e "${GREEN}✓ Pushed ${GHCR_NAME}${NC}"
+      echo -e "${GREEN}✓ Pushed ${FULL_IMAGE}${NC}"
     else
-      echo -e "${RED}✗ Push failed for ${GHCR_NAME}${NC}"
-      exit 1
-    fi
-    echo -e "${YELLOW}Pushing ${DOCKERHUB_NAME}...${NC}"
-    docker push "${DOCKERHUB_NAME}"
-    if [ $? -eq 0 ]; then
-      echo -e "${GREEN}✓ Pushed ${DOCKERHUB_NAME}${NC}"
-    else
-      echo -e "${RED}✗ Push failed for ${DOCKERHUB_NAME}${NC}"
+      echo -e "${RED}✗ Push failed for ${FULL_IMAGE}${NC}"
       exit 1
     fi
   fi
@@ -151,16 +141,14 @@ if [ $? -eq 0 ]; then
   # Summary
   echo -e "\n${GREEN}Build complete!${NC}"
   if [ "$MULTI_ARCH" = true ]; then
-    echo -e "Built multi-arch images (amd64 + arm64) and pushed to:"
-    echo -e "  - GHCR: ${GHCR_NAME}"
-    echo -e "  - Docker Hub: ${DOCKERHUB_NAME}"
+    echo -e "Built multi-arch image (amd64 + arm64) and pushed to:"
+    echo -e "  - ${FULL_IMAGE}"
   else
-    echo -e "\n${GREEN}Built images:${NC}"
+    echo -e "\n${GREEN}Built image:${NC}"
     docker images | grep -E "REPOSITORY|${IMAGE_NAME}" | head -3
     if [ "$PUSH" = true ]; then
       echo -e "\n${GREEN}Pushed to:${NC}"
-      echo -e "  - GHCR: ${GHCR_NAME}"
-      echo -e "  - Docker Hub: ${DOCKERHUB_NAME}"
+      echo -e "  - ${FULL_IMAGE}"
     fi
   fi
 else

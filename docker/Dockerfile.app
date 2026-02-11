@@ -2,7 +2,7 @@
 # Expects pre-built frontend assets in apps/frontend/dist
 # (build-app.sh runs the project build before Docker)
 #
-# Published as: ghcr.io/aorwall/moatless-vibe:latest
+# Published as: aorwall/moatless-vibe:latest
 
 FROM nginx:1.27-alpine
 
