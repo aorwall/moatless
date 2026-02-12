@@ -343,11 +343,11 @@ kubernetes:
   # -- Resource limits for server containers
   serverResources:
     limits:
-      cpu: "500m"
-      memory: 512Mi
+      cpu: "1000m"
+      memory: 1536Mi
     requests:
-      cpu: "100m"
-      memory: 128Mi
+      cpu: "200m"
+      memory: 256Mi
   # -- gRPC port on sandbox pods (for backend→sandbox communication)
   sandboxGrpcPort: 50052
   # -- Pod startup timeout in seconds

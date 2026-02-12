@@ -250,6 +250,10 @@ fn build_sandbox_container(
 }
 
 /// Build server containers from repo config.
+///
+/// Each server container's image is resolved from `server.docker_image`,
+/// falling back to `config.sandbox_image`. Start commands come from
+/// `server.start_commands`; if absent the image's default CMD is used.
 fn build_server_containers(
     config: &Config,
     plan: &ProvisionPlan,
@@ -266,48 +270,45 @@ fn build_server_containers(
         let container_name = format!("{}-server", server.name);
         let port = server.port;
 
-        let (image, command, args, env) = match server.name.as_str() {
-            "files" => {
-                let img = config.files_server_image.clone();
-                let env = vec![
-                    env_var("FILE_EXPLORER_PORT", &port.to_string()),
-                    env_var("WORKSPACE_PATH", "/opt/moatless/repo"),
-                    env_var("DATA_DIR", "/opt/moatless/data"),
-                ];
-                // No command override — image default CMD runs file-explorer
-                (img, None, None, env)
+        // Image: per-server override → sandbox image fallback
+        let image = server
+            .docker_image
+            .clone()
+            .unwrap_or_else(|| config.sandbox_image.clone());
+
+        // Standard env vars for all server containers
+        let mut env = vec![
+            env_var("PORT", &port.to_string()),
+            env_var("WORKSPACE_PATH", "/opt/moatless/repo"),
+            env_var("DATA_DIR", "/opt/moatless/data"),
+        ];
+
+        // Per-server env vars from config
+        if let Some(ref extra) = server.env_vars {
+            for (k, v) in extra {
+                env.push(env_var(k, v));
             }
-            _ => {
-                // Preview or custom servers — use preview-server image with K8s command override
-                let img = config.preview_server_image.clone();
-                let mut env = vec![
-                    env_var("PORT", &port.to_string()),
-                    env_var("HOST", "0.0.0.0"),
-                    env_var("WORKSPACE_PATH", "/opt/moatless/repo"),
-                    env_var("DATA_DIR", "/opt/moatless/data"),
-                ];
+        }
 
-                // Build command from previewConfig.serverStartCommands
-                let start_commands = extract_server_start_commands(plan);
-
-                let (cmd, cmd_args) = if !start_commands.is_empty() {
-                    let joined = start_commands.join(" && ");
-                    let full_cmd = format!("cd /opt/moatless/repo && {joined}");
-                    (
-                        Some(vec!["bash".to_string(), "-c".to_string()]),
-                        Some(vec![full_cmd]),
-                    )
-                } else {
-                    // Fallback: run npm dev
-                    env.push(env_var("NODE_ENV", "development"));
-                    (
-                        Some(vec!["bash".to_string(), "-c".to_string()]),
-                        Some(vec!["cd /opt/moatless/repo && npm install && npm run dev".to_string()]),
-                    )
-                };
-
-                (img, cmd, cmd_args, env)
+        // Command: always set command to override image ENTRYPOINT.
+        // Server containers may use either the dedicated preview-server image
+        // (ENTRYPOINT: server-entrypoint.sh) or the sandbox-js fallback image
+        // (ENTRYPOINT: runs sandbox binary). We must override both.
+        // The inline wait polls for the workspace-ready sentinel written by
+        // the sandbox container after setup commands complete.
+        let (command, args) = match &server.start_commands {
+            Some(cmds) if !cmds.is_empty() => {
+                let joined_cmd = cmds.join(" && ");
+                let full_cmd = format!(
+                    "until [ -f /opt/moatless/data/.workspace-ready ]; do sleep 2; done && \
+                     cd /opt/moatless/repo && {joined_cmd}"
+                );
+                (
+                    Some(vec!["bash".to_string(), "-c".to_string()]),
+                    Some(vec![full_cmd]),
+                )
             }
+            _ => (None, None),
         };
 
         // Volume mounts — server containers need PVC + shared-data + build-cache
@@ -420,21 +421,6 @@ fn build_repo_config_json(plan: &ProvisionPlan) -> Option<String> {
     }
 
     Some(serde_json::Value::Object(map).to_string())
-}
-
-/// Extract server start commands from previewConfig.serverStartCommands.
-fn extract_server_start_commands(plan: &ProvisionPlan) -> Vec<String> {
-    plan.repo_config
-        .preview_config
-        .as_ref()
-        .and_then(|pc| pc.get("serverStartCommands"))
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(String::from))
-                .collect()
-        })
-        .unwrap_or_default()
 }
 
 /// Security context that drops all capabilities except those needed at runtime.

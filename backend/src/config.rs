@@ -57,12 +57,6 @@ pub struct Config {
     /// Image pull policy for sandbox pod containers (default: "Always")
     pub sandbox_image_pull_policy: String,
 
-    /// Docker image for files-server containers (default: aorwall/moatless-vibe-files-server:latest)
-    pub files_server_image: String,
-
-    /// Docker image for preview-server containers (default: aorwall/moatless-vibe-preview-server:latest)
-    pub preview_server_image: String,
-
     /// CPU limit for server containers (default: "500m")
     pub server_resources_cpu_limit: String,
 
@@ -246,23 +240,17 @@ impl Config {
             sandbox_image_pull_policy: env::var("SANDBOX_IMAGE_PULL_POLICY")
                 .unwrap_or_else(|_| "Always".to_string()),
 
-            files_server_image: env::var("FILES_SERVER_IMAGE")
-                .unwrap_or_else(|_| "aorwall/moatless-vibe-files-server:latest".to_string()),
-
-            preview_server_image: env::var("PREVIEW_SERVER_IMAGE")
-                .unwrap_or_else(|_| "aorwall/moatless-vibe-preview-server:latest".to_string()),
-
             server_resources_cpu_limit: env::var("SERVER_RESOURCES_CPU_LIMIT")
-                .unwrap_or_else(|_| "500m".to_string()),
+                .unwrap_or_else(|_| "1000m".to_string()),
 
             server_resources_memory_limit: env::var("SERVER_RESOURCES_MEMORY_LIMIT")
-                .unwrap_or_else(|_| "512Mi".to_string()),
+                .unwrap_or_else(|_| "1536Mi".to_string()),
 
             server_resources_cpu_request: env::var("SERVER_RESOURCES_CPU_REQUEST")
-                .unwrap_or_else(|_| "100m".to_string()),
+                .unwrap_or_else(|_| "200m".to_string()),
 
             server_resources_memory_request: env::var("SERVER_RESOURCES_MEMORY_REQUEST")
-                .unwrap_or_else(|_| "128Mi".to_string()),
+                .unwrap_or_else(|_| "256Mi".to_string()),
 
             k8s_sandbox_storage_enabled: env::var("K8S_SANDBOX_STORAGE_ENABLED")
                 .map(|v| v == "true" || v == "1")
