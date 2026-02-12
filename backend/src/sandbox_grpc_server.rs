@@ -208,8 +208,8 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
     /// Return credentials for sandbox initialization.
     ///
     /// Resolution chain:
-    /// 1. Query `provider_tokens` table for user-linked tokens
-    /// 2. Fall back to environment variables
+    /// 1. Environment variables (from moatless-secrets) — admin-configured, take priority
+    /// 2. Fill gaps from `provider_tokens` DB table (user-linked OAuth tokens)
     async fn get_credentials(
         &self,
         request: Request<GetCredentialsRequest>,
@@ -225,24 +225,43 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
 
         let mut credentials: HashMap<String, String> = HashMap::new();
 
-        // Step 1: Query provider_tokens table for user-linked tokens
+        // Step 1: Environment variables (from moatless-secrets) take priority
+        if let Ok(token) = env::var("GITHUB_PAT") {
+            credentials.insert(CredentialKey::GITHUB_TOKEN.to_string(), token);
+        }
+        if let Ok(key) = env::var("ANTHROPIC_API_KEY") {
+            credentials.insert(CredentialKey::ANTHROPIC_API_KEY.to_string(), key);
+        }
+        if let Ok(token) = env::var("CLAUDE_CODE_OAUTH_TOKEN") {
+            credentials.insert(
+                CredentialKey::CLAUDE_CODE_OAUTH_TOKEN.to_string(),
+                token,
+            );
+        }
+
+        // Step 2: Fill remaining gaps from provider_tokens DB table
         if let Some(ref pool) = self.db {
-            // GitHub token
-            match provider_token_dao::find_provider_token(pool, &claims.user_id, "github").await {
-                Ok(Some(row)) => {
-                    credentials.insert(
-                        CredentialKey::GITHUB_TOKEN.to_string(),
-                        row.access_token,
-                    );
-                }
-                Ok(None) => {}
-                Err(e) => {
-                    warn!(error = %e, user_id = %claims.user_id, "Failed to query github provider_token");
+            // GitHub token (from user's OAuth connection)
+            if !credentials.contains_key(CredentialKey::GITHUB_TOKEN) {
+                match provider_token_dao::find_provider_token(pool, &claims.user_id, "github").await
+                {
+                    Ok(Some(row)) => {
+                        credentials.insert(
+                            CredentialKey::GITHUB_TOKEN.to_string(),
+                            row.access_token,
+                        );
+                    }
+                    Ok(None) => {}
+                    Err(e) => {
+                        warn!(error = %e, user_id = %claims.user_id, "Failed to query github provider_token");
+                    }
                 }
             }
 
-            // Claude OAuth token
-            if !credentials.contains_key(CredentialKey::ANTHROPIC_API_KEY) {
+            // Claude OAuth token (from user's OAuth connection)
+            if !credentials.contains_key(CredentialKey::CLAUDE_CODE_OAUTH_TOKEN)
+                && !credentials.contains_key(CredentialKey::ANTHROPIC_API_KEY)
+            {
                 match provider_token_dao::find_provider_token(pool, &claims.user_id, "claude").await
                 {
                     Ok(Some(row)) => {
@@ -256,26 +275,6 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
                         warn!(error = %e, user_id = %claims.user_id, "Failed to query claude provider_token");
                     }
                 }
-            }
-        }
-
-        // Step 2: Fill remaining gaps from environment variables
-        if !credentials.contains_key(CredentialKey::GITHUB_TOKEN) {
-            if let Ok(token) = env::var("GITHUB_PAT") {
-                credentials.insert(CredentialKey::GITHUB_TOKEN.to_string(), token);
-            }
-        }
-        if !credentials.contains_key(CredentialKey::ANTHROPIC_API_KEY) {
-            if let Ok(key) = env::var("ANTHROPIC_API_KEY") {
-                credentials.insert(CredentialKey::ANTHROPIC_API_KEY.to_string(), key);
-            }
-        }
-        if !credentials.contains_key(CredentialKey::CLAUDE_CODE_OAUTH_TOKEN) {
-            if let Ok(token) = env::var("CLAUDE_CODE_OAUTH_TOKEN") {
-                credentials.insert(
-                    CredentialKey::CLAUDE_CODE_OAUTH_TOKEN.to_string(),
-                    token,
-                );
             }
         }
 
