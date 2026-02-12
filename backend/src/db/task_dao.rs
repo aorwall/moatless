@@ -1,5 +1,9 @@
 //! Task DAO — queries for task data access.
 
+use std::collections::HashMap;
+
+use chrono::{DateTime, Utc};
+
 use super::models::TaskRow;
 use super::DbPool;
 
@@ -220,6 +224,29 @@ pub async fn exists_by_short_id(pool: &DbPool, short_id: &str) -> Result<bool, s
             .fetch_one(pool)
             .await?;
     Ok(row.0)
+}
+
+/// Get creation timestamps for a batch of task IDs.
+///
+/// Returns a map of task_id → created_at for the requested IDs.
+/// Uses `created_at_db` (DB-generated timestamp) with `NOW()` as fallback.
+pub async fn get_created_times(
+    pool: &DbPool,
+    task_ids: &[String],
+) -> Result<HashMap<String, DateTime<Utc>>, sqlx::Error> {
+    if task_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let rows: Vec<(String, DateTime<Utc>)> = sqlx::query_as(
+        r#"SELECT task_id, COALESCE(created_at_db, NOW()) AS created_at
+           FROM tasks WHERE task_id = ANY($1)"#,
+    )
+    .bind(task_ids)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows.into_iter().collect())
 }
 
 /// Patch struct for partial task updates.

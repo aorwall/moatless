@@ -9,7 +9,6 @@ use crate::db::{repository_dao, tag_dao, task_dao, users};
 use crate::db::models::TaskRow;
 use crate::db::task_dao::TaskPatch;
 use crate::extractors::AuthUser;
-use crate::sandbox::types::CachedSandboxState;
 use crate::state::AppState;
 
 use super::error::TaskError;
@@ -261,15 +260,6 @@ pub async fn list_tasks(
         .collect();
     let repo_names = resolve_repo_names(&state, &repo_ids).await;
 
-    // Batch fetch sandbox states from Redis
-    let sandbox_states = if let Some(ref cache) = state.sandbox_state {
-        cache
-            .get_many(&task_ids.iter().map(|s| s.as_str()).collect::<Vec<_>>())
-            .await
-    } else {
-        std::collections::HashMap::new()
-    };
-
     let items: Vec<TaskResponse> = rows
         .iter()
         .map(|row| {
@@ -289,9 +279,8 @@ pub async fn list_tasks(
                 .cloned();
 
             let repo_name = repo_names.get(&row.repository_id).cloned();
-            let snapshot = sandbox_states.get(&row.task_id);
 
-            build_task_response(row, tags, display_name, repo_name, snapshot)
+            build_task_response(row, tags, display_name, repo_name)
         })
         .collect();
 
@@ -669,22 +658,15 @@ async fn enrich_task(
         None
     };
 
-    let snapshot = if let Some(ref cache) = state.sandbox_state {
-        cache.get(&row.task_id).await
-    } else {
-        None
-    };
-
-    Ok(build_task_response(row, tag_responses, display_name, repo_name, snapshot.as_ref()))
+    Ok(build_task_response(row, tag_responses, display_name, repo_name))
 }
 
-/// Build a TaskResponse from a row + pre-resolved tags/names + optional sandbox snapshot.
+/// Build a TaskResponse from a row + pre-resolved tags/names.
 fn build_task_response(
     row: &TaskRow,
     tags: Vec<TagResponse>,
     display_name: Option<String>,
     repo_name: Option<String>,
-    sandbox_snapshot: Option<&CachedSandboxState>,
 ) -> TaskResponse {
     let title = derive_title(row);
 
@@ -709,13 +691,9 @@ fn build_task_response(
         created_by_display_name: display_name,
         visibility: row.visibility.clone(),
         tags,
-        environment_status: sandbox_snapshot
-            .and_then(|s| serde_json::to_value(&s.environment_status).ok())
-            .and_then(|v| v.as_str().map(String::from)),
-        agent_state: sandbox_snapshot
-            .and_then(|s| serde_json::to_value(&s.agent_state).ok())
-            .and_then(|v| v.as_str().map(String::from)),
-        is_running: sandbox_snapshot.map(|s| s.is_running),
+        environment_status: None,
+        agent_state: None,
+        is_running: None,
     }
 }
 

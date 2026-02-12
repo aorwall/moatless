@@ -4,6 +4,8 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::Json;
 
+use tracing::{info, warn};
+
 use crate::db::{provider_token_dao, repository_dao};
 use crate::db::models::RepositoryRow;
 use crate::db::repository_dao::RepositoryPatch;
@@ -269,6 +271,10 @@ pub async fn get_branches(
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id.clone()))?;
 
+    if repo.default_branch.is_none() {
+        info!(repository_id = %repository_id, "No default branch set, fetching from provider");
+    }
+
     let remote_url = repo.remote_url.as_deref().ok_or_else(|| {
         RepositoryError::BadRequest("Repository has no remote URL".to_string())
     })?;
@@ -374,37 +380,62 @@ async fn fetch_github_branches(
 
     let client = reqwest::Client::new();
 
-    // Fetch branches
-    let resp = client
-        .get(format!(
-            "https://api.github.com/repos/{owner}/{repo}/branches?per_page=100"
-        ))
-        .header("Authorization", format!("Bearer {token}"))
-        .header("User-Agent", "moatless-vibe-backend")
-        .header("Accept", "application/vnd.github+json")
-        .send()
-        .await
-        .map_err(|e| RepositoryError::ProviderError(format!("GitHub API request failed: {e}")))?;
-
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        return Err(RepositoryError::ProviderError(format!(
-            "GitHub API returned {status}: {body}"
-        )));
-    }
-
+    // Fetch all branches (paginated)
     #[derive(serde::Deserialize)]
     struct GhBranch {
         name: String,
     }
 
-    let branches: Vec<GhBranch> = resp
-        .json()
-        .await
-        .map_err(|e| RepositoryError::ProviderError(format!("Failed to parse GitHub response: {e}")))?;
+    let mut all_branches: Vec<GhBranch> = Vec::new();
+    let mut page = 1u32;
+    loop {
+        let resp = client
+            .get(format!(
+                "https://api.github.com/repos/{owner}/{repo}/branches?per_page=100&page={page}"
+            ))
+            .header("Authorization", format!("Bearer {token}"))
+            .header("User-Agent", "moatless-vibe-backend")
+            .header("Accept", "application/vnd.github+json")
+            .send()
+            .await
+            .map_err(|e| {
+                RepositoryError::ProviderError(format!("GitHub API request failed: {e}"))
+            })?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(RepositoryError::ProviderError(format!(
+                "GitHub API returned {status}: {body}"
+            )));
+        }
+
+        let branches: Vec<GhBranch> = resp.json().await.map_err(|e| {
+            RepositoryError::ProviderError(format!("Failed to parse GitHub response: {e}"))
+        })?;
+
+        let count = branches.len();
+        all_branches.extend(branches);
+
+        if count < 100 {
+            break;
+        }
+        page += 1;
+        // Safety cap to avoid infinite loops
+        if page > 20 {
+            warn!("GitHub branches pagination capped at 2000 for {owner}/{repo}");
+            break;
+        }
+    }
+
+    info!("Fetched {} branches for {owner}/{repo}", all_branches.len());
 
     // Fetch repo metadata to get default_branch (best-effort)
+    #[derive(serde::Deserialize)]
+    struct GhRepo {
+        default_branch: Option<String>,
+    }
+
     let default_branch = match client
         .get(format!("https://api.github.com/repos/{owner}/{repo}"))
         .header("Authorization", format!("Bearer {token}"))
@@ -414,21 +445,27 @@ async fn fetch_github_branches(
         .await
     {
         Ok(repo_resp) if repo_resp.status().is_success() => {
-            #[derive(serde::Deserialize)]
-            struct GhRepo {
-                default_branch: Option<String>,
+            match repo_resp.json::<GhRepo>().await {
+                Ok(r) => r.default_branch,
+                Err(e) => {
+                    warn!("Failed to parse GitHub repo metadata for {owner}/{repo}: {e}");
+                    None
+                }
             }
-            repo_resp
-                .json::<GhRepo>()
-                .await
-                .ok()
-                .and_then(|r| r.default_branch)
         }
-        _ => None,
+        Ok(repo_resp) => {
+            let status = repo_resp.status();
+            warn!("GitHub repo metadata returned {status} for {owner}/{repo}");
+            None
+        }
+        Err(e) => {
+            warn!("GitHub repo metadata request failed for {owner}/{repo}: {e}");
+            None
+        }
     };
 
     Ok(BranchFetchResult {
-        branches: branches.into_iter().map(|b| b.name).collect(),
+        branches: all_branches.into_iter().map(|b| b.name).collect(),
         default_branch,
     })
 }
@@ -454,22 +491,6 @@ async fn fetch_gitlab_branches(
     let encoded_path = urlencoding::encode(project_path);
 
     let client = reqwest::Client::new();
-    let resp = client
-        .get(format!(
-            "https://gitlab.com/api/v4/projects/{encoded_path}/repository/branches?per_page=100"
-        ))
-        .header("PRIVATE-TOKEN", token)
-        .send()
-        .await
-        .map_err(|e| RepositoryError::ProviderError(format!("GitLab API request failed: {e}")))?;
-
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        return Err(RepositoryError::ProviderError(format!(
-            "GitLab API returned {status}: {body}"
-        )));
-    }
 
     #[derive(serde::Deserialize)]
     struct GlBranch {
@@ -477,18 +498,52 @@ async fn fetch_gitlab_branches(
         default: Option<bool>,
     }
 
-    let branches: Vec<GlBranch> = resp
-        .json()
-        .await
-        .map_err(|e| RepositoryError::ProviderError(format!("Failed to parse GitLab response: {e}")))?;
+    let mut all_branches: Vec<GlBranch> = Vec::new();
+    let mut page = 1u32;
+    loop {
+        let resp = client
+            .get(format!(
+                "https://gitlab.com/api/v4/projects/{encoded_path}/repository/branches?per_page=100&page={page}"
+            ))
+            .header("PRIVATE-TOKEN", token)
+            .send()
+            .await
+            .map_err(|e| {
+                RepositoryError::ProviderError(format!("GitLab API request failed: {e}"))
+            })?;
 
-    let default_branch = branches
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(RepositoryError::ProviderError(format!(
+                "GitLab API returned {status}: {body}"
+            )));
+        }
+
+        let branches: Vec<GlBranch> = resp.json().await.map_err(|e| {
+            RepositoryError::ProviderError(format!("Failed to parse GitLab response: {e}"))
+        })?;
+
+        let count = branches.len();
+        all_branches.extend(branches);
+
+        if count < 100 {
+            break;
+        }
+        page += 1;
+        if page > 20 {
+            warn!("GitLab branches pagination capped at 2000 for {encoded_path}");
+            break;
+        }
+    }
+
+    let default_branch = all_branches
         .iter()
         .find(|b| b.default == Some(true))
         .map(|b| b.name.clone());
 
     Ok(BranchFetchResult {
-        branches: branches.into_iter().map(|b| b.name).collect(),
+        branches: all_branches.into_iter().map(|b| b.name).collect(),
         default_branch,
     })
 }
