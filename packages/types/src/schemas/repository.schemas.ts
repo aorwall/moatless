@@ -49,6 +49,8 @@ export const ServerConfigSchema = z.object({
   enableInspector: z.boolean().default(false).optional(),
   /** Whether this server is the default view when opening a task */
   default: z.boolean().default(false).optional(),
+  /** Per-server environment variables */
+  envVars: z.record(z.string(), z.string()).optional(),
 })
 
 export const CodeExecutionSchema = z.object({

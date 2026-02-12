@@ -218,6 +218,8 @@ pub struct ServerEventPayload {
     pub status: ServerSubType,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
 }
 
 /// SSE event envelope — the shape of events streamed to the frontend.
@@ -374,6 +376,7 @@ mod tests {
             server_name: "preview".to_string(),
             status: ServerSubType::Started,
             error: None,
+            detail: None,
         };
         let json = serde_json::to_value(&payload).unwrap();
         assert_eq!(json["serverName"], "preview");
