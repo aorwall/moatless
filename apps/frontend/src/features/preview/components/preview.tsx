@@ -6,13 +6,12 @@ import { ApiError } from '@/lib/api/client'
 import { Button } from '@/lib/components/ui/button'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/components/ui/resizable'
 import { cn } from '@/lib/utils'
-import type { PreviewProps, ScriptHealthStatus } from '../types'
+import type { PreviewProps, SandboxEvent, ScriptHealthStatus } from '../types'
 import { DeviceFrame } from './device-frame'
 import { InspectorOverlay } from './inspector-overlay'
 import { LogsPanel } from './logs-panel'
 import { PreviewHeader } from './preview-header'
 import { RecentEvents } from './recent-events'
-import { StartupTimeline } from './startup-timeline'
 
 type EnvironmentStatusType = NonNullable<PreviewProps['environmentStatus']>
 
@@ -100,41 +99,7 @@ function formatMemory(mb: number): string {
   return `${Math.round(mb)} MB`
 }
 
-function ProxyErrorOverlay({
-  serverStatus,
-  onReload,
-}: {
-  serverStatus: { status: string; url?: string | null; error?: string | null } | undefined
-  onReload: () => void
-}) {
-  if (serverStatus?.status === 'starting' || serverStatus?.status === 'installing') {
-    return (
-      <div className="absolute inset-0 flex items-center justify-center z-10 bg-background/80 backdrop-blur-sm">
-        <div className="flex flex-col items-center justify-center text-center space-y-4 p-8">
-          <Loader2 className="h-12 w-12 text-muted-foreground animate-spin" />
-          <h3 className="text-lg font-semibold">Preview Server Starting</h3>
-          <p className="text-sm text-muted-foreground max-w-md">
-            Please wait while the server starts...
-          </p>
-        </div>
-      </div>
-    )
-  }
-
-  if (serverStatus?.status === 'stopped') {
-    return (
-      <div className="absolute inset-0 flex items-center justify-center z-10 bg-background/80 backdrop-blur-sm">
-        <div className="flex flex-col items-center justify-center text-center space-y-4 p-8">
-          <AlertCircle className="h-12 w-12 text-orange-500" />
-          <h3 className="text-lg font-semibold">Preview Server Stopped</h3>
-          <p className="text-sm text-muted-foreground max-w-md">
-            The server is not currently running
-          </p>
-        </div>
-      </div>
-    )
-  }
-
+function ProxyErrorOverlay({ onReload }: { onReload: () => void }) {
   return (
     <div className="absolute inset-0 flex items-center justify-center z-10 bg-background/80 backdrop-blur-sm">
       <div className="flex flex-col items-center justify-center text-center space-y-4 p-8">
@@ -152,12 +117,58 @@ function ProxyErrorOverlay({
   )
 }
 
+function ServerStatusView({
+  server,
+  events,
+}: {
+  server: { status: string; label: string; name: string; error?: string | null }
+  events?: SandboxEvent[]
+}) {
+  const serverEvents = events?.filter(
+    (e) => e.type === 'server' && e.payload.serverName === server.name,
+  )
+
+  return (
+    <div className="flex flex-col items-center justify-center h-full text-center space-y-4 p-8">
+      {(server.status === 'starting' || server.status === 'installing') && (
+        <>
+          <Loader2 className="h-12 w-12 text-muted-foreground animate-spin" />
+          <h3 className="text-lg font-semibold">
+            {server.status === 'installing' ? 'Installing Dependencies' : 'Server Starting'}
+          </h3>
+          <p className="text-sm text-muted-foreground max-w-md">
+            Please wait while {server.label || 'the server'} starts...
+          </p>
+        </>
+      )}
+      {server.status === 'failed' && (
+        <>
+          <XCircle className="h-12 w-12 text-destructive" />
+          <h3 className="text-lg font-semibold">Server Failed</h3>
+          <p className="text-sm text-muted-foreground max-w-md">
+            {server.error || 'The server encountered an error'}
+          </p>
+        </>
+      )}
+      {server.status === 'stopped' && (
+        <>
+          <AlertCircle className="h-12 w-12 text-orange-500" />
+          <h3 className="text-lg font-semibold">Server Stopped</h3>
+          <p className="text-sm text-muted-foreground max-w-md">
+            {server.label || 'The server'} is not currently running
+          </p>
+        </>
+      )}
+      {serverEvents && serverEvents.length > 0 && <RecentEvents events={serverEvents} />}
+    </div>
+  )
+}
+
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Preview is a complex component managing iframe lifecycle, inspector, and console state
 export function Preview({
   taskId,
   environmentStatus,
   environmentError,
-  startupEvents,
   onElementSelected,
   onToggleElementContext,
   onNavigationReady,
@@ -662,9 +673,6 @@ export function Preview({
                     {getSandboxStatusConfig(environmentStatus, environmentError).message}
                   </p>
                   {environmentStatus === 'initializing' &&
-                    startupEvents &&
-                    startupEvents.length > 0 && <StartupTimeline events={startupEvents} />}
-                  {environmentStatus === 'initializing' &&
                     sandboxEvents &&
                     sandboxEvents.length > 0 && <RecentEvents events={sandboxEvents} />}
                   {getSandboxStatusConfig(environmentStatus, environmentError).showRetry && (
@@ -705,13 +713,18 @@ export function Preview({
               </div>
             )}
 
-            {/* Proxy error overlay - show appropriate message based on known server state */}
-            {hasProxyError && isSandboxRunning && (
-              <ProxyErrorOverlay serverStatus={serverStatus} onReload={reloadPreview} />
+            {/* Server not started — show status with events */}
+            {isSandboxRunning && activeServerEntry && activeServerEntry.status !== 'started' && (
+              <ServerStatusView server={activeServerEntry} events={sandboxEvents} />
             )}
 
-            {/* Always render iframe when URL is available — proxy handles unreachable states */}
-            {previewUrl && (
+            {/* Proxy error overlay — only when server is started */}
+            {hasProxyError && isSandboxRunning && serverStatus?.status === 'started' && (
+              <ProxyErrorOverlay onReload={reloadPreview} />
+            )}
+
+            {/* Render iframe only when server is started */}
+            {previewUrl && serverStatus?.status === 'started' && (
               <DeviceFrame mode={capabilities?.viewport ? viewportMode : 'desktop'}>
                 <iframe
                   key={iframeSrcKey}

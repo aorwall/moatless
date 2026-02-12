@@ -2,6 +2,7 @@ import type { UpdateRepositoryRequest } from '@moatless/api-client'
 import type { ServerConfig } from '@moatless/types'
 import { ChevronDown, Plus, Server, Star, Trash2 } from 'lucide-react'
 import { useState } from 'react'
+import { EnvironmentVariablesList } from '@/features/repositories/components/environment-variables-list'
 import {
   ConfigurationGroup,
   ConfigurationInput,
@@ -184,6 +185,21 @@ function ServerFields({
         <ConfigurationSwitch
           checked={server.enableInspector ?? false}
           onCheckedChange={(checked) => onUpdate({ ...server, enableInspector: checked })}
+        />
+      </ConfigurationItem>
+
+      <ConfigurationItem
+        label="Environment Variables"
+        description="Per-server environment variables passed to start commands"
+      >
+        <EnvironmentVariablesList
+          variables={server.envVars ?? {}}
+          onChange={(newVars) =>
+            onUpdate({
+              ...server,
+              envVars: Object.keys(newVars).length > 0 ? newVars : undefined,
+            })
+          }
         />
       </ConfigurationItem>
     </>
