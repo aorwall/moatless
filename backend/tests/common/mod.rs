@@ -104,8 +104,7 @@ pub fn test_config() -> Config {
         sandbox_grpc_port: 50052,
         sandbox_namespace: "test".into(),
         sandbox_image: "test-sandbox:latest".into(),
-        files_server_image: "test-files-server:latest".into(),
-        preview_server_image: "test-preview-server:latest".into(),
+        sandbox_image_pull_policy: "Never".into(),
         server_resources_cpu_limit: "500m".into(),
         server_resources_memory_limit: "512Mi".into(),
         server_resources_cpu_request: "100m".into(),
@@ -165,7 +164,6 @@ pub fn test_app_state(pool: PgPool) -> AppState {
         events: None,
         s3: None,
         channel_providers: None,
-        sandbox_state: None,
     }
 }
 

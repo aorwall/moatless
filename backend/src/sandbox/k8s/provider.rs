@@ -27,7 +27,6 @@ use crate::events::RedisEventPublisher;
 use crate::sandbox::error::SandboxError;
 use crate::sandbox::jwt;
 use crate::sandbox::provider::SandboxProvider;
-use crate::sandbox::sandbox_state::SandboxStateCache;
 use crate::sandbox::types::*;
 
 /// Kubernetes-based sandbox provider.
@@ -39,8 +38,6 @@ pub struct K8sSandboxProvider {
     pub db_pool: Option<DbPool>,
     /// Optional Redis event publisher for environment lifecycle events.
     pub event_publisher: Option<RedisEventPublisher>,
-    /// Optional shared Redis sandbox state cache (L2, cross-replica).
-    pub sandbox_state: Option<SandboxStateCache>,
 }
 
 #[async_trait]
@@ -145,18 +142,6 @@ impl SandboxProvider for K8sSandboxProvider {
             {
                 warn!(task_id = %task_id, error = %e, "Failed to create IngressRoutes");
             }
-        }
-
-        // Seed Redis cache with Initializing + stopped servers so the frontend
-        // gets server info immediately (before pod_watcher writes live state).
-        if let Some(ref state_cache) = self.sandbox_state {
-            let servers: Vec<ServerSnapshot> = server_ports
-                .iter()
-                .map(|(name, &port)| ServerSnapshot::from_config(name, port, "stopped"))
-                .collect();
-            state_cache
-                .init_state(task_id, EnvironmentStatus::Initializing, servers)
-                .await;
         }
 
         info!(
@@ -290,9 +275,6 @@ impl SandboxProvider for K8sSandboxProvider {
             warn!(task_id = %task_id, error = %e, "Failed to delete legacy task secret");
         }
 
-        if let Some(ref state_cache) = self.sandbox_state {
-            state_cache.delete(task_id).await;
-        }
         Ok(())
     }
 
@@ -324,8 +306,7 @@ impl SandboxProvider for K8sSandboxProvider {
                 let status = container
                     .map(|cs| cs.to_server_status().to_string())
                     .unwrap_or_else(|| "starting".to_string());
-                let mut snapshot =
-                    ServerSnapshot::from_config(&config.name, config.port, &status);
+                let mut snapshot = ServerSnapshot::from_config(config, &status);
                 snapshot.error = container.and_then(|cs| cs.waiting_reason.clone());
                 snapshot
             })

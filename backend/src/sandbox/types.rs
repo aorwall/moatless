@@ -58,11 +58,30 @@ pub struct RepoConfig {
 }
 
 /// Server config entry
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ServerConfig {
     pub name: String,
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default)]
     pub port: u16,
+    #[serde(default)]
+    pub start_commands: Option<Vec<String>>,
+    #[serde(default)]
+    pub startup_timeout_seconds: Option<u32>,
+    #[serde(default)]
+    pub auto_reload: bool,
+    #[serde(default)]
+    pub enable_inspector: bool,
+    #[serde(default)]
+    pub default: bool,
+    /// Per-server Docker image. Falls back to sandbox_image if not set.
+    #[serde(default)]
+    pub docker_image: Option<String>,
+    /// Per-server environment variables.
+    #[serde(default)]
+    pub env_vars: Option<HashMap<String, String>>,
 }
 
 /// Per-user credentials for K8s Secret
@@ -241,19 +260,25 @@ pub struct ServerSnapshot {
     pub port: u16,
     #[serde(default)]
     pub builtin: bool,
+    #[serde(default)]
+    pub default: bool,
+    #[serde(default)]
+    pub enable_inspector: bool,
     pub status: String,
     pub error: Option<String>,
     pub pid: Option<u32>,
 }
 
 impl ServerSnapshot {
-    /// Build a snapshot from config with a given status (e.g. "stopped").
-    pub fn from_config(name: &str, port: u16, status: &str) -> Self {
+    /// Build a snapshot from a `ServerConfig` with a given status (e.g. "stopped").
+    pub fn from_config(config: &ServerConfig, status: &str) -> Self {
         Self {
-            name: name.to_string(),
-            label: name.to_string(),
-            port,
+            name: config.name.clone(),
+            label: config.label.clone().unwrap_or_else(|| config.name.clone()),
+            port: config.port,
             builtin: false,
+            default: config.default,
+            enable_inspector: config.enable_inspector,
             status: status.to_string(),
             error: None,
             pid: None,
@@ -294,30 +319,12 @@ pub struct ServerEntry {
     pub port: u16,
     pub status: ServerStatus,
     pub url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
     pub default: bool,
     pub capabilities: ServerCapabilities,
-}
-
-/// Cached sandbox state stored in Redis Hash (`moatless:sandbox:state`).
-///
-/// Stores the full workspace state for cross-replica caching. Writers include
-/// the pod lifecycle watcher (environment fields) and the status endpoint (full state).
-/// `ServerSnapshot` is stored instead of `ServerEntry` to keep the cache config-independent
-/// — proxy URLs and capabilities are computed on read.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CachedSandboxState {
-    pub environment_status: EnvironmentStatus,
-    pub environment_error: Option<String>,
-    pub workspace_state: WorkspaceState,
-    pub pod_name: Option<String>,
-    pub agent_state: AgentState,
-    pub servers: Vec<ServerSnapshot>,
-    pub resources: Option<ResourceMetrics>,
-    pub is_running: bool,
-    /// Unix timestamp millis — for freshness check
-    pub updated_at: i64,
 }
 
 /// Full workspace status response to frontend (matches TS WorkspaceStatusResponse)
@@ -415,6 +422,32 @@ impl ContainerObservedStatus {
             }
         }
     }
+
+    /// Return the waiting reason only if it is a failure reason.
+    pub fn error_reason(&self) -> Option<String> {
+        use crate::sandbox::k8s::pod_status::SERVER_FAILURE_REASONS;
+
+        self.waiting_reason.as_deref().and_then(|r| {
+            if SERVER_FAILURE_REASONS.contains(&r) {
+                Some(r.to_string())
+            } else {
+                None
+            }
+        })
+    }
+
+    /// Return the waiting reason only if it is a non-error detail (e.g. ContainerCreating).
+    pub fn detail_reason(&self) -> Option<String> {
+        use crate::sandbox::k8s::pod_status::SERVER_FAILURE_REASONS;
+
+        self.waiting_reason.as_deref().and_then(|r| {
+            if SERVER_FAILURE_REASONS.contains(&r) {
+                None
+            } else {
+                Some(r.to_string())
+            }
+        })
+    }
 }
 
 /// Build a `ContainerObservedStatus` for testing convenience.
@@ -439,33 +472,27 @@ impl ContainerObservedStatus {
     }
 }
 
-/// Get capabilities for a server by name (mirrors TS getServerCapabilities)
-pub fn get_server_capabilities(name: &str) -> ServerCapabilities {
-    match name {
-        "files" => ServerCapabilities {
-            address_bar: false,
-            inspector: false,
-            reload: true,
-            open_external: true,
-            viewport: false,
-            console: false,
-        },
-        "preview" => ServerCapabilities {
-            address_bar: true,
-            inspector: true,
-            reload: true,
-            open_external: true,
-            viewport: true,
-            console: true,
-        },
-        _ => ServerCapabilities {
-            address_bar: true,
-            inspector: false,
-            reload: true,
-            open_external: true,
-            viewport: false,
-            console: false,
-        },
+/// Derive capabilities from a `ServerConfig`.
+pub fn server_capabilities_from_config(config: &ServerConfig) -> ServerCapabilities {
+    ServerCapabilities {
+        address_bar: config.enable_inspector,
+        inspector: config.enable_inspector,
+        reload: true,
+        open_external: true,
+        viewport: true,
+        console: true,
+    }
+}
+
+/// Derive capabilities from a `ServerSnapshot` (cached path).
+pub fn server_capabilities_from_snapshot(snapshot: &ServerSnapshot) -> ServerCapabilities {
+    ServerCapabilities {
+        address_bar: snapshot.enable_inspector,
+        inspector: snapshot.enable_inspector,
+        reload: true,
+        open_external: true,
+        viewport: true,
+        console: true,
     }
 }
 
@@ -683,6 +710,99 @@ mod tests {
             PodPhase::Terminating.to_environment_status(),
             EnvironmentStatus::Removing
         );
+    }
+
+    // =========================================================================
+    // ServerConfig deserialization (backwards compat)
+    // =========================================================================
+
+    #[test]
+    fn server_config_minimal_json_deserializes_with_defaults() {
+        let json = r#"{"name":"files","port":4000}"#;
+        let config: ServerConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.name, "files");
+        assert_eq!(config.port, 4000);
+        assert!(!config.default);
+        assert!(!config.enable_inspector);
+        assert!(config.docker_image.is_none());
+        assert!(config.start_commands.is_none());
+        assert!(config.env_vars.is_none());
+        assert!(config.label.is_none());
+    }
+
+    // =========================================================================
+    // ServerSnapshot::from_config
+    // =========================================================================
+
+    #[test]
+    fn snapshot_from_config_copies_fields() {
+        let config = ServerConfig {
+            name: "preview".to_string(),
+            label: Some("Preview".to_string()),
+            port: 3000,
+            default: true,
+            enable_inspector: true,
+            ..Default::default()
+        };
+        let snap = ServerSnapshot::from_config(&config, "stopped");
+        assert_eq!(snap.name, "preview");
+        assert_eq!(snap.label, "Preview");
+        assert_eq!(snap.port, 3000);
+        assert!(snap.default);
+        assert!(snap.enable_inspector);
+        assert_eq!(snap.status, "stopped");
+    }
+
+    // =========================================================================
+    // Capability functions
+    // =========================================================================
+
+    #[test]
+    fn capabilities_with_inspector_enabled() {
+        let config = ServerConfig {
+            name: "preview".to_string(),
+            enable_inspector: true,
+            ..Default::default()
+        };
+        let caps = server_capabilities_from_config(&config);
+        assert!(caps.inspector);
+        assert!(caps.address_bar);
+        assert!(caps.reload);
+        assert!(caps.viewport);
+        assert!(caps.console);
+    }
+
+    #[test]
+    fn capabilities_with_inspector_disabled() {
+        let config = ServerConfig {
+            name: "files".to_string(),
+            enable_inspector: false,
+            ..Default::default()
+        };
+        let caps = server_capabilities_from_config(&config);
+        assert!(!caps.inspector);
+        assert!(!caps.address_bar);
+        assert!(caps.reload);
+        assert!(caps.viewport);
+        assert!(caps.console);
+    }
+
+    #[test]
+    fn capabilities_from_snapshot_matches_config() {
+        let snapshot = ServerSnapshot {
+            name: "test".to_string(),
+            label: "Test".to_string(),
+            port: 3000,
+            builtin: false,
+            default: false,
+            enable_inspector: true,
+            status: "started".to_string(),
+            error: None,
+            pid: None,
+        };
+        let caps = server_capabilities_from_snapshot(&snapshot);
+        assert!(caps.inspector);
+        assert!(caps.address_bar);
     }
 
 }

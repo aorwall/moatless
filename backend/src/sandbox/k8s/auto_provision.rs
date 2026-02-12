@@ -198,10 +198,9 @@ pub async fn get_server_configs(pool: &DbPool, task_id: &str) -> Result<Vec<Serv
 
 /// Build the servers list from the DB `servers` JSONB column.
 ///
-/// Mirrors the TS `autoPopulateServers` + `assignMissingPorts` logic:
-/// - Always includes a "files" entry on port 4000 if not present
-/// - Auto-populates "preview" from previewConfig if not present
-/// - Assigns sequential ports (starting at 3000) to servers without one
+/// If the `servers` JSONB column contains entries, those are used as-is
+/// (data-driven). If empty or missing, backwards-compatible defaults are
+/// injected: a "files" server and optionally a "preview" server.
 fn build_servers(repo: &RepositoryRow) -> Vec<ServerConfig> {
     let mut servers: Vec<ServerConfig> = repo
         .servers
@@ -209,25 +208,46 @@ fn build_servers(repo: &RepositoryRow) -> Vec<ServerConfig> {
         .and_then(|v| serde_json::from_value(v.clone()).ok())
         .unwrap_or_default();
 
-    // Always include file explorer if not present (port 4000)
-    if !servers.iter().any(|s| s.name == "files") {
-        servers.insert(
-            0,
-            ServerConfig {
-                name: "files".to_string(),
-                port: 4000,
-            },
-        );
-    }
+    // Only inject defaults when servers list is empty (old repos without server configs)
+    if servers.is_empty() {
+        // Always add file explorer
+        servers.push(ServerConfig {
+            name: "files".to_string(),
+            label: Some("Files".to_string()),
+            port: 4000,
+            docker_image: Some("aorwall/moatless-vibe-files-server:latest".to_string()),
+            env_vars: Some(HashMap::from([
+                ("FILE_EXPLORER_PORT".into(), "4000".into()),
+            ])),
+            ..Default::default()
+        });
 
-    // Auto-populate preview from previewConfig if no preview server exists
-    if !servers.iter().any(|s| s.name == "preview")
-        && repo.server_start_commands.is_some() {
+        // Add preview server if start commands exist
+        if repo.server_start_commands.is_some() {
+            let start_commands = repo
+                .server_start_commands
+                .as_ref()
+                .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
             servers.push(ServerConfig {
                 name: "preview".to_string(),
-                port: 0, // Will be assigned below
+                label: Some("Preview".to_string()),
+                default: true,
+                enable_inspector: repo.enable_inspector.unwrap_or(false),
+                start_commands,
+                docker_image: Some(
+                    "aorwall/moatless-vibe-preview-server:latest".to_string(),
+                ),
+                ..Default::default()
             });
         }
+    }
+
+    // Ensure at least one server is marked default
+    if !servers.iter().any(|s| s.default) {
+        if let Some(s) = servers.iter_mut().last() {
+            s.default = true;
+        }
+    }
 
     // Assign sequential ports (starting at 3000) to servers missing one
     assign_missing_ports(&mut servers);

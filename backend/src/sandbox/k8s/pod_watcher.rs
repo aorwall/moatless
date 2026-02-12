@@ -4,8 +4,7 @@
 //! detects runtime events: OOM, crash loops, evictions, deletions, restarts,
 //! and server container status changes.
 //!
-//! Publishes lifecycle events to Redis Streams and updates the shared
-//! `SandboxStateCache` with full state (environment + servers).
+//! Publishes lifecycle events to Redis Streams for SSE and event handler consumption.
 //!
 //! Only the leader replica runs the watcher (via K8s Lease election).
 //!
@@ -25,17 +24,15 @@ use moatless_events::{
 };
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
-use super::auto_provision;
 use super::client::K8sClient;
 use super::deployment;
 use super::leader_election::LeaderElection;
 use super::pod_status::extract_container_observed_statuses;
 use crate::db::DbPool;
 use crate::events::RedisEventPublisher;
-use crate::sandbox::sandbox_state::SandboxStateCache;
-use crate::sandbox::types::{EnvironmentStatus, ServerSnapshot};
+use crate::sandbox::types::EnvironmentStatus;
 
 /// Observed state of a server container, used for transition detection.
 #[derive(Debug, Clone, PartialEq)]
@@ -43,6 +40,7 @@ struct ServerContainerState {
     name: String,
     status: String,
     error: Option<String>,
+    detail: Option<String>,
 }
 
 /// Observed state for a single pod, used for transition detection.
@@ -74,7 +72,6 @@ struct PodObservedState {
 pub fn spawn_pod_lifecycle_watcher(
     k8s: K8sClient,
     event_publisher: RedisEventPublisher,
-    sandbox_state: SandboxStateCache,
     db_pool: Option<DbPool>,
     cancel: CancellationToken,
 ) -> JoinHandle<()> {
@@ -96,7 +93,6 @@ pub fn spawn_pod_lifecycle_watcher(
                     run_pod_watch(
                         &k8s,
                         &event_publisher,
-                        &sandbox_state,
                         &db_pool,
                         &leader_election,
                         &cancel,
@@ -129,7 +125,6 @@ pub fn spawn_pod_lifecycle_watcher(
 async fn run_pod_watch(
     k8s: &K8sClient,
     event_publisher: &RedisEventPublisher,
-    sandbox_state: &SandboxStateCache,
     db_pool: &Option<DbPool>,
     leader_election: &LeaderElection,
     cancel: &CancellationToken,
@@ -170,7 +165,6 @@ async fn run_pod_watch(
                             &watcher_event,
                             &mut pod_states,
                             event_publisher,
-                            sandbox_state,
                             db_pool,
                         ).await;
                     }
@@ -200,68 +194,13 @@ fn sibling_pods_for_task<'a>(
         .collect()
 }
 
-/// Build `Vec<ServerSnapshot>` from server configs, overlaying runtime container status.
-///
-/// Starts from the repository server config (source of truth for names + ports),
-/// then overlays the runtime container status from K8s. If no container status
-/// is found for a server, it defaults to "starting".
-fn build_server_snapshots(
-    server_configs: &[crate::sandbox::types::ServerConfig],
-    server_containers: &[ServerContainerState],
-) -> Vec<ServerSnapshot> {
-    server_configs
-        .iter()
-        .map(|config| {
-            let container = server_containers.iter().find(|sc| {
-                let name = sc.name.strip_suffix("-server").unwrap_or(&sc.name);
-                name == config.name
-            });
-            let status = container
-                .map(|c| c.status.as_str())
-                .unwrap_or("starting");
-            let mut snapshot =
-                ServerSnapshot::from_config(&config.name, config.port, status);
-            snapshot.error = container.and_then(|c| c.error.clone());
-            snapshot
-        })
-        .collect()
-}
-
-/// Derive SandboxSubType from pod observed state.
-///
-/// Handles CrashLoopBackOff, OOMKilled, and other terminal states.
-fn derive_sandbox_status(state: &PodObservedState) -> SandboxSubType {
-    if state.waiting_reason.as_deref() == Some("CrashLoopBackOff") {
-        return SandboxSubType::Error;
-    }
-    if state.terminated_reason.as_deref() == Some("OOMKilled") {
-        return SandboxSubType::Error;
-    }
-    if let Some(ref reason) = state.terminated_reason {
-        if reason != "Completed" {
-            return SandboxSubType::Error;
-        }
-    }
-    if state.ready {
-        return SandboxSubType::Ready;
-    }
-    match state.phase.as_str() {
-        "Running" => SandboxSubType::Ready,
-        "Pending" => SandboxSubType::Initializing,
-        "Failed" => SandboxSubType::Error,
-        "Succeeded" => SandboxSubType::Stopped,
-        _ => SandboxSubType::Initializing,
-    }
-}
-
 /// Process a single watcher event and detect state transitions.
 async fn process_watcher_event(
     k8s: &K8sClient,
     event: &watcher::Event<Pod>,
     pod_states: &mut HashMap<String, PodObservedState>,
     event_publisher: &RedisEventPublisher,
-    sandbox_state: &SandboxStateCache,
-    db_pool: &Option<DbPool>,
+    _db_pool: &Option<DbPool>,
 ) {
     match event {
         watcher::Event::Apply(pod) | watcher::Event::InitApply(pod) => {
@@ -289,18 +228,6 @@ async fn process_watcher_event(
                 return;
             }
 
-            // Fetch server configs from DB once per event (source of truth for ports)
-            let server_configs = match db_pool {
-                Some(pool) => match auto_provision::get_server_configs(pool, &task_id).await {
-                    Ok(configs) => configs,
-                    Err(e) => {
-                        warn!(task_id = %task_id, error = %e, "Failed to get server configs");
-                        vec![]
-                    }
-                },
-                None => vec![],
-            };
-
             let prev_state = pod_states.get(&pod_name);
             let is_new_pod = prev_state.is_none();
 
@@ -327,16 +254,6 @@ async fn process_watcher_event(
                             payload,
                         )
                         .await;
-                    let servers = build_server_snapshots(&server_configs, &new_state.server_containers);
-                    sandbox_state
-                        .update_full_state(
-                            &task_id,
-                            EnvironmentStatus::Initializing,
-                            Some(pod_name.clone()),
-                            None,
-                            servers,
-                        )
-                        .await;
                 }
             }
 
@@ -359,6 +276,7 @@ async fn process_watcher_event(
                     server = %server_name,
                     event = ?server_sub_type,
                     error = ?sc.and_then(|s| s.error.as_deref()),
+                    detail = ?sc.and_then(|s| s.detail.as_deref()),
                     "Server container status changed"
                 );
 
@@ -370,6 +288,7 @@ async fn process_watcher_event(
                             server_name: server_name.clone(),
                             status: *server_sub_type,
                             error: sc.and_then(|s| s.error.clone()),
+                            detail: sc.and_then(|s| s.detail.clone()),
                         },
                     )
                     .await;
@@ -411,6 +330,7 @@ async fn process_watcher_event(
                                     .error
                                     .clone()
                                     .or_else(|| Some("Pod terminated".to_string())),
+                                detail: None,
                             },
                         )
                         .await;
@@ -441,36 +361,6 @@ async fn process_watcher_event(
                         &task_id,
                         sandbox_sub,
                         payload,
-                    )
-                    .await;
-
-                // Override server statuses to "failed" when pod has error-level transitions
-                let servers = if has_error_transition {
-                    server_configs
-                        .iter()
-                        .map(|config| {
-                            let container = new_state.server_containers.iter().find(|sc| {
-                                let name = sc.name.strip_suffix("-server").unwrap_or(&sc.name);
-                                name == config.name
-                            });
-                            let mut snapshot =
-                                ServerSnapshot::from_config(&config.name, config.port, "failed");
-                            snapshot.error = container
-                                .and_then(|c| c.error.clone())
-                                .or_else(|| Some("Pod terminated".to_string()));
-                            snapshot
-                        })
-                        .collect()
-                } else {
-                    build_server_snapshots(&server_configs, &new_state.server_containers)
-                };
-                sandbox_state
-                    .update_full_state(
-                        &task_id,
-                        env_status,
-                        Some(pod_name.clone()),
-                        error_msg.clone(),
-                        servers,
                     )
                     .await;
             }
@@ -505,23 +395,6 @@ async fn process_watcher_event(
                             "error": format!("Sandbox terminated: {}", error_msg),
                             "source": "pod_watcher",
                         }),
-                    )
-                    .await;
-            }
-
-            // If only server transitions occurred (no lifecycle transitions),
-            // still update the full state to persist server statuses
-            if transitions.is_empty() && !server_transitions.is_empty() {
-                let sandbox_sub = derive_sandbox_status(&new_state);
-                let env_status = sandbox_sub_to_env_status(sandbox_sub);
-                let servers = build_server_snapshots(&server_configs, &new_state.server_containers);
-                sandbox_state
-                    .update_full_state(
-                        &task_id,
-                        env_status,
-                        Some(pod_name.clone()),
-                        None,
-                        servers,
                     )
                     .await;
             }
@@ -621,6 +494,7 @@ async fn process_watcher_event(
                                 } else {
                                     None
                                 },
+                                detail: None,
                             },
                         )
                         .await;
@@ -652,54 +526,6 @@ async fn process_watcher_event(
                         )
                         .await;
                 }
-
-                // Build final server snapshots with correct terminal status (config-first)
-                let server_configs = match db_pool {
-                    Some(pool) => match auto_provision::get_server_configs(pool, &task_id).await {
-                        Ok(configs) => configs,
-                        Err(e) => {
-                            warn!(task_id = %task_id, error = %e, "Failed to get server configs for delete event");
-                            vec![]
-                        }
-                    },
-                    None => vec![],
-                };
-
-                let terminal_status = if env_status == EnvironmentStatus::NotCreated {
-                    "failed"
-                } else {
-                    "stopped"
-                };
-
-                let final_servers: Vec<ServerSnapshot> = server_configs
-                    .iter()
-                    .map(|config| {
-                        let container = deleted_pod_servers.iter().find(|sc| {
-                            let name = sc.name.strip_suffix("-server").unwrap_or(&sc.name);
-                            name == config.name
-                        });
-                        let mut snapshot =
-                            ServerSnapshot::from_config(&config.name, config.port, terminal_status);
-                        snapshot.error = if env_status == EnvironmentStatus::NotCreated {
-                            container
-                                .and_then(|c| c.error.clone())
-                                .or_else(|| Some("Pod deleted".to_string()))
-                        } else {
-                            container.and_then(|c| c.error.clone())
-                        };
-                        snapshot
-                    })
-                    .collect();
-
-                sandbox_state
-                    .update_full_state(
-                        &task_id,
-                        env_status,
-                        None,
-                        None,
-                        final_servers,
-                    )
-                    .await;
             }
         }
         watcher::Event::Init => {
@@ -709,9 +535,8 @@ async fn process_watcher_event(
         watcher::Event::InitDone => {
             info!(
                 pod_count = pod_states.len(),
-                "Pod watcher initial sync complete — starting reconciliation"
+                "Pod watcher initial sync complete"
             );
-            reconcile_redis_state(k8s, pod_states, sandbox_state, db_pool).await;
         }
     }
 }
@@ -797,7 +622,8 @@ fn extract_pod_observed_state(pod: &Pod, pod_name: &str, task_id: &str) -> PodOb
             ServerContainerState {
                 name: cs.name.clone(),
                 status: cs.to_server_status().to_string(),
-                error: cs.waiting_reason,
+                error: cs.error_reason(),
+                detail: cs.detail_reason(),
             }
         })
         .collect();
@@ -984,174 +810,4 @@ fn env_status_to_sandbox_sub_type(env_status: &EnvironmentStatus) -> SandboxSubT
     }
 }
 
-/// Convert SandboxSubType to EnvironmentStatus.
-fn sandbox_sub_to_env_status(sub: SandboxSubType) -> EnvironmentStatus {
-    match sub {
-        SandboxSubType::NotCreated => EnvironmentStatus::NotCreated,
-        SandboxSubType::Initializing => EnvironmentStatus::Initializing,
-        SandboxSubType::Ready => EnvironmentStatus::Ready,
-        SandboxSubType::Stopped => EnvironmentStatus::Stopped,
-        SandboxSubType::Removing => EnvironmentStatus::Removing,
-        SandboxSubType::Error => EnvironmentStatus::Error,
-    }
-}
 
-/// Staleness threshold for reconciliation: if a Redis entry was updated
-/// within this window, it is considered current and skipped.
-const RECONCILE_STALENESS_SECS: i64 = 30;
-
-/// Build stopped server snapshots from DB (task → repository → server configs).
-async fn build_stopped_server_snapshots(pool: &DbPool, task_id: &str) -> Vec<ServerSnapshot> {
-    match auto_provision::get_server_configs(pool, task_id).await {
-        Ok(configs) => configs
-            .iter()
-            .map(|sc| ServerSnapshot::from_config(&sc.name, sc.port, "stopped"))
-            .collect(),
-        Err(e) => {
-            warn!(task_id = %task_id, error = %e, "Failed to get server configs for stopped snapshots");
-            vec![]
-        }
-    }
-}
-
-/// Reconcile Redis sandbox state with live K8s pod state after leader acquisition.
-///
-/// Two-phase reconciliation:
-/// 1. **Forward**: For each live pod in `pod_states`, ensure Redis has a current entry.
-///    If missing or stale (`updated_at` older than threshold), write the current state.
-/// 2. **Reverse**: For each Redis entry, check if a live pod exists in `pod_states`.
-///    If not, check K8s Deployment existence:
-///    - Deployment exists (replicas=0) → update Redis to Stopped (with servers from DB)
-///    - No Deployment → delete from Redis (fully cleaned up)
-async fn reconcile_redis_state(
-    k8s: &K8sClient,
-    pod_states: &HashMap<String, PodObservedState>,
-    sandbox_state: &SandboxStateCache,
-    db_pool: &Option<DbPool>,
-) {
-    let now_ms = chrono::Utc::now().timestamp_millis();
-    let staleness_threshold_ms = RECONCILE_STALENESS_SECS * 1000;
-
-    // Collect unique task_ids → pick the "best" pod per task
-    let mut best_pods: HashMap<&str, &PodObservedState> = HashMap::new();
-    for state in pod_states.values() {
-        let entry = best_pods.entry(state.task_id.as_str()).or_insert(state);
-        // Prefer ready pods, then Running phase, then any
-        if !entry.ready
-            && (state.ready || (entry.phase != "Running" && state.phase == "Running"))
-        {
-            *entry = state;
-        }
-    }
-
-    let redis_states = sandbox_state.get_all().await;
-
-    // Phase 1: Forward sync (live pods → Redis)
-    let mut forward_synced: u32 = 0;
-    let mut skipped: u32 = 0;
-
-    for (task_id, pod_state) in &best_pods {
-        let needs_write = match redis_states.get(*task_id) {
-            None => true,
-            Some(cached) => (now_ms - cached.updated_at) > staleness_threshold_ms,
-        };
-
-        if !needs_write {
-            skipped += 1;
-            continue;
-        }
-
-        let sandbox_sub = derive_sandbox_status(pod_state);
-        let env_status = sandbox_sub_to_env_status(sandbox_sub);
-
-        let server_configs = match db_pool {
-            Some(pool) => match auto_provision::get_server_configs(pool, task_id).await {
-                Ok(configs) => configs,
-                Err(e) => {
-                    warn!(task_id = %task_id, error = %e, "Reconciliation: failed to get server configs");
-                    vec![]
-                }
-            },
-            None => vec![],
-        };
-        let servers = build_server_snapshots(&server_configs, &pod_state.server_containers);
-
-        if redis_states.contains_key(*task_id) {
-            info!(task_id, "Reconciliation: updating stale Redis entry");
-        } else {
-            info!(task_id, "Reconciliation: writing state for pod not in Redis");
-        }
-
-        sandbox_state
-            .update_full_state(
-                task_id,
-                env_status,
-                Some(pod_state.pod_name.clone()),
-                None,
-                servers,
-            )
-            .await;
-        forward_synced += 1;
-    }
-
-    // Phase 2: Reverse sync (Redis → check K8s)
-    let mut reverse_cleaned: u32 = 0;
-
-    for (task_id, cached_state) in &redis_states {
-        if best_pods.contains_key(task_id.as_str()) {
-            continue; // Still has a live pod — already handled in forward sync
-        }
-
-        match deployment::find_deployment(k8s, task_id).await {
-            Ok(Some(_)) => {
-                // Already marked Stopped → skip (avoids noisy logs on every restart)
-                if cached_state.environment_status == EnvironmentStatus::Stopped {
-                    debug!(
-                        task_id,
-                        "Reconciliation: already Stopped, skipping"
-                    );
-                    continue;
-                }
-
-                // Build servers from DB so we don't lose server info
-                let servers = if let Some(ref pool) = db_pool {
-                    build_stopped_server_snapshots(pool, task_id).await
-                } else {
-                    vec![]
-                };
-
-                info!(
-                    task_id,
-                    server_count = servers.len(),
-                    "Reconciliation: no live pod, Deployment exists — setting Stopped"
-                );
-                sandbox_state
-                    .init_state(task_id, EnvironmentStatus::Stopped, servers)
-                    .await;
-                reverse_cleaned += 1;
-            }
-            Ok(None) => {
-                warn!(
-                    task_id,
-                    "Reconciliation: stale Redis entry has no live pod or Deployment — deleting"
-                );
-                sandbox_state.delete(task_id).await;
-                reverse_cleaned += 1;
-            }
-            Err(e) => {
-                error!(
-                    task_id,
-                    error = %e,
-                    "Reconciliation: failed to check Deployment, skipping"
-                );
-            }
-        }
-    }
-
-    info!(
-        forward_synced,
-        reverse_cleaned,
-        skipped,
-        "Reconciliation complete"
-    );
-}

@@ -13,5 +13,4 @@ pub mod k8s;
 pub mod notify;
 pub mod provider;
 pub mod routes;
-pub mod sandbox_state;
 pub mod types;

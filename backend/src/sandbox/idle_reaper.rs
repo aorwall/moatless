@@ -102,7 +102,27 @@ async fn reap_idle_sandboxes(
     debug!(count = task_ids.len(), "Found running sandboxes");
 
     // Batch-query latest message timestamps
-    let latest_times = db::message_dao::get_latest_message_times(db, &task_ids).await?;
+    let mut latest_times = db::message_dao::get_latest_message_times(db, &task_ids).await?;
+
+    // Fill creation times for tasks with no messages (prevents killing new tasks)
+    let no_message_ids: Vec<String> = task_ids
+        .iter()
+        .filter(|id| !latest_times.contains_key(*id))
+        .cloned()
+        .collect();
+
+    if !no_message_ids.is_empty() {
+        match db::task_dao::get_created_times(db, &no_message_ids).await {
+            Ok(created_times) => {
+                for (task_id, created_at) in created_times {
+                    latest_times.entry(task_id).or_insert(created_at);
+                }
+            }
+            Err(e) => {
+                warn!(error = %e, "Failed to fetch task creation times, skipping no-message tasks");
+            }
+        }
+    }
 
     let now = Utc::now();
     let cutoff = now - idle_timeout;
@@ -111,7 +131,10 @@ async fn reap_idle_sandboxes(
     for task_id in &task_ids {
         let is_idle = match latest_times.get(task_id) {
             Some(latest_at) => *latest_at < cutoff,
-            None => true, // No messages at all — treat as idle
+            None => {
+                debug!(task_id = %task_id, "No activity timestamp found, skipping");
+                continue;
+            }
         };
 
         if is_idle {

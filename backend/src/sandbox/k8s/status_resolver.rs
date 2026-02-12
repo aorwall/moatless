@@ -1,7 +1,8 @@
 //! Read-only domain service for resolving sandbox status.
 //!
-//! Reads from Redis (primary) with K8s API fallback. Never writes to Redis —
-//! the pod_watcher is the sole writer (single-writer pattern).
+//! Resolves environment and server status directly from the K8s API.
+//! Server entries are built config-first (repo config from DB) with
+//! K8s container probe statuses overlaid.
 
 use k8s_openapi::api::core::v1::Pod;
 use kube::api::{Api, ListParams};
@@ -15,16 +16,11 @@ use super::health;
 use super::pod_status::{is_sandbox_container_ready, pick_best_pod};
 use crate::config::Config;
 use crate::db::DbPool;
-use crate::sandbox::sandbox_state::SandboxStateCache;
 use crate::sandbox::types::*;
 
-/// Read-only domain service for resolving sandbox status.
-///
-/// Reads from Redis (primary) with K8s API fallback. Never writes to Redis —
-/// the pod_watcher is the sole writer (single-writer pattern).
+/// Read-only domain service for resolving sandbox status from the K8s API.
 pub struct StatusResolver {
     k8s: K8sClient,
-    sandbox_state: Option<SandboxStateCache>,
     config: Arc<Config>,
     db_pool: Option<DbPool>,
 }
@@ -32,32 +28,18 @@ pub struct StatusResolver {
 impl StatusResolver {
     pub fn new(
         k8s: K8sClient,
-        sandbox_state: Option<SandboxStateCache>,
         config: Arc<Config>,
         db_pool: Option<DbPool>,
     ) -> Self {
         Self {
             k8s,
-            sandbox_state,
             config,
             db_pool,
         }
     }
 
-    /// Lightweight env status: Redis → K8s fallback.
+    /// Lightweight env status from K8s API.
     pub async fn resolve_status(&self, task_id: &str) -> StatusResponse {
-        // Check Redis cache
-        if let Some(ref state_cache) = self.sandbox_state {
-            if let Some(cached) = state_cache.get_if_fresh(task_id).await {
-                return StatusResponse {
-                    status: cached.environment_status,
-                    pod_name: cached.pod_name,
-                    last_error: cached.environment_error,
-                };
-            }
-        }
-
-        // K8s API fallback
         let phase = self.resolve_pod_phase(task_id).await;
         let pod_name = if phase == PodPhase::Running || phase == PodPhase::Pending {
             self.get_task_pod_name(task_id).await
@@ -72,52 +54,11 @@ impl StatusResolver {
         }
     }
 
-    /// Full sandbox status (env + servers + agent): Redis → K8s fallback.
+    /// Full sandbox status (env + servers) from K8s API.
     pub async fn resolve_sandbox_status(
         &self,
         task_id: &str,
     ) -> WorkspaceStatusFullResponse {
-        // Check Redis cache for fresh full state
-        if let Some(ref state_cache) = self.sandbox_state {
-            if let Some(cached) = state_cache.get_if_fresh(task_id).await {
-                let servers = cached
-                    .servers
-                    .iter()
-                    .map(|s| {
-                        let url = self.build_proxy_url(task_id, s.port);
-                        ServerEntry {
-                            name: s.name.clone(),
-                            label: s.label.clone(),
-                            port: s.port,
-                            status: ServerStatus::from(s.status.as_str()),
-                            url,
-                            error: s.error.clone(),
-                            default: s.name == "preview",
-                            capabilities: get_server_capabilities(&s.name),
-                        }
-                    })
-                    .collect();
-
-                let workspace_ready =
-                    cached.environment_status == EnvironmentStatus::Ready;
-                let can_execute = workspace_ready
-                    || cached.environment_status == EnvironmentStatus::Stopped;
-
-                return WorkspaceStatusFullResponse {
-                    workspace_state: cached.workspace_state,
-                    environment_status: cached.environment_status,
-                    environment_error: cached.environment_error,
-                    agent_state: cached.agent_state,
-                    servers,
-                    is_running: cached.is_running,
-                    workspace_ready,
-                    can_execute,
-                    resources: cached.resources,
-                };
-            }
-        }
-
-        // K8s API fallback
         let phase = self.resolve_pod_phase(task_id).await;
         let environment_status = phase.to_environment_status();
         let is_running = phase == PodPhase::Running;
@@ -141,13 +82,14 @@ impl StatusResolver {
                     let url = self.build_proxy_url(task_id, config.port);
                     ServerEntry {
                         name: config.name.clone(),
-                        label: config.name.clone(),
+                        label: config.label.clone().unwrap_or_else(|| config.name.clone()),
                         port: config.port,
                         status,
                         url,
-                        error: container.and_then(|cs| cs.waiting_reason.clone()),
-                        default: config.name == "preview",
-                        capabilities: get_server_capabilities(&config.name),
+                        error: container.and_then(|cs| cs.error_reason()),
+                        detail: container.and_then(|cs| cs.detail_reason()),
+                        default: config.default,
+                        capabilities: server_capabilities_from_config(config),
                     }
                 })
                 .collect();
@@ -195,13 +137,14 @@ impl StatusResolver {
                     let url = self.build_proxy_url(task_id, config.port);
                     ServerEntry {
                         name: config.name.clone(),
-                        label: config.name.clone(),
+                        label: config.label.clone().unwrap_or_else(|| config.name.clone()),
                         port: config.port,
                         status,
                         url,
-                        error: container.and_then(|cs| cs.waiting_reason.clone()),
-                        default: config.name == "preview",
-                        capabilities: get_server_capabilities(&config.name),
+                        error: container.and_then(|cs| cs.error_reason()),
+                        detail: container.and_then(|cs| cs.detail_reason()),
+                        default: config.default,
+                        capabilities: server_capabilities_from_config(config),
                     }
                 })
                 .collect()
@@ -342,9 +285,9 @@ impl StatusResolver {
 
     /// Derive server entries from the repository config in the DB.
     ///
-    /// Used as a last-resort fallback when there's no Redis cache and K8s
-    /// returns no container statuses. Returns configured servers with `Starting`
-    /// status so the frontend shows them while the sandbox boots.
+    /// Used as a fallback when K8s returns no container statuses (e.g. pod
+    /// not yet scheduled). Returns configured servers with `Starting` status
+    /// so the frontend shows them while the sandbox boots.
     async fn servers_from_repo_config(
         &self,
         task_id: &str,
@@ -355,14 +298,15 @@ impl StatusResolver {
             .map(|s| {
                 let url = self.build_proxy_url(task_id, s.port);
                 ServerEntry {
-                    label: s.name.clone(),
-                    default: s.name == "preview",
-                    capabilities: get_server_capabilities(&s.name),
+                    label: s.label.clone().unwrap_or_else(|| s.name.clone()),
+                    default: s.default,
+                    capabilities: server_capabilities_from_config(&s),
                     name: s.name,
                     port: s.port,
                     status: ServerStatus::Starting,
                     url,
                     error: None,
+                    detail: None,
                 }
             })
             .collect()

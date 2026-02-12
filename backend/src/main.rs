@@ -30,7 +30,6 @@ use auth::cache::AuthCache;
 use auth::routes::{AuthState, OAuthProviders};
 use sandbox::k8s::client::K8sClient;
 use sandbox::k8s::status_resolver::StatusResolver;
-use sandbox::sandbox_state::SandboxStateCache;
 use sse::consumer::RedisStreamConsumer;
 use sse::routes::{sse_router, SseState};
 
@@ -162,28 +161,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         cancel_for_signal.cancel();
     });
 
-    // Create shared Redis sandbox state cache (L2)
-    let sandbox_state_cache = if let Some(ref redis_url) = config.redis_url {
-        match redis::Client::open(redis_url.as_str()) {
-            Ok(client) => match redis::aio::ConnectionManager::new(client).await {
-                Ok(conn) => {
-                    info!("Sandbox state cache (Redis L2) initialized");
-                    Some(SandboxStateCache::new(conn))
-                }
-                Err(e) => {
-                    tracing::warn!(error = %e, "Failed to connect Redis for sandbox state cache");
-                    None
-                }
-            },
-            Err(e) => {
-                tracing::warn!(error = %e, "Failed to create Redis client for sandbox state cache");
-                None
-            }
-        }
-    } else {
-        None
-    };
-
     // Spawn gRPC server for sandbox communication
     {
         let grpc_events = event_publisher.clone();
@@ -217,7 +194,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         event_publisher,
         sse_state,
         s3_client,
-        sandbox_state_cache,
         cancel,
     )
     .await?;
@@ -337,7 +313,6 @@ async fn start_api_server(
     event_publisher: Option<RedisEventPublisher>,
     sse_state: SseState,
     s3_client: Option<aws_sdk_s3::Client>,
-    sandbox_state_cache: Option<SandboxStateCache>,
     cancel: CancellationToken,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use sandbox::k8s::provider::K8sSandboxProvider;
@@ -345,7 +320,6 @@ async fn start_api_server(
 
     let status_resolver = StatusResolver::new(
         k8s.clone(),
-        sandbox_state_cache.clone(),
         Arc::new(config.clone()),
         db_pool.clone(),
     );
@@ -356,7 +330,6 @@ async fn start_api_server(
         status_resolver,
         db_pool: db_pool.clone(),
         event_publisher: event_publisher.clone(),
-        sandbox_state: sandbox_state_cache.clone(),
     };
 
     let sandbox_provider: Arc<dyn sandbox::provider::SandboxProvider> = Arc::new(provider);
@@ -364,14 +337,11 @@ async fn start_api_server(
     // Clone K8s client before it's moved into the pod watcher (needed by idle reaper)
     let reaper_k8s = k8s.clone();
 
-    // Spawn pod lifecycle watcher (requires both Redis event publisher and state cache)
-    if let (Some(ref publisher), Some(ref state_cache)) =
-        (&event_publisher, &sandbox_state_cache)
-    {
+    // Spawn pod lifecycle watcher (requires Redis event publisher)
+    if let Some(ref publisher) = event_publisher {
         sandbox::k8s::pod_watcher::spawn_pod_lifecycle_watcher(
             k8s,
             publisher.clone(),
-            state_cache.clone(),
             db_pool.clone(),
             cancel.clone(),
         );
@@ -421,7 +391,6 @@ async fn start_api_server(
             events: event_publisher,
             s3: s3_client,
             channel_providers: channel_providers.map(Arc::new),
-            sandbox_state: sandbox_state_cache,
         };
 
         let modules = vec![
