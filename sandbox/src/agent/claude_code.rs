@@ -56,6 +56,11 @@ async fn execute_agent(
     // Publish agent started event
     publish_agent_event(state, AgentSubType::Started, serde_json::json!({})).await;
 
+    // Re-fetch credentials before each agent run to pick up rotated tokens
+    if let Err(e) = crate::init::credentials::fetch_and_apply_credentials(state).await {
+        warn!(error = %e, "Failed to refresh credentials, using cached");
+    }
+
     // Read credentials from state to pass as env vars to the agent subprocess
     let credentials = state.credentials.read().await;
     let env = if credentials.is_empty() { None } else { Some(credentials.clone()) };

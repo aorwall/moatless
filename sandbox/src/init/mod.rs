@@ -10,7 +10,7 @@
 //! prebuilt deps, sets up build cache, runs setup commands.
 //! These are non-fatal — failures are logged but don't affect health.
 
-mod credentials;
+pub(crate) mod credentials;
 mod dirs;
 mod git;
 mod workspace;
@@ -95,13 +95,6 @@ pub async fn run_init(state: SandboxState) {
     // Mark as ready — health endpoint now returns 200
     *state.init_phase.write().await = InitPhase::Ready;
 
-    // Write workspace-ready sentinel for server containers.
-    // Server containers poll for this file before starting.
-    let ready_path = format!("{}/.workspace-ready", state.config.data_dir);
-    if let Err(e) = tokio::fs::write(&ready_path, "ready").await {
-        warn!(error = %e, "Failed to write workspace-ready sentinel");
-    }
-
     publish_sandbox_event(
         &state,
         "SandboxReady",
@@ -114,6 +107,14 @@ pub async fn run_init(state: SandboxState) {
 
     // Phase 2: Workspace setup — runs after health is 200
     run_workspace_setup(&state).await;
+
+    // Write workspace-ready sentinel AFTER setup commands complete (e.g. bun install).
+    // Server containers poll for this file before starting, so they must wait
+    // until dependencies are installed.
+    let ready_path = format!("{}/.workspace-ready", state.config.data_dir);
+    if let Err(e) = tokio::fs::write(&ready_path, "ready").await {
+        warn!(error = %e, "Failed to write workspace-ready sentinel");
+    }
 
     info!(task_id = %state.config.task_id, "Workspace setup complete");
 }
