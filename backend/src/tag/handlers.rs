@@ -4,7 +4,6 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::Json;
 
-use super::dao as tag_dao;
 use crate::state::AppState;
 
 use super::schemas::TagResponse;
@@ -22,7 +21,7 @@ use super::schemas::TagResponse;
 pub async fn list_tags(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<TagResponse>>, (StatusCode, String)> {
-    let rows = tag_dao::list_all(&state.db)
+    let rows = state.tags.list_all()
         .await
         .map_err(|e| {
             (

@@ -29,7 +29,7 @@ pub fn build_pod(
     user_auth_token: Option<&str>,
 ) -> Result<Pod, String> {
     let pod_name = generate_pod_name(&plan.repo_config.name, task_id);
-    let namespace = config.sandbox_namespace.clone();
+    let namespace = config.sandbox.namespace.clone();
 
     // ── Labels ──────────────────────────────────────────────────────
     let mut labels = BTreeMap::new();
@@ -147,7 +147,7 @@ fn build_sandbox_container(
         .as_ref()
         .filter(|s| !s.is_empty())
         .cloned()
-        .unwrap_or_else(|| config.sandbox_image.clone());
+        .unwrap_or_else(|| config.sandbox.image.clone());
 
     // Build env vars
     let mut env = vec![
@@ -155,7 +155,7 @@ fn build_sandbox_container(
         env_var("GIT_CLONE_URL", &plan.git_clone_url),
         env_var("BACKEND_GRPC_URL", &format!(
             "http://moatless-vibe-backend.{}.svc.cluster.local:{}",
-            config.sandbox_namespace, config.grpc_port
+            config.sandbox.namespace, config.server.grpc_port
         )),
     ];
 
@@ -180,7 +180,7 @@ fn build_sandbox_container(
     }
 
     // Startup probe
-    let startup_timeout = config.k8s_pod_startup_timeout_secs;
+    let startup_timeout = config.sandbox.pod_startup_timeout_secs;
     let startup_probe_period: i32 = 5;
     let failure_threshold = ((startup_timeout / startup_probe_period as u64) + 6) as i32;
 
@@ -226,7 +226,7 @@ fn build_sandbox_container(
     Ok(Container {
         name: "sandbox".to_string(),
         image: Some(image),
-        image_pull_policy: Some(config.sandbox_image_pull_policy.clone()),
+        image_pull_policy: Some(config.sandbox.image_pull_policy.clone()),
         ports: Some(vec![
             ContainerPort {
                 container_port: 8001,
@@ -235,7 +235,7 @@ fn build_sandbox_container(
                 ..Default::default()
             },
             ContainerPort {
-                container_port: config.sandbox_grpc_port as i32,
+                container_port: config.sandbox.grpc_port as i32,
                 name: Some("grpc".to_string()),
                 protocol: Some("TCP".to_string()),
                 ..Default::default()
@@ -252,7 +252,7 @@ fn build_sandbox_container(
 /// Build server containers from repo config.
 ///
 /// Each server container's image is resolved from `server.docker_image`,
-/// falling back to `config.sandbox_image`. Start commands come from
+/// falling back to `config.sandbox.image`. Start commands come from
 /// `server.start_commands`; if absent the image's default CMD is used.
 fn build_server_containers(
     config: &Config,
@@ -274,7 +274,7 @@ fn build_server_containers(
         let image = server
             .docker_image
             .clone()
-            .unwrap_or_else(|| config.sandbox_image.clone());
+            .unwrap_or_else(|| config.sandbox.image.clone());
 
         // Standard env vars for all server containers
         let mut env = vec![
@@ -348,12 +348,12 @@ fn build_server_containers(
         // Resource limits
         let resources = ResourceRequirements {
             limits: Some(BTreeMap::from([
-                ("cpu".to_string(), Quantity(config.server_resources_cpu_limit.clone())),
-                ("memory".to_string(), Quantity(config.server_resources_memory_limit.clone())),
+                ("cpu".to_string(), Quantity(config.sandbox.resources_cpu_limit.clone())),
+                ("memory".to_string(), Quantity(config.sandbox.resources_memory_limit.clone())),
             ])),
             requests: Some(BTreeMap::from([
-                ("cpu".to_string(), Quantity(config.server_resources_cpu_request.clone())),
-                ("memory".to_string(), Quantity(config.server_resources_memory_request.clone())),
+                ("cpu".to_string(), Quantity(config.sandbox.resources_cpu_request.clone())),
+                ("memory".to_string(), Quantity(config.sandbox.resources_memory_request.clone())),
             ])),
             ..Default::default()
         };
@@ -361,7 +361,7 @@ fn build_server_containers(
         containers.push(Container {
             name: container_name,
             image: Some(image),
-            image_pull_policy: Some(config.sandbox_image_pull_policy.clone()),
+            image_pull_policy: Some(config.sandbox.image_pull_policy.clone()),
             command,
             args,
             ports: Some(vec![ContainerPort {

@@ -21,24 +21,33 @@ use super::pvc;
 use super::secret;
 use super::service;
 use super::status_resolver::StatusResolver;
+use crate::auth::provider_token_dao::ProviderTokenRepository;
+use crate::auth::users::UserRepository;
 use crate::config::Config;
-use crate::db::DbPool;
-use crate::events::RedisEventPublisher;
+use crate::events::EventPublisher;
+use crate::repository::dao::RepoRepository;
 use crate::sandbox::error::SandboxError;
 use crate::sandbox::jwt;
 use crate::sandbox::provider::SandboxProvider;
 use crate::sandbox::models::*;
 use crate::sandbox::schemas::*;
+use crate::task::dao::TaskRepository;
 
 /// Kubernetes-based sandbox provider.
 pub struct K8sSandboxProvider {
     pub config: Arc<Config>,
     pub k8s: K8sClient,
     pub status_resolver: StatusResolver,
-    /// Optional DB pool — enables auto-provisioning on `/start`.
-    pub db_pool: Option<DbPool>,
-    /// Optional Redis event publisher for environment lifecycle events.
-    pub event_publisher: Option<RedisEventPublisher>,
+    /// Optional user repository — enables user login resolution on `/provision`.
+    pub users: Option<Arc<dyn UserRepository>>,
+    /// Optional task repository — enables auto-provisioning on `/start`.
+    pub tasks: Option<Arc<dyn TaskRepository>>,
+    /// Optional repo repository — enables auto-provisioning on `/start`.
+    pub repos: Option<Arc<dyn RepoRepository>>,
+    /// Optional provider token repository — enables credential resolution.
+    pub provider_tokens: Option<Arc<dyn ProviderTokenRepository>>,
+    /// Optional event publisher for environment lifecycle events.
+    pub event_publisher: Option<Arc<dyn EventPublisher>>,
 }
 
 #[async_trait]
@@ -69,13 +78,13 @@ impl SandboxProvider for K8sSandboxProvider {
         // 2. Resolve user login for JWT generation
         let task_token_secret = self
             .config
-            .task_token_secret
+            .sandbox.task_token_secret
             .as_ref()
             .ok_or_else(|| SandboxError::ConfigMissing("TASK_TOKEN_SECRET".to_string()))?
             .clone();
 
-        let user_login = if let Some(ref pool) = self.db_pool {
-            match crate::auth::users::get_user(pool, &request.user_id).await {
+        let user_login = if let Some(ref users) = self.users {
+            match users.get_user(&request.user_id).await {
                 Ok(Some(user)) => user.login,
                 _ => request.user_id.clone(), // Fallback to user_id as login
             }
@@ -133,10 +142,10 @@ impl SandboxProvider for K8sSandboxProvider {
         .await?;
 
         let service_name =
-            service::create_sandbox_service(&self.k8s, task_id, &server_ports, self.config.sandbox_grpc_port).await?;
+            service::create_sandbox_service(&self.k8s, task_id, &server_ports, self.config.sandbox.grpc_port).await?;
 
         // 5b. Create Traefik IngressRoutes (if proxy_domain is configured)
-        if self.config.proxy_domain.is_some() {
+        if self.config.proxy.domain.is_some() {
             if let Err(e) =
                 ingress::create_task_ingress_routes(&self.k8s, task_id, &server_ports, &self.config)
                     .await
@@ -286,15 +295,17 @@ impl SandboxProvider for K8sSandboxProvider {
         let container_statuses =
             health::fetch_server_container_statuses(&self.k8s, task_id).await;
 
-        let server_configs = match &self.db_pool {
-            Some(pool) => match auto_provision::get_server_configs(pool, task_id).await {
-                Ok(configs) => configs,
-                Err(e) => {
-                    warn!(task_id = %task_id, error = %e, "Failed to get server configs for server_status");
-                    vec![]
+        let server_configs = match (&self.tasks, &self.repos) {
+            (Some(ref tasks), Some(ref repos)) => {
+                match auto_provision::get_server_configs(tasks.as_ref(), repos.as_ref(), task_id).await {
+                    Ok(configs) => configs,
+                    Err(e) => {
+                        warn!(task_id = %task_id, error = %e, "Failed to get server configs for server_status");
+                        vec![]
+                    }
                 }
-            },
-            None => vec![],
+            }
+            _ => vec![],
         };
 
         let servers: Vec<ServerSnapshot> = server_configs
@@ -343,7 +354,7 @@ impl SandboxProvider for K8sSandboxProvider {
     ) -> Result<Vec<FileSearchResult>, SandboxError> {
         let service_name = generate_service_name(task_id);
         let results =
-            health::search_sandbox_files(&service_name, self.k8s.namespace(), self.config.sandbox_grpc_port, query, limit)
+            health::search_sandbox_files(&service_name, self.k8s.namespace(), self.config.sandbox.grpc_port, query, limit)
                 .await
                 .map_err(SandboxError::Internal)?;
 
@@ -461,16 +472,32 @@ impl K8sSandboxProvider {
     /// Reads task + repository from the database, resolves credentials from
     /// existing K8s Secret or environment variables, and calls `provision()`.
     async fn auto_provision(&self, task_id: &str) -> Result<(), SandboxError> {
-        let pool = self.db_pool.as_ref().ok_or_else(|| {
+        let tasks = self.tasks.as_ref().ok_or_else(|| {
             SandboxError::NotReady(
                 "Workspace not provisioned and DATABASE_URL not configured for auto-provisioning. \
                  Use /provision first."
                     .to_string(),
             )
         })?;
+        let repos = self.repos.as_ref().ok_or_else(|| {
+            SandboxError::NotReady(
+                "Repository access not configured for auto-provisioning.".to_string(),
+            )
+        })?;
+        let provider_tokens = self.provider_tokens.as_ref().ok_or_else(|| {
+            SandboxError::NotReady(
+                "Provider tokens not configured for auto-provisioning.".to_string(),
+            )
+        })?;
 
-        let request =
-            auto_provision::build_provision_request(pool, &self.k8s, task_id).await?;
+        let request = auto_provision::build_provision_request(
+            tasks.as_ref(),
+            repos.as_ref(),
+            provider_tokens.as_ref(),
+            &self.k8s,
+            task_id,
+        )
+        .await?;
 
         info!(
             task_id = %task_id,

@@ -18,29 +18,31 @@ use super::k8s::client::K8sClient;
 use super::k8s::leader_election::LeaderElection;
 use super::provider::SandboxProvider;
 use crate::config::Config;
-use crate::db::DbPool;
+use crate::message::dao::MessageRepository;
+use crate::task::dao::TaskRepository;
 
 /// Spawn the idle sandbox reaper as a background tokio task.
 ///
 /// The reaper runs in a loop:
 /// 1. Try to acquire leadership via K8s Lease (`"moatless-idle-reaper"`).
 /// 2. If leader, run a reap cycle.
-/// 3. Sleep for `config.sandbox_idle_check_interval_secs` before the next cycle.
+/// 3. Sleep for `config.sandbox.idle_check_interval_secs` before the next cycle.
 pub fn spawn_idle_reaper(
     k8s: K8sClient,
-    db: DbPool,
+    messages: Arc<dyn MessageRepository>,
+    tasks: Arc<dyn TaskRepository>,
     sandbox: Arc<dyn SandboxProvider>,
     config: Arc<Config>,
     cancel: CancellationToken,
 ) -> JoinHandle<()> {
     let identity = std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".to_string());
-    let interval = Duration::from_secs(config.sandbox_idle_check_interval_secs);
-    let idle_timeout = chrono::Duration::minutes(config.sandbox_idle_timeout_minutes as i64);
+    let interval = Duration::from_secs(config.sandbox.idle_check_interval_secs);
+    let idle_timeout = chrono::Duration::minutes(config.sandbox.idle_timeout_minutes as i64);
 
     tokio::spawn(async move {
         // Lease duration must exceed the check interval so the lease
         // doesn't expire between cycles. Use 2x the interval as buffer.
-        let lease_duration_secs = (config.sandbox_idle_check_interval_secs * 2) as i32;
+        let lease_duration_secs = (config.sandbox.idle_check_interval_secs * 2) as i32;
         let leader_election = LeaderElection::new_with_name(
             &k8s,
             identity.clone(),
@@ -59,7 +61,7 @@ pub fn spawn_idle_reaper(
                 Ok(true) => {
                     debug!(identity = %identity, "Idle reaper is leader, running reap cycle");
                     if let Err(e) =
-                        reap_idle_sandboxes(&k8s, &db, &sandbox, idle_timeout).await
+                        reap_idle_sandboxes(&k8s, &messages, &tasks, &sandbox, idle_timeout).await
                     {
                         warn!(error = %e, "Idle reaper cycle failed");
                     }
@@ -87,7 +89,8 @@ pub fn spawn_idle_reaper(
 /// Run one reap cycle: list running sandboxes, check idle times, stop idle ones.
 async fn reap_idle_sandboxes(
     k8s: &K8sClient,
-    db: &DbPool,
+    messages: &Arc<dyn MessageRepository>,
+    tasks: &Arc<dyn TaskRepository>,
     sandbox: &Arc<dyn SandboxProvider>,
     idle_timeout: chrono::Duration,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -101,7 +104,7 @@ async fn reap_idle_sandboxes(
     debug!(count = task_ids.len(), "Found running sandboxes");
 
     // Batch-query latest message timestamps
-    let mut latest_times = crate::message::dao::get_latest_message_times(db, &task_ids).await?;
+    let mut latest_times = messages.get_latest_message_times(&task_ids).await?;
 
     // Fill creation times for tasks with no messages (prevents killing new tasks)
     let no_message_ids: Vec<String> = task_ids
@@ -111,7 +114,7 @@ async fn reap_idle_sandboxes(
         .collect();
 
     if !no_message_ids.is_empty() {
-        match crate::task::dao::get_created_times(db, &no_message_ids).await {
+        match tasks.get_created_times(&no_message_ids).await {
             Ok(created_times) => {
                 for (task_id, created_at) in created_times {
                     latest_times.entry(task_id).or_insert(created_at);

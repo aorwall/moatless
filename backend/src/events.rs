@@ -1,4 +1,4 @@
-//! Redis event publisher for sandbox and task lifecycle events.
+//! Event publisher trait and Redis implementation.
 //!
 //! Publishes events to Redis Streams that the frontend consumes via SSE.
 //! The stream format must match exactly:
@@ -10,6 +10,7 @@
 //!   payload {fullEventJson}
 //! ```
 
+use async_trait::async_trait;
 use moatless_events::{
     AgentSubType, EventType, SandboxSubType, ServerEventPayload, ServerSubType, SubType,
     TaskSubType, TaskTurnSubType,
@@ -19,7 +20,80 @@ use serde::Serialize;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
-/// Publishes lifecycle events to Redis Streams.
+/// Trait for publishing lifecycle events.
+///
+/// Abstracts event publishing so handlers can be tested without Redis.
+/// All methods are fire-and-forget — implementations should log errors
+/// but never propagate them.
+#[cfg_attr(test, mockall::automock)]
+#[async_trait]
+pub trait EventPublisher: Send + Sync {
+    /// Publish a sandbox lifecycle event.
+    async fn publish_sandbox_event(
+        &self,
+        task_id: &str,
+        sub_type: SandboxSubType,
+        error_message: Option<&str>,
+    );
+
+    /// Publish a sandbox lifecycle event with a custom JSON payload.
+    async fn publish_sandbox_event_with_payload(
+        &self,
+        task_id: &str,
+        sub_type: SandboxSubType,
+        payload: serde_json::Value,
+    );
+
+    /// Publish a server container event.
+    async fn publish_server_event(
+        &self,
+        task_id: &str,
+        sub_type: ServerSubType,
+        payload: &ServerEventPayload,
+    );
+
+    /// Publish a task lifecycle event (e.g. "open", "closed").
+    async fn publish_task_event(
+        &self,
+        task_id: &str,
+        sub_type: TaskSubType,
+        agent_type: Option<&str>,
+        payload: serde_json::Value,
+    );
+
+    /// Publish an agent lifecycle event (e.g. "completed", "error", "message", "stopped").
+    async fn publish_agent_event(
+        &self,
+        task_id: &str,
+        sub_type: AgentSubType,
+        agent_type: Option<&str>,
+        payload: serde_json::Value,
+    );
+
+    /// Publish a task turn event (e.g. "active", "completed", "error").
+    async fn publish_task_turn_event(
+        &self,
+        task_id: &str,
+        sub_type: TaskTurnSubType,
+        agent_type: Option<&str>,
+        turn_number: Option<i32>,
+        payload: serde_json::Value,
+    );
+
+    /// Publish a raw event with string types — used by the gRPC server
+    /// to forward events from the sandbox without re-parsing sub_types.
+    async fn publish_raw_event(
+        &self,
+        task_id: &str,
+        event_type: &str,
+        sub_type: &str,
+        agent_type: Option<&str>,
+        turn_number: Option<i32>,
+        payload: serde_json::Value,
+    );
+}
+
+/// Redis Streams implementation of [`EventPublisher`].
 ///
 /// Uses `ConnectionManager` for automatic reconnection. All publish
 /// operations are fire-and-forget — failures are logged but never
@@ -78,143 +152,7 @@ impl RedisEventPublisher {
     }
 
     // =========================================================================
-    // Typed publish methods
-    // =========================================================================
-
-    /// Publish a sandbox lifecycle event (renamed from `publish_environment_event`).
-    pub async fn publish_sandbox_event(
-        &self,
-        task_id: &str,
-        sub_type: SandboxSubType,
-        error_message: Option<&str>,
-    ) {
-        let payload = match error_message {
-            Some(msg) => serde_json::json!({ "error": msg }),
-            None => serde_json::json!({}),
-        };
-        self.publish_sandbox_event_with_payload(task_id, sub_type, payload)
-            .await;
-    }
-
-    /// Publish a sandbox lifecycle event with a custom JSON payload.
-    pub async fn publish_sandbox_event_with_payload(
-        &self,
-        task_id: &str,
-        sub_type: SandboxSubType,
-        payload: serde_json::Value,
-    ) {
-        self.publish_event_typed(
-            task_id,
-            EventType::Sandbox,
-            sub_type.into(),
-            None,
-            None,
-            payload,
-        )
-        .await;
-    }
-
-    /// Publish a server container event.
-    pub async fn publish_server_event(
-        &self,
-        task_id: &str,
-        sub_type: ServerSubType,
-        payload: &ServerEventPayload,
-    ) {
-        let payload_value = serde_json::to_value(payload).unwrap_or_default();
-        self.publish_event_typed(
-            task_id,
-            EventType::Server,
-            sub_type.into(),
-            None,
-            None,
-            payload_value,
-        )
-        .await;
-    }
-
-    /// Publish a task lifecycle event (e.g. "open", "closed").
-    pub async fn publish_task_event(
-        &self,
-        task_id: &str,
-        sub_type: TaskSubType,
-        agent_type: Option<&str>,
-        payload: serde_json::Value,
-    ) {
-        self.publish_event_typed(
-            task_id,
-            EventType::Task,
-            sub_type.into(),
-            agent_type,
-            None,
-            payload,
-        )
-        .await;
-    }
-
-    /// Publish an agent lifecycle event (e.g. "completed", "error", "message", "stopped").
-    pub async fn publish_agent_event(
-        &self,
-        task_id: &str,
-        sub_type: AgentSubType,
-        agent_type: Option<&str>,
-        payload: serde_json::Value,
-    ) {
-        self.publish_event_typed(
-            task_id,
-            EventType::Agent,
-            sub_type.into(),
-            agent_type,
-            None,
-            payload,
-        )
-        .await;
-    }
-
-    /// Publish a task turn event (e.g. "active", "completed", "error").
-    pub async fn publish_task_turn_event(
-        &self,
-        task_id: &str,
-        sub_type: TaskTurnSubType,
-        agent_type: Option<&str>,
-        turn_number: Option<i32>,
-        payload: serde_json::Value,
-    ) {
-        self.publish_event_typed(
-            task_id,
-            EventType::TaskTurn,
-            sub_type.into(),
-            agent_type,
-            turn_number,
-            payload,
-        )
-        .await;
-    }
-
-    /// Publish a raw event with string types — used only by the gRPC server
-    /// to forward events from the sandbox without re-parsing sub_types.
-    pub async fn publish_raw_event(
-        &self,
-        task_id: &str,
-        event_type: &str,
-        sub_type: &str,
-        agent_type: Option<&str>,
-        turn_number: Option<i32>,
-        payload: serde_json::Value,
-    ) {
-        self.publish_event_internal(
-            task_id,
-            event_type,
-            sub_type,
-            agent_type,
-            turn_number,
-            payload,
-        )
-        .await;
-    }
-
-    // =========================================================================
-    // Internal
+    // Internal helpers (Redis-specific)
     // =========================================================================
 
     /// Internal: typed event publish.
@@ -310,5 +248,132 @@ impl RedisEventPublisher {
                 );
             }
         }
+    }
+}
+
+#[async_trait]
+impl EventPublisher for RedisEventPublisher {
+    async fn publish_sandbox_event(
+        &self,
+        task_id: &str,
+        sub_type: SandboxSubType,
+        error_message: Option<&str>,
+    ) {
+        let payload = match error_message {
+            Some(msg) => serde_json::json!({ "error": msg }),
+            None => serde_json::json!({}),
+        };
+        self.publish_sandbox_event_with_payload(task_id, sub_type, payload)
+            .await;
+    }
+
+    async fn publish_sandbox_event_with_payload(
+        &self,
+        task_id: &str,
+        sub_type: SandboxSubType,
+        payload: serde_json::Value,
+    ) {
+        self.publish_event_typed(
+            task_id,
+            EventType::Sandbox,
+            sub_type.into(),
+            None,
+            None,
+            payload,
+        )
+        .await;
+    }
+
+    async fn publish_server_event(
+        &self,
+        task_id: &str,
+        sub_type: ServerSubType,
+        payload: &ServerEventPayload,
+    ) {
+        let payload_value = serde_json::to_value(payload).unwrap_or_default();
+        self.publish_event_typed(
+            task_id,
+            EventType::Server,
+            sub_type.into(),
+            None,
+            None,
+            payload_value,
+        )
+        .await;
+    }
+
+    async fn publish_task_event(
+        &self,
+        task_id: &str,
+        sub_type: TaskSubType,
+        agent_type: Option<&str>,
+        payload: serde_json::Value,
+    ) {
+        self.publish_event_typed(
+            task_id,
+            EventType::Task,
+            sub_type.into(),
+            agent_type,
+            None,
+            payload,
+        )
+        .await;
+    }
+
+    async fn publish_agent_event(
+        &self,
+        task_id: &str,
+        sub_type: AgentSubType,
+        agent_type: Option<&str>,
+        payload: serde_json::Value,
+    ) {
+        self.publish_event_typed(
+            task_id,
+            EventType::Agent,
+            sub_type.into(),
+            agent_type,
+            None,
+            payload,
+        )
+        .await;
+    }
+
+    async fn publish_task_turn_event(
+        &self,
+        task_id: &str,
+        sub_type: TaskTurnSubType,
+        agent_type: Option<&str>,
+        turn_number: Option<i32>,
+        payload: serde_json::Value,
+    ) {
+        self.publish_event_typed(
+            task_id,
+            EventType::TaskTurn,
+            sub_type.into(),
+            agent_type,
+            turn_number,
+            payload,
+        )
+        .await;
+    }
+
+    async fn publish_raw_event(
+        &self,
+        task_id: &str,
+        event_type: &str,
+        sub_type: &str,
+        agent_type: Option<&str>,
+        turn_number: Option<i32>,
+        payload: serde_json::Value,
+    ) {
+        self.publish_event_internal(
+            task_id,
+            event_type,
+            sub_type,
+            agent_type,
+            turn_number,
+            payload,
+        )
+        .await;
     }
 }

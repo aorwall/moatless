@@ -15,7 +15,8 @@ use super::deployment;
 use super::health;
 use super::pod_status::{is_sandbox_container_ready, pick_best_pod};
 use crate::config::Config;
-use crate::db::DbPool;
+use crate::repository::dao::RepoRepository;
+use crate::task::dao::TaskRepository;
 use crate::sandbox::models::*;
 use crate::sandbox::schemas::*;
 
@@ -23,19 +24,22 @@ use crate::sandbox::schemas::*;
 pub struct StatusResolver {
     k8s: K8sClient,
     config: Arc<Config>,
-    db_pool: Option<DbPool>,
+    tasks: Option<Arc<dyn TaskRepository>>,
+    repos: Option<Arc<dyn RepoRepository>>,
 }
 
 impl StatusResolver {
     pub fn new(
         k8s: K8sClient,
         config: Arc<Config>,
-        db_pool: Option<DbPool>,
+        tasks: Option<Arc<dyn TaskRepository>>,
+        repos: Option<Arc<dyn RepoRepository>>,
     ) -> Self {
         Self {
             k8s,
             config,
-            db_pool,
+            tasks,
+            repos,
         }
     }
 
@@ -258,10 +262,10 @@ impl StatusResolver {
 
     /// Build a proxy URL for a server port using the configured proxy domain.
     fn build_proxy_url(&self, task_id: &str, port: u16) -> Option<String> {
-        self.config.proxy_domain.as_ref().map(|domain| {
+        self.config.proxy.domain.as_ref().map(|domain| {
             format!(
                 "{}://{}--{}.{}",
-                self.config.proxy_protocol, task_id, port, domain
+                self.config.proxy.protocol, task_id, port, domain
             )
         })
     }
@@ -271,11 +275,11 @@ impl StatusResolver {
         &self,
         task_id: &str,
     ) -> Vec<crate::sandbox::models::ServerConfig> {
-        let Some(ref pool) = self.db_pool else {
+        let (Some(ref tasks), Some(ref repos)) = (&self.tasks, &self.repos) else {
             return vec![];
         };
 
-        match auto_provision::get_server_configs(pool, task_id).await {
+        match auto_provision::get_server_configs(tasks.as_ref(), repos.as_ref(), task_id).await {
             Ok(configs) => configs,
             Err(e) => {
                 warn!(task_id = %task_id, error = %e, "Failed to get server configs");

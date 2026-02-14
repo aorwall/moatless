@@ -2,10 +2,7 @@
 
 use moatless_events::{TaskSubType, TaskTurnSubType};
 
-use crate::message::dao as message_dao;
 use crate::message::models::{TaskMessageContentBlock, TaskMessageContext, TaskMessage};
-use crate::tag::dao as tag_dao;
-use crate::task::dao as task_dao;
 use crate::task::dao::TaskPatch;
 use crate::message::models::{ContentBlockType, MessageRole, MessageType, TurnStatus};
 use crate::state::AppState;
@@ -16,12 +13,12 @@ use super::models::{AgentEvent, SdkResultMessage};
 /// Check if a result message already exists for the current turn (after the last user message).
 /// Returns `true` if a duplicate should be skipped.
 async fn has_result_for_current_turn(state: &AppState, task_id: &str) -> bool {
-    let last_result = match message_dao::get_last_result(&state.db, task_id).await {
+    let last_result = match state.messages.get_last_result(task_id).await {
         Ok(Some(r)) => r,
         _ => return false,
     };
 
-    let (messages, _, _) = match message_dao::get_all(&state.db, task_id).await {
+    let (messages, _, _) = match state.messages.get_all(task_id).await {
         Ok(data) => data,
         Err(_) => return false,
     };
@@ -76,7 +73,7 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
     // Fallback: set real Claude Code session_id on user messages
     // (in case session_init event was missed or arrived before messages were fetched)
     if let Some(ref sid) = session_id {
-        if let Err(e) = message_dao::set_session_id_for_task(&state.db, &event.task_id, sid).await {
+        if let Err(e) = state.messages.set_session_id_for_task(&event.task_id, sid).await {
             tracing::warn!(task_id = %event.task_id, error = %e, "Failed to set session_id on user messages (fallback)");
         }
     }
@@ -91,7 +88,7 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
         .map(|s| s.to_string());
 
     // Inherit agent_mode from the last user message for this task
-    let agent_mode = match message_dao::get_last_user_message(&state.db, &event.task_id).await {
+    let agent_mode = match state.messages.get_last_user_message(&event.task_id).await {
         Ok(Some(user_msg)) => user_msg.agent_mode,
         _ => None,
     };
@@ -122,7 +119,7 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
         created_at: None,
     }];
 
-    if let Err(e) = message_dao::append(&state.db, &msg_row, &contexts, &blocks).await {
+    if let Err(e) = state.messages.append(&msg_row, &contexts, &blocks).await {
         tracing::warn!(task_id = %event.task_id, error = %e, "Failed to append result message");
     }
 
@@ -139,7 +136,7 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
         }
     }
 
-    if let Err(e) = task_dao::update_task(&state.db, &event.task_id, &patch).await {
+    if let Err(e) = state.tasks.update_task(&event.task_id, &patch).await {
         tracing::warn!(task_id = %event.task_id, error = %e, "Failed to update task after completion");
     }
 
@@ -189,7 +186,7 @@ pub async fn handle_agent_session_init(state: &AppState, event: &AgentEvent) {
         }
     };
 
-    match message_dao::set_session_id_for_task(&state.db, &event.task_id, session_id).await {
+    match state.messages.set_session_id_for_task(&event.task_id, session_id).await {
         Ok(count) => {
             tracing::info!(
                 task_id = %event.task_id,
@@ -225,7 +222,7 @@ pub async fn handle_agent_stopped(state: &AppState, event: &AgentEvent) {
     }]);
 
     // Inherit agent_mode from the last user message
-    let agent_mode = match message_dao::get_last_user_message(&state.db, &event.task_id).await {
+    let agent_mode = match state.messages.get_last_user_message(&event.task_id).await {
         Ok(Some(user_msg)) => user_msg.agent_mode,
         _ => None,
     };
@@ -247,12 +244,11 @@ pub async fn handle_agent_stopped(state: &AppState, event: &AgentEvent) {
         created_at: None,
     }];
 
-    if let Err(e) = message_dao::append(&state.db, &msg_row, &contexts, &blocks).await {
+    if let Err(e) = state.messages.append(&msg_row, &contexts, &blocks).await {
         tracing::warn!(task_id = %event.task_id, error = %e, "Failed to append stopped message");
     }
 
-    if let Err(e) = task_dao::update_task(
-        &state.db,
+    if let Err(e) = state.tasks.update_task(
         &event.task_id,
         &TaskPatch {
             status: Some(TaskStatus::Open),
@@ -281,7 +277,7 @@ pub async fn handle_agent_stopped(state: &AppState, event: &AgentEvent) {
 /// Handle `agent.error` event.
 pub async fn handle_agent_error(state: &AppState, event: &AgentEvent) {
     // Guard: only create error result if task has messages and last isn't already a result
-    match message_dao::get_last_message_type(&state.db, &event.task_id).await {
+    match state.messages.get_last_message_type(&event.task_id).await {
         Ok(None) => {
             tracing::debug!(task_id = %event.task_id, "Skipping agent.error — no messages exist for task");
             return;
@@ -312,7 +308,7 @@ pub async fn handle_agent_error(state: &AppState, event: &AgentEvent) {
     }]);
 
     // Inherit agent_mode from the last user message
-    let agent_mode = match message_dao::get_last_user_message(&state.db, &event.task_id).await {
+    let agent_mode = match state.messages.get_last_user_message(&event.task_id).await {
         Ok(Some(user_msg)) => user_msg.agent_mode,
         _ => None,
     };
@@ -334,12 +330,11 @@ pub async fn handle_agent_error(state: &AppState, event: &AgentEvent) {
         created_at: None,
     }];
 
-    if let Err(e) = message_dao::append(&state.db, &msg_row, &contexts, &blocks).await {
+    if let Err(e) = state.messages.append(&msg_row, &contexts, &blocks).await {
         tracing::warn!(task_id = %event.task_id, error = %e, "Failed to append error message");
     }
 
-    if let Err(e) = task_dao::update_task(
-        &state.db,
+    if let Err(e) = state.tasks.update_task(
         &event.task_id,
         &TaskPatch {
             status: Some(TaskStatus::Open),
@@ -425,7 +420,7 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
         .and_then(|m| m.get("usage"));
 
     // 3. Inherit agent_mode from the last user message (same pattern as result messages)
-    let agent_mode = match message_dao::get_last_user_message(&state.db, &event.task_id).await {
+    let agent_mode = match state.messages.get_last_user_message(&event.task_id).await {
         Ok(Some(user_msg)) => user_msg.agent_mode,
         _ => None,
     };
@@ -488,7 +483,7 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
     let contexts: Vec<TaskMessageContext> = vec![];
 
     // 6. Persist message
-    match message_dao::append(&state.db, &msg_row, &contexts, &blocks).await {
+    match state.messages.append(&msg_row, &contexts, &blocks).await {
         Ok(_) => {
             tracing::info!(
                 task_id = %event.task_id,
@@ -519,11 +514,11 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
             .map(|s| format!("skill-{s}"))
             .collect();
 
-        match tag_dao::find_or_create_tags(&state.db, &tag_names).await {
+        match state.tags.find_or_create_tags(&tag_names).await {
             Ok(tags) => {
                 let tag_ids: Vec<String> = tags.into_iter().map(|t| t.tag_id).collect();
                 if let Err(e) =
-                    tag_dao::add_task_tags(&state.db, &event.task_id, &tag_ids).await
+                    state.tags.add_task_tags(&event.task_id, &tag_ids).await
                 {
                     tracing::warn!(
                         task_id = %event.task_id,
@@ -558,7 +553,7 @@ pub async fn handle_task_metadata_updated(state: &AppState, event: &AgentEvent) 
         ..Default::default()
     };
 
-    if let Err(e) = task_dao::update_task(&state.db, &event.task_id, &patch).await {
+    if let Err(e) = state.tasks.update_task(&event.task_id, &patch).await {
         tracing::warn!(task_id = %event.task_id, error = %e, "Failed to update task metadata");
     }
 }

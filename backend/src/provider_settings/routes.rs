@@ -31,5 +31,5 @@ pub fn provider_settings_router(state: AppState) -> (axum::Router, utoipa::opena
         .with_state(state)
         .split_for_parts();
 
-    (router.into(), api)
+    (router, api)
 }

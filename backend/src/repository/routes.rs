@@ -33,5 +33,5 @@ pub fn repository_router(state: AppState) -> (axum::Router, utoipa::openapi::Ope
         .with_state(state)
         .split_for_parts();
 
-    (router.into(), api)
+    (router, api)
 }

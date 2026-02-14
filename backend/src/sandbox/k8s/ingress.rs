@@ -39,7 +39,7 @@ pub async fn create_task_ingress_routes(
     server_ports: &BTreeMap<String, u16>,
     config: &Config,
 ) -> Result<(), kube::Error> {
-    let proxy_domain = match config.proxy_domain.as_deref() {
+    let proxy_domain = match config.proxy.domain.as_deref() {
         Some(d) => d,
         None => {
             debug!(task_id, "No PROXY_DOMAIN configured, skipping IngressRoute creation");
@@ -69,13 +69,13 @@ pub async fn create_task_ingress_routes(
         labels.insert("moatless.io/task-id".to_string(), task_id.to_string());
 
         let spec = serde_json::json!({
-            "entryPoints": [config.traefik_entry_point],
+            "entryPoints": [config.proxy.traefik_entry_point],
             "routes": [{
                 "match": format!("Host(`{}`)", hostname),
                 "kind": "Rule",
                 "middlewares": [{
-                    "name": config.traefik_auth_middleware_name,
-                    "namespace": config.traefik_auth_middleware_namespace,
+                    "name": config.proxy.traefik_auth_middleware_name,
+                    "namespace": config.proxy.traefik_auth_middleware_namespace,
                 }],
                 "services": [{
                     "name": service_name,

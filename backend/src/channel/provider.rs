@@ -100,6 +100,12 @@ pub struct ChannelProviders {
     providers: HashMap<ChannelType, Arc<dyn ChannelProvider>>,
 }
 
+impl Default for ChannelProviders {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ChannelProviders {
     pub fn new() -> Self {
         Self {

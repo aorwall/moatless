@@ -17,7 +17,7 @@ use moatless_vibe_backend::auth;
 use moatless_vibe_backend::config::Config;
 use moatless_vibe_backend::db;
 use moatless_vibe_backend::event_handler;
-use moatless_vibe_backend::events::RedisEventPublisher;
+use moatless_vibe_backend::events::{EventPublisher, RedisEventPublisher};
 use moatless_vibe_backend::feature_flags;
 use moatless_vibe_backend::metrics;
 use moatless_vibe_backend::sandbox;
@@ -25,6 +25,22 @@ use moatless_vibe_backend::sandbox_grpc_server::BackendSandboxServiceImpl;
 use moatless_vibe_backend::sse;
 use moatless_vibe_backend::state::AppState;
 use moatless_vibe_backend::{channel, command, figma, file_storage, message, provider_settings, repository, tag, task};
+
+// Pg repository constructors
+use channel::config_dao::PgChannelConfigRepository;
+use channel::thread_dao::PgChannelThreadRepository;
+use command::dao::PgCommandRepository;
+use figma::dao::PgFigmaRepository;
+use file_storage::dao::PgFileRepository;
+use message::dao::PgMessageRepository;
+use repository::dao::PgRepoRepository;
+use tag::dao::PgTagRepository;
+use task::dao::PgTaskRepository;
+use moatless_vibe_backend::auth::api_keys::PgApiKeyRepository;
+use moatless_vibe_backend::auth::provider_token_dao::PgProviderTokenRepository;
+use moatless_vibe_backend::auth::provider_tokens::PgProviderTokenAuthRepository;
+use moatless_vibe_backend::auth::sessions::PgSessionRepository;
+use moatless_vibe_backend::auth::users::PgUserRepository;
 
 use auth::cache::AuthCache;
 use auth::routes::{AuthState, OAuthProviders};
@@ -58,7 +74,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Load configuration
     let config = Config::from_env();
     info!(
-        sandbox_namespace = %config.sandbox_namespace,
+        sandbox_namespace = %config.sandbox.namespace,
         "Starting Moatless Vibe Backend"
     );
 
@@ -69,7 +85,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let metrics_router = metrics::metrics_router(metrics_handle);
 
     // Start metrics server
-    let metrics_port = config.metrics_port;
+    let metrics_port = config.server.metrics_port;
     let metrics_addr = SocketAddr::from(([0, 0, 0, 0], metrics_port));
     tokio::spawn(async move {
         let listener = TcpListener::bind(metrics_addr).await.unwrap();
@@ -101,31 +117,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // Optionally initialize Redis event publisher
-    let event_publisher = if let Some(ref redis_url) = config.redis_url {
-        RedisEventPublisher::connect(redis_url, config.redis_max_stream_length).await
-    } else {
-        info!("REDIS_URL not set — environment event publishing disabled");
-        None
-    };
+    let event_publisher: Option<Arc<dyn EventPublisher>> =
+        if let Some(ref redis_url) = config.redis.url {
+            RedisEventPublisher::connect(redis_url, config.redis.max_stream_length)
+                .await
+                .map(|p| Arc::new(p) as Arc<dyn EventPublisher>)
+        } else {
+            info!("REDIS_URL not set — environment event publishing disabled");
+            None
+        };
 
     // Create broadcast channel for SSE fan-out
-    let (sse_tx, _) = broadcast::channel::<String>(config.sse_broadcast_capacity);
+    let (sse_tx, _) = broadcast::channel::<String>(config.sse.broadcast_capacity);
 
     // Graceful-shutdown token
     let cancel = CancellationToken::new();
 
     // Spawn SSE Redis consumer if Redis is configured
-    if let Some(ref redis_url) = config.redis_url {
+    if let Some(ref redis_url) = config.redis.url {
         let client = redis::Client::open(redis_url.as_str())?;
         let conn = redis::aio::ConnectionManager::new(client).await?;
         let consumer = RedisStreamConsumer::new(
             conn,
-            config.sse_consumer_id.clone(),
+            config.sse.consumer_id.clone(),
             sse_tx.clone(),
             cancel.clone(),
         );
         tokio::spawn(consumer.run());
-        info!(consumer_id = %config.sse_consumer_id, "SSE Redis consumer spawned");
+        info!(consumer_id = %config.sse.consumer_id, "SSE Redis consumer spawned");
     } else {
         info!("REDIS_URL not set — SSE Redis consumer disabled");
     }
@@ -136,9 +155,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // Optionally initialize S3 client
-    let s3_client = if config.s3_bucket_name.is_some() {
+    let s3_client = if config.s3.bucket_name.is_some() {
         let aws_config = aws_config::defaults(aws_config::BehaviorVersion::latest())
-            .region(aws_config::Region::new(config.s3_region.clone()))
+            .region(aws_config::Region::new(config.s3.region.clone()))
             .load()
             .await;
         let client = aws_sdk_s3::Client::new(&aws_config);
@@ -150,7 +169,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // Initialize K8s client and start API server
-    let k8s = K8sClient::new(config.sandbox_namespace.clone()).await?;
+    let k8s = K8sClient::new(config.sandbox.namespace.clone()).await?;
     info!("K8s client initialized");
 
     // Install graceful shutdown handler
@@ -164,13 +183,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Spawn gRPC server for sandbox communication
     {
         let grpc_events = event_publisher.clone();
-        let grpc_db = db_pool.clone();
-        let grpc_port = config.grpc_port;
-        let grpc_token_secret = config.task_token_secret.clone();
+        let grpc_messages: Option<Arc<dyn message::dao::MessageRepository>> =
+            db_pool.as_ref().map(|pool| Arc::new(PgMessageRepository(pool.clone())) as _);
+        let grpc_provider_tokens: Option<Arc<dyn auth::provider_token_dao::ProviderTokenRepository>> =
+            db_pool.as_ref().map(|pool| Arc::new(PgProviderTokenRepository(pool.clone())) as _);
+        let grpc_port = config.server.grpc_port;
+        let grpc_token_secret = config.sandbox.task_token_secret.clone();
         tokio::spawn(async move {
             let svc = BackendSandboxServiceImpl {
                 events: grpc_events,
-                db: grpc_db,
+                messages: grpc_messages,
+                provider_tokens: grpc_provider_tokens,
                 task_token_secret: grpc_token_secret,
             };
             let addr = std::net::SocketAddr::from(([0, 0, 0, 0], grpc_port));
@@ -270,12 +293,12 @@ fn build_channel_providers(config: &Config) -> Option<channel::provider::Channel
     let mut has_any = false;
 
     if let (Some(ref token), Some(ref secret)) =
-        (&config.slack_bot_token, &config.slack_signing_secret)
+        (&config.slack.bot_token, &config.slack.signing_secret)
     {
         let slack = channel::slack::provider::SlackProvider::new(
             token,
             secret,
-            config.slack_bot_user_id.clone(),
+            config.slack.bot_user_id.clone(),
         );
         providers.register(Arc::new(slack));
         has_any = true;
@@ -310,7 +333,7 @@ async fn start_api_server(
     config: &Config,
     k8s: K8sClient,
     db_pool: Option<db::DbPool>,
-    event_publisher: Option<RedisEventPublisher>,
+    event_publisher: Option<Arc<dyn EventPublisher>>,
     sse_state: SseState,
     s3_client: Option<aws_sdk_s3::Client>,
     cancel: CancellationToken,
@@ -318,17 +341,31 @@ async fn start_api_server(
     use sandbox::k8s::provider::K8sSandboxProvider;
     use sandbox::routes::{api_router, SandboxApiState};
 
+    // Build optional repository trait objects for sandbox infrastructure
+    let sandbox_tasks: Option<Arc<dyn task::dao::TaskRepository>> =
+        db_pool.as_ref().map(|pool| Arc::new(PgTaskRepository(pool.clone())) as _);
+    let sandbox_repos: Option<Arc<dyn repository::dao::RepoRepository>> =
+        db_pool.as_ref().map(|pool| Arc::new(PgRepoRepository(pool.clone())) as _);
+    let sandbox_users: Option<Arc<dyn auth::users::UserRepository>> =
+        db_pool.as_ref().map(|pool| Arc::new(PgUserRepository(pool.clone())) as _);
+    let sandbox_provider_tokens: Option<Arc<dyn auth::provider_token_dao::ProviderTokenRepository>> =
+        db_pool.as_ref().map(|pool| Arc::new(PgProviderTokenRepository(pool.clone())) as _);
+
     let status_resolver = StatusResolver::new(
         k8s.clone(),
         Arc::new(config.clone()),
-        db_pool.clone(),
+        sandbox_tasks.clone(),
+        sandbox_repos.clone(),
     );
 
     let provider = K8sSandboxProvider {
         config: Arc::new(config.clone()),
         k8s: k8s.clone(),
         status_resolver,
-        db_pool: db_pool.clone(),
+        users: sandbox_users,
+        tasks: sandbox_tasks.clone(),
+        repos: sandbox_repos.clone(),
+        provider_tokens: sandbox_provider_tokens,
         event_publisher: event_publisher.clone(),
     };
 
@@ -342,7 +379,6 @@ async fn start_api_server(
         sandbox::k8s::pod_watcher::spawn_pod_lifecycle_watcher(
             k8s,
             publisher.clone(),
-            db_pool.clone(),
             cancel.clone(),
         );
         info!("Pod lifecycle watcher spawned");
@@ -360,19 +396,23 @@ async fn start_api_server(
     // Add auth routes if database is available
     if let Some(ref pool) = db_pool {
         let oauth_providers = build_oauth_providers(config);
-        let auth_cache = AuthCache::new(config.auth_cache_ttl_secs);
+        let auth_cache = AuthCache::new(config.auth.cache_ttl_secs);
         let auth_state = AuthState {
             db: pool.clone(),
             config: Arc::new(config.clone()),
             providers: Arc::new(oauth_providers),
             cache: auth_cache,
+            sessions: Arc::new(PgSessionRepository(pool.clone())),
+            api_keys: Arc::new(PgApiKeyRepository(pool.clone())),
+            users: Arc::new(PgUserRepository(pool.clone())),
+            provider_tokens: Arc::new(PgProviderTokenAuthRepository(pool.clone())),
         };
         let (auth_router, auth_api) = auth::routes::auth_router(auth_state);
         router = router.merge(auth_router);
         merged_api.merge(auth_api);
         info!(
-            auth_provider = ?config.auth_provider,
-            auth_cache_ttl_secs = config.auth_cache_ttl_secs,
+            auth_provider = ?config.auth.provider,
+            auth_cache_ttl_secs = config.auth.cache_ttl_secs,
             "Auth routes registered"
         );
     } else {
@@ -385,12 +425,24 @@ async fn start_api_server(
         let channel_providers = build_channel_providers(config);
 
         let app_state = AppState {
-            db: pool,
+            db: pool.clone(),
             config: Arc::new(config.clone()),
             sandbox: sandbox_provider,
             events: event_publisher,
             s3: s3_client,
             channel_providers: channel_providers.map(Arc::new),
+            // Repository trait objects
+            tasks: Arc::new(PgTaskRepository(pool.clone())),
+            messages: Arc::new(PgMessageRepository(pool.clone())),
+            repositories: Arc::new(PgRepoRepository(pool.clone())),
+            commands: Arc::new(PgCommandRepository(pool.clone())),
+            tags: Arc::new(PgTagRepository(pool.clone())),
+            files: Arc::new(PgFileRepository(pool.clone())),
+            figma_imports: Arc::new(PgFigmaRepository(pool.clone())),
+            channel_configs: Arc::new(PgChannelConfigRepository(pool.clone())),
+            channel_threads: Arc::new(PgChannelThreadRepository(pool.clone())),
+            users: Arc::new(PgUserRepository(pool.clone())),
+            provider_tokens: Arc::new(PgProviderTokenRepository(pool)),
         };
 
         let modules = vec![
@@ -412,7 +464,7 @@ async fn start_api_server(
         info!("Task/message/command/file/figma/repository/tag/provider routes registered");
 
         // Spawn event handler consumer if Redis is available
-        if let Some(ref redis_url) = config.redis_url {
+        if let Some(ref redis_url) = config.redis.url {
             match redis::Client::open(redis_url.as_str()) {
                 Ok(client) => match redis::aio::ConnectionManager::new(client).await {
                     Ok(conn) => {
@@ -436,17 +488,18 @@ async fn start_api_server(
         }
 
         // Spawn idle sandbox reaper
-        if app_state.config.sandbox_idle_reaper_enabled {
+        if app_state.config.sandbox.idle_reaper_enabled {
             sandbox::idle_reaper::spawn_idle_reaper(
                 reaper_k8s,
-                app_state.db.clone(),
+                app_state.messages.clone(),
+                app_state.tasks.clone(),
                 Arc::clone(&app_state.sandbox),
                 Arc::clone(&app_state.config),
                 cancel.clone(),
             );
             info!(
-                idle_timeout_minutes = app_state.config.sandbox_idle_timeout_minutes,
-                check_interval_secs = app_state.config.sandbox_idle_check_interval_secs,
+                idle_timeout_minutes = app_state.config.sandbox.idle_timeout_minutes,
+                check_interval_secs = app_state.config.sandbox.idle_check_interval_secs,
                 "Idle sandbox reaper spawned"
             );
         } else {
@@ -473,9 +526,9 @@ async fn start_api_server(
         axum::routing::get(move || async move { Json(openapi_json) }),
     );
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], config.port));
+    let addr = SocketAddr::from(([0, 0, 0, 0], config.server.port));
     let listener = TcpListener::bind(addr).await?;
-    info!(port = config.port, "API server started");
+    info!(port = config.server.port, "API server started");
 
     axum::serve(listener, router).await?;
 

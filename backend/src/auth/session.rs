@@ -5,10 +5,9 @@ use rand::Rng;
 use tracing::{error, info, warn};
 
 use super::models::{OAuthTokens, ProviderUserInfo};
-use super::sessions::{self, Session};
-use super::users::{self, User};
-use super::provider_tokens::{self, ProviderToken};
-use crate::db::DbPool;
+use super::provider_tokens::{ProviderToken, ProviderTokenAuthRepository};
+use super::sessions::{Session, SessionRepository};
+use super::users::{User, UserRepository};
 
 /// Generate a cryptographically secure session ID (64 hex chars).
 fn generate_session_id() -> String {
@@ -21,7 +20,9 @@ fn generate_session_id() -> String {
 /// Upserts the user, creates a session row, and optionally persists the
 /// provider token (for GitHub OAuth → provider_tokens cross-context access).
 pub async fn create_session(
-    pool: &DbPool,
+    users: &dyn UserRepository,
+    sessions: &dyn SessionRepository,
+    provider_tokens: &dyn ProviderTokenAuthRepository,
     provider_id: &str,
     tokens: &OAuthTokens,
     user_info: &ProviderUserInfo,
@@ -32,7 +33,7 @@ pub async fn create_session(
     let expires_at = now + chrono::Duration::seconds(session_max_age_secs as i64);
 
     // Upsert user
-    let existing_user = users::get_user(pool, &user_info.id).await?;
+    let existing_user = users.get_user(&user_info.id).await?;
     let role = existing_user
         .as_ref()
         .map(|u| u.role.clone())
@@ -52,7 +53,7 @@ pub async fn create_session(
             .unwrap_or(now),
         last_login_at: now,
     };
-    users::upsert_user(pool, &user_row).await?;
+    users.upsert_user(&user_row).await?;
 
     let action = if existing_user.is_some() {
         "Updated"
@@ -86,7 +87,7 @@ pub async fn create_session(
         created_at: now,
         expires_at,
     };
-    sessions::insert_session(pool, &session).await?;
+    sessions.insert_session(&session).await?;
 
     // For GitHub OAuth, also persist to provider_tokens for cross-context access
     if provider_id == "github" && !tokens.access_token.is_empty() {
@@ -103,7 +104,7 @@ pub async fn create_session(
             connected_at: now,
             expires_at: None,
         };
-        if let Err(e) = provider_tokens::upsert_provider_token(pool, &pt).await {
+        if let Err(e) = provider_tokens.upsert_provider_token(&pt).await {
             warn!(
                 error = %e,
                 user_id = %user_info.id,
@@ -133,7 +134,7 @@ pub async fn create_session(
 /// Unlike `create_session`, this doesn't require OAuth tokens — it creates
 /// a session with `provider = "api-key"` and no token fields.
 pub async fn create_session_from_user(
-    pool: &DbPool,
+    sessions: &dyn SessionRepository,
     user: &User,
     group_id: Option<&str>,
     session_max_age_secs: u64,
@@ -159,7 +160,7 @@ pub async fn create_session_from_user(
         created_at: now,
         expires_at,
     };
-    sessions::insert_session(pool, &session).await?;
+    sessions.insert_session(&session).await?;
 
     info!(
         user_login = %user.login,
@@ -172,10 +173,10 @@ pub async fn create_session_from_user(
 
 /// Validate a session by ID. Returns None if expired or not found.
 pub async fn validate_session(
-    pool: &DbPool,
+    sessions: &dyn SessionRepository,
     session_id: &str,
 ) -> Result<Option<Session>, crate::auth::error::AuthError> {
-    let session = sessions::get_session(pool, session_id).await?;
+    let session = sessions.get_session(session_id).await?;
 
     let Some(session) = session else {
         return Ok(None);
@@ -185,7 +186,7 @@ pub async fn validate_session(
     let now = Utc::now();
     if now > session.expires_at {
         info!(session_id = %session_id, "Session expired");
-        if let Err(e) = sessions::delete_session(pool, session_id).await {
+        if let Err(e) = sessions.delete_session(session_id).await {
             error!(error = %e, "Failed to delete expired session");
         }
         return Ok(None);
@@ -200,7 +201,7 @@ pub async fn validate_session(
 /// 2. Miss → call `validate_session()` → build `VerifyPayload` → insert cache → return
 /// 3. If cached entry is expired → invalidate + fire-and-forget DB delete
 pub async fn validate_session_cached(
-    pool: &DbPool,
+    sessions: &dyn SessionRepository,
     session_id: &str,
     cache: &crate::auth::cache::AuthCache,
 ) -> Result<Option<crate::auth::cache::VerifyPayload>, crate::auth::error::AuthError> {
@@ -208,22 +209,18 @@ pub async fn validate_session_cached(
     if let Some(cached) = cache.get_session(session_id).await {
         let now = Utc::now();
         if now > cached.expires_at {
-            // Cached entry is expired — evict and fire-and-forget DB cleanup
+            // Cached entry is expired — evict and delete from DB
             cache.invalidate_session(session_id).await;
-            let pool_clone = pool.clone();
-            let sid = session_id.to_string();
-            tokio::spawn(async move {
-                if let Err(e) = sessions::delete_session(&pool_clone, &sid).await {
-                    error!(error = %e, "Failed to delete expired session (from cache)");
-                }
-            });
+            if let Err(e) = sessions.delete_session(session_id).await {
+                error!(error = %e, "Failed to delete expired session (from cache)");
+            }
             return Ok(None);
         }
         return Ok(Some(cached));
     }
 
     // Cache miss — go to DB
-    let session = validate_session(pool, session_id).await?;
+    let session = validate_session(sessions, session_id).await?;
     let Some(session) = session else {
         return Ok(None);
     };
@@ -243,10 +240,10 @@ pub async fn validate_session_cached(
 
 /// Delete a session by ID.
 pub async fn delete_session_by_id(
-    pool: &DbPool,
+    sessions: &dyn SessionRepository,
     session_id: &str,
 ) -> Result<(), crate::auth::error::AuthError> {
-    sessions::delete_session(pool, session_id).await?;
+    sessions.delete_session(session_id).await?;
     info!(session_id = %session_id, "Deleted session");
     Ok(())
 }

@@ -3,8 +3,6 @@
 use moatless_events::{AgentSubType, TaskTurnSubType};
 use tracing::{debug, warn};
 
-use super::config_dao as channel_config_dao;
-use super::thread_dao as channel_thread_dao;
 use crate::event_handler::models::{AgentEvent, EventKey};
 use crate::state::AppState;
 
@@ -21,7 +19,7 @@ pub async fn handle_channel_notification(
     event: &AgentEvent,
 ) {
     // Find threads for this task
-    let threads = match channel_thread_dao::find_by_task_id(&state.db, &event.task_id).await {
+    let threads = match state.channel_threads.find_by_task_id(&event.task_id).await {
         Ok(t) => t,
         Err(e) => {
             debug!(task_id = %event.task_id, error = %e, "Failed to look up channel threads");
@@ -37,7 +35,7 @@ pub async fn handle_channel_notification(
 
     for thread in &threads {
         // Load config for this thread
-        let config = match channel_config_dao::find_by_id(&state.db, &thread.config_id).await {
+        let config = match state.channel_configs.find_by_id(&thread.config_id).await {
             Ok(Some(c)) => c,
             _ => continue,
         };
@@ -115,7 +113,7 @@ pub async fn handle_channel_notification(
 
 /// Build the task URL for linking in channel replies.
 fn build_task_url(state: &AppState, task_id: &str) -> String {
-    format!("{}/tasks/{}", state.config.frontend_url, task_id)
+    format!("{}/tasks/{}", state.config.auth.frontend_url, task_id)
 }
 
 /// Truncate text for Slack messages (max ~4000 chars, but we use a safe limit).

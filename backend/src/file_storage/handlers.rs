@@ -7,7 +7,6 @@ use axum::response::Response;
 use axum::Json;
 use axum_extra::extract::Multipart;
 
-use super::dao as file_meta_dao;
 use super::models::FileMetadata;
 use crate::extractors::AuthUser;
 use crate::state::AppState;
@@ -40,7 +39,7 @@ pub async fn upload_file(
 
     let bucket = state
         .config
-        .s3_bucket_name
+        .s3.bucket_name
         .as_ref()
         .ok_or(FileStorageError::S3NotConfigured)?;
 
@@ -74,7 +73,7 @@ pub async fn upload_file(
         file_data.ok_or_else(|| FileStorageError::BadRequest("No file field found".to_string()))?;
 
     let file_id = uuid::Uuid::new_v4().to_string();
-    let s3_key = format!("{}/{}", state.config.s3_key_prefix, file_id);
+    let s3_key = format!("{}/{}", state.config.s3.key_prefix, file_id);
 
     // Upload to S3
     s3::put_object(s3_client, bucket, &s3_key, data.clone(), &content_type)
@@ -90,7 +89,7 @@ pub async fn upload_file(
         uploaded_at: chrono::Utc::now(),
     };
 
-    file_meta_dao::insert_metadata(&state.db, &meta).await?;
+    state.files.insert_metadata(&meta).await?;
 
     Ok(Json(UploadResponse {
         file_id,
@@ -125,15 +124,15 @@ pub async fn download_file(
 
     let bucket = state
         .config
-        .s3_bucket_name
+        .s3.bucket_name
         .as_ref()
         .ok_or(FileStorageError::S3NotConfigured)?;
 
-    let meta = file_meta_dao::find_by_id(&state.db, &file_id)
+    let meta = state.files.find_by_id(&file_id)
         .await?
         .ok_or_else(|| FileStorageError::NotFound(file_id.clone()))?;
 
-    let s3_key = format!("{}/{}", state.config.s3_key_prefix, file_id);
+    let s3_key = format!("{}/{}", state.config.s3.key_prefix, file_id);
     let (data, content_type) = s3::get_object(s3_client, bucket, &s3_key)
         .await
         .map_err(FileStorageError::UploadFailed)?;

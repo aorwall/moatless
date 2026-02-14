@@ -26,5 +26,5 @@ pub fn file_storage_router(state: AppState) -> (axum::Router, utoipa::openapi::O
         .with_state(state)
         .split_for_parts();
 
-    (router.into(), api)
+    (router, api)
 }

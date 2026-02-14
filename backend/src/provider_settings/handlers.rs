@@ -3,7 +3,6 @@
 use axum::extract::State;
 use axum::Json;
 
-use crate::auth::provider_token_dao;
 use crate::extractors::AuthUser;
 use crate::state::AppState;
 
@@ -25,7 +24,7 @@ pub async fn get_github_config(
     State(state): State<AppState>,
     auth: AuthUser,
 ) -> Result<Json<GitHubConfigResponse>, ProviderSettingsError> {
-    let token = provider_token_dao::find_provider_token_full(&state.db, &auth.user_id, "github")
+    let token = state.provider_tokens.find_provider_token_full(&auth.user_id, "github")
         .await?;
 
     match token {
@@ -74,8 +73,7 @@ pub async fn save_github_pat(
 
     let metadata = serde_json::json!({ "login": login });
 
-    provider_token_dao::upsert_token(
-        &state.db,
+    state.provider_tokens.upsert_token(
         &auth.user_id,
         "github",
         &req.token,
@@ -108,7 +106,7 @@ pub async fn get_github_oauth_url(
 ) -> Result<Json<OAuthUrlResponse>, ProviderSettingsError> {
     let client_id = state
         .config
-        .github_client_id
+        .auth.github_client_id
         .as_deref()
         .ok_or_else(|| {
             ProviderSettingsError::BadRequest(
@@ -116,14 +114,14 @@ pub async fn get_github_oauth_url(
             )
         })?;
 
-    let default_callback = format!("{}/settings/github/callback", state.config.frontend_url);
+    let default_callback = format!("{}/settings/github/callback", state.config.auth.frontend_url);
     let callback_url = state
         .config
-        .github_callback_url
+        .auth.github_callback_url
         .as_deref()
         .unwrap_or(&default_callback);
 
-    let scope = &state.config.github_oauth_scope;
+    let scope = &state.config.auth.github_oauth_scope;
     let state_param = uuid::Uuid::new_v4().to_string();
 
     let url = format!(
@@ -155,7 +153,7 @@ pub async fn exchange_github_token(
 ) -> Result<Json<ExchangeTokenResponse>, ProviderSettingsError> {
     let client_id = state
         .config
-        .github_client_id
+        .auth.github_client_id
         .as_deref()
         .ok_or_else(|| {
             ProviderSettingsError::BadRequest("GitHub OAuth not configured".to_string())
@@ -163,7 +161,7 @@ pub async fn exchange_github_token(
 
     let client_secret = state
         .config
-        .github_client_secret
+        .auth.github_client_secret
         .as_deref()
         .ok_or_else(|| {
             ProviderSettingsError::BadRequest("GitHub OAuth not configured".to_string())
@@ -181,8 +179,7 @@ pub async fn exchange_github_token(
 
     let metadata = serde_json::json!({ "login": login });
 
-    provider_token_dao::upsert_token(
-        &state.db,
+    state.provider_tokens.upsert_token(
         &auth.user_id,
         "github",
         &access_token,
@@ -212,7 +209,7 @@ pub async fn delete_github_config(
     State(state): State<AppState>,
     auth: AuthUser,
 ) -> Result<Json<GitHubConfigResponse>, ProviderSettingsError> {
-    provider_token_dao::delete_token(&state.db, &auth.user_id, "github").await?;
+    state.provider_tokens.delete_token(&auth.user_id, "github").await?;
 
     Ok(Json(GitHubConfigResponse {
         connected: false,

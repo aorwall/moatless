@@ -3,9 +3,6 @@
 use axum::extract::{Path, State};
 use axum::Json;
 
-use crate::command::dao as command_dao;
-use super::dao as message_dao;
-use crate::task::dao as task_dao;
 use crate::extractors::AuthUser;
 use crate::state::AppState;
 
@@ -37,7 +34,7 @@ pub async fn send_message(
     Json(req): Json<SendMessageRequest>,
 ) -> Result<Json<SendMessageResponse>, MessageError> {
     // Verify task exists and user has access
-    let _task = task_dao::find_by_id(&state.db, &task_id, &auth.user_id)
+    let _task = state.tasks.find_by_id(&task_id, &auth.user_id)
         .await?
         .ok_or_else(|| MessageError::NotFound(task_id.clone()))?;
 
@@ -53,7 +50,7 @@ pub async fn send_message(
         .await?;
     } else if let Some(ref command_name) = req.command_name {
         // Named command — look up prompt and agent_mode from DB
-        let command = command_dao::find_by_name(&state.db, command_name)
+        let command = state.commands.find_by_name(command_name)
             .await?
             .ok_or_else(|| MessageError::CommandNotFound(command_name.clone()))?;
 
@@ -113,7 +110,7 @@ pub async fn get_messages(
     _auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<Json<GetMessagesResponse>, MessageError> {
-    let (messages, contexts, blocks) = message_dao::get_all(&state.db, &task_id).await?;
+    let (messages, contexts, blocks) = state.messages.get_all(&task_id).await?;
     let ui_messages: Vec<UiMessage> = transform::transform_to_ui(&messages, &contexts, &blocks)
         .into_iter()
         .filter(|m| {
@@ -149,8 +146,8 @@ pub async fn get_pending_messages(
     _auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<Json<GetPendingMessagesResponse>, MessageError> {
-    let pending = message_dao::get_pending_user(&state.db, &task_id).await?;
-    let last_result = message_dao::get_last_result(&state.db, &task_id).await?;
+    let pending = state.messages.get_pending_user(&task_id).await?;
+    let last_result = state.messages.get_last_result(&task_id).await?;
 
     let mut messages: Vec<serde_json::Value> = pending
         .iter()
@@ -202,7 +199,7 @@ pub async fn delete_queued_message(
     _auth: AuthUser,
     Path((task_id, message_id)): Path<(String, String)>,
 ) -> Result<Json<DeleteMessageResponse>, MessageError> {
-    let deleted = message_dao::delete_queued(&state.db, &task_id, &message_id).await?;
+    let deleted = state.messages.delete_queued(&task_id, &message_id).await?;
     if !deleted {
         return Err(MessageError::NotFound(message_id));
     }

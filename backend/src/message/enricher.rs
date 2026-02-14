@@ -3,9 +3,8 @@
 use serde_json::Value;
 
 use crate::config::Config;
-use crate::db::DbPool;
-use crate::figma::dao as figma_import_dao;
-use crate::file_storage::dao as file_meta_dao;
+use crate::figma::dao::FigmaRepository;
+use crate::file_storage::dao::FileRepository;
 use crate::task::schemas::MessageContextInput;
 
 /// Content block for agent request.
@@ -25,7 +24,8 @@ pub struct ContentBlock {
 /// The primary text block has `show_in_ui = true`; all context and file
 /// blocks have `show_in_ui = false` (they appear only in the agent request).
 pub async fn build_content_blocks(
-    db: &DbPool,
+    figma_imports: &dyn FigmaRepository,
+    files: &dyn FileRepository,
     _config: &Config,
     text: &str,
     contexts: &[MessageContextInput],
@@ -44,7 +44,7 @@ pub async fn build_content_blocks(
     for ctx in contexts {
         match ctx.context_type.as_str() {
             "figma" => {
-                if let Some(block) = build_figma_context_block(db, &ctx.reference_id).await {
+                if let Some(block) = build_figma_context_block(figma_imports, &ctx.reference_id).await {
                     blocks.push(block);
                 }
             }
@@ -80,7 +80,7 @@ pub async fn build_content_blocks(
 
     // File attachment blocks (hidden from UI)
     for file_id in file_ids {
-        if let Some(block) = build_file_attachment_block(db, file_id).await {
+        if let Some(block) = build_file_attachment_block(files, file_id).await {
             blocks.push(block);
         }
     }
@@ -89,8 +89,8 @@ pub async fn build_content_blocks(
 }
 
 /// Build a content block from a Figma import reference.
-async fn build_figma_context_block(db: &DbPool, import_id: &str) -> Option<ContentBlock> {
-    let row = match figma_import_dao::find_by_id(db, import_id).await {
+async fn build_figma_context_block(figma_imports: &dyn FigmaRepository, import_id: &str) -> Option<ContentBlock> {
+    let row = match figma_imports.find_by_id(import_id).await {
         Ok(Some(row)) => row,
         Ok(None) => {
             tracing::warn!(import_id, "Figma import not found for context block");
@@ -131,8 +131,8 @@ async fn build_figma_context_block(db: &DbPool, import_id: &str) -> Option<Conte
 }
 
 /// Build a content block from a file attachment reference.
-async fn build_file_attachment_block(db: &DbPool, file_id: &str) -> Option<ContentBlock> {
-    let row = match file_meta_dao::find_by_id(db, file_id).await {
+async fn build_file_attachment_block(files: &dyn FileRepository, file_id: &str) -> Option<ContentBlock> {
+    let row = match files.find_by_id(file_id).await {
         Ok(Some(row)) => row,
         Ok(None) => {
             tracing::warn!(file_id, "File metadata not found for attachment block");

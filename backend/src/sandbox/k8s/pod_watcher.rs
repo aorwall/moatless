@@ -14,6 +14,7 @@
 //! before publishing `pod_deleted` / setting `NotCreated`.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use futures::TryStreamExt;
 use k8s_openapi::api::core::v1::Pod;
@@ -30,8 +31,7 @@ use super::client::K8sClient;
 use super::deployment;
 use super::leader_election::LeaderElection;
 use super::pod_status::extract_container_observed_statuses;
-use crate::db::DbPool;
-use crate::events::RedisEventPublisher;
+use crate::events::EventPublisher;
 use crate::sandbox::models::EnvironmentStatus;
 
 /// Observed state of a server container, used for transition detection.
@@ -71,8 +71,7 @@ struct PodObservedState {
 /// 4. On watch stream error, re-enter the leadership loop.
 pub fn spawn_pod_lifecycle_watcher(
     k8s: K8sClient,
-    event_publisher: RedisEventPublisher,
-    db_pool: Option<DbPool>,
+    event_publisher: Arc<dyn EventPublisher>,
     cancel: CancellationToken,
 ) -> JoinHandle<()> {
     let identity = std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".to_string());
@@ -92,8 +91,7 @@ pub fn spawn_pod_lifecycle_watcher(
                     info!(identity = %identity, "Leader acquired, starting pod watch");
                     run_pod_watch(
                         &k8s,
-                        &event_publisher,
-                        &db_pool,
+                        event_publisher.as_ref(),
                         &leader_election,
                         &cancel,
                     )
@@ -124,8 +122,7 @@ pub fn spawn_pod_lifecycle_watcher(
 /// Run the pod watch stream until it ends or leadership is lost.
 async fn run_pod_watch(
     k8s: &K8sClient,
-    event_publisher: &RedisEventPublisher,
-    db_pool: &Option<DbPool>,
+    event_publisher: &dyn EventPublisher,
     leader_election: &LeaderElection,
     cancel: &CancellationToken,
 ) {
@@ -165,7 +162,6 @@ async fn run_pod_watch(
                             &watcher_event,
                             &mut pod_states,
                             event_publisher,
-                            db_pool,
                         ).await;
                     }
                     Ok(None) => {
@@ -199,8 +195,7 @@ async fn process_watcher_event(
     k8s: &K8sClient,
     event: &watcher::Event<Pod>,
     pod_states: &mut HashMap<String, PodObservedState>,
-    event_publisher: &RedisEventPublisher,
-    _db_pool: &Option<DbPool>,
+    event_publisher: &dyn EventPublisher,
 ) {
     match event {
         watcher::Event::Apply(pod) | watcher::Event::InitApply(pod) => {

@@ -3,7 +3,6 @@
 use axum::extract::{Path, State};
 use axum::Json;
 
-use super::dao as command_dao;
 use super::models::Command;
 use crate::extractors::AuthUser;
 use crate::state::AppState;
@@ -29,7 +28,7 @@ pub async fn create_command(
     Json(req): Json<CreateCommandRequest>,
 ) -> Result<Json<CommandResponse>, CommandError> {
     // Check if command already exists
-    if command_dao::find_by_name(&state.db, &req.name).await?.is_some() {
+    if state.commands.find_by_name(&req.name).await?.is_some() {
         return Err(CommandError::AlreadyExists(req.name));
     }
 
@@ -45,7 +44,7 @@ pub async fn create_command(
         agent_mode: req.agent_mode,
     };
 
-    command_dao::insert(&state.db, &row).await?;
+    state.commands.insert(&row).await?;
     Ok(Json(CommandResponse::from(row)))
 }
 
@@ -63,7 +62,7 @@ pub async fn list_commands(
     _auth: AuthUser,
 ) -> Result<Json<Vec<CommandResponse>>, CommandError> {
     ensure_defaults(&state).await?;
-    let rows = command_dao::list_all(&state.db).await?;
+    let rows = state.commands.list_all().await?;
     let commands: Vec<CommandResponse> = rows.into_iter().map(CommandResponse::from).collect();
     Ok(Json(commands))
 }
@@ -86,7 +85,7 @@ pub async fn get_command(
     _auth: AuthUser,
     Path(name): Path<String>,
 ) -> Result<Json<CommandResponse>, CommandError> {
-    let row = command_dao::find_by_name(&state.db, &name)
+    let row = state.commands.find_by_name(&name)
         .await?
         .ok_or_else(|| CommandError::NotFound(name))?;
 
@@ -113,8 +112,7 @@ pub async fn update_command(
     Path(name): Path<String>,
     Json(req): Json<UpdateCommandRequest>,
 ) -> Result<Json<CommandResponse>, CommandError> {
-    let updated = command_dao::update_by_name(
-        &state.db,
+    let updated = state.commands.update_by_name(
         &name,
         req.description.as_deref(),
         req.prompt.as_deref(),
@@ -131,7 +129,7 @@ pub async fn update_command(
         return Err(CommandError::NotFound(name));
     }
 
-    let row = command_dao::find_by_name(&state.db, &name)
+    let row = state.commands.find_by_name(&name)
         .await?
         .ok_or_else(|| CommandError::NotFound(name))?;
 
@@ -156,7 +154,7 @@ pub async fn delete_command(
     _auth: AuthUser,
     Path(name): Path<String>,
 ) -> Result<axum::http::StatusCode, CommandError> {
-    let deleted = command_dao::delete_by_name(&state.db, &name).await?;
+    let deleted = state.commands.delete_by_name(&name).await?;
     if !deleted {
         return Err(CommandError::NotFound(name));
     }
@@ -181,7 +179,7 @@ pub async fn get_available_commands(
     Path(_task_id): Path<String>,
 ) -> Result<Json<Vec<CommandResponse>>, CommandError> {
     ensure_defaults(&state).await?;
-    let rows = command_dao::list_all(&state.db).await?;
+    let rows = state.commands.list_all().await?;
     let commands: Vec<CommandResponse> = rows
         .into_iter()
         .filter(|r| r.active.unwrap_or(true))
@@ -192,9 +190,9 @@ pub async fn get_available_commands(
 
 /// Seed default commands if table is empty.
 async fn ensure_defaults(state: &AppState) -> Result<(), CommandError> {
-    let count = command_dao::count(&state.db).await?;
+    let count = state.commands.count().await?;
     if count == 0 {
-        command_dao::insert_batch(&state.db, &default_commands()).await?;
+        state.commands.insert_batch(&default_commands()).await?;
     }
     Ok(())
 }

@@ -14,6 +14,10 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::config::{AuthProvider, Config};
 use super::sessions::Session;
+use super::sessions::SessionRepository;
+use super::api_keys::ApiKeyRepository;
+use super::users::UserRepository;
+use super::provider_tokens::ProviderTokenAuthRepository;
 use crate::db::DbPool;
 use crate::sandbox::schemas::ErrorBody;
 
@@ -53,6 +57,10 @@ pub struct AuthState {
     pub config: Arc<Config>,
     pub providers: Arc<OAuthProviders>,
     pub cache: AuthCache,
+    pub sessions: Arc<dyn SessionRepository>,
+    pub api_keys: Arc<dyn ApiKeyRepository>,
+    pub users: Arc<dyn UserRepository>,
+    pub provider_tokens: Arc<dyn ProviderTokenAuthRepository>,
 }
 
 #[derive(OpenApi)]
@@ -114,9 +122,9 @@ async fn authenticate_from_cookie(
     state: &AuthState,
     headers: &HeaderMap,
 ) -> Result<Session, AuthError> {
-    let session_id = cookie::get_cookie_value(headers, &state.config.session_cookie_name)
+    let session_id = cookie::get_cookie_value(headers, &state.config.auth.session_cookie_name)
         .ok_or(AuthError::Unauthorized)?;
-    session::validate_session(&state.db, &session_id)
+    session::validate_session(state.sessions.as_ref(), &session_id)
         .await?
         .ok_or(AuthError::SessionExpired)
 }
@@ -140,7 +148,7 @@ async fn verify_handler(
     headers: HeaderMap,
 ) -> Result<Response, AuthError> {
     // Dev mode: auth disabled
-    if state.config.auth_provider.is_none() {
+    if state.config.auth.provider.is_none() {
         return Ok((StatusCode::OK, "OK").into_response());
     }
 
@@ -148,7 +156,7 @@ async fn verify_handler(
     if let Some(auth_header) = headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()) {
         if auth_header.starts_with("Bearer mvk_") {
             let key = &auth_header[7..]; // strip "Bearer "
-            match api_key::validate_key_cached(&state.db, key, &state.cache).await? {
+            match api_key::validate_key_cached(state.api_keys.clone(), state.users.as_ref(), key, &state.cache).await? {
                 Some(payload) => {
                     debug!(user_id = %payload.user_id, "Auth verify: API key valid");
                     return Ok(verify_success_response(&payload.user_id, &payload.user_login, &payload.role, &payload.provider, payload.group_id.as_deref()));
@@ -162,14 +170,14 @@ async fn verify_handler(
     }
 
     // Try session cookies — there may be duplicates when COOKIE_DOMAIN changed
-    let session_ids = cookie::get_all_cookie_values(&headers, &state.config.session_cookie_name);
+    let session_ids = cookie::get_all_cookie_values(&headers, &state.config.auth.session_cookie_name);
     if session_ids.is_empty() {
         warn!("Auth verify: no session cookie found");
         return Err(AuthError::Unauthorized);
     }
 
     for session_id in &session_ids {
-        match session::validate_session_cached(&state.db, session_id, &state.cache).await {
+        match session::validate_session_cached(state.sessions.as_ref(), session_id, &state.cache).await {
             Ok(Some(payload)) => {
                 if session_ids.len() > 1 {
                     warn!(
@@ -254,19 +262,19 @@ async fn me_handler(
     headers: HeaderMap,
 ) -> Result<Json<SessionResponse>, AuthError> {
     // Dev mode
-    if state.config.auth_provider.is_none() {
+    if state.config.auth.provider.is_none() {
         return Ok(Json(SessionResponse {
             user: None,
             expires_at: None,
         }));
     }
 
-    let session_id = cookie::get_cookie_value(&headers, &state.config.session_cookie_name);
+    let session_id = cookie::get_cookie_value(&headers, &state.config.auth.session_cookie_name);
     let Some(session_id) = session_id else {
         return Err(AuthError::Unauthorized);
     };
 
-    let session = session::validate_session(&state.db, &session_id).await?;
+    let session = session::validate_session(state.sessions.as_ref(), &session_id).await?;
     let Some(session) = session else {
         return Err(AuthError::SessionExpired);
     };
@@ -294,8 +302,8 @@ fn session_to_response(session: &Session) -> SessionResponse {
 // ============================================================================
 
 async fn login_handler(State(state): State<AuthState>) -> Result<Response, AuthError> {
-    match state.config.auth_provider {
-        None => Ok(Redirect::to(&state.config.frontend_url).into_response()),
+    match state.config.auth.provider {
+        None => Ok(Redirect::to(&state.config.auth.frontend_url).into_response()),
         Some(AuthProvider::GitHub) => Ok(Redirect::to("/api/v1/auth/github").into_response()),
         Some(AuthProvider::Auth0) => Ok(Redirect::to("/api/v1/auth/auth0").into_response()),
     }
@@ -367,18 +375,20 @@ async fn handle_oauth_callback(
     // Create session
     let provider_str = provider_id.to_string();
     let session_id = session::create_session(
-        &state.db,
+        state.users.as_ref(),
+        state.sessions.as_ref(),
+        state.provider_tokens.as_ref(),
         &provider_str,
         &tokens,
         &user_info,
         group_id.as_deref(),
-        state.config.session_max_age_secs,
+        state.config.auth.session_max_age_secs,
     )
     .await?;
 
     // Build response: set session cookie, clear state cookie, redirect to frontend
     let session_cookie =
-        cookie::build_session_cookie(&state.config, &session_id, state.config.session_max_age_secs);
+        cookie::build_session_cookie(&state.config, &session_id, state.config.auth.session_max_age_secs);
     let clear_state_cookie = cookie::build_clear_oauth_state_cookie(&state.config);
 
     let mut resp_headers = HeaderMap::new();
@@ -392,7 +402,7 @@ async fn handle_oauth_callback(
     Ok((
         StatusCode::FOUND,
         resp_headers,
-        [("Location", state.config.frontend_url.as_str())],
+        [("Location", state.config.auth.frontend_url.as_str())],
     )
         .into_response())
 }
@@ -435,23 +445,23 @@ async fn auth0_callback_handler(
 
 async fn do_logout(state: &AuthState, headers: &HeaderMap) -> Result<Response, AuthError> {
     // Dev mode
-    if state.config.auth_provider.is_none() {
+    if state.config.auth.provider.is_none() {
         return Ok(Json(MessageResponse {
             message: "Logged out successfully".to_string(),
         })
         .into_response());
     }
 
-    let session_id = cookie::get_cookie_value(headers, &state.config.session_cookie_name);
+    let session_id = cookie::get_cookie_value(headers, &state.config.auth.session_cookie_name);
 
     // Determine provider before deleting session
     let mut session_provider: Option<AuthProvider> = None;
     if let Some(ref sid) = session_id {
-        if let Ok(Some(session)) = session::validate_session(&state.db, sid).await {
-            session_provider = AuthProvider::from_str_opt(&session.provider);
+        if let Ok(Some(session)) = session::validate_session(state.sessions.as_ref(), sid).await {
+            session_provider = session.provider.parse().ok();
         }
         // Delete session regardless
-        if let Err(e) = session::delete_session_by_id(&state.db, sid).await {
+        if let Err(e) = session::delete_session_by_id(state.sessions.as_ref(), sid).await {
             error!(error = %e, "Failed to delete session during logout");
         }
         // Invalidate cache
@@ -467,7 +477,7 @@ async fn do_logout(state: &AuthState, headers: &HeaderMap) -> Result<Response, A
     // Auth0 requires server-side logout
     if let Some(pid) = session_provider {
         if let Some(provider) = state.providers.get(pid) {
-            if let Some(logout_url) = provider.generate_logout_url(&state.config.frontend_url) {
+            if let Some(logout_url) = provider.generate_logout_url(&state.config.auth.frontend_url) {
                 info!(provider = %pid, "Redirecting to provider logout");
                 return Ok((
                     StatusCode::FOUND,
@@ -540,29 +550,29 @@ async fn exchange_api_key_handler(
     }
 
     let key = &auth_header[7..]; // strip "Bearer "
-    let payload = api_key::validate_key(&state.db, key)
+    let payload = api_key::validate_key(state.api_keys.clone(), state.users.as_ref(), key)
         .await?
         .ok_or(AuthError::InvalidApiKey)?;
 
-    let user = super::users::get_user(&state.db, &payload.user_id)
+    let user = state.users.get_user(&payload.user_id)
         .await?
         .ok_or(AuthError::Unauthorized)?;
 
     let session_id = session::create_session_from_user(
-        &state.db,
+        state.sessions.as_ref(),
         &user,
         payload.group_id.as_deref(),
-        state.config.session_max_age_secs,
+        state.config.auth.session_max_age_secs,
     )
     .await?;
 
     let session_cookie = cookie::build_session_cookie(
         &state.config,
         &session_id,
-        state.config.session_max_age_secs,
+        state.config.auth.session_max_age_secs,
     );
 
-    let session_row = session::validate_session(&state.db, &session_id)
+    let session_row = session::validate_session(state.sessions.as_ref(), &session_id)
         .await?
         .ok_or(AuthError::Unauthorized)?;
 
@@ -603,7 +613,7 @@ async fn create_api_key_handler(
     });
 
     let result = api_key::generate_key(
-        &state.db,
+        state.api_keys.as_ref(),
         &session.user_id,
         &body.name,
         body.scopes,
@@ -641,7 +651,7 @@ async fn list_api_keys_handler(
     headers: HeaderMap,
 ) -> Result<Json<Vec<ApiKeyListItem>>, AuthError> {
     let session = authenticate_from_cookie(&state, &headers).await?;
-    let keys = api_key::list_keys(&state.db, &session.user_id).await?;
+    let keys = api_key::list_keys(state.api_keys.as_ref(), &session.user_id).await?;
 
     let items: Vec<ApiKeyListItem> = keys
         .iter()
@@ -682,7 +692,7 @@ async fn revoke_api_key_handler(
     Path(key_id): Path<String>,
 ) -> Result<Json<MessageResponse>, AuthError> {
     let session = authenticate_from_cookie(&state, &headers).await?;
-    let result = api_key::revoke_key(&state.db, &key_id, &session.user_id).await?;
+    let result = api_key::revoke_key(state.api_keys.as_ref(), &key_id, &session.user_id).await?;
 
     match result {
         Some(key_hash) => {
@@ -714,7 +724,7 @@ async fn revoke_api_key_handler(
 async fn list_users_handler(
     State(state): State<AuthState>,
 ) -> Result<Json<UserListResponse>, AuthError> {
-    let users = super::users::list_users(&state.db).await?;
+    let users = state.users.list_users().await?;
 
     let items: Vec<UserListItem> = users
         .iter()

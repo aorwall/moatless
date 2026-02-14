@@ -37,7 +37,7 @@ pub async fn create_task_pvc(
     config: &Config,
     task_id: &str,
 ) -> Result<String, kube::Error> {
-    if !config.k8s_sandbox_storage_enabled {
+    if !config.sandbox.storage_enabled {
         debug!(task_id, "Sandbox storage disabled, skipping PVC creation");
         return Ok(String::new());
     }
@@ -72,10 +72,10 @@ pub async fn create_task_pvc(
             "accessModes": ["ReadWriteOnce"],
             "resources": {
                 "requests": {
-                    "storage": config.k8s_sandbox_storage_size,
+                    "storage": config.sandbox.storage_size,
                 }
             },
-            "storageClassName": config.k8s_sandbox_storage_class,
+            "storageClassName": config.sandbox.storage_class,
         }
     }))
     .map_err(kube::Error::SerdeError)?;

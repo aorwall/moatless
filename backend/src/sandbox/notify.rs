@@ -9,7 +9,7 @@ use crate::state::AppState;
 /// Derives the K8s service name and namespace from AppState + task_id.
 pub async fn notify_sandbox_for_task(state: &AppState, task_id: &str) {
     let svc_name = generate_service_name(task_id);
-    notify_sandbox(&state.config.sandbox_namespace, &svc_name, state.config.sandbox_grpc_port).await;
+    notify_sandbox(&state.config.sandbox.namespace, &svc_name, state.config.sandbox.grpc_port).await;
 }
 
 /// Notify a sandbox pod that new messages are available.

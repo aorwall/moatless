@@ -6,9 +6,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
 use tracing::{info, warn};
 
-use super::config_dao as channel_config_dao;
 use super::config_dao::ChannelConfigPatch;
-use crate::repository::dao as repository_dao;
 use crate::extractors::AuthUser;
 use crate::state::AppState;
 
@@ -71,7 +69,7 @@ pub async fn slack_webhook(
             .and_then(|v| v.to_str().ok())
             .unwrap_or("");
         super::slack::signature::verify_signature(
-            &slack_provider.signing_secret(),
+            slack_provider.signing_secret(),
             timestamp,
             &body,
             sig,
@@ -95,7 +93,7 @@ pub async fn slack_webhook(
     }
 
     // Look up config
-    let config = channel_config_dao::find_by_provider_source(&state.db, "slack", source_id)
+    let config = state.channel_configs.find_by_provider_source("slack", source_id)
         .await?;
 
     let config = match config {
@@ -162,14 +160,14 @@ pub async fn create_config(
     RoutingMode::parse(&req.routing_mode)?;
 
     // Validate repository exists
-    repository_dao::find_repository_by_id(&state.db, &req.repository_id)
+    state.repositories.find_repository_by_id(&req.repository_id)
         .await?
         .ok_or_else(|| {
             ChannelError::BadRequest(format!("Repository not found: {}", req.repository_id))
         })?;
 
     // Check for existing config with same provider + source_id
-    if channel_config_dao::find_by_provider_source(&state.db, &req.provider, &req.source_id)
+    if state.channel_configs.find_by_provider_source(&req.provider, &req.source_id)
         .await?
         .is_some()
     {
@@ -198,7 +196,7 @@ pub async fn create_config(
         updated_at: now,
     };
 
-    channel_config_dao::insert(&state.db, &row).await?;
+    state.channel_configs.insert(&row).await?;
     info!(config_id = %id, provider = %row.provider, "Channel config created");
 
     Ok(Json(ChannelConfigResponse::from_model(&row)))
@@ -222,8 +220,7 @@ pub async fn list_configs(
     _auth: AuthUser,
     Query(query): Query<ListChannelConfigsQuery>,
 ) -> Result<Json<Vec<ChannelConfigResponse>>, ChannelError> {
-    let rows = channel_config_dao::list(
-        &state.db,
+    let rows = state.channel_configs.list(
         query.provider.as_deref(),
         query.repository_id.as_deref(),
         false, // show all, not just active
@@ -252,7 +249,7 @@ pub async fn get_config(
     _auth: AuthUser,
     Path(id): Path<String>,
 ) -> Result<Json<ChannelConfigResponse>, ChannelError> {
-    let row = channel_config_dao::find_by_id(&state.db, &id)
+    let row = state.channel_configs.find_by_id(&id)
         .await?
         .ok_or_else(|| ChannelError::ConfigNotFound(id))?;
 
@@ -280,7 +277,7 @@ pub async fn update_config(
     Json(req): Json<UpdateChannelConfigRequest>,
 ) -> Result<Json<ChannelConfigResponse>, ChannelError> {
     // Verify exists
-    channel_config_dao::find_by_id(&state.db, &id)
+    state.channel_configs.find_by_id(&id)
         .await?
         .ok_or_else(|| ChannelError::ConfigNotFound(id.clone()))?;
 
@@ -298,9 +295,9 @@ pub async fn update_config(
         ..Default::default()
     };
 
-    channel_config_dao::update(&state.db, &id, &patch).await?;
+    state.channel_configs.update(&id, &patch).await?;
 
-    let row = channel_config_dao::find_by_id(&state.db, &id)
+    let row = state.channel_configs.find_by_id(&id)
         .await?
         .ok_or_else(|| ChannelError::ConfigNotFound(id))?;
 
@@ -325,11 +322,11 @@ pub async fn delete_config(
     _auth: AuthUser,
     Path(id): Path<String>,
 ) -> Result<StatusCode, ChannelError> {
-    channel_config_dao::find_by_id(&state.db, &id)
+    state.channel_configs.find_by_id(&id)
         .await?
         .ok_or_else(|| ChannelError::ConfigNotFound(id.clone()))?;
 
-    channel_config_dao::delete(&state.db, &id).await?;
+    state.channel_configs.delete(&id).await?;
     info!(config_id = %id, "Channel config deleted");
 
     Ok(StatusCode::NO_CONTENT)

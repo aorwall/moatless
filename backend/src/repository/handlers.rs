@@ -6,8 +6,6 @@ use axum::Json;
 
 use tracing::{info, warn};
 
-use crate::auth::provider_token_dao;
-use super::dao as repository_dao;
 use super::dao::RepositoryPatch;
 use super::models::Repository;
 use crate::extractors::AuthUser;
@@ -34,7 +32,7 @@ pub async fn create_repository(
 ) -> Result<(StatusCode, Json<RepositoryResponse>), RepositoryError> {
     // Check for name uniqueness
     if let Some(_existing) =
-        repository_dao::find_by_name_and_user(&state.db, &req.name, &auth.user_id).await?
+        state.repositories.find_by_name_and_user(&req.name, &auth.user_id).await?
     {
         return Err(RepositoryError::Conflict(format!(
             "Repository '{}' already exists",
@@ -72,7 +70,7 @@ pub async fn create_repository(
         updated_at: Some(now),
     };
 
-    repository_dao::insert(&state.db, &row).await?;
+    state.repositories.insert(&row).await?;
 
     let resp: RepositoryResponse = row.into();
     Ok((StatusCode::CREATED, Json(resp)))
@@ -91,7 +89,7 @@ pub async fn list_repositories(
     State(state): State<AppState>,
     auth: AuthUser,
 ) -> Result<Json<Vec<RepositoryResponse>>, RepositoryError> {
-    let rows = repository_dao::list_all(&state.db, &auth.user_id).await?;
+    let rows = state.repositories.list_all(&auth.user_id).await?;
     let repos: Vec<RepositoryResponse> = rows.into_iter().map(Into::into).collect();
     Ok(Json(repos))
 }
@@ -114,7 +112,7 @@ pub async fn get_repository(
     auth: AuthUser,
     Path(repository_id): Path<String>,
 ) -> Result<Json<RepositoryResponse>, RepositoryError> {
-    let row = repository_dao::find_by_id(&state.db, &repository_id, &auth.user_id)
+    let row = state.repositories.find_by_id(&repository_id, &auth.user_id)
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id))?;
 
@@ -142,7 +140,7 @@ pub async fn update_repository(
     Json(req): Json<UpdateRepositoryRequest>,
 ) -> Result<Json<RepositoryResponse>, RepositoryError> {
     // Verify ownership
-    let _existing = repository_dao::find_by_id(&state.db, &repository_id, &auth.user_id)
+    let _existing = state.repositories.find_by_id(&repository_id, &auth.user_id)
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id.clone()))?;
 
@@ -167,10 +165,10 @@ pub async fn update_repository(
         ..Default::default()
     };
 
-    repository_dao::update(&state.db, &repository_id, &patch).await?;
+    state.repositories.update(&repository_id, &patch).await?;
 
     // Re-fetch updated row
-    let updated = repository_dao::find_by_id(&state.db, &repository_id, &auth.user_id)
+    let updated = state.repositories.find_by_id(&repository_id, &auth.user_id)
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id))?;
 
@@ -196,11 +194,11 @@ pub async fn delete_repository(
     Path(repository_id): Path<String>,
 ) -> Result<StatusCode, RepositoryError> {
     // Verify ownership
-    let _existing = repository_dao::find_by_id(&state.db, &repository_id, &auth.user_id)
+    let _existing = state.repositories.find_by_id(&repository_id, &auth.user_id)
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id.clone()))?;
 
-    repository_dao::soft_delete(&state.db, &repository_id).await?;
+    state.repositories.soft_delete(&repository_id).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -224,7 +222,7 @@ pub async fn convert_to_template(
     auth: AuthUser,
     Path(repository_id): Path<String>,
 ) -> Result<Json<RepositoryResponse>, RepositoryError> {
-    let existing = repository_dao::find_by_id(&state.db, &repository_id, &auth.user_id)
+    let existing = state.repositories.find_by_id(&repository_id, &auth.user_id)
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id.clone()))?;
 
@@ -240,9 +238,9 @@ pub async fn convert_to_template(
         ..Default::default()
     };
 
-    repository_dao::update(&state.db, &repository_id, &patch).await?;
+    state.repositories.update(&repository_id, &patch).await?;
 
-    let updated = repository_dao::find_by_id(&state.db, &repository_id, &auth.user_id)
+    let updated = state.repositories.find_by_id(&repository_id, &auth.user_id)
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id))?;
 
@@ -268,7 +266,7 @@ pub async fn get_branches(
     auth: AuthUser,
     Path(repository_id): Path<String>,
 ) -> Result<Json<BranchListResponse>, RepositoryError> {
-    let repo = repository_dao::find_by_id(&state.db, &repository_id, &auth.user_id)
+    let repo = state.repositories.find_by_id(&repository_id, &auth.user_id)
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id.clone()))?;
 
@@ -283,9 +281,9 @@ pub async fn get_branches(
     let provider = repo.provider.as_deref().unwrap_or("github");
 
     // Get user's provider token
-    let token = provider_token_dao::find_provider_token(&state.db, &auth.user_id, provider)
+    let token = state.provider_tokens.find_provider_token(&auth.user_id, provider)
         .await
-        .map_err(|e| RepositoryError::Db(e))?
+        .map_err(RepositoryError::Db)?
         .ok_or_else(|| {
             RepositoryError::BadRequest(format!(
                 "No {provider} token configured. Please connect your {provider} account."
@@ -314,7 +312,7 @@ pub async fn get_branches(
                 default_branch: Some(Some(branch.clone())),
                 ..Default::default()
             };
-            let _ = repository_dao::update(&state.db, &repository_id, &patch).await;
+            let _ = state.repositories.update(&repository_id, &patch).await;
         }
     }
 
