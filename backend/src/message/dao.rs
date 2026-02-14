@@ -348,3 +348,45 @@ impl MessageRepository for PgMessageRepository {
         Ok(rows.into_iter().collect())
     }
 }
+
+// =========================================================================
+// Free-function wrappers for integration tests
+// =========================================================================
+
+/// Append a message with contexts and content blocks (convenience wrapper).
+pub async fn append(
+    pool: &DbPool,
+    msg: &TaskMessage,
+    contexts: &[TaskMessageContext],
+    content_blocks: &[TaskMessageContentBlock],
+) -> Result<i32, sqlx::Error> {
+    PgMessageRepository(pool.clone()).append(msg, contexts, content_blocks).await
+}
+
+/// Get all messages, contexts, and content blocks for a task (convenience wrapper).
+pub async fn get_all(
+    pool: &DbPool,
+    task_id: &str,
+) -> Result<(Vec<TaskMessage>, Vec<TaskMessageContext>, Vec<TaskMessageContentBlock>), sqlx::Error> {
+    PgMessageRepository(pool.clone()).get_all(task_id).await
+}
+
+/// Get pending user messages (convenience wrapper).
+pub async fn get_pending_user(pool: &DbPool, task_id: &str) -> Result<Vec<TaskMessage>, sqlx::Error> {
+    PgMessageRepository(pool.clone()).get_pending_user(task_id).await
+}
+
+/// Set session_id for all pending messages (convenience wrapper).
+pub async fn set_session_id_for_task(pool: &DbPool, task_id: &str, session_id: &str) -> Result<u64, sqlx::Error> {
+    PgMessageRepository(pool.clone()).set_session_id_for_task(task_id, session_id).await
+}
+
+/// Get the last result message (convenience wrapper).
+pub async fn get_last_result(pool: &DbPool, task_id: &str) -> Result<Option<TaskMessage>, sqlx::Error> {
+    PgMessageRepository(pool.clone()).get_last_result(task_id).await
+}
+
+/// Delete a queued message (convenience wrapper).
+pub async fn delete_queued(pool: &DbPool, task_id: &str, message_uuid: &str) -> Result<bool, sqlx::Error> {
+    PgMessageRepository(pool.clone()).delete_queued(task_id, message_uuid).await
+}

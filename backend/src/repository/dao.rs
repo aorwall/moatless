@@ -268,3 +268,37 @@ impl RepoRepository for PgRepoRepository {
         .await
     }
 }
+
+// =========================================================================
+// Free-function wrappers for integration tests
+// =========================================================================
+
+/// Insert a repository (convenience wrapper).
+pub async fn insert(pool: &DbPool, row: &Repository) -> Result<(), sqlx::Error> {
+    PgRepoRepository(pool.clone()).insert(row).await
+}
+
+/// Find by id scoped to visibility (convenience wrapper).
+pub async fn find_by_id(pool: &DbPool, id: &str, user_id: &str) -> Result<Option<Repository>, sqlx::Error> {
+    PgRepoRepository(pool.clone()).find_by_id(id, user_id).await
+}
+
+/// List all repositories visible to user (convenience wrapper).
+pub async fn list_all(pool: &DbPool, user_id: &str) -> Result<Vec<Repository>, sqlx::Error> {
+    PgRepoRepository(pool.clone()).list_all(user_id).await
+}
+
+/// Update repository fields (convenience wrapper).
+pub async fn update(pool: &DbPool, id: &str, patch: &RepositoryPatch) -> Result<bool, sqlx::Error> {
+    PgRepoRepository(pool.clone()).update(id, patch).await
+}
+
+/// Soft-delete a repository (convenience wrapper).
+pub async fn soft_delete(pool: &DbPool, id: &str) -> Result<bool, sqlx::Error> {
+    PgRepoRepository(pool.clone()).soft_delete(id).await
+}
+
+/// Find by name and user (convenience wrapper).
+pub async fn find_by_name_and_user(pool: &DbPool, name: &str, user_id: &str) -> Result<Option<Repository>, sqlx::Error> {
+    PgRepoRepository(pool.clone()).find_by_name_and_user(name, user_id).await
+}

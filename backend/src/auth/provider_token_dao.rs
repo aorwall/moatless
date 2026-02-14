@@ -6,7 +6,10 @@ use super::models::{ProviderAccessToken, ProviderToken};
 use crate::db::DbPool;
 
 /// Repository trait for provider token credential resolution.
-#[cfg_attr(test, mockall::automock)]
+///
+/// Note: `automock` is intentionally omitted — mockall cannot synthesise
+/// correct lifetimes for `Option<&str>` / `Option<&Value>` in async-trait
+/// methods.  Tests use `PgProviderTokenRepository` via `#[sqlx::test]`.
 #[async_trait]
 pub trait ProviderTokenRepository: Send + Sync {
     /// Find a provider token (access_token only) by user_id and provider name.

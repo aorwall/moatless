@@ -17,7 +17,9 @@ pub struct ChannelConfigPatch {
 }
 
 /// Repository trait for channel config persistence.
-#[cfg_attr(test, mockall::automock)]
+///
+/// Note: `automock` is intentionally omitted — mockall cannot synthesise
+/// correct lifetimes for `Option<&str>` in `list`.
 #[async_trait]
 pub trait ChannelConfigRepository: Send + Sync {
     async fn find_by_id(&self, id: &str) -> Result<Option<ChannelConfig>, sqlx::Error>;

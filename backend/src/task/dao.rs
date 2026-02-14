@@ -313,3 +313,64 @@ pub struct TaskPatch {
     pub visibility: Option<Visibility>,
     pub short_id: Option<String>,
 }
+
+// =========================================================================
+// Free-function wrappers for integration tests
+// =========================================================================
+//
+// Integration tests in `tests/` call these as `task_dao::insert_task(&pool, &row)`.
+// Each wrapper constructs a `PgTaskRepository` and delegates to the trait method.
+
+/// Insert a task (convenience wrapper).
+pub async fn insert_task(pool: &DbPool, row: &Task) -> Result<(), sqlx::Error> {
+    PgTaskRepository(pool.clone()).insert_task(row).await
+}
+
+/// Find by task_id scoped to user visibility (convenience wrapper).
+pub async fn find_by_id(pool: &DbPool, task_id: &str, user_id: &str) -> Result<Option<Task>, sqlx::Error> {
+    PgTaskRepository(pool.clone()).find_by_id(task_id, user_id).await
+}
+
+/// Find by task_id without access control (convenience wrapper).
+pub async fn find_by_id_internal(pool: &DbPool, task_id: &str) -> Result<Option<Task>, sqlx::Error> {
+    PgTaskRepository(pool.clone()).find_by_id_internal(task_id).await
+}
+
+/// List tasks with individual filter arguments (convenience wrapper).
+#[allow(clippy::too_many_arguments)]
+pub async fn list_tasks(
+    pool: &DbPool,
+    user_id: &str,
+    limit: i64,
+    offset: i64,
+    status: Option<&str>,
+    repository_id: Option<&str>,
+    created_by: Option<&str>,
+    tag: Option<&str>,
+) -> Result<(Vec<Task>, i64), sqlx::Error> {
+    let filter = TaskFilter {
+        user_id: user_id.to_string(),
+        limit,
+        offset,
+        status: status.map(String::from),
+        repository_id: repository_id.map(String::from),
+        created_by: created_by.map(String::from),
+        tag: tag.map(String::from),
+    };
+    PgTaskRepository(pool.clone()).list_tasks(&filter).await
+}
+
+/// Update task fields (convenience wrapper).
+pub async fn update_task(pool: &DbPool, task_id: &str, patch: &TaskPatch) -> Result<(), sqlx::Error> {
+    PgTaskRepository(pool.clone()).update_task(task_id, patch).await
+}
+
+/// Delete a task (convenience wrapper).
+pub async fn delete_task(pool: &DbPool, task_id: &str) -> Result<(), sqlx::Error> {
+    PgTaskRepository(pool.clone()).delete_task(task_id).await
+}
+
+/// Check if a task with the given short_id exists (convenience wrapper).
+pub async fn exists_by_short_id(pool: &DbPool, short_id: &str) -> Result<bool, sqlx::Error> {
+    PgTaskRepository(pool.clone()).exists_by_short_id(short_id).await
+}
