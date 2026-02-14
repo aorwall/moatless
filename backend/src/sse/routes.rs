@@ -109,11 +109,12 @@ async fn sse_handler(
     // Convert to axum body
     let body = Body::from_stream(ndjson_stream.map(|r| r.map(std::string::String::into_bytes)));
 
+    #[allow(clippy::expect_used)] // Response::builder() only fails with invalid header names (ours are static)
     Response::builder()
         .header("Content-Type", "text/event-stream")
         .header("Cache-Control", "no-cache")
         .header("Connection", "keep-alive")
         .header("X-Accel-Buffering", "no")
         .body(body)
-        .unwrap()
+        .expect("valid SSE response with static header names")
 }

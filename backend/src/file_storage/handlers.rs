@@ -137,6 +137,7 @@ pub async fn download_file(
         .await
         .map_err(FileStorageError::UploadFailed)?;
 
+    #[allow(clippy::expect_used)] // Response::builder() only fails with invalid header names (ours are static)
     let response = Response::builder()
         .header(header::CONTENT_TYPE, content_type)
         .header(
@@ -144,7 +145,7 @@ pub async fn download_file(
             format!("attachment; filename=\"{}\"", meta.filename),
         )
         .body(Body::from(data))
-        .unwrap();
+        .expect("valid response with static header names");
 
     Ok(response)
 }

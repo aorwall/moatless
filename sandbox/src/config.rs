@@ -143,6 +143,7 @@ impl Config {
             log_level: env::var("LOG_LEVEL")
                 .unwrap_or_else(|_| "info".to_string()),
 
+            #[allow(clippy::expect_used)] // required env var, crash at startup if missing
             backend_grpc_url: env::var("BACKEND_GRPC_URL")
                 .expect("BACKEND_GRPC_URL is required"),
 

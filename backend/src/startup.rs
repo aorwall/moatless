@@ -48,6 +48,7 @@ pub fn spawn_metrics_server(port: u16) {
     let router = metrics::metrics_router(handle);
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     tokio::spawn(async move {
+        #[allow(clippy::expect_used)] // fail-fast: if metrics port is unavailable, crash early
         let listener = TcpListener::bind(addr)
             .await
             .expect("Failed to bind metrics server — is the port already in use?");

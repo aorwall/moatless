@@ -29,6 +29,15 @@ pedantic = { level = "warn", priority = -1 }
 dbg_macro = "deny"
 # Require safety comments on every unsafe block
 undocumented_unsafe_blocks = "deny"
+# Ban .unwrap() in production code — use `?`, `.unwrap_or()`, or `.expect()` instead.
+# Test code (`cargo clippy --tests`) is exempt; only lib/bin targets are checked by default.
+unwrap_used = "deny"
+# Nudge away from .expect() toward proper error handling; warn (not deny) because
+# .expect("reason") is acceptable for invariants that are genuinely unreachable.
+expect_used = "warn"
+# Server code should use `tracing`, not stdout/stderr
+print_stdout = "deny"
+print_stderr = "deny"
 
 # --- Pedantic lints that are too noisy / don't add value for this codebase ---
 module_name_repetitions = "allow"
