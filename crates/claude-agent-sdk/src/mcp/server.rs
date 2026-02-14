@@ -40,7 +40,7 @@ impl SdkMcpServer {
 
     /// Get the list of tool names registered with this server.
     pub fn tool_names(&self) -> Vec<&str> {
-        self.tools.keys().map(|s| s.as_str()).collect()
+        self.tools.keys().map(std::string::String::as_str).collect()
     }
 
     /// Handle an incoming JSON-RPC message and return the response.
@@ -75,7 +75,7 @@ impl SdkMcpServer {
             }
             "tools/list" => {
                 debug!(server = %self.name, "tools/list");
-                let tools: Vec<Value> = self.tools.values().map(|t| t.to_tool_info()).collect();
+                let tools: Vec<Value> = self.tools.values().map(super::tool::SdkMcpTool::to_tool_info).collect();
                 serde_json::json!({
                     "jsonrpc": "2.0",
                     "result": {

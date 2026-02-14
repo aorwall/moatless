@@ -1,3 +1,4 @@
+use std::fmt::Write;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
 use tokio::process::{Child, ChildStdin, ChildStdout};
@@ -206,6 +207,7 @@ impl SubprocessTransport {
 }
 
 /// Resolve the CLI binary path.
+#[allow(clippy::unnecessary_wraps)] // may fail in future with stricter path validation
 fn resolve_cli_path(options: &ClaudeOptions) -> Result<String> {
     if let Some(path) = &options.cli_path {
         return Ok(path.clone());
@@ -334,7 +336,7 @@ pub(crate) fn build_cli_args(options: &ClaudeOptions) -> Vec<String> {
             args.push(
                 sources
                     .iter()
-                    .map(|s| s.to_string())
+                    .map(std::string::ToString::to_string)
                     .collect::<Vec<_>>()
                     .join(","),
             );
@@ -729,14 +731,14 @@ fn format_tool_input(tool_name: &str, input: &Map<String, Value>) -> String {
                 Value::String(s) => truncate(s, 200),
                 other => truncate(&other.to_string(), 200),
             };
-            out.push_str(&format!("  input.{field}: {val_str}\n"));
+            let _ = writeln!(out, "  input.{field}: {val_str}");
         }
     }
 
     // If no key fields were found, show all keys
     if out.is_empty() {
-        let keys: Vec<&str> = input.keys().map(|k| k.as_str()).collect();
-        out.push_str(&format!("  input keys: [{}]\n", keys.join(", ")));
+        let keys: Vec<&str> = input.keys().map(std::string::String::as_str).collect();
+        let _ = writeln!(out, "  input keys: [{}]", keys.join(", "));
     }
 
     out.trim_end().to_string()

@@ -56,6 +56,7 @@ pub fn build_options(
 }
 
 /// Build the system prompt configuration.
+#[allow(clippy::unnecessary_wraps)] // Option for caller API consistency
 fn build_system_prompt(config: &Config, request: &AgentRunRequest) -> Option<SystemPrompt> {
     // Combine config system prompt + request system prompt as appended text
     let mut append_parts = Vec::new();

@@ -363,7 +363,7 @@ fn build_initialize_request(
         for (i, def) in defs.iter().enumerate() {
             let event_name = serde_json::to_value(&def.event)
                 .ok()
-                .and_then(|v| v.as_str().map(|s| s.to_string()))
+                .and_then(|v| v.as_str().map(std::string::ToString::to_string))
                 .unwrap_or_else(|| format!("{:?}", def.event));
             let callback_id = format!("sdk-hook-{event_name}-{i}");
             let mut entry = serde_json::json!({

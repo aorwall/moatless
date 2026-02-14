@@ -62,7 +62,7 @@ impl SdkMessage {
             "user" => {
                 let is_replay = value
                     .get("isReplay")
-                    .and_then(|v| v.as_bool())
+                    .and_then(serde_json::Value::as_bool)
                     .unwrap_or(false);
                 if is_replay {
                     serde_json::from_value::<UserMessageReplay>(value)

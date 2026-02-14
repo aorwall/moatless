@@ -11,6 +11,7 @@ resolver = "2"
 
 [workspace.lints.rust]
 # deny (not forbid) so figma-clipboard can #![allow(unsafe_code)] for tree-mutation algorithms
+# and sandbox can #![allow(unsafe_code)] in init modules for std::env::set_var()
 unsafe_code = "deny"
 # Catch unused Result/must-use values at compile time
 unused_must_use = "deny"
@@ -22,6 +23,12 @@ unused_imports = "deny"
 all = { level = "deny", priority = -1 }
 # Enable pedantic lint group as warnings (upgrade to deny once clean)
 pedantic = { level = "warn", priority = -1 }
+
+# --- Restriction lints (cherry-picked for server/application code) ---
+# Catch leftover debug macros in production code
+dbg_macro = "deny"
+# Require safety comments on every unsafe block
+undocumented_unsafe_blocks = "deny"
 
 # --- Pedantic lints that are too noisy / don't add value for this codebase ---
 module_name_repetitions = "allow"
@@ -52,41 +59,28 @@ cast_sign_loss = "allow"
 cast_possible_truncation = "allow"
 cast_possible_wrap = "allow"
 cast_lossless = "allow"
-# --- Stylistic pedantic lints — enable individually as codebase matures ---
 # `let Some(x) = ... else { return }` style — adopt incrementally
 manual_let_else = "allow"
-# `.map(|x| x.method())` vs `.map(Type::method)` — both are readable
-redundant_closure_for_method_calls = "allow"
-# `.for_each()` vs `for` loop — both are fine
+# `.for_each()` vs `for` loop — fires on utoipa/OpenApi derive macro output
 needless_for_each = "allow"
-# `.map().unwrap_or()` vs `.map_or()` — readability depends on context
-map_unwrap_or = "allow"
 # Match arms with identical bodies — often intentional for documentation
 match_same_arms = "allow"
 # `Default::default()` vs `String::new()` — both are idiomatic
 default_trait_access = "allow"
 # Items after statements — Rust allows this, common in handler modules
 items_after_statements = "allow"
-# `if !cond { a } else { b }` vs `if cond { b } else { a }` — context dependent
-if_not_else = "allow"
 # Minor pointer cast style
 ref_as_ptr = "allow"
 # `if true { continue; }` style
 needless_continue = "allow"
-# Single match with else — `if let` is more concise but match is also fine
-single_match_else = "allow"
 # `Option<&T>` in fn signatures
 ref_option = "allow"
 # Allow similar variable names (e.g., `node` and `nodes`) — common in handler code
 similar_names = "allow"
-# Functions that always return Ok() but are part of a trait/interface contract
-unnecessary_wraps = "allow"
 # `.clone()` vs `.clone_from()` — marginal perf difference
 assigning_clones = "allow"
 # `.to_string()` on &String — clear intent, negligible cost
 implicit_clone = "allow"
-# Allow `format!` push — clearer than `write!` for simple cases
-format_push_string = "allow"
 # u64 to f64 precision loss — acceptable for metrics/timing values
 cast_precision_loss = "allow"
 # Wildcard match on single remaining variant — more maintainable with _ than naming

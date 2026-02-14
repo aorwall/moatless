@@ -133,6 +133,7 @@ pub fn build_pod(
 }
 
 /// Build the main sandbox container.
+#[allow(clippy::unnecessary_wraps)] // Result for consistency with build_server_containers
 fn build_sandbox_container(
     config: &Config,
     task_id: &str,
@@ -254,6 +255,7 @@ fn build_sandbox_container(
 /// Each server container's image is resolved from `server.docker_image`,
 /// falling back to `config.sandbox.image`. Start commands come from
 /// `server.start_commands`; if absent the image's default CMD is used.
+#[allow(clippy::unnecessary_wraps)] // Result for consistency with build_sandbox_container
 fn build_server_containers(
     config: &Config,
     plan: &ProvisionPlan,
