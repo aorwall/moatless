@@ -32,7 +32,6 @@ pub struct CreateVibeTaskRequest {
 
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
-#[allow(dead_code)]
 pub struct MessageContextInput {
     #[serde(rename = "type")]
     pub context_type: String,

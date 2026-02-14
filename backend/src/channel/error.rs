@@ -47,8 +47,9 @@ impl IntoResponse for ChannelError {
             ChannelError::ProviderApi(_) => {
                 (StatusCode::BAD_GATEWAY, self.to_string())
             }
-            ChannelError::Internal(_) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, self.to_string())
+            ChannelError::Internal(ref msg) => {
+                tracing::error!(error = %msg, "Internal error in channel handler");
+                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
             }
         };
 

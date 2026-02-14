@@ -29,7 +29,7 @@ impl ChannelType {
         }
     }
 
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s {
             "slack" => Some(Self::Slack),
             "email" => Some(Self::Email),
@@ -148,6 +148,6 @@ impl ChannelProviders {
     }
 
     pub fn get_by_name(&self, name: &str) -> Option<&Arc<dyn ChannelProvider>> {
-        ChannelType::from_str(name).and_then(|ct| self.providers.get(&ct))
+        ChannelType::parse(name).and_then(|ct| self.providers.get(&ct))
     }
 }

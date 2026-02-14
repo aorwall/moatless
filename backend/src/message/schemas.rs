@@ -124,7 +124,6 @@ pub struct DeleteMessageResponse {
 
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
-#[allow(dead_code)]
 pub struct SendMessageRequest {
     pub message: String,
     pub resume: Option<bool>,

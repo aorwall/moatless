@@ -312,7 +312,9 @@ pub async fn get_branches(
                 default_branch: Some(Some(branch.clone())),
                 ..Default::default()
             };
-            let _ = state.repositories.update(&repository_id, &patch).await;
+            if let Err(e) = state.repositories.update(&repository_id, &patch).await {
+                warn!(repository_id = %repository_id, error = %e, "Failed to persist default branch");
+            }
         }
     }
 

@@ -149,7 +149,7 @@ pub async fn create_config(
     Json(req): Json<CreateChannelConfigRequest>,
 ) -> Result<Json<ChannelConfigResponse>, ChannelError> {
     // Validate provider
-    if ChannelType::from_str(&req.provider).is_none() {
+    if ChannelType::parse(&req.provider).is_none() {
         return Err(ChannelError::BadRequest(format!(
             "Unknown provider: {}",
             req.provider

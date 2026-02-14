@@ -8,7 +8,6 @@ use chrono::{DateTime, Utc};
 
 /// Row from the `tags` table.
 #[derive(sqlx::FromRow, Debug, Clone)]
-#[allow(dead_code)]
 pub struct Tag {
     pub id: i32,
     pub tag_id: String,

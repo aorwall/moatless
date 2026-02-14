@@ -661,6 +661,7 @@ fn build_result_text(sdk_result: &Option<SdkResultMessage>) -> String {
 }
 
 /// Build a result message row for agent outcomes.
+#[allow(clippy::too_many_arguments)]
 fn build_result_message_row(
     task_id: &str,
     uuid: &str,

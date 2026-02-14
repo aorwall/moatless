@@ -21,6 +21,15 @@ use crate::config::Config;
 use crate::message::dao::MessageRepository;
 use crate::task::dao::TaskRepository;
 
+/// Errors that can occur during a reap cycle.
+#[derive(Debug, thiserror::Error)]
+enum ReaperError {
+    #[error("Kubernetes API error: {0}")]
+    Kube(#[from] kube::Error),
+    #[error("database error: {0}")]
+    Db(#[from] sqlx::Error),
+}
+
 /// Spawn the idle sandbox reaper as a background tokio task.
 ///
 /// The reaper runs in a loop:
@@ -93,7 +102,7 @@ async fn reap_idle_sandboxes(
     tasks: &Arc<dyn TaskRepository>,
     sandbox: &Arc<dyn SandboxProvider>,
     idle_timeout: chrono::Duration,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<(), ReaperError> {
     let task_ids = list_running_sandbox_task_ids(k8s).await?;
 
     if task_ids.is_empty() {

@@ -54,6 +54,7 @@ pub trait RepoRepository: Send + Sync {
     async fn update(&self, id: &str, patch: &RepositoryPatch) -> Result<bool, sqlx::Error>;
     async fn soft_delete(&self, id: &str) -> Result<bool, sqlx::Error>;
     async fn find_by_name_and_user(&self, name: &str, user_id: &str) -> Result<Option<Repository>, sqlx::Error>;
+    async fn find_names_by_ids(&self, ids: &[String]) -> Result<Vec<(String, String)>, sqlx::Error>;
 }
 
 /// PostgreSQL implementation of [`RepoRepository`].
@@ -253,5 +254,17 @@ impl RepoRepository for PgRepoRepository {
             .bind(user_id)
             .fetch_optional(&self.0)
             .await
+    }
+
+    async fn find_names_by_ids(&self, ids: &[String]) -> Result<Vec<(String, String)>, sqlx::Error> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        sqlx::query_as::<_, (String, String)>(
+            "SELECT id, name FROM repositories WHERE id = ANY($1) AND (deleted IS NULL OR deleted = false)"
+        )
+        .bind(ids)
+        .fetch_all(&self.0)
+        .await
     }
 }

@@ -37,11 +37,18 @@ impl FromStr for AuthProvider {
 }
 
 /// Parse an environment variable with a default fallback.
+/// Logs a warning if the env var is set but cannot be parsed.
 fn env_or<T: FromStr>(key: &str, default: T) -> T {
-    env::var(key)
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(default)
+    match env::var(key) {
+        Ok(v) => match v.parse() {
+            Ok(parsed) => parsed,
+            Err(_) => {
+                tracing::warn!(key, value = %v, "Failed to parse env var, using default");
+                default
+            }
+        },
+        Err(_) => default,
+    }
 }
 
 /// Read an environment variable as `Option<String>`.
@@ -151,7 +158,9 @@ pub struct SseConfig {
 }
 
 /// Authentication and session settings.
-#[derive(Debug, Clone)]
+///
+/// Implements a custom `Debug` to redact secrets.
+#[derive(Clone)]
 pub struct AuthConfig {
     /// Auth provider, or None (dev mode - auth disabled)
     pub provider: Option<AuthProvider>,
@@ -189,6 +198,25 @@ pub struct AuthConfig {
     pub cache_ttl_secs: u64,
 }
 
+impl fmt::Debug for AuthConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AuthConfig")
+            .field("provider", &self.provider)
+            .field("github_client_id", &self.github_client_id)
+            .field("github_client_secret", &self.github_client_secret.as_ref().map(|_| "[REDACTED]"))
+            .field("github_callback_url", &self.github_callback_url)
+            .field("auth0_domain", &self.auth0_domain)
+            .field("auth0_client_id", &self.auth0_client_id)
+            .field("auth0_client_secret", &self.auth0_client_secret.as_ref().map(|_| "[REDACTED]"))
+            .field("auth0_callback_url", &self.auth0_callback_url)
+            .field("session_max_age_secs", &self.session_max_age_secs)
+            .field("frontend_url", &self.frontend_url)
+            .field("cookie_domain", &self.cookie_domain)
+            .field("is_production", &self.is_production)
+            .finish()
+    }
+}
+
 /// S3 / file storage settings.
 #[derive(Debug, Clone)]
 pub struct S3Config {
@@ -201,7 +229,9 @@ pub struct S3Config {
 }
 
 /// Slack channel integration settings.
-#[derive(Debug, Clone)]
+///
+/// Implements a custom `Debug` to redact secrets.
+#[derive(Clone)]
 pub struct SlackConfig {
     /// Slack bot token
     pub bot_token: Option<String>,
@@ -209,6 +239,25 @@ pub struct SlackConfig {
     pub signing_secret: Option<String>,
     /// Slack bot user ID for filtering own messages
     pub bot_user_id: Option<String>,
+}
+
+impl fmt::Debug for SlackConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SlackConfig")
+            .field("bot_token", &self.bot_token.as_ref().map(|_| "[REDACTED]"))
+            .field("signing_secret", &self.signing_secret.as_ref().map(|_| "[REDACTED]"))
+            .field("bot_user_id", &self.bot_user_id)
+            .finish()
+    }
+}
+
+/// Database configuration.
+#[derive(Debug, Clone)]
+pub struct DatabaseConfig {
+    /// PostgreSQL connection URL. When set, enables DB-backed features.
+    pub url: Option<String>,
+    /// Max connections in the pool (default: 5)
+    pub max_connections: u32,
 }
 
 // =========================================================================
@@ -223,6 +272,7 @@ pub struct Config {
     pub proxy: ProxyConfig,
     /// PostgreSQL connection URL. When set, enables DB-backed features.
     pub database_url: Option<String>,
+    pub database: DatabaseConfig,
     pub redis: RedisConfig,
     pub sse: SseConfig,
     pub auth: AuthConfig,
@@ -230,15 +280,23 @@ pub struct Config {
     pub slack: SlackConfig,
 }
 
+/// Configuration validation errors.
+#[derive(Debug, thiserror::Error)]
+pub enum ConfigError {
+    #[error("Invalid configuration: {0}")]
+    Invalid(String),
+}
+
 impl Config {
     /// Load configuration from environment variables.
-    pub fn from_env() -> Self {
+    pub fn from_env() -> Result<Self, ConfigError> {
         // Load .env file if present (ignored in production)
         let _ = dotenvy::dotenv();
 
         let sandbox_namespace = env_str("SANDBOX_NAMESPACE", "workspaces");
+        let database_url = env_opt("DATABASE_URL");
 
-        Self {
+        let config = Self {
             server: ServerConfig {
                 port: env_or("PORT", 8080),
                 metrics_port: env_or("METRICS_PORT", 9090),
@@ -274,7 +332,12 @@ impl Config {
                 traefik_entry_point: env_str("TRAEFIK_ENTRY_POINT", "websecure"),
             },
 
-            database_url: env_opt("DATABASE_URL"),
+            database_url: database_url.clone(),
+
+            database: DatabaseConfig {
+                url: database_url,
+                max_connections: env_or("DATABASE_MAX_CONNECTIONS", 5),
+            },
 
             redis: RedisConfig {
                 url: env_opt("REDIS_URL"),
@@ -325,6 +388,52 @@ impl Config {
                 signing_secret: env_opt("SLACK_SIGNING_SECRET"),
                 bot_user_id: env_opt("SLACK_BOT_USER_ID"),
             },
+        };
+
+        config.validate()?;
+        Ok(config)
+    }
+
+    /// Validate configuration consistency.
+    fn validate(&self) -> Result<(), ConfigError> {
+        // Validate auth provider config consistency
+        if let Some(AuthProvider::GitHub) = self.auth.provider {
+            if self.auth.github_client_id.is_none() {
+                return Err(ConfigError::Invalid(
+                    "GITHUB_CLIENT_ID required when AUTH_PROVIDER=github".into(),
+                ));
+            }
+            if self.auth.github_client_secret.is_none() {
+                return Err(ConfigError::Invalid(
+                    "GITHUB_CLIENT_SECRET required when AUTH_PROVIDER=github".into(),
+                ));
+            }
         }
+        if let Some(AuthProvider::Auth0) = self.auth.provider {
+            if self.auth.auth0_domain.is_none() {
+                return Err(ConfigError::Invalid(
+                    "AUTH0_DOMAIN required when AUTH_PROVIDER=auth0".into(),
+                ));
+            }
+            if self.auth.auth0_client_id.is_none() {
+                return Err(ConfigError::Invalid(
+                    "AUTH0_CLIENT_ID required when AUTH_PROVIDER=auth0".into(),
+                ));
+            }
+            if self.auth.auth0_client_secret.is_none() {
+                return Err(ConfigError::Invalid(
+                    "AUTH0_CLIENT_SECRET required when AUTH_PROVIDER=auth0".into(),
+                ));
+            }
+        }
+
+        // Validate sandbox namespace is not empty
+        if self.sandbox.namespace.is_empty() {
+            return Err(ConfigError::Invalid(
+                "SANDBOX_NAMESPACE cannot be empty".into(),
+            ));
+        }
+
+        Ok(())
     }
 }

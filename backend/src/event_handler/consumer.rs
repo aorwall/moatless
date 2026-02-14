@@ -71,7 +71,7 @@ impl EventHandlerConsumer {
     }
 
     /// One consume cycle: discover streams, ensure groups, read + process + ACK.
-    async fn consume_cycle(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn consume_cycle(&mut self) -> Result<(), redis::RedisError> {
         let streams = self.scan_streams().await?;
 
         if streams.is_empty() {

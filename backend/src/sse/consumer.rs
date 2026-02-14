@@ -69,7 +69,7 @@ impl RedisStreamConsumer {
     }
 
     /// One consume cycle: discover streams, ensure groups, read + broadcast + ACK.
-    async fn consume_cycle(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn consume_cycle(&mut self) -> Result<(), redis::RedisError> {
         // Discover all task-events:* streams
         let streams = self.scan_streams().await?;
 

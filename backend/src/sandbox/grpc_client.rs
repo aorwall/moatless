@@ -14,6 +14,13 @@ use sandbox_proto::{
 use tonic::transport::Channel;
 use tracing::debug;
 
+/// Errors that can occur when constructing a [`SandboxGrpcClient`].
+#[derive(Debug, thiserror::Error)]
+pub enum GrpcClientError {
+    #[error("invalid gRPC endpoint URI: {0}")]
+    InvalidUri(#[from] tonic::codegen::http::uri::InvalidUri),
+}
+
 /// Wrapper around `SandboxServiceClient` for calling sandbox pods via gRPC.
 #[derive(Clone)]
 pub struct SandboxGrpcClient {
@@ -28,7 +35,7 @@ impl SandboxGrpcClient {
         service_name: &str,
         namespace: &str,
         port: u16,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Self, GrpcClientError> {
         let url = format!(
             "http://{service_name}.{namespace}.svc.cluster.local:{port}"
         );
@@ -36,7 +43,7 @@ impl SandboxGrpcClient {
     }
 
     /// Create a gRPC client from a URL.
-    pub fn connect(url: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    pub fn connect(url: &str) -> Result<Self, GrpcClientError> {
         let channel = Channel::from_shared(url.to_string())?
             .connect_timeout(Duration::from_secs(5))
             .timeout(Duration::from_secs(10))

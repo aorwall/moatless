@@ -17,7 +17,6 @@ use crate::state::AppState;
 ///
 /// The `task_id` field is populated from the `X-Task-Id` header when present.
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct AuthUser {
     pub user_id: String,
     pub login: String,
@@ -126,7 +125,6 @@ impl FromRequestParts<AppState> for AuthUser {
 ///
 /// Returns `None` if auth headers are missing instead of 401.
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct MaybeAuthUser(pub Option<AuthUser>);
 
 impl FromRequestParts<AppState> for MaybeAuthUser {

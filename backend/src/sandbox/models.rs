@@ -219,7 +219,6 @@ impl From<&str> for PodPhase {
 
 /// Server snapshot from sandbox GET /status
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-#[allow(dead_code)]
 pub struct ServerSnapshot {
     pub name: String,
     #[serde(default)]
@@ -628,7 +627,7 @@ mod tests {
         let json = r#"{"name":"files","port":4000}"#;
         let config: ServerConfig = serde_json::from_str(json).unwrap();
         assert_eq!(config.name, "files");
-        assert_eq!(config.server.port, 4000);
+        assert_eq!(config.port, 4000);
         assert!(!config.default);
         assert!(!config.enable_inspector);
         assert!(config.docker_image.is_none());

@@ -136,7 +136,6 @@ impl<'q> sqlx::Encode<'q, sqlx::Postgres> for Visibility {
 
 /// Full task row from the `tasks` table.
 #[derive(sqlx::FromRow, Debug, Clone)]
-#[allow(dead_code)]
 pub struct Task {
     pub task_id: String,
     pub short_id: Option<String>,

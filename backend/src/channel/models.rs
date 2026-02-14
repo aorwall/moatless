@@ -8,7 +8,6 @@ use chrono::{DateTime, Utc};
 
 /// Row from the `channel_configs` table.
 #[derive(sqlx::FromRow, Debug, Clone)]
-#[allow(dead_code)]
 pub struct ChannelConfig {
     pub id: String,
     pub provider: String,
@@ -31,7 +30,6 @@ pub struct ChannelConfig {
 
 /// Row from the `channel_threads` table.
 #[derive(sqlx::FromRow, Debug, Clone)]
-#[allow(dead_code)]
 pub struct ChannelThread {
     pub id: i32,
     pub config_id: String,

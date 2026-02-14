@@ -429,7 +429,9 @@ impl K8sSandboxProvider {
         // If Deployment is scaled to 0, scale it back up
         if let Ok((desired, _)) = deployment::get_deployment_replicas(&self.k8s, task_id).await {
             if desired == 0 {
-                let _ = deployment::scale_deployment(&self.k8s, task_id, 1).await;
+                if let Err(e) = deployment::scale_deployment(&self.k8s, task_id, 1).await {
+                    tracing::warn!(task_id, error = %e, "Failed to scale deployment back up");
+                }
                 return Ok(false); // Will need to wait for pod to come up
             }
         }

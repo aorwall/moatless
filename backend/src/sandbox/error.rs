@@ -30,10 +30,26 @@ impl IntoResponse for SandboxError {
     fn into_response(self) -> Response {
         let (status, message) = match &self {
             Self::NotReady(_) => (StatusCode::SERVICE_UNAVAILABLE, self.to_string()),
-            Self::ConfigMissing(_) | Self::JwtError(_) | Self::PodBuildError(_) | Self::Internal(_) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, self.to_string())
+            Self::ConfigMissing(ref msg) => {
+                tracing::error!(error = %msg, "Sandbox config missing");
+                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
             }
-            Self::KubeError(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
+            Self::JwtError(ref msg) => {
+                tracing::error!(error = %msg, "Sandbox JWT error");
+                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
+            }
+            Self::PodBuildError(ref msg) => {
+                tracing::error!(error = %msg, "Sandbox pod build error");
+                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
+            }
+            Self::KubeError(ref e) => {
+                tracing::error!(error = %e, "Kubernetes API error in sandbox handler");
+                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
+            }
+            Self::Internal(ref msg) => {
+                tracing::error!(error = %msg, "Internal sandbox error");
+                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
+            }
         };
         (status, Json(serde_json::json!({"error": message}))).into_response()
     }

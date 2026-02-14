@@ -8,7 +8,6 @@ use chrono::{DateTime, Utc};
 
 /// Row from the `figma_imports` table.
 #[derive(sqlx::FromRow, Debug, Clone)]
-#[allow(dead_code)]
 pub struct FigmaImport {
     pub import_id: String,
     pub file_id: Option<String>,
