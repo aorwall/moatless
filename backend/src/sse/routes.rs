@@ -63,7 +63,7 @@ async fn sse_handler(
 
         loop {
             tokio::select! {
-                _ = cancel.cancelled() => {
+                () = cancel.cancelled() => {
                     break;
                 }
                 result = rx.recv() => {
@@ -73,7 +73,7 @@ async fn sse_handler(
                             if !type_filters.is_empty() {
                                 let matches = type_filters.iter().any(|t| {
                                     // Substring match on the raw JSON for "type":"<value>"
-                                    let pattern = format!("\"type\":\"{}\"", t);
+                                    let pattern = format!("\"type\":\"{t}\"");
                                     payload.contains(&pattern)
                                 });
                                 if !matches {
@@ -81,7 +81,7 @@ async fn sse_handler(
                                 }
                             }
 
-                            let line = format!("{}\n", payload);
+                            let line = format!("{payload}\n");
                             yield Ok::<_, std::convert::Infallible>(line);
                         }
                         Err(broadcast::error::RecvError::Lagged(n)) => {
@@ -99,7 +99,7 @@ async fn sse_handler(
                         chrono::SecondsFormat::Millis,
                         true,
                     );
-                    let ping = format!("{{\"type\":\"ping\",\"timestamp\":\"{}\"}}\n", now);
+                    let ping = format!("{{\"type\":\"ping\",\"timestamp\":\"{now}\"}}\n");
                     yield Ok::<_, std::convert::Infallible>(ping);
                 }
             }
@@ -107,7 +107,7 @@ async fn sse_handler(
     };
 
     // Convert to axum body
-    let body = Body::from_stream(ndjson_stream.map(|r| r.map(|s| s.into_bytes())));
+    let body = Body::from_stream(ndjson_stream.map(|r| r.map(std::string::String::into_bytes)));
 
     Response::builder()
         .header("Content-Type", "text/event-stream")

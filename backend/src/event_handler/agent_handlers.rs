@@ -84,8 +84,7 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
         .get("model_usage")
         .or_else(|| event.payload.get("modelUsage"))
         .and_then(|mu| mu.as_object())
-        .and_then(|obj| obj.keys().next())
-        .map(|s| s.to_string());
+        .and_then(|obj| obj.keys().next()).cloned();
 
     // Inherit agent_mode from the last user message for this task
     let agent_mode = match state.messages.get_last_user_message(&event.task_id).await {
@@ -178,12 +177,9 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
 /// Sets the real Claude Code session_id on user messages that have been
 /// fetched by the sandbox (sent_at IS NOT NULL) but don't yet have a session_id.
 pub async fn handle_agent_session_init(state: &AppState, event: &AgentEvent) {
-    let session_id = match event.payload.get("session_id").and_then(|v| v.as_str()) {
-        Some(sid) => sid,
-        None => {
-            tracing::warn!(task_id = %event.task_id, "agent.session_init missing session_id");
-            return;
-        }
+    let session_id = if let Some(sid) = event.payload.get("session_id").and_then(|v| v.as_str()) { sid } else {
+        tracing::warn!(task_id = %event.task_id, "agent.session_init missing session_id");
+        return;
     };
 
     match state.messages.set_session_id_for_task(&event.task_id, session_id).await {
@@ -392,13 +388,13 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
         .payload
         .get("session_id")
         .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
+        .map(std::string::ToString::to_string);
 
     let parent_uuid = event
         .payload
         .get("parent_tool_use_id")
         .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
+        .map(std::string::ToString::to_string);
 
     let content = event
         .payload
@@ -450,19 +446,19 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
         assistant_stop_sequence: None,
         assistant_usage_input_tokens: usage
             .and_then(|u| u.get("input_tokens"))
-            .and_then(|v| v.as_i64())
+            .and_then(serde_json::Value::as_i64)
             .map(|v| v as i32),
         assistant_usage_output_tokens: usage
             .and_then(|u| u.get("output_tokens"))
-            .and_then(|v| v.as_i64())
+            .and_then(serde_json::Value::as_i64)
             .map(|v| v as i32),
         assistant_usage_cache_creation_input_tokens: usage
             .and_then(|u| u.get("cache_creation_input_tokens"))
-            .and_then(|v| v.as_i64())
+            .and_then(serde_json::Value::as_i64)
             .map(|v| v as i32),
         assistant_usage_cache_read_input_tokens: usage
             .and_then(|u| u.get("cache_read_input_tokens"))
-            .and_then(|v| v.as_i64())
+            .and_then(serde_json::Value::as_i64)
             .map(|v| v as i32),
         tool_use_result: None,
         attachments: None,
@@ -548,8 +544,8 @@ pub async fn handle_task_metadata_updated(state: &AppState, event: &AgentEvent) 
     }
 
     let patch = TaskPatch {
-        name: name.map(|s| s.to_string()),
-        description: description.map(|s| s.to_string()),
+        name: name.map(std::string::ToString::to_string),
+        description: description.map(std::string::ToString::to_string),
         ..Default::default()
     };
 
@@ -585,18 +581,18 @@ fn build_content_blocks_from_payload(content: &serde_json::Value) -> Vec<TaskMes
             let (text_content, tool_use_id, tool_result_content, tool_result_is_error, show_in_ui) =
                 match block_type {
                     ContentBlockType::Text => {
-                        let text = block.get("text").and_then(|v| v.as_str()).map(|s| s.to_string());
+                        let text = block.get("text").and_then(|v| v.as_str()).map(std::string::ToString::to_string);
                         (text, None, None, None, true)
                     }
                     ContentBlockType::ToolUse => {
-                        let id = block.get("id").and_then(|v| v.as_str()).map(|s| s.to_string());
+                        let id = block.get("id").and_then(|v| v.as_str()).map(std::string::ToString::to_string);
                         (None, id, None, None, true)
                     }
                     ContentBlockType::ToolResult => {
                         let id = block
                             .get("tool_use_id")
                             .and_then(|v| v.as_str())
-                            .map(|s| s.to_string());
+                            .map(std::string::ToString::to_string);
                         let result_content = block
                             .get("content")
                             .map(|v| {
@@ -606,7 +602,7 @@ fn build_content_blocks_from_payload(content: &serde_json::Value) -> Vec<TaskMes
                                     v.to_string()
                                 }
                             });
-                        let is_error = block.get("is_error").and_then(|v| v.as_bool());
+                        let is_error = block.get("is_error").and_then(serde_json::Value::as_bool);
                         (None, id, result_content, is_error, false)
                     }
                     ContentBlockType::Image => (None, None, None, None, true),

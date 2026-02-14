@@ -10,5 +10,9 @@ tonic = "0.12"
 prost = "0.13"
 moatless-events = { path = "../events" }
 
+# NOTE: workspace lints intentionally NOT inherited here because this crate
+# contains auto-generated code from tonic-build/prost that cannot satisfy
+# pedantic clippy lints.
+
 [build-dependencies]
 tonic-build = "0.12"

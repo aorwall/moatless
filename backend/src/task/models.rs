@@ -59,7 +59,7 @@ impl<'r> sqlx::Decode<'r, sqlx::Postgres> for TaskStatus {
     }
 }
 
-impl<'q> sqlx::Encode<'q, sqlx::Postgres> for TaskStatus {
+impl sqlx::Encode<'_, sqlx::Postgres> for TaskStatus {
     fn encode_by_ref(
         &self,
         buf: &mut sqlx::postgres::PgArgumentBuffer,
@@ -121,7 +121,7 @@ impl<'r> sqlx::Decode<'r, sqlx::Postgres> for Visibility {
     }
 }
 
-impl<'q> sqlx::Encode<'q, sqlx::Postgres> for Visibility {
+impl sqlx::Encode<'_, sqlx::Postgres> for Visibility {
     fn encode_by_ref(
         &self,
         buf: &mut sqlx::postgres::PgArgumentBuffer,

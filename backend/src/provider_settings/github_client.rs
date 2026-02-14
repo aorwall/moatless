@@ -26,7 +26,7 @@ pub async fn validate_github_token(token: &str) -> Result<String, String> {
 
     data.get("login")
         .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
+        .map(std::string::ToString::to_string)
         .ok_or_else(|| "GitHub response missing login field".to_string())
 }
 

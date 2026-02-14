@@ -47,39 +47,37 @@ impl FromRequestParts<AppState> for AuthUser {
             .headers
             .get("x-task-id")
             .and_then(|v| v.to_str().ok())
-            .map(|s| s.to_string());
+            .map(std::string::ToString::to_string);
 
         // Path 1: Try ForwardAuth headers first (X-User-Id present)
         if let Some(user_id) = parts
             .headers
             .get("x-user-id")
             .and_then(|v| v.to_str().ok())
-            .map(|s| s.to_string())
+            .map(std::string::ToString::to_string)
         {
             let login = parts
                 .headers
                 .get("x-user-login")
-                .and_then(|v| v.to_str().ok())
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| user_id.clone());
+                .and_then(|v| v.to_str().ok()).map_or_else(|| user_id.clone(), std::string::ToString::to_string);
 
             let role = parts
                 .headers
                 .get("x-user-role")
                 .and_then(|v| v.to_str().ok())
-                .map(|s| s.to_string());
+                .map(std::string::ToString::to_string);
 
             let provider = parts
                 .headers
                 .get("x-user-provider")
                 .and_then(|v| v.to_str().ok())
-                .map(|s| s.to_string());
+                .map(std::string::ToString::to_string);
 
             let group_id = parts
                 .headers
                 .get("x-group-id")
                 .and_then(|v| v.to_str().ok())
-                .map(|s| s.to_string());
+                .map(std::string::ToString::to_string);
 
             return Ok(AuthUser {
                 user_id,

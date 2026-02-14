@@ -40,12 +40,9 @@ impl FromStr for AuthProvider {
 /// Logs a warning if the env var is set but cannot be parsed.
 fn env_or<T: FromStr>(key: &str, default: T) -> T {
     match env::var(key) {
-        Ok(v) => match v.parse() {
-            Ok(parsed) => parsed,
-            Err(_) => {
-                tracing::warn!(key, value = %v, "Failed to parse env var, using default");
-                default
-            }
+        Ok(v) => if let Ok(parsed) = v.parse() { parsed } else {
+            tracing::warn!(key, value = %v, "Failed to parse env var, using default");
+            default
         },
         Err(_) => default,
     }
@@ -198,6 +195,7 @@ pub struct AuthConfig {
     pub cache_ttl_secs: u64,
 }
 
+#[allow(clippy::missing_fields_in_debug)]
 impl fmt::Debug for AuthConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("AuthConfig")
@@ -241,6 +239,7 @@ pub struct SlackConfig {
     pub bot_user_id: Option<String>,
 }
 
+#[allow(clippy::missing_fields_in_debug)]
 impl fmt::Debug for SlackConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SlackConfig")

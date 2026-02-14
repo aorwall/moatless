@@ -81,12 +81,12 @@ fn log_stdin_line(json: &str) {
                     .and_then(|v| v.as_str())
             });
 
-        let mut summary = format!("type={}", msg_type);
+        let mut summary = format!("type={msg_type}");
         if let Some(rid) = request_id {
-            summary.push_str(&format!(" req={}", rid));
+            summary.push_str(&format!(" req={rid}"));
         }
         if let Some(st) = subtype {
-            summary.push_str(&format!(" subtype={}", st));
+            summary.push_str(&format!(" subtype={st}"));
         }
         tracing::debug!("CLI stdin: {}", summary);
     } else if json.len() > 200 {

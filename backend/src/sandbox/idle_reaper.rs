@@ -85,11 +85,11 @@ pub fn spawn_idle_reaper(
 
             // Wait before next cycle
             tokio::select! {
-                _ = cancel.cancelled() => {
+                () = cancel.cancelled() => {
                     info!("Idle reaper shutting down (cancellation)");
                     return;
                 }
-                _ = tokio::time::sleep(interval) => {}
+                () = tokio::time::sleep(interval) => {}
             }
         }
     })
@@ -140,12 +140,9 @@ async fn reap_idle_sandboxes(
 
     let mut stopped_count = 0u32;
     for task_id in &task_ids {
-        let is_idle = match latest_times.get(task_id) {
-            Some(latest_at) => *latest_at < cutoff,
-            None => {
-                debug!(task_id = %task_id, "No activity timestamp found, skipping");
-                continue;
-            }
+        let is_idle = if let Some(latest_at) = latest_times.get(task_id) { *latest_at < cutoff } else {
+            debug!(task_id = %task_id, "No activity timestamp found, skipping");
+            continue;
         };
 
         if is_idle {

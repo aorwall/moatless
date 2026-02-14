@@ -119,7 +119,7 @@ pub fn build_pod(
         ..Default::default()
     };
 
-    let server_count = plan.repo_config.servers.as_ref().map(|s| s.len()).unwrap_or(0);
+    let server_count = plan.repo_config.servers.as_ref().map_or(0, std::vec::Vec::len);
     info!(
         task_id,
         pod_name = %pod_name,

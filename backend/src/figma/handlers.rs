@@ -133,7 +133,7 @@ pub async fn import_node(
     let file_name = nodes_data
         .get("name")
         .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
+        .map(std::string::ToString::to_string);
 
     // Extract the node data
     let node_data = nodes_data
@@ -144,7 +144,7 @@ pub async fn import_node(
     let node_name = node_data
         .and_then(|d| d.get("name"))
         .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
+        .map(std::string::ToString::to_string);
 
     // Download image from Figma
     let mut has_image = false;

@@ -64,7 +64,7 @@ impl<'r> sqlx::Decode<'r, sqlx::Postgres> for MessageType {
     }
 }
 
-impl<'q> sqlx::Encode<'q, sqlx::Postgres> for MessageType {
+impl sqlx::Encode<'_, sqlx::Postgres> for MessageType {
     fn encode_by_ref(
         &self,
         buf: &mut sqlx::postgres::PgArgumentBuffer,
@@ -126,7 +126,7 @@ impl<'r> sqlx::Decode<'r, sqlx::Postgres> for MessageRole {
     }
 }
 
-impl<'q> sqlx::Encode<'q, sqlx::Postgres> for MessageRole {
+impl sqlx::Encode<'_, sqlx::Postgres> for MessageRole {
     fn encode_by_ref(
         &self,
         buf: &mut sqlx::postgres::PgArgumentBuffer,
@@ -191,7 +191,7 @@ impl<'r> sqlx::Decode<'r, sqlx::Postgres> for TurnStatus {
     }
 }
 
-impl<'q> sqlx::Encode<'q, sqlx::Postgres> for TurnStatus {
+impl sqlx::Encode<'_, sqlx::Postgres> for TurnStatus {
     fn encode_by_ref(
         &self,
         buf: &mut sqlx::postgres::PgArgumentBuffer,
@@ -259,7 +259,7 @@ impl<'r> sqlx::Decode<'r, sqlx::Postgres> for ContentBlockType {
     }
 }
 
-impl<'q> sqlx::Encode<'q, sqlx::Postgres> for ContentBlockType {
+impl sqlx::Encode<'_, sqlx::Postgres> for ContentBlockType {
     fn encode_by_ref(
         &self,
         buf: &mut sqlx::postgres::PgArgumentBuffer,

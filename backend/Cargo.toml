@@ -108,6 +108,9 @@ prost = "0.13"
 # URL encoding
 urlencoding = "2"
 
+[lints]
+workspace = true
+
 [dev-dependencies]
 tokio-test = "0.4"
 sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "postgres", "migrate"] }

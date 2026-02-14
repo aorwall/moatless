@@ -82,11 +82,10 @@ impl LeaderElection {
                     .unwrap_or(self.lease_duration_secs);
 
                 let is_expired = renew_time
-                    .map(|t| {
+                    .is_none_or(|t| {
                         let elapsed = now.duration_since(t);
                         elapsed.as_secs() > duration as i64
-                    })
-                    .unwrap_or(true);
+                    });
 
                 if holder == Some(self.identity.as_str()) {
                     // We hold it — renew

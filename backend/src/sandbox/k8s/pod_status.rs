@@ -55,8 +55,7 @@ pub fn is_sandbox_container_ready(pod: &Pod) -> bool {
         .as_ref()
         .and_then(|s| s.container_statuses.as_ref())
         .and_then(|statuses| statuses.iter().find(|cs| cs.name == "sandbox"))
-        .map(|cs| cs.started.unwrap_or(false) && cs.ready)
-        .unwrap_or(false)
+        .is_some_and(|cs| cs.started.unwrap_or(false) && cs.ready)
 }
 
 /// Check for permanent container failures in the **sandbox** container.

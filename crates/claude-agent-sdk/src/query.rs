@@ -365,7 +365,7 @@ fn build_initialize_request(
                 .ok()
                 .and_then(|v| v.as_str().map(|s| s.to_string()))
                 .unwrap_or_else(|| format!("{:?}", def.event));
-            let callback_id = format!("sdk-hook-{}-{}", event_name, i);
+            let callback_id = format!("sdk-hook-{event_name}-{i}");
             let mut entry = serde_json::json!({
                 "hookCallbackIds": [callback_id],
             });

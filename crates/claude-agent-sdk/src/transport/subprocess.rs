@@ -647,7 +647,7 @@ fn format_content_blocks(blocks: &[ContentBlock]) -> String {
                 out.push('\n');
             }
             ContentBlock::ToolUse { id, name, input } => {
-                let _ = writeln!(out, "  ToolUse[{}]: {}", id, name);
+                let _ = writeln!(out, "  ToolUse[{id}]: {name}");
                 let input_str =
                     serde_json::to_string_pretty(input).unwrap_or_else(|_| input.to_string());
                 out.push_str(&indent(&truncate(&input_str, 500), "    "));
@@ -663,7 +663,7 @@ fn format_content_blocks(blocks: &[ContentBlock]) -> String {
                 } else {
                     "ok"
                 };
-                let _ = writeln!(out, "  ToolResult[{}]: {}", tool_use_id, status);
+                let _ = writeln!(out, "  ToolResult[{tool_use_id}]: {status}");
                 if let Some(content) = content {
                     let content_str = match content {
                         Value::String(s) => s.clone(),
@@ -683,7 +683,7 @@ fn format_content_blocks(blocks: &[ContentBlock]) -> String {
                 let _ = writeln!(out, "  Image: (media={})", source.media_type);
             }
             ContentBlock::ServerToolUse { id, name, input } => {
-                let _ = writeln!(out, "  ServerToolUse[{}]: {}", id, name);
+                let _ = writeln!(out, "  ServerToolUse[{id}]: {name}");
                 let input_str =
                     serde_json::to_string_pretty(input).unwrap_or_else(|_| input.to_string());
                 out.push_str(&indent(&truncate(&input_str, 500), "    "));
@@ -693,7 +693,7 @@ fn format_content_blocks(blocks: &[ContentBlock]) -> String {
                 tool_use_id,
                 content,
             } => {
-                let _ = writeln!(out, "  WebSearchToolResult[{}]", tool_use_id);
+                let _ = writeln!(out, "  WebSearchToolResult[{tool_use_id}]");
                 if let Some(content) = content {
                     let content_str = serde_json::to_string_pretty(content)
                         .unwrap_or_else(|_| content.to_string());
@@ -729,7 +729,7 @@ fn format_tool_input(tool_name: &str, input: &Map<String, Value>) -> String {
                 Value::String(s) => truncate(s, 200),
                 other => truncate(&other.to_string(), 200),
             };
-            out.push_str(&format!("  input.{}: {}\n", field, val_str));
+            out.push_str(&format!("  input.{field}: {val_str}\n"));
         }
     }
 
@@ -756,7 +756,7 @@ fn short_id(id: &str) -> &str {
 /// Indent each line of text with the given prefix.
 fn indent(text: &str, prefix: &str) -> String {
     text.lines()
-        .map(|line| format!("{}{}", prefix, line))
+        .map(|line| format!("{prefix}{line}"))
         .collect::<Vec<_>>()
         .join("\n")
 }

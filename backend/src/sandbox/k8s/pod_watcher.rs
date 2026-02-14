@@ -109,11 +109,11 @@ pub fn spawn_pod_lifecycle_watcher(
 
             // Wait before retrying (also serves as renew interval for non-leaders)
             tokio::select! {
-                _ = cancel.cancelled() => {
+                () = cancel.cancelled() => {
                     info!("Pod watcher shutting down (cancellation)");
                     return;
                 }
-                _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {}
+                () = tokio::time::sleep(std::time::Duration::from_secs(5)) => {}
             }
         }
     })
@@ -137,7 +137,7 @@ async fn run_pod_watch(
 
     loop {
         tokio::select! {
-            _ = cancel.cancelled() => {
+            () = cancel.cancelled() => {
                 return;
             }
             _ = renew_interval.tick() => {
@@ -200,13 +200,10 @@ async fn process_watcher_event(
     match event {
         watcher::Event::Apply(pod) | watcher::Event::InitApply(pod) => {
             let is_init = matches!(event, watcher::Event::InitApply(_));
-            let task_id = match extract_task_id(pod) {
-                Some(id) => id,
-                None => {
-                    let name = pod.metadata.name.as_deref().unwrap_or("unknown");
-                    warn!(pod_name = name, "Pod has no moatless.io/task-id label — skipping");
-                    return;
-                }
+            let task_id = if let Some(id) = extract_task_id(pod) { id } else {
+                let name = pod.metadata.name.as_deref().unwrap_or("unknown");
+                warn!(pod_name = name, "Pod has no moatless.io/task-id label — skipping");
+                return;
             };
             let pod_name = pod
                 .metadata
@@ -375,9 +372,7 @@ async fn process_watcher_event(
 
             if has_fatal {
                 let error_msg = transitions
-                    .iter()
-                    .filter_map(|(_, err)| err.as_ref())
-                    .next()
+                    .iter().find_map(|(_, err)| err.as_ref())
                     .cloned()
                     .unwrap_or_else(|| "Sandbox terminated unexpectedly".to_string());
 
@@ -397,13 +392,10 @@ async fn process_watcher_event(
             pod_states.insert(pod_name, new_state);
         }
         watcher::Event::Delete(pod) => {
-            let task_id = match extract_task_id(pod) {
-                Some(id) => id,
-                None => {
-                    let name = pod.metadata.name.as_deref().unwrap_or("unknown");
-                    warn!(pod_name = name, "Deleted pod has no moatless.io/task-id label — skipping");
-                    return;
-                }
+            let task_id = if let Some(id) = extract_task_id(pod) { id } else {
+                let name = pod.metadata.name.as_deref().unwrap_or("unknown");
+                warn!(pod_name = name, "Deleted pod has no moatless.io/task-id label — skipping");
+                return;
             };
             let pod_name = pod
                 .metadata
@@ -423,14 +415,7 @@ async fn process_watcher_event(
             // Check if sibling pods for this task still exist
             let siblings = sibling_pods_for_task(pod_states, &task_id, pod_name);
 
-            if !siblings.is_empty() {
-                info!(
-                    task_id = %task_id,
-                    pod_name = %pod_name,
-                    sibling_count = siblings.len(),
-                    "Old pod deleted but siblings exist — skipping NotCreated"
-                );
-            } else {
+            if siblings.is_empty() {
                 // Distinguish Stopped vs NotCreated by checking if Deployment still exists
                 let (env_status, sandbox_sub) = match deployment::find_deployment(k8s, &task_id).await {
                     Ok(Some(_)) => {
@@ -521,6 +506,13 @@ async fn process_watcher_event(
                         )
                         .await;
                 }
+            } else {
+                info!(
+                    task_id = %task_id,
+                    pod_name = %pod_name,
+                    sibling_count = siblings.len(),
+                    "Old pod deleted but siblings exist — skipping NotCreated"
+                );
             }
         }
         watcher::Event::Init => {
@@ -564,8 +556,7 @@ fn extract_pod_observed_state(pod: &Pod, pod_name: &str, task_id: &str) -> PodOb
     }
 
     let restart_count = sandbox_container_status
-        .map(|cs| cs.restart_count)
-        .unwrap_or(0);
+        .map_or(0, |cs| cs.restart_count);
 
     let terminated_reason = sandbox_container_status
         .and_then(|cs| cs.state.as_ref())
@@ -603,12 +594,11 @@ fn extract_pod_observed_state(pod: &Pod, pod_name: &str, task_id: &str) -> PodOb
         .status
         .as_ref()
         .and_then(|s| s.conditions.as_ref())
-        .map(|conditions| {
+        .is_some_and(|conditions| {
             conditions
                 .iter()
                 .any(|c| c.type_ == "Ready" && c.status == "True")
-        })
-        .unwrap_or(false);
+        });
 
     // Extract server container states
     let server_containers = extract_container_observed_statuses(pod)
@@ -695,7 +685,7 @@ fn detect_transitions(
     }
 
     // Check for pod phase transitions to terminal states
-    let prev_phase = prev.map(|p| p.phase.as_str()).unwrap_or("Unknown");
+    let prev_phase = prev.map_or("Unknown", |p| p.phase.as_str());
     if current.phase != prev_phase {
         match current.phase.as_str() {
             "Failed" => {
@@ -703,8 +693,7 @@ fn detect_transitions(
                 let is_evicted = current
                     .terminated_reason
                     .as_deref()
-                    .map(|r| r.contains("Evict"))
-                    .unwrap_or(false);
+                    .is_some_and(|r| r.contains("Evict"));
 
                 if is_evicted {
                     events.push((
@@ -730,7 +719,7 @@ fn detect_transitions(
 
     // Check for pod becoming ready (not-ready → ready)
     if current.ready {
-        let was_ready = prev.map(|p| p.ready).unwrap_or(false);
+        let was_ready = prev.is_some_and(|p| p.ready);
         if !was_ready {
             events.push(("pod_ready".to_string(), None));
         }

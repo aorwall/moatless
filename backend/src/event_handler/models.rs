@@ -37,21 +37,11 @@ impl AgentEvent {
     /// Parse `event_type` + `sub_type` into a typed `EventKey`.
     pub fn event_key(&self) -> EventKey {
         match self.event_type {
-            EventType::Agent => AgentSubType::try_from(self.sub_type.as_str())
-                .map(EventKey::Agent)
-                .unwrap_or_else(|_| self.unknown()),
-            EventType::Task => TaskSubType::try_from(self.sub_type.as_str())
-                .map(EventKey::Task)
-                .unwrap_or_else(|_| self.unknown()),
-            EventType::TaskTurn => TaskTurnSubType::try_from(self.sub_type.as_str())
-                .map(EventKey::TaskTurn)
-                .unwrap_or_else(|_| self.unknown()),
-            EventType::Sandbox => SandboxSubType::try_from(self.sub_type.as_str())
-                .map(EventKey::Sandbox)
-                .unwrap_or_else(|_| self.unknown()),
-            EventType::Server => ServerSubType::try_from(self.sub_type.as_str())
-                .map(EventKey::Server)
-                .unwrap_or_else(|_| self.unknown()),
+            EventType::Agent => AgentSubType::try_from(self.sub_type.as_str()).map_or_else(|_| self.unknown(), EventKey::Agent),
+            EventType::Task => TaskSubType::try_from(self.sub_type.as_str()).map_or_else(|_| self.unknown(), EventKey::Task),
+            EventType::TaskTurn => TaskTurnSubType::try_from(self.sub_type.as_str()).map_or_else(|_| self.unknown(), EventKey::TaskTurn),
+            EventType::Sandbox => SandboxSubType::try_from(self.sub_type.as_str()).map_or_else(|_| self.unknown(), EventKey::Sandbox),
+            EventType::Server => ServerSubType::try_from(self.sub_type.as_str()).map_or_else(|_| self.unknown(), EventKey::Server),
             EventType::Resources => self.unknown(),
         }
     }

@@ -34,7 +34,7 @@ pub async fn get_github_config(
                 .as_ref()
                 .and_then(|m| m.get("login"))
                 .and_then(|v| v.as_str())
-                .map(|s| s.to_string());
+                .map(std::string::ToString::to_string);
 
             Ok(Json(GitHubConfigResponse {
                 connected: true,

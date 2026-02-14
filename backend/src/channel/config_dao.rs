@@ -70,12 +70,14 @@ impl ChannelConfigRepository for PgChannelConfigRepository {
 
         if let Some(p) = provider {
             param_idx += 1;
-            sql.push_str(&format!(" AND provider = ${param_idx}"));
+            use std::fmt::Write;
+            let _ = write!(sql, " AND provider = ${param_idx}");
             binds.push(p.to_string());
         }
         if let Some(r) = repository_id {
             param_idx += 1;
-            sql.push_str(&format!(" AND repository_id = ${param_idx}"));
+            use std::fmt::Write;
+            let _ = write!(sql, " AND repository_id = ${param_idx}");
             binds.push(r.to_string());
         }
         if active_only {

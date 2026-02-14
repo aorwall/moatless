@@ -59,8 +59,8 @@ impl RedisStreamConsumer {
                 }
                 error!(error = %e, "SSE consumer error, retrying in 2s");
                 tokio::select! {
-                    _ = tokio::time::sleep(std::time::Duration::from_secs(2)) => {}
-                    _ = self.cancel.cancelled() => { break; }
+                    () = tokio::time::sleep(std::time::Duration::from_secs(2)) => {}
+                    () = self.cancel.cancelled() => { break; }
                 }
             }
         }
@@ -76,8 +76,8 @@ impl RedisStreamConsumer {
         if streams.is_empty() {
             // No streams yet — wait a bit before scanning again
             tokio::select! {
-                _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {}
-                _ = self.cancel.cancelled() => {}
+                () = tokio::time::sleep(std::time::Duration::from_secs(5)) => {}
+                () = self.cancel.cancelled() => {}
             }
             return Ok(());
         }

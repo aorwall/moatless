@@ -126,9 +126,8 @@ pub async fn run_consumer(state: SandboxState) {
 
                 let _ = prompt.sender.send(response);
                 continue;
-            } else {
-                info!("Pending prompt was already consumed, continuing with messages");
             }
+            info!("Pending prompt was already consumed, continuing with messages");
         }
 
         // If agent is running (prompt path fell through), defer processing

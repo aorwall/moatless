@@ -39,12 +39,9 @@ pub async fn create_task_ingress_routes(
     server_ports: &BTreeMap<String, u16>,
     config: &Config,
 ) -> Result<(), kube::Error> {
-    let proxy_domain = match config.proxy.domain.as_deref() {
-        Some(d) => d,
-        None => {
-            debug!(task_id, "No PROXY_DOMAIN configured, skipping IngressRoute creation");
-            return Ok(());
-        }
+    let proxy_domain = if let Some(d) = config.proxy.domain.as_deref() { d } else {
+        debug!(task_id, "No PROXY_DOMAIN configured, skipping IngressRoute creation");
+        return Ok(());
     };
 
     let api = ingress_api(k8s);

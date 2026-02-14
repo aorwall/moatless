@@ -1,7 +1,5 @@
 //! Sandbox Controller library — re-exports all modules for integration tests.
 
-#![allow(dead_code)]
-
 pub mod auth;
 pub mod channel;
 pub mod command;

@@ -167,7 +167,7 @@ impl TaskRepository for PgTaskRepository {
         .fetch_all(&self.0)
         .await?;
 
-        let total = rows.first().map(|r| r.total_count).unwrap_or(0);
+        let total = rows.first().map_or(0, |r| r.total_count);
 
         let tasks: Vec<Task> = rows
             .into_iter()

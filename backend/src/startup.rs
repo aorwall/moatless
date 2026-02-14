@@ -66,12 +66,9 @@ pub fn spawn_metrics_server(port: u16) {
 ///
 /// Returns `None` when `DATABASE_URL` is unset or connection fails.
 pub async fn init_database(database_url: Option<&str>, max_connections: u32) -> Option<DbPool> {
-    let url = match database_url {
-        Some(u) => u,
-        None => {
-            info!("DATABASE_URL not set — database features disabled");
-            return None;
-        }
+    let url = if let Some(u) = database_url { u } else {
+        info!("DATABASE_URL not set — database features disabled");
+        return None;
     };
 
     match db::create_pool(url, max_connections).await {
@@ -97,14 +94,11 @@ pub async fn init_database(database_url: Option<&str>, max_connections: u32) -> 
 
 /// Optionally connect a Redis-backed event publisher.
 pub async fn init_event_publisher(config: &Config) -> Option<Arc<dyn EventPublisher>> {
-    match config.redis.url {
-        Some(ref url) => RedisEventPublisher::connect(url, config.redis.max_stream_length)
-            .await
-            .map(|p| Arc::new(p) as Arc<dyn EventPublisher>),
-        None => {
-            info!("REDIS_URL not set — event publishing disabled");
-            None
-        }
+    if let Some(ref url) = config.redis.url { RedisEventPublisher::connect(url, config.redis.max_stream_length)
+    .await
+    .map(|p| Arc::new(p) as Arc<dyn EventPublisher>) } else {
+        info!("REDIS_URL not set — event publishing disabled");
+        None
     }
 }
 

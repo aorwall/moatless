@@ -315,9 +315,7 @@ impl SandboxProvider for K8sSandboxProvider {
                     let name = cs.name.strip_suffix("-server").unwrap_or(&cs.name);
                     name == config.name
                 });
-                let status = container
-                    .map(|cs| cs.to_server_status().to_string())
-                    .unwrap_or_else(|| "starting".to_string());
+                let status = container.map_or_else(|| "starting".to_string(), |cs| cs.to_server_status().to_string());
                 let mut snapshot = ServerSnapshot::from_config(config, &status);
                 snapshot.error = container.and_then(|cs| cs.waiting_reason.clone());
                 snapshot
@@ -392,6 +390,7 @@ impl K8sSandboxProvider {
     }
 
     /// Create or find existing user secret (updating credentials if found).
+    #[allow(dead_code)] // Infrastructure method for future use
     async fn create_or_find_user_secret(
         &self,
         user_id: &str,
