@@ -113,6 +113,32 @@ impl ChannelProviders {
         }
     }
 
+    /// Build channel providers from application config.
+    ///
+    /// Returns `None` when no providers are configured.
+    pub fn from_config(config: &crate::config::Config) -> Option<Self> {
+        let mut providers = Self::new();
+        let mut has_any = false;
+
+        if let (Some(ref token), Some(ref secret)) =
+            (&config.slack.bot_token, &config.slack.signing_secret)
+        {
+            let slack = super::slack::provider::SlackProvider::new(
+                token,
+                secret,
+                config.slack.bot_user_id.clone(),
+            );
+            providers.register(Arc::new(slack));
+            has_any = true;
+            tracing::info!("Slack channel provider configured");
+        }
+
+        if has_any { Some(providers) } else {
+            tracing::info!("No channel providers configured");
+            None
+        }
+    }
+
     pub fn register(&mut self, provider: Arc<dyn ChannelProvider>) {
         self.providers.insert(provider.channel_type(), provider);
     }

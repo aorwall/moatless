@@ -41,6 +41,21 @@ pub struct OAuthProviders {
 }
 
 impl OAuthProviders {
+    /// Build providers from application config.
+    ///
+    /// Each provider is only created when its required env vars are set.
+    pub fn from_config(config: &Config) -> Self {
+        let github = super::oauth::github::GitHubOAuthProvider::from_config(config).map(|p| {
+            tracing::info!("GitHub OAuth provider configured");
+            Arc::new(p) as Arc<dyn OAuthProvider>
+        });
+        let auth0 = super::oauth::auth0::Auth0OAuthProvider::from_config(config).map(|p| {
+            tracing::info!("Auth0 OAuth provider configured");
+            Arc::new(p) as Arc<dyn OAuthProvider>
+        });
+        Self { github, auth0 }
+    }
+
     /// Look up a provider by AuthProvider enum.
     pub fn get(&self, provider: AuthProvider) -> Option<&Arc<dyn OAuthProvider>> {
         match provider {
@@ -61,6 +76,29 @@ pub struct AuthState {
     pub api_keys: Arc<dyn ApiKeyRepository>,
     pub users: Arc<dyn UserRepository>,
     pub provider_tokens: Arc<dyn ProviderTokenAuthRepository>,
+}
+
+impl AuthState {
+    /// Build auth state with Postgres-backed repositories.
+    pub fn new(pool: DbPool, config: Arc<Config>) -> Self {
+        use super::api_keys::PgApiKeyRepository;
+        use super::provider_tokens::PgProviderTokenAuthRepository;
+        use super::sessions::PgSessionRepository;
+        use super::users::PgUserRepository;
+
+        let providers = OAuthProviders::from_config(&config);
+        let cache = AuthCache::new(config.auth.cache_ttl_secs);
+        Self {
+            sessions: Arc::new(PgSessionRepository(pool.clone())),
+            api_keys: Arc::new(PgApiKeyRepository(pool.clone())),
+            users: Arc::new(PgUserRepository(pool.clone())),
+            provider_tokens: Arc::new(PgProviderTokenAuthRepository(pool.clone())),
+            providers: Arc::new(providers),
+            cache,
+            db: pool,
+            config,
+        }
+    }
 }
 
 #[derive(OpenApi)]
