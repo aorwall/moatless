@@ -170,7 +170,15 @@ export const ResourcesEventSchema = BaseEventSchema.extend({
 // Agent event (consolidated: messages, results, lifecycle)
 export const AgentEventSchema = BaseEventSchema.extend({
   type: z.literal('agent'),
-  subType: z.enum(['started', 'stopped', 'message', 'completed', 'error', 'pending_response']),
+  subType: z.enum([
+    'started',
+    'stopped',
+    'message',
+    'completed',
+    'error',
+    'pending_response',
+    'session_init',
+  ]),
   agentType: z.string(),
   turnNumber: z.number().optional(),
   payload: z.union([

@@ -31,6 +31,15 @@ pub fn spawn_agent_execution(state: SandboxState, request: AgentRunRequest) {
             )
             .await;
         }
+
+        // Wake consumer to check for queued messages after agent finishes.
+        // Delay 2s to avoid racing with session_init setting agent_session_id
+        // on the messages that were just processed.
+        let notify = state.consumer_notify.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            notify.notify_one();
+        });
     });
 }
 
@@ -113,7 +122,18 @@ async fn execute_agent(
                     model = %init.model,
                     "Agent initialized"
                 );
-                state.agent.set_session_id(init.session_id).await;
+                state.agent.set_session_id(init.session_id.clone()).await;
+
+                // Publish session_init so backend can set session_id on user messages
+                publish_agent_event(
+                    state,
+                    AgentSubType::SessionInit,
+                    serde_json::json!({
+                        "session_id": init.session_id,
+                        "model": init.model,
+                    }),
+                )
+                .await;
             }
             SdkMessage::Assistant(assistant) => {
                 debug!(
@@ -190,6 +210,15 @@ async fn execute_agent(
                 }
 
                 info!(event_count, is_error, "Agent execution completed");
+            }
+            SdkMessage::User(user_msg) => {
+                debug!(
+                    uuid = ?user_msg.uuid,
+                    blocks = user_msg.message.content.len(),
+                    "User message (tool results) received"
+                );
+                let payload = serde_json::to_value(&user_msg).unwrap_or_default();
+                publish_agent_event(state, AgentSubType::Message, payload).await;
             }
             // Forward other message types as generic events
             msg => {

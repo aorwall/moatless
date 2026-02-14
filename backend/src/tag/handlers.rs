@@ -4,10 +4,10 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::Json;
 
-use crate::db::tag_dao;
+use super::dao as tag_dao;
 use crate::state::AppState;
 
-use super::types::TagResponse;
+use super::schemas::TagResponse;
 
 /// List all tags.
 #[utoipa::path(
@@ -16,7 +16,7 @@ use super::types::TagResponse;
     tag = "tags",
     responses(
         (status = 200, description = "List of tags", body = Vec<TagResponse>),
-        (status = 500, description = "Internal error", body = crate::sandbox::types::ErrorBody)
+        (status = 500, description = "Internal error", body = crate::sandbox::schemas::ErrorBody)
     )
 )]
 pub async fn list_tags(

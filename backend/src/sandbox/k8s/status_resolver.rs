@@ -16,7 +16,8 @@ use super::health;
 use super::pod_status::{is_sandbox_container_ready, pick_best_pod};
 use crate::config::Config;
 use crate::db::DbPool;
-use crate::sandbox::types::*;
+use crate::sandbox::models::*;
+use crate::sandbox::schemas::*;
 
 /// Read-only domain service for resolving sandbox status from the K8s API.
 pub struct StatusResolver {
@@ -269,7 +270,7 @@ impl StatusResolver {
     async fn get_server_configs(
         &self,
         task_id: &str,
-    ) -> Vec<crate::sandbox::types::ServerConfig> {
+    ) -> Vec<crate::sandbox::models::ServerConfig> {
         let Some(ref pool) = self.db_pool else {
             return vec![];
         };

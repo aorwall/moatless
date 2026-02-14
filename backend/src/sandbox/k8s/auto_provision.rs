@@ -7,10 +7,13 @@ use std::env;
 use tracing::{info, warn};
 
 use super::client::K8sClient;
-use crate::db::models::RepositoryRow;
-use crate::db::{provider_token_dao, repository_dao, task_dao, DbPool};
+use crate::auth::provider_token_dao;
+use crate::db::DbPool;
+use crate::repository::dao as repository_dao;
+use crate::repository::models::Repository;
+use crate::task::dao as task_dao;
 use crate::sandbox::error::SandboxError;
-use crate::sandbox::types::{ProvisionPlan, ProvisionRequest, RepoConfig, ServerConfig};
+use crate::sandbox::models::{ProvisionPlan, ProvisionRequest, RepoConfig, ServerConfig};
 
 /// Build a `ProvisionRequest` from database state + recovered credentials.
 ///
@@ -147,7 +150,7 @@ async fn resolve_credentials(
 }
 
 /// Build a `RepoConfig` from the database repository row.
-fn build_repo_config(repo: &RepositoryRow) -> RepoConfig {
+fn build_repo_config(repo: &Repository) -> RepoConfig {
     let servers = build_servers(repo);
     let plugin_ids = parse_json_string_array(&repo.plugins);
 
@@ -176,7 +179,7 @@ fn build_repo_config(repo: &RepositoryRow) -> RepoConfig {
 ///
 /// Used by `provider.rs` as a fallback when gRPC is unreachable —
 /// derives server entries from DB so the frontend can display them.
-pub fn build_server_configs(repo: &RepositoryRow) -> Vec<ServerConfig> {
+pub fn build_server_configs(repo: &Repository) -> Vec<ServerConfig> {
     build_servers(repo)
 }
 
@@ -201,7 +204,7 @@ pub async fn get_server_configs(pool: &DbPool, task_id: &str) -> Result<Vec<Serv
 /// If the `servers` JSONB column contains entries, those are used as-is
 /// (data-driven). If empty or missing, backwards-compatible defaults are
 /// injected: a "files" server and optionally a "preview" server.
-fn build_servers(repo: &RepositoryRow) -> Vec<ServerConfig> {
+fn build_servers(repo: &Repository) -> Vec<ServerConfig> {
     let mut servers: Vec<ServerConfig> = repo
         .servers
         .as_ref()
@@ -285,7 +288,7 @@ fn assign_missing_ports(servers: &mut [ServerConfig]) {
 }
 
 /// Parse the `env_vars` JSONB column into a HashMap.
-fn parse_env_vars(repo: &RepositoryRow) -> Option<HashMap<String, String>> {
+fn parse_env_vars(repo: &Repository) -> Option<HashMap<String, String>> {
     repo.env_vars
         .as_ref()
         .and_then(|v| serde_json::from_value(v.clone()).ok())
@@ -299,7 +302,7 @@ fn parse_json_string_array(value: &Option<serde_json::Value>) -> Option<Vec<Stri
 }
 
 /// Build preview_config JSON pass-through from flattened DB columns.
-fn build_preview_config(repo: &RepositoryRow) -> Option<serde_json::Value> {
+fn build_preview_config(repo: &Repository) -> Option<serde_json::Value> {
     let has_any = repo.server_start_commands.is_some()
         || repo.build_command.is_some()
         || repo.build_output_directory.is_some()
@@ -351,7 +354,7 @@ fn build_preview_config(repo: &RepositoryRow) -> Option<serde_json::Value> {
 }
 
 /// Build code_execution JSON pass-through from flattened DB columns.
-fn build_code_execution(repo: &RepositoryRow) -> Option<serde_json::Value> {
+fn build_code_execution(repo: &Repository) -> Option<serde_json::Value> {
     let has_any = repo.setup_commands.is_some()
         || repo.docker_image.is_some()
         || repo.env_vars.is_some();

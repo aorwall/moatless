@@ -8,10 +8,12 @@ use redis::Value;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
+use moatless_events::{AgentSubType, TaskSubType, TaskTurnSubType};
+
 use crate::state::AppState;
 
 use super::agent_handlers;
-use super::types::AgentEvent;
+use super::models::{AgentEvent, EventKey};
 
 /// Consumer group name — separate from the SSE consumer group.
 const CONSUMER_GROUP: &str = "event-handler";
@@ -229,37 +231,53 @@ impl EventHandlerConsumer {
 
     /// Dispatch a parsed event to the appropriate handler.
     async fn dispatch_event(&self, event: &AgentEvent) {
-        let key = format!("{}.{}", event.event_type, event.sub_type);
-        match key.as_str() {
-            "taskTurn.completed" | "agent.completed" => {
+        match event.event_key() {
+            EventKey::TaskTurn(TaskTurnSubType::Completed)
+            | EventKey::Agent(AgentSubType::Completed) => {
                 agent_handlers::handle_agent_completed(&self.state, event).await;
                 self.notify_channels(event).await;
             }
-            "agent.message" => {
+            EventKey::Agent(AgentSubType::Message) => {
                 agent_handlers::handle_agent_message(&self.state, event).await;
             }
-            "agent.stopped" | "taskTurn.stopped" => {
+            EventKey::Agent(AgentSubType::SessionInit) => {
+                agent_handlers::handle_agent_session_init(&self.state, event).await;
+            }
+            EventKey::Agent(AgentSubType::Stopped)
+            | EventKey::TaskTurn(TaskTurnSubType::Stopped) => {
                 agent_handlers::handle_agent_stopped(&self.state, event).await;
             }
-            "agent.error" | "taskTurn.error" => {
+            EventKey::Agent(AgentSubType::Error)
+            | EventKey::TaskTurn(TaskTurnSubType::Error) => {
                 agent_handlers::handle_agent_error(&self.state, event).await;
                 self.notify_channels(event).await;
             }
-            "task.metadata.updated" => {
+            EventKey::Task(TaskSubType::MetadataUpdated) => {
                 agent_handlers::handle_task_metadata_updated(&self.state, event).await;
             }
             // Known SSE-only event types — forwarded to frontend but not processed here
-            key if key.starts_with("sandbox.") || key.starts_with("server.") || key.starts_with("resources.") => {
+            EventKey::Sandbox(_)
+            | EventKey::Server(_)
+            | EventKey::Agent(AgentSubType::Started | AgentSubType::PendingResponse)
+            | EventKey::Task(
+                TaskSubType::Open
+                | TaskSubType::Created
+                | TaskSubType::Closed
+                | TaskSubType::Updated,
+            )
+            | EventKey::TaskTurn(TaskTurnSubType::Active) => {
                 debug!(
                     task_id = %event.task_id,
-                    event_key = %key,
+                    event_type = %event.event_type,
+                    sub_type = %event.sub_type,
                     "SSE-only event type, skipping"
                 );
             }
-            _ => {
+            EventKey::Unknown(ref t, ref s) => {
                 warn!(
                     task_id = %event.task_id,
-                    event_key = %key,
+                    event_type = %t,
+                    sub_type = %s,
                     "Unhandled event type — event not processed"
                 );
             }

@@ -12,7 +12,7 @@
 
 use k8s_openapi::api::core::v1::Pod;
 
-use crate::sandbox::types::{
+use crate::sandbox::models::{
     ContainerObservedStatus, ContainerState, EnvironmentStatus, PodPhase,
 };
 

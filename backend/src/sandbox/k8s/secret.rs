@@ -7,7 +7,7 @@ use tracing::{debug, info, warn};
 
 use super::client::K8sClient;
 use super::naming::{generate_secret_name, generate_user_secret_name};
-use crate::sandbox::types::UserCredentials;
+use crate::sandbox::models::UserCredentials;
 
 // =============================================================================
 // Legacy task secret operations (cleanup only)

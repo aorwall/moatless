@@ -13,4 +13,5 @@ pub mod k8s;
 pub mod notify;
 pub mod provider;
 pub mod routes;
-pub mod types;
+pub mod models;
+pub mod schemas;

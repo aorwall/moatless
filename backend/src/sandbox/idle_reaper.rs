@@ -18,7 +18,6 @@ use super::k8s::client::K8sClient;
 use super::k8s::leader_election::LeaderElection;
 use super::provider::SandboxProvider;
 use crate::config::Config;
-use crate::db;
 use crate::db::DbPool;
 
 /// Spawn the idle sandbox reaper as a background tokio task.
@@ -102,7 +101,7 @@ async fn reap_idle_sandboxes(
     debug!(count = task_ids.len(), "Found running sandboxes");
 
     // Batch-query latest message timestamps
-    let mut latest_times = db::message_dao::get_latest_message_times(db, &task_ids).await?;
+    let mut latest_times = crate::message::dao::get_latest_message_times(db, &task_ids).await?;
 
     // Fill creation times for tasks with no messages (prevents killing new tasks)
     let no_message_ids: Vec<String> = task_ids
@@ -112,7 +111,7 @@ async fn reap_idle_sandboxes(
         .collect();
 
     if !no_message_ids.is_empty() {
-        match db::task_dao::get_created_times(db, &no_message_ids).await {
+        match crate::task::dao::get_created_times(db, &no_message_ids).await {
             Ok(created_times) => {
                 for (task_id, created_at) in created_times {
                     latest_times.entry(task_id).or_insert(created_at);

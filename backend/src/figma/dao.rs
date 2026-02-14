@@ -1,10 +1,10 @@
 //! Figma import DAO — queries for figma import metadata.
 
-use super::models::FigmaImportRow;
-use super::DbPool;
+use super::models::FigmaImport;
+use crate::db::DbPool;
 
 /// Insert a figma import record.
-pub async fn insert(pool: &DbPool, row: &FigmaImportRow) -> Result<(), sqlx::Error> {
+pub async fn insert(pool: &DbPool, row: &FigmaImport) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"INSERT INTO figma_imports (
             import_id, file_id, file_key, node_id, file_name, node_name,
@@ -31,8 +31,8 @@ pub async fn insert(pool: &DbPool, row: &FigmaImportRow) -> Result<(), sqlx::Err
 pub async fn find_by_id(
     pool: &DbPool,
     import_id: &str,
-) -> Result<Option<FigmaImportRow>, sqlx::Error> {
-    sqlx::query_as::<_, FigmaImportRow>(
+) -> Result<Option<FigmaImport>, sqlx::Error> {
+    sqlx::query_as::<_, FigmaImport>(
         r#"SELECT import_id, file_id, file_key, node_id, file_name, node_name,
                   node_metadata, has_image, include_image_in_prompt, created_by, created_at
            FROM figma_imports WHERE import_id = $1"#,

@@ -1,10 +1,10 @@
 //! Session table queries.
 
-use super::DbPool;
+use crate::db::DbPool;
 use chrono::{DateTime, Utc};
 
 #[derive(sqlx::FromRow, Debug)]
-pub struct SessionRow {
+pub struct Session {
     pub id: String,
     pub provider: String,
     pub user_id: String,
@@ -26,15 +26,15 @@ pub struct SessionRow {
 pub async fn get_session(
     pool: &DbPool,
     session_id: &str,
-) -> Result<Option<SessionRow>, sqlx::Error> {
-    sqlx::query_as::<_, SessionRow>("SELECT * FROM sessions WHERE id = $1")
+) -> Result<Option<Session>, sqlx::Error> {
+    sqlx::query_as::<_, Session>("SELECT * FROM sessions WHERE id = $1")
         .bind(session_id)
         .fetch_optional(pool)
         .await
 }
 
 /// Insert a new session.
-pub async fn insert_session(pool: &DbPool, session: &SessionRow) -> Result<(), sqlx::Error> {
+pub async fn insert_session(pool: &DbPool, session: &Session) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"
         INSERT INTO sessions (

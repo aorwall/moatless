@@ -7,12 +7,16 @@ use axum::response::sse::Event;
 use futures::stream::BoxStream;
 use sqlx::PgPool;
 
+use moatless_vibe_backend::command::models::Command;
 use moatless_vibe_backend::config::Config;
-use moatless_vibe_backend::db::models::*;
+use moatless_vibe_backend::message::models::{ContentBlockType, MessageRole, MessageType, TaskMessage};
+use moatless_vibe_backend::repository::models::Repository;
 use moatless_vibe_backend::sandbox::error::SandboxError;
 use moatless_vibe_backend::sandbox::provider::SandboxProvider;
-use moatless_vibe_backend::sandbox::types::*;
+use moatless_vibe_backend::sandbox::models::*;
+use moatless_vibe_backend::sandbox::schemas::*;
 use moatless_vibe_backend::state::AppState;
+use moatless_vibe_backend::task::models::{Task, TaskStatus, Visibility};
 
 // =========================================================================
 // Mock sandbox provider
@@ -171,18 +175,18 @@ pub fn test_app_state(pool: PgPool) -> AppState {
 // Factory functions
 // =========================================================================
 
-/// Create a minimal TaskRow for tests.
+/// Create a minimal Task for tests.
 #[allow(dead_code)]
-pub fn make_task_row(task_id: &str, user_id: &str) -> TaskRow {
+pub fn make_task_row(task_id: &str, user_id: &str) -> Task {
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-    TaskRow {
+    Task {
         task_id: task_id.to_string(),
         short_id: Some(format!("s-{task_id}")),
         created_at: now.clone(),
         last_message_at: now,
         agent_type: "claude-code".to_string(),
         repository_id: "repo-1".to_string(),
-        status: "open".to_string(),
+        status: TaskStatus::Open,
         total_cost_usd: 0.0,
         site_url: None,
         template_id: None,
@@ -193,16 +197,16 @@ pub fn make_task_row(task_id: &str, user_id: &str) -> TaskRow {
         site_provider: None,
         branch: Some("main".to_string()),
         created_by: Some(user_id.to_string()),
-        visibility: "private".to_string(),
+        visibility: Visibility::Private,
         created_at_db: None,
     }
 }
 
-/// Create a minimal RepositoryRow for tests.
+/// Create a minimal Repository for tests.
 #[allow(dead_code)]
-pub fn make_repository_row(id: &str, user_id: &str) -> RepositoryRow {
+pub fn make_repository_row(id: &str, user_id: &str) -> Repository {
     let now = chrono::Utc::now();
-    RepositoryRow {
+    Repository {
         id: id.to_string(),
         name: format!("repo-{id}"),
         kind: "git".to_string(),
@@ -230,15 +234,15 @@ pub fn make_repository_row(id: &str, user_id: &str) -> RepositoryRow {
     }
 }
 
-/// Create a minimal TaskMessageRow for tests.
+/// Create a minimal TaskMessage for tests.
 #[allow(dead_code)]
-pub fn make_message_row(task_id: &str, uuid: &str) -> TaskMessageRow {
+pub fn make_message_row(task_id: &str, uuid: &str) -> TaskMessage {
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-    TaskMessageRow {
+    TaskMessage {
         id: 0, // ignored on insert (serial)
         task_id: task_id.to_string(),
         uuid: uuid.to_string(),
-        message_type: "user".to_string(),
+        message_type: MessageType::User,
         user_type: "human".to_string(),
         parent_uuid: None,
         is_sidechain: None,
@@ -249,7 +253,7 @@ pub fn make_message_row(task_id: &str, uuid: &str) -> TaskMessageRow {
         git_branch: None,
         request_id: None,
         timestamp: now,
-        message_role: "user".to_string(),
+        message_role: MessageRole::User,
         message_content: serde_json::json!([{"type": "text", "text": "hello"}]),
         assistant_message_id: None,
         assistant_message_type: None,
@@ -275,10 +279,10 @@ pub fn make_message_row(task_id: &str, uuid: &str) -> TaskMessageRow {
     }
 }
 
-/// Create a minimal CommandRow for tests.
+/// Create a minimal Command for tests.
 #[allow(dead_code)]
-pub fn make_command_row(name: &str) -> CommandRow {
-    CommandRow {
+pub fn make_command_row(name: &str) -> Command {
+    Command {
         name: name.to_string(),
         description: format!("Test command {name}"),
         prompt: format!("Do {name}"),

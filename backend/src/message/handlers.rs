@@ -3,14 +3,16 @@
 use axum::extract::{Path, State};
 use axum::Json;
 
-use crate::db::{command_dao, message_dao, task_dao};
+use crate::command::dao as command_dao;
+use super::dao as message_dao;
+use crate::task::dao as task_dao;
 use crate::extractors::AuthUser;
 use crate::state::AppState;
 
 use super::error::MessageError;
 use super::send;
 use super::transform;
-use super::types::*;
+use super::schemas::*;
 
 /// Send a message to the agent for a task.
 ///
@@ -25,7 +27,7 @@ use super::types::*;
     request_body = SendMessageRequest,
     responses(
         (status = 200, description = "Message sent", body = SendMessageResponse),
-        (status = 404, description = "Task not found", body = crate::sandbox::types::ErrorBody)
+        (status = 404, description = "Task not found", body = crate::sandbox::schemas::ErrorBody)
     )
 )]
 pub async fn send_message(
@@ -103,7 +105,7 @@ pub async fn send_message(
     ),
     responses(
         (status = 200, description = "List of messages", body = GetMessagesResponse),
-        (status = 404, description = "Task not found", body = crate::sandbox::types::ErrorBody)
+        (status = 404, description = "Task not found", body = crate::sandbox::schemas::ErrorBody)
     )
 )]
 pub async fn get_messages(
@@ -139,7 +141,7 @@ pub async fn get_messages(
     ),
     responses(
         (status = 200, description = "Pending messages", body = GetPendingMessagesResponse),
-        (status = 404, description = "Task not found", body = crate::sandbox::types::ErrorBody)
+        (status = 404, description = "Task not found", body = crate::sandbox::schemas::ErrorBody)
     )
 )]
 pub async fn get_pending_messages(
@@ -192,7 +194,7 @@ pub async fn get_pending_messages(
     ),
     responses(
         (status = 200, description = "Message deleted", body = DeleteMessageResponse),
-        (status = 404, description = "Message not found", body = crate::sandbox::types::ErrorBody)
+        (status = 404, description = "Message not found", body = crate::sandbox::schemas::ErrorBody)
     )
 )]
 pub async fn delete_queued_message(

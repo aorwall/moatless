@@ -4,8 +4,8 @@ use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
 
-use super::models::{TaskMessageContentBlockRow, TaskMessageContextRow, TaskMessageRow};
-use super::DbPool;
+use super::models::{TaskMessageContentBlock, TaskMessageContext, TaskMessage};
+use crate::db::DbPool;
 
 /// Get all messages for a task, ordered by timestamp + id.
 /// Returns messages, contexts, and content blocks separately for in-memory joining.
@@ -14,15 +14,15 @@ pub async fn get_all(
     task_id: &str,
 ) -> Result<
     (
-        Vec<TaskMessageRow>,
-        Vec<TaskMessageContextRow>,
-        Vec<TaskMessageContentBlockRow>,
+        Vec<TaskMessage>,
+        Vec<TaskMessageContext>,
+        Vec<TaskMessageContentBlock>,
     ),
     sqlx::Error,
 > {
     // Run 3 queries in parallel
     let (messages, contexts, blocks) = tokio::try_join!(
-        sqlx::query_as::<_, TaskMessageRow>(
+        sqlx::query_as::<_, TaskMessage>(
             r#"SELECT
                 id, task_id, uuid, message_type, user_type, parent_uuid,
                 is_sidechain, cwd, session_id, turn_number, version,
@@ -41,7 +41,7 @@ pub async fn get_all(
         )
         .bind(task_id)
         .fetch_all(pool),
-        sqlx::query_as::<_, TaskMessageContextRow>(
+        sqlx::query_as::<_, TaskMessageContext>(
             r#"SELECT c.id, c.task_message_id, c.type, c.reference_id, c.data, c.created_at
             FROM task_message_contexts c
             JOIN task_messages m ON c.task_message_id = m.id
@@ -50,7 +50,7 @@ pub async fn get_all(
         )
         .bind(task_id)
         .fetch_all(pool),
-        sqlx::query_as::<_, TaskMessageContentBlockRow>(
+        sqlx::query_as::<_, TaskMessageContentBlock>(
             r#"SELECT b.id, b.task_message_id, b.sort_order, b.block_type,
                 b.show_in_ui, b.text_content, b.tool_use_id,
                 b.tool_result_content, b.tool_result_is_error,
@@ -70,9 +70,9 @@ pub async fn get_all(
 /// Append a message with its contexts and content blocks in a transaction.
 pub async fn append(
     pool: &DbPool,
-    msg: &TaskMessageRow,
-    contexts: &[TaskMessageContextRow],
-    content_blocks: &[TaskMessageContentBlockRow],
+    msg: &TaskMessage,
+    contexts: &[TaskMessageContext],
+    content_blocks: &[TaskMessageContentBlock],
 ) -> Result<i32, sqlx::Error> {
     let mut tx = pool.begin().await?;
 
@@ -185,12 +185,12 @@ pub async fn append(
     Ok(message_id)
 }
 
-/// Get pending user messages (not yet acknowledged by agent).
+/// Get pending user messages (not yet confirmed by agent session).
 pub async fn get_pending_user(
     pool: &DbPool,
     task_id: &str,
-) -> Result<Vec<TaskMessageRow>, sqlx::Error> {
-    sqlx::query_as::<_, TaskMessageRow>(
+) -> Result<Vec<TaskMessage>, sqlx::Error> {
+    sqlx::query_as::<_, TaskMessage>(
         r#"SELECT
             id, task_id, uuid, message_type, user_type, parent_uuid,
             is_sidechain, cwd, session_id, turn_number, version,
@@ -216,8 +216,8 @@ pub async fn get_pending_user(
 pub async fn get_last_result(
     pool: &DbPool,
     task_id: &str,
-) -> Result<Option<TaskMessageRow>, sqlx::Error> {
-    sqlx::query_as::<_, TaskMessageRow>(
+) -> Result<Option<TaskMessage>, sqlx::Error> {
+    sqlx::query_as::<_, TaskMessage>(
         r#"SELECT
             id, task_id, uuid, message_type, user_type, parent_uuid,
             is_sidechain, cwd, session_id, turn_number, version,
@@ -232,6 +232,34 @@ pub async fn get_last_result(
             agent_mode, model, resume_session_id, sent_at, created_at
         FROM task_messages
         WHERE task_id = $1 AND message_type = 'result'
+        ORDER BY timestamp DESC
+        LIMIT 1"#,
+    )
+    .bind(task_id)
+    .fetch_optional(pool)
+    .await
+}
+
+/// Get the last user message for a task.
+pub async fn get_last_user_message(
+    pool: &DbPool,
+    task_id: &str,
+) -> Result<Option<TaskMessage>, sqlx::Error> {
+    sqlx::query_as::<_, TaskMessage>(
+        r#"SELECT
+            id, task_id, uuid, message_type, user_type, parent_uuid,
+            is_sidechain, cwd, session_id, turn_number, version,
+            git_branch, request_id, timestamp, message_role, message_content,
+            assistant_message_id, assistant_message_type, assistant_message_model,
+            assistant_stop_reason, assistant_stop_sequence,
+            assistant_usage_input_tokens, assistant_usage_output_tokens,
+            assistant_usage_cache_creation_input_tokens,
+            assistant_usage_cache_read_input_tokens,
+            tool_use_result, attachments, agent_session_id,
+            turn_status, turn_result, will_not_resume, run_metrics,
+            agent_mode, model, resume_session_id, sent_at, created_at
+        FROM task_messages
+        WHERE task_id = $1 AND message_type = 'user'
         ORDER BY timestamp DESC
         LIMIT 1"#,
     )
@@ -258,16 +286,19 @@ pub async fn get_latest_session_id(
     Ok(row.and_then(|r| r.0))
 }
 
-/// Mark unacknowledged messages as received by setting agent_session_id and sent_at.
-pub async fn mark_acknowledged(
+/// Set session_id, agent_session_id, and sent_at on pending user messages
+/// when the agent session starts (session_init event).
+pub async fn set_session_id_for_task(
     pool: &DbPool,
     task_id: &str,
     session_id: &str,
 ) -> Result<u64, sqlx::Error> {
     let result = sqlx::query(
         r#"UPDATE task_messages
-           SET agent_session_id = $2, sent_at = NOW()
-           WHERE task_id = $1 AND agent_session_id IS NULL"#,
+           SET session_id = $2, agent_session_id = $2, sent_at = NOW()
+           WHERE task_id = $1
+             AND message_type = 'user'
+             AND agent_session_id IS NULL"#,
     )
     .bind(task_id)
     .bind(session_id)
@@ -297,12 +328,12 @@ pub async fn delete_queued(
 
 /// Get the `message_type` of the most recent message for a task.
 ///
-/// Returns `None` if no messages exist, or `Some("result")` / `Some("user")` / etc.
+/// Returns `None` if no messages exist.
 pub async fn get_last_message_type(
     pool: &DbPool,
     task_id: &str,
-) -> Result<Option<String>, sqlx::Error> {
-    let row: Option<(String,)> = sqlx::query_as(
+) -> Result<Option<super::models::MessageType>, sqlx::Error> {
+    let row: Option<(super::models::MessageType,)> = sqlx::query_as(
         r#"SELECT message_type FROM task_messages
            WHERE task_id = $1
            ORDER BY timestamp DESC, id DESC

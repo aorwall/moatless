@@ -7,25 +7,25 @@ use axum::response::Response;
 use axum::Json;
 use axum_extra::extract::Multipart;
 
-use crate::db::file_meta_dao;
-use crate::db::models::FileMetadataRow;
+use super::dao as file_meta_dao;
+use super::models::FileMetadata;
 use crate::extractors::AuthUser;
 use crate::state::AppState;
 
 use super::error::FileStorageError;
 use super::s3;
-use super::types::UploadResponse;
+use super::schemas::UploadResponse;
 
 /// Upload a file via multipart form data.
 #[utoipa::path(
     post,
     path = "/api/v1/uploads",
     tag = "file-storage",
-    request_body(content_type = "multipart/form-data", content = super::types::UploadFileBody),
+    request_body(content_type = "multipart/form-data", content = super::schemas::UploadFileBody),
     responses(
         (status = 200, description = "File uploaded successfully", body = UploadResponse),
-        (status = 400, description = "Bad request", body = crate::sandbox::types::ErrorBody),
-        (status = 500, description = "Internal error", body = crate::sandbox::types::ErrorBody)
+        (status = 400, description = "Bad request", body = crate::sandbox::schemas::ErrorBody),
+        (status = 500, description = "Internal error", body = crate::sandbox::schemas::ErrorBody)
     )
 )]
 pub async fn upload_file(
@@ -82,7 +82,7 @@ pub async fn upload_file(
         .map_err(FileStorageError::UploadFailed)?;
 
     // Save metadata
-    let meta = FileMetadataRow {
+    let meta = FileMetadata {
         file_id: file_id.clone(),
         filename: filename.clone(),
         mime_type: content_type.clone(),
@@ -110,7 +110,7 @@ pub async fn upload_file(
     ),
     responses(
         (status = 200, description = "File content", content_type = "application/octet-stream"),
-        (status = 404, description = "File not found", body = crate::sandbox::types::ErrorBody)
+        (status = 404, description = "File not found", body = crate::sandbox::schemas::ErrorBody)
     )
 )]
 pub async fn download_file(

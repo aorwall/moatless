@@ -32,7 +32,7 @@ use super::leader_election::LeaderElection;
 use super::pod_status::extract_container_observed_statuses;
 use crate::db::DbPool;
 use crate::events::RedisEventPublisher;
-use crate::sandbox::types::EnvironmentStatus;
+use crate::sandbox::models::EnvironmentStatus;
 
 /// Observed state of a server container, used for transition detection.
 #[derive(Debug, Clone, PartialEq)]

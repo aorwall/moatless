@@ -1,8 +1,9 @@
 //! Message consumer — fetches pending messages from the backend via gRPC.
 //!
 //! Runs as a background task, waking when notified via `NotifyMessages`
-//! gRPC call.
+//! gRPC call, with a 30-second polling fallback to catch lost notifications.
 
+use tokio::time::{timeout, Duration};
 use tracing::{debug, info, warn};
 
 use crate::state::SandboxState;
@@ -45,9 +46,26 @@ pub async fn run_consumer(state: SandboxState) {
     state.consumer_notify.notify_one();
 
     loop {
-        // Wait for notification from backend gRPC NotifyMessages call
-        state.consumer_notify.notified().await;
-        debug!("Consumer woken by notification");
+        // Wait for notification or poll every 30 seconds (catches lost notifications)
+        let _notified = timeout(
+            Duration::from_secs(30),
+            state.consumer_notify.notified(),
+        )
+        .await;
+        debug!("Consumer woken (notification or poll timeout)");
+
+        // Check agent status BEFORE fetching to prevent premature acknowledgment.
+        // If agent is running, skip the fetch entirely — messages stay pending in DB.
+        // The consumer will be re-notified when the agent completes (self-notify).
+        let status = state.agent.status().await;
+        if status == AgentStatus::Running {
+            // Exception: if there's a pending interactive prompt, we still need to
+            // fetch messages to resolve it (AskUserQuestion / ExitPlanMode).
+            if !state.agent.has_pending_prompt().await {
+                debug!("Agent is running, deferring message fetch");
+                continue;
+            }
+        }
 
         // Fetch pending messages from backend via gRPC
         let proto_messages = match state.backend_client
@@ -57,6 +75,12 @@ pub async fn run_consumer(state: SandboxState) {
             Ok(msgs) => msgs,
             Err(e) => {
                 warn!(error = %e, "Failed to fetch pending messages via gRPC");
+                // Schedule a retry after a short delay
+                let notify = state.consumer_notify.clone();
+                tokio::spawn(async move {
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                    notify.notify_one();
+                });
                 continue;
             }
         };
@@ -107,9 +131,9 @@ pub async fn run_consumer(state: SandboxState) {
             }
         }
 
-        // Check if agent is already running
+        // If agent is running (prompt path fell through), defer processing
         if state.agent.status().await == AgentStatus::Running {
-            info!(message_count = messages.len(), "Agent already running, skipping pending messages");
+            debug!("Agent is running after prompt check, deferring");
             continue;
         }
 

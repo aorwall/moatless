@@ -3,6 +3,8 @@
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
+use super::models::{TaskStatus, Visibility};
+
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateTaskRequest {
@@ -49,7 +51,7 @@ pub struct UpdateTaskMetadataRequest {
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateVisibilityRequest {
-    pub visibility: String,
+    pub visibility: Visibility,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -77,7 +79,7 @@ pub struct TaskResponse {
     pub title: String,
     pub name: Option<String>,
     pub description: Option<String>,
-    pub status: String,
+    pub status: TaskStatus,
     pub agent_type: String,
     pub repository_id: String,
     pub repository_name: Option<String>,
@@ -90,7 +92,7 @@ pub struct TaskResponse {
     pub vibe: Option<bool>,
     pub created_by: Option<String>,
     pub created_by_display_name: Option<String>,
-    pub visibility: String,
+    pub visibility: Visibility,
     pub tags: Vec<TagResponse>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub environment_status: Option<String>,
@@ -111,7 +113,7 @@ pub struct TagResponse {
 #[serde(rename_all = "camelCase")]
 pub struct CreateTaskResponse {
     pub task_id: String,
-    pub status: String,
+    pub status: TaskStatus,
     pub task: TaskResponse,
 }
 

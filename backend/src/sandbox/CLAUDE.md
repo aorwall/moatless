@@ -79,15 +79,16 @@ There is no Redis caching layer for status — all reads go directly to the K8s 
 
 | Type | Location | Purpose |
 |------|----------|---------|
-| `ServerConfig` | `types.rs` | Data-driven server definition: name, port, docker_image, start_commands, env_vars, default, enable_inspector |
-| `ServerSnapshot` | `types.rs` | Cached server state: config fields + runtime status/error. Built via `from_config(&ServerConfig, status)` |
-| `ServerCapabilities` | `types.rs` | Derived from `enable_inspector` via `server_capabilities_from_config()` / `server_capabilities_from_snapshot()` |
-| `EnvironmentStatus` | `types.rs` | `not_created`, `initializing`, `ready`, `stopped`, `removing`, `error` |
-| `PodPhase` | `types.rs` | K8s pod phase + synthetic `Stopped` (replicas=0), `NotFound` |
-| `WorkspaceStatusFullResponse` | `types.rs` | Frontend response with servers, proxy URLs, capabilities |
-| `ProvisionRequest` / `ProvisionPlan` | `types.rs` | Provisioning input (repo config, git URL, credentials, env vars) |
+| `ServerConfig` | `models.rs` | Data-driven server definition: name, port, docker_image, start_commands, env_vars, default, enable_inspector |
+| `ServerSnapshot` | `models.rs` | Cached server state: config fields + runtime status/error. Built via `from_config(&ServerConfig, status)` |
+| `ServerCapabilities` | `models.rs` | Derived from `enable_inspector` via `server_capabilities_from_config()` / `server_capabilities_from_snapshot()` |
+| `EnvironmentStatus` | `models.rs` | `not_created`, `initializing`, `ready`, `stopped`, `removing`, `error` |
+| `PodPhase` | `models.rs` | K8s pod phase + synthetic `Stopped` (replicas=0), `NotFound` |
+| `WorkspaceStatusFullResponse` | `schemas.rs` | Frontend response with servers, proxy URLs, capabilities |
+| `ProvisionRequest` / `ProvisionPlan` | `models.rs` | Provisioning input (repo config, git URL, credentials, env vars) |
 | `SandboxError` | `error.rs` | Unified error type, maps to HTTP status codes |
-| `ContainerObservedStatus` | `types.rs` | K8s container state mapped to server status strings |
+| `ContainerObservedStatus` | `models.rs` | K8s container state mapped to server status strings |
+| `ErrorBody` | `schemas.rs` | Generic error body for utoipa error annotations |
 
 ## API Endpoints
 
@@ -131,7 +132,8 @@ Both use `HOSTNAME` env var as identity.
 ```
 sandbox/
 ├── mod.rs              # Module declarations
-├── types.rs            # All domain types + serde + OpenAPI schemas
+├── models.rs           # Domain types: config, provisioning, K8s status, containers
+├── schemas.rs          # API schemas: request/response DTOs (ErrorBody, responses)
 ├── error.rs            # SandboxError enum → HTTP responses
 ├── provider.rs         # SandboxProvider trait
 ├── routes.rs           # Axum router + OpenAPI doc
@@ -168,3 +170,57 @@ sandbox/
 - **Pod-keyed tracking**: `pod_watcher` tracks state by pod_name (not task_id) so rolling updates don't confuse old/new pods
 - **Idempotent K8s operations**: All create operations handle 409 Conflict gracefully; all delete operations handle 404 NotFound
 - **Deterministic naming**: All K8s resource names derived from `task_id` via `naming.rs`, capped at 63 chars
+
+## File Organization Strategy (Backend-Wide)
+
+Each domain module owns its types and persistence layer. Auth persistence lives in `auth/`. The `db.rs` file is just the connection pool.
+
+### Standard Module Structure
+
+```
+{module}/
+├── mod.rs          # Module declarations
+├── models.rs       # Domain types: enums + DB row structs (sqlx::FromRow)
+├── dao.rs          # Database queries (sqlx): insert/update/find/delete
+├── schemas.rs      # API schemas: request/response DTOs (serde + utoipa)
+├── handlers.rs     # HTTP handlers (axum extractors → dao → schemas)
+├── routes.rs       # Axum router with OpenAPI annotations
+├── error.rs        # Module-specific error enum (thiserror → IntoResponse)
+└── ...             # Module-specific files (transform.rs, send.rs, etc.)
+```
+
+### Key Distinctions
+
+- **`models.rs`** = owned by the module, used by anyone. Contains domain enums (with `sqlx::Type`/`Encode`/`Decode`), DB row structs (`sqlx::FromRow`), and internal domain types. Use domain names (e.g. `Task`, `Repository`) — no `Row` suffix.
+- **`schemas.rs`** = API boundary shapes. Request/response structs with `serde` + `utoipa`. Imports from `models.rs` for conversions.
+- **`dao.rs`** = persistence layer. Uses `models.rs` row types + `crate::db::DbPool`. One DAO per module (channel has two: `config_dao.rs` + `thread_dao.rs`).
+
+### Import Conventions
+
+```rust
+// Within the same module — use super::
+use super::models::Task;
+use super::dao as task_dao;
+
+// Cross-module — use crate::
+use crate::task::models::Task;
+use crate::task::dao as task_dao;
+use crate::db::DbPool;
+
+// Auth persistence lives in auth/
+use crate::auth::provider_token_dao;
+use crate::auth::users;
+```
+
+### What Lives in `db.rs`
+
+Just the connection pool (flat file, not a directory):
+- `db::DbPool` type alias + `create_pool()` + `run_migrations()`
+
+### What Lives in `auth/`
+
+Auth subsystem persistence and models:
+- `auth/models.rs` — `UserDisplay`, `ProviderAccessToken`, `ProviderToken`, `OAuthTokens`, `ProviderUserInfo`
+- `auth/provider_token_dao.rs` — cross-cutting credential resolution, used by 4+ modules
+- `auth/users.rs`, `auth/sessions.rs`, `auth/api_keys.rs`, `auth/provider_tokens.rs` — auth queries
+- `auth/schemas.rs` — API request/response types (SessionResponse, UserInfo, etc.)

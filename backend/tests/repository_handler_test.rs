@@ -6,7 +6,7 @@ use axum::http::StatusCode;
 use sqlx::PgPool;
 use tower::ServiceExt;
 
-use moatless_vibe_backend::db::repository_dao;
+use moatless_vibe_backend::repository::dao as repository_dao;
 use moatless_vibe_backend::repository::routes::repository_router;
 
 use common::{

@@ -2,7 +2,7 @@
 
 mod common;
 
-use moatless_vibe_backend::db::command_dao;
+use moatless_vibe_backend::command::dao as command_dao;
 use sqlx::PgPool;
 
 use common::make_command_row;

@@ -1,10 +1,11 @@
 //! Message sending orchestration — send_message_flow and send_tool_response_flow.
 
-use crate::db::message_dao;
-use crate::db::models::{TaskMessageContentBlockRow, TaskMessageContextRow, TaskMessageRow};
-use crate::db::task_dao::{self, TaskPatch};
+use super::dao as message_dao;
+use super::models::{TaskMessageContentBlock, TaskMessageContext, TaskMessage};
+use crate::task::dao::{self as task_dao, TaskPatch};
+use crate::message::models::{ContentBlockType, MessageRole, MessageType};
 use crate::state::AppState;
-use crate::task::types::MessageContextInput;
+use crate::task::schemas::MessageContextInput;
 
 use super::enricher;
 use super::error::MessageError;
@@ -30,11 +31,11 @@ pub async fn send_message_flow(
         serde_json::json!([{ "type": "text", "text": message }])
     });
 
-    let msg_row = TaskMessageRow {
+    let msg_row = TaskMessage {
         id: 0, // will be assigned by DB
         task_id: task_id.to_string(),
         uuid: msg_uuid,
-        message_type: "user".to_string(),
+        message_type: MessageType::User,
         user_type: "human".to_string(),
         parent_uuid: None,
         is_sidechain: None,
@@ -45,7 +46,7 @@ pub async fn send_message_flow(
         git_branch: None,
         request_id: None,
         timestamp: now.clone(),
-        message_role: "user".to_string(),
+        message_role: MessageRole::User,
         message_content: content,
         assistant_message_id: None,
         assistant_message_type: None,
@@ -71,11 +72,11 @@ pub async fn send_message_flow(
     };
 
     // Build content blocks for the showInUI=true user text
-    let ui_block = TaskMessageContentBlockRow {
+    let ui_block = TaskMessageContentBlock {
         id: 0,
         task_message_id: 0, // will be set by DAO
         sort_order: 0,
-        block_type: "text".to_string(),
+        block_type: ContentBlockType::Text,
         show_in_ui: true,
         text_content: Some(message.to_string()),
         tool_use_id: None,
@@ -87,7 +88,7 @@ pub async fn send_message_flow(
     };
 
     // Persist message
-    let contexts: Vec<TaskMessageContextRow> = vec![];
+    let contexts: Vec<TaskMessageContext> = vec![];
     message_dao::append(&state.db, &msg_row, &contexts, &[ui_block])
         .await
         .map_err(|e| MessageError::Internal(format!("Failed to persist message: {e}")))?;
@@ -130,11 +131,11 @@ pub async fn send_tool_response_flow(
         "content": response_text
     }]);
 
-    let msg_row = TaskMessageRow {
+    let msg_row = TaskMessage {
         id: 0,
         task_id: task_id.to_string(),
         uuid: msg_uuid,
-        message_type: "user".to_string(),
+        message_type: MessageType::User,
         user_type: "human".to_string(),
         parent_uuid: None,
         is_sidechain: None,
@@ -145,7 +146,7 @@ pub async fn send_tool_response_flow(
         git_branch: None,
         request_id: None,
         timestamp: now,
-        message_role: "user".to_string(),
+        message_role: MessageRole::User,
         message_content: content,
         assistant_message_id: None,
         assistant_message_type: None,
@@ -170,8 +171,8 @@ pub async fn send_tool_response_flow(
         created_at: None,
     };
 
-    let contexts: Vec<TaskMessageContextRow> = vec![];
-    let blocks: Vec<TaskMessageContentBlockRow> = vec![];
+    let contexts: Vec<TaskMessageContext> = vec![];
+    let blocks: Vec<TaskMessageContentBlock> = vec![];
     message_dao::append(&state.db, &msg_row, &contexts, &blocks)
         .await
         .map_err(|e| MessageError::Internal(format!("Failed to persist tool response: {e}")))?;

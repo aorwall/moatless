@@ -3,15 +3,16 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::task::types::MessageContextInput;
+use crate::message::models::{MessageRole, MessageType, TurnStatus};
+use crate::task::schemas::MessageContextInput;
 
 /// UI-facing message representation.
 #[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UiMessage {
     pub uuid: String,
-    pub message_type: String,
-    pub role: String,
+    pub message_type: MessageType,
+    pub role: MessageRole,
     pub timestamp: String,
     pub session_id: Option<String>,
     pub turn_number: Option<i32>,
@@ -40,7 +41,7 @@ pub struct UiMessage {
 #[serde(rename_all = "camelCase")]
 pub struct UiContentBlock {
     #[serde(rename = "type")]
-    pub block_type: String,
+    pub block_type: String, // Stays String: populated from JSON content blocks, not always a known type
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -87,7 +88,7 @@ pub struct UiUsage {
 #[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UiResultMeta {
-    pub turn_status: Option<String>,
+    pub turn_status: Option<TurnStatus>,
     pub turn_result: Option<String>,
     pub will_not_resume: Option<bool>,
     #[schema(value_type = Object)]

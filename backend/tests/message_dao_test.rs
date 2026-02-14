@@ -2,8 +2,8 @@
 
 mod common;
 
-use moatless_vibe_backend::db::message_dao;
-use moatless_vibe_backend::db::models::{TaskMessageContentBlockRow, TaskMessageContextRow};
+use moatless_vibe_backend::message::dao as message_dao;
+use moatless_vibe_backend::message::models::{ContentBlockType, MessageType, TaskMessageContentBlock, TaskMessageContext};
 use sqlx::PgPool;
 
 use common::{make_message_row, make_repository_row, make_task_row};
@@ -11,12 +11,12 @@ use common::{make_message_row, make_repository_row, make_task_row};
 /// Seed a repo + task so message FKs work.
 async fn seed_task(pool: &PgPool, task_id: &str, user: &str) {
     let repo = make_repository_row("repo-1", user);
-    moatless_vibe_backend::db::repository_dao::insert(pool, &repo)
+    moatless_vibe_backend::repository::dao::insert(pool, &repo)
         .await
         .expect("seed repo");
 
     let task = make_task_row(task_id, user);
-    moatless_vibe_backend::db::task_dao::insert_task(pool, &task)
+    moatless_vibe_backend::task::dao::insert_task(pool, &task)
         .await
         .expect("seed task");
 }
@@ -42,7 +42,7 @@ async fn append_with_contexts_and_blocks(pool: PgPool) {
 
     let msg = make_message_row("task-1", "msg-uuid-2");
     let contexts = vec![
-        TaskMessageContextRow {
+        TaskMessageContext {
             id: 0,
             task_message_id: 0, // ignored, set by append
             context_type: "file".to_string(),
@@ -50,7 +50,7 @@ async fn append_with_contexts_and_blocks(pool: PgPool) {
             data: serde_json::json!({"path": "/test.ts"}),
             created_at: None,
         },
-        TaskMessageContextRow {
+        TaskMessageContext {
             id: 0,
             task_message_id: 0,
             context_type: "url".to_string(),
@@ -60,11 +60,11 @@ async fn append_with_contexts_and_blocks(pool: PgPool) {
         },
     ];
     let blocks = vec![
-        TaskMessageContentBlockRow {
+        TaskMessageContentBlock {
             id: 0,
             task_message_id: 0,
             sort_order: 0,
-            block_type: "text".to_string(),
+            block_type: ContentBlockType::Text,
             show_in_ui: true,
             text_content: Some("Hello world".to_string()),
             tool_use_id: None,
@@ -74,11 +74,11 @@ async fn append_with_contexts_and_blocks(pool: PgPool) {
             image_data: None,
             created_at: None,
         },
-        TaskMessageContentBlockRow {
+        TaskMessageContentBlock {
             id: 0,
             task_message_id: 0,
             sort_order: 1,
-            block_type: "tool_use".to_string(),
+            block_type: ContentBlockType::ToolUse,
             show_in_ui: true,
             text_content: None,
             tool_use_id: Some("tu-1".to_string()),
@@ -88,11 +88,11 @@ async fn append_with_contexts_and_blocks(pool: PgPool) {
             image_data: None,
             created_at: None,
         },
-        TaskMessageContentBlockRow {
+        TaskMessageContentBlock {
             id: 0,
             task_message_id: 0,
             sort_order: 2,
-            block_type: "tool_result".to_string(),
+            block_type: ContentBlockType::ToolResult,
             show_in_ui: false,
             text_content: None,
             tool_use_id: None,
@@ -112,9 +112,9 @@ async fn append_with_contexts_and_blocks(pool: PgPool) {
     assert_eq!(messages.len(), 1);
     assert_eq!(ctx_rows.len(), 2);
     assert_eq!(blk_rows.len(), 3);
-    assert_eq!(blk_rows[0].block_type, "text");
-    assert_eq!(blk_rows[1].block_type, "tool_use");
-    assert_eq!(blk_rows[2].block_type, "tool_result");
+    assert_eq!(blk_rows[0].block_type, ContentBlockType::Text);
+    assert_eq!(blk_rows[1].block_type, ContentBlockType::ToolUse);
+    assert_eq!(blk_rows[2].block_type, ContentBlockType::ToolResult);
 }
 
 #[sqlx::test]
@@ -159,25 +159,35 @@ async fn get_pending_user(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn mark_acknowledged(pool: PgPool) {
+async fn set_session_id_also_sets_sent_at(pool: PgPool) {
     seed_task(&pool, "task-1", "user-1").await;
 
-    let msg1 = make_message_row("task-1", "ack-msg-1");
+    // Two pending user messages (no agent_session_id, no sent_at)
+    let msg1 = make_message_row("task-1", "sess-msg-1");
     message_dao::append(&pool, &msg1, &[], &[]).await.unwrap();
 
-    let msg2 = make_message_row("task-1", "ack-msg-2");
+    let msg2 = make_message_row("task-1", "sess-msg-2");
     message_dao::append(&pool, &msg2, &[], &[]).await.unwrap();
 
-    let count = message_dao::mark_acknowledged(&pool, "task-1", "sess-abc")
+    // Simulate session_init: sets session_id, agent_session_id, and sent_at
+    let count = message_dao::set_session_id_for_task(&pool, "task-1", "session-abc")
         .await
         .unwrap();
     assert_eq!(count, 2);
 
-    // After ack, pending should be empty
+    // Messages should no longer be pending
     let pending = message_dao::get_pending_user(&pool, "task-1")
         .await
         .unwrap();
     assert!(pending.is_empty());
+
+    // Verify sent_at is set on all messages
+    let (all_msgs, _, _) = message_dao::get_all(&pool, "task-1").await.unwrap();
+    for msg in &all_msgs {
+        assert!(msg.sent_at.is_some(), "sent_at should be set after set_session_id_for_task");
+        assert_eq!(msg.session_id.as_deref(), Some("session-abc"));
+        assert_eq!(msg.agent_session_id.as_deref(), Some("session-abc"));
+    }
 }
 
 #[sqlx::test]
@@ -186,12 +196,12 @@ async fn get_last_result(pool: PgPool) {
 
     // Insert two result messages with different timestamps
     let mut msg1 = make_message_row("task-1", "result-1");
-    msg1.message_type = "result".to_string();
+    msg1.message_type = MessageType::Result;
     msg1.timestamp = "2024-01-01T00:00:00.000Z".to_string();
     message_dao::append(&pool, &msg1, &[], &[]).await.unwrap();
 
     let mut msg2 = make_message_row("task-1", "result-2");
-    msg2.message_type = "result".to_string();
+    msg2.message_type = MessageType::Result;
     msg2.timestamp = "2024-01-02T00:00:00.000Z".to_string();
     message_dao::append(&pool, &msg2, &[], &[]).await.unwrap();
 

@@ -51,8 +51,8 @@ pub struct CommandResponse {
     pub agent_mode: Option<String>,
 }
 
-impl From<crate::db::models::CommandRow> for CommandResponse {
-    fn from(row: crate::db::models::CommandRow) -> Self {
+impl From<super::models::Command> for CommandResponse {
+    fn from(row: super::models::Command) -> Self {
         Self {
             name: row.name,
             description: row.description,

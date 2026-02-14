@@ -2,7 +2,7 @@
 
 mod common;
 
-use moatless_vibe_backend::db::repository_dao::{self, RepositoryPatch};
+use moatless_vibe_backend::repository::dao::{self as repository_dao, RepositoryPatch};
 use sqlx::PgPool;
 
 use common::make_repository_row;

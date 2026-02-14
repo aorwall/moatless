@@ -4,10 +4,10 @@ use chrono::Utc;
 use rand::Rng;
 use tracing::{error, info, warn};
 
-use crate::auth::types::{OAuthTokens, ProviderUserInfo};
-use crate::db::sessions::{self, SessionRow};
-use crate::db::users::{self, UserRow};
-use crate::db::provider_tokens::{self, ProviderTokenRow};
+use super::models::{OAuthTokens, ProviderUserInfo};
+use super::sessions::{self, Session};
+use super::users::{self, User};
+use super::provider_tokens::{self, ProviderToken};
 use crate::db::DbPool;
 
 /// Generate a cryptographically secure session ID (64 hex chars).
@@ -38,7 +38,7 @@ pub async fn create_session(
         .map(|u| u.role.clone())
         .unwrap_or_else(|| "user".to_string());
 
-    let user_row = UserRow {
+    let user_row = User {
         id: user_info.id.clone(),
         login: user_info.login.clone(),
         email: user_info.email.clone(),
@@ -69,7 +69,7 @@ pub async fn create_session(
 
     // Create session
     let session_id = generate_session_id();
-    let session = SessionRow {
+    let session = Session {
         id: session_id.clone(),
         provider: provider_id.to_string(),
         user_id: user_info.id.clone(),
@@ -90,7 +90,7 @@ pub async fn create_session(
 
     // For GitHub OAuth, also persist to provider_tokens for cross-context access
     if provider_id == "github" && !tokens.access_token.is_empty() {
-        let pt = ProviderTokenRow {
+        let pt = ProviderToken {
             user_id: user_info.id.clone(),
             provider: "github".to_string(),
             auth_method: "oauth".to_string(),
@@ -134,7 +134,7 @@ pub async fn create_session(
 /// a session with `provider = "api-key"` and no token fields.
 pub async fn create_session_from_user(
     pool: &DbPool,
-    user: &UserRow,
+    user: &User,
     group_id: Option<&str>,
     session_max_age_secs: u64,
 ) -> Result<String, crate::auth::error::AuthError> {
@@ -142,7 +142,7 @@ pub async fn create_session_from_user(
     let expires_at = now + chrono::Duration::seconds(session_max_age_secs as i64);
     let session_id = generate_session_id();
 
-    let session = SessionRow {
+    let session = Session {
         id: session_id.clone(),
         provider: "api-key".to_string(),
         user_id: user.id.clone(),
@@ -174,7 +174,7 @@ pub async fn create_session_from_user(
 pub async fn validate_session(
     pool: &DbPool,
     session_id: &str,
-) -> Result<Option<SessionRow>, crate::auth::error::AuthError> {
+) -> Result<Option<Session>, crate::auth::error::AuthError> {
     let session = sessions::get_session(pool, session_id).await?;
 
     let Some(session) = session else {

@@ -6,19 +6,20 @@
 
 use std::collections::HashMap;
 
-use crate::db::models::{TaskMessageContentBlockRow, TaskMessageContextRow, TaskMessageRow};
+use super::models::{TaskMessageContentBlock, TaskMessageContext, TaskMessage};
+use crate::message::models::MessageType;
 
-use super::types::*;
+use super::schemas::*;
 
 /// Transform raw DB rows into UI-facing messages.
 pub fn transform_to_ui(
-    messages: &[TaskMessageRow],
-    _contexts: &[TaskMessageContextRow],
-    content_blocks: &[TaskMessageContentBlockRow],
+    messages: &[TaskMessage],
+    _contexts: &[TaskMessageContext],
+    content_blocks: &[TaskMessageContentBlock],
 ) -> Vec<UiMessage> {
     // Group content blocks by message ID
-    let blocks_by_msg: HashMap<i32, Vec<&TaskMessageContentBlockRow>> = {
-        let mut map: HashMap<i32, Vec<&TaskMessageContentBlockRow>> = HashMap::new();
+    let blocks_by_msg: HashMap<i32, Vec<&TaskMessageContentBlock>> = {
+        let mut map: HashMap<i32, Vec<&TaskMessageContentBlock>> = HashMap::new();
         for block in content_blocks {
             map.entry(block.task_message_id).or_default().push(block);
         }
@@ -26,9 +27,9 @@ pub fn transform_to_ui(
     };
 
     // Build tool_results_map: tool_use_id → tool_result message
-    let tool_results_map: HashMap<String, &TaskMessageRow> = messages
+    let tool_results_map: HashMap<String, &TaskMessage> = messages
         .iter()
-        .filter(|m| m.message_type == "result" || m.message_role == "user")
+        .filter(|m| m.message_type == MessageType::Result || m.message_role == crate::message::models::MessageRole::User)
         .filter_map(|m| {
             // Check if message_content has tool_use_id (tool_result messages)
             if let Some(content) = m.message_content.as_array() {
@@ -51,12 +52,12 @@ pub fn transform_to_ui(
         let is_last = idx == total - 1;
         let msg_blocks = blocks_by_msg.get(&msg.id).cloned().unwrap_or_default();
 
-        match msg.message_type.as_str() {
-            "assistant" => {
+        match msg.message_type {
+            MessageType::Assistant => {
                 let ui_msg = transform_assistant(msg, &msg_blocks, &tool_results_map, is_last, messages);
                 ui_messages.push(ui_msg);
             }
-            "user" => {
+            MessageType::User => {
                 // Skip tool_result user messages (inlined into assistant)
                 if msg.message_content.as_array().map_or(false, |arr| {
                     arr.iter().any(|b| b.get("type").and_then(|v| v.as_str()) == Some("tool_result"))
@@ -67,15 +68,14 @@ pub fn transform_to_ui(
                 let ui_msg = transform_user(msg, &msg_blocks);
                 ui_messages.push(ui_msg);
             }
-            "system" => {
+            MessageType::System => {
                 let ui_msg = transform_system(msg);
                 ui_messages.push(ui_msg);
             }
-            "result" => {
+            MessageType::Result => {
                 let ui_msg = transform_result(msg, &msg_blocks);
                 ui_messages.push(ui_msg);
             }
-            _ => {}
         }
     }
 
@@ -83,11 +83,11 @@ pub fn transform_to_ui(
 }
 
 fn transform_assistant(
-    msg: &TaskMessageRow,
-    blocks: &[&TaskMessageContentBlockRow],
-    tool_results_map: &HashMap<String, &TaskMessageRow>,
+    msg: &TaskMessage,
+    blocks: &[&TaskMessageContentBlock],
+    tool_results_map: &HashMap<String, &TaskMessage>,
     is_last: bool,
-    all_messages: &[TaskMessageRow],
+    all_messages: &[TaskMessage],
 ) -> UiMessage {
     let content = build_content_from_message(msg, blocks);
 
@@ -124,8 +124,8 @@ fn transform_assistant(
 
     UiMessage {
         uuid: msg.uuid.clone(),
-        message_type: msg.message_type.clone(),
-        role: msg.message_role.clone(),
+        message_type: msg.message_type,
+        role: msg.message_role,
         timestamp: msg.timestamp.clone(),
         session_id: msg.session_id.clone(),
         turn_number: msg.turn_number,
@@ -150,8 +150,10 @@ fn transform_assistant(
     }
 }
 
-fn transform_user(msg: &TaskMessageRow, blocks: &[&TaskMessageContentBlockRow]) -> UiMessage {
-    let is_queued = msg.agent_session_id.is_none();
+fn transform_user(msg: &TaskMessage, blocks: &[&TaskMessageContentBlock]) -> UiMessage {
+    // A message is "queued" until the agent confirms receipt via session_init.
+    // sent_at is set together with session_id when the agent session starts.
+    let is_queued = msg.sent_at.is_none();
 
     // Use content blocks if available, filtering to showInUI=true
     let content = if blocks.is_empty() {
@@ -162,7 +164,7 @@ fn transform_user(msg: &TaskMessageRow, blocks: &[&TaskMessageContentBlockRow]) 
             .iter()
             .filter(|b| b.show_in_ui)
             .map(|b| UiContentBlock {
-                block_type: b.block_type.clone(),
+                block_type: b.block_type.to_string(),
                 text: b.text_content.clone(),
                 tool_use_id: None,
                 tool_name: None,
@@ -174,8 +176,8 @@ fn transform_user(msg: &TaskMessageRow, blocks: &[&TaskMessageContentBlockRow]) 
 
     UiMessage {
         uuid: msg.uuid.clone(),
-        message_type: msg.message_type.clone(),
-        role: msg.message_role.clone(),
+        message_type: msg.message_type,
+        role: msg.message_role,
         timestamp: msg.timestamp.clone(),
         session_id: msg.session_id.clone(),
         turn_number: msg.turn_number,
@@ -190,13 +192,13 @@ fn transform_user(msg: &TaskMessageRow, blocks: &[&TaskMessageContentBlockRow]) 
     }
 }
 
-fn transform_system(msg: &TaskMessageRow) -> UiMessage {
+fn transform_system(msg: &TaskMessage) -> UiMessage {
     let content = extract_text_from_content(&msg.message_content);
 
     UiMessage {
         uuid: msg.uuid.clone(),
-        message_type: msg.message_type.clone(),
-        role: msg.message_role.clone(),
+        message_type: msg.message_type,
+        role: msg.message_role,
         timestamp: msg.timestamp.clone(),
         session_id: msg.session_id.clone(),
         turn_number: msg.turn_number,
@@ -211,7 +213,7 @@ fn transform_system(msg: &TaskMessageRow) -> UiMessage {
     }
 }
 
-fn transform_result(msg: &TaskMessageRow, blocks: &[&TaskMessageContentBlockRow]) -> UiMessage {
+fn transform_result(msg: &TaskMessage, blocks: &[&TaskMessageContentBlock]) -> UiMessage {
     let content = if blocks.is_empty() {
         extract_text_from_content(&msg.message_content)
     } else {
@@ -219,7 +221,7 @@ fn transform_result(msg: &TaskMessageRow, blocks: &[&TaskMessageContentBlockRow]
             .iter()
             .filter(|b| b.show_in_ui)
             .map(|b| UiContentBlock {
-                block_type: b.block_type.clone(),
+                block_type: b.block_type.to_string(),
                 text: b.text_content.clone(),
                 tool_use_id: None,
                 tool_name: None,
@@ -231,20 +233,20 @@ fn transform_result(msg: &TaskMessageRow, blocks: &[&TaskMessageContentBlockRow]
 
     UiMessage {
         uuid: msg.uuid.clone(),
-        message_type: msg.message_type.clone(),
-        role: msg.message_role.clone(),
+        message_type: msg.message_type,
+        role: msg.message_role,
         timestamp: msg.timestamp.clone(),
         session_id: msg.session_id.clone(),
         turn_number: msg.turn_number,
-        agent_mode: None,
-        model: None,
+        agent_mode: msg.agent_mode.clone(),
+        model: msg.model.clone(),
         is_queued: None,
         content,
         tool_results: vec![],
         has_pending_user_input: None,
         assistant: None,
         result: Some(UiResultMeta {
-            turn_status: msg.turn_status.clone(),
+            turn_status: msg.turn_status,
             turn_result: msg.turn_result.clone(),
             will_not_resume: msg.will_not_resume,
             run_metrics: msg.run_metrics.clone(),
@@ -254,8 +256,8 @@ fn transform_result(msg: &TaskMessageRow, blocks: &[&TaskMessageContentBlockRow]
 
 /// Build content blocks from message_content JSON + DB content blocks.
 fn build_content_from_message(
-    msg: &TaskMessageRow,
-    _blocks: &[&TaskMessageContentBlockRow],
+    msg: &TaskMessage,
+    _blocks: &[&TaskMessageContentBlock],
 ) -> Vec<UiContentBlock> {
     // Use the message_content JSON array directly
     if let Some(arr) = msg.message_content.as_array() {
@@ -303,7 +305,7 @@ fn extract_text_from_content(content: &serde_json::Value) -> Vec<UiContentBlock>
 
 /// Check if the last assistant message has a pending interactive tool call
 /// (AskUserQuestion or ExitPlanMode) without a corresponding tool result.
-fn check_pending_user_input(msg: &TaskMessageRow, all_messages: &[TaskMessageRow]) -> bool {
+fn check_pending_user_input(msg: &TaskMessage, all_messages: &[TaskMessage]) -> bool {
     if let Some(arr) = msg.message_content.as_array() {
         for block in arr {
             if block.get("type").and_then(|v| v.as_str()) == Some("tool_use") {

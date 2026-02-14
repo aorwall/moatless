@@ -16,7 +16,9 @@ use sandbox_proto::{
     GetPendingMessagesResponse, PublishEventRequest, PublishEventResponse,
 };
 
-use crate::db::{message_dao, provider_token_dao, DbPool};
+use crate::auth::provider_token_dao;
+use crate::db::DbPool;
+use crate::message::dao as message_dao;
 use crate::events::RedisEventPublisher;
 use crate::sandbox::jwt;
 
@@ -167,19 +169,6 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
                 warn!(error = %e, task_id = %req.task_id, "Failed to fetch pending messages");
                 Status::internal("Failed to fetch pending messages")
             })?;
-
-        // Acknowledge fetched messages to prevent re-fetching
-        if !pending.is_empty() {
-            let batch_id = format!("grpc-fetch-{}", uuid::Uuid::new_v4());
-            match message_dao::mark_acknowledged(pool, &req.task_id, &batch_id).await {
-                Ok(count) => {
-                    info!(task_id = %req.task_id, count, "Acknowledged pending messages");
-                }
-                Err(e) => {
-                    warn!(error = %e, task_id = %req.task_id, "Failed to acknowledge messages");
-                }
-            }
-        }
 
         // Convert DB rows to proto messages.
         // message_content is a JSON array: [{"type":"text","text":"..."}, ...]

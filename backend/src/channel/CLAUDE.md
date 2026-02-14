@@ -28,7 +28,7 @@ Provider-specific settings per channel config. Slack example:
 | File | Purpose |
 |------|---------|
 | `provider.rs` | `ChannelProvider` trait, `ChannelType` enum, `ChannelProviders` registry |
-| `types.rs` | `InboundMessage`, `OutboundReply`, `RoutingMode`, `MessageStatus` |
+| `schemas.rs` | API request/response DTOs (CreateChannelConfigRequest, ChannelConfigResponse, etc.) |
 | `router.rs` | Config lookup → routing decision (ongoing/per_message/thread_based) |
 | `inbound.rs` | `process_inbound()` — unified message → task flow |
 | `outbound.rs` | Event-driven replies, hooks into `event_handler/consumer.rs` |
@@ -38,14 +38,13 @@ Provider-specific settings per channel config. Slack example:
 | `slack/provider.rs` | `SlackProvider` — trait impl + `parse_event()` ingress |
 | `slack/signature.rs` | HMAC-SHA256 webhook verification |
 | `slack/api.rs` | Slack Web API: chat.postMessage, reactions.add/remove, users.info |
+| `models.rs` | `ChannelConfig`, `ChannelThread` (sqlx row types) + `RoutingMode`, `InboundMessage`, `OutboundReply`, `MessageStatus` |
+| `config_dao.rs` | Channel config CRUD + `find_by_provider_source()`, `ChannelConfigPatch` |
+| `thread_dao.rs` | Thread tracking CRUD + `find_by_config_and_thread()`, `find_by_task_id()` |
 
 ## DB Tables
 - `channel_configs` — routing rules (provider + source_id → repository + mode)
 - `channel_threads` — thread tracking (config_id + external_thread_id → task_id)
-
-## DAOs
-- `db/channel_config_dao.rs` — CRUD + `find_by_provider_source()`
-- `db/channel_thread_dao.rs` — CRUD + `find_by_config_and_thread()`, `find_by_task_id()`
 
 ## Adding a New Provider
 1. Create `{provider}/mod.rs`, `{provider}/provider.rs`
@@ -61,8 +60,8 @@ Provider-specific settings per channel config. Slack example:
 - `SLACK_BOT_USER_ID` — Filter own messages from thread context
 
 ## Patterns
-- Follows existing module pattern: `mod.rs` + `handlers.rs` + `routes.rs` + `types.rs` + `error.rs`
+- Follows existing module pattern: `mod.rs` + `handlers.rs` + `routes.rs` + `models.rs` + `schemas.rs` + `error.rs`
 - Uses `AppState` via `State<AppState>` extractor
-- DAOs in `db/channel_*_dao.rs`, models in `db/models.rs`
+- DAOs in `config_dao.rs` + `thread_dao.rs`, models in `models.rs` (all module-local)
 - Fire-and-forget event publishing via `RedisEventPublisher`
 - Reuses `agent::orchestration::send_message_flow()` for task message delivery

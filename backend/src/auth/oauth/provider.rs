@@ -2,7 +2,7 @@
 
 use async_trait::async_trait;
 use crate::auth::error::AuthError;
-use crate::auth::types::{OAuthTokens, ProviderUserInfo};
+use crate::auth::models::{OAuthTokens, ProviderUserInfo};
 
 /// Generic OAuth provider interface.
 #[async_trait]

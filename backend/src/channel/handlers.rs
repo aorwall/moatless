@@ -6,8 +6,9 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
 use tracing::{info, warn};
 
-use crate::db::{channel_config_dao, repository_dao};
-use crate::db::channel_config_dao::ChannelConfigPatch;
+use super::config_dao as channel_config_dao;
+use super::config_dao::ChannelConfigPatch;
+use crate::repository::dao as repository_dao;
 use crate::extractors::AuthUser;
 use crate::state::AppState;
 
@@ -15,7 +16,8 @@ use super::error::ChannelError;
 use super::inbound;
 use super::provider::ChannelType;
 use super::slack::provider::SlackWebhookResult;
-use super::types::*;
+use super::models::RoutingMode;
+use super::schemas::*;
 
 // =========================================================================
 // Webhook handlers
@@ -139,8 +141,8 @@ pub async fn slack_webhook(
     request_body = CreateChannelConfigRequest,
     responses(
         (status = 200, description = "Config created", body = ChannelConfigResponse),
-        (status = 400, description = "Invalid request", body = crate::sandbox::types::ErrorBody),
-        (status = 404, description = "Repository not found", body = crate::sandbox::types::ErrorBody)
+        (status = 400, description = "Invalid request", body = crate::sandbox::schemas::ErrorBody),
+        (status = 404, description = "Repository not found", body = crate::sandbox::schemas::ErrorBody)
     )
 )]
 pub async fn create_config(
@@ -180,7 +182,7 @@ pub async fn create_config(
     let id = nanoid::nanoid!(21);
     let now = chrono::Utc::now();
 
-    let row = crate::db::models::ChannelConfigRow {
+    let row = super::models::ChannelConfig {
         id: id.clone(),
         provider: req.provider,
         source_id: req.source_id,
@@ -199,7 +201,7 @@ pub async fn create_config(
     channel_config_dao::insert(&state.db, &row).await?;
     info!(config_id = %id, provider = %row.provider, "Channel config created");
 
-    Ok(Json(ChannelConfigResponse::from_row(&row)))
+    Ok(Json(ChannelConfigResponse::from_model(&row)))
 }
 
 /// List channel configs with optional filters.
@@ -228,7 +230,7 @@ pub async fn list_configs(
     )
     .await?;
 
-    let items: Vec<ChannelConfigResponse> = rows.iter().map(ChannelConfigResponse::from_row).collect();
+    let items: Vec<ChannelConfigResponse> = rows.iter().map(ChannelConfigResponse::from_model).collect();
     Ok(Json(items))
 }
 
@@ -242,7 +244,7 @@ pub async fn list_configs(
     ),
     responses(
         (status = 200, description = "Config details", body = ChannelConfigResponse),
-        (status = 404, description = "Not found", body = crate::sandbox::types::ErrorBody)
+        (status = 404, description = "Not found", body = crate::sandbox::schemas::ErrorBody)
     )
 )]
 pub async fn get_config(
@@ -254,7 +256,7 @@ pub async fn get_config(
         .await?
         .ok_or_else(|| ChannelError::ConfigNotFound(id))?;
 
-    Ok(Json(ChannelConfigResponse::from_row(&row)))
+    Ok(Json(ChannelConfigResponse::from_model(&row)))
 }
 
 /// Update a channel config.
@@ -268,7 +270,7 @@ pub async fn get_config(
     request_body = UpdateChannelConfigRequest,
     responses(
         (status = 200, description = "Config updated", body = ChannelConfigResponse),
-        (status = 404, description = "Not found", body = crate::sandbox::types::ErrorBody)
+        (status = 404, description = "Not found", body = crate::sandbox::schemas::ErrorBody)
     )
 )]
 pub async fn update_config(
@@ -302,7 +304,7 @@ pub async fn update_config(
         .await?
         .ok_or_else(|| ChannelError::ConfigNotFound(id))?;
 
-    Ok(Json(ChannelConfigResponse::from_row(&row)))
+    Ok(Json(ChannelConfigResponse::from_model(&row)))
 }
 
 /// Delete a channel config.
@@ -315,7 +317,7 @@ pub async fn update_config(
     ),
     responses(
         (status = 204, description = "Config deleted"),
-        (status = 404, description = "Not found", body = crate::sandbox::types::ErrorBody)
+        (status = 404, description = "Not found", body = crate::sandbox::schemas::ErrorBody)
     )
 )]
 pub async fn delete_config(

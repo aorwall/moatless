@@ -3,8 +3,10 @@
 use serde_json::Value;
 
 use crate::config::Config;
-use crate::db::{figma_import_dao, file_meta_dao, DbPool};
-use crate::task::types::MessageContextInput;
+use crate::db::DbPool;
+use crate::figma::dao as figma_import_dao;
+use crate::file_storage::dao as file_meta_dao;
+use crate::task::schemas::MessageContextInput;
 
 /// Content block for agent request.
 #[derive(Debug, serde::Serialize)]

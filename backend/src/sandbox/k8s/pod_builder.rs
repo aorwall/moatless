@@ -15,7 +15,7 @@ use tracing::{debug, info};
 
 use super::naming::generate_pod_name;
 use crate::config::Config;
-use crate::sandbox::types::ProvisionPlan;
+use crate::sandbox::models::ProvisionPlan;
 
 /// Build a complete Pod spec from config + plan (no template).
 ///

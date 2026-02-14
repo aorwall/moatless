@@ -13,9 +13,9 @@ use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::config::{AuthProvider, Config};
-use crate::db::sessions::SessionRow;
+use super::sessions::Session;
 use crate::db::DbPool;
-use crate::sandbox::types::ErrorBody;
+use crate::sandbox::schemas::ErrorBody;
 
 use super::api_key;
 use super::cache::AuthCache;
@@ -23,7 +23,7 @@ use super::cookie;
 use super::error::AuthError;
 use super::oauth::provider::OAuthProvider;
 use super::session;
-use super::types::{
+use super::schemas::{
     ApiKeyCreateResponse, ApiKeyListItem, CreateApiKeyRequest, MessageResponse,
     OAuthCallbackQuery, SessionResponse, UserInfo, UserListItem, UserListResponse,
     format_datetime, format_datetime_opt,
@@ -113,7 +113,7 @@ pub fn auth_router(state: AuthState) -> (axum::Router, utoipa::openapi::OpenApi)
 async fn authenticate_from_cookie(
     state: &AuthState,
     headers: &HeaderMap,
-) -> Result<SessionRow, AuthError> {
+) -> Result<Session, AuthError> {
     let session_id = cookie::get_cookie_value(headers, &state.config.session_cookie_name)
         .ok_or(AuthError::Unauthorized)?;
     session::validate_session(&state.db, &session_id)
@@ -274,7 +274,7 @@ async fn me_handler(
     Ok(Json(session_to_response(&session)))
 }
 
-fn session_to_response(session: &SessionRow) -> SessionResponse {
+fn session_to_response(session: &Session) -> SessionResponse {
     SessionResponse {
         user: Some(UserInfo {
             id: session.user_id.clone(),
@@ -544,7 +544,7 @@ async fn exchange_api_key_handler(
         .await?
         .ok_or(AuthError::InvalidApiKey)?;
 
-    let user = crate::db::users::get_user(&state.db, &payload.user_id)
+    let user = super::users::get_user(&state.db, &payload.user_id)
         .await?
         .ok_or(AuthError::Unauthorized)?;
 
@@ -714,7 +714,7 @@ async fn revoke_api_key_handler(
 async fn list_users_handler(
     State(state): State<AuthState>,
 ) -> Result<Json<UserListResponse>, AuthError> {
-    let users = crate::db::users::list_users(&state.db).await?;
+    let users = super::users::list_users(&state.db).await?;
 
     let items: Vec<UserListItem> = users
         .iter()

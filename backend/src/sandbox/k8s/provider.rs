@@ -27,7 +27,8 @@ use crate::events::RedisEventPublisher;
 use crate::sandbox::error::SandboxError;
 use crate::sandbox::jwt;
 use crate::sandbox::provider::SandboxProvider;
-use crate::sandbox::types::*;
+use crate::sandbox::models::*;
+use crate::sandbox::schemas::*;
 
 /// Kubernetes-based sandbox provider.
 pub struct K8sSandboxProvider {
@@ -74,7 +75,7 @@ impl SandboxProvider for K8sSandboxProvider {
             .clone();
 
         let user_login = if let Some(ref pool) = self.db_pool {
-            match crate::db::users::get_user(pool, &request.user_id).await {
+            match crate::auth::users::get_user(pool, &request.user_id).await {
                 Ok(Some(user)) => user.login,
                 _ => request.user_id.clone(), // Fallback to user_id as login
             }

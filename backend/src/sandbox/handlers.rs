@@ -13,7 +13,8 @@ use tracing::{error, info};
 
 use super::error::SandboxError;
 use super::routes::SandboxApiState;
-use super::types::*;
+use super::models::*;
+use super::schemas::*;
 
 /// Provision a new sandbox workspace for a task.
 #[utoipa::path(

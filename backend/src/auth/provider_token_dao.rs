@@ -1,7 +1,7 @@
 //! Provider token DAO — queries for credential resolution.
 
-use super::models::{ProviderAccessToken, ProviderTokenRow};
-use super::DbPool;
+use super::models::{ProviderAccessToken, ProviderToken};
+use crate::db::DbPool;
 
 /// Find a provider token by user_id and provider name.
 ///
@@ -26,8 +26,8 @@ pub async fn find_provider_token_full(
     pool: &DbPool,
     user_id: &str,
     provider: &str,
-) -> Result<Option<ProviderTokenRow>, sqlx::Error> {
-    sqlx::query_as::<_, ProviderTokenRow>(
+) -> Result<Option<ProviderToken>, sqlx::Error> {
+    sqlx::query_as::<_, ProviderToken>(
         r#"SELECT id, user_id, provider, access_token, refresh_token, token_type,
                   metadata, created_at, updated_at
            FROM provider_tokens

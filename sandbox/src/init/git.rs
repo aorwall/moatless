@@ -111,7 +111,7 @@ pub async fn clone_repository(config: &Config) -> Result<(), String> {
         }
     }
 
-    // Fallback: git clone with HTTPS token auth
+    // Fallback: git clone with HTTPS token auth (if available)
     if let Ok(token) = std::env::var("GITHUB_TOKEN") {
         let https_url = format!("https://x-access-token:{token}@github.com/{repo_path}.git");
         let mut git_args = vec!["clone", "--depth", "1"];
@@ -122,11 +122,28 @@ pub async fn clone_repository(config: &Config) -> Result<(), String> {
         git_args.push(&https_url);
         git_args.push(&config.workspace_dir);
         run_command("git", &git_args).await?;
-        info!("Repository cloned successfully (git fallback)");
+        info!("Repository cloned successfully (git fallback with token)");
         return Ok(());
     }
 
-    Err("gh repo clone failed and GITHUB_TOKEN not set for git fallback".to_string())
+    // Last resort: plain git clone (works for public repos)
+    let plain_url = format!("https://github.com/{repo_path}.git");
+    let mut git_args = vec!["clone", "--depth", "1"];
+    if let Some(ref branch) = config.git_branch {
+        git_args.push("--branch");
+        git_args.push(branch);
+    }
+    git_args.push(&plain_url);
+    git_args.push(&config.workspace_dir);
+    match run_command("git", &git_args).await {
+        Ok(()) => {
+            info!("Repository cloned successfully (plain git clone)");
+            return Ok(());
+        }
+        Err(e) => {
+            return Err(format!("All clone methods failed. Last error: {e}"));
+        }
+    }
 }
 
 /// Resolve git user name and email from the GitHub API.

@@ -1,10 +1,10 @@
 //! Provider tokens table queries.
 
 use chrono::{DateTime, Utc};
-use super::DbPool;
+use crate::db::DbPool;
 
 #[derive(sqlx::FromRow, Debug)]
-pub struct ProviderTokenRow {
+pub struct ProviderToken {
     pub user_id: String,
     pub provider: String,
     pub auth_method: String,
@@ -19,7 +19,7 @@ pub struct ProviderTokenRow {
 }
 
 /// Upsert a provider token (insert or update on conflict).
-pub async fn upsert_provider_token(pool: &DbPool, token: &ProviderTokenRow) -> Result<(), sqlx::Error> {
+pub async fn upsert_provider_token(pool: &DbPool, token: &ProviderToken) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"
         INSERT INTO provider_tokens (

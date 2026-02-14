@@ -6,14 +6,15 @@ use axum::Json;
 
 use tracing::{info, warn};
 
-use crate::db::{provider_token_dao, repository_dao};
-use crate::db::models::RepositoryRow;
-use crate::db::repository_dao::RepositoryPatch;
+use crate::auth::provider_token_dao;
+use super::dao as repository_dao;
+use super::dao::RepositoryPatch;
+use super::models::Repository;
 use crate::extractors::AuthUser;
 use crate::state::AppState;
 
 use super::error::RepositoryError;
-use super::types::*;
+use super::schemas::*;
 
 /// Create a new repository.
 #[utoipa::path(
@@ -23,7 +24,7 @@ use super::types::*;
     request_body = CreateRepositoryRequest,
     responses(
         (status = 201, description = "Repository created", body = RepositoryResponse),
-        (status = 409, description = "Repository already exists", body = crate::sandbox::types::ErrorBody)
+        (status = 409, description = "Repository already exists", body = crate::sandbox::schemas::ErrorBody)
     )
 )]
 pub async fn create_repository(
@@ -44,7 +45,7 @@ pub async fn create_repository(
     let id = uuid::Uuid::new_v4().to_string();
     let now = chrono::Utc::now();
 
-    let row = RepositoryRow {
+    let row = Repository {
         id: id.clone(),
         name: req.name,
         kind: req.kind,
@@ -105,7 +106,7 @@ pub async fn list_repositories(
     ),
     responses(
         (status = 200, description = "Repository details", body = RepositoryResponse),
-        (status = 404, description = "Repository not found", body = crate::sandbox::types::ErrorBody)
+        (status = 404, description = "Repository not found", body = crate::sandbox::schemas::ErrorBody)
     )
 )]
 pub async fn get_repository(
@@ -131,7 +132,7 @@ pub async fn get_repository(
     request_body = UpdateRepositoryRequest,
     responses(
         (status = 200, description = "Repository updated", body = RepositoryResponse),
-        (status = 404, description = "Repository not found", body = crate::sandbox::types::ErrorBody)
+        (status = 404, description = "Repository not found", body = crate::sandbox::schemas::ErrorBody)
     )
 )]
 pub async fn update_repository(
@@ -186,7 +187,7 @@ pub async fn update_repository(
     ),
     responses(
         (status = 204, description = "Repository deleted"),
-        (status = 404, description = "Repository not found", body = crate::sandbox::types::ErrorBody)
+        (status = 404, description = "Repository not found", body = crate::sandbox::schemas::ErrorBody)
     )
 )]
 pub async fn delete_repository(
@@ -214,8 +215,8 @@ pub async fn delete_repository(
     ),
     responses(
         (status = 200, description = "Repository converted to template", body = RepositoryResponse),
-        (status = 400, description = "Cannot convert", body = crate::sandbox::types::ErrorBody),
-        (status = 404, description = "Repository not found", body = crate::sandbox::types::ErrorBody)
+        (status = 400, description = "Cannot convert", body = crate::sandbox::schemas::ErrorBody),
+        (status = 404, description = "Repository not found", body = crate::sandbox::schemas::ErrorBody)
     )
 )]
 pub async fn convert_to_template(
@@ -258,8 +259,8 @@ pub async fn convert_to_template(
     ),
     responses(
         (status = 200, description = "Branch list", body = BranchListResponse),
-        (status = 400, description = "Bad request", body = crate::sandbox::types::ErrorBody),
-        (status = 404, description = "Repository not found", body = crate::sandbox::types::ErrorBody)
+        (status = 400, description = "Bad request", body = crate::sandbox::schemas::ErrorBody),
+        (status = 404, description = "Repository not found", body = crate::sandbox::schemas::ErrorBody)
     )
 )]
 pub async fn get_branches(

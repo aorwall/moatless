@@ -7,11 +7,11 @@ use serde::{Deserialize, Serialize};
 
 use std::any::Any;
 
-use crate::db::models::{ChannelConfigRow, ChannelThreadRow};
+use super::models::{ChannelConfig, ChannelThread};
 use crate::db::DbPool;
 
 use super::error::ChannelError;
-use super::types::{MessageStatus, OutboundReply};
+use super::models::{MessageStatus, OutboundReply};
 
 /// Channel provider identifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -67,16 +67,16 @@ pub trait ChannelProvider: Send + Sync {
     /// Send a reply back to the channel thread.
     async fn send_reply(
         &self,
-        thread: &ChannelThreadRow,
-        config: &ChannelConfigRow,
+        thread: &ChannelThread,
+        config: &ChannelConfig,
         message: &OutboundReply,
     ) -> Result<(), ChannelError>;
 
     /// Set a status indicator (e.g., Slack emoji reaction). Default: no-op.
     async fn set_status(
         &self,
-        _thread: &ChannelThreadRow,
-        _config: &ChannelConfigRow,
+        _thread: &ChannelThread,
+        _config: &ChannelConfig,
         _status: MessageStatus,
     ) -> Result<(), ChannelError> {
         Ok(())
@@ -86,8 +86,8 @@ pub trait ChannelProvider: Send + Sync {
     /// Returns formatted context string or None if not supported.
     async fn fetch_context(
         &self,
-        _thread: &ChannelThreadRow,
-        _config: &ChannelConfigRow,
+        _thread: &ChannelThread,
+        _config: &ChannelConfig,
         _limit: usize,
     ) -> Result<Option<String>, ChannelError> {
         Ok(None)

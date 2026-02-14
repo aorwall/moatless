@@ -1,10 +1,10 @@
 //! Command DAO — queries for command data access.
 
-use super::models::CommandRow;
-use super::DbPool;
+use super::models::Command;
+use crate::db::DbPool;
 
 /// Insert a new command.
-pub async fn insert(pool: &DbPool, cmd: &CommandRow) -> Result<(), sqlx::Error> {
+pub async fn insert(pool: &DbPool, cmd: &Command) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"INSERT INTO commands (name, description, prompt, conditions, icon, variant, active, will_not_resume, agent_mode)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -25,7 +25,7 @@ pub async fn insert(pool: &DbPool, cmd: &CommandRow) -> Result<(), sqlx::Error> 
 }
 
 /// Insert a batch of commands (ignores conflicts).
-pub async fn insert_batch(pool: &DbPool, commands: &[CommandRow]) -> Result<(), sqlx::Error> {
+pub async fn insert_batch(pool: &DbPool, commands: &[Command]) -> Result<(), sqlx::Error> {
     for cmd in commands {
         insert(pool, cmd).await?;
     }
@@ -33,8 +33,8 @@ pub async fn insert_batch(pool: &DbPool, commands: &[CommandRow]) -> Result<(), 
 }
 
 /// Find a command by name.
-pub async fn find_by_name(pool: &DbPool, name: &str) -> Result<Option<CommandRow>, sqlx::Error> {
-    sqlx::query_as::<_, CommandRow>(
+pub async fn find_by_name(pool: &DbPool, name: &str) -> Result<Option<Command>, sqlx::Error> {
+    sqlx::query_as::<_, Command>(
         r#"SELECT name, description, prompt, conditions, icon, variant, active, will_not_resume, agent_mode
            FROM commands WHERE name = $1"#,
     )
@@ -44,8 +44,8 @@ pub async fn find_by_name(pool: &DbPool, name: &str) -> Result<Option<CommandRow
 }
 
 /// List all commands.
-pub async fn list_all(pool: &DbPool) -> Result<Vec<CommandRow>, sqlx::Error> {
-    sqlx::query_as::<_, CommandRow>(
+pub async fn list_all(pool: &DbPool) -> Result<Vec<Command>, sqlx::Error> {
+    sqlx::query_as::<_, Command>(
         r#"SELECT name, description, prompt, conditions, icon, variant, active, will_not_resume, agent_mode
            FROM commands ORDER BY name"#,
     )

@@ -1,11 +1,11 @@
 //! Default commands seeded on first access.
 
-use crate::db::models::CommandRow;
+use super::models::Command;
 
 /// The 6 default commands.
-pub fn default_commands() -> Vec<CommandRow> {
+pub fn default_commands() -> Vec<Command> {
     vec![
-        CommandRow {
+        Command {
             name: "commit".to_string(),
             description: "Commit changes".to_string(),
             prompt: "commit the relevant changes".to_string(),
@@ -16,7 +16,7 @@ pub fn default_commands() -> Vec<CommandRow> {
             will_not_resume: None,
             agent_mode: None,
         },
-        CommandRow {
+        Command {
             name: "continue".to_string(),
             description: "Continue task".to_string(),
             prompt: "continue with the task".to_string(),
@@ -27,7 +27,7 @@ pub fn default_commands() -> Vec<CommandRow> {
             will_not_resume: None,
             agent_mode: None,
         },
-        CommandRow {
+        Command {
             name: "create-pr".to_string(),
             description: "Create pull request".to_string(),
             prompt: "create a pull request with the changes".to_string(),
@@ -38,7 +38,7 @@ pub fn default_commands() -> Vec<CommandRow> {
             will_not_resume: None,
             agent_mode: None,
         },
-        CommandRow {
+        Command {
             name: "merge-to-main".to_string(),
             description: "Merge to main".to_string(),
             prompt: "merge the changes to the main branch".to_string(),
@@ -49,7 +49,7 @@ pub fn default_commands() -> Vec<CommandRow> {
             will_not_resume: None,
             agent_mode: None,
         },
-        CommandRow {
+        Command {
             name: "sync-with-main".to_string(),
             description: "Sync with main".to_string(),
             prompt: "sync the branch with the latest changes from main".to_string(),
@@ -60,7 +60,7 @@ pub fn default_commands() -> Vec<CommandRow> {
             will_not_resume: None,
             agent_mode: None,
         },
-        CommandRow {
+        Command {
             name: "compact".to_string(),
             description: "Compact context".to_string(),
             prompt: "Summarize the conversation and compact the context".to_string(),

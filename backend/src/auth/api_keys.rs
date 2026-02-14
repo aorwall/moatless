@@ -1,10 +1,10 @@
 //! API keys table queries.
 
 use chrono::{DateTime, Utc};
-use super::DbPool;
+use crate::db::DbPool;
 
 #[derive(sqlx::FromRow, Debug)]
-pub struct ApiKeyRow {
+pub struct ApiKey {
     pub id: String,
     pub user_id: String,
     pub name: String,
@@ -18,7 +18,7 @@ pub struct ApiKeyRow {
 }
 
 /// Insert a new API key.
-pub async fn insert_api_key(pool: &DbPool, key: &ApiKeyRow) -> Result<(), sqlx::Error> {
+pub async fn insert_api_key(pool: &DbPool, key: &ApiKey) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"
         INSERT INTO api_keys (id, user_id, name, key_hash, key_prefix, scopes, group_id, last_used_at, expires_at, created_at)
@@ -41,24 +41,24 @@ pub async fn insert_api_key(pool: &DbPool, key: &ApiKeyRow) -> Result<(), sqlx::
 }
 
 /// Find an API key by its SHA-256 hash.
-pub async fn get_api_key_by_hash(pool: &DbPool, key_hash: &str) -> Result<Option<ApiKeyRow>, sqlx::Error> {
-    sqlx::query_as::<_, ApiKeyRow>("SELECT * FROM api_keys WHERE key_hash = $1")
+pub async fn get_api_key_by_hash(pool: &DbPool, key_hash: &str) -> Result<Option<ApiKey>, sqlx::Error> {
+    sqlx::query_as::<_, ApiKey>("SELECT * FROM api_keys WHERE key_hash = $1")
         .bind(key_hash)
         .fetch_optional(pool)
         .await
 }
 
 /// Get API key by ID.
-pub async fn get_api_key_by_id(pool: &DbPool, key_id: &str) -> Result<Option<ApiKeyRow>, sqlx::Error> {
-    sqlx::query_as::<_, ApiKeyRow>("SELECT * FROM api_keys WHERE id = $1")
+pub async fn get_api_key_by_id(pool: &DbPool, key_id: &str) -> Result<Option<ApiKey>, sqlx::Error> {
+    sqlx::query_as::<_, ApiKey>("SELECT * FROM api_keys WHERE id = $1")
         .bind(key_id)
         .fetch_optional(pool)
         .await
 }
 
 /// List all API keys for a user (without revealing the hash).
-pub async fn list_api_keys_by_user(pool: &DbPool, user_id: &str) -> Result<Vec<ApiKeyRow>, sqlx::Error> {
-    sqlx::query_as::<_, ApiKeyRow>(
+pub async fn list_api_keys_by_user(pool: &DbPool, user_id: &str) -> Result<Vec<ApiKey>, sqlx::Error> {
+    sqlx::query_as::<_, ApiKey>(
         "SELECT * FROM api_keys WHERE user_id = $1 ORDER BY created_at DESC",
     )
     .bind(user_id)

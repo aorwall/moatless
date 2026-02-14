@@ -1,11 +1,13 @@
 //! Core routing logic: config lookup → task routing based on routing mode.
 
-use crate::db::models::{ChannelConfigRow, ChannelThreadRow};
-use crate::db::{channel_config_dao, channel_thread_dao, task_dao};
+use super::config_dao as channel_config_dao;
+use super::models::{ChannelConfig, ChannelThread};
+use super::thread_dao as channel_thread_dao;
+use crate::task::dao as task_dao;
 use crate::state::AppState;
 
 use super::error::ChannelError;
-use super::types::{InboundMessage, RoutingMode};
+use super::models::{InboundMessage, RoutingMode};
 
 /// Result of routing an inbound message.
 #[derive(Debug)]
@@ -15,12 +17,12 @@ pub enum RoutingResult {
     /// Route to an existing task (thread or ongoing).
     ExistingTask {
         task_id: String,
-        thread: Option<ChannelThreadRow>,
-        config: ChannelConfigRow,
+        thread: Option<ChannelThread>,
+        config: ChannelConfig,
     },
     /// Create a new task.
     NewTask {
-        config: ChannelConfigRow,
+        config: ChannelConfig,
     },
 }
 
@@ -68,7 +70,7 @@ pub async fn route_message(
                 if let Ok(Some(task)) =
                     task_dao::find_by_id_internal(&state.db, task_id).await
                 {
-                    if task.status == "open" || task.status == "running" {
+                    if task.status == crate::task::models::TaskStatus::Open {
                         return Ok(RoutingResult::ExistingTask {
                             task_id: task.task_id.clone(),
                             thread: None,

@@ -12,7 +12,8 @@ use tracing::warn;
 use super::client::K8sClient;
 use super::pod_status::extract_container_observed_statuses;
 use crate::sandbox::grpc_client::SandboxGrpcClient;
-use crate::sandbox::types::{ContainerObservedStatus, FileSearchResult};
+use crate::sandbox::models::ContainerObservedStatus;
+use crate::sandbox::schemas::FileSearchResult;
 
 /// Fetch server container statuses from K8s API.
 ///

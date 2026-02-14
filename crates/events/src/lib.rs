@@ -43,6 +43,21 @@ impl std::fmt::Display for EventType {
     }
 }
 
+impl TryFrom<&str> for EventType {
+    type Error = String;
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        match s {
+            "task" => Ok(Self::Task),
+            "taskTurn" => Ok(Self::TaskTurn),
+            "sandbox" => Ok(Self::Sandbox),
+            "agent" => Ok(Self::Agent),
+            "server" => Ok(Self::Server),
+            "resources" => Ok(Self::Resources),
+            other => Err(format!("unknown EventType: {other}")),
+        }
+    }
+}
+
 /// Sandbox sub-types — valid status values for sandbox lifecycle events.
 ///
 /// These match the frontend `EnvironmentStatusSchema` values.
@@ -74,6 +89,21 @@ impl SandboxSubType {
 impl std::fmt::Display for SandboxSubType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.as_str())
+    }
+}
+
+impl TryFrom<&str> for SandboxSubType {
+    type Error = String;
+    fn try_from(s: &str) -> Result<Self, String> {
+        match s {
+            "not_created" => Ok(Self::NotCreated),
+            "initializing" => Ok(Self::Initializing),
+            "ready" => Ok(Self::Ready),
+            "stopped" => Ok(Self::Stopped),
+            "removing" => Ok(Self::Removing),
+            "error" => Ok(Self::Error),
+            other => Err(format!("unknown SandboxSubType: {other}")),
+        }
     }
 }
 
@@ -109,6 +139,20 @@ impl std::fmt::Display for ServerSubType {
     }
 }
 
+impl TryFrom<&str> for ServerSubType {
+    type Error = String;
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        match s {
+            "installing" => Ok(Self::Installing),
+            "starting" => Ok(Self::Starting),
+            "started" => Ok(Self::Started),
+            "stopped" => Ok(Self::Stopped),
+            "failed" => Ok(Self::Failed),
+            other => Err(format!("unknown ServerSubType: {other}")),
+        }
+    }
+}
+
 /// Agent sub-types.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
@@ -120,6 +164,7 @@ pub enum AgentSubType {
     Completed,
     Error,
     PendingResponse,
+    SessionInit,
 }
 
 impl AgentSubType {
@@ -131,6 +176,7 @@ impl AgentSubType {
             Self::Completed => "completed",
             Self::Error => "error",
             Self::PendingResponse => "pending_response",
+            Self::SessionInit => "session_init",
         }
     }
 
@@ -143,6 +189,22 @@ impl AgentSubType {
 impl std::fmt::Display for AgentSubType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.as_str())
+    }
+}
+
+impl TryFrom<&str> for AgentSubType {
+    type Error = String;
+    fn try_from(s: &str) -> Result<Self, String> {
+        match s {
+            "started" => Ok(Self::Started),
+            "stopped" => Ok(Self::Stopped),
+            "message" => Ok(Self::Message),
+            "completed" => Ok(Self::Completed),
+            "error" => Ok(Self::Error),
+            "pending_response" => Ok(Self::PendingResponse),
+            "session_init" => Ok(Self::SessionInit),
+            other => Err(format!("unknown AgentSubType: {other}")),
+        }
     }
 }
 
@@ -177,6 +239,20 @@ impl std::fmt::Display for TaskSubType {
     }
 }
 
+impl TryFrom<&str> for TaskSubType {
+    type Error = String;
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        match s {
+            "created" => Ok(Self::Created),
+            "open" => Ok(Self::Open),
+            "closed" => Ok(Self::Closed),
+            "updated" => Ok(Self::Updated),
+            "metadata.updated" => Ok(Self::MetadataUpdated),
+            other => Err(format!("unknown TaskSubType: {other}")),
+        }
+    }
+}
+
 /// TaskTurn sub-types.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
@@ -206,6 +282,19 @@ impl TaskTurnSubType {
 impl std::fmt::Display for TaskTurnSubType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.as_str())
+    }
+}
+
+impl TryFrom<&str> for TaskTurnSubType {
+    type Error = String;
+    fn try_from(s: &str) -> Result<Self, String> {
+        match s {
+            "active" => Ok(Self::Active),
+            "completed" => Ok(Self::Completed),
+            "error" => Ok(Self::Error),
+            "stopped" => Ok(Self::Stopped),
+            other => Err(format!("unknown TaskTurnSubType: {other}")),
+        }
     }
 }
 
@@ -398,5 +487,67 @@ mod tests {
         assert_eq!(EventType::Task.to_string(), "task");
         assert_eq!(EventType::TaskTurn.to_string(), "taskTurn");
         assert_eq!(EventType::Sandbox.to_string(), "sandbox");
+    }
+
+    #[test]
+    fn event_type_try_from() {
+        assert_eq!(EventType::try_from("task"), Ok(EventType::Task));
+        assert_eq!(EventType::try_from("taskTurn"), Ok(EventType::TaskTurn));
+        assert_eq!(EventType::try_from("agent"), Ok(EventType::Agent));
+        assert!(EventType::try_from("unknown").is_err());
+    }
+
+    #[test]
+    fn agent_sub_type_try_from() {
+        assert_eq!(
+            AgentSubType::try_from("completed"),
+            Ok(AgentSubType::Completed)
+        );
+        assert_eq!(
+            AgentSubType::try_from("session_init"),
+            Ok(AgentSubType::SessionInit)
+        );
+        assert!(AgentSubType::try_from("bogus").is_err());
+    }
+
+    #[test]
+    fn task_sub_type_try_from() {
+        assert_eq!(
+            TaskSubType::try_from("metadata.updated"),
+            Ok(TaskSubType::MetadataUpdated)
+        );
+        assert_eq!(TaskSubType::try_from("open"), Ok(TaskSubType::Open));
+        assert!(TaskSubType::try_from("nope").is_err());
+    }
+
+    #[test]
+    fn task_turn_sub_type_try_from() {
+        assert_eq!(
+            TaskTurnSubType::try_from("completed"),
+            Ok(TaskTurnSubType::Completed)
+        );
+        assert_eq!(
+            TaskTurnSubType::try_from("stopped"),
+            Ok(TaskTurnSubType::Stopped)
+        );
+        assert!(TaskTurnSubType::try_from("x").is_err());
+    }
+
+    #[test]
+    fn sandbox_sub_type_try_from() {
+        assert_eq!(
+            SandboxSubType::try_from("not_created"),
+            Ok(SandboxSubType::NotCreated)
+        );
+        assert!(SandboxSubType::try_from("bad").is_err());
+    }
+
+    #[test]
+    fn server_sub_type_try_from() {
+        assert_eq!(
+            ServerSubType::try_from("failed"),
+            Ok(ServerSubType::Failed)
+        );
+        assert!(ServerSubType::try_from("nah").is_err());
     }
 }

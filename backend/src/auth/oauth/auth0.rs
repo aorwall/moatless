@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use tracing::{debug, info, warn};
 
 use crate::auth::error::AuthError;
-use crate::auth::types::{OAuthTokens, ProviderUserInfo};
+use crate::auth::models::{OAuthTokens, ProviderUserInfo};
 use crate::config::Config;
 use super::provider::OAuthProvider;
 

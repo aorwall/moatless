@@ -1,32 +1,8 @@
-//! Typed request/response structs for the auth API.
-//!
-//! Following the pattern from `sandbox/types.rs` — all types are `Serialize`
-//! with `#[serde(rename_all = "camelCase")]` for JSON consistency.
+//! Auth API request/response schemas.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-
-// ============================================================================
-// OAuth types (used by session + provider implementations)
-// ============================================================================
-
-/// OAuth tokens from a provider.
-pub struct OAuthTokens {
-    pub access_token: String,
-    pub token_type: String,
-    pub scope: Option<String>,
-    pub id_token: Option<String>,
-}
-
-/// Normalized user info from an OAuth provider.
-pub struct ProviderUserInfo {
-    pub id: String,
-    pub login: String,
-    pub email: Option<String>,
-    pub name: Option<String>,
-    pub avatar_url: Option<String>,
-}
 
 // ============================================================================
 // Request types

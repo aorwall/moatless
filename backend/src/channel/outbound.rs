@@ -1,13 +1,15 @@
 //! Outbound channel notifications — event-driven replies to channel threads.
 
+use moatless_events::{AgentSubType, TaskTurnSubType};
 use tracing::{debug, warn};
 
-use crate::db::{channel_config_dao, channel_thread_dao};
-use crate::event_handler::types::AgentEvent;
+use super::config_dao as channel_config_dao;
+use super::thread_dao as channel_thread_dao;
+use crate::event_handler::models::{AgentEvent, EventKey};
 use crate::state::AppState;
 
 use super::provider::ChannelProviders;
-use super::types::{MessageStatus, OutboundReply};
+use super::models::{MessageStatus, OutboundReply};
 
 /// Handle a channel notification triggered by an agent event.
 ///
@@ -31,7 +33,7 @@ pub async fn handle_channel_notification(
         return; // Task not from a channel
     }
 
-    let key = format!("{}.{}", event.event_type, event.sub_type);
+    let key = event.event_key();
 
     for thread in &threads {
         // Load config for this thread
@@ -47,8 +49,9 @@ pub async fn handle_channel_notification(
 
         let task_url = build_task_url(state, &event.task_id);
 
-        match key.as_str() {
-            "taskTurn.completed" | "agent.completed" => {
+        match &key {
+            EventKey::TaskTurn(TaskTurnSubType::Completed)
+            | EventKey::Agent(AgentSubType::Completed) => {
                 // Extract result text
                 let result_text = event
                     .payload
@@ -73,7 +76,8 @@ pub async fn handle_channel_notification(
                 }
             }
 
-            "agent.error" | "taskTurn.error" => {
+            EventKey::Agent(AgentSubType::Error)
+            | EventKey::TaskTurn(TaskTurnSubType::Error) => {
                 let error_msg = event
                     .payload
                     .get("error")
@@ -100,7 +104,8 @@ pub async fn handle_channel_notification(
             _ => {
                 debug!(
                     task_id = %event.task_id,
-                    event_key = %key,
+                    event_type = %event.event_type,
+                    sub_type = %event.sub_type,
                     "Event type not handled for channel notifications"
                 );
             }

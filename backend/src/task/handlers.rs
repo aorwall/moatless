@@ -5,14 +5,18 @@ use axum::Json;
 
 use moatless_events::TaskSubType;
 
-use crate::db::{repository_dao, tag_dao, task_dao, users};
-use crate::db::models::TaskRow;
-use crate::db::task_dao::TaskPatch;
+use crate::auth::users;
+use crate::repository::dao as repository_dao;
+use crate::tag::dao as tag_dao;
+use super::dao as task_dao;
+use super::dao::TaskPatch;
+use super::models::Task;
 use crate::extractors::AuthUser;
 use crate::state::AppState;
+use crate::task::models::{TaskStatus, Visibility};
 
 use super::error::TaskError;
-use super::types::*;
+use super::schemas::*;
 
 /// Create a new task.
 #[utoipa::path(
@@ -22,7 +26,7 @@ use super::types::*;
     request_body = CreateTaskRequest,
     responses(
         (status = 200, description = "Task created", body = CreateTaskResponse),
-        (status = 404, description = "Repository not found", body = crate::sandbox::types::ErrorBody)
+        (status = 404, description = "Repository not found", body = crate::sandbox::schemas::ErrorBody)
     )
 )]
 pub async fn create_task(
@@ -45,14 +49,14 @@ pub async fn create_task(
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let agent_type = req.agent_type.unwrap_or_else(|| "claude-code".to_string());
 
-    let row = TaskRow {
+    let row = Task {
         task_id: task_id.clone(),
         short_id: Some(short_id),
         created_at: now.clone(),
         last_message_at: now,
         agent_type,
         repository_id: req.repository_id.clone(),
-        status: "open".to_string(),
+        status: TaskStatus::Open,
         total_cost_usd: 0.0,
         site_url: None,
         template_id: None,
@@ -63,7 +67,7 @@ pub async fn create_task(
         site_provider: None,
         branch: req.branch.clone().or(repo.default_branch.clone()),
         created_by: Some(auth.user_id.clone()),
-        visibility: "private".to_string(),
+        visibility: Visibility::Private,
         created_at_db: None,
     };
 
@@ -113,7 +117,7 @@ pub async fn create_task(
 
     Ok(Json(CreateTaskResponse {
         task_id: row.task_id.clone(),
-        status: row.status.clone(),
+        status: row.status,
         task: task_response,
     }))
 }
@@ -126,7 +130,7 @@ pub async fn create_task(
     request_body = CreateVibeTaskRequest,
     responses(
         (status = 200, description = "Vibe task created", body = CreateTaskResponse),
-        (status = 404, description = "Template not found", body = crate::sandbox::types::ErrorBody)
+        (status = 404, description = "Template not found", body = crate::sandbox::schemas::ErrorBody)
     )
 )]
 pub async fn create_vibe_task(
@@ -143,14 +147,14 @@ pub async fn create_vibe_task(
     let short_id = generate_unique_short_id(&state.db).await?;
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
 
-    let row = TaskRow {
+    let row = Task {
         task_id: task_id.clone(),
         short_id: Some(short_id),
         created_at: now.clone(),
         last_message_at: now,
         agent_type: "claude-code".to_string(),
         repository_id: repo.id.clone(),
-        status: "open".to_string(),
+        status: TaskStatus::Open,
         total_cost_usd: 0.0,
         site_url: None,
         template_id: Some(req.template_id.clone()),
@@ -161,7 +165,7 @@ pub async fn create_vibe_task(
         site_provider: None,
         branch: repo.default_branch.clone(),
         created_by: Some(auth.user_id.clone()),
-        visibility: "private".to_string(),
+        visibility: Visibility::Private,
         created_at_db: None,
     };
 
@@ -204,7 +208,7 @@ pub async fn create_vibe_task(
 
     Ok(Json(CreateTaskResponse {
         task_id: row.task_id.clone(),
-        status: row.status.clone(),
+        status: row.status,
         task: task_response,
     }))
 }
@@ -305,7 +309,7 @@ pub async fn list_tasks(
     ),
     responses(
         (status = 200, description = "Task details", body = TaskResponse),
-        (status = 404, description = "Task not found", body = crate::sandbox::types::ErrorBody)
+        (status = 404, description = "Task not found", body = crate::sandbox::schemas::ErrorBody)
     )
 )]
 pub async fn get_task(
@@ -332,7 +336,7 @@ pub async fn get_task(
     request_body = UpdateTaskMetadataRequest,
     responses(
         (status = 200, description = "Task updated", body = TaskResponse),
-        (status = 404, description = "Task not found", body = crate::sandbox::types::ErrorBody)
+        (status = 404, description = "Task not found", body = crate::sandbox::schemas::ErrorBody)
     )
 )]
 pub async fn update_task_metadata(
@@ -379,7 +383,7 @@ pub async fn update_task_metadata(
     ),
     responses(
         (status = 204, description = "Task deleted"),
-        (status = 404, description = "Task not found", body = crate::sandbox::types::ErrorBody)
+        (status = 404, description = "Task not found", body = crate::sandbox::schemas::ErrorBody)
     )
 )]
 pub async fn delete_task(
@@ -412,7 +416,7 @@ pub async fn delete_task(
     ),
     responses(
         (status = 200, description = "Task closed", body = TaskResponse),
-        (status = 404, description = "Task not found", body = crate::sandbox::types::ErrorBody)
+        (status = 404, description = "Task not found", body = crate::sandbox::schemas::ErrorBody)
     )
 )]
 pub async fn close_task(
@@ -434,7 +438,7 @@ pub async fn close_task(
         &state.db,
         &task_id,
         &TaskPatch {
-            status: Some("closed".to_string()),
+            status: Some(TaskStatus::Closed),
             ..Default::default()
         },
     )
@@ -469,8 +473,8 @@ pub async fn close_task(
     ),
     responses(
         (status = 204, description = "Task started"),
-        (status = 400, description = "Invalid task state", body = crate::sandbox::types::ErrorBody),
-        (status = 404, description = "Task not found", body = crate::sandbox::types::ErrorBody)
+        (status = 400, description = "Invalid task state", body = crate::sandbox::schemas::ErrorBody),
+        (status = 404, description = "Task not found", body = crate::sandbox::schemas::ErrorBody)
     )
 )]
 pub async fn start_task(
@@ -482,7 +486,7 @@ pub async fn start_task(
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
-    if row.status != "open" && row.status != "error" {
+    if row.status != TaskStatus::Open && row.status != TaskStatus::Error {
         return Err(TaskError::BadRequest(format!(
             "Cannot start task in '{}' status",
             row.status
@@ -508,7 +512,7 @@ pub async fn start_task(
     ),
     responses(
         (status = 204, description = "Agent stopped"),
-        (status = 404, description = "Task not found", body = crate::sandbox::types::ErrorBody)
+        (status = 404, description = "Task not found", body = crate::sandbox::schemas::ErrorBody)
     )
 )]
 pub async fn stop_task(
@@ -530,7 +534,7 @@ pub async fn stop_task(
         &state.db,
         &task_id,
         &TaskPatch {
-            status: Some("open".to_string()),
+            status: Some(TaskStatus::Open),
             ..Default::default()
         },
     )
@@ -552,7 +556,7 @@ pub async fn stop_task(
     request_body = SetTagsRequest,
     responses(
         (status = 200, description = "Tags updated", body = Vec<TagResponse>),
-        (status = 404, description = "Task not found", body = crate::sandbox::types::ErrorBody)
+        (status = 404, description = "Task not found", body = crate::sandbox::schemas::ErrorBody)
     )
 )]
 pub async fn set_task_tags(
@@ -592,8 +596,8 @@ pub async fn set_task_tags(
     request_body = UpdateVisibilityRequest,
     responses(
         (status = 200, description = "Visibility updated", body = TaskResponse),
-        (status = 400, description = "Invalid visibility value", body = crate::sandbox::types::ErrorBody),
-        (status = 404, description = "Task not found", body = crate::sandbox::types::ErrorBody)
+        (status = 400, description = "Invalid visibility value", body = crate::sandbox::schemas::ErrorBody),
+        (status = 404, description = "Task not found", body = crate::sandbox::schemas::ErrorBody)
     )
 )]
 pub async fn update_visibility(
@@ -602,10 +606,6 @@ pub async fn update_visibility(
     Path(task_id): Path<String>,
     Json(req): Json<UpdateVisibilityRequest>,
 ) -> Result<Json<TaskResponse>, TaskError> {
-    if req.visibility != "public" && req.visibility != "private" {
-        return Err(TaskError::BadRequest("Visibility must be 'public' or 'private'".to_string()));
-    }
-
     let _existing = task_dao::find_by_id(&state.db, &task_id, &auth.user_id)
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
@@ -614,7 +614,7 @@ pub async fn update_visibility(
         &state.db,
         &task_id,
         &TaskPatch {
-            visibility: Some(req.visibility.clone()),
+            visibility: Some(req.visibility),
             ..Default::default()
         },
     )
@@ -635,7 +635,7 @@ pub async fn update_visibility(
 
 /// Enrich a single task row into a full response with tags, repo name, display name, sandbox snapshot.
 async fn enrich_task(
-    row: &TaskRow,
+    row: &Task,
     state: &AppState,
     _user_id: &str,
 ) -> Result<TaskResponse, TaskError> {
@@ -663,7 +663,7 @@ async fn enrich_task(
 
 /// Build a TaskResponse from a row + pre-resolved tags/names.
 fn build_task_response(
-    row: &TaskRow,
+    row: &Task,
     tags: Vec<TagResponse>,
     display_name: Option<String>,
     repo_name: Option<String>,
@@ -676,7 +676,7 @@ fn build_task_response(
         title,
         name: row.name.clone(),
         description: row.description.clone(),
-        status: row.status.clone(),
+        status: row.status,
         agent_type: row.agent_type.clone(),
         repository_id: row.repository_id.clone(),
         repository_name: repo_name,
@@ -689,7 +689,7 @@ fn build_task_response(
         vibe: row.vibe,
         created_by: row.created_by.clone(),
         created_by_display_name: display_name,
-        visibility: row.visibility.clone(),
+        visibility: row.visibility,
         tags,
         environment_status: None,
         agent_state: None,
@@ -698,7 +698,7 @@ fn build_task_response(
 }
 
 /// Derive task title: name > description first line > agent_type > "Task"
-fn derive_title(row: &TaskRow) -> String {
+fn derive_title(row: &Task) -> String {
     if let Some(ref name) = row.name {
         if !name.is_empty() {
             return name.clone();

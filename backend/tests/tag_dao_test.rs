@@ -2,19 +2,19 @@
 
 mod common;
 
-use moatless_vibe_backend::db::tag_dao;
+use moatless_vibe_backend::tag::dao as tag_dao;
 use sqlx::PgPool;
 
 use common::{make_repository_row, make_task_row};
 
 async fn seed_task(pool: &PgPool, task_id: &str, user: &str) {
     let repo = make_repository_row("repo-1", user);
-    moatless_vibe_backend::db::repository_dao::insert(pool, &repo)
+    moatless_vibe_backend::repository::dao::insert(pool, &repo)
         .await
         .expect("seed repo");
 
     let task = make_task_row(task_id, user);
-    moatless_vibe_backend::db::task_dao::insert_task(pool, &task)
+    moatless_vibe_backend::task::dao::insert_task(pool, &task)
         .await
         .expect("seed task");
 }
@@ -111,16 +111,16 @@ async fn set_task_tags_replaces(pool: PgPool) {
 async fn get_tags_for_tasks_batch(pool: PgPool) {
     let user = "user-1";
     let repo = make_repository_row("repo-1", user);
-    moatless_vibe_backend::db::repository_dao::insert(&pool, &repo)
+    moatless_vibe_backend::repository::dao::insert(&pool, &repo)
         .await
         .unwrap();
 
     let t1 = make_task_row("task-batch-1", user);
-    moatless_vibe_backend::db::task_dao::insert_task(&pool, &t1)
+    moatless_vibe_backend::task::dao::insert_task(&pool, &t1)
         .await
         .unwrap();
     let t2 = make_task_row("task-batch-2", user);
-    moatless_vibe_backend::db::task_dao::insert_task(&pool, &t2)
+    moatless_vibe_backend::task::dao::insert_task(&pool, &t2)
         .await
         .unwrap();
 

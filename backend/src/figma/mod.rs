@@ -1,6 +1,8 @@
 //! Figma integration module.
 
+pub mod dao;
 pub mod error;
 pub mod handlers;
+pub mod models;
 pub mod routes;
-pub mod types;
+pub mod schemas;

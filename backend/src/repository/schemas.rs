@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::db::models::RepositoryRow;
+use super::models::Repository;
 
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -108,8 +108,8 @@ pub struct BranchEntry {
     pub is_default: bool,
 }
 
-impl From<RepositoryRow> for RepositoryResponse {
-    fn from(r: RepositoryRow) -> Self {
+impl From<Repository> for RepositoryResponse {
+    fn from(r: Repository) -> Self {
         Self {
             id: r.id,
             name: r.name,

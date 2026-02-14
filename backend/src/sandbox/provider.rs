@@ -9,9 +9,10 @@ use axum::response::sse::Event;
 use futures::stream::BoxStream;
 
 use super::error::SandboxError;
-use super::types::{
-    FileSearchResult, HealthResponse, ProvisionRequest, ProvisionResponse,
-    ServerStatusResponse, StatusResponse, WorkspaceStatusFullResponse,
+use super::models::ProvisionRequest;
+use super::schemas::{
+    FileSearchResult, HealthResponse, ProvisionResponse, ServerStatusResponse, StatusResponse,
+    WorkspaceStatusFullResponse,
 };
 
 #[async_trait]

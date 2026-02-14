@@ -2,15 +2,18 @@
 
 use tracing::{info, warn};
 
-use crate::db::models::{ChannelConfigRow, TaskRow};
-use crate::db::{channel_config_dao, channel_thread_dao, task_dao};
-use crate::db::channel_config_dao::ChannelConfigPatch;
+use super::config_dao as channel_config_dao;
+use super::config_dao::ChannelConfigPatch;
+use super::models::ChannelConfig;
+use super::thread_dao as channel_thread_dao;
+use crate::task::dao as task_dao;
+use crate::task::models::{Task, TaskStatus, Visibility};
 use crate::state::AppState;
 
 use super::error::ChannelError;
 use super::provider::ChannelProviders;
 use super::router::{self, RoutingResult};
-use super::types::{InboundMessage, MessageStatus, RoutingMode};
+use super::models::{InboundMessage, MessageStatus, RoutingMode};
 
 /// Process an inbound message through the routing → task creation pipeline.
 ///
@@ -121,7 +124,7 @@ pub async fn process_inbound(
 /// Create a new task from a channel message.
 async fn create_task_for_channel(
     state: &AppState,
-    config: &ChannelConfigRow,
+    config: &ChannelConfig,
     msg: &InboundMessage,
 ) -> Result<String, ChannelError> {
     let task_id = uuid::Uuid::new_v4().to_string();
@@ -130,14 +133,14 @@ async fn create_task_for_channel(
     // Generate short_id
     let short_id = generate_short_id(&state.db).await?;
 
-    let row = TaskRow {
+    let row = Task {
         task_id: task_id.clone(),
         short_id: Some(short_id),
         created_at: now.clone(),
         last_message_at: now,
         agent_type: "claude-code".to_string(),
         repository_id: config.repository_id.clone(),
-        status: "open".to_string(),
+        status: TaskStatus::Open,
         total_cost_usd: 0.0,
         site_url: None,
         template_id: None,
@@ -148,7 +151,7 @@ async fn create_task_for_channel(
         site_provider: None,
         branch: None, // Will use repo default
         created_by: Some(msg.user_id.clone()),
-        visibility: "private".to_string(),
+        visibility: Visibility::Private,
         created_at_db: None,
     };
 
@@ -173,7 +176,7 @@ async fn create_task_for_channel(
 }
 
 /// Apply prompt template (replace {message} placeholder with actual message).
-fn apply_prompt_template(config: &ChannelConfigRow, message: &str) -> String {
+fn apply_prompt_template(config: &ChannelConfig, message: &str) -> String {
     if let Some(ref template) = config.prompt_template {
         template.replace("{message}", message)
     } else {
@@ -212,7 +215,7 @@ mod tests {
 
     #[test]
     fn apply_template_with_placeholder() {
-        let config = ChannelConfigRow {
+        let config = ChannelConfig {
             id: "c1".into(),
             provider: "slack".into(),
             source_id: "C123".into(),
@@ -233,7 +236,7 @@ mod tests {
 
     #[test]
     fn apply_template_no_template() {
-        let config = ChannelConfigRow {
+        let config = ChannelConfig {
             id: "c1".into(),
             provider: "slack".into(),
             source_id: "C123".into(),

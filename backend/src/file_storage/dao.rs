@@ -1,10 +1,10 @@
 //! File metadata DAO — queries for file upload metadata.
 
-use super::models::FileMetadataRow;
-use super::DbPool;
+use super::models::FileMetadata;
+use crate::db::DbPool;
 
 /// Insert file metadata.
-pub async fn insert_metadata(pool: &DbPool, row: &FileMetadataRow) -> Result<(), sqlx::Error> {
+pub async fn insert_metadata(pool: &DbPool, row: &FileMetadata) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"INSERT INTO file_metadata (file_id, filename, mime_type, size, uploaded_at)
            VALUES ($1, $2, $3, $4, $5)"#,
@@ -20,8 +20,8 @@ pub async fn insert_metadata(pool: &DbPool, row: &FileMetadataRow) -> Result<(),
 }
 
 /// Find file metadata by ID.
-pub async fn find_by_id(pool: &DbPool, file_id: &str) -> Result<Option<FileMetadataRow>, sqlx::Error> {
-    sqlx::query_as::<_, FileMetadataRow>(
+pub async fn find_by_id(pool: &DbPool, file_id: &str) -> Result<Option<FileMetadata>, sqlx::Error> {
+    sqlx::query_as::<_, FileMetadata>(
         "SELECT file_id, filename, mime_type, size, uploaded_at FROM file_metadata WHERE file_id = $1",
     )
     .bind(file_id)

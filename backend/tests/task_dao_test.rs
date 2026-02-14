@@ -2,7 +2,8 @@
 
 mod common;
 
-use moatless_vibe_backend::db::{task_dao, task_dao::TaskPatch};
+use moatless_vibe_backend::task::dao::{self as task_dao, TaskPatch};
+use moatless_vibe_backend::task::models::{TaskStatus, Visibility};
 use sqlx::PgPool;
 
 use common::{make_repository_row, make_task_row};
@@ -10,7 +11,7 @@ use common::{make_repository_row, make_task_row};
 /// Helper: insert a repository so task FK references are satisfied.
 async fn seed_repo(pool: &PgPool, id: &str, user_id: &str) {
     let row = make_repository_row(id, user_id);
-    moatless_vibe_backend::db::repository_dao::insert(pool, &row)
+    moatless_vibe_backend::repository::dao::insert(pool, &row)
         .await
         .expect("seed repo");
 }
@@ -29,7 +30,7 @@ async fn insert_and_find_by_id(pool: PgPool) {
     assert!(found.is_some());
     let found = found.unwrap();
     assert_eq!(found.task_id, "task-aaa");
-    assert_eq!(found.status, "open");
+    assert_eq!(found.status, TaskStatus::Open);
     assert_eq!(found.created_by.as_deref(), Some(user));
 }
 
@@ -56,7 +57,7 @@ async fn find_by_id_access_control_public(pool: PgPool) {
     seed_repo(&pool, "repo-1", owner).await;
 
     let mut row = make_task_row("task-public", owner);
-    row.visibility = "public".to_string();
+    row.visibility = Visibility::Public;
     task_dao::insert_task(&pool, &row).await.unwrap();
 
     // Other user can see public task
@@ -108,7 +109,7 @@ async fn list_tasks_status_filter(pool: PgPool) {
     task_dao::insert_task(&pool, &open_task).await.unwrap();
 
     let mut closed_task = make_task_row("task-closed", user);
-    closed_task.status = "closed".to_string();
+    closed_task.status = TaskStatus::Closed;
     task_dao::insert_task(&pool, &closed_task).await.unwrap();
 
     let (rows, total) =
@@ -132,14 +133,14 @@ async fn list_tasks_tag_filter(pool: PgPool) {
     task_dao::insert_task(&pool, &task_b).await.unwrap();
 
     // Create tag and assign
-    let tags = moatless_vibe_backend::db::tag_dao::find_or_create_tags(
+    let tags = moatless_vibe_backend::tag::dao::find_or_create_tags(
         &pool,
         &["bug".to_string()],
     )
     .await
     .unwrap();
     let tag_ids: Vec<String> = tags.iter().map(|t| t.tag_id.clone()).collect();
-    moatless_vibe_backend::db::tag_dao::set_task_tags(&pool, "task-tagged", &tag_ids)
+    moatless_vibe_backend::tag::dao::set_task_tags(&pool, "task-tagged", &tag_ids)
         .await
         .unwrap();
 
@@ -176,7 +177,7 @@ async fn update_task_partial(pool: PgPool) {
         .unwrap()
         .unwrap();
     assert_eq!(found.name.as_deref(), Some("Updated name"));
-    assert_eq!(found.status, "open"); // unchanged
+    assert_eq!(found.status, TaskStatus::Open); // unchanged
 }
 
 #[sqlx::test]

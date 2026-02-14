@@ -3,14 +3,14 @@
 use axum::extract::{Path, State};
 use axum::Json;
 
-use crate::db::command_dao;
-use crate::db::models::CommandRow;
+use super::dao as command_dao;
+use super::models::Command;
 use crate::extractors::AuthUser;
 use crate::state::AppState;
 
 use super::defaults::default_commands;
 use super::error::CommandError;
-use super::types::*;
+use super::schemas::*;
 
 /// Create a new command.
 #[utoipa::path(
@@ -20,7 +20,7 @@ use super::types::*;
     request_body = CreateCommandRequest,
     responses(
         (status = 200, description = "Command created", body = CommandResponse),
-        (status = 409, description = "Command already exists", body = crate::sandbox::types::ErrorBody)
+        (status = 409, description = "Command already exists", body = crate::sandbox::schemas::ErrorBody)
     )
 )]
 pub async fn create_command(
@@ -33,7 +33,7 @@ pub async fn create_command(
         return Err(CommandError::AlreadyExists(req.name));
     }
 
-    let row = CommandRow {
+    let row = Command {
         name: req.name,
         description: req.description,
         prompt: req.prompt,
@@ -78,7 +78,7 @@ pub async fn list_commands(
     ),
     responses(
         (status = 200, description = "Command details", body = CommandResponse),
-        (status = 404, description = "Command not found", body = crate::sandbox::types::ErrorBody)
+        (status = 404, description = "Command not found", body = crate::sandbox::schemas::ErrorBody)
     )
 )]
 pub async fn get_command(
@@ -104,7 +104,7 @@ pub async fn get_command(
     request_body = UpdateCommandRequest,
     responses(
         (status = 200, description = "Command updated", body = CommandResponse),
-        (status = 404, description = "Command not found", body = crate::sandbox::types::ErrorBody)
+        (status = 404, description = "Command not found", body = crate::sandbox::schemas::ErrorBody)
     )
 )]
 pub async fn update_command(
@@ -148,7 +148,7 @@ pub async fn update_command(
     ),
     responses(
         (status = 204, description = "Command deleted"),
-        (status = 404, description = "Command not found", body = crate::sandbox::types::ErrorBody)
+        (status = 404, description = "Command not found", body = crate::sandbox::schemas::ErrorBody)
     )
 )]
 pub async fn delete_command(

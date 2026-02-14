@@ -18,16 +18,16 @@ FROM chef AS builder
 
 ARG TARGETARCH
 
-# Install cmake (needed by aws-lc-sys) and cross-compilation toolchain
+# Install cmake (needed by aws-lc-sys), protobuf-compiler (needed by sandbox-proto), and cross-compilation toolchain
 RUN apt-get update && \
     if [ "$TARGETARCH" = "amd64" ] && [ "$(uname -m)" != "x86_64" ]; then \
-      apt-get install -y cmake gcc-x86-64-linux-gnu g++-x86-64-linux-gnu && \
+      apt-get install -y cmake protobuf-compiler gcc-x86-64-linux-gnu g++-x86-64-linux-gnu && \
       rustup target add x86_64-unknown-linux-gnu; \
     elif [ "$TARGETARCH" = "arm64" ] && [ "$(uname -m)" != "aarch64" ]; then \
-      apt-get install -y cmake gcc-aarch64-linux-gnu g++-aarch64-linux-gnu && \
+      apt-get install -y cmake protobuf-compiler gcc-aarch64-linux-gnu g++-aarch64-linux-gnu && \
       rustup target add aarch64-unknown-linux-gnu; \
     else \
-      apt-get install -y cmake; \
+      apt-get install -y cmake protobuf-compiler; \
     fi && \
     rm -rf /var/lib/apt/lists/*
 

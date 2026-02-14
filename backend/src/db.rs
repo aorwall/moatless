@@ -1,24 +1,4 @@
-//! Database access layer for the Moatless Vibe backend.
-//!
-//! Uses sqlx with PostgreSQL for reading task and repository configuration
-//! needed for auto-provisioning workspaces, and full CRUD for tasks,
-//! messages, commands, tags, and file metadata.
-
-pub mod api_keys;
-pub mod channel_config_dao;
-pub mod channel_thread_dao;
-pub mod command_dao;
-pub mod figma_import_dao;
-pub mod file_meta_dao;
-pub mod message_dao;
-pub mod models;
-pub mod provider_token_dao;
-pub mod provider_tokens;
-pub mod repository_dao;
-pub mod sessions;
-pub mod tag_dao;
-pub mod task_dao;
-pub mod users;
+//! Database connection pool and migrations.
 
 use sqlx::postgres::PgPoolOptions;
 

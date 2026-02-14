@@ -5,7 +5,7 @@
 
 pub mod agent_handlers;
 pub mod consumer;
-pub mod types;
+pub mod models;
 
 use redis::aio::ConnectionManager;
 use tokio_util::sync::CancellationToken;

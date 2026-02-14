@@ -1,14 +1,14 @@
 //! CRUD operations for channel_configs table.
 
-use super::models::ChannelConfigRow;
-use super::DbPool;
+use super::models::ChannelConfig;
+use crate::db::DbPool;
 
 /// Find a channel config by its ID.
 pub async fn find_by_id(
     pool: &DbPool,
     id: &str,
-) -> Result<Option<ChannelConfigRow>, sqlx::Error> {
-    sqlx::query_as::<_, ChannelConfigRow>(
+) -> Result<Option<ChannelConfig>, sqlx::Error> {
+    sqlx::query_as::<_, ChannelConfig>(
         r#"SELECT id, provider, source_id, source_name, repository_id, routing_mode,
                   prompt_template, active, provider_config, ongoing_task_id,
                   created_by, created_at, updated_at
@@ -24,8 +24,8 @@ pub async fn find_by_provider_source(
     pool: &DbPool,
     provider: &str,
     source_id: &str,
-) -> Result<Option<ChannelConfigRow>, sqlx::Error> {
-    sqlx::query_as::<_, ChannelConfigRow>(
+) -> Result<Option<ChannelConfig>, sqlx::Error> {
+    sqlx::query_as::<_, ChannelConfig>(
         r#"SELECT id, provider, source_id, source_name, repository_id, routing_mode,
                   prompt_template, active, provider_config, ongoing_task_id,
                   created_by, created_at, updated_at
@@ -43,7 +43,7 @@ pub async fn list(
     provider: Option<&str>,
     repository_id: Option<&str>,
     active_only: bool,
-) -> Result<Vec<ChannelConfigRow>, sqlx::Error> {
+) -> Result<Vec<ChannelConfig>, sqlx::Error> {
     let mut sql = String::from(
         r#"SELECT id, provider, source_id, source_name, repository_id, routing_mode,
                   prompt_template, active, provider_config, ongoing_task_id,
@@ -70,7 +70,7 @@ pub async fn list(
     sql.push_str(" ORDER BY created_at DESC");
 
     // Build query dynamically
-    let mut query = sqlx::query_as::<_, ChannelConfigRow>(&sql);
+    let mut query = sqlx::query_as::<_, ChannelConfig>(&sql);
     for b in &binds {
         query = query.bind(b);
     }
@@ -78,7 +78,7 @@ pub async fn list(
 }
 
 /// Insert a new channel config.
-pub async fn insert(pool: &DbPool, row: &ChannelConfigRow) -> Result<(), sqlx::Error> {
+pub async fn insert(pool: &DbPool, row: &ChannelConfig) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"INSERT INTO channel_configs
            (id, provider, source_id, source_name, repository_id, routing_mode,

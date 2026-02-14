@@ -5,8 +5,8 @@ use rand::Rng;
 use sha2::{Digest, Sha256};
 use tracing::{debug, info, warn};
 
-use crate::db::api_keys::{self, ApiKeyRow};
-use crate::db::users;
+use super::api_keys::{self, ApiKey};
+use super::users;
 use crate::db::DbPool;
 
 const KEY_PREFIX: &str = "mvk_";
@@ -54,7 +54,7 @@ pub async fn generate_key(
 
     let now = chrono::Utc::now();
 
-    let row = ApiKeyRow {
+    let row = ApiKey {
         id: id.clone(),
         user_id: user_id.to_string(),
         name: name.to_string(),
@@ -206,7 +206,7 @@ pub async fn revoke_key(
 pub async fn list_keys(
     pool: &DbPool,
     user_id: &str,
-) -> Result<Vec<ApiKeyRow>, crate::auth::error::AuthError> {
+) -> Result<Vec<ApiKey>, crate::auth::error::AuthError> {
     Ok(api_keys::list_api_keys_by_user(pool, user_id).await?)
 }
 

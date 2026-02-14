@@ -4,15 +4,15 @@ use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
 
-use super::models::TaskRow;
-use super::DbPool;
+use super::models::{Task, TaskStatus, Visibility};
+use crate::db::DbPool;
 
 /// Find a task by its task_id (no access control — for internal/system use).
 pub async fn find_by_id_internal(
     pool: &DbPool,
     task_id: &str,
-) -> Result<Option<TaskRow>, sqlx::Error> {
-    sqlx::query_as::<_, TaskRow>(
+) -> Result<Option<Task>, sqlx::Error> {
+    sqlx::query_as::<_, Task>(
         r#"SELECT
             task_id, short_id, created_at, last_message_at, agent_type,
             repository_id, status, total_cost_usd, site_url, template_id,
@@ -30,8 +30,8 @@ pub async fn find_by_id(
     pool: &DbPool,
     task_id: &str,
     user_id: &str,
-) -> Result<Option<TaskRow>, sqlx::Error> {
-    sqlx::query_as::<_, TaskRow>(
+) -> Result<Option<Task>, sqlx::Error> {
+    sqlx::query_as::<_, Task>(
         r#"SELECT
             task_id, short_id, created_at, last_message_at, agent_type,
             repository_id, status, total_cost_usd, site_url, template_id,
@@ -48,7 +48,7 @@ pub async fn find_by_id(
 }
 
 /// Insert a new task.
-pub async fn insert_task(pool: &DbPool, row: &TaskRow) -> Result<(), sqlx::Error> {
+pub async fn insert_task(pool: &DbPool, row: &Task) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"INSERT INTO tasks (
             task_id, short_id, created_at, last_message_at, agent_type,
@@ -93,10 +93,10 @@ pub async fn list_tasks(
     repository_id: Option<&str>,
     created_by: Option<&str>,
     tag: Option<&str>,
-) -> Result<(Vec<TaskRow>, i64), sqlx::Error> {
+) -> Result<(Vec<Task>, i64), sqlx::Error> {
     // Build dynamic query — using a single parameterised query with optional filters.
     // We use COALESCE-style tricks to keep it as a single prepared statement.
-    let rows = sqlx::query_as::<_, TaskRow>(
+    let rows = sqlx::query_as::<_, Task>(
         r#"SELECT DISTINCT
             t.task_id, t.short_id, t.created_at, t.last_message_at, t.agent_type,
             t.repository_id, t.status, t.total_cost_usd, t.site_url, t.template_id,
@@ -252,7 +252,7 @@ pub async fn get_created_times(
 /// Patch struct for partial task updates.
 #[derive(Default)]
 pub struct TaskPatch {
-    pub status: Option<String>,
+    pub status: Option<TaskStatus>,
     pub name: Option<String>,
     pub description: Option<String>,
     pub last_message_at: Option<String>,
@@ -260,6 +260,6 @@ pub struct TaskPatch {
     /// Additive increment to total_cost_usd (uses SQL `total_cost_usd + $N`).
     pub total_cost_usd_increment: Option<f64>,
     pub site_url: Option<String>,
-    pub visibility: Option<String>,
+    pub visibility: Option<Visibility>,
     pub short_id: Option<String>,
 }

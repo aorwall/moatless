@@ -7,8 +7,8 @@ use tracing::{debug, warn};
 
 use crate::channel::error::ChannelError;
 use crate::channel::provider::{ChannelProvider, ChannelType};
-use crate::channel::types::{InboundMessage, MessageStatus, OutboundReply};
-use crate::db::models::{ChannelConfigRow, ChannelThreadRow};
+use crate::channel::models::{InboundMessage, MessageStatus, OutboundReply};
+use crate::channel::models::{ChannelConfig, ChannelThread};
 use crate::db::DbPool;
 
 use super::api::SlackApi;
@@ -59,7 +59,7 @@ impl SlackProvider {
         &self,
         headers: &HeaderMap,
         body: &[u8],
-        config: &ChannelConfigRow,
+        config: &ChannelConfig,
         db: &DbPool,
     ) -> Result<SlackWebhookResult, ChannelError> {
         // 1. Verify signature
@@ -218,8 +218,8 @@ impl ChannelProvider for SlackProvider {
 
     async fn send_reply(
         &self,
-        thread: &ChannelThreadRow,
-        _config: &ChannelConfigRow,
+        thread: &ChannelThread,
+        _config: &ChannelConfig,
         message: &OutboundReply,
     ) -> Result<(), ChannelError> {
         let channel = thread
@@ -245,8 +245,8 @@ impl ChannelProvider for SlackProvider {
 
     async fn set_status(
         &self,
-        thread: &ChannelThreadRow,
-        config: &ChannelConfigRow,
+        thread: &ChannelThread,
+        config: &ChannelConfig,
         status: MessageStatus,
     ) -> Result<(), ChannelError> {
         let channel = thread
@@ -305,8 +305,8 @@ impl ChannelProvider for SlackProvider {
 
     async fn fetch_context(
         &self,
-        thread: &ChannelThreadRow,
-        config: &ChannelConfigRow,
+        thread: &ChannelThread,
+        config: &ChannelConfig,
         limit: usize,
     ) -> Result<Option<String>, ChannelError> {
         let channel = thread

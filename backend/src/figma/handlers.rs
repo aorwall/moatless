@@ -8,14 +8,15 @@ use axum::http::{header, StatusCode};
 use axum::response::IntoResponse;
 use axum::Json;
 
-use crate::db::{figma_import_dao, provider_token_dao};
-use crate::db::models::FigmaImportRow;
+use super::dao as figma_import_dao;
+use crate::auth::provider_token_dao;
+use super::models::FigmaImport;
 use crate::extractors::AuthUser;
 use crate::file_storage::s3;
 use crate::state::AppState;
 
 use super::error::FigmaError;
-use super::types::*;
+use super::schemas::*;
 
 /// Import a Figma design from clipboard HTML.
 #[utoipa::path(
@@ -25,7 +26,7 @@ use super::types::*;
     request_body = ImportClipboardRequest,
     responses(
         (status = 200, description = "Import created", body = FigmaImportResponse),
-        (status = 400, description = "Parse error", body = crate::sandbox::types::ErrorBody)
+        (status = 400, description = "Parse error", body = crate::sandbox::schemas::ErrorBody)
     )
 )]
 pub async fn import_clipboard(
@@ -51,7 +52,7 @@ pub async fn import_clipboard(
     // Optionally download image if user has Figma token and wants images
     let has_image = false; // TODO: Download from Figma CDN if token available
 
-    let row = FigmaImportRow {
+    let row = FigmaImport {
         import_id: import_id.clone(),
         file_id: file_name.clone(),
         file_key,
@@ -86,7 +87,7 @@ pub async fn import_clipboard(
     request_body = ImportNodeRequest,
     responses(
         (status = 200, description = "Import created", body = FigmaImportResponse),
-        (status = 400, description = "Bad request", body = crate::sandbox::types::ErrorBody)
+        (status = 400, description = "Bad request", body = crate::sandbox::schemas::ErrorBody)
     )
 )]
 pub async fn import_node(
@@ -206,7 +207,7 @@ pub async fn import_node(
     let import_id = nanoid::nanoid!();
     let now = chrono::Utc::now();
 
-    let row = FigmaImportRow {
+    let row = FigmaImport {
         import_id: import_id.clone(),
         file_id: Some(file_key.clone()),
         file_key: Some(file_key),
@@ -241,7 +242,7 @@ pub async fn import_node(
     request_body = ParseClipboardRequest,
     responses(
         (status = 200, description = "Parsed clipboard", body = ParseClipboardResponse),
-        (status = 400, description = "Parse error", body = crate::sandbox::types::ErrorBody)
+        (status = 400, description = "Parse error", body = crate::sandbox::schemas::ErrorBody)
     )
 )]
 pub async fn parse_clipboard(
@@ -272,7 +273,7 @@ pub async fn parse_clipboard(
     ),
     responses(
         (status = 200, description = "Import details", body = FigmaImportDetailResponse),
-        (status = 404, description = "Import not found", body = crate::sandbox::types::ErrorBody)
+        (status = 404, description = "Import not found", body = crate::sandbox::schemas::ErrorBody)
     )
 )]
 pub async fn get_import(
@@ -329,7 +330,7 @@ pub async fn get_import(
     ),
     responses(
         (status = 200, description = "Image content", content_type = "image/png"),
-        (status = 404, description = "Image not found", body = crate::sandbox::types::ErrorBody)
+        (status = 404, description = "Image not found", body = crate::sandbox::schemas::ErrorBody)
     )
 )]
 pub async fn get_import_image(

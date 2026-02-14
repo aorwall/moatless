@@ -1,7 +1,7 @@
 //! Repository DAO — queries for repository data access.
 
-use super::models::RepositoryRow;
-use super::DbPool;
+use super::models::Repository;
+use crate::db::DbPool;
 
 /// Columns selected for repository queries.
 const REPO_COLUMNS: &str = r#"
@@ -19,11 +19,11 @@ const REPO_COLUMNS: &str = r#"
 pub async fn find_repository_by_id(
     pool: &DbPool,
     id: &str,
-) -> Result<Option<RepositoryRow>, sqlx::Error> {
+) -> Result<Option<Repository>, sqlx::Error> {
     let query = format!(
         "SELECT {REPO_COLUMNS} FROM repositories WHERE id = $1 AND (deleted IS NULL OR deleted = false)"
     );
-    sqlx::query_as::<_, RepositoryRow>(&query)
+    sqlx::query_as::<_, Repository>(&query)
         .bind(id)
         .fetch_optional(pool)
         .await
@@ -34,14 +34,14 @@ pub async fn find_by_id(
     pool: &DbPool,
     id: &str,
     user_id: &str,
-) -> Result<Option<RepositoryRow>, sqlx::Error> {
+) -> Result<Option<Repository>, sqlx::Error> {
     let query = format!(
         "SELECT {REPO_COLUMNS} FROM repositories \
          WHERE id = $1 \
          AND (deleted IS NULL OR deleted = false) \
          AND (visibility = 'public' OR created_by = $2)"
     );
-    sqlx::query_as::<_, RepositoryRow>(&query)
+    sqlx::query_as::<_, Repository>(&query)
         .bind(id)
         .bind(user_id)
         .fetch_optional(pool)
@@ -52,21 +52,21 @@ pub async fn find_by_id(
 pub async fn list_all(
     pool: &DbPool,
     user_id: &str,
-) -> Result<Vec<RepositoryRow>, sqlx::Error> {
+) -> Result<Vec<Repository>, sqlx::Error> {
     let query = format!(
         "SELECT {REPO_COLUMNS} FROM repositories \
          WHERE (deleted IS NULL OR deleted = false) \
          AND (visibility = 'public' OR created_by = $1) \
          ORDER BY name ASC"
     );
-    sqlx::query_as::<_, RepositoryRow>(&query)
+    sqlx::query_as::<_, Repository>(&query)
         .bind(user_id)
         .fetch_all(pool)
         .await
 }
 
 /// Insert a new repository.
-pub async fn insert(pool: &DbPool, row: &RepositoryRow) -> Result<(), sqlx::Error> {
+pub async fn insert(pool: &DbPool, row: &Repository) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"INSERT INTO repositories (
             id, name, kind, remote_url, default_branch,
@@ -245,13 +245,13 @@ pub async fn find_by_name_and_user(
     pool: &DbPool,
     name: &str,
     user_id: &str,
-) -> Result<Option<RepositoryRow>, sqlx::Error> {
+) -> Result<Option<Repository>, sqlx::Error> {
     let query = format!(
         "SELECT {REPO_COLUMNS} FROM repositories \
          WHERE name = $1 AND created_by = $2 \
          AND (deleted IS NULL OR deleted = false)"
     );
-    sqlx::query_as::<_, RepositoryRow>(&query)
+    sqlx::query_as::<_, Repository>(&query)
         .bind(name)
         .bind(user_id)
         .fetch_optional(pool)

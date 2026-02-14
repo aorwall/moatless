@@ -1,11 +1,11 @@
 //! Tag DAO — queries for tag data access.
 
-use super::models::{TagRow, TaskTagRow};
-use super::DbPool;
+use super::models::{Tag, TaskTag};
+use crate::db::DbPool;
 
 /// List all tags.
-pub async fn list_all(pool: &DbPool) -> Result<Vec<TagRow>, sqlx::Error> {
-    sqlx::query_as::<_, TagRow>(
+pub async fn list_all(pool: &DbPool) -> Result<Vec<Tag>, sqlx::Error> {
+    sqlx::query_as::<_, Tag>(
         "SELECT id, tag_id, name, description, created_at FROM tags ORDER BY name ASC",
     )
     .fetch_all(pool)
@@ -31,7 +31,7 @@ pub async fn add_task_tags(
 }
 
 /// Find or create tags by name. Returns all matching tag rows.
-pub async fn find_or_create_tags(pool: &DbPool, names: &[String]) -> Result<Vec<TagRow>, sqlx::Error> {
+pub async fn find_or_create_tags(pool: &DbPool, names: &[String]) -> Result<Vec<Tag>, sqlx::Error> {
     if names.is_empty() {
         return Ok(vec![]);
     }
@@ -50,7 +50,7 @@ pub async fn find_or_create_tags(pool: &DbPool, names: &[String]) -> Result<Vec<
         .execute(pool)
         .await?;
 
-        let row = sqlx::query_as::<_, TagRow>(
+        let row = sqlx::query_as::<_, Tag>(
             "SELECT id, tag_id, name, description, created_at FROM tags WHERE name = $1",
         )
         .bind(name)
@@ -91,8 +91,8 @@ pub async fn set_task_tags(
 pub async fn get_tags_for_task(
     pool: &DbPool,
     task_id: &str,
-) -> Result<Vec<TaskTagRow>, sqlx::Error> {
-    sqlx::query_as::<_, TaskTagRow>(
+) -> Result<Vec<TaskTag>, sqlx::Error> {
+    sqlx::query_as::<_, TaskTag>(
         r#"SELECT tt.task_id, tg.tag_id, tg.name
            FROM task_tags tt
            JOIN tags tg ON tt.tag_id = tg.tag_id
@@ -107,11 +107,11 @@ pub async fn get_tags_for_task(
 pub async fn get_tags_for_tasks(
     pool: &DbPool,
     task_ids: &[String],
-) -> Result<Vec<TaskTagRow>, sqlx::Error> {
+) -> Result<Vec<TaskTag>, sqlx::Error> {
     if task_ids.is_empty() {
         return Ok(vec![]);
     }
-    sqlx::query_as::<_, TaskTagRow>(
+    sqlx::query_as::<_, TaskTag>(
         r#"SELECT tt.task_id, tg.tag_id, tg.name
            FROM task_tags tt
            JOIN tags tg ON tt.tag_id = tg.tag_id
