@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::print_stdout, clippy::print_stderr)]
 //! End-to-end integration tests for the sandbox agent module.
 //!
 //! Test 1 (`test_agent_state_transitions`) is a pure state-machine test —

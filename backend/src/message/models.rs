@@ -439,4 +439,42 @@ mod tests {
         assert!(TurnStatus::try_from("pending").is_err());
         assert!(ContentBlockType::try_from("video").is_err());
     }
+
+    #[test]
+    fn display_impls() {
+        assert_eq!(MessageType::User.to_string(), "user");
+        assert_eq!(MessageType::Assistant.to_string(), "assistant");
+        assert_eq!(MessageType::System.to_string(), "system");
+        assert_eq!(MessageType::Result.to_string(), "result");
+        assert_eq!(MessageRole::User.to_string(), "user");
+        assert_eq!(MessageRole::Assistant.to_string(), "assistant");
+        assert_eq!(TurnStatus::Completed.to_string(), "completed");
+        assert_eq!(TurnStatus::Error.to_string(), "error");
+        assert_eq!(TurnStatus::Stopped.to_string(), "stopped");
+        assert_eq!(ContentBlockType::Text.to_string(), "text");
+        assert_eq!(ContentBlockType::ToolUse.to_string(), "tool_use");
+        assert_eq!(ContentBlockType::ToolResult.to_string(), "tool_result");
+        assert_eq!(ContentBlockType::Image.to_string(), "image");
+    }
+
+    #[test]
+    fn new_user_message_sets_defaults() {
+        let content = serde_json::json!([{"type": "text", "text": "hello"}]);
+        let msg = TaskMessage::new_user_message(
+            "task-1".into(),
+            "uuid-1".into(),
+            content.clone(),
+            "2025-01-01T00:00:00.000Z".into(),
+        );
+
+        assert_eq!(msg.task_id, "task-1");
+        assert_eq!(msg.uuid, "uuid-1");
+        assert_eq!(msg.message_type, MessageType::User);
+        assert_eq!(msg.message_role, MessageRole::User);
+        assert_eq!(msg.user_type, "human");
+        assert_eq!(msg.message_content, content);
+        assert!(msg.session_id.is_none());
+        assert!(msg.agent_session_id.is_none());
+        assert!(msg.turn_status.is_none());
+    }
 }

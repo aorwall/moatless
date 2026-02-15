@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::print_stdout, clippy::print_stderr)]
 //! End-to-end integration tests for claude-agent-sdk.
 //!
 //! These tests spawn the real `claude` CLI binary and make actual API calls.

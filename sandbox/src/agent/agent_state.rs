@@ -122,3 +122,140 @@ impl AgentState {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn new_state_is_idle() {
+        let state = AgentState::new();
+        assert_eq!(state.status().await, AgentStatus::Idle);
+        assert!(state.last_session_id().await.is_none());
+        assert!(state.last_error().await.is_none());
+        assert!(!state.has_pending_prompt().await);
+    }
+
+    #[tokio::test]
+    async fn default_same_as_new() {
+        let state = AgentState::default();
+        assert_eq!(state.status().await, AgentStatus::Idle);
+    }
+
+    #[tokio::test]
+    async fn set_running_transitions_status() {
+        let state = AgentState::new();
+        let token = CancellationToken::new();
+        state.set_running(token).await;
+        assert_eq!(state.status().await, AgentStatus::Running);
+    }
+
+    #[tokio::test]
+    async fn set_running_clears_error() {
+        let state = AgentState::new();
+        state.set_error("previous failure".to_string()).await;
+        assert!(state.last_error().await.is_some());
+
+        let token = CancellationToken::new();
+        state.set_running(token).await;
+        assert!(state.last_error().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn set_idle_clears_cancel_token() {
+        let state = AgentState::new();
+        let token = CancellationToken::new();
+        state.set_running(token).await;
+        assert_eq!(state.status().await, AgentStatus::Running);
+
+        state.set_idle().await;
+        assert_eq!(state.status().await, AgentStatus::Idle);
+    }
+
+    #[tokio::test]
+    async fn set_stopped_transitions_status() {
+        let state = AgentState::new();
+        let token = CancellationToken::new();
+        state.set_running(token).await;
+
+        state.set_stopped().await;
+        assert_eq!(state.status().await, AgentStatus::Stopped);
+    }
+
+    #[tokio::test]
+    async fn set_error_records_message_and_goes_idle() {
+        let state = AgentState::new();
+        state.set_error("something broke".to_string()).await;
+
+        assert_eq!(state.status().await, AgentStatus::Idle);
+        assert_eq!(state.last_error().await.as_deref(), Some("something broke"));
+    }
+
+    #[tokio::test]
+    async fn set_session_id_persists() {
+        let state = AgentState::new();
+        assert!(state.last_session_id().await.is_none());
+
+        state.set_session_id("sess-123".to_string()).await;
+        assert_eq!(state.last_session_id().await.as_deref(), Some("sess-123"));
+    }
+
+    #[tokio::test]
+    async fn pending_prompt_lifecycle() {
+        let state = AgentState::new();
+        assert!(!state.has_pending_prompt().await);
+
+        let (tx, _rx) = tokio::sync::oneshot::channel();
+        let prompt = PendingPrompt {
+            tool_name: super::super::prompt::PromptToolName::AskUserQuestion,
+            input: serde_json::json!({"question": "ok?"}),
+            sender: tx,
+        };
+        state.set_pending_prompt(prompt).await;
+        assert!(state.has_pending_prompt().await);
+
+        let taken = state.take_pending_prompt().await;
+        assert!(taken.is_some());
+        assert!(!state.has_pending_prompt().await);
+
+        // Taking again returns None
+        assert!(state.take_pending_prompt().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn stop_running_agent_cancels_token() {
+        let state = AgentState::new();
+        let token = CancellationToken::new();
+        let child = token.clone();
+
+        state.set_running(token).await;
+        assert!(!child.is_cancelled());
+
+        state.stop().await.unwrap();
+        assert!(child.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn stop_idle_agent_errors() {
+        let state = AgentState::new();
+        let result = state.stop().await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn set_running_clears_pending_prompt() {
+        let state = AgentState::new();
+        let (tx, _rx) = tokio::sync::oneshot::channel();
+        let prompt = PendingPrompt {
+            tool_name: super::super::prompt::PromptToolName::ExitPlanMode,
+            input: serde_json::json!({}),
+            sender: tx,
+        };
+        state.set_pending_prompt(prompt).await;
+        assert!(state.has_pending_prompt().await);
+
+        let token = CancellationToken::new();
+        state.set_running(token).await;
+        assert!(!state.has_pending_prompt().await);
+    }
+}

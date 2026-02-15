@@ -394,7 +394,9 @@ impl Config {
     }
 
     /// Validate configuration consistency.
-    fn validate(&self) -> Result<(), ConfigError> {
+    ///
+    /// Made `pub(crate)` so tests can call it directly without env vars.
+    pub(crate) fn validate(&self) -> Result<(), ConfigError> {
         // Validate auth provider config consistency
         if let Some(AuthProvider::GitHub) = self.auth.provider {
             if self.auth.github_client_id.is_none() {
@@ -434,5 +436,250 @@ impl Config {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // =========================================================================
+    // AuthProvider parsing
+    // =========================================================================
+
+    #[test]
+    fn auth_provider_from_str_github() {
+        assert_eq!("github".parse::<AuthProvider>().unwrap(), AuthProvider::GitHub);
+        assert_eq!("GitHub".parse::<AuthProvider>().unwrap(), AuthProvider::GitHub);
+        assert_eq!("GITHUB".parse::<AuthProvider>().unwrap(), AuthProvider::GitHub);
+    }
+
+    #[test]
+    fn auth_provider_from_str_auth0() {
+        assert_eq!("auth0".parse::<AuthProvider>().unwrap(), AuthProvider::Auth0);
+        assert_eq!("Auth0".parse::<AuthProvider>().unwrap(), AuthProvider::Auth0);
+    }
+
+    #[test]
+    fn auth_provider_from_str_unknown_returns_error() {
+        assert!("unknown".parse::<AuthProvider>().is_err());
+        assert!("".parse::<AuthProvider>().is_err());
+    }
+
+    #[test]
+    fn auth_provider_display() {
+        assert_eq!(AuthProvider::GitHub.to_string(), "github");
+        assert_eq!(AuthProvider::Auth0.to_string(), "auth0");
+    }
+
+    // =========================================================================
+    // env_bool logic
+    // =========================================================================
+
+    #[test]
+    fn env_bool_default_false_recognises_true_values() {
+        // With default=false, only "true" and "1" return true
+        std::env::set_var("_TEST_BOOL_1", "true");
+        assert!(env_bool("_TEST_BOOL_1", false));
+
+        std::env::set_var("_TEST_BOOL_2", "1");
+        assert!(env_bool("_TEST_BOOL_2", false));
+
+        std::env::set_var("_TEST_BOOL_3", "false");
+        assert!(!env_bool("_TEST_BOOL_3", false));
+
+        std::env::set_var("_TEST_BOOL_4", "anything");
+        assert!(!env_bool("_TEST_BOOL_4", false));
+
+        // Missing env var
+        std::env::remove_var("_TEST_BOOL_MISSING");
+        assert!(!env_bool("_TEST_BOOL_MISSING", false));
+
+        // Cleanup
+        for k in ["_TEST_BOOL_1", "_TEST_BOOL_2", "_TEST_BOOL_3", "_TEST_BOOL_4"] {
+            std::env::remove_var(k);
+        }
+    }
+
+    #[test]
+    fn env_bool_default_true_recognises_false_values() {
+        // With default=true, only "false" and "0" return false
+        std::env::set_var("_TEST_BOOL_T1", "false");
+        assert!(!env_bool("_TEST_BOOL_T1", true));
+
+        std::env::set_var("_TEST_BOOL_T2", "0");
+        assert!(!env_bool("_TEST_BOOL_T2", true));
+
+        std::env::set_var("_TEST_BOOL_T3", "anything");
+        assert!(env_bool("_TEST_BOOL_T3", true));
+
+        // Missing env var returns default (true)
+        std::env::remove_var("_TEST_BOOL_T_MISSING");
+        assert!(env_bool("_TEST_BOOL_T_MISSING", true));
+
+        // Cleanup
+        for k in ["_TEST_BOOL_T1", "_TEST_BOOL_T2", "_TEST_BOOL_T3"] {
+            std::env::remove_var(k);
+        }
+    }
+
+    // =========================================================================
+    // Config validation
+    // =========================================================================
+
+    /// Helper to build a minimal valid Config for testing.
+    fn minimal_config() -> Config {
+        Config {
+            server: ServerConfig { port: 8080, metrics_port: 9090, grpc_port: 50051 },
+            sandbox: SandboxConfig {
+                namespace: "test".into(),
+                image: "test:latest".into(),
+                image_pull_policy: "Never".into(),
+                grpc_port: 50052,
+                resources_cpu_limit: "500m".into(),
+                resources_memory_limit: "512Mi".into(),
+                resources_cpu_request: "100m".into(),
+                resources_memory_request: "128Mi".into(),
+                storage_enabled: false,
+                storage_size: "1Gi".into(),
+                storage_class: None,
+                pod_startup_timeout_secs: 10,
+                task_token_secret: None,
+                file_mount_path: "/tmp".into(),
+                idle_reaper_enabled: false,
+                idle_timeout_minutes: 60,
+                idle_check_interval_secs: 300,
+            },
+            proxy: ProxyConfig {
+                domain: None,
+                protocol: "http".into(),
+                traefik_auth_middleware_name: "test".into(),
+                traefik_auth_middleware_namespace: "test".into(),
+                traefik_entry_point: "web".into(),
+            },
+            database_url: None,
+            database: DatabaseConfig { url: None, max_connections: 5 },
+            redis: RedisConfig { url: None, max_stream_length: 100 },
+            sse: SseConfig { broadcast_capacity: 16, consumer_id: "test".into() },
+            auth: AuthConfig {
+                provider: None,
+                github_client_id: None,
+                github_client_secret: None,
+                github_callback_url: None,
+                github_oauth_scope: "".into(),
+                auth0_domain: None,
+                auth0_client_id: None,
+                auth0_client_secret: None,
+                auth0_callback_url: None,
+                auth0_audience: None,
+                auth0_groups_claim: "".into(),
+                session_max_age_secs: 3600,
+                frontend_url: "http://localhost:3000".into(),
+                cookie_domain: None,
+                session_cookie_name: "test".into(),
+                is_production: false,
+                cache_ttl_secs: 0,
+            },
+            s3: S3Config { bucket_name: None, key_prefix: "test".into(), region: "us-east-1".into() },
+            slack: SlackConfig { bot_token: None, signing_secret: None, bot_user_id: None },
+        }
+    }
+
+    #[test]
+    fn validate_no_auth_provider_passes() {
+        let config = minimal_config();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_github_missing_client_id_fails() {
+        let mut config = minimal_config();
+        config.auth.provider = Some(AuthProvider::GitHub);
+        config.auth.github_client_id = None;
+        config.auth.github_client_secret = Some("secret".into());
+        let err = config.validate().unwrap_err();
+        assert!(err.to_string().contains("GITHUB_CLIENT_ID"));
+    }
+
+    #[test]
+    fn validate_github_missing_client_secret_fails() {
+        let mut config = minimal_config();
+        config.auth.provider = Some(AuthProvider::GitHub);
+        config.auth.github_client_id = Some("id".into());
+        config.auth.github_client_secret = None;
+        let err = config.validate().unwrap_err();
+        assert!(err.to_string().contains("GITHUB_CLIENT_SECRET"));
+    }
+
+    #[test]
+    fn validate_github_complete_passes() {
+        let mut config = minimal_config();
+        config.auth.provider = Some(AuthProvider::GitHub);
+        config.auth.github_client_id = Some("id".into());
+        config.auth.github_client_secret = Some("secret".into());
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_auth0_missing_domain_fails() {
+        let mut config = minimal_config();
+        config.auth.provider = Some(AuthProvider::Auth0);
+        config.auth.auth0_domain = None;
+        config.auth.auth0_client_id = Some("id".into());
+        config.auth.auth0_client_secret = Some("secret".into());
+        let err = config.validate().unwrap_err();
+        assert!(err.to_string().contains("AUTH0_DOMAIN"));
+    }
+
+    #[test]
+    fn validate_auth0_complete_passes() {
+        let mut config = minimal_config();
+        config.auth.provider = Some(AuthProvider::Auth0);
+        config.auth.auth0_domain = Some("test.auth0.com".into());
+        config.auth.auth0_client_id = Some("id".into());
+        config.auth.auth0_client_secret = Some("secret".into());
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_empty_sandbox_namespace_fails() {
+        let mut config = minimal_config();
+        config.sandbox.namespace = String::new();
+        let err = config.validate().unwrap_err();
+        assert!(err.to_string().contains("SANDBOX_NAMESPACE"));
+    }
+
+    // =========================================================================
+    // AuthConfig Debug redaction
+    // =========================================================================
+
+    #[test]
+    fn auth_config_debug_redacts_secrets() {
+        let config = minimal_config();
+        let mut auth = config.auth;
+        auth.github_client_secret = Some("super_secret_123".into());
+        auth.auth0_client_secret = Some("another_secret".into());
+        let debug = format!("{auth:?}");
+        assert!(!debug.contains("super_secret_123"));
+        assert!(!debug.contains("another_secret"));
+        assert!(debug.contains("[REDACTED]"));
+    }
+
+    // =========================================================================
+    // SlackConfig Debug redaction
+    // =========================================================================
+
+    #[test]
+    fn slack_config_debug_redacts_secrets() {
+        let slack = SlackConfig {
+            bot_token: Some("xoxb-real-token".into()),
+            signing_secret: Some("real-signing-secret".into()),
+            bot_user_id: Some("U12345".into()),
+        };
+        let debug = format!("{slack:?}");
+        assert!(!debug.contains("xoxb-real-token"));
+        assert!(!debug.contains("real-signing-secret"));
+        assert!(debug.contains("[REDACTED]"));
+        assert!(debug.contains("U12345")); // bot_user_id should NOT be redacted
     }
 }

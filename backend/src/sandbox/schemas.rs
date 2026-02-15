@@ -92,3 +92,74 @@ pub struct FileSearchResult {
 pub struct ServerStatusResponse {
     pub servers: Vec<ServerSnapshot>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn provision_response_serializes_camel_case() {
+        let resp = ProvisionResponse {
+            status: EnvironmentStatus::Initializing,
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["status"], "initializing");
+    }
+
+    #[test]
+    fn status_response_serializes_camel_case() {
+        let resp = StatusResponse {
+            status: EnvironmentStatus::Ready,
+            pod_name: Some("sandbox-abc-xyz".into()),
+            last_error: None,
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["status"], "ready");
+        assert_eq!(json["podName"], "sandbox-abc-xyz");
+        assert!(json["lastError"].is_null());
+    }
+
+    #[test]
+    fn health_response_serializes() {
+        let resp = HealthResponse { healthy: true };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["healthy"], true);
+    }
+
+    #[test]
+    fn error_body_serializes() {
+        let body = ErrorBody { error: "not found".into() };
+        let json = serde_json::to_value(&body).unwrap();
+        assert_eq!(json["error"], "not found");
+    }
+
+    #[test]
+    fn file_search_result_roundtrip() {
+        let result = FileSearchResult {
+            path: "/src/main.rs".into(),
+            name: "main.rs".into(),
+            file_type: Some("file".into()),
+        };
+        let json = serde_json::to_string(&result).unwrap();
+        let back: FileSearchResult = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.path, "/src/main.rs");
+        assert_eq!(back.name, "main.rs");
+        assert_eq!(back.file_type.as_deref(), Some("file"));
+    }
+
+    #[test]
+    fn search_files_request_deserializes() {
+        let json = r#"{"query": "main", "limit": 10}"#;
+        let req: SearchFilesRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.query, "main");
+        assert_eq!(req.limit, Some(10));
+    }
+
+    #[test]
+    fn search_files_request_optional_limit() {
+        let json = r#"{"query": "test"}"#;
+        let req: SearchFilesRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.query, "test");
+        assert!(req.limit.is_none());
+    }
+}

@@ -45,3 +45,43 @@ impl IntoResponse for SandboxError {
         (status, Json(serde_json::json!({ "error": message }))).into_response()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn error_display_messages() {
+        assert_eq!(
+            SandboxError::AgentAlreadyRunning.to_string(),
+            "Agent is already running"
+        );
+        assert_eq!(
+            SandboxError::AgentNotRunning.to_string(),
+            "Agent is not running"
+        );
+        assert_eq!(
+            SandboxError::NoPendingPrompt.to_string(),
+            "No pending interactive prompt"
+        );
+        assert_eq!(
+            SandboxError::Internal("custom".to_string()).to_string(),
+            "Internal error: custom"
+        );
+    }
+
+    #[tokio::test]
+    async fn error_into_response_status_codes() {
+        let resp = SandboxError::AgentAlreadyRunning.into_response();
+        assert_eq!(resp.status(), StatusCode::CONFLICT);
+
+        let resp = SandboxError::AgentNotRunning.into_response();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+        let resp = SandboxError::NoPendingPrompt.into_response();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+        let resp = SandboxError::Internal("boom".into()).into_response();
+        assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+}
