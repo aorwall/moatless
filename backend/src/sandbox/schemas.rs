@@ -93,6 +93,174 @@ pub struct ServerStatusResponse {
     pub servers: Vec<ServerSnapshot>,
 }
 
+// ── File operation DTOs ──────────────────────────────────────────
+
+/// File tree response with git change summary.
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct FileTreeResponse {
+    pub tree: Vec<FileTreeNodeDto>,
+    pub git_summary: GitSummaryDto,
+}
+
+/// A node in the file tree (file or directory).
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct FileTreeNodeDto {
+    pub name: String,
+    pub path: String,
+    #[serde(rename = "type")]
+    pub node_type: String,
+    pub is_changed: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub git_status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub additions: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deletions: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_staged: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(no_recursion)]
+    pub children: Option<Vec<FileTreeNodeDto>>,
+}
+
+/// Git change summary across the workspace.
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct GitSummaryDto {
+    pub total_files: i32,
+    pub total_additions: i32,
+    pub total_deletions: i32,
+    pub total_staged: i32,
+    pub total_modified: i32,
+    pub compare_base: String,
+    pub has_changes: bool,
+}
+
+/// File content response with optional git change info.
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct FileContentResponse {
+    pub content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub old_content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub additions: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deletions: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_modified: Option<bool>,
+}
+
+/// Request body for writing a file.
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct WriteFileRequestBody {
+    pub path: String,
+    pub content: String,
+}
+
+/// Response for listing files.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ListFilesResponse {
+    pub files: Vec<String>,
+}
+
+/// Request body for searching files by name.
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchByNameRequest {
+    pub query: String,
+    #[serde(default)]
+    pub case_sensitive: Option<bool>,
+    #[serde(default)]
+    pub max_results: Option<i32>,
+}
+
+/// Response for searching files by name.
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchByNameResponse {
+    pub files: Vec<FileNameMatchDto>,
+    pub total_matches: i32,
+}
+
+/// A file name match in the search results.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct FileNameMatchDto {
+    pub path: String,
+    pub matches: i32,
+}
+
+// ── Proto conversions ────────────────────────────────────────────
+
+impl From<sandbox_proto::FileTreeNode> for FileTreeNodeDto {
+    fn from(node: sandbox_proto::FileTreeNode) -> Self {
+        let node_type = if node.node_type == sandbox_proto::FileNodeType::Directory as i32 {
+            "directory".to_string()
+        } else {
+            "file".to_string()
+        };
+
+        let children = if node.children.is_empty() {
+            if node_type == "directory" {
+                Some(Vec::new())
+            } else {
+                None
+            }
+        } else {
+            Some(node.children.into_iter().map(FileTreeNodeDto::from).collect())
+        };
+
+        Self {
+            name: node.name,
+            path: node.path,
+            node_type,
+            is_changed: node.is_changed,
+            git_status: node.git_status,
+            additions: node.additions,
+            deletions: node.deletions,
+            is_staged: node.is_staged,
+            children,
+        }
+    }
+}
+
+impl From<sandbox_proto::GitSummary> for GitSummaryDto {
+    fn from(s: sandbox_proto::GitSummary) -> Self {
+        Self {
+            total_files: s.total_files,
+            total_additions: s.total_additions,
+            total_deletions: s.total_deletions,
+            total_staged: s.total_staged,
+            total_modified: s.total_modified,
+            compare_base: s.compare_base,
+            has_changes: s.has_changes,
+        }
+    }
+}
+
+impl From<sandbox_proto::ReadFileResponse> for FileContentResponse {
+    fn from(r: sandbox_proto::ReadFileResponse) -> Self {
+        Self {
+            content: r.content,
+            old_content: r.old_content,
+            additions: r.additions,
+            deletions: r.deletions,
+            is_modified: r.is_modified,
+        }
+    }
+}
+
+impl From<sandbox_proto::FileNameMatch> for FileNameMatchDto {
+    fn from(m: sandbox_proto::FileNameMatch) -> Self {
+        Self {
+            path: m.path,
+            matches: m.matches,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

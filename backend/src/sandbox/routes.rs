@@ -36,6 +36,11 @@ pub struct SandboxApiState {
         handlers::server_status_handler,
         handlers::server_logs_handler,
         handlers::search_files_handler,
+        handlers::file_tree_handler,
+        handlers::read_file_handler,
+        handlers::write_file_handler,
+        handlers::list_files_handler,
+        handlers::search_by_name_handler,
     )
 )]
 pub struct SandboxApiDoc;
@@ -54,6 +59,11 @@ pub fn api_router(state: SandboxApiState) -> (axum::Router, utoipa::openapi::Ope
         .routes(routes!(handlers::server_status_handler))
         .routes(routes!(handlers::server_logs_handler))
         .routes(routes!(handlers::search_files_handler))
+        .routes(routes!(handlers::file_tree_handler))
+        .routes(routes!(handlers::read_file_handler))
+        .routes(routes!(handlers::write_file_handler))
+        .routes(routes!(handlers::list_files_handler))
+        .routes(routes!(handlers::search_by_name_handler))
         .with_state(state)
         .split_for_parts();
 

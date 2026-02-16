@@ -3,13 +3,15 @@
 //! Extracted from routes.rs for consistency with other modules
 //! (task/, message/, agent/, etc.).
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::IntoResponse;
 use axum::Json;
 use futures::stream::Stream;
+use serde::Deserialize;
 use tracing::{error, info};
+use utoipa::IntoParams;
 
 use super::error::SandboxError;
 use super::routes::SandboxApiState;
@@ -323,4 +325,172 @@ pub async fn search_files_handler(
         .search_files(&task_id, &req.query, req.limit.unwrap_or(20))
         .await?;
     Ok(Json(results))
+}
+
+// =============================================================================
+// File operation handlers
+// =============================================================================
+
+/// Query parameters for the file tree endpoint.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct FileTreeQuery {
+    /// Root path relative to workspace (default ".")
+    #[serde(default)]
+    pub path: Option<String>,
+}
+
+/// Query parameters for reading a file.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct ReadFileQuery {
+    /// File path relative to workspace
+    pub path: String,
+    /// Include git change info (old_content, additions, deletions)
+    #[serde(default)]
+    pub changes: Option<bool>,
+}
+
+/// Query parameters for listing files.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct ListFilesQuery {
+    /// Path relative to workspace (default ".")
+    #[serde(default)]
+    pub path: Option<String>,
+    /// List files recursively
+    #[serde(default)]
+    pub recursive: Option<bool>,
+}
+
+/// Get the file tree with git change overlay.
+#[utoipa::path(
+    get,
+    path = "/api/sandbox/v1/tasks/{task_id}/files/tree",
+    tag = "sandbox",
+    params(
+        ("task_id" = String, Path, description = "Task identifier"),
+        FileTreeQuery,
+    ),
+    responses(
+        (status = 200, description = "File tree with git summary", body = FileTreeResponse),
+        (status = 500, description = "Internal error", body = ErrorBody)
+    )
+)]
+pub async fn file_tree_handler(
+    State(state): State<SandboxApiState>,
+    Path(task_id): Path<String>,
+    Query(query): Query<FileTreeQuery>,
+) -> Result<Json<FileTreeResponse>, SandboxError> {
+    let root_path = query.path.as_deref().unwrap_or(".");
+    let result = state.provider.get_file_tree(&task_id, root_path).await?;
+    Ok(Json(result))
+}
+
+/// Read a file from the sandbox workspace.
+#[utoipa::path(
+    get,
+    path = "/api/sandbox/v1/tasks/{task_id}/files/read",
+    tag = "sandbox",
+    params(
+        ("task_id" = String, Path, description = "Task identifier"),
+        ReadFileQuery,
+    ),
+    responses(
+        (status = 200, description = "File content", body = FileContentResponse),
+        (status = 404, description = "File not found", body = ErrorBody),
+        (status = 500, description = "Internal error", body = ErrorBody)
+    )
+)]
+pub async fn read_file_handler(
+    State(state): State<SandboxApiState>,
+    Path(task_id): Path<String>,
+    Query(query): Query<ReadFileQuery>,
+) -> Result<Json<FileContentResponse>, SandboxError> {
+    let include_changes = query.changes.unwrap_or(false);
+    let result = state
+        .provider
+        .read_file(&task_id, &query.path, include_changes)
+        .await?;
+    Ok(Json(result))
+}
+
+/// Write a file in the sandbox workspace.
+#[utoipa::path(
+    post,
+    path = "/api/sandbox/v1/tasks/{task_id}/files/write",
+    tag = "sandbox",
+    params(
+        ("task_id" = String, Path, description = "Task identifier")
+    ),
+    request_body = WriteFileRequestBody,
+    responses(
+        (status = 204, description = "File written successfully"),
+        (status = 400, description = "Invalid path", body = ErrorBody),
+        (status = 500, description = "Internal error", body = ErrorBody)
+    )
+)]
+pub async fn write_file_handler(
+    State(state): State<SandboxApiState>,
+    Path(task_id): Path<String>,
+    Json(req): Json<WriteFileRequestBody>,
+) -> Result<StatusCode, SandboxError> {
+    state
+        .provider
+        .write_file(&task_id, &req.path, &req.content)
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// List files in the sandbox workspace.
+#[utoipa::path(
+    get,
+    path = "/api/sandbox/v1/tasks/{task_id}/files/list",
+    tag = "sandbox",
+    params(
+        ("task_id" = String, Path, description = "Task identifier"),
+        ListFilesQuery,
+    ),
+    responses(
+        (status = 200, description = "File list", body = ListFilesResponse),
+        (status = 500, description = "Internal error", body = ErrorBody)
+    )
+)]
+pub async fn list_files_handler(
+    State(state): State<SandboxApiState>,
+    Path(task_id): Path<String>,
+    Query(query): Query<ListFilesQuery>,
+) -> Result<Json<ListFilesResponse>, SandboxError> {
+    let path = query.path.as_deref().unwrap_or(".");
+    let recursive = query.recursive.unwrap_or(false);
+    let result = state.provider.list_files(&task_id, path, recursive).await?;
+    Ok(Json(result))
+}
+
+/// Search files by name in the sandbox workspace.
+#[utoipa::path(
+    post,
+    path = "/api/sandbox/v1/tasks/{task_id}/files/search-by-name",
+    tag = "sandbox",
+    params(
+        ("task_id" = String, Path, description = "Task identifier")
+    ),
+    request_body = SearchByNameRequest,
+    responses(
+        (status = 200, description = "Search results", body = SearchByNameResponse),
+        (status = 500, description = "Internal error", body = ErrorBody)
+    )
+)]
+pub async fn search_by_name_handler(
+    State(state): State<SandboxApiState>,
+    Path(task_id): Path<String>,
+    Json(req): Json<SearchByNameRequest>,
+) -> Result<Json<SearchByNameResponse>, SandboxError> {
+    let result = state
+        .provider
+        .search_files_by_name(
+            &task_id,
+            &req.query,
+            req.case_sensitive.unwrap_or(false),
+            req.max_results.unwrap_or(0),
+        )
+        .await?;
+    Ok(Json(result))
 }

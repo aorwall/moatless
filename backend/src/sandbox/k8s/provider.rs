@@ -29,6 +29,7 @@ use crate::repository::dao::RepoRepository;
 use crate::sandbox::error::SandboxError;
 use crate::sandbox::jwt;
 use crate::sandbox::provider::SandboxProvider;
+use crate::sandbox::grpc_client::SandboxGrpcClient;
 use crate::sandbox::models::*;
 use crate::sandbox::schemas::*;
 use crate::task::dao::TaskRepository;
@@ -372,6 +373,100 @@ impl SandboxProvider for K8sSandboxProvider {
 
         Ok(results)
     }
+
+    // ── File operations ──────────────────────────────────────────
+
+    async fn get_file_tree(
+        &self,
+        task_id: &str,
+        root_path: &str,
+    ) -> Result<FileTreeResponse, SandboxError> {
+        let client = self.grpc_client(task_id)?;
+        let resp = client
+            .get_file_tree(root_path)
+            .await
+            .map_err(|e| SandboxError::Internal(format!("gRPC get_file_tree failed: {e}")))?;
+
+        let summary = resp.git_summary.map_or(
+            GitSummaryDto {
+                total_files: 0,
+                total_additions: 0,
+                total_deletions: 0,
+                total_staged: 0,
+                total_modified: 0,
+                compare_base: "HEAD".to_string(),
+                has_changes: false,
+            },
+            GitSummaryDto::from,
+        );
+
+        Ok(FileTreeResponse {
+            tree: resp.tree.into_iter().map(FileTreeNodeDto::from).collect(),
+            git_summary: summary,
+        })
+    }
+
+    async fn read_file(
+        &self,
+        task_id: &str,
+        path: &str,
+        include_changes: bool,
+    ) -> Result<FileContentResponse, SandboxError> {
+        let client = self.grpc_client(task_id)?;
+        let resp = client
+            .read_file(path, include_changes)
+            .await
+            .map_err(|e| SandboxError::Internal(format!("gRPC read_file failed: {e}")))?;
+
+        Ok(FileContentResponse::from(resp))
+    }
+
+    async fn write_file(
+        &self,
+        task_id: &str,
+        path: &str,
+        content: &str,
+    ) -> Result<(), SandboxError> {
+        let client = self.grpc_client(task_id)?;
+        client
+            .write_file(path, content)
+            .await
+            .map_err(|e| SandboxError::Internal(format!("gRPC write_file failed: {e}")))?;
+        Ok(())
+    }
+
+    async fn list_files(
+        &self,
+        task_id: &str,
+        path: &str,
+        recursive: bool,
+    ) -> Result<ListFilesResponse, SandboxError> {
+        let client = self.grpc_client(task_id)?;
+        let files = client
+            .list_files(path, recursive)
+            .await
+            .map_err(|e| SandboxError::Internal(format!("gRPC list_files failed: {e}")))?;
+        Ok(ListFilesResponse { files })
+    }
+
+    async fn search_files_by_name(
+        &self,
+        task_id: &str,
+        query: &str,
+        case_sensitive: bool,
+        max_results: i32,
+    ) -> Result<SearchByNameResponse, SandboxError> {
+        let client = self.grpc_client(task_id)?;
+        let resp = client
+            .search_files_by_name(query, case_sensitive, max_results)
+            .await
+            .map_err(|e| SandboxError::Internal(format!("gRPC search_files_by_name failed: {e}")))?;
+
+        Ok(SearchByNameResponse {
+            files: resp.files.into_iter().map(FileNameMatchDto::from).collect(),
+            total_matches: resp.total_matches,
+        })
+    }
 }
 
 // =============================================================================
@@ -379,6 +474,17 @@ impl SandboxProvider for K8sSandboxProvider {
 // =============================================================================
 
 impl K8sSandboxProvider {
+    /// Create a gRPC client for a sandbox pod.
+    fn grpc_client(&self, task_id: &str) -> Result<SandboxGrpcClient, SandboxError> {
+        let service_name = generate_service_name(task_id);
+        SandboxGrpcClient::for_service(
+            &service_name,
+            self.k8s.namespace(),
+            self.config.sandbox.grpc_port,
+        )
+        .map_err(|e| SandboxError::Internal(format!("Failed to create gRPC client: {e}")))
+    }
+
     /// Publish an "initializing" event (fire-and-forget).
     ///
     /// The pod_watcher handles all subsequent readiness tracking and server

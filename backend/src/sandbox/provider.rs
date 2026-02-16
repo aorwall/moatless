@@ -20,7 +20,8 @@ pub enum StartResult {
 }
 use super::models::ProvisionRequest;
 use super::schemas::{
-    FileSearchResult, HealthResponse, ProvisionResponse, ServerStatusResponse, StatusResponse,
+    FileContentResponse, FileSearchResult, FileTreeResponse, HealthResponse, ListFilesResponse,
+    ProvisionResponse, SearchByNameResponse, ServerStatusResponse, StatusResponse,
     WorkspaceStatusFullResponse,
 };
 
@@ -80,4 +81,46 @@ pub trait SandboxProvider: Send + Sync {
         query: &str,
         limit: u32,
     ) -> Result<Vec<FileSearchResult>, SandboxError>;
+
+    // ── File operations ──────────────────────────────────────────
+
+    /// Get the file tree with git change overlay.
+    async fn get_file_tree(
+        &self,
+        task_id: &str,
+        root_path: &str,
+    ) -> Result<FileTreeResponse, SandboxError>;
+
+    /// Read a file from the sandbox workspace.
+    async fn read_file(
+        &self,
+        task_id: &str,
+        path: &str,
+        include_changes: bool,
+    ) -> Result<FileContentResponse, SandboxError>;
+
+    /// Write a file in the sandbox workspace.
+    async fn write_file(
+        &self,
+        task_id: &str,
+        path: &str,
+        content: &str,
+    ) -> Result<(), SandboxError>;
+
+    /// List files in the sandbox workspace.
+    async fn list_files(
+        &self,
+        task_id: &str,
+        path: &str,
+        recursive: bool,
+    ) -> Result<ListFilesResponse, SandboxError>;
+
+    /// Search files by name substring in the sandbox workspace.
+    async fn search_files_by_name(
+        &self,
+        task_id: &str,
+        query: &str,
+        case_sensitive: bool,
+        max_results: i32,
+    ) -> Result<SearchByNameResponse, SandboxError>;
 }
