@@ -8,13 +8,15 @@ use moka::future::Cache;
 use std::sync::Arc;
 use std::time::Duration;
 
+use super::models::UserRole;
+
 /// Minimal payload cached for verify responses.
 /// Contains only what `verify_handler` needs — no tokens are cached.
 #[derive(Debug, Clone)]
 pub struct VerifyPayload {
     pub user_id: String,
     pub user_login: String,
-    pub role: String,
+    pub role: UserRole,
     pub provider: String,
     pub group_id: Option<String>,
     pub expires_at: DateTime<Utc>,

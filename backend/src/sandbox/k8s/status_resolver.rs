@@ -82,7 +82,7 @@ impl StatusResolver {
                         name == config.name
                     });
                     let status = container
-                        .map_or(ServerStatus::Starting, |cs| ServerStatus::from(cs.to_server_status()));
+                        .map_or(ServerStatus::Starting, ContainerObservedStatus::to_server_status);
                     let url = self.build_proxy_url(task_id, config.port);
                     ServerEntry {
                         name: config.name.clone(),
@@ -136,7 +136,7 @@ impl StatusResolver {
                         name == config.name
                     });
                     let status = container
-                        .map_or(ServerStatus::Starting, |cs| ServerStatus::from(cs.to_server_status()));
+                        .map_or(ServerStatus::Starting, ContainerObservedStatus::to_server_status);
                     let url = self.build_proxy_url(task_id, config.port);
                     ServerEntry {
                         name: config.name.clone(),

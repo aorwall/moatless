@@ -108,6 +108,10 @@ prost = "0.13"
 # URL encoding
 urlencoding = "2"
 
+[features]
+# Gate integration tests that need a running PostgreSQL (DATABASE_URL).
+db-tests = []
+
 [lints]
 workspace = true
 

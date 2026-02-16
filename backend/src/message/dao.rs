@@ -218,7 +218,10 @@ impl MessageRepository for PgMessageRepository {
                 turn_status, turn_result, will_not_resume, run_metrics,
                 agent_mode, model, resume_session_id, sent_at, created_at
             FROM task_messages
-            WHERE task_id = $1 AND agent_session_id IS NULL AND message_type = 'user'
+            WHERE task_id = $1
+              AND agent_session_id IS NULL
+              AND (message_type = 'user'
+                   OR (message_type = 'result' AND turn_status = 'error'))
             ORDER BY timestamp, id"#,
         )
         .bind(task_id)

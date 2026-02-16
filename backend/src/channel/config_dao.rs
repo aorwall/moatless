@@ -2,14 +2,14 @@
 
 use async_trait::async_trait;
 
-use super::models::ChannelConfig;
+use super::models::{ChannelConfig, RoutingMode};
 use crate::db::DbPool;
 
 /// Updateable fields for a channel config.
 #[derive(Default)]
 pub struct ChannelConfigPatch {
     pub source_name: Option<String>,
-    pub routing_mode: Option<String>,
+    pub routing_mode: Option<RoutingMode>,
     pub prompt_template: Option<Option<String>>,
     pub active: Option<bool>,
     pub provider_config: Option<serde_json::Value>,
@@ -107,7 +107,7 @@ impl ChannelConfigRepository for PgChannelConfigRepository {
         .bind(&row.source_id)
         .bind(&row.source_name)
         .bind(&row.repository_id)
-        .bind(&row.routing_mode)
+        .bind(row.routing_mode)
         .bind(&row.prompt_template)
         .bind(row.active)
         .bind(&row.provider_config)
@@ -160,8 +160,8 @@ impl ChannelConfigRepository for PgChannelConfigRepository {
         if let Some(ref v) = patch.source_name {
             query = query.bind(v);
         }
-        if let Some(ref v) = patch.routing_mode {
-            query = query.bind(v);
+        if let Some(v) = patch.routing_mode {
+            query = query.bind(v.as_str());
         }
         if let Some(ref v) = patch.prompt_template {
             query = query.bind(v.as_deref());

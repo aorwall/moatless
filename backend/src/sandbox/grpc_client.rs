@@ -90,7 +90,7 @@ impl SandboxGrpcClient {
         &self,
         query: &str,
         limit: i32,
-    ) -> Result<Vec<String>, String> {
+    ) -> Result<Vec<String>, tonic::Status> {
         let mut client = self.client.clone();
         let result = tokio::time::timeout(Duration::from_secs(5), async {
             client
@@ -104,8 +104,10 @@ impl SandboxGrpcClient {
 
         match result {
             Ok(Ok(resp)) => Ok(resp.into_inner().files),
-            Ok(Err(e)) => Err(format!("gRPC search files failed: {e}")),
-            Err(_) => Err("Search files gRPC request timed out".to_string()),
+            Ok(Err(e)) => Err(e),
+            Err(_) => Err(tonic::Status::deadline_exceeded(
+                "Search files gRPC request timed out",
+            )),
         }
     }
 }

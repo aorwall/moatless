@@ -11,7 +11,7 @@ use moatless_events::{AgentSubType, EventType, TaskSubType, TaskTurnSubType};
 use sandbox_proto::PublishEventRequest;
 use tracing::debug;
 
-use crate::backend_client::BackendClient;
+use crate::backend_client::BackendGrpcClient;
 
 /// Publishes sandbox events to the backend via gRPC.
 ///
@@ -19,17 +19,17 @@ use crate::backend_client::BackendClient;
 /// but never propagated.
 #[derive(Clone)]
 pub struct GrpcEventPublisher {
-    client: BackendClient,
+    client: BackendGrpcClient,
 }
 
 impl GrpcEventPublisher {
     /// Create a new publisher backed by the given gRPC client.
-    pub fn new(client: BackendClient) -> Self {
+    pub fn new(client: BackendGrpcClient) -> Self {
         Self { client }
     }
 
     /// Access the underlying backend client (for direct gRPC calls).
-    pub fn client(&self) -> &BackendClient {
+    pub fn client(&self) -> &BackendGrpcClient {
         &self.client
     }
 

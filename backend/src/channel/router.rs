@@ -41,7 +41,7 @@ pub async fn route_message(
         None => return Ok(RoutingResult::NoConfig),
     };
 
-    let routing_mode = RoutingMode::parse(&config.routing_mode)?;
+    let routing_mode = config.routing_mode;
 
     // 2. Check for existing thread
     let existing_thread = if let Some(ref thread_id) = msg.thread_id {

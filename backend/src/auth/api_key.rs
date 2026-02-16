@@ -170,7 +170,7 @@ pub async fn validate_key_cached(
     let verify = crate::auth::cache::VerifyPayload {
         user_id: payload.user_id,
         user_login: payload.user_name.unwrap_or_default(),
-        role: "user".to_string(),
+        role: crate::auth::models::UserRole::User,
         provider: "api-key".to_string(),
         group_id: payload.group_id,
         expires_at,

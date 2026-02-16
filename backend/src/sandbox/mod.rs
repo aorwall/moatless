@@ -6,6 +6,7 @@
 
 pub mod error;
 pub mod grpc_client;
+pub mod grpc_server;
 pub mod handlers;
 pub mod idle_reaper;
 pub mod jwt;

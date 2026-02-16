@@ -20,7 +20,7 @@ use crate::events::{EventPublisher, RedisEventPublisher};
 use crate::message::dao::{MessageRepository, PgMessageRepository};
 use crate::metrics;
 use crate::sandbox::k8s::client::K8sClient;
-use crate::sandbox_grpc_server::BackendSandboxServiceImpl;
+use crate::sandbox::grpc_server::BackendSandboxServiceImpl;
 use crate::sse::consumer::RedisStreamConsumer;
 use crate::sse::routes::SseState;
 

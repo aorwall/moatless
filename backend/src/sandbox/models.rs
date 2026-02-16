@@ -140,7 +140,7 @@ impl From<&str> for AgentState {
 }
 
 /// Matches TS ServerStatusEnumSchema: 'stopped' | 'installing' | 'starting' | 'started' | 'failed'
-#[derive(Debug, Clone, Serialize, ToSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum ServerStatus {
     Stopped,
@@ -159,6 +159,18 @@ impl From<&str> for ServerStatus {
             "started" => ServerStatus::Started,
             "failed" => ServerStatus::Failed,
             _ => ServerStatus::Stopped,
+        }
+    }
+}
+
+impl std::fmt::Display for ServerStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Stopped => write!(f, "stopped"),
+            Self::Installing => write!(f, "installing"),
+            Self::Starting => write!(f, "starting"),
+            Self::Started => write!(f, "started"),
+            Self::Failed => write!(f, "failed"),
         }
     }
 }
@@ -231,14 +243,14 @@ pub struct ServerSnapshot {
     pub default: bool,
     #[serde(default)]
     pub enable_inspector: bool,
-    pub status: String,
+    pub status: ServerStatus,
     pub error: Option<String>,
     pub pid: Option<u32>,
 }
 
 impl ServerSnapshot {
-    /// Build a snapshot from a `ServerConfig` with a given status (e.g. "stopped").
-    pub fn from_config(config: &ServerConfig, status: &str) -> Self {
+    /// Build a snapshot from a `ServerConfig` with a given status (e.g. `ServerStatus::Stopped`).
+    pub fn from_config(config: &ServerConfig, status: ServerStatus) -> Self {
         Self {
             name: config.name.clone(),
             label: config.label.clone().unwrap_or_else(|| config.name.clone()),
@@ -246,7 +258,7 @@ impl ServerSnapshot {
             builtin: false,
             default: config.default,
             enable_inspector: config.enable_inspector,
-            status: status.to_string(),
+            status,
             error: None,
             pid: None,
         }
@@ -304,27 +316,27 @@ pub struct ContainerObservedStatus {
 }
 
 impl ContainerObservedStatus {
-    /// Map container probes to a server status string for the frontend.
-    pub fn to_server_status(&self) -> &'static str {
+    /// Map container probes to a server status for the frontend.
+    pub fn to_server_status(&self) -> ServerStatus {
         use crate::sandbox::k8s::pod_status::SERVER_FAILURE_REASONS;
 
         if self.ready && self.started {
-            "started"
+            ServerStatus::Started
         } else if self.started {
-            "starting"
+            ServerStatus::Starting
         } else if self.restart_count > 2 {
-            "failed"
+            ServerStatus::Failed
         } else {
             match (&self.state, self.waiting_reason.as_deref()) {
                 (ContainerState::Waiting, Some(reason))
                     if SERVER_FAILURE_REASONS.contains(&reason) =>
                 {
-                    "failed"
+                    ServerStatus::Failed
                 }
-                (ContainerState::Running, _) => "starting",
-                (ContainerState::Waiting, _) => "starting",
-                (ContainerState::Terminated, _) => "stopped",
-                (ContainerState::Unknown, _) => "stopped",
+                (ContainerState::Running, _) => ServerStatus::Starting,
+                (ContainerState::Waiting, _) => ServerStatus::Starting,
+                (ContainerState::Terminated, _) => ServerStatus::Stopped,
+                (ContainerState::Unknown, _) => ServerStatus::Stopped,
             }
         }
     }
@@ -420,7 +432,7 @@ mod tests {
             0,
             None,
         );
-        assert_eq!(cs.to_server_status(), "started");
+        assert_eq!(cs.to_server_status(), ServerStatus::Started);
     }
 
     #[test]
@@ -433,7 +445,7 @@ mod tests {
             0,
             None,
         );
-        assert_eq!(cs.to_server_status(), "starting");
+        assert_eq!(cs.to_server_status(), ServerStatus::Starting);
     }
 
     #[test]
@@ -446,7 +458,7 @@ mod tests {
             3,
             None,
         );
-        assert_eq!(cs.to_server_status(), "failed");
+        assert_eq!(cs.to_server_status(), ServerStatus::Failed);
     }
 
     #[test]
@@ -459,7 +471,7 @@ mod tests {
             0,
             Some("ErrImagePull"),
         );
-        assert_eq!(cs.to_server_status(), "failed");
+        assert_eq!(cs.to_server_status(), ServerStatus::Failed);
     }
 
     #[test]
@@ -472,7 +484,7 @@ mod tests {
             0,
             Some("ImagePullBackOff"),
         );
-        assert_eq!(cs.to_server_status(), "failed");
+        assert_eq!(cs.to_server_status(), ServerStatus::Failed);
     }
 
     #[test]
@@ -485,7 +497,7 @@ mod tests {
             0,
             Some("InvalidImageName"),
         );
-        assert_eq!(cs.to_server_status(), "failed");
+        assert_eq!(cs.to_server_status(), ServerStatus::Failed);
     }
 
     #[test]
@@ -498,7 +510,7 @@ mod tests {
             0,
             Some("CrashLoopBackOff"),
         );
-        assert_eq!(cs.to_server_status(), "failed");
+        assert_eq!(cs.to_server_status(), ServerStatus::Failed);
     }
 
     #[test]
@@ -511,7 +523,7 @@ mod tests {
             0,
             Some("ContainerCreating"),
         );
-        assert_eq!(cs.to_server_status(), "starting");
+        assert_eq!(cs.to_server_status(), ServerStatus::Starting);
     }
 
     #[test]
@@ -524,7 +536,7 @@ mod tests {
             0,
             None,
         );
-        assert_eq!(cs.to_server_status(), "starting");
+        assert_eq!(cs.to_server_status(), ServerStatus::Starting);
     }
 
     #[test]
@@ -537,7 +549,7 @@ mod tests {
             0,
             None,
         );
-        assert_eq!(cs.to_server_status(), "stopped");
+        assert_eq!(cs.to_server_status(), ServerStatus::Stopped);
     }
 
     #[test]
@@ -550,7 +562,7 @@ mod tests {
             0,
             None,
         );
-        assert_eq!(cs.to_server_status(), "stopped");
+        assert_eq!(cs.to_server_status(), ServerStatus::Stopped);
     }
 
     #[test]
@@ -563,7 +575,7 @@ mod tests {
             0,
             None,
         );
-        assert_eq!(cs.to_server_status(), "starting");
+        assert_eq!(cs.to_server_status(), ServerStatus::Starting);
     }
 
     // =========================================================================
@@ -650,13 +662,13 @@ mod tests {
             enable_inspector: true,
             ..Default::default()
         };
-        let snap = ServerSnapshot::from_config(&config, "stopped");
+        let snap = ServerSnapshot::from_config(&config, ServerStatus::Stopped);
         assert_eq!(snap.name, "preview");
         assert_eq!(snap.label, "Preview");
         assert_eq!(snap.port, 3000);
         assert!(snap.default);
         assert!(snap.enable_inspector);
-        assert_eq!(snap.status, "stopped");
+        assert_eq!(snap.status, ServerStatus::Stopped);
     }
 
     // =========================================================================
@@ -702,7 +714,7 @@ mod tests {
             builtin: false,
             default: false,
             enable_inspector: true,
-            status: "started".to_string(),
+            status: ServerStatus::Started,
             error: None,
             pid: None,
         };

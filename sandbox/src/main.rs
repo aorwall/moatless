@@ -18,7 +18,7 @@ use tracing::info;
 use tracing_subscriber::EnvFilter;
 
 use moatless_sandbox::agent;
-use moatless_sandbox::backend_client::BackendClient;
+use moatless_sandbox::backend_client::BackendGrpcClient;
 use moatless_sandbox::config::Config;
 use moatless_sandbox::events::GrpcEventPublisher;
 use moatless_sandbox::grpc_server::SandboxServiceImpl;
@@ -48,7 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create gRPC client for backend communication (required)
     #[allow(clippy::expect_used)] // fail-fast: sandbox cannot operate without backend connectivity
-    let backend_client = BackendClient::connect(&config.backend_grpc_url, config.user_auth_token.clone())
+    let backend_client = BackendGrpcClient::connect(&config.backend_grpc_url, config.user_auth_token.clone())
         .expect("Failed to create backend gRPC client");
     info!(url = %config.backend_grpc_url, "Backend gRPC client created (lazy connection)");
 

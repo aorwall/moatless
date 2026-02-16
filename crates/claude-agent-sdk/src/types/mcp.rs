@@ -51,6 +51,8 @@ pub enum McpConnectionStatus {
     NeedsAuth,
     Pending,
     Disabled,
+    #[serde(other)]
+    Unknown,
 }
 
 /// Basic info about a connected MCP server.
@@ -74,7 +76,7 @@ pub struct McpToolInfo {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct McpServerEntry {
     pub name: String,
-    pub status: String,
+    pub status: McpConnectionStatus,
 }
 
 /// Result of setting MCP servers.

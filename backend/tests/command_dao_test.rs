@@ -1,5 +1,6 @@
+#![cfg(feature = "db-tests")]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::print_stdout, clippy::print_stderr)]
-//! Integration tests for command_dao.
+//! Integration tests for command_dao — requires `DATABASE_URL` and `--features db-tests`.
 
 mod common;
 

@@ -4,6 +4,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use super::models::UserRole;
+
 // ============================================================================
 // Request types
 // ============================================================================
@@ -46,7 +48,7 @@ pub struct UserInfo {
     pub name: Option<String>,
     pub avatar_url: Option<String>,
     pub provider: String,
-    pub role: String,
+    pub role: UserRole,
 }
 
 /// POST /api/v1/auth/api-keys response (includes the full key, shown once).

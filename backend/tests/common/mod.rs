@@ -13,12 +13,13 @@ use moatless_vibe_backend::config::{
     ServerConfig, SlackConfig, SseConfig,
 };
 use moatless_vibe_backend::message::models::{MessageRole, MessageType, TaskMessage};
-use moatless_vibe_backend::repository::models::Repository;
+use moatless_vibe_backend::repository::models::{Repository, RepositoryKind, RepositoryProvider};
 use moatless_vibe_backend::sandbox::error::SandboxError;
 use moatless_vibe_backend::sandbox::provider::SandboxProvider;
 use moatless_vibe_backend::sandbox::models::*;
 use moatless_vibe_backend::sandbox::schemas::*;
 use moatless_vibe_backend::state::AppState;
+use moatless_vibe_backend::shared_models::AgentType;
 use moatless_vibe_backend::task::models::{Task, TaskStatus, Visibility};
 
 // =========================================================================
@@ -207,7 +208,7 @@ pub fn make_task_row(task_id: &str, user_id: &str) -> Task {
         short_id: Some(format!("s-{task_id}")),
         created_at: now.clone(),
         last_message_at: now,
-        agent_type: "claude-code".to_string(),
+        agent_type: AgentType(AgentType::CLAUDE_CODE.into()),
         repository_id: "repo-1".to_string(),
         status: TaskStatus::Open,
         total_cost_usd: 0.0,
@@ -232,7 +233,7 @@ pub fn make_repository_row(id: &str, user_id: &str) -> Repository {
     Repository {
         id: id.to_string(),
         name: format!("repo-{id}"),
-        kind: "git".to_string(),
+        kind: RepositoryKind::Git,
         remote_url: Some("https://github.com/test/repo.git".to_string()),
         default_branch: Some("main".to_string()),
         docker_image: None,
@@ -248,8 +249,8 @@ pub fn make_repository_row(id: &str, user_id: &str) -> Repository {
         enable_inspector: None,
         auto_reload: None,
         description: None,
-        provider: Some("github".to_string()),
-        visibility: Some("public".to_string()),
+        provider: Some(RepositoryProvider::Github),
+        visibility: Some(Visibility::Public),
         created_by: Some(user_id.to_string()),
         deleted: Some(false),
         created_at: Some(now),

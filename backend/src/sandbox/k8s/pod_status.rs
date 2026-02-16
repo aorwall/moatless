@@ -278,6 +278,7 @@ pub mod test_helpers {
 mod tests {
     use super::*;
     use super::test_helpers::*;
+    use crate::sandbox::models::ServerStatus;
     use k8s_openapi::api::core::v1::{
         ContainerState as K8sState, ContainerStateRunning, ContainerStateWaiting, ContainerStatus,
         Pod, PodStatus,
@@ -575,7 +576,7 @@ mod tests {
         let statuses = extract_container_observed_statuses(&pod);
         assert_eq!(statuses.len(), 1);
         assert_eq!(statuses[0].name, "preview-server");
-        assert_eq!(statuses[0].to_server_status(), "failed");
+        assert_eq!(statuses[0].to_server_status(), ServerStatus::Failed);
     }
 
     #[test]

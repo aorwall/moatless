@@ -3,6 +3,8 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use crate::shared_models::AgentMode;
+
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateCommandRequest {
@@ -15,7 +17,7 @@ pub struct CreateCommandRequest {
     pub variant: Option<String>,
     pub active: Option<bool>,
     pub will_not_resume: Option<bool>,
-    pub agent_mode: Option<String>,
+    pub agent_mode: Option<AgentMode>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -29,7 +31,7 @@ pub struct UpdateCommandRequest {
     pub variant: Option<String>,
     pub active: Option<bool>,
     pub will_not_resume: Option<bool>,
-    pub agent_mode: Option<String>,
+    pub agent_mode: Option<AgentMode>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -48,7 +50,7 @@ pub struct CommandResponse {
     pub active: Option<bool>,
     pub will_not_resume: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub agent_mode: Option<String>,
+    pub agent_mode: Option<AgentMode>,
 }
 
 impl From<super::models::Command> for CommandResponse {

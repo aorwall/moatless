@@ -173,9 +173,12 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
 
         // Convert DB rows to proto messages.
         // message_content is a JSON array: [{"type":"text","text":"..."}, ...]
+        // Error result messages are flagged with is_error so the sandbox
+        // consumer can prefix them before sending to the agent.
         let messages: Vec<sandbox_proto::PendingMessage> = pending
             .iter()
             .filter_map(|row| {
+                let is_error = row.message_type == crate::message::models::MessageType::Result;
                 let content = parse_content_blocks(&row.message_content);
                 if content.is_empty() {
                     warn!(task_id = %req.task_id, "Pending message has no parseable content blocks");
@@ -187,7 +190,8 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
                     model: row.model.clone(),
                     system_prompt: None,
                     resume: row.resume_session_id.as_ref().map(|_| true),
-                    agent_type: row.agent_mode.clone(),
+                    agent_type: row.agent_mode.as_ref().map(|m| m.0.clone()),
+                    is_error: if is_error { Some(true) } else { None },
                 })
             })
             .collect();
@@ -350,3 +354,4 @@ fn parse_content_blocks(value: &Value) -> Vec<sandbox_proto::ContentBlock> {
         _ => vec![],
     }
 }
+

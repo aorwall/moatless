@@ -7,6 +7,7 @@ use chrono::{DateTime, Utc};
 
 use super::models::{Task, TaskStatus, Visibility};
 use crate::db::DbPool;
+use crate::shared_models::AgentType;
 
 /// Filter struct for task listing queries.
 #[derive(Default)]
@@ -14,7 +15,7 @@ pub struct TaskFilter {
     pub user_id: String,
     pub limit: i64,
     pub offset: i64,
-    pub status: Option<String>,
+    pub status: Option<TaskStatus>,
     pub repository_id: Option<String>,
     pub created_by: Option<String>,
     pub tag: Option<String>,
@@ -121,7 +122,7 @@ impl TaskRepository for PgTaskRepository {
             short_id: Option<String>,
             created_at: String,
             last_message_at: String,
-            agent_type: String,
+            agent_type: AgentType,
             repository_id: String,
             status: TaskStatus,
             total_cost_usd: f64,
@@ -158,7 +159,7 @@ impl TaskRepository for PgTaskRepository {
             LIMIT $6 OFFSET $7"#,
         )
         .bind(&filter.user_id)
-        .bind(&filter.status)
+        .bind(filter.status)
         .bind(&filter.repository_id)
         .bind(&filter.created_by)
         .bind(&filter.tag)
@@ -343,7 +344,7 @@ pub async fn list_tasks(
     user_id: &str,
     limit: i64,
     offset: i64,
-    status: Option<&str>,
+    status: Option<TaskStatus>,
     repository_id: Option<&str>,
     created_by: Option<&str>,
     tag: Option<&str>,
@@ -352,7 +353,7 @@ pub async fn list_tasks(
         user_id: user_id.to_string(),
         limit,
         offset,
-        status: status.map(String::from),
+        status,
         repository_id: repository_id.map(String::from),
         created_by: created_by.map(String::from),
         tag: tag.map(String::from),

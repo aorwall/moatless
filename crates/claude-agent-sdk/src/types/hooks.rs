@@ -19,6 +19,29 @@ pub enum HookEvent {
     PreCompact,
     PermissionRequest,
     Setup,
+    #[serde(other)]
+    Unknown,
+}
+
+impl std::fmt::Display for HookEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::PreToolUse => write!(f, "PreToolUse"),
+            Self::PostToolUse => write!(f, "PostToolUse"),
+            Self::PostToolUseFailure => write!(f, "PostToolUseFailure"),
+            Self::Notification => write!(f, "Notification"),
+            Self::UserPromptSubmit => write!(f, "UserPromptSubmit"),
+            Self::SessionStart => write!(f, "SessionStart"),
+            Self::SessionEnd => write!(f, "SessionEnd"),
+            Self::Stop => write!(f, "Stop"),
+            Self::SubagentStart => write!(f, "SubagentStart"),
+            Self::SubagentStop => write!(f, "SubagentStop"),
+            Self::PreCompact => write!(f, "PreCompact"),
+            Self::PermissionRequest => write!(f, "PermissionRequest"),
+            Self::Setup => write!(f, "Setup"),
+            Self::Unknown => write!(f, "Unknown"),
+        }
+    }
 }
 
 /// Handler trait for hook callbacks from the CLI.

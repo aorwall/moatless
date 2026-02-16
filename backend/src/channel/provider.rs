@@ -14,7 +14,7 @@ use super::error::ChannelError;
 use super::models::{MessageStatus, OutboundReply};
 
 /// Channel provider identifier.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ChannelType {
     Slack,

@@ -211,33 +211,47 @@ impl SandboxProvider for K8sSandboxProvider {
         Ok(())
     }
 
-    async fn start(&self, task_id: &str) -> Result<(), SandboxError> {
+    async fn start(&self, task_id: &str) -> Result<super::super::provider::StartResult, SandboxError> {
+        use super::super::provider::StartResult;
+
         info!(task_id = %task_id, "Starting workspace");
 
-        // Check if a Deployment exists
-        match deployment::find_deployment(&self.k8s, task_id).await {
+        let result = match deployment::find_deployment(&self.k8s, task_id).await {
             Ok(Some(_)) => {
-                info!(task_id = %task_id, "Deployment found, scaling to 1");
+                // Check if already running (desired>=1, ready>=1)
+                let (desired, ready) = deployment::get_deployment_replicas(&self.k8s, task_id)
+                    .await
+                    .map_err(SandboxError::KubeError)?;
+
+                let already_running = desired >= 1 && ready >= 1;
+
                 deployment::scale_deployment(&self.k8s, task_id, 1)
                     .await
                     .map_err(SandboxError::KubeError)?;
 
                 // Publish initializing event (pod_watcher handles readiness)
                 self.publish_initializing(task_id).await;
+
+                if already_running {
+                    StartResult::AlreadyRunning
+                } else {
+                    StartResult::Starting
+                }
             }
             Ok(None) => {
                 // No Deployment — try auto-provisioning from DB
                 info!(task_id = %task_id, "No Deployment found, attempting auto-provision from DB");
                 self.auto_provision(task_id).await?;
+                StartResult::Starting
             }
             Err(e) => {
                 tracing::error!(task_id = %task_id, error = %e, "Failed to check Deployment");
                 return Err(SandboxError::KubeError(e));
             }
-        }
+        };
 
-        info!(task_id = %task_id, "Workspace started successfully");
-        Ok(())
+        info!(task_id = %task_id, ?result, "Workspace started successfully");
+        Ok(result)
     }
 
     async fn restart(&self, task_id: &str) -> Result<(), SandboxError> {
@@ -315,8 +329,8 @@ impl SandboxProvider for K8sSandboxProvider {
                     let name = cs.name.strip_suffix("-server").unwrap_or(&cs.name);
                     name == config.name
                 });
-                let status = container.map_or_else(|| "starting".to_string(), |cs| cs.to_server_status().to_string());
-                let mut snapshot = ServerSnapshot::from_config(config, &status);
+                let status = container.map_or(ServerStatus::Starting, ContainerObservedStatus::to_server_status);
+                let mut snapshot = ServerSnapshot::from_config(config, status);
                 snapshot.error = container.and_then(|cs| cs.waiting_reason.clone());
                 snapshot
             })

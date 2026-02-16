@@ -63,13 +63,30 @@ pub struct SdkResultMessage {
     pub session_id: Option<String>,
     pub is_error: Option<bool>,
     pub subtype: Option<String>,
-    pub result: Option<serde_json::Value>,
+    #[serde(default, deserialize_with = "deserialize_value_as_string")]
+    pub result: Option<String>,
     pub total_cost_usd: Option<f64>,
     pub usage: Option<UsageInfo>,
     #[serde(alias = "num_turns")]
     pub num_turns: Option<u32>,
     #[serde(alias = "duration_ms")]
     pub duration_ms: Option<u64>,
+}
+
+/// Deserialize any JSON value into `Option<String>`.
+///
+/// Strings pass through directly; other types are converted via `to_string()`.
+/// `null` becomes `None`.
+fn deserialize_value_as_string<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
+    Ok(value.and_then(|v| match v {
+        serde_json::Value::Null => None,
+        serde_json::Value::String(s) => Some(s),
+        other => Some(other.to_string()),
+    }))
 }
 
 /// Usage info from SDK result.
@@ -162,7 +179,7 @@ mod tests {
         });
         let r: SdkResultMessage = serde_json::from_value(v).unwrap();
         assert_eq!(r.is_error, Some(true));
-        assert_eq!(r.result.as_ref().and_then(|v| v.as_str()), Some("Out of memory"));
+        assert_eq!(r.result.as_deref(), Some("Out of memory"));
         assert!(r.total_cost_usd.is_none());
         assert!(r.usage.is_none());
     }
@@ -189,8 +206,28 @@ mod tests {
         });
         let r: SdkResultMessage = serde_json::from_value(v).unwrap();
         assert_eq!(r.session_id.as_deref(), Some("sess-123"));
+        assert_eq!(r.result.as_deref(), Some("done"));
         assert_eq!(r.num_turns, Some(5));
         assert_eq!(r.duration_ms, Some(3200));
+    }
+
+    #[test]
+    fn deserialize_sdk_result_non_string_value() {
+        // Non-string JSON values should be converted to their string representation
+        let v = json!({
+            "result": 42
+        });
+        let r: SdkResultMessage = serde_json::from_value(v).unwrap();
+        assert_eq!(r.result.as_deref(), Some("42"));
+    }
+
+    #[test]
+    fn deserialize_sdk_result_null_result() {
+        let v = json!({
+            "result": null
+        });
+        let r: SdkResultMessage = serde_json::from_value(v).unwrap();
+        assert!(r.result.is_none());
     }
 
     #[test]

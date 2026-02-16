@@ -23,7 +23,7 @@ src/
 ├── state.rs                   # SandboxState (shared across handlers)
 ├── error.rs                   # SandboxError enum + IntoResponse
 ├── events.rs                  # GrpcEventPublisher (publishes events to backend via gRPC)
-├── backend_client.rs          # BackendClient: gRPC client wrapper for BackendSandboxService
+├── backend_client.rs          # BackendGrpcClient: gRPC client wrapper for BackendSandboxService
 ├── grpc_server.rs             # SandboxService gRPC impl (receives commands from backend)
 ├── agent/
 │   ├── mod.rs

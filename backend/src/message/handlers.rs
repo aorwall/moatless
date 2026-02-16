@@ -59,7 +59,7 @@ pub async fn send_message(
             &task_id,
             &command.prompt,
             req.model.as_deref(),
-            command.agent_mode.as_deref(),
+            command.agent_mode.as_ref(),
             &req.file_ids,
             &[],
         )
@@ -71,17 +71,34 @@ pub async fn send_message(
             &task_id,
             &req.message,
             req.model.as_deref(),
-            req.agent_mode.as_deref(),
+            req.agent_mode.as_ref(),
             &req.file_ids,
             &req.contexts,
         )
         .await?;
     }
 
-    // Notify the sandbox pod that a new message is available (fire-and-forget).
-    // This is only done here (not in send flows) because task creation callers
-    // skip notification — the sandbox reads pending messages on startup.
-    crate::sandbox::notify::notify_sandbox_for_task(&state, &task_id).await;
+    // Ensure the sandbox is running (auto-provisions if needed).
+    // Only notify if already running — a starting sandbox fetches pending messages on startup.
+    match state.sandbox.start(&task_id).await {
+        Ok(crate::sandbox::provider::StartResult::AlreadyRunning) => {
+            // Sandbox is up — notify it about the new message.
+            crate::sandbox::notify::notify_sandbox_for_task(&state, &task_id).await;
+        }
+        Ok(crate::sandbox::provider::StartResult::Starting) => {
+            // Sandbox is starting — it will fetch pending messages on startup.
+            tracing::info!(task_id = %task_id, "Sandbox starting, skipping notification");
+        }
+        Err(e) => {
+            tracing::warn!(task_id = %task_id, error = %e, "Failed to start sandbox for message delivery");
+            send::persist_error_result(
+                &state,
+                &task_id,
+                &format!("Failed to start sandbox: {e}"),
+            )
+            .await;
+        }
+    }
 
     tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Message sent to agent");
 
@@ -149,28 +166,35 @@ pub async fn get_pending_messages(
     let pending = state.messages.get_pending_user(&task_id).await?;
     let last_result = state.messages.get_last_result(&task_id).await?;
 
-    let mut messages: Vec<serde_json::Value> = pending
+    let mut messages: Vec<PendingMessageItem> = pending
         .iter()
-        .map(|m| serde_json::json!({
-            "uuid": m.uuid,
-            "messageType": m.message_type,
-            "timestamp": m.timestamp,
-            "messageContent": m.message_content,
-            "agentMode": m.agent_mode,
-            "model": m.model,
-            "resumeSessionId": m.resume_session_id,
-        }))
+        .map(|m| PendingMessageItem {
+            uuid: m.uuid.clone(),
+            message_type: m.message_type,
+            timestamp: m.timestamp.clone(),
+            message_content: Some(m.message_content.clone()),
+            agent_mode: m.agent_mode.clone(),
+            model: m.model.clone(),
+            resume_session_id: m.resume_session_id.clone(),
+            turn_status: None,
+            turn_result: None,
+            will_not_resume: None,
+        })
         .collect();
 
     if let Some(result) = last_result {
-        messages.push(serde_json::json!({
-            "uuid": result.uuid,
-            "messageType": result.message_type,
-            "timestamp": result.timestamp,
-            "turnStatus": result.turn_status,
-            "turnResult": result.turn_result,
-            "willNotResume": result.will_not_resume,
-        }));
+        messages.push(PendingMessageItem {
+            uuid: result.uuid.clone(),
+            message_type: result.message_type,
+            timestamp: result.timestamp.clone(),
+            message_content: None,
+            agent_mode: None,
+            model: None,
+            resume_session_id: None,
+            turn_status: result.turn_status,
+            turn_result: result.turn_result.clone(),
+            will_not_resume: result.will_not_resume,
+        });
     }
 
     let total_count = messages.len();

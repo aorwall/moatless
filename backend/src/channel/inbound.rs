@@ -4,6 +4,7 @@ use tracing::{info, warn};
 
 use super::config_dao::ChannelConfigPatch;
 use super::models::ChannelConfig;
+use crate::shared_models::AgentType;
 use crate::task::models::{Task, TaskStatus, Visibility};
 use crate::state::AppState;
 
@@ -43,7 +44,7 @@ pub async fn process_inbound(
             let task_id = create_task_for_channel(state, &config, &msg).await?;
 
             // For ongoing mode, update the config's ongoing_task_id
-            if RoutingMode::parse(&config.routing_mode)? == RoutingMode::Ongoing {
+            if config.routing_mode == RoutingMode::Ongoing {
                 state.channel_configs.update(
                     &config.id,
                     &ChannelConfigPatch {
@@ -133,7 +134,7 @@ async fn create_task_for_channel(
         short_id: Some(short_id),
         created_at: now.clone(),
         last_message_at: now,
-        agent_type: "claude-code".to_string(),
+        agent_type: AgentType(AgentType::CLAUDE_CODE.into()),
         repository_id: config.repository_id.clone(),
         status: TaskStatus::Open,
         total_cost_usd: 0.0,
@@ -216,7 +217,7 @@ mod tests {
             source_id: "C123".into(),
             source_name: None,
             repository_id: "r1".into(),
-            routing_mode: "thread_based".into(),
+            routing_mode: RoutingMode::ThreadBased,
             prompt_template: Some("User request:\n\n{message}\n\nPlease help.".into()),
             active: true,
             provider_config: None,
@@ -237,7 +238,7 @@ mod tests {
             source_id: "C123".into(),
             source_name: None,
             repository_id: "r1".into(),
-            routing_mode: "thread_based".into(),
+            routing_mode: RoutingMode::ThreadBased,
             prompt_template: None,
             active: true,
             provider_config: None,

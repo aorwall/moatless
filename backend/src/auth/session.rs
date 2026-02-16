@@ -4,7 +4,7 @@ use chrono::Utc;
 use rand::Rng;
 use tracing::{error, info, warn};
 
-use super::models::{OAuthTokens, ProviderUserInfo};
+use super::models::{OAuthTokens, ProviderUserInfo, UserRole};
 use super::provider_tokens::{ProviderToken, ProviderTokenAuthRepository};
 use super::sessions::{Session, SessionRepository};
 use super::users::{User, UserRepository};
@@ -36,7 +36,7 @@ pub async fn create_session(
     // Upsert user
     let existing_user = users.get_user(&user_info.id).await?;
     let role = existing_user
-        .as_ref().map_or_else(|| "user".to_string(), |u| u.role.clone());
+        .as_ref().map_or(UserRole::User, |u| u.role);
 
     let user_row = User {
         id: user_info.id.clone(),
@@ -45,7 +45,7 @@ pub async fn create_session(
         name: user_info.name.clone(),
         avatar_url: user_info.avatar_url.clone(),
         provider: provider_id.to_string(),
-        role: role.clone(),
+        role,
         created_at: existing_user
             .as_ref()
             .map_or(now, |u| u.created_at),
@@ -149,7 +149,7 @@ pub async fn create_session_from_user(
         user_email: user.email.clone(),
         user_name: user.name.clone(),
         avatar_url: user.avatar_url.clone(),
-        role: user.role.clone(),
+        role: user.role,
         access_token: None,
         id_token: None,
         token_type: None,
@@ -231,6 +231,7 @@ pub async fn validate_session_cached(
         group_id: session.group_id,
         expires_at: session.expires_at,
     };
+
 
     cache.insert_session(session_id, payload.clone()).await;
     Ok(Some(payload))

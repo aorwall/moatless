@@ -170,7 +170,7 @@ pub async fn start_handler(
 ) -> Result<StatusCode, SandboxError> {
     info!(task_id = %task_id, "POST /start");
     match state.provider.start(&task_id).await {
-        Ok(()) => {
+        Ok(_result) => {
             info!(task_id = %task_id, "Start succeeded");
             Ok(StatusCode::NO_CONTENT)
         }

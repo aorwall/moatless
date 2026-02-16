@@ -3,14 +3,17 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use super::models::RoutingMode;
+use super::provider::ChannelType;
+
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateChannelConfigRequest {
-    pub provider: String,
+    pub provider: ChannelType,
     pub source_id: String,
     pub source_name: Option<String>,
     pub repository_id: String,
-    pub routing_mode: String,
+    pub routing_mode: RoutingMode,
     pub prompt_template: Option<String>,
     #[schema(value_type = Option<Object>)]
     pub provider_config: Option<serde_json::Value>,
@@ -20,7 +23,7 @@ pub struct CreateChannelConfigRequest {
 #[serde(rename_all = "camelCase")]
 pub struct UpdateChannelConfigRequest {
     pub source_name: Option<String>,
-    pub routing_mode: Option<String>,
+    pub routing_mode: Option<RoutingMode>,
     pub prompt_template: Option<Option<String>>,
     pub active: Option<bool>,
     #[schema(value_type = Option<Object>)]
@@ -31,11 +34,11 @@ pub struct UpdateChannelConfigRequest {
 #[serde(rename_all = "camelCase")]
 pub struct ChannelConfigResponse {
     pub id: String,
-    pub provider: String,
+    pub provider: ChannelType,
     pub source_id: String,
     pub source_name: Option<String>,
     pub repository_id: String,
-    pub routing_mode: String,
+    pub routing_mode: RoutingMode,
     pub prompt_template: Option<String>,
     pub active: bool,
     #[schema(value_type = Option<Object>)]
@@ -55,13 +58,15 @@ pub struct ListChannelConfigsQuery {
 
 impl ChannelConfigResponse {
     pub fn from_model(row: &super::models::ChannelConfig) -> Self {
+        let provider = ChannelType::parse(&row.provider)
+            .unwrap_or(ChannelType::Slack);
         Self {
             id: row.id.clone(),
-            provider: row.provider.clone(),
+            provider,
             source_id: row.source_id.clone(),
             source_name: row.source_name.clone(),
             repository_id: row.repository_id.clone(),
-            routing_mode: row.routing_mode.clone(),
+            routing_mode: row.routing_mode,
             prompt_template: row.prompt_template.clone(),
             active: row.active,
             provider_config: row.provider_config.clone(),

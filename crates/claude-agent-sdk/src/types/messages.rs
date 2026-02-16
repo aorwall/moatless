@@ -3,9 +3,121 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 use super::content::{ApiMessage, ModelUsage, PermissionDenial, Usage};
+use super::hooks::HookEvent;
 use super::mcp::McpServerEntry;
 use super::options::PluginEntry;
 use super::permissions::PermissionMode;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OutputStyle {
+    Normal,
+    Concise,
+    Verbose,
+    Silent,
+    #[serde(other)]
+    Unknown,
+}
+
+impl std::fmt::Display for OutputStyle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Normal => write!(f, "normal"),
+            Self::Concise => write!(f, "concise"),
+            Self::Verbose => write!(f, "verbose"),
+            Self::Silent => write!(f, "silent"),
+            Self::Unknown => write!(f, "unknown"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentStatusValue {
+    Idle,
+    Busy,
+    Thinking,
+    Processing,
+    #[serde(other)]
+    Unknown,
+}
+
+impl std::fmt::Display for AgentStatusValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Idle => write!(f, "idle"),
+            Self::Busy => write!(f, "busy"),
+            Self::Thinking => write!(f, "thinking"),
+            Self::Processing => write!(f, "processing"),
+            Self::Unknown => write!(f, "unknown"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CompactTrigger {
+    Auto,
+    Manual,
+    MaxTokens,
+    #[serde(other)]
+    Unknown,
+}
+
+impl std::fmt::Display for CompactTrigger {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Auto => write!(f, "auto"),
+            Self::Manual => write!(f, "manual"),
+            Self::MaxTokens => write!(f, "max_tokens"),
+            Self::Unknown => write!(f, "unknown"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HookOutcome {
+    Success,
+    Error,
+    Timeout,
+    Skipped,
+    #[serde(other)]
+    Unknown,
+}
+
+impl std::fmt::Display for HookOutcome {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Success => write!(f, "success"),
+            Self::Error => write!(f, "error"),
+            Self::Timeout => write!(f, "timeout"),
+            Self::Skipped => write!(f, "skipped"),
+            Self::Unknown => write!(f, "unknown"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskNotificationStatus {
+    Started,
+    Completed,
+    Failed,
+    #[serde(other)]
+    Unknown,
+}
+
+impl std::fmt::Display for TaskNotificationStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Started => write!(f, "started"),
+            Self::Completed => write!(f, "completed"),
+            Self::Failed => write!(f, "failed"),
+            Self::Unknown => write!(f, "unknown"),
+        }
+    }
+}
 
 /// The core SDK message type — a union of all 16 message variants
 /// that the Claude CLI can emit over NDJSON stdout.
@@ -266,7 +378,7 @@ pub struct SystemInitMessage {
     #[serde(rename = "apiKeySource")]
     pub api_key_source: ApiKeySource,
     pub slash_commands: Vec<String>,
-    pub output_style: String,
+    pub output_style: OutputStyle,
     pub skills: Vec<String>,
     pub plugins: Vec<PluginEntry>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -289,7 +401,7 @@ pub struct CompactBoundaryMessage {
 /// Metadata about a compaction event.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompactMetadata {
-    pub trigger: String,
+    pub trigger: CompactTrigger,
     pub pre_tokens: u64,
 }
 
@@ -298,7 +410,7 @@ pub struct CompactMetadata {
 pub struct StatusMessage {
     pub uuid: String,
     pub session_id: String,
-    pub status: Option<String>,
+    pub status: Option<AgentStatusValue>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "permissionMode")]
     pub permission_mode: Option<PermissionMode>,
@@ -311,7 +423,7 @@ pub struct HookStartedMessage {
     pub session_id: String,
     pub hook_id: String,
     pub hook_name: String,
-    pub hook_event: String,
+    pub hook_event: HookEvent,
 }
 
 /// Hook progress update.
@@ -321,7 +433,7 @@ pub struct HookProgressMessage {
     pub session_id: String,
     pub hook_id: String,
     pub hook_name: String,
-    pub hook_event: String,
+    pub hook_event: HookEvent,
     pub stdout: String,
     pub stderr: String,
     pub output: String,
@@ -334,13 +446,13 @@ pub struct HookResponseMessage {
     pub session_id: String,
     pub hook_id: String,
     pub hook_name: String,
-    pub hook_event: String,
+    pub hook_event: HookEvent,
     pub output: String,
     pub stdout: String,
     pub stderr: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exit_code: Option<i32>,
-    pub outcome: String,
+    pub outcome: HookOutcome,
 }
 
 /// Task notification from a subagent.
@@ -349,7 +461,7 @@ pub struct TaskNotificationMessage {
     pub uuid: String,
     pub session_id: String,
     pub task_id: String,
-    pub status: String,
+    pub status: TaskNotificationStatus,
     pub output_file: String,
     pub summary: String,
 }

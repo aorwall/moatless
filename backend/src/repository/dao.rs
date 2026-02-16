@@ -2,8 +2,9 @@
 
 use async_trait::async_trait;
 
-use super::models::Repository;
+use super::models::{Repository, RepositoryKind, RepositoryProvider};
 use crate::db::DbPool;
+use crate::task::models::Visibility;
 
 /// Columns selected for repository queries.
 const REPO_COLUMNS: &str = r#"
@@ -21,14 +22,14 @@ const REPO_COLUMNS: &str = r#"
 #[derive(Default)]
 pub struct RepositoryPatch {
     pub name: Option<String>,
-    pub kind: Option<String>,
+    pub kind: Option<RepositoryKind>,
     pub remote_url: Option<Option<String>>,
     pub default_branch: Option<Option<String>>,
     pub docker_image: Option<Option<String>>,
     pub system_prompt: Option<Option<String>>,
     pub description: Option<Option<String>>,
-    pub provider: Option<Option<String>>,
-    pub visibility: Option<String>,
+    pub provider: Option<Option<RepositoryProvider>>,
+    pub visibility: Option<Visibility>,
     pub servers: Option<Option<serde_json::Value>>,
     pub plugins: Option<Option<serde_json::Value>>,
     pub env_vars: Option<Option<serde_json::Value>>,
@@ -123,7 +124,7 @@ impl RepoRepository for PgRepoRepository {
         )
         .bind(&row.id)
         .bind(&row.name)
-        .bind(&row.kind)
+        .bind(row.kind)
         .bind(&row.remote_url)
         .bind(&row.default_branch)
         .bind(&row.docker_image)
@@ -139,8 +140,8 @@ impl RepoRepository for PgRepoRepository {
         .bind(row.enable_inspector)
         .bind(row.auto_reload)
         .bind(&row.description)
-        .bind(&row.provider)
-        .bind(&row.visibility)
+        .bind(row.provider)
+        .bind(row.visibility)
         .bind(&row.created_by)
         .bind(row.deleted)
         .bind(row.created_at)

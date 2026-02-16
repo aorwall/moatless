@@ -13,7 +13,7 @@ GREEN := \033[0;32m
 YELLOW := \033[1;33m
 NC := \033[0m
 
-.PHONY: help build-app build-worker build deploy-app deploy-worker deploy logs status restart
+.PHONY: help build-app build-worker build deploy-app deploy-worker deploy logs status restart test-integration
 
 ## Help
 help: ## Show this help
@@ -105,6 +105,10 @@ db-migrate: ## Run database migrations (via app restart)
 	@echo "$(GREEN)==> Migrations run automatically on app startup$(NC)"
 	@echo "Restarting app to trigger migrations..."
 	$(MAKE) restart
+
+## Testing
+test-integration: ## Run backend integration tests (requires DATABASE_URL)
+	cargo test -p moatless-vibe-backend --features db-tests
 
 ## Cleanup
 clean-workers: ## Delete all worker pods

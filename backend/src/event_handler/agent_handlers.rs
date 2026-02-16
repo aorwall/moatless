@@ -5,6 +5,7 @@ use moatless_events::{TaskSubType, TaskTurnSubType};
 use crate::message::models::{TaskMessageContentBlock, TaskMessageContext, TaskMessage};
 use crate::task::dao::TaskPatch;
 use crate::message::models::{ContentBlockType, MessageRole, MessageType, TurnStatus};
+use crate::shared_models::AgentMode;
 use crate::state::AppState;
 use crate::task::models::TaskStatus;
 
@@ -633,18 +634,10 @@ fn build_result_text(sdk_result: &Option<SdkResultMessage>) -> String {
             let default_subtype = if r.is_error.unwrap_or(false) { "error" } else { "completed" };
             let subtype = r.subtype.as_deref().unwrap_or(default_subtype);
             if r.is_error.unwrap_or(false) {
-                let error_detail = r
-                    .result
-                    .as_ref()
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("Unknown error");
+                let error_detail = r.result.as_deref().unwrap_or("Unknown error");
                 format!("Agent {subtype} with error: {error_detail}")
             } else {
-                let result_detail = r
-                    .result
-                    .as_ref()
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
+                let result_detail = r.result.as_deref().unwrap_or("");
                 if result_detail.is_empty() {
                     format!("Agent {subtype}")
                 } else {
@@ -666,7 +659,7 @@ fn build_result_message_row(
     turn_status: TurnStatus,
     will_not_resume: bool,
     session_id: Option<String>,
-    agent_mode: Option<String>,
+    agent_mode: Option<AgentMode>,
     model: Option<String>,
 ) -> TaskMessage {
     TaskMessage {
@@ -849,7 +842,7 @@ mod tests {
             session_id: None,
             is_error: Some(false),
             subtype: Some("completed".to_string()),
-            result: Some(json!("All tasks done")),
+            result: Some("All tasks done".to_string()),
             total_cost_usd: None,
             usage: None,
             num_turns: None,
@@ -879,7 +872,7 @@ mod tests {
             session_id: None,
             is_error: Some(true),
             subtype: Some("crashed".to_string()),
-            result: Some(json!("OOM")),
+            result: Some("OOM".to_string()),
             total_cost_usd: None,
             usage: None,
             num_turns: None,
@@ -894,7 +887,7 @@ mod tests {
             session_id: None,
             is_error: None,
             subtype: None,
-            result: Some(json!("done")),
+            result: Some("done".to_string()),
             total_cost_usd: None,
             usage: None,
             num_turns: None,

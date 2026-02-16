@@ -517,8 +517,8 @@ fn log_stdout_message(msg: &RawStdoutMessage) {
                 );
             }
             SdkMessage::Status(m) => {
-                let status = m.status.as_deref().unwrap_or("?");
-                debug!("CLI stdout: status={}", status);
+                let status = m.status.as_ref().map(std::string::ToString::to_string);
+                debug!("CLI stdout: status={}", status.as_deref().unwrap_or("?"));
             }
             SdkMessage::CompactBoundary(m) => {
                 debug!(

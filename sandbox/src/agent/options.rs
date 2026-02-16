@@ -100,13 +100,14 @@ fn build_plugins(config: &Config) -> Vec<PluginConfig> {
 
 /// Resolve session resume from request.
 fn resolve_resume(request: &AgentRunRequest) -> Option<String> {
+    use super::types::ResumeSession;
     match &request.resume {
-        Some(serde_json::Value::String(session_id)) => Some(session_id.clone()),
-        Some(serde_json::Value::Bool(true)) => {
+        Some(ResumeSession::WithId(session_id)) => Some(session_id.clone()),
+        Some(ResumeSession::Last) => {
             // true means "resume last session" — caller should resolve to actual session ID
             // For now, return None and let the executor handle it
             None
         }
-        _ => None,
+        None => None,
     }
 }

@@ -97,7 +97,10 @@ pub async fn search_sandbox_files(
     let client = SandboxGrpcClient::for_service(service_name, namespace, port)
         .map_err(|e| format!("Failed to create gRPC client: {e}"))?;
 
-    let files = client.search_files(query, limit as i32).await?;
+    let files = client
+        .search_files(query, limit as i32)
+        .await
+        .map_err(|e| format!("gRPC search files failed: {e}"))?;
 
     Ok(files
         .into_iter()

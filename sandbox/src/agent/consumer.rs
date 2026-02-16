@@ -10,7 +10,7 @@ use crate::state::SandboxState;
 
 use super::claude_code::spawn_agent_execution;
 use super::prompt::PromptResponse;
-use super::types::{AgentRunRequest, AgentStatus, ContentBlock};
+use super::types::{AgentRunRequest, AgentStatus, ContentBlock, ResumeSession};
 
 /// Run the message consumer loop.
 ///
@@ -146,40 +146,23 @@ pub async fn run_consumer(state: SandboxState) {
 /// Internal pending message type (converted from proto).
 struct InternalPendingMessage {
     content: Vec<ContentBlock>,
+    is_error: bool,
     model: Option<String>,
     system_prompt: Option<String>,
-    resume: Option<serde_json::Value>,
+    resume: Option<ResumeSession>,
     agent_type: Option<String>,
 }
 
 impl InternalPendingMessage {
     fn from_proto(msg: sandbox_proto::PendingMessage) -> Self {
-        let content = msg
-            .content
-            .into_iter()
-            .filter_map(|block| {
-                block.block.map(|b| match b {
-                    sandbox_proto::content_block::Block::Text(t) => {
-                        ContentBlock::Text { text: t.text }
-                    }
-                    sandbox_proto::content_block::Block::Image(img) => {
-                        ContentBlock::Image {
-                            source: super::types::ImageSource {
-                                source_type: "url".to_string(),
-                                media_type: img.media_type,
-                                data: img.url,
-                            },
-                        }
-                    }
-                })
-            })
-            .collect();
+        let content = super::types::content_blocks_from_proto(msg.content);
 
         Self {
             content,
+            is_error: msg.is_error.unwrap_or(false),
             model: msg.model,
             system_prompt: msg.system_prompt,
-            resume: msg.resume.map(serde_json::Value::Bool),
+            resume: msg.resume.filter(|&b| b).map(|_| ResumeSession::Last),
             agent_type: msg.agent_type,
         }
     }
@@ -206,7 +189,21 @@ fn batch_messages(messages: Vec<InternalPendingMessage>) -> AgentRunRequest {
     let mut agent_type = None;
 
     for msg in messages {
-        all_content.extend(msg.content);
+        if msg.is_error {
+            // Prefix error messages so the agent knows they're harness errors
+            for block in msg.content {
+                match block {
+                    ContentBlock::Text { text } => {
+                        all_content.push(ContentBlock::Text {
+                            text: format!("[System Error - Sandbox Harness]\n{text}"),
+                        });
+                    }
+                    other => all_content.push(other),
+                }
+            }
+        } else {
+            all_content.extend(msg.content);
+        }
         // Last message wins for options
         if msg.model.is_some() {
             model = msg.model;

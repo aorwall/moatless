@@ -3,6 +3,8 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::shared_models::AgentType;
+
 // =============================================================================
 // TaskStatus
 // =============================================================================
@@ -141,7 +143,7 @@ pub struct Task {
     pub short_id: Option<String>,
     pub created_at: String,
     pub last_message_at: String,
-    pub agent_type: String,
+    pub agent_type: AgentType,
     pub repository_id: String,
     pub status: TaskStatus,
     pub total_cost_usd: f64,

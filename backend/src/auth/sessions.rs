@@ -3,6 +3,7 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
+use super::models::UserRole;
 use crate::db::DbPool;
 
 #[derive(sqlx::FromRow, Debug)]
@@ -18,7 +19,7 @@ pub struct Session {
     pub id_token: Option<String>,
     pub token_type: Option<String>,
     pub scope: Option<String>,
-    pub role: String,
+    pub role: UserRole,
     pub group_id: Option<String>,
     pub created_at: DateTime<Utc>,
     pub expires_at: DateTime<Utc>,
@@ -67,7 +68,7 @@ impl SessionRepository for PgSessionRepository {
         .bind(&session.id_token)
         .bind(&session.token_type)
         .bind(&session.scope)
-        .bind(&session.role)
+        .bind(session.role)
         .bind(&session.group_id)
         .bind(session.created_at)
         .bind(session.expires_at)

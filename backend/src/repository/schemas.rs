@@ -1,32 +1,31 @@
 //! Repository request/response types.
 
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use super::models::Repository;
+use super::models::{Repository, RepositoryKind, RepositoryProvider};
+use crate::sandbox::models::ServerConfig;
+use crate::task::models::Visibility;
 
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateRepositoryRequest {
     pub name: String,
-    pub kind: String,
+    pub kind: RepositoryKind,
     pub remote_url: Option<String>,
     pub default_branch: Option<String>,
     pub docker_image: Option<String>,
     pub system_prompt: Option<String>,
     pub description: Option<String>,
-    pub provider: Option<String>,
-    pub visibility: Option<String>,
-    #[schema(value_type = Option<Object>)]
-    pub servers: Option<serde_json::Value>,
-    #[schema(value_type = Option<Object>)]
-    pub plugins: Option<serde_json::Value>,
-    #[schema(value_type = Option<Object>)]
-    pub env_vars: Option<serde_json::Value>,
-    #[schema(value_type = Option<Object>)]
-    pub setup_commands: Option<serde_json::Value>,
-    #[schema(value_type = Option<Object>)]
-    pub server_start_commands: Option<serde_json::Value>,
+    pub provider: Option<RepositoryProvider>,
+    pub visibility: Option<Visibility>,
+    pub servers: Option<Vec<ServerConfig>>,
+    pub plugins: Option<Vec<String>>,
+    pub env_vars: Option<HashMap<String, String>>,
+    pub setup_commands: Option<Vec<String>>,
+    pub server_start_commands: Option<Vec<String>>,
     pub startup_timeout_seconds: Option<i32>,
     pub build_command: Option<String>,
     pub build_output_directory: Option<String>,
@@ -43,17 +42,12 @@ pub struct UpdateRepositoryRequest {
     pub docker_image: Option<String>,
     pub system_prompt: Option<String>,
     pub description: Option<String>,
-    pub visibility: Option<String>,
-    #[schema(value_type = Option<Object>)]
-    pub servers: Option<serde_json::Value>,
-    #[schema(value_type = Option<Object>)]
-    pub plugins: Option<serde_json::Value>,
-    #[schema(value_type = Option<Object>)]
-    pub env_vars: Option<serde_json::Value>,
-    #[schema(value_type = Option<Object>)]
-    pub setup_commands: Option<serde_json::Value>,
-    #[schema(value_type = Option<Object>)]
-    pub server_start_commands: Option<serde_json::Value>,
+    pub visibility: Option<Visibility>,
+    pub servers: Option<Vec<ServerConfig>>,
+    pub plugins: Option<Vec<String>>,
+    pub env_vars: Option<HashMap<String, String>>,
+    pub setup_commands: Option<Vec<String>>,
+    pub server_start_commands: Option<Vec<String>>,
     pub startup_timeout_seconds: Option<i32>,
     pub build_command: Option<String>,
     pub build_output_directory: Option<String>,
@@ -66,24 +60,19 @@ pub struct UpdateRepositoryRequest {
 pub struct RepositoryResponse {
     pub id: String,
     pub name: String,
-    pub kind: String,
+    pub kind: RepositoryKind,
     pub remote_url: Option<String>,
     pub default_branch: Option<String>,
     pub docker_image: Option<String>,
     pub system_prompt: Option<String>,
     pub description: Option<String>,
-    pub provider: Option<String>,
-    pub visibility: String,
-    #[schema(value_type = Option<Object>)]
-    pub servers: Option<serde_json::Value>,
-    #[schema(value_type = Option<Object>)]
-    pub plugins: Option<serde_json::Value>,
-    #[schema(value_type = Option<Object>)]
-    pub env_vars: Option<serde_json::Value>,
-    #[schema(value_type = Option<Object>)]
-    pub setup_commands: Option<serde_json::Value>,
-    #[schema(value_type = Option<Object>)]
-    pub server_start_commands: Option<serde_json::Value>,
+    pub provider: Option<RepositoryProvider>,
+    pub visibility: Visibility,
+    pub servers: Option<Vec<ServerConfig>>,
+    pub plugins: Option<Vec<String>>,
+    pub env_vars: Option<HashMap<String, String>>,
+    pub setup_commands: Option<Vec<String>>,
+    pub server_start_commands: Option<Vec<String>>,
     pub startup_timeout_seconds: Option<i32>,
     pub build_command: Option<String>,
     pub build_output_directory: Option<String>,
@@ -120,12 +109,12 @@ impl From<Repository> for RepositoryResponse {
             system_prompt: r.system_prompt,
             description: r.description,
             provider: r.provider,
-            visibility: r.visibility.unwrap_or_else(|| "public".to_string()),
-            servers: r.servers,
-            plugins: r.plugins,
-            env_vars: r.env_vars,
-            setup_commands: r.setup_commands,
-            server_start_commands: r.server_start_commands,
+            visibility: r.visibility.unwrap_or(Visibility::Public),
+            servers: r.servers.and_then(|v| serde_json::from_value(v).ok()),
+            plugins: r.plugins.and_then(|v| serde_json::from_value(v).ok()),
+            env_vars: r.env_vars.and_then(|v| serde_json::from_value(v).ok()),
+            setup_commands: r.setup_commands.and_then(|v| serde_json::from_value(v).ok()),
+            server_start_commands: r.server_start_commands.and_then(|v| serde_json::from_value(v).ok()),
             startup_timeout_seconds: r.startup_timeout_seconds,
             build_command: r.build_command,
             build_output_directory: r.build_output_directory,

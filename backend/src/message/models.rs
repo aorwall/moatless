@@ -3,6 +3,8 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::shared_models::AgentMode;
+
 // =============================================================================
 // MessageType
 // =============================================================================
@@ -307,7 +309,7 @@ pub struct TaskMessage {
     pub turn_result: Option<String>,
     pub will_not_resume: Option<bool>,
     pub run_metrics: Option<serde_json::Value>,
-    pub agent_mode: Option<String>,
+    pub agent_mode: Option<AgentMode>,
     pub model: Option<String>,
     pub resume_session_id: Option<String>,
     pub sent_at: Option<DateTime<Utc>>,

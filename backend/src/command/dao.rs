@@ -4,6 +4,7 @@ use async_trait::async_trait;
 
 use super::models::Command;
 use crate::db::DbPool;
+use crate::shared_models::AgentMode;
 
 /// Repository trait for command persistence.
 ///
@@ -26,7 +27,7 @@ pub trait CommandRepository: Send + Sync {
         variant: Option<&str>,
         active: Option<bool>,
         will_not_resume: Option<bool>,
-        agent_mode: Option<&str>,
+        agent_mode: Option<&AgentMode>,
     ) -> Result<bool, sqlx::Error>;
     async fn delete_by_name(&self, name: &str) -> Result<bool, sqlx::Error>;
     async fn count(&self) -> Result<i64, sqlx::Error>;
@@ -93,7 +94,7 @@ impl CommandRepository for PgCommandRepository {
         variant: Option<&str>,
         active: Option<bool>,
         will_not_resume: Option<bool>,
-        agent_mode: Option<&str>,
+        agent_mode: Option<&AgentMode>,
     ) -> Result<bool, sqlx::Error> {
         let result = sqlx::query(
             r#"UPDATE commands SET
@@ -169,7 +170,7 @@ pub async fn update_by_name(
     variant: Option<&str>,
     active: Option<bool>,
     will_not_resume: Option<bool>,
-    agent_mode: Option<&str>,
+    agent_mode: Option<&AgentMode>,
 ) -> Result<bool, sqlx::Error> {
     PgCommandRepository(pool.clone())
         .update_by_name(name, description, prompt, conditions, icon, variant, active, will_not_resume, agent_mode)

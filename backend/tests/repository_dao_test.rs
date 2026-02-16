@@ -1,9 +1,11 @@
+#![cfg(feature = "db-tests")]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::print_stdout, clippy::print_stderr)]
 //! Integration tests for repository_dao.
 
 mod common;
 
 use moatless_vibe_backend::repository::dao::{self as repository_dao, RepositoryPatch};
+use moatless_vibe_backend::task::models::Visibility;
 use sqlx::PgPool;
 
 use common::make_repository_row;
@@ -21,13 +23,13 @@ async fn insert_and_find_by_id(pool: PgPool) {
     let found = found.unwrap();
     assert_eq!(found.id, "repo-abc");
     assert_eq!(found.name, "repo-repo-abc");
-    assert_eq!(found.kind, "git");
+    assert_eq!(found.kind, moatless_vibe_backend::repository::models::RepositoryKind::Git);
 }
 
 #[sqlx::test]
 async fn find_by_id_access_control(pool: PgPool) {
     let mut row = make_repository_row("repo-priv", "user-1");
-    row.visibility = Some("private".to_string());
+    row.visibility = Some(Visibility::Private);
     repository_dao::insert(&pool, &row).await.unwrap();
 
     // Owner can see it
@@ -46,7 +48,7 @@ async fn find_by_id_access_control(pool: PgPool) {
 #[sqlx::test]
 async fn list_all_visibility_scoping(pool: PgPool) {
     let mut private_repo = make_repository_row("repo-priv", "user-1");
-    private_repo.visibility = Some("private".to_string());
+    private_repo.visibility = Some(Visibility::Private);
     repository_dao::insert(&pool, &private_repo).await.unwrap();
 
     let public_repo = make_repository_row("repo-pub", "user-2");
@@ -87,7 +89,7 @@ async fn update_partial(pool: PgPool) {
         .unwrap();
     assert_eq!(found.name, "new-name");
     assert_eq!(found.description.as_deref(), Some("new desc"));
-    assert_eq!(found.kind, "git"); // unchanged
+    assert_eq!(found.kind, moatless_vibe_backend::repository::models::RepositoryKind::Git); // unchanged
 }
 
 #[sqlx::test]

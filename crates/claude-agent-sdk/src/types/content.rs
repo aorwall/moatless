@@ -58,11 +58,21 @@ pub enum ContentBlock {
     },
 }
 
+/// Type of image source.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ImageSourceType {
+    Base64,
+    Url,
+    #[serde(other)]
+    Unknown,
+}
+
 /// Image source within a content block.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImageSource {
     #[serde(rename = "type")]
-    pub source_type: String,
+    pub source_type: ImageSourceType,
     pub media_type: String,
     pub data: String,
 }

@@ -1,3 +1,4 @@
+#![cfg(feature = "db-tests")]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::print_stdout, clippy::print_stderr)]
 //! Integration tests for task_dao.
 
@@ -114,7 +115,7 @@ async fn list_tasks_status_filter(pool: PgPool) {
     task_dao::insert_task(&pool, &closed_task).await.unwrap();
 
     let (rows, total) =
-        task_dao::list_tasks(&pool, user, 50, 0, Some("open"), None, None, None)
+        task_dao::list_tasks(&pool, user, 50, 0, Some(TaskStatus::Open), None, None, None)
             .await
             .unwrap();
 

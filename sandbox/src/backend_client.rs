@@ -17,9 +17,9 @@ use tonic::transport::Channel;
 use tonic::{Request, Status};
 use tracing::{debug, warn};
 
-/// Errors that can occur when constructing a [`BackendClient`].
+/// Errors that can occur when constructing a [`BackendGrpcClient`].
 #[derive(Debug, thiserror::Error)]
-pub enum BackendClientError {
+pub enum BackendGrpcClientError {
     #[error("invalid gRPC endpoint URI: {0}")]
     InvalidUri(#[from] tonic::codegen::http::uri::InvalidUri),
 }
@@ -46,11 +46,11 @@ impl tonic::service::Interceptor for AuthInterceptor {
 
 /// Wrapper around `BackendSandboxServiceClient` with auth interceptor.
 #[derive(Clone)]
-pub struct BackendClient {
+pub struct BackendGrpcClient {
     client: BackendSandboxServiceClient<InterceptedService<Channel, AuthInterceptor>>,
 }
 
-impl BackendClient {
+impl BackendGrpcClient {
     /// Create a new client with lazy connection to the backend gRPC server.
     ///
     /// `connect_lazy()` returns immediately — the actual TCP/HTTP2 connection
@@ -61,7 +61,7 @@ impl BackendClient {
     pub fn connect(
         url: &str,
         auth_token: Option<String>,
-    ) -> Result<Self, BackendClientError> {
+    ) -> Result<Self, BackendGrpcClientError> {
         let channel = Channel::from_shared(url.to_string())?
             .connect_timeout(Duration::from_secs(5))
             .timeout(Duration::from_secs(10))

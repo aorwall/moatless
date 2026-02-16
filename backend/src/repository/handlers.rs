@@ -7,12 +7,19 @@ use axum::Json;
 use tracing::{info, warn};
 
 use super::dao::RepositoryPatch;
-use super::models::Repository;
+use super::models::{Repository, RepositoryKind, RepositoryProvider};
 use crate::extractors::AuthUser;
 use crate::state::AppState;
+use crate::task::models::Visibility;
 
 use super::error::RepositoryError;
 use super::schemas::*;
+
+/// Convert a serializable value to JSON Value, mapping errors to `RepositoryError`.
+fn to_json<T: serde::Serialize>(val: T) -> Result<serde_json::Value, RepositoryError> {
+    serde_json::to_value(val)
+        .map_err(|e| RepositoryError::BadRequest(format!("Serialization error: {e}")))
+}
 
 /// Create a new repository.
 #[utoipa::path(
@@ -51,11 +58,11 @@ pub async fn create_repository(
         default_branch: req.default_branch,
         docker_image: req.docker_image,
         system_prompt: req.system_prompt,
-        setup_commands: req.setup_commands,
-        env_vars: req.env_vars,
-        servers: req.servers,
-        plugins: req.plugins,
-        server_start_commands: req.server_start_commands,
+        setup_commands: req.setup_commands.map(to_json).transpose()?,
+        env_vars: req.env_vars.map(to_json).transpose()?,
+        servers: req.servers.map(to_json).transpose()?,
+        plugins: req.plugins.map(to_json).transpose()?,
+        server_start_commands: req.server_start_commands.map(to_json).transpose()?,
         startup_timeout_seconds: req.startup_timeout_seconds,
         build_command: req.build_command,
         build_output_directory: req.build_output_directory,
@@ -63,7 +70,7 @@ pub async fn create_repository(
         auto_reload: req.auto_reload,
         description: req.description,
         provider: req.provider,
-        visibility: Some(req.visibility.unwrap_or_else(|| "public".to_string())),
+        visibility: Some(req.visibility.unwrap_or(Visibility::Public)),
         created_by: Some(auth.user_id),
         deleted: Some(false),
         created_at: Some(now),
@@ -152,11 +159,11 @@ pub async fn update_repository(
         system_prompt: req.system_prompt.map(Some),
         description: req.description.map(Some),
         visibility: req.visibility,
-        servers: req.servers.map(Some),
-        plugins: req.plugins.map(Some),
-        env_vars: req.env_vars.map(Some),
-        setup_commands: req.setup_commands.map(Some),
-        server_start_commands: req.server_start_commands.map(Some),
+        servers: req.servers.map(to_json).transpose()?.map(Some),
+        plugins: req.plugins.map(to_json).transpose()?.map(Some),
+        env_vars: req.env_vars.map(to_json).transpose()?.map(Some),
+        setup_commands: req.setup_commands.map(to_json).transpose()?.map(Some),
+        server_start_commands: req.server_start_commands.map(to_json).transpose()?.map(Some),
         startup_timeout_seconds: req.startup_timeout_seconds.map(Some),
         build_command: req.build_command.map(Some),
         build_output_directory: req.build_output_directory.map(Some),
@@ -226,7 +233,7 @@ pub async fn convert_to_template(
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id.clone()))?;
 
-    if existing.kind != "remote" {
+    if existing.kind != RepositoryKind::Remote {
         return Err(RepositoryError::BadRequest(format!(
             "Only remote repositories can be converted to templates (current kind: {})",
             existing.kind
@@ -234,7 +241,7 @@ pub async fn convert_to_template(
     }
 
     let patch = RepositoryPatch {
-        kind: Some("template".to_string()),
+        kind: Some(RepositoryKind::Template),
         ..Default::default()
     };
 
@@ -278,26 +285,22 @@ pub async fn get_branches(
         RepositoryError::BadRequest("Repository has no remote URL".to_string())
     })?;
 
-    let provider = repo.provider.as_deref().unwrap_or("github");
+    let provider = repo.provider.unwrap_or(RepositoryProvider::Github);
+    let provider_str = provider.as_str();
 
     // Get user's provider token
-    let token = state.provider_tokens.find_provider_token(&auth.user_id, provider)
+    let token = state.provider_tokens.find_provider_token(&auth.user_id, provider_str)
         .await
         .map_err(RepositoryError::Db)?
         .ok_or_else(|| {
             RepositoryError::BadRequest(format!(
-                "No {provider} token configured. Please connect your {provider} account."
+                "No {provider_str} token configured. Please connect your {provider_str} account."
             ))
         })?;
 
     let result = match provider {
-        "github" => fetch_github_branches(remote_url, &token.access_token).await?,
-        "gitlab" => fetch_gitlab_branches(remote_url, &token.access_token).await?,
-        _ => {
-            return Err(RepositoryError::BadRequest(format!(
-                "Unsupported provider: {provider}"
-            )))
-        }
+        RepositoryProvider::Github => fetch_github_branches(remote_url, &token.access_token).await?,
+        RepositoryProvider::Gitlab => fetch_gitlab_branches(remote_url, &token.access_token).await?,
     };
 
     let default_branch = repo

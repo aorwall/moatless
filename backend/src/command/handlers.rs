@@ -121,7 +121,7 @@ pub async fn update_command(
         req.variant.as_deref(),
         req.active,
         req.will_not_resume,
-        req.agent_mode.as_deref(),
+        req.agent_mode.as_ref(),
     )
     .await?;
 

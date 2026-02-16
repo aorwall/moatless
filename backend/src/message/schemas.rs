@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::message::models::{MessageRole, MessageType, TurnStatus};
+use crate::shared_models::AgentMode;
 use crate::task::schemas::MessageContextInput;
 
 /// UI-facing message representation.
@@ -16,7 +17,7 @@ pub struct UiMessage {
     pub timestamp: String,
     pub session_id: Option<String>,
     pub turn_number: Option<i32>,
-    pub agent_mode: Option<String>,
+    pub agent_mode: Option<AgentMode>,
     pub model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_queued: Option<bool>,
@@ -103,12 +104,35 @@ pub struct GetMessagesResponse {
     pub total_count: usize,
 }
 
+/// A pending message item (user message or result message).
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingMessageItem {
+    pub uuid: String,
+    pub message_type: MessageType,
+    pub timestamp: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<Object>)]
+    pub message_content: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_mode: Option<AgentMode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resume_session_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub turn_status: Option<TurnStatus>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub turn_result: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub will_not_resume: Option<bool>,
+}
+
 /// Response for GET /messages/pending.
 #[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct GetPendingMessagesResponse {
-    #[schema(value_type = Vec<Object>)]
-    pub messages: Vec<serde_json::Value>,
+    pub messages: Vec<PendingMessageItem>,
     pub total_count: usize,
 }
 
@@ -131,7 +155,7 @@ pub struct SendMessageRequest {
     #[serde(default)]
     pub file_ids: Vec<String>,
     pub command_name: Option<String>,
-    pub agent_mode: Option<String>,
+    pub agent_mode: Option<AgentMode>,
     #[serde(default)]
     pub contexts: Vec<MessageContextInput>,
     // Tool response fields

@@ -196,7 +196,7 @@ async fn verify_handler(
             let key = &auth_header[7..]; // strip "Bearer "
             if let Some(payload) = api_key::validate_key_cached(state.api_keys.clone(), state.users.as_ref(), key, &state.cache).await? {
                 debug!(user_id = %payload.user_id, "Auth verify: API key valid");
-                return Ok(verify_success_response(&payload.user_id, &payload.user_login, &payload.role, &payload.provider, payload.group_id.as_deref()));
+                return Ok(verify_success_response(&payload.user_id, &payload.user_login, payload.role.as_str(), &payload.provider, payload.group_id.as_deref()));
             }
             warn!("Auth verify: invalid API key");
             return Err(AuthError::InvalidApiKey);
@@ -223,7 +223,7 @@ async fn verify_handler(
                 return Ok(verify_success_response(
                     &payload.user_id,
                     &payload.user_login,
-                    &payload.role,
+                    payload.role.as_str(),
                     &payload.provider,
                     payload.group_id.as_deref(),
                 ));
@@ -325,7 +325,7 @@ fn session_to_response(session: &Session) -> SessionResponse {
             name: session.user_name.clone(),
             avatar_url: session.avatar_url.clone(),
             provider: session.provider.clone(),
-            role: session.role.clone(),
+            role: session.role,
         }),
         expires_at: Some(format_datetime(session.expires_at)),
     }

@@ -14,7 +14,7 @@ use sandbox_proto::{
 };
 
 use crate::agent::claude_code::spawn_agent_execution;
-use crate::agent::types::{AgentRunRequest, AgentStatus, ContentBlock, ImageSource};
+use crate::agent::types::{content_blocks_from_proto, AgentRunRequest, AgentStatus, ResumeSession};
 use crate::state::SandboxState;
 
 
@@ -37,33 +37,13 @@ impl SandboxService for SandboxServiceImpl {
         }
 
         // Convert proto ContentBlock to internal ContentBlock
-        let content: Vec<ContentBlock> = req
-            .content
-            .into_iter()
-            .filter_map(|block| {
-                block.block.map(|b| match b {
-                    sandbox_proto::content_block::Block::Text(t) => {
-                        ContentBlock::Text { text: t.text }
-                    }
-                    sandbox_proto::content_block::Block::Image(img) => {
-                        ContentBlock::Image {
-                            source: ImageSource {
-                                source_type: "url".to_string(),
-                                media_type: img.media_type,
-                                data: img.url,
-                            },
-                        }
-                    }
-                })
-            })
-            .collect();
-
+        let content = content_blocks_from_proto(req.content);
         let content_blocks = content.len();
         let agent_request = AgentRunRequest {
             content,
             model: req.model.clone(),
             system_prompt: req.system_prompt,
-            resume: req.resume.map(serde_json::Value::Bool),
+            resume: req.resume.filter(|&b| b).map(|_| ResumeSession::Last),
             agent_type: req.agent_type.clone(),
         };
 

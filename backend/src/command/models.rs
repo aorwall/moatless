@@ -1,5 +1,7 @@
 //! Command domain types — DB row structs.
 
+use crate::shared_models::AgentMode;
+
 // =============================================================================
 // Command (DB)
 // =============================================================================
@@ -15,5 +17,5 @@ pub struct Command {
     pub variant: Option<String>,
     pub active: Option<bool>,
     pub will_not_resume: Option<bool>,
-    pub agent_mode: Option<String>,
+    pub agent_mode: Option<AgentMode>,
 }

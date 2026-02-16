@@ -14,7 +14,6 @@ use super::error::ChannelError;
 use super::inbound;
 use super::provider::ChannelType;
 use super::slack::provider::SlackWebhookResult;
-use super::models::RoutingMode;
 use super::schemas::*;
 
 // =========================================================================
@@ -148,17 +147,6 @@ pub async fn create_config(
     auth: AuthUser,
     Json(req): Json<CreateChannelConfigRequest>,
 ) -> Result<Json<ChannelConfigResponse>, ChannelError> {
-    // Validate provider
-    if ChannelType::parse(&req.provider).is_none() {
-        return Err(ChannelError::BadRequest(format!(
-            "Unknown provider: {}",
-            req.provider
-        )));
-    }
-
-    // Validate routing_mode
-    RoutingMode::parse(&req.routing_mode)?;
-
     // Validate repository exists
     state.repositories.find_repository_by_id(&req.repository_id)
         .await?
@@ -167,7 +155,7 @@ pub async fn create_config(
         })?;
 
     // Check for existing config with same provider + source_id
-    if state.channel_configs.find_by_provider_source(&req.provider, &req.source_id)
+    if state.channel_configs.find_by_provider_source(req.provider.as_str(), &req.source_id)
         .await?
         .is_some()
     {
@@ -182,7 +170,7 @@ pub async fn create_config(
 
     let row = super::models::ChannelConfig {
         id: id.clone(),
-        provider: req.provider,
+        provider: req.provider.as_str().to_string(),
         source_id: req.source_id,
         source_name: req.source_name,
         repository_id: req.repository_id,
@@ -280,11 +268,6 @@ pub async fn update_config(
     state.channel_configs.find_by_id(&id)
         .await?
         .ok_or_else(|| ChannelError::ConfigNotFound(id.clone()))?;
-
-    // Validate routing_mode if provided
-    if let Some(ref mode) = req.routing_mode {
-        RoutingMode::parse(mode)?;
-    }
 
     let patch = ChannelConfigPatch {
         source_name: req.source_name,

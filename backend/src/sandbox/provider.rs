@@ -9,6 +9,15 @@ use axum::response::sse::Event;
 use futures::stream::BoxStream;
 
 use super::error::SandboxError;
+
+/// Whether `start()` found an already-running sandbox or initiated startup.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StartResult {
+    /// Sandbox was already running (Deployment exists at replicas>=1 with ready pods).
+    AlreadyRunning,
+    /// Sandbox is starting up (scaled from 0, or auto-provisioned).
+    Starting,
+}
 use super::models::ProvisionRequest;
 use super::schemas::{
     FileSearchResult, HealthResponse, ProvisionResponse, ServerStatusResponse, StatusResponse,
@@ -40,7 +49,10 @@ pub trait SandboxProvider: Send + Sync {
     async fn stop(&self, task_id: &str) -> Result<(), SandboxError>;
 
     /// Start a stopped sandbox (scale to 1).
-    async fn start(&self, task_id: &str) -> Result<(), SandboxError>;
+    ///
+    /// Returns `AlreadyRunning` if the sandbox was already up, or `Starting`
+    /// if it needed to be scaled up or auto-provisioned.
+    async fn start(&self, task_id: &str) -> Result<StartResult, SandboxError>;
 
     /// Restart a sandbox (delete pods, Deployment controller recreates).
     async fn restart(&self, task_id: &str) -> Result<(), SandboxError>;

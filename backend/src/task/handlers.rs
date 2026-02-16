@@ -8,6 +8,7 @@ use moatless_events::TaskSubType;
 use super::dao::{TaskFilter, TaskPatch};
 use super::models::Task;
 use crate::extractors::AuthUser;
+use crate::shared_models::{AgentMode, AgentType};
 use crate::state::AppState;
 use crate::task::models::{TaskStatus, Visibility};
 
@@ -43,7 +44,7 @@ pub async fn create_task(
     let task_id = uuid::Uuid::new_v4().to_string();
     let short_id = generate_unique_short_id(&state).await?;
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-    let agent_type = req.agent_type.unwrap_or_else(|| "claude-code".to_string());
+    let agent_type = req.agent_type.unwrap_or_else(|| AgentType(AgentType::CLAUDE_CODE.into()));
 
     let row = Task {
         task_id: task_id.clone(),
@@ -73,7 +74,7 @@ pub async fn create_task(
         &row,
         req.message.as_deref(),
         req.model.as_deref(),
-        req.agent_mode.as_deref(),
+        req.agent_mode.as_ref(),
         &req.file_ids,
         &req.contexts,
     )
@@ -110,7 +111,7 @@ pub async fn create_vibe_task(
         short_id: Some(short_id),
         created_at: now.clone(),
         last_message_at: now,
-        agent_type: "claude-code".to_string(),
+        agent_type: AgentType(AgentType::CLAUDE_CODE.into()),
         repository_id: repo.id.clone(),
         status: TaskStatus::Open,
         total_cost_usd: 0.0,
@@ -138,7 +139,7 @@ async fn insert_and_provision_task(
     row: &Task,
     message: Option<&str>,
     model: Option<&str>,
-    agent_mode: Option<&str>,
+    agent_mode: Option<&AgentMode>,
     file_ids: &[String],
     contexts: &[MessageContextInput],
 ) -> Result<Json<CreateTaskResponse>, TaskError> {
@@ -150,13 +151,13 @@ async fn insert_and_provision_task(
     // Emit task event
     if let Some(ref events) = state.events {
         events
-            .publish_task_event(task_id, TaskSubType::Open, Some(&row.agent_type), serde_json::json!({}))
+            .publish_task_event(task_id, TaskSubType::Open, Some(row.agent_type.as_str()), serde_json::json!({}))
             .await;
     }
 
     // Always provision sandbox
     match state.sandbox.start(task_id).await {
-        Ok(()) => {
+        Ok(_result) => {
             tracing::info!(task_id = %task_id, "Sandbox provisioning started (initializing)");
         }
         Err(e) => {
@@ -206,7 +207,7 @@ pub async fn list_tasks(
         user_id: auth.user_id.clone(),
         limit,
         offset,
-        status: query.status.clone(),
+        status: query.status,
         repository_id: query.repository_id.clone(),
         created_by: query.created_by.clone(),
         tag: query.tag.clone(),
@@ -418,7 +419,7 @@ pub async fn close_task(
             .publish_task_event(
                 &task_id,
                 TaskSubType::Closed,
-                Some(&row.agent_type),
+                Some(row.agent_type.as_str()),
                 serde_json::json!({}),
             )
             .await;
@@ -464,7 +465,7 @@ pub async fn start_task(
 
     tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Starting task");
 
-    state.sandbox.start(&task_id).await
+    let _result = state.sandbox.start(&task_id).await
         .map_err(|e| TaskError::Internal(e.to_string()))?;
 
     tracing::info!(task_id = %task_id, "Sandbox start initiated (initializing)");
@@ -676,7 +677,7 @@ fn derive_title(row: &Task) -> String {
             return desc.lines().next().unwrap_or("Task").to_string();
         }
     }
-    row.agent_type.clone()
+    row.agent_type.to_string()
 }
 
 /// Validate task name (URL-friendly: alphanumeric + dashes).

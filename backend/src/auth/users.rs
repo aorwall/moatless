@@ -3,6 +3,7 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
+use super::models::UserRole;
 use crate::db::DbPool;
 
 #[derive(sqlx::FromRow, Debug)]
@@ -13,7 +14,7 @@ pub struct User {
     pub name: Option<String>,
     pub avatar_url: Option<String>,
     pub provider: String,
-    pub role: String,
+    pub role: UserRole,
     pub created_at: DateTime<Utc>,
     pub last_login_at: DateTime<Utc>,
 }
@@ -69,7 +70,7 @@ impl UserRepository for PgUserRepository {
         .bind(&user.name)
         .bind(&user.avatar_url)
         .bind(&user.provider)
-        .bind(&user.role)
+        .bind(user.role)
         .bind(user.created_at)
         .bind(user.last_login_at)
         .execute(&self.0)

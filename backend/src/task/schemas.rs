@@ -4,18 +4,19 @@ use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
 use super::models::{TaskStatus, Visibility};
+use crate::shared_models::{AgentMode, AgentType};
 
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateTaskRequest {
     pub repository_id: String,
-    pub agent_type: Option<String>,
+    pub agent_type: Option<AgentType>,
     pub name: Option<String>,
     pub description: Option<String>,
     pub branch: Option<String>,
     pub message: Option<String>,
     pub model: Option<String>,
-    pub agent_mode: Option<String>,
+    pub agent_mode: Option<AgentMode>,
     #[serde(default)]
     pub contexts: Vec<MessageContextInput>,
     #[serde(default)]
@@ -64,7 +65,7 @@ pub struct SetTagsRequest {
 pub struct ListTasksQuery {
     pub limit: Option<i64>,
     pub offset: Option<i64>,
-    pub status: Option<String>,
+    pub status: Option<TaskStatus>,
     pub repository_id: Option<String>,
     pub created_by: Option<String>,
     pub tag: Option<String>,
@@ -79,7 +80,7 @@ pub struct TaskResponse {
     pub name: Option<String>,
     pub description: Option<String>,
     pub status: TaskStatus,
-    pub agent_type: String,
+    pub agent_type: AgentType,
     pub repository_id: String,
     pub repository_name: Option<String>,
     pub branch: Option<String>,
