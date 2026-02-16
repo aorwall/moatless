@@ -103,8 +103,8 @@ fn transform_assistant(
                                 if rb.get("tool_use_id").and_then(|v| v.as_str()) == Some(tool_use_id) {
                                     tool_results.push(UiToolResult {
                                         tool_use_id: tool_use_id.to_string(),
-                                        content: rb.get("content").and_then(|v| v.as_str()).map(|s| s.to_string()),
-                                        is_error: rb.get("is_error").and_then(|v| v.as_bool()),
+                                        content: rb.get("content").and_then(|v| v.as_str()).map(std::string::ToString::to_string),
+                                        is_error: rb.get("is_error").and_then(serde_json::Value::as_bool),
                                     });
                                 }
                             }
@@ -271,9 +271,9 @@ fn build_content_from_message(
 
                 UiContentBlock {
                     block_type: block_type.clone(),
-                    text: block.get("text").and_then(|v| v.as_str()).map(|s| s.to_string()),
-                    tool_use_id: block.get("id").and_then(|v| v.as_str()).map(|s| s.to_string()),
-                    tool_name: block.get("name").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                    text: block.get("text").and_then(|v| v.as_str()).map(std::string::ToString::to_string),
+                    tool_use_id: block.get("id").and_then(|v| v.as_str()).map(std::string::ToString::to_string),
+                    tool_name: block.get("name").and_then(|v| v.as_str()).map(std::string::ToString::to_string),
                     tool_input: block.get("input").cloned(),
                     show_in_ui: None,
                 }
@@ -291,7 +291,7 @@ fn extract_text_from_content(content: &serde_json::Value) -> Vec<UiContentBlock>
             .filter(|b| b.get("type").and_then(|v| v.as_str()) == Some("text"))
             .map(|b| UiContentBlock {
                 block_type: "text".to_string(),
-                text: b.get("text").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                text: b.get("text").and_then(|v| v.as_str()).map(std::string::ToString::to_string),
                 tool_use_id: None,
                 tool_name: None,
                 tool_input: None,

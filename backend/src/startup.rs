@@ -48,9 +48,14 @@ pub fn spawn_metrics_server(port: u16) {
     let router = metrics::metrics_router(handle);
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     tokio::spawn(async move {
-        let listener = TcpListener::bind(addr).await.unwrap();
+        #[allow(clippy::expect_used)] // fail-fast: if metrics port is unavailable, crash early
+        let listener = TcpListener::bind(addr)
+            .await
+            .expect("Failed to bind metrics server — is the port already in use?");
         info!(port, "Metrics server started");
-        axum::serve(listener, router).await.unwrap();
+        if let Err(e) = axum::serve(listener, router).await {
+            tracing::error!(error = %e, "Metrics server failed");
+        }
     });
 }
 
@@ -61,16 +66,13 @@ pub fn spawn_metrics_server(port: u16) {
 /// Optionally create a Postgres pool and run migrations.
 ///
 /// Returns `None` when `DATABASE_URL` is unset or connection fails.
-pub async fn init_database(database_url: Option<&str>) -> Option<DbPool> {
-    let url = match database_url {
-        Some(u) => u,
-        None => {
-            info!("DATABASE_URL not set — database features disabled");
-            return None;
-        }
+pub async fn init_database(database_url: Option<&str>, max_connections: u32) -> Option<DbPool> {
+    let url = if let Some(u) = database_url { u } else {
+        info!("DATABASE_URL not set — database features disabled");
+        return None;
     };
 
-    match db::create_pool(url).await {
+    match db::create_pool(url, max_connections).await {
         Ok(pool) => {
             info!("Database pool initialized");
             if let Err(e) = db::run_migrations(&pool).await {
@@ -93,14 +95,11 @@ pub async fn init_database(database_url: Option<&str>) -> Option<DbPool> {
 
 /// Optionally connect a Redis-backed event publisher.
 pub async fn init_event_publisher(config: &Config) -> Option<Arc<dyn EventPublisher>> {
-    match config.redis.url {
-        Some(ref url) => RedisEventPublisher::connect(url, config.redis.max_stream_length)
-            .await
-            .map(|p| Arc::new(p) as Arc<dyn EventPublisher>),
-        None => {
-            info!("REDIS_URL not set — event publishing disabled");
-            None
-        }
+    if let Some(ref url) = config.redis.url { RedisEventPublisher::connect(url, config.redis.max_stream_length)
+    .await
+    .map(|p| Arc::new(p) as Arc<dyn EventPublisher>) } else {
+        info!("REDIS_URL not set — event publishing disabled");
+        None
     }
 }
 
@@ -112,7 +111,7 @@ pub async fn init_event_publisher(config: &Config) -> Option<Arc<dyn EventPublis
 pub async fn init_sse(
     config: &Config,
     cancel: CancellationToken,
-) -> Result<SseState, Box<dyn std::error::Error>> {
+) -> Result<SseState, redis::RedisError> {
     let (tx, _) = broadcast::channel::<String>(config.sse.broadcast_capacity);
 
     if let Some(ref redis_url) = config.redis.url {

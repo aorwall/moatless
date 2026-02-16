@@ -32,7 +32,10 @@ impl IntoResponse for TaskError {
                 tracing::error!(error = %e, "Database error in task handler");
                 (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
             }
-            TaskError::Internal(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
+            TaskError::Internal(ref msg) => {
+                tracing::error!(error = %msg, "Internal error in task handler");
+                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
+            }
         };
 
         (status, Json(serde_json::json!({ "error": message }))).into_response()

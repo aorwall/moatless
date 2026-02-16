@@ -47,6 +47,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Create gRPC client for backend communication (required)
+    #[allow(clippy::expect_used)] // fail-fast: sandbox cannot operate without backend connectivity
     let backend_client = BackendClient::connect(&config.backend_grpc_url, config.user_auth_token.clone())
         .expect("Failed to create backend gRPC client");
     info!(url = %config.backend_grpc_url, "Backend gRPC client created (lazy connection)");

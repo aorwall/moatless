@@ -23,6 +23,7 @@ pub struct User {
 #[async_trait]
 pub trait UserRepository: Send + Sync {
     async fn get_user(&self, user_id: &str) -> Result<Option<User>, sqlx::Error>;
+    async fn get_users_by_ids(&self, user_ids: &[String]) -> Result<Vec<User>, sqlx::Error>;
     async fn upsert_user(&self, user: &User) -> Result<(), sqlx::Error>;
     async fn list_users(&self) -> Result<Vec<User>, sqlx::Error>;
 }
@@ -36,6 +37,16 @@ impl UserRepository for PgUserRepository {
         sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
             .bind(user_id)
             .fetch_optional(&self.0)
+            .await
+    }
+
+    async fn get_users_by_ids(&self, user_ids: &[String]) -> Result<Vec<User>, sqlx::Error> {
+        if user_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = ANY($1)")
+            .bind(user_ids)
+            .fetch_all(&self.0)
             .await
     }
 

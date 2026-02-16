@@ -25,7 +25,8 @@ use uuid::Uuid;
 /// Abstracts event publishing so handlers can be tested without Redis.
 /// All methods are fire-and-forget — implementations should log errors
 /// but never propagate them.
-#[cfg_attr(test, mockall::automock)]
+/// Note: `automock` is intentionally omitted — mockall cannot synthesise
+/// correct lifetimes for `Option<&str>` in async-trait methods.
 #[async_trait]
 pub trait EventPublisher: Send + Sync {
     /// Publish a sandbox lifecycle event.
@@ -197,7 +198,7 @@ impl RedisEventPublisher {
             task_id: task_id.to_string(),
             timestamp,
             is_error,
-            agent_type: agent_type.map(|s| s.to_string()),
+            agent_type: agent_type.map(std::string::ToString::to_string),
             turn_number,
             payload,
         };

@@ -2,6 +2,8 @@ pub(crate) mod subprocess;
 
 pub(crate) use subprocess::SubprocessTransport;
 
+use std::fmt::Write;
+
 use async_trait::async_trait;
 
 use crate::error::Result;
@@ -81,12 +83,12 @@ fn log_stdin_line(json: &str) {
                     .and_then(|v| v.as_str())
             });
 
-        let mut summary = format!("type={}", msg_type);
+        let mut summary = format!("type={msg_type}");
         if let Some(rid) = request_id {
-            summary.push_str(&format!(" req={}", rid));
+            let _ = write!(summary, " req={rid}");
         }
         if let Some(st) = subtype {
-            summary.push_str(&format!(" subtype={}", st));
+            let _ = write!(summary, " subtype={st}");
         }
         tracing::debug!("CLI stdin: {}", summary);
     } else if json.len() > 200 {

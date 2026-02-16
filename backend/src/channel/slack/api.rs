@@ -46,6 +46,7 @@ struct ConversationsRepliesResponse {
 struct SlackMessage {
     text: Option<String>,
     user: Option<String>,
+    #[allow(dead_code)] // Deserialized from Slack API but not directly read
     ts: Option<String>,
 }
 

@@ -82,8 +82,7 @@ impl StatusResolver {
                         name == config.name
                     });
                     let status = container
-                        .map(|cs| ServerStatus::from(cs.to_server_status()))
-                        .unwrap_or(ServerStatus::Starting);
+                        .map_or(ServerStatus::Starting, |cs| ServerStatus::from(cs.to_server_status()));
                     let url = self.build_proxy_url(task_id, config.port);
                     ServerEntry {
                         name: config.name.clone(),
@@ -91,8 +90,8 @@ impl StatusResolver {
                         port: config.port,
                         status,
                         url,
-                        error: container.and_then(|cs| cs.error_reason()),
-                        detail: container.and_then(|cs| cs.detail_reason()),
+                        error: container.and_then(super::super::models::ContainerObservedStatus::error_reason),
+                        detail: container.and_then(super::super::models::ContainerObservedStatus::detail_reason),
                         default: config.default,
                         capabilities: server_capabilities_from_config(config),
                     }
@@ -137,8 +136,7 @@ impl StatusResolver {
                         name == config.name
                     });
                     let status = container
-                        .map(|cs| ServerStatus::from(cs.to_server_status()))
-                        .unwrap_or(ServerStatus::Starting);
+                        .map_or(ServerStatus::Starting, |cs| ServerStatus::from(cs.to_server_status()));
                     let url = self.build_proxy_url(task_id, config.port);
                     ServerEntry {
                         name: config.name.clone(),
@@ -146,8 +144,8 @@ impl StatusResolver {
                         port: config.port,
                         status,
                         url,
-                        error: container.and_then(|cs| cs.error_reason()),
-                        detail: container.and_then(|cs| cs.detail_reason()),
+                        error: container.and_then(super::super::models::ContainerObservedStatus::error_reason),
+                        detail: container.and_then(super::super::models::ContainerObservedStatus::detail_reason),
                         default: config.default,
                         capabilities: server_capabilities_from_config(config),
                     }

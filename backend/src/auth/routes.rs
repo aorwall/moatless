@@ -194,16 +194,12 @@ async fn verify_handler(
     if let Some(auth_header) = headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()) {
         if auth_header.starts_with("Bearer mvk_") {
             let key = &auth_header[7..]; // strip "Bearer "
-            match api_key::validate_key_cached(state.api_keys.clone(), state.users.as_ref(), key, &state.cache).await? {
-                Some(payload) => {
-                    debug!(user_id = %payload.user_id, "Auth verify: API key valid");
-                    return Ok(verify_success_response(&payload.user_id, &payload.user_login, &payload.role, &payload.provider, payload.group_id.as_deref()));
-                }
-                None => {
-                    warn!("Auth verify: invalid API key");
-                    return Err(AuthError::InvalidApiKey);
-                }
+            if let Some(payload) = api_key::validate_key_cached(state.api_keys.clone(), state.users.as_ref(), key, &state.cache).await? {
+                debug!(user_id = %payload.user_id, "Auth verify: API key valid");
+                return Ok(verify_success_response(&payload.user_id, &payload.user_login, &payload.role, &payload.provider, payload.group_id.as_deref()));
             }
+            warn!("Auth verify: invalid API key");
+            return Err(AuthError::InvalidApiKey);
         }
     }
 

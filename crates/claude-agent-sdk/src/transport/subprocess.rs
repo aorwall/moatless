@@ -1,3 +1,4 @@
+use std::fmt::Write;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
 use tokio::process::{Child, ChildStdin, ChildStdout};
@@ -206,6 +207,7 @@ impl SubprocessTransport {
 }
 
 /// Resolve the CLI binary path.
+#[allow(clippy::unnecessary_wraps)] // may fail in future with stricter path validation
 fn resolve_cli_path(options: &ClaudeOptions) -> Result<String> {
     if let Some(path) = &options.cli_path {
         return Ok(path.clone());
@@ -334,7 +336,7 @@ pub(crate) fn build_cli_args(options: &ClaudeOptions) -> Vec<String> {
             args.push(
                 sources
                     .iter()
-                    .map(|s| s.to_string())
+                    .map(std::string::ToString::to_string)
                     .collect::<Vec<_>>()
                     .join(","),
             );
@@ -647,7 +649,7 @@ fn format_content_blocks(blocks: &[ContentBlock]) -> String {
                 out.push('\n');
             }
             ContentBlock::ToolUse { id, name, input } => {
-                let _ = writeln!(out, "  ToolUse[{}]: {}", id, name);
+                let _ = writeln!(out, "  ToolUse[{id}]: {name}");
                 let input_str =
                     serde_json::to_string_pretty(input).unwrap_or_else(|_| input.to_string());
                 out.push_str(&indent(&truncate(&input_str, 500), "    "));
@@ -663,7 +665,7 @@ fn format_content_blocks(blocks: &[ContentBlock]) -> String {
                 } else {
                     "ok"
                 };
-                let _ = writeln!(out, "  ToolResult[{}]: {}", tool_use_id, status);
+                let _ = writeln!(out, "  ToolResult[{tool_use_id}]: {status}");
                 if let Some(content) = content {
                     let content_str = match content {
                         Value::String(s) => s.clone(),
@@ -683,7 +685,7 @@ fn format_content_blocks(blocks: &[ContentBlock]) -> String {
                 let _ = writeln!(out, "  Image: (media={})", source.media_type);
             }
             ContentBlock::ServerToolUse { id, name, input } => {
-                let _ = writeln!(out, "  ServerToolUse[{}]: {}", id, name);
+                let _ = writeln!(out, "  ServerToolUse[{id}]: {name}");
                 let input_str =
                     serde_json::to_string_pretty(input).unwrap_or_else(|_| input.to_string());
                 out.push_str(&indent(&truncate(&input_str, 500), "    "));
@@ -693,7 +695,7 @@ fn format_content_blocks(blocks: &[ContentBlock]) -> String {
                 tool_use_id,
                 content,
             } => {
-                let _ = writeln!(out, "  WebSearchToolResult[{}]", tool_use_id);
+                let _ = writeln!(out, "  WebSearchToolResult[{tool_use_id}]");
                 if let Some(content) = content {
                     let content_str = serde_json::to_string_pretty(content)
                         .unwrap_or_else(|_| content.to_string());
@@ -729,14 +731,14 @@ fn format_tool_input(tool_name: &str, input: &Map<String, Value>) -> String {
                 Value::String(s) => truncate(s, 200),
                 other => truncate(&other.to_string(), 200),
             };
-            out.push_str(&format!("  input.{}: {}\n", field, val_str));
+            let _ = writeln!(out, "  input.{field}: {val_str}");
         }
     }
 
     // If no key fields were found, show all keys
     if out.is_empty() {
-        let keys: Vec<&str> = input.keys().map(|k| k.as_str()).collect();
-        out.push_str(&format!("  input keys: [{}]\n", keys.join(", ")));
+        let keys: Vec<&str> = input.keys().map(std::string::String::as_str).collect();
+        let _ = writeln!(out, "  input keys: [{}]", keys.join(", "));
     }
 
     out.trim_end().to_string()
@@ -756,7 +758,7 @@ fn short_id(id: &str) -> &str {
 /// Indent each line of text with the given prefix.
 fn indent(text: &str, prefix: &str) -> String {
     text.lines()
-        .map(|line| format!("{}{}", prefix, line))
+        .map(|line| format!("{prefix}{line}"))
         .collect::<Vec<_>>()
         .join("\n")
 }

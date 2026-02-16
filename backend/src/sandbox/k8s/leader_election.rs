@@ -82,11 +82,10 @@ impl LeaderElection {
                     .unwrap_or(self.lease_duration_secs);
 
                 let is_expired = renew_time
-                    .map(|t| {
+                    .is_none_or(|t| {
                         let elapsed = now.duration_since(t);
                         elapsed.as_secs() > duration as i64
-                    })
-                    .unwrap_or(true);
+                    });
 
                 if holder == Some(self.identity.as_str()) {
                     // We hold it — renew
@@ -127,6 +126,7 @@ impl LeaderElection {
     async fn create_lease(&self) -> Result<(), kube::Error> {
         let now = jiff::Timestamp::now();
         let now_str = now.to_string();
+        #[allow(clippy::expect_used)] // static JSON shape, deserialization cannot fail at runtime
         let lease: Lease = serde_json::from_value(serde_json::json!({
             "apiVersion": "coordination.k8s.io/v1",
             "kind": "Lease",

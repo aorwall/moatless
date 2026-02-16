@@ -8,8 +8,11 @@ use futures::stream::BoxStream;
 use sqlx::PgPool;
 
 use moatless_vibe_backend::command::models::Command;
-use moatless_vibe_backend::config::Config;
-use moatless_vibe_backend::message::models::{ContentBlockType, MessageRole, MessageType, TaskMessage};
+use moatless_vibe_backend::config::{
+    AuthConfig, Config, DatabaseConfig, ProxyConfig, RedisConfig, S3Config, SandboxConfig,
+    ServerConfig, SlackConfig, SseConfig,
+};
+use moatless_vibe_backend::message::models::{MessageRole, MessageType, TaskMessage};
 use moatless_vibe_backend::repository::models::Repository;
 use moatless_vibe_backend::sandbox::error::SandboxError;
 use moatless_vibe_backend::sandbox::provider::SandboxProvider;
@@ -102,73 +105,93 @@ impl SandboxProvider for MockSandboxProvider {
 #[allow(dead_code)]
 pub fn test_config() -> Config {
     Config {
-        port: 0,
-        metrics_port: 0,
-        grpc_port: 50051,
-        sandbox_grpc_port: 50052,
-        sandbox_namespace: "test".into(),
-        sandbox_image: "test-sandbox:latest".into(),
-        sandbox_image_pull_policy: "Never".into(),
-        server_resources_cpu_limit: "500m".into(),
-        server_resources_memory_limit: "512Mi".into(),
-        server_resources_cpu_request: "100m".into(),
-        server_resources_memory_request: "128Mi".into(),
-        k8s_sandbox_storage_enabled: false,
-        k8s_sandbox_storage_size: "1Gi".into(),
-        k8s_sandbox_storage_class: None,
-        k8s_pod_startup_timeout_secs: 10,
-        task_token_secret: None,
-        proxy_domain: None,
-        proxy_protocol: "http".into(),
-        traefik_auth_middleware_name: "test-auth".into(),
-        traefik_auth_middleware_namespace: "test".into(),
-        traefik_entry_point: "web".into(),
+        server: ServerConfig {
+            port: 0,
+            metrics_port: 0,
+            grpc_port: 50051,
+        },
+        sandbox: SandboxConfig {
+            namespace: "test".into(),
+            image: "test-sandbox:latest".into(),
+            image_pull_policy: "Never".into(),
+            grpc_port: 50052,
+            resources_cpu_limit: "500m".into(),
+            resources_memory_limit: "512Mi".into(),
+            resources_cpu_request: "100m".into(),
+            resources_memory_request: "128Mi".into(),
+            storage_enabled: false,
+            storage_size: "1Gi".into(),
+            storage_class: None,
+            pod_startup_timeout_secs: 10,
+            task_token_secret: None,
+            file_mount_path: "/tmp/test".into(),
+            idle_reaper_enabled: false,
+            idle_timeout_minutes: 60,
+            idle_check_interval_secs: 300,
+        },
+        proxy: ProxyConfig {
+            domain: None,
+            protocol: "http".into(),
+            traefik_auth_middleware_name: "test-auth".into(),
+            traefik_auth_middleware_namespace: "test".into(),
+            traefik_entry_point: "web".into(),
+        },
         database_url: None,
-        redis_url: None,
-        redis_max_stream_length: 100,
-        sse_broadcast_capacity: 16,
-        sse_consumer_id: "test".into(),
-        auth_provider: None,
-        github_client_id: None,
-        github_client_secret: None,
-        github_callback_url: None,
-        github_oauth_scope: "".into(),
-        auth0_domain: None,
-        auth0_client_id: None,
-        auth0_client_secret: None,
-        auth0_callback_url: None,
-        auth0_audience: None,
-        auth0_groups_claim: "".into(),
-        session_max_age_secs: 3600,
-        frontend_url: "http://localhost:3000".into(),
-        cookie_domain: None,
-        session_cookie_name: "test_session".into(),
-        is_production: false,
-        auth_cache_ttl_secs: 0,
-        s3_bucket_name: None,
-        s3_key_prefix: "test".into(),
-        s3_region: "us-east-1".into(),
-        sandbox_file_mount_path: "/tmp/test".into(),
-        slack_bot_token: None,
-        slack_signing_secret: None,
-        slack_bot_user_id: None,
-        sandbox_idle_reaper_enabled: false,
-        sandbox_idle_timeout_minutes: 60,
-        sandbox_idle_check_interval_secs: 300,
+        database: DatabaseConfig {
+            url: None,
+            max_connections: 5,
+        },
+        redis: RedisConfig {
+            url: None,
+            max_stream_length: 100,
+        },
+        sse: SseConfig {
+            broadcast_capacity: 16,
+            consumer_id: "test".into(),
+        },
+        auth: AuthConfig {
+            provider: None,
+            github_client_id: None,
+            github_client_secret: None,
+            github_callback_url: None,
+            github_oauth_scope: "".into(),
+            auth0_domain: None,
+            auth0_client_id: None,
+            auth0_client_secret: None,
+            auth0_callback_url: None,
+            auth0_audience: None,
+            auth0_groups_claim: "".into(),
+            session_max_age_secs: 3600,
+            frontend_url: "http://localhost:3000".into(),
+            cookie_domain: None,
+            session_cookie_name: "test_session".into(),
+            is_production: false,
+            cache_ttl_secs: 0,
+        },
+        s3: S3Config {
+            bucket_name: None,
+            key_prefix: "test".into(),
+            region: "us-east-1".into(),
+        },
+        slack: SlackConfig {
+            bot_token: None,
+            signing_secret: None,
+            bot_user_id: None,
+        },
     }
 }
 
 /// Build an AppState with a real PgPool and mock sandbox provider.
 #[allow(dead_code)]
 pub fn test_app_state(pool: PgPool) -> AppState {
-    AppState {
-        db: pool,
-        config: Arc::new(test_config()),
-        sandbox: Arc::new(MockSandboxProvider),
-        events: None,
-        s3: None,
-        channel_providers: None,
-    }
+    AppState::new(
+        pool,
+        Arc::new(test_config()),
+        Arc::new(MockSandboxProvider),
+        None, // events
+        None, // s3
+        None, // channel_providers
+    )
 }
 
 // =========================================================================

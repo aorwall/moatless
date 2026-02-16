@@ -1,3 +1,7 @@
+// Safety: set_var is unsafe in multi-threaded context but this module runs
+// during single-threaded init phase before any agent execution starts.
+#![allow(unsafe_code)]
+
 //! Credential fetching and application.
 //!
 //! Fetches credentials from the backend via gRPC `GetCredentials` RPC,
@@ -24,7 +28,7 @@ pub async fn fetch_and_apply_credentials(state: &SandboxState) -> Result<(), Str
     for attempt in 1..=max_retries {
         match backend_client.get_credentials(task_id).await {
             Ok(mut resp) => {
-                let credential_names: Vec<&str> = resp.credentials.keys().map(|k| k.as_str()).collect();
+                let credential_names: Vec<&str> = resp.credentials.keys().map(std::string::String::as_str).collect();
                 info!(
                     task_id = %task_id,
                     credential_count = resp.credentials.len(),
@@ -35,8 +39,8 @@ pub async fn fetch_and_apply_credentials(state: &SandboxState) -> Result<(), Str
 
                 // Set each credential as an env var
                 for (key, value) in &resp.credentials {
-                    // Safety: set_var is unsafe in multi-threaded context but we're
-                    // in the init phase before any agent execution starts
+                    // SAFETY: called during single-threaded init phase before
+                    // any agent tasks or async workers are spawned.
                     unsafe {
                         std::env::set_var(key, value);
                     }
@@ -45,6 +49,7 @@ pub async fn fetch_and_apply_credentials(state: &SandboxState) -> Result<(), Str
                 // Alias GITHUB_TOKEN → GH_TOKEN for `gh` CLI compatibility
                 if let Some(token) = resp.credentials.get("GITHUB_TOKEN").cloned() {
                     resp.credentials.entry("GH_TOKEN".to_string()).or_insert_with(|| {
+                        // SAFETY: called during single-threaded init phase.
                         unsafe {
                             std::env::set_var("GH_TOKEN", &token);
                         }

@@ -40,8 +40,9 @@ impl IntoResponse for FigmaError {
                     "Internal database error".to_string(),
                 )
             }
-            FigmaError::StorageError(_) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, self.to_string())
+            FigmaError::StorageError(ref msg) => {
+                error!(error = %msg, "Figma storage error");
+                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
             }
         };
 

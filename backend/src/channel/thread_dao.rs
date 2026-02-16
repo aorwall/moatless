@@ -6,7 +6,9 @@ use super::models::ChannelThread;
 use crate::db::DbPool;
 
 /// Repository trait for channel thread persistence.
-#[cfg_attr(test, mockall::automock)]
+///
+/// Note: `automock` is intentionally omitted — mockall cannot synthesise
+/// correct lifetimes for `Option<&serde_json::Value>` in `touch`.
 #[async_trait]
 pub trait ChannelThreadRepository: Send + Sync {
     /// Find a thread by config_id + external_thread_id (unique index).

@@ -51,14 +51,11 @@ impl Orchestrator {
             .await;
 
             if let Err(e) = &result {
-                match e {
-                    SdkError::Cancelled => {
-                        debug!("Orchestrator cancelled");
-                    }
-                    _ => {
-                        error!(error = %e, "Orchestrator error");
-                        let _ = message_tx.send(Err(SdkError::Internal(e.to_string()))).await;
-                    }
+                if let SdkError::Cancelled = e {
+                    debug!("Orchestrator cancelled");
+                } else {
+                    error!(error = %e, "Orchestrator error");
+                    let _ = message_tx.send(Err(SdkError::Internal(e.to_string()))).await;
                 }
             }
 

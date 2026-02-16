@@ -6,7 +6,9 @@ use super::models::Command;
 use crate::db::DbPool;
 
 /// Repository trait for command persistence.
-#[cfg_attr(test, mockall::automock)]
+///
+/// Note: `automock` is intentionally omitted — mockall cannot synthesise
+/// correct lifetimes for `Option<&str>` in `update_by_name`.
 #[async_trait]
 pub trait CommandRepository: Send + Sync {
     async fn insert(&self, cmd: &Command) -> Result<(), sqlx::Error>;
@@ -134,4 +136,52 @@ impl CommandRepository for PgCommandRepository {
             .await?;
         Ok(row.0)
     }
+}
+
+// =========================================================================
+// Free-function wrappers for integration tests
+// =========================================================================
+
+/// Insert a command (convenience wrapper).
+pub async fn insert(pool: &DbPool, cmd: &Command) -> Result<(), sqlx::Error> {
+    PgCommandRepository(pool.clone()).insert(cmd).await
+}
+
+/// Find a command by name (convenience wrapper).
+pub async fn find_by_name(pool: &DbPool, name: &str) -> Result<Option<Command>, sqlx::Error> {
+    PgCommandRepository(pool.clone()).find_by_name(name).await
+}
+
+/// List all commands (convenience wrapper).
+pub async fn list_all(pool: &DbPool) -> Result<Vec<Command>, sqlx::Error> {
+    PgCommandRepository(pool.clone()).list_all().await
+}
+
+/// Update a command by name (convenience wrapper).
+#[allow(clippy::too_many_arguments)]
+pub async fn update_by_name(
+    pool: &DbPool,
+    name: &str,
+    description: Option<&str>,
+    prompt: Option<&str>,
+    conditions: Option<&serde_json::Value>,
+    icon: Option<&str>,
+    variant: Option<&str>,
+    active: Option<bool>,
+    will_not_resume: Option<bool>,
+    agent_mode: Option<&str>,
+) -> Result<bool, sqlx::Error> {
+    PgCommandRepository(pool.clone())
+        .update_by_name(name, description, prompt, conditions, icon, variant, active, will_not_resume, agent_mode)
+        .await
+}
+
+/// Delete a command by name (convenience wrapper).
+pub async fn delete_by_name(pool: &DbPool, name: &str) -> Result<bool, sqlx::Error> {
+    PgCommandRepository(pool.clone()).delete_by_name(name).await
+}
+
+/// Count all commands (convenience wrapper).
+pub async fn count(pool: &DbPool) -> Result<i64, sqlx::Error> {
+    PgCommandRepository(pool.clone()).count().await
 }

@@ -1,6 +1,15 @@
-//! Sandbox Controller library — re-exports all modules for integration tests.
+// Allow unwrap/expect/print in test code — production code still enforces the deny.
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::print_stdout,
+        clippy::print_stderr
+    )
+)]
 
-#![allow(dead_code)]
+//! Sandbox Controller library — re-exports all modules for integration tests.
 
 pub mod auth;
 pub mod channel;

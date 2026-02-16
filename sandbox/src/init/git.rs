@@ -138,10 +138,10 @@ pub async fn clone_repository(config: &Config) -> Result<(), String> {
     match run_command("git", &git_args).await {
         Ok(()) => {
             info!("Repository cloned successfully (plain git clone)");
-            return Ok(());
+            Ok(())
         }
         Err(e) => {
-            return Err(format!("All clone methods failed. Last error: {e}"));
+            Err(format!("All clone methods failed. Last error: {e}"))
         }
     }
 }

@@ -219,7 +219,6 @@ impl From<&str> for PodPhase {
 
 /// Server snapshot from sandbox GET /status
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-#[allow(dead_code)]
 pub struct ServerSnapshot {
     pub name: String,
     #[serde(default)]
@@ -628,7 +627,7 @@ mod tests {
         let json = r#"{"name":"files","port":4000}"#;
         let config: ServerConfig = serde_json::from_str(json).unwrap();
         assert_eq!(config.name, "files");
-        assert_eq!(config.server.port, 4000);
+        assert_eq!(config.port, 4000);
         assert!(!config.default);
         assert!(!config.enable_inspector);
         assert!(config.docker_image.is_none());
@@ -710,5 +709,166 @@ mod tests {
         let caps = server_capabilities_from_snapshot(&snapshot);
         assert!(caps.inspector);
         assert!(caps.address_bar);
+    }
+
+    // =========================================================================
+    // AgentState serde + From
+    // =========================================================================
+
+    #[test]
+    fn agent_state_serializes_lowercase() {
+        assert_eq!(serde_json::to_string(&AgentState::Idle).unwrap(), "\"idle\"");
+        assert_eq!(serde_json::to_string(&AgentState::Running).unwrap(), "\"running\"");
+        assert_eq!(serde_json::to_string(&AgentState::None).unwrap(), "\"none\"");
+    }
+
+    #[test]
+    fn agent_state_from_str() {
+        assert!(matches!(AgentState::from("running"), AgentState::Running));
+        assert!(matches!(AgentState::from("idle"), AgentState::Idle));
+        assert!(matches!(AgentState::from("unknown"), AgentState::None));
+        assert!(matches!(AgentState::from(""), AgentState::None));
+    }
+
+    // =========================================================================
+    // ServerStatus serde + From
+    // =========================================================================
+
+    #[test]
+    fn server_status_enum_serializes_lowercase() {
+        assert_eq!(serde_json::to_string(&ServerStatus::Stopped).unwrap(), "\"stopped\"");
+        assert_eq!(serde_json::to_string(&ServerStatus::Starting).unwrap(), "\"starting\"");
+        assert_eq!(serde_json::to_string(&ServerStatus::Started).unwrap(), "\"started\"");
+        assert_eq!(serde_json::to_string(&ServerStatus::Failed).unwrap(), "\"failed\"");
+        assert_eq!(serde_json::to_string(&ServerStatus::Installing).unwrap(), "\"installing\"");
+    }
+
+    #[test]
+    fn server_status_enum_from_str() {
+        assert!(matches!(ServerStatus::from("stopped"), ServerStatus::Stopped));
+        assert!(matches!(ServerStatus::from("installing"), ServerStatus::Installing));
+        assert!(matches!(ServerStatus::from("starting"), ServerStatus::Starting));
+        assert!(matches!(ServerStatus::from("started"), ServerStatus::Started));
+        assert!(matches!(ServerStatus::from("failed"), ServerStatus::Failed));
+        assert!(matches!(ServerStatus::from("unknown"), ServerStatus::Stopped));
+    }
+
+    // =========================================================================
+    // EnvironmentStatus Display
+    // =========================================================================
+
+    #[test]
+    fn environment_status_display() {
+        assert_eq!(EnvironmentStatus::NotCreated.to_string(), "not_created");
+        assert_eq!(EnvironmentStatus::Initializing.to_string(), "initializing");
+        assert_eq!(EnvironmentStatus::Ready.to_string(), "ready");
+        assert_eq!(EnvironmentStatus::Stopped.to_string(), "stopped");
+        assert_eq!(EnvironmentStatus::Removing.to_string(), "removing");
+        assert_eq!(EnvironmentStatus::Error.to_string(), "error");
+    }
+
+    #[test]
+    fn environment_status_serde_roundtrip() {
+        let json = serde_json::to_string(&EnvironmentStatus::Ready).unwrap();
+        assert_eq!(json, "\"ready\"");
+        let back: EnvironmentStatus = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, EnvironmentStatus::Ready);
+    }
+
+    // =========================================================================
+    // PodPhase::from(&str) and as_str
+    // =========================================================================
+
+    #[test]
+    fn pod_phase_from_str_known() {
+        assert_eq!(PodPhase::from("Pending"), PodPhase::Pending);
+        assert_eq!(PodPhase::from("Running"), PodPhase::Running);
+        assert_eq!(PodPhase::from("Succeeded"), PodPhase::Succeeded);
+        assert_eq!(PodPhase::from("Failed"), PodPhase::Failed);
+        assert_eq!(PodPhase::from("Terminating"), PodPhase::Terminating);
+    }
+
+    #[test]
+    fn pod_phase_from_str_unknown() {
+        assert_eq!(PodPhase::from("SomethingElse"), PodPhase::Unknown);
+    }
+
+    #[test]
+    fn pod_phase_as_str() {
+        assert_eq!(PodPhase::Pending.as_str(), "Pending");
+        assert_eq!(PodPhase::Running.as_str(), "Running");
+        assert_eq!(PodPhase::NotFound.as_str(), "NotFound");
+        assert_eq!(PodPhase::Stopped.as_str(), "Stopped");
+    }
+
+    // =========================================================================
+    // ContainerObservedStatus helper methods
+    // =========================================================================
+
+    #[test]
+    fn error_reason_returns_failure_reasons_only() {
+        let cs = ContainerObservedStatus::test(
+            "test", false, false, ContainerState::Waiting, 0, Some("ErrImagePull"),
+        );
+        assert_eq!(cs.error_reason().as_deref(), Some("ErrImagePull"));
+
+        let cs2 = ContainerObservedStatus::test(
+            "test", false, false, ContainerState::Waiting, 0, Some("ContainerCreating"),
+        );
+        assert!(cs2.error_reason().is_none());
+    }
+
+    #[test]
+    fn detail_reason_returns_non_failure_reasons() {
+        let cs = ContainerObservedStatus::test(
+            "test", false, false, ContainerState::Waiting, 0, Some("ContainerCreating"),
+        );
+        assert_eq!(cs.detail_reason().as_deref(), Some("ContainerCreating"));
+
+        let cs2 = ContainerObservedStatus::test(
+            "test", false, false, ContainerState::Waiting, 0, Some("CrashLoopBackOff"),
+        );
+        assert!(cs2.detail_reason().is_none());
+    }
+
+    #[test]
+    fn error_reason_none_when_no_waiting_reason() {
+        let cs = ContainerObservedStatus::test(
+            "test", false, false, ContainerState::Running, 0, None,
+        );
+        assert!(cs.error_reason().is_none());
+        assert!(cs.detail_reason().is_none());
+    }
+
+    // =========================================================================
+    // WorkspaceState serde
+    // =========================================================================
+
+    #[test]
+    fn workspace_state_serde() {
+        assert_eq!(serde_json::to_string(&WorkspaceState::Exists).unwrap(), "\"exists\"");
+        assert_eq!(serde_json::to_string(&WorkspaceState::Missing).unwrap(), "\"missing\"");
+    }
+
+    // =========================================================================
+    // ProvisionRequest deserialization
+    // =========================================================================
+
+    #[test]
+    fn provision_request_deserializes() {
+        let json = r#"{
+            "plan": {
+                "repoConfig": {
+                    "name": "test-repo"
+                },
+                "gitCloneUrl": "https://github.com/test/repo.git"
+            },
+            "userId": "user-1"
+        }"#;
+        let req: super::ProvisionRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.user_id, "user-1");
+        assert_eq!(req.plan.repo_config.name, "test-repo");
+        assert_eq!(req.plan.git_clone_url, "https://github.com/test/repo.git");
+        assert!(req.plan.git_branch.is_none());
     }
 }

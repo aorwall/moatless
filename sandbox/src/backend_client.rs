@@ -17,6 +17,13 @@ use tonic::transport::Channel;
 use tonic::{Request, Status};
 use tracing::{debug, warn};
 
+/// Errors that can occur when constructing a [`BackendClient`].
+#[derive(Debug, thiserror::Error)]
+pub enum BackendClientError {
+    #[error("invalid gRPC endpoint URI: {0}")]
+    InvalidUri(#[from] tonic::codegen::http::uri::InvalidUri),
+}
+
 /// Auth interceptor that injects a Bearer token on every outbound gRPC call.
 #[derive(Clone)]
 pub struct AuthInterceptor {
@@ -54,7 +61,7 @@ impl BackendClient {
     pub fn connect(
         url: &str,
         auth_token: Option<String>,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Self, BackendClientError> {
         let channel = Channel::from_shared(url.to_string())?
             .connect_timeout(Duration::from_secs(5))
             .timeout(Duration::from_secs(10))

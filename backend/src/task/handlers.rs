@@ -5,7 +5,7 @@ use axum::Json;
 
 use moatless_events::TaskSubType;
 
-use super::dao::TaskPatch;
+use super::dao::{TaskFilter, TaskPatch};
 use super::models::Task;
 use crate::extractors::AuthUser;
 use crate::state::AppState;
@@ -67,55 +67,17 @@ pub async fn create_task(
         created_at_db: None,
     };
 
-    state.tasks.insert_task(&row).await?;
-    tracing::info!(task_id = %task_id, user_id = %auth.user_id, repository_id = %req.repository_id, "Task created");
-
-    // Emit task event
-    if let Some(ref events) = state.events {
-        events
-            .publish_task_event(
-                &task_id,
-                TaskSubType::Open,
-                Some(&row.agent_type),
-                serde_json::json!({}),
-            )
-            .await;
-    }
-
-    // Always provision sandbox
-    match state.sandbox.start(&task_id).await {
-        Ok(()) => {
-            tracing::info!(task_id = %task_id, "Sandbox provisioning started (initializing)");
-        }
-        Err(e) => {
-            tracing::warn!(task_id = %task_id, error = %e, "Failed to provision sandbox");
-        }
-    }
-
-    // If a message was provided, send it to the agent
-    if let Some(message) = req.message {
-        if let Err(e) = crate::message::send::send_message_flow(
-            &state,
-            &task_id,
-            &message,
-            req.model.as_deref(),
-            req.agent_mode.as_deref(),
-            &req.file_ids,
-            &req.contexts,
-        )
-        .await
-        {
-            tracing::warn!(task_id = %task_id, error = %e, "Failed to send initial message");
-        }
-    }
-
-    let task_response = enrich_task(&row, &state, &auth.user_id).await?;
-
-    Ok(Json(CreateTaskResponse {
-        task_id: row.task_id.clone(),
-        status: row.status,
-        task: task_response,
-    }))
+    insert_and_provision_task(
+        &state,
+        &auth,
+        &row,
+        req.message.as_deref(),
+        req.model.as_deref(),
+        req.agent_mode.as_deref(),
+        &req.file_ids,
+        &req.contexts,
+    )
+    .await
 }
 
 /// Create a new vibe task from a template.
@@ -165,17 +127,35 @@ pub async fn create_vibe_task(
         created_at_db: None,
     };
 
-    state.tasks.insert_task(&row).await?;
-    tracing::info!(task_id = %task_id, user_id = %auth.user_id, template_id = %req.template_id, "Vibe task created");
+    insert_and_provision_task(&state, &auth, &row, req.message.as_deref(), None, None, &[], &[]).await
+}
 
+/// Shared logic for creating a task: insert, publish event, provision sandbox, send initial message.
+#[allow(clippy::too_many_arguments)]
+async fn insert_and_provision_task(
+    state: &AppState,
+    auth: &AuthUser,
+    row: &Task,
+    message: Option<&str>,
+    model: Option<&str>,
+    agent_mode: Option<&str>,
+    file_ids: &[String],
+    contexts: &[MessageContextInput],
+) -> Result<Json<CreateTaskResponse>, TaskError> {
+    let task_id = &row.task_id;
+
+    state.tasks.insert_task(row).await?;
+    tracing::info!(task_id = %task_id, user_id = %auth.user_id, repository_id = %row.repository_id, "Task created");
+
+    // Emit task event
     if let Some(ref events) = state.events {
         events
-            .publish_task_event(&task_id, TaskSubType::Open, Some("claude-code"), serde_json::json!({}))
+            .publish_task_event(task_id, TaskSubType::Open, Some(&row.agent_type), serde_json::json!({}))
             .await;
     }
 
     // Always provision sandbox
-    match state.sandbox.start(&task_id).await {
+    match state.sandbox.start(task_id).await {
         Ok(()) => {
             tracing::info!(task_id = %task_id, "Sandbox provisioning started (initializing)");
         }
@@ -184,23 +164,18 @@ pub async fn create_vibe_task(
         }
     }
 
-    if let Some(message) = req.message {
+    // If a message was provided, send it to the agent
+    if let Some(msg) = message {
         if let Err(e) = crate::message::send::send_message_flow(
-            &state,
-            &task_id,
-            &message,
-            None,
-            None,
-            &[],
-            &[],
+            state, task_id, msg, model, agent_mode, file_ids, contexts,
         )
         .await
         {
-            tracing::warn!(task_id = %task_id, error = %e, "Failed to send vibe initial message");
+            tracing::warn!(task_id = %task_id, error = %e, "Failed to send initial message");
         }
     }
 
-    let task_response = enrich_task(&row, &state, &auth.user_id).await?;
+    let task_response = enrich_task(row, state, &auth.user_id).await?;
 
     Ok(Json(CreateTaskResponse {
         task_id: row.task_id.clone(),
@@ -227,37 +202,38 @@ pub async fn list_tasks(
     let limit = query.limit.unwrap_or(50).min(200);
     let offset = query.offset.unwrap_or(0);
 
-    let (rows, total) = state.tasks.list_tasks(
-        &auth.user_id,
+    let filter = TaskFilter {
+        user_id: auth.user_id.clone(),
         limit,
         offset,
-        query.status.as_deref(),
-        query.repository_id.as_deref(),
-        query.created_by.as_deref(),
-        query.tag.as_deref(),
-    )
-    .await?;
+        status: query.status.clone(),
+        repository_id: query.repository_id.clone(),
+        created_by: query.created_by.clone(),
+        tag: query.tag.clone(),
+    };
+
+    let (rows, total) = state.tasks.list_tasks(&filter).await?;
 
     let task_ids: Vec<String> = rows.iter().map(|r| r.task_id.clone()).collect();
     let all_tags = state.tags.get_tags_for_tasks(&task_ids).await?;
 
-    // Batch resolve user display names
+    // Batch resolve user display names (single query instead of N+1)
     let creator_ids: Vec<String> = rows
         .iter()
         .filter_map(|r| r.created_by.clone())
         .collect::<std::collections::HashSet<_>>()
         .into_iter()
         .collect();
-    let user_names = resolve_user_display_names(&state, &creator_ids).await;
+    let user_names = resolve_user_display_names_batch(&state, &creator_ids).await;
 
-    // Batch resolve repository names
+    // Batch resolve repository names (single query instead of N+1)
     let repo_ids: Vec<String> = rows
         .iter()
         .map(|r| r.repository_id.clone())
         .collect::<std::collections::HashSet<_>>()
         .into_iter()
         .collect();
-    let repo_names = resolve_repo_names(&state, &repo_ids).await;
+    let repo_names = resolve_repo_names_batch(&state, &repo_ids).await;
 
     let items: Vec<TaskResponse> = rows
         .iter()
@@ -725,18 +701,27 @@ async fn generate_unique_short_id(state: &AppState) -> Result<String, TaskError>
     Err(TaskError::Internal("Failed to generate unique short ID".to_string()))
 }
 
-/// Resolve display names for multiple user IDs.
-async fn resolve_user_display_names(
+/// Resolve display names for multiple user IDs in a single batch query.
+async fn resolve_user_display_names_batch(
     state: &AppState,
     user_ids: &[String],
 ) -> std::collections::HashMap<String, String> {
-    let mut map = std::collections::HashMap::new();
-    for uid in user_ids {
-        if let Some(name) = resolve_single_user_display_name(state, uid).await {
-            map.insert(uid.clone(), name);
+    if user_ids.is_empty() {
+        return std::collections::HashMap::new();
+    }
+    match state.users.get_users_by_ids(user_ids).await {
+        Ok(users) => users
+            .into_iter()
+            .map(|u| {
+                let display_name = u.name.unwrap_or(u.login);
+                (u.id, display_name)
+            })
+            .collect(),
+        Err(e) => {
+            tracing::warn!(error = %e, "Failed to batch resolve user display names");
+            std::collections::HashMap::new()
         }
     }
-    map
 }
 
 /// Resolve a single user's display name.
@@ -747,16 +732,19 @@ async fn resolve_single_user_display_name(state: &AppState, user_id: &str) -> Op
     }
 }
 
-/// Resolve repository names for multiple repo IDs.
-async fn resolve_repo_names(
+/// Resolve repository names for multiple repo IDs in a single batch query.
+async fn resolve_repo_names_batch(
     state: &AppState,
     repo_ids: &[String],
 ) -> std::collections::HashMap<String, String> {
-    let mut map = std::collections::HashMap::new();
-    for rid in repo_ids {
-        if let Ok(Some(repo)) = state.repositories.find_repository_by_id(rid).await {
-            map.insert(rid.clone(), repo.name);
+    if repo_ids.is_empty() {
+        return std::collections::HashMap::new();
+    }
+    match state.repositories.find_names_by_ids(repo_ids).await {
+        Ok(pairs) => pairs.into_iter().collect(),
+        Err(e) => {
+            tracing::warn!(error = %e, "Failed to batch resolve repository names");
+            std::collections::HashMap::new()
         }
     }
-    map
 }

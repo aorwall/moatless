@@ -21,7 +21,7 @@ impl IntoResponse for ProviderSettingsError {
                 error!(error = %e, "Provider settings database error");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("Database error: {e}"),
+                    "Internal server error".to_string(),
                 )
             }
             Self::ProviderError(m) => (StatusCode::BAD_GATEWAY, m),

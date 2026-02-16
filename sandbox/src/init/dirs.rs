@@ -1,3 +1,7 @@
+// Safety: set_var is unsafe in multi-threaded context but this module runs
+// during single-threaded init phase before any agent execution starts.
+#![allow(unsafe_code)]
+
 //! Directory creation for sandbox initialization.
 
 use tracing::{info, warn};
@@ -20,7 +24,8 @@ pub fn ensure_directories(config: &Config) {
         }
     }
 
-    // Set debug log env var
+    // SAFETY: called during single-threaded init phase before any async
+    // workers are spawned. No concurrent threads can observe the env mutation.
     unsafe {
         std::env::set_var("CLAUDE_CODE_DEBUG_LOGS_DIR", "/tmp/claude-debug.log");
     }

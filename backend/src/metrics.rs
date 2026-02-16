@@ -10,7 +10,8 @@ pub struct MetricsState {
     pub handle: Arc<PrometheusHandle>,
 }
 
-/// Initialize the metrics system and return a handle
+/// Initialize the metrics system and return a handle.
+#[allow(clippy::expect_used)] // fail-fast: metrics is a startup prerequisite
 pub fn init_metrics() -> PrometheusHandle {
     PrometheusBuilder::new()
         .install_recorder()

@@ -8,7 +8,6 @@ use chrono::{DateTime, Utc};
 
 /// Repository row from the `repositories` table.
 #[derive(sqlx::FromRow, Debug, Clone)]
-#[allow(dead_code)]
 pub struct Repository {
     pub id: String,
     pub name: String,

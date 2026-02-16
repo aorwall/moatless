@@ -6,7 +6,6 @@ use chrono::{DateTime, Utc};
 
 /// Lightweight user row for display name resolution.
 #[derive(sqlx::FromRow, Debug, Clone)]
-#[allow(dead_code)]
 pub struct UserDisplay {
     pub id: String,
     pub login: String,
@@ -25,7 +24,6 @@ pub struct ProviderAccessToken {
 
 /// Full provider token row from the `provider_tokens` table.
 #[derive(sqlx::FromRow, Debug, Clone)]
-#[allow(dead_code)]
 pub struct ProviderToken {
     pub id: i32,
     pub user_id: String,

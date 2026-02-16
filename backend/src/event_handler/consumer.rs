@@ -61,8 +61,8 @@ impl EventHandlerConsumer {
                 }
                 error!(error = %e, "Event handler consumer error, retrying in 2s");
                 tokio::select! {
-                    _ = tokio::time::sleep(std::time::Duration::from_secs(2)) => {}
-                    _ = self.cancel.cancelled() => { break; }
+                    () = tokio::time::sleep(std::time::Duration::from_secs(2)) => {}
+                    () = self.cancel.cancelled() => { break; }
                 }
             }
         }
@@ -71,13 +71,13 @@ impl EventHandlerConsumer {
     }
 
     /// One consume cycle: discover streams, ensure groups, read + process + ACK.
-    async fn consume_cycle(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn consume_cycle(&mut self) -> Result<(), redis::RedisError> {
         let streams = self.scan_streams().await?;
 
         if streams.is_empty() {
             tokio::select! {
-                _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {}
-                _ = self.cancel.cancelled() => {}
+                () = tokio::time::sleep(std::time::Duration::from_secs(5)) => {}
+                () = self.cancel.cancelled() => {}
             }
             return Ok(());
         }

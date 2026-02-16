@@ -52,3 +52,82 @@ pub enum PromptResponse {
     #[serde(rename = "planRejected")]
     PlanRejected { feedback: String },
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn prompt_tool_name_from_valid() {
+        assert_eq!(
+            PromptToolName::from_tool_name("AskUserQuestion"),
+            Some(PromptToolName::AskUserQuestion)
+        );
+        assert_eq!(
+            PromptToolName::from_tool_name("ExitPlanMode"),
+            Some(PromptToolName::ExitPlanMode)
+        );
+    }
+
+    #[test]
+    fn prompt_tool_name_from_invalid() {
+        assert_eq!(PromptToolName::from_tool_name("Write"), None);
+        assert_eq!(PromptToolName::from_tool_name("Bash"), None);
+        assert_eq!(PromptToolName::from_tool_name(""), None);
+        assert_eq!(PromptToolName::from_tool_name("askuserquestion"), None);
+    }
+
+    #[test]
+    fn prompt_tool_name_serializes_camel_case() {
+        let json = serde_json::to_string(&PromptToolName::AskUserQuestion).unwrap();
+        assert_eq!(json, r#""askUserQuestion""#);
+
+        let json = serde_json::to_string(&PromptToolName::ExitPlanMode).unwrap();
+        assert_eq!(json, r#""exitPlanMode""#);
+    }
+
+    #[test]
+    fn prompt_response_deserializes_ask_user_answer() {
+        let json = r#"{"type": "askUserAnswer", "answers": {"q1": "yes"}}"#;
+        let resp: PromptResponse = serde_json::from_str(json).unwrap();
+        match resp {
+            PromptResponse::AskUserAnswer { answers } => {
+                assert_eq!(answers["q1"], "yes");
+            }
+            _ => panic!("Expected AskUserAnswer"),
+        }
+    }
+
+    #[test]
+    fn prompt_response_deserializes_plan_approved() {
+        let json = r#"{"type": "planApproved"}"#;
+        let resp: PromptResponse = serde_json::from_str(json).unwrap();
+        assert!(matches!(resp, PromptResponse::PlanApproved));
+    }
+
+    #[test]
+    fn prompt_response_deserializes_plan_rejected() {
+        let json = r#"{"type": "planRejected", "feedback": "needs more detail"}"#;
+        let resp: PromptResponse = serde_json::from_str(json).unwrap();
+        match resp {
+            PromptResponse::PlanRejected { feedback } => {
+                assert_eq!(feedback, "needs more detail");
+            }
+            _ => panic!("Expected PlanRejected"),
+        }
+    }
+
+    #[test]
+    fn pending_prompt_channel_drops_on_prompt_drop() {
+        let (tx, rx) = oneshot::channel();
+        let prompt = PendingPrompt {
+            tool_name: PromptToolName::AskUserQuestion,
+            input: serde_json::json!({}),
+            sender: tx,
+        };
+
+        // Dropping the prompt (and its sender) causes the receiver to error
+        drop(prompt);
+        assert!(rx.blocking_recv().is_err());
+    }
+}

@@ -27,23 +27,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Handle --dump-openapi before any runtime initialization
     if std::env::args().any(|a| a == "--dump-openapi") {
         let spec = startup::build_merged_openapi();
-        println!("{}", spec.to_pretty_json()?);
+        #[allow(clippy::print_stdout)] // CLI tool output, not server logging
+        {
+            println!("{}", spec.to_pretty_json()?);
+        }
         return Ok(());
     }
 
     // Install rustls crypto provider (required before any TLS operations)
+    #[allow(clippy::expect_used)] // fail-fast: TLS provider must be installed before any networking
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
         .expect("Failed to install rustls crypto provider");
 
     startup::init_tracing();
 
-    let config = Config::from_env();
+    let config = Config::from_env()?;
     info!(sandbox_namespace = %config.sandbox.namespace, "Starting Moatless Vibe Backend");
 
     // Infrastructure services
     startup::spawn_metrics_server(config.server.metrics_port);
-    let db_pool = startup::init_database(config.database_url.as_deref()).await;
+    let db_pool = startup::init_database(config.database_url.as_deref(), config.database.max_connections).await;
     let event_publisher = startup::init_event_publisher(&config).await;
     let cancel = CancellationToken::new();
     let sse_state = startup::init_sse(&config, cancel.clone()).await?;

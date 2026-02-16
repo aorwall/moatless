@@ -19,6 +19,7 @@ fn generate_session_id() -> String {
 ///
 /// Upserts the user, creates a session row, and optionally persists the
 /// provider token (for GitHub OAuth → provider_tokens cross-context access).
+#[allow(clippy::too_many_arguments)]
 pub async fn create_session(
     users: &dyn UserRepository,
     sessions: &dyn SessionRepository,
@@ -35,9 +36,7 @@ pub async fn create_session(
     // Upsert user
     let existing_user = users.get_user(&user_info.id).await?;
     let role = existing_user
-        .as_ref()
-        .map(|u| u.role.clone())
-        .unwrap_or_else(|| "user".to_string());
+        .as_ref().map_or_else(|| "user".to_string(), |u| u.role.clone());
 
     let user_row = User {
         id: user_info.id.clone(),
@@ -49,8 +48,7 @@ pub async fn create_session(
         role: role.clone(),
         created_at: existing_user
             .as_ref()
-            .map(|u| u.created_at)
-            .unwrap_or(now),
+            .map_or(now, |u| u.created_at),
         last_login_at: now,
     };
     users.upsert_user(&user_row).await?;

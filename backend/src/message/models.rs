@@ -64,7 +64,7 @@ impl<'r> sqlx::Decode<'r, sqlx::Postgres> for MessageType {
     }
 }
 
-impl<'q> sqlx::Encode<'q, sqlx::Postgres> for MessageType {
+impl sqlx::Encode<'_, sqlx::Postgres> for MessageType {
     fn encode_by_ref(
         &self,
         buf: &mut sqlx::postgres::PgArgumentBuffer,
@@ -126,7 +126,7 @@ impl<'r> sqlx::Decode<'r, sqlx::Postgres> for MessageRole {
     }
 }
 
-impl<'q> sqlx::Encode<'q, sqlx::Postgres> for MessageRole {
+impl sqlx::Encode<'_, sqlx::Postgres> for MessageRole {
     fn encode_by_ref(
         &self,
         buf: &mut sqlx::postgres::PgArgumentBuffer,
@@ -191,7 +191,7 @@ impl<'r> sqlx::Decode<'r, sqlx::Postgres> for TurnStatus {
     }
 }
 
-impl<'q> sqlx::Encode<'q, sqlx::Postgres> for TurnStatus {
+impl sqlx::Encode<'_, sqlx::Postgres> for TurnStatus {
     fn encode_by_ref(
         &self,
         buf: &mut sqlx::postgres::PgArgumentBuffer,
@@ -259,7 +259,7 @@ impl<'r> sqlx::Decode<'r, sqlx::Postgres> for ContentBlockType {
     }
 }
 
-impl<'q> sqlx::Encode<'q, sqlx::Postgres> for ContentBlockType {
+impl sqlx::Encode<'_, sqlx::Postgres> for ContentBlockType {
     fn encode_by_ref(
         &self,
         buf: &mut sqlx::postgres::PgArgumentBuffer,
@@ -274,7 +274,6 @@ impl<'q> sqlx::Encode<'q, sqlx::Postgres> for ContentBlockType {
 
 /// Row from the `task_messages` table.
 #[derive(sqlx::FromRow, Debug, Clone)]
-#[allow(dead_code)]
 pub struct TaskMessage {
     pub id: i32,
     pub task_id: String,
@@ -315,13 +314,57 @@ pub struct TaskMessage {
     pub created_at: Option<DateTime<Utc>>,
 }
 
+impl TaskMessage {
+    /// Create a new user message with required fields, defaulting all optional fields to `None`.
+    pub fn new_user_message(task_id: String, uuid: String, content: serde_json::Value, timestamp: String) -> Self {
+        Self {
+            id: 0,
+            task_id,
+            uuid,
+            message_type: MessageType::User,
+            user_type: "human".to_string(),
+            parent_uuid: None,
+            is_sidechain: None,
+            cwd: None,
+            session_id: None,
+            turn_number: None,
+            version: None,
+            git_branch: None,
+            request_id: None,
+            timestamp,
+            message_role: MessageRole::User,
+            message_content: content,
+            assistant_message_id: None,
+            assistant_message_type: None,
+            assistant_message_model: None,
+            assistant_stop_reason: None,
+            assistant_stop_sequence: None,
+            assistant_usage_input_tokens: None,
+            assistant_usage_output_tokens: None,
+            assistant_usage_cache_creation_input_tokens: None,
+            assistant_usage_cache_read_input_tokens: None,
+            tool_use_result: None,
+            attachments: None,
+            agent_session_id: None,
+            turn_status: None,
+            turn_result: None,
+            will_not_resume: None,
+            run_metrics: None,
+            agent_mode: None,
+            model: None,
+            resume_session_id: None,
+            sent_at: None,
+            created_at: None,
+        }
+    }
+}
+
 // =============================================================================
 // TaskMessageContext (DB)
 // =============================================================================
 
 /// Row from the `task_message_contexts` table.
 #[derive(sqlx::FromRow, Debug, Clone)]
-#[allow(dead_code)]
 pub struct TaskMessageContext {
     pub id: i32,
     pub task_message_id: i32,
@@ -338,7 +381,6 @@ pub struct TaskMessageContext {
 
 /// Row from the `task_message_content_blocks` table.
 #[derive(sqlx::FromRow, Debug, Clone)]
-#[allow(dead_code)]
 pub struct TaskMessageContentBlock {
     pub id: i32,
     pub task_message_id: i32,
@@ -396,5 +438,43 @@ mod tests {
         assert!(MessageRole::try_from("admin").is_err());
         assert!(TurnStatus::try_from("pending").is_err());
         assert!(ContentBlockType::try_from("video").is_err());
+    }
+
+    #[test]
+    fn display_impls() {
+        assert_eq!(MessageType::User.to_string(), "user");
+        assert_eq!(MessageType::Assistant.to_string(), "assistant");
+        assert_eq!(MessageType::System.to_string(), "system");
+        assert_eq!(MessageType::Result.to_string(), "result");
+        assert_eq!(MessageRole::User.to_string(), "user");
+        assert_eq!(MessageRole::Assistant.to_string(), "assistant");
+        assert_eq!(TurnStatus::Completed.to_string(), "completed");
+        assert_eq!(TurnStatus::Error.to_string(), "error");
+        assert_eq!(TurnStatus::Stopped.to_string(), "stopped");
+        assert_eq!(ContentBlockType::Text.to_string(), "text");
+        assert_eq!(ContentBlockType::ToolUse.to_string(), "tool_use");
+        assert_eq!(ContentBlockType::ToolResult.to_string(), "tool_result");
+        assert_eq!(ContentBlockType::Image.to_string(), "image");
+    }
+
+    #[test]
+    fn new_user_message_sets_defaults() {
+        let content = serde_json::json!([{"type": "text", "text": "hello"}]);
+        let msg = TaskMessage::new_user_message(
+            "task-1".into(),
+            "uuid-1".into(),
+            content.clone(),
+            "2025-01-01T00:00:00.000Z".into(),
+        );
+
+        assert_eq!(msg.task_id, "task-1");
+        assert_eq!(msg.uuid, "uuid-1");
+        assert_eq!(msg.message_type, MessageType::User);
+        assert_eq!(msg.message_role, MessageRole::User);
+        assert_eq!(msg.user_type, "human");
+        assert_eq!(msg.message_content, content);
+        assert!(msg.session_id.is_none());
+        assert!(msg.agent_session_id.is_none());
+        assert!(msg.turn_status.is_none());
     }
 }

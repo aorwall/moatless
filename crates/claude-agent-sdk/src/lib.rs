@@ -1,3 +1,14 @@
+// Allow unwrap/expect/print in test code — production code still enforces the deny.
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::print_stdout,
+        clippy::print_stderr
+    )
+)]
+
 //! # Claude Agent SDK
 //!
 //! A Rust SDK for spawning and communicating with the Claude Code CLI.

@@ -30,7 +30,7 @@ impl Auth0OAuthProvider {
         let http = reqwest::Client::builder()
             .timeout(Duration::from_secs(30))
             .build()
-            .expect("failed to build reqwest client");
+            .ok()?;
         Some(Self {
             domain,
             client_id,

@@ -157,29 +157,26 @@ pub async fn read_user_credentials(
     let secrets: Api<Secret> = Api::namespaced(k8s.client.clone(), k8s.namespace());
     let secret_name = generate_user_secret_name(user_id);
 
-    match secrets.get(&secret_name).await {
-        Ok(secret) => {
-            let data = secret.data.unwrap_or_default();
-            let decode = |key: &str| -> Option<String> {
-                data.get(key).and_then(|v| {
-                    String::from_utf8(v.0.clone()).ok()
-                })
-            };
+    if let Ok(secret) = secrets.get(&secret_name).await {
+        let data = secret.data.unwrap_or_default();
+        let decode = |key: &str| -> Option<String> {
+            data.get(key).and_then(|v| {
+                String::from_utf8(v.0.clone()).ok()
+            })
+        };
 
-            let creds = UserCredentials {
-                github_token: decode("GITHUB_TOKEN"),
-                anthropic_api_key: decode("ANTHROPIC_API_KEY"),
-                claude_oauth_token: decode("CLAUDE_CODE_OAUTH_TOKEN"),
-                user_auth_token: decode("USER_AUTH_TOKEN"),
-            };
+        let creds = UserCredentials {
+            github_token: decode("GITHUB_TOKEN"),
+            anthropic_api_key: decode("ANTHROPIC_API_KEY"),
+            claude_oauth_token: decode("CLAUDE_CODE_OAUTH_TOKEN"),
+            user_auth_token: decode("USER_AUTH_TOKEN"),
+        };
 
-            debug!(user_id, secret_name = %secret_name, "Read credentials from user secret");
-            Some(creds)
-        }
-        Err(_) => {
-            debug!(user_id, "No existing user secret found");
-            None
-        }
+        debug!(user_id, secret_name = %secret_name, "Read credentials from user secret");
+        Some(creds)
+    } else {
+        debug!(user_id, "No existing user secret found");
+        None
     }
 }
 

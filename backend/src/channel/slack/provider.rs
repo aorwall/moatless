@@ -154,13 +154,10 @@ impl SlackProvider {
         }
 
         // 10. Resolve Slack user → system user
-        let user_id = match self.resolve_user(user, db).await? {
-            Some(id) => id,
-            None => {
-                warn!(slack_user = %user, "Could not resolve Slack user to system user");
-                // Use the Slack user ID as fallback
-                user.to_string()
-            }
+        let user_id = if let Some(id) = self.resolve_user(user, db).await? { id } else {
+            warn!(slack_user = %user, "Could not resolve Slack user to system user");
+            // Use the Slack user ID as fallback
+            user.to_string()
         };
 
         // Build thread properties
@@ -173,7 +170,7 @@ impl SlackProvider {
         Ok(SlackWebhookResult::Message(InboundMessage {
             provider: ChannelType::Slack,
             source_id: channel.to_string(),
-            thread_id: thread_ts.map(|s| s.to_string()),
+            thread_id: thread_ts.map(std::string::ToString::to_string),
             message_thread_id: thread_ts.unwrap_or(ts).to_string(),
             user_id,
             text: clean_text,
@@ -235,7 +232,8 @@ impl ChannelProvider for SlackProvider {
 
         let mut text = message.text.clone();
         if let Some(ref url) = message.task_url {
-            text.push_str(&format!("\n<{url}|View task>"));
+            use std::fmt::Write;
+            let _ = write!(text, "\n<{url}|View task>");
         }
 
         self.api
@@ -328,7 +326,7 @@ impl ChannelProvider for SlackProvider {
             .provider_config
             .as_ref()
             .and_then(|c| c.get("thread_context_limit"))
-            .and_then(|v| v.as_u64())
+            .and_then(serde_json::Value::as_u64)
             .unwrap_or(limit as u64) as usize;
 
         let messages = self

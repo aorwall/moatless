@@ -17,7 +17,9 @@ pub struct ChannelConfigPatch {
 }
 
 /// Repository trait for channel config persistence.
-#[cfg_attr(test, mockall::automock)]
+///
+/// Note: `automock` is intentionally omitted — mockall cannot synthesise
+/// correct lifetimes for `Option<&str>` in `list`.
 #[async_trait]
 pub trait ChannelConfigRepository: Send + Sync {
     async fn find_by_id(&self, id: &str) -> Result<Option<ChannelConfig>, sqlx::Error>;
@@ -70,12 +72,14 @@ impl ChannelConfigRepository for PgChannelConfigRepository {
 
         if let Some(p) = provider {
             param_idx += 1;
-            sql.push_str(&format!(" AND provider = ${param_idx}"));
+            use std::fmt::Write;
+            let _ = write!(sql, " AND provider = ${param_idx}");
             binds.push(p.to_string());
         }
         if let Some(r) = repository_id {
             param_idx += 1;
-            sql.push_str(&format!(" AND repository_id = ${param_idx}"));
+            use std::fmt::Write;
+            let _ = write!(sql, " AND repository_id = ${param_idx}");
             binds.push(r.to_string());
         }
         if active_only {

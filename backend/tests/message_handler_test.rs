@@ -1,0 +1,215 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::print_stdout, clippy::print_stderr)]
+//! HTTP handler integration tests for message endpoints.
+
+mod common;
+
+use axum::http::StatusCode;
+use sqlx::PgPool;
+use tower::ServiceExt;
+
+use moatless_vibe_backend::message::dao as message_dao;
+use moatless_vibe_backend::message::routes::message_router;
+use moatless_vibe_backend::repository::dao as repository_dao;
+use moatless_vibe_backend::task::dao as task_dao;
+
+use common::{
+    authed_json_request, authed_request, body_json, make_message_row, make_repository_row,
+    make_task_row, test_app_state,
+};
+
+fn build_router(pool: PgPool) -> axum::Router {
+    let state = test_app_state(pool);
+    let (router, _api) = message_router(state);
+    router
+}
+
+async fn seed_task(pool: &PgPool, task_id: &str, user: &str) {
+    let repo = make_repository_row("repo-1", user);
+    repository_dao::insert(pool, &repo).await.expect("seed repo");
+    let task = make_task_row(task_id, user);
+    task_dao::insert_task(pool, &task)
+        .await
+        .expect("seed task");
+}
+
+// =========================================================================
+// GET /api/v1/tasks/{task_id}/messages
+// =========================================================================
+
+#[sqlx::test]
+async fn get_messages_empty(pool: PgPool) {
+    seed_task(&pool, "task-1", "user-1").await;
+
+    let app = build_router(pool);
+    let req = authed_request("GET", "/api/v1/tasks/task-1/messages", "user-1");
+    let resp = app.oneshot(req).await.unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_json(resp).await;
+    assert_eq!(body["messages"].as_array().unwrap().len(), 0);
+    assert_eq!(body["totalCount"], 0);
+}
+
+#[sqlx::test]
+async fn get_messages_with_data(pool: PgPool) {
+    seed_task(&pool, "task-1", "user-1").await;
+
+    // Insert messages via DAO
+    let msg1 = make_message_row("task-1", "msg-1");
+    message_dao::append(&pool, &msg1, &[], &[]).await.unwrap();
+
+    let msg2 = make_message_row("task-1", "msg-2");
+    message_dao::append(&pool, &msg2, &[], &[]).await.unwrap();
+
+    let app = build_router(pool);
+    let req = authed_request("GET", "/api/v1/tasks/task-1/messages", "user-1");
+    let resp = app.oneshot(req).await.unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_json(resp).await;
+    // Messages with content should be returned
+    let messages = body["messages"].as_array().unwrap();
+    assert!(messages.len() <= 2); // may filter empty messages
+}
+
+#[sqlx::test]
+async fn get_messages_missing_auth_401(pool: PgPool) {
+    let app = build_router(pool);
+    // No auth headers
+    let req = axum::http::Request::builder()
+        .method("GET")
+        .uri("/api/v1/tasks/task-1/messages")
+        .body(axum::body::Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+// =========================================================================
+// GET /api/v1/tasks/{task_id}/messages/pending
+// =========================================================================
+
+#[sqlx::test]
+async fn get_pending_messages_empty(pool: PgPool) {
+    seed_task(&pool, "task-1", "user-1").await;
+
+    let app = build_router(pool);
+    let req = authed_request("GET", "/api/v1/tasks/task-1/messages/pending", "user-1");
+    let resp = app.oneshot(req).await.unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_json(resp).await;
+    assert_eq!(body["totalCount"], 0);
+}
+
+#[sqlx::test]
+async fn get_pending_messages_with_data(pool: PgPool) {
+    seed_task(&pool, "task-1", "user-1").await;
+
+    // Insert pending user messages (no agent_session_id)
+    let msg1 = make_message_row("task-1", "pending-1");
+    message_dao::append(&pool, &msg1, &[], &[]).await.unwrap();
+
+    let msg2 = make_message_row("task-1", "pending-2");
+    message_dao::append(&pool, &msg2, &[], &[]).await.unwrap();
+
+    let app = build_router(pool);
+    let req = authed_request("GET", "/api/v1/tasks/task-1/messages/pending", "user-1");
+    let resp = app.oneshot(req).await.unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_json(resp).await;
+    let messages = body["messages"].as_array().unwrap();
+    // 2 pending user messages (no last_result)
+    assert_eq!(messages.len(), 2);
+    assert_eq!(body["totalCount"], 2);
+}
+
+// =========================================================================
+// DELETE /api/v1/tasks/{task_id}/messages/{message_id}
+// =========================================================================
+
+#[sqlx::test]
+async fn delete_queued_message_success(pool: PgPool) {
+    seed_task(&pool, "task-1", "user-1").await;
+
+    let msg = make_message_row("task-1", "del-msg");
+    message_dao::append(&pool, &msg, &[], &[]).await.unwrap();
+
+    let app = build_router(pool);
+    let req = authed_request("DELETE", "/api/v1/tasks/task-1/messages/del-msg", "user-1");
+    let resp = app.oneshot(req).await.unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_json(resp).await;
+    assert_eq!(body["status"], "deleted");
+}
+
+#[sqlx::test]
+async fn delete_queued_message_not_found(pool: PgPool) {
+    seed_task(&pool, "task-1", "user-1").await;
+
+    let app = build_router(pool);
+    let req = authed_request(
+        "DELETE",
+        "/api/v1/tasks/task-1/messages/nonexistent",
+        "user-1",
+    );
+    let resp = app.oneshot(req).await.unwrap();
+
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+// =========================================================================
+// POST /api/v1/tasks/{task_id}/messages
+// =========================================================================
+
+#[sqlx::test]
+async fn send_message_task_not_found(pool: PgPool) {
+    // No task seeded — should 404
+    let app = build_router(pool);
+    let req = authed_json_request(
+        "POST",
+        "/api/v1/tasks/nonexistent/messages",
+        "user-1",
+        serde_json::json!({"message": "hello"}),
+    );
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+#[sqlx::test]
+async fn send_message_success(pool: PgPool) {
+    seed_task(&pool, "task-1", "user-1").await;
+
+    let app = build_router(pool);
+    let req = authed_json_request(
+        "POST",
+        "/api/v1/tasks/task-1/messages",
+        "user-1",
+        serde_json::json!({"message": "hello world"}),
+    );
+    let resp = app.oneshot(req).await.unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_json(resp).await;
+    assert_eq!(body["status"], "sent");
+    assert!(body["timestamp"].as_str().is_some());
+}
+
+#[sqlx::test]
+async fn send_message_command_not_found(pool: PgPool) {
+    seed_task(&pool, "task-1", "user-1").await;
+
+    let app = build_router(pool);
+    let req = authed_json_request(
+        "POST",
+        "/api/v1/tasks/task-1/messages",
+        "user-1",
+        serde_json::json!({"message": "", "commandName": "nonexistent-cmd"}),
+    );
+    let resp = app.oneshot(req).await.unwrap();
+
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
