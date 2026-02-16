@@ -86,6 +86,13 @@ service SandboxService {
   rpc StopAgent(StopAgentRequest) returns (StopAgentResponse);
   rpc NotifyMessages(NotifyMessagesRequest) returns (NotifyMessagesResponse);
   rpc SearchFiles(SearchFilesRequest) returns (SearchFilesResponse);
+
+  // File operations (replaces file-explorer HTTP server)
+  rpc GetFileTree(GetFileTreeRequest) returns (GetFileTreeResponse);
+  rpc ReadFile(ReadFileRequest) returns (ReadFileResponse);
+  rpc WriteFile(WriteFileRequest) returns (WriteFileResponse);
+  rpc ListFiles(ListFilesRequest) returns (ListFilesResponse);
+  rpc SearchFilesByName(SearchFilesByNameRequest) returns (SearchFilesByNameResponse);
 }
 
 message ExecuteAgentRequest {
@@ -111,4 +118,87 @@ message SearchFilesRequest {
 
 message SearchFilesResponse {
   repeated string files = 1;
+}
+
+// ── File operations ──────────────────────────────────────────────
+
+enum FileNodeType {
+  FILE_NODE_TYPE_FILE = 0;
+  FILE_NODE_TYPE_DIRECTORY = 1;
+}
+
+message GetFileTreeRequest {
+  string root_path = 1;  // relative to workspace, default "."
+}
+
+message GetFileTreeResponse {
+  repeated FileTreeNode tree = 1;
+  GitSummary git_summary = 2;
+}
+
+message FileTreeNode {
+  string name = 1;
+  string path = 2;
+  FileNodeType node_type = 3;
+  bool is_changed = 4;
+  optional string git_status = 5;   // "added", "modified", "deleted", "renamed"
+  optional int32 additions = 6;
+  optional int32 deletions = 7;
+  optional bool is_staged = 8;
+  repeated FileTreeNode children = 9;
+}
+
+message GitSummary {
+  int32 total_files = 1;
+  int32 total_additions = 2;
+  int32 total_deletions = 3;
+  int32 total_staged = 4;
+  int32 total_modified = 5;
+  string compare_base = 6;
+  bool has_changes = 7;
+}
+
+message ReadFileRequest {
+  string path = 1;
+  bool include_changes = 2;  // if true, include git diff info
+}
+
+message ReadFileResponse {
+  string content = 1;
+  optional string old_content = 2;
+  optional int32 additions = 3;
+  optional int32 deletions = 4;
+  optional bool is_modified = 5;
+}
+
+message WriteFileRequest {
+  string path = 1;
+  string content = 2;
+}
+
+message WriteFileResponse {}
+
+message ListFilesRequest {
+  string path = 1;      // relative to workspace, default "."
+  bool recursive = 2;
+}
+
+message ListFilesResponse {
+  repeated string files = 1;
+}
+
+message SearchFilesByNameRequest {
+  string query = 1;
+  bool case_sensitive = 2;
+  int32 max_results = 3;  // 0 = default (100)
+}
+
+message SearchFilesByNameResponse {
+  repeated FileNameMatch files = 1;
+  int32 total_matches = 2;
+}
+
+message FileNameMatch {
+  string path = 1;
+  int32 matches = 2;
 }

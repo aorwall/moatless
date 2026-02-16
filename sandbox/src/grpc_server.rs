@@ -9,12 +9,16 @@ use tracing::info;
 
 use sandbox_proto::sandbox_service_server::SandboxService;
 use sandbox_proto::{
-    ExecuteAgentRequest, ExecuteAgentResponse, NotifyMessagesRequest, NotifyMessagesResponse,
+    ExecuteAgentRequest, ExecuteAgentResponse, GetFileTreeRequest, GetFileTreeResponse,
+    ListFilesRequest, ListFilesResponse, NotifyMessagesRequest, NotifyMessagesResponse,
+    ReadFileRequest, ReadFileResponse, SearchFilesByNameRequest, SearchFilesByNameResponse,
     SearchFilesRequest, SearchFilesResponse, StopAgentRequest, StopAgentResponse,
+    WriteFileRequest, WriteFileResponse,
 };
 
 use crate::agent::claude_code::spawn_agent_execution;
 use crate::agent::types::{content_blocks_from_proto, AgentRunRequest, AgentStatus, ResumeSession};
+use crate::files;
 use crate::state::SandboxState;
 
 
@@ -119,5 +123,156 @@ impl SandboxService for SandboxServiceImpl {
             .unwrap_or_default();
 
         Ok(Response::new(SearchFilesResponse { files }))
+    }
+
+    // ── File operations ──────────────────────────────────────────
+
+    async fn get_file_tree(
+        &self,
+        request: Request<GetFileTreeRequest>,
+    ) -> Result<Response<GetFileTreeResponse>, Status> {
+        let req = request.into_inner();
+        let workspace_dir = &self.state.config.workspace_dir;
+        let root_path = if req.root_path.is_empty() {
+            "."
+        } else {
+            &req.root_path
+        };
+
+        let (tree, summary) =
+            files::tree::get_file_tree_with_changes(workspace_dir, root_path)
+                .await
+                .map_err(|e| Status::internal(format!("Failed to build file tree: {e}")))?;
+
+        Ok(Response::new(GetFileTreeResponse {
+            tree: tree.into_iter().map(tree_node_to_proto).collect(),
+            git_summary: Some(sandbox_proto::GitSummary {
+                total_files: summary.total_files,
+                total_additions: summary.total_additions,
+                total_deletions: summary.total_deletions,
+                total_staged: summary.total_staged,
+                total_modified: summary.total_modified,
+                compare_base: summary.compare_base,
+                has_changes: summary.has_changes,
+            }),
+        }))
+    }
+
+    async fn read_file(
+        &self,
+        request: Request<ReadFileRequest>,
+    ) -> Result<Response<ReadFileResponse>, Status> {
+        let req = request.into_inner();
+        let workspace_dir = &self.state.config.workspace_dir;
+
+        if req.include_changes {
+            let result = files::read_write::read_file_with_changes(workspace_dir, &req.path)
+                .await
+                .map_err(file_error_to_status)?;
+            Ok(Response::new(ReadFileResponse {
+                content: result.content,
+                old_content: result.old_content,
+                additions: result.additions,
+                deletions: result.deletions,
+                is_modified: result.is_modified,
+            }))
+        } else {
+            let content = files::read_write::read_file(workspace_dir, &req.path)
+                .await
+                .map_err(file_error_to_status)?;
+            Ok(Response::new(ReadFileResponse {
+                content,
+                old_content: None,
+                additions: None,
+                deletions: None,
+                is_modified: None,
+            }))
+        }
+    }
+
+    async fn write_file(
+        &self,
+        request: Request<WriteFileRequest>,
+    ) -> Result<Response<WriteFileResponse>, Status> {
+        let req = request.into_inner();
+        let workspace_dir = &self.state.config.workspace_dir;
+
+        files::read_write::write_file(workspace_dir, &req.path, &req.content)
+            .await
+            .map_err(file_error_to_status)?;
+
+        info!(path = %req.path, "File written via gRPC");
+        Ok(Response::new(WriteFileResponse {}))
+    }
+
+    async fn list_files(
+        &self,
+        request: Request<ListFilesRequest>,
+    ) -> Result<Response<ListFilesResponse>, Status> {
+        let req = request.into_inner();
+        let workspace_dir = &self.state.config.workspace_dir;
+        let path = if req.path.is_empty() { "." } else { &req.path };
+
+        let files = files::tree::list_files(workspace_dir, path, req.recursive)
+            .await
+            .map_err(|e| Status::internal(format!("Failed to list files: {e}")))?;
+
+        Ok(Response::new(ListFilesResponse { files }))
+    }
+
+    async fn search_files_by_name(
+        &self,
+        request: Request<SearchFilesByNameRequest>,
+    ) -> Result<Response<SearchFilesByNameResponse>, Status> {
+        let req = request.into_inner();
+        let workspace_dir = &self.state.config.workspace_dir;
+
+        let results = files::search::search_files_by_name(
+            workspace_dir,
+            &req.query,
+            req.case_sensitive,
+            req.max_results,
+        )
+        .await
+        .map_err(|e| Status::internal(format!("Failed to search files: {e}")))?;
+
+        let total_matches = results.len() as i32;
+        Ok(Response::new(SearchFilesByNameResponse {
+            files: results
+                .into_iter()
+                .map(|m| sandbox_proto::FileNameMatch {
+                    path: m.path,
+                    matches: m.matches,
+                })
+                .collect(),
+            total_matches,
+        }))
+    }
+}
+
+// ── Helpers ──────────────────────────────────────────────────────
+
+fn tree_node_to_proto(node: files::tree::FileTreeNode) -> sandbox_proto::FileTreeNode {
+    sandbox_proto::FileTreeNode {
+        name: node.name,
+        path: node.path,
+        node_type: match node.node_type {
+            files::tree::FileNodeType::File => sandbox_proto::FileNodeType::File.into(),
+            files::tree::FileNodeType::Directory => sandbox_proto::FileNodeType::Directory.into(),
+        },
+        is_changed: node.is_changed,
+        git_status: node.git_status,
+        additions: node.additions,
+        deletions: node.deletions,
+        is_staged: node.is_staged,
+        children: node.children.into_iter().map(tree_node_to_proto).collect(),
+    }
+}
+
+fn file_error_to_status(e: files::FileError) -> Status {
+    match e {
+        files::FileError::InvalidPath(msg) => Status::invalid_argument(msg),
+        files::FileError::NotFound(msg) => Status::not_found(msg),
+        files::FileError::Io(e) => Status::internal(format!("IO error: {e}")),
     }
 }
