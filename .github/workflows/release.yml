@@ -99,7 +99,7 @@ jobs:
             --platform linux/amd64 \
             -f backend/Dockerfile \
             -t ${{ env.BACKEND_IMAGE_NAME }}:${{ steps.version.outputs.version }}-rc \
-            backend
+            .
           docker push ${{ env.BACKEND_IMAGE_NAME }}:${{ steps.version.outputs.version }}-rc
 
       # === BUILD & PUSH SERVER IMAGES ===

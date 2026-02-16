@@ -2,6 +2,9 @@
 
 # Build natively on host arch, cross-compile to target arch.
 # This avoids QEMU emulation which makes Rust compilation 5-10x slower.
+#
+# IMPORTANT: Build context must be the repo root (not backend/), because
+# the workspace Cargo.toml is needed for workspace-level lint configs.
 
 # --- Chef stage: install cargo-chef (runs on build host natively) ---
 FROM --platform=$BUILDPLATFORM rust:1.88-slim AS chef
@@ -55,7 +58,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     elif [ "$TARGETARCH" = "arm64" ] && [ "$(uname -m)" != "aarch64" ]; then \
       TARGET_FLAG="--target aarch64-unknown-linux-gnu"; \
     fi && \
-    cargo chef cook --release $TARGET_FLAG --recipe-path recipe.json
+    cargo chef cook --release $TARGET_FLAG --recipe-path recipe.json -p moatless-vibe-backend
 
 # Build the actual binary
 COPY . .
@@ -63,13 +66,13 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/app/target \
     if [ "$TARGETARCH" = "amd64" ] && [ "$(uname -m)" != "x86_64" ]; then \
-      cargo build --release --target x86_64-unknown-linux-gnu && \
+      cargo build --release --target x86_64-unknown-linux-gnu -p moatless-vibe-backend && \
       cp target/x86_64-unknown-linux-gnu/release/moatless-vibe-backend /app/moatless-vibe-backend; \
     elif [ "$TARGETARCH" = "arm64" ] && [ "$(uname -m)" != "aarch64" ]; then \
-      cargo build --release --target aarch64-unknown-linux-gnu && \
+      cargo build --release --target aarch64-unknown-linux-gnu -p moatless-vibe-backend && \
       cp target/aarch64-unknown-linux-gnu/release/moatless-vibe-backend /app/moatless-vibe-backend; \
     else \
-      cargo build --release && \
+      cargo build --release -p moatless-vibe-backend && \
       cp target/release/moatless-vibe-backend /app/moatless-vibe-backend; \
     fi
 
