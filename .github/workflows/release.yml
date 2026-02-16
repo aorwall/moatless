@@ -174,10 +174,9 @@ jobs:
           cd docker-compose
           docker compose -f docker-compose.yml -f docker-compose.ci.yml --env-file .env.ci down -v || true
 
-      # === RETAG TO RELEASE (only if E2E passed) ===
+      # === RETAG TO RELEASE ===
       - name: Retag app image to release
         run: |
-          docker pull ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}-rc
           docker tag ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}-rc \
             ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
           docker tag ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}-rc \
@@ -187,7 +186,6 @@ jobs:
 
       - name: Retag sandbox image to release
         run: |
-          docker pull ${{ env.SANDBOX_IMAGE_NAME }}:${{ steps.version.outputs.version }}-rc
           docker tag ${{ env.SANDBOX_IMAGE_NAME }}:${{ steps.version.outputs.version }}-rc \
             ${{ env.SANDBOX_IMAGE_NAME }}:${{ steps.version.outputs.version }}
           docker tag ${{ env.SANDBOX_IMAGE_NAME }}:${{ steps.version.outputs.version }}-rc \
@@ -197,7 +195,6 @@ jobs:
 
       - name: Retag backend image to release
         run: |
-          docker pull ${{ env.BACKEND_IMAGE_NAME }}:${{ steps.version.outputs.version }}-rc
           docker tag ${{ env.BACKEND_IMAGE_NAME }}:${{ steps.version.outputs.version }}-rc \
             ${{ env.BACKEND_IMAGE_NAME }}:${{ steps.version.outputs.version }}
           docker tag ${{ env.BACKEND_IMAGE_NAME }}:${{ steps.version.outputs.version }}-rc \
