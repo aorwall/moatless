@@ -13,7 +13,6 @@ env:
   IMAGE_NAME: aorwall/moatless-vibe
   SANDBOX_IMAGE_NAME: aorwall/moatless-vibe-sandbox-js
   BACKEND_IMAGE_NAME: aorwall/moatless-vibe-backend
-  FILES_SERVER_IMAGE: aorwall/moatless-vibe-files-server
   PREVIEW_SERVER_IMAGE: aorwall/moatless-vibe-preview-server
 
 jobs:
@@ -34,6 +33,9 @@ jobs:
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
 
       # === BUILD RUST SANDBOX BINARY ===
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
@@ -90,22 +92,6 @@ jobs:
           docker push ${{ env.BACKEND_IMAGE_NAME }}:${{ steps.version.outputs.version }}-rc
 
       # === BUILD & PUSH SERVER IMAGES ===
-      - name: Build file-explorer dist
-        run: |
-          bun install
-          bunx turbo run build --filter=@moatless/file-explorer
-
-      - name: Build and push files-server image
-        run: |
-          docker build \
-            --platform linux/amd64 \
-            -f docker/Dockerfile.files-server \
-            -t ${{ env.FILES_SERVER_IMAGE }}:${{ steps.version.outputs.version }} \
-            -t ${{ env.FILES_SERVER_IMAGE }}:latest \
-            .
-          docker push ${{ env.FILES_SERVER_IMAGE }}:${{ steps.version.outputs.version }}
-          docker push ${{ env.FILES_SERVER_IMAGE }}:latest
-
       - name: Build and push preview-server image
         run: |
           docker build \
@@ -265,7 +251,6 @@ jobs:
           echo "- **App:** \`${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Sandbox:** \`${{ env.SANDBOX_IMAGE_NAME }}:${{ steps.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Backend:** \`${{ env.BACKEND_IMAGE_NAME }}:${{ steps.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Files Server:** \`${{ env.FILES_SERVER_IMAGE }}:${{ steps.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Preview Server:** \`${{ env.PREVIEW_SERVER_IMAGE }}:${{ steps.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Helm Chart" >> $GITHUB_STEP_SUMMARY
