@@ -146,6 +146,8 @@ backend:
   grpcPort: 50051
   # -- Log level (RUST_LOG format)
   logLevel: "info"
+  # -- Backtrace mode (RUST_BACKTRACE: "0", "1", or "full")
+  backtrace: "1"
   # -- Pod annotations
   podAnnotations: {}
   # -- Sandbox image for sandbox pods

@@ -62,6 +62,8 @@ spec:
               value: {{ .Values.kubernetes.namespace | default .Release.Namespace | quote }}
             - name: RUST_LOG
               value: {{ .Values.backend.logLevel | default "info" | quote }}
+            - name: RUST_BACKTRACE
+              value: {{ .Values.backend.backtrace | default "1" | quote }}
             - name: SANDBOX_IMAGE
               value: {{ include "moatless-vibe.sandboxImage" . | quote }}
             - name: SANDBOX_IMAGE_PULL_POLICY

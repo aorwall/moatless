@@ -207,8 +207,10 @@ pub async fn get_server_configs(
 /// Build the servers list from the DB `servers` JSONB column.
 ///
 /// If the `servers` JSONB column contains entries, those are used as-is
-/// (data-driven). If empty or missing, backwards-compatible defaults are
-/// injected: a "files" server and optionally a "preview" server.
+/// (data-driven). If empty or missing, a backwards-compatible "preview"
+/// server is injected when the repository has start commands.
+/// The files view is now built into the frontend and no longer needs a
+/// sidecar container.
 fn build_servers(repo: &Repository) -> Vec<ServerConfig> {
     let mut servers: Vec<ServerConfig> = repo
         .servers
@@ -218,18 +220,6 @@ fn build_servers(repo: &Repository) -> Vec<ServerConfig> {
 
     // Only inject defaults when servers list is empty (old repos without server configs)
     if servers.is_empty() {
-        // Always add file explorer
-        servers.push(ServerConfig {
-            name: "files".to_string(),
-            label: Some("Files".to_string()),
-            port: 4000,
-            docker_image: Some("aorwall/moatless-vibe-files-server:latest".to_string()),
-            env_vars: Some(HashMap::from([
-                ("FILE_EXPLORER_PORT".into(), "4000".into()),
-            ])),
-            ..Default::default()
-        });
-
         // Add preview server if start commands exist
         if repo.server_start_commands.is_some() {
             let start_commands = repo
