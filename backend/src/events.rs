@@ -20,6 +20,30 @@ use serde::Serialize;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
+/// Maximum number of retry attempts after the initial publish fails.
+const MAX_RETRIES: usize = 2;
+
+/// Fixed delays (in ms) between retry attempts.
+const RETRY_DELAYS_MS: [u64; MAX_RETRIES] = [50, 200];
+
+/// Register Prometheus metric descriptions for event publishing counters.
+///
+/// Call once at startup after the Prometheus recorder is installed.
+pub fn describe_event_metrics() {
+    metrics::describe_counter!(
+        "events_published_total",
+        "Total events successfully published to Redis"
+    );
+    metrics::describe_counter!(
+        "events_publish_failures_total",
+        "Total events that failed to publish after all retries"
+    );
+    metrics::describe_counter!(
+        "events_publish_retries_total",
+        "Total retry attempts that preceded a successful publish"
+    );
+}
+
 /// Trait for publishing lifecycle events.
 ///
 /// Abstracts event publishing so handlers can be tested without Redis.
@@ -214,40 +238,72 @@ impl RedisEventPublisher {
         let stream_key = format!("task-events:{task_id}");
         let max_len = self.max_stream_length;
 
-        let mut conn = self.conn.clone();
-        let result: Result<String, redis::RedisError> = redis::cmd("XADD")
-            .arg(&stream_key)
-            .arg("MAXLEN")
-            .arg("~")
-            .arg(max_len)
-            .arg("*")
-            .arg("eventId")
-            .arg(&event_id)
-            .arg("type")
-            .arg(event_type)
-            .arg("payload")
-            .arg(&event_json)
-            .query_async(&mut conn)
-            .await;
+        let mut last_err = None;
+        for attempt in 0..=MAX_RETRIES {
+            if attempt > 0 {
+                tokio::time::sleep(std::time::Duration::from_millis(
+                    RETRY_DELAYS_MS[attempt - 1],
+                ))
+                .await;
+            }
 
-        match result {
-            Ok(_) => {
-                debug!(
-                    task_id = %task_id,
-                    event_type = %event_type,
-                    sub_type = %sub_type,
-                    "Published event to Redis"
-                );
+            let mut conn = self.conn.clone();
+            let result: Result<String, redis::RedisError> = redis::cmd("XADD")
+                .arg(&stream_key)
+                .arg("MAXLEN")
+                .arg("~")
+                .arg(max_len)
+                .arg("*")
+                .arg("eventId")
+                .arg(&event_id)
+                .arg("type")
+                .arg(event_type)
+                .arg("payload")
+                .arg(&event_json)
+                .query_async(&mut conn)
+                .await;
+
+            match result {
+                Ok(_) => {
+                    if attempt > 0 {
+                        metrics::counter!("events_publish_retries_total")
+                            .increment(attempt as u64);
+                        info!(
+                            task_id = %task_id,
+                            event_type = %event_type,
+                            sub_type = %sub_type,
+                            attempt = attempt + 1,
+                            "Published event to Redis after retry"
+                        );
+                    }
+                    metrics::counter!("events_published_total", "type" => event_type.to_string())
+                        .increment(1);
+                    debug!(
+                        task_id = %task_id,
+                        event_type = %event_type,
+                        sub_type = %sub_type,
+                        "Published event to Redis"
+                    );
+                    return;
+                }
+                Err(e) => {
+                    last_err = Some(e);
+                }
             }
-            Err(e) => {
-                warn!(
-                    task_id = %task_id,
-                    event_type = %event_type,
-                    sub_type = %sub_type,
-                    error = %e,
-                    "Failed to publish event to Redis"
-                );
-            }
+        }
+
+        // All attempts exhausted
+        if let Some(e) = last_err {
+            metrics::counter!("events_publish_failures_total", "type" => event_type.to_string())
+                .increment(1);
+            warn!(
+                task_id = %task_id,
+                event_type = %event_type,
+                sub_type = %sub_type,
+                attempts = MAX_RETRIES + 1,
+                error = %e,
+                "Failed to publish event to Redis after all retries"
+            );
         }
     }
 }

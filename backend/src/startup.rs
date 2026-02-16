@@ -45,6 +45,7 @@ pub fn init_tracing() {
 /// Spawn the Prometheus metrics server on a dedicated port.
 pub fn spawn_metrics_server(port: u16) {
     let handle = metrics::init_metrics();
+    crate::events::describe_event_metrics();
     let router = metrics::metrics_router(handle);
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     tokio::spawn(async move {
