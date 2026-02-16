@@ -50,6 +50,17 @@ jobs:
           mkdir -p /tmp/sandbox-binaries/amd64
           cp target/release/sandbox /tmp/sandbox-binaries/amd64/sandbox
 
+      # === BUILD FRONTEND ===
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies and build frontend
+        run: |
+          bun install
+          bun run build
+
       # === BUILD & PUSH RC IMAGES ===
       - name: Login to Docker Hub
         run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
@@ -104,14 +115,6 @@ jobs:
           docker push ${{ env.PREVIEW_SERVER_IMAGE }}:latest
 
       # === E2E TESTING ===
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Install dependencies
-        run: bun install
-
       - name: Create data directory
         run: mkdir -p data
 
