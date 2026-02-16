@@ -1,0 +1,15 @@
+@import "@moatless/diff-viewer/styles/diff-theme.css";
+
+:root {
+  --git-added: oklch(0.45 0.15 145);
+  --git-modified: oklch(0.5 0.15 65);
+  --git-deleted: oklch(0.5 0.19 22);
+  --git-renamed: oklch(0.45 0.12 280);
+}
+
+.dark {
+  --git-added: oklch(0.72 0.15 145);
+  --git-modified: oklch(0.78 0.15 65);
+  --git-deleted: oklch(0.7 0.19 22);
+  --git-renamed: oklch(0.72 0.12 280);
+}

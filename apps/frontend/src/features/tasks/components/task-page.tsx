@@ -2,9 +2,11 @@ import type { Event, MessageContext } from '@moatless/types'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { useTaskEventSubscription } from '@/features/events'
-import { Preview } from '@/features/preview'
+import { FileExplorer } from '@/features/files'
+import { Preview, SandboxStatusOverlay } from '@/features/preview'
 import type { ElementInfo, SandboxEvent, StartupEvent } from '@/features/preview/types'
 import { useWorkspaceStatus } from '@/features/tasks'
+import { useWorkspaceRetry } from '@/features/tasks/hooks/use-workspace-status'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { Skeleton } from '@/lib/components/ui/skeleton'
@@ -15,6 +17,7 @@ import { ChatContainer } from './chat-view/chat-container.tsx'
 import { TaskLeftHeader } from './task-header/task-left-header'
 import { TaskPageLayout } from './task-page-layout'
 import { TaskDetailSkeleton } from './task-skeletons'
+import { WorkspaceHeader } from './workspace-header'
 
 function TaskPageComponent() {
   const taskId = useTaskId()
@@ -120,8 +123,11 @@ function TaskPageComponent() {
   const workspaceStatus = workspaceStatusQuery.data
   const servers = workspaceStatus?.servers
 
+  // Hook for retrying/starting sandbox (used by files view)
+  const retryMutation = useWorkspaceRetry(taskId)
+
   // Get current view from URL with smart defaults
-  const { view, isMobile } = useTaskView({
+  const { view, setView, isMobile } = useTaskView({
     servers,
   })
 
@@ -226,9 +232,36 @@ function TaskPageComponent() {
       return <ErrorAlert error={workspaceStatusQuery.error} />
     }
 
+    if (view === 'files') {
+      const isSandboxReady = workspaceStatus?.environmentStatus === 'ready'
+      return (
+        <ErrorBoundary componentName="File Explorer">
+          <div className="h-full flex flex-col">
+            <WorkspaceHeader activeView={view} onViewChange={setView} servers={servers} />
+            <div className="flex-1 min-h-0 relative">
+              {isSandboxReady ? (
+                <FileExplorer taskId={taskId} />
+              ) : (
+                workspaceStatus?.environmentStatus && (
+                  <SandboxStatusOverlay
+                    environmentStatus={workspaceStatus.environmentStatus}
+                    environmentError={workspaceStatus.environmentError ?? undefined}
+                    sandboxEvents={sandboxEvents}
+                    onRetry={() => retryMutation.mutate()}
+                    isRetrying={retryMutation.isPending}
+                    retryError={retryMutation.error}
+                  />
+                )
+              )}
+            </div>
+          </div>
+        </ErrorBoundary>
+      )
+    }
+
     const activeServerName = view === 'chat' ? undefined : view
 
-    // Always render Preview - it handles sandbox status internally
+    // Render Preview for server views - it handles sandbox status internally
     return (
       <ErrorBoundary componentName="Preview">
         <Preview

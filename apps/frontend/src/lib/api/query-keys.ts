@@ -28,6 +28,10 @@ export const queryKeys = {
 
     // File operations - all under 'files' key for targeted invalidation
     files: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'files'] as const,
+    fileTree: (taskId: string, path?: string) =>
+      [...queryKeys.tasks.files(taskId), 'tree', path] as const,
+    fileContent: (taskId: string, filePath: string, changes?: boolean) =>
+      [...queryKeys.tasks.files(taskId), 'content', filePath, changes] as const,
     commands: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'commands'] as const,
   },
 

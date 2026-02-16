@@ -28,22 +28,25 @@ function StatusDot({ status }: { status: ServerEntry['status'] }) {
  */
 export function ServerTabs({ servers, activeView, onViewChange, className }: ServerTabsProps) {
   const sorted = servers.toSorted((a, b) => (b.default ? 1 : 0) - (a.default ? 1 : 0))
-  const serverViews = sorted.map((server) => ({
-    id: server.name,
-    label: server.label,
-    status: server.status,
-  }))
+  const allTabs: Array<{ id: string; label: string; status?: ServerEntry['status'] }> = [
+    { id: 'files', label: 'Files' },
+    ...sorted.map((server) => ({
+      id: server.name,
+      label: server.label,
+      status: server.status,
+    })),
+  ]
 
   return (
     <div className={cn('flex items-center border rounded-md bg-muted/30 flex-shrink-0', className)}>
-      {serverViews.map((tab, index) => (
+      {allTabs.map((tab, index) => (
         <button
           key={tab.id}
           type="button"
           className={cn(
             'px-3 py-1 text-sm font-medium transition-colors flex items-center gap-1.5',
             index === 0 && 'rounded-l-md',
-            index === serverViews.length - 1 && 'rounded-r-md',
+            index === allTabs.length - 1 && 'rounded-r-md',
             activeView === tab.id
               ? 'bg-background text-foreground shadow-sm'
               : 'text-muted-foreground hover:text-foreground',
