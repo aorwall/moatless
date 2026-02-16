@@ -1,43 +1,33 @@
-//! Moatless Vibe Backend - Workspace orchestration, auth, tasks, and messaging API
+//! Moatless Vibe Backend — entry point.
 //!
-//! Serves a unified API on port 8080. Authenticated via Traefik ForwardAuth.
+//! Orchestrates startup by delegating to focused helpers in [`startup`],
+//! factory constructors on state structs, and per-module router builders.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::Json;
 use tokio::net::TcpListener;
-use tracing::info;
-use tracing_subscriber::EnvFilter;
-
-use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
+use tracing::info;
 
 use moatless_vibe_backend::auth;
+use moatless_vibe_backend::channel;
 use moatless_vibe_backend::config::Config;
-use moatless_vibe_backend::db;
 use moatless_vibe_backend::event_handler;
-use moatless_vibe_backend::events::RedisEventPublisher;
 use moatless_vibe_backend::feature_flags;
-use moatless_vibe_backend::metrics;
 use moatless_vibe_backend::sandbox;
-use moatless_vibe_backend::sandbox_grpc_server::BackendSandboxServiceImpl;
-use moatless_vibe_backend::sse;
+use moatless_vibe_backend::sse::routes::sse_router;
+use moatless_vibe_backend::startup;
 use moatless_vibe_backend::state::AppState;
-use moatless_vibe_backend::{channel, command, figma, file_storage, message, provider_settings, repository, tag, task};
-
-use auth::cache::AuthCache;
-use auth::routes::{AuthState, OAuthProviders};
-use sandbox::k8s::client::K8sClient;
-use sandbox::k8s::status_resolver::StatusResolver;
-use sse::consumer::RedisStreamConsumer;
-use sse::routes::{sse_router, SseState};
+use moatless_vibe_backend::{command, figma, file_storage, message, provider_settings, repository, tag, task};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Handle --dump-openapi before any runtime initialization
     if std::env::args().any(|a| a == "--dump-openapi") {
-        dump_openapi()?;
+        let spec = startup::build_merged_openapi();
+        println!("{}", spec.to_pretty_json()?);
         return Ok(());
     }
 
@@ -46,303 +36,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .install_default()
         .expect("Failed to install rustls crypto provider");
 
-    // Initialize logging
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new("info")),
-        )
-        .json()
-        .init();
+    startup::init_tracing();
 
-    // Load configuration
     let config = Config::from_env();
-    info!(
-        sandbox_namespace = %config.sandbox_namespace,
-        "Starting Moatless Vibe Backend"
-    );
+    info!(sandbox_namespace = %config.sandbox.namespace, "Starting Moatless Vibe Backend");
 
-    // Initialize metrics
-    let metrics_handle = metrics::init_metrics();
-
-    // Create metrics router
-    let metrics_router = metrics::metrics_router(metrics_handle);
-
-    // Start metrics server
-    let metrics_port = config.metrics_port;
-    let metrics_addr = SocketAddr::from(([0, 0, 0, 0], metrics_port));
-    tokio::spawn(async move {
-        let listener = TcpListener::bind(metrics_addr).await.unwrap();
-        info!(port = metrics_port, "Metrics server started");
-        axum::serve(listener, metrics_router).await.unwrap();
-    });
-
-    // Optionally initialize database pool
-    let db_pool = if let Some(ref database_url) = config.database_url {
-        match db::create_pool(database_url).await {
-            Ok(pool) => {
-                info!("Database pool initialized");
-                // Run pending migrations
-                if let Err(e) = db::run_migrations(&pool).await {
-                    tracing::error!(error = %e, "Database migration failed");
-                    std::process::exit(1);
-                }
-                info!("Database migrations complete");
-                Some(pool)
-            }
-            Err(e) => {
-                tracing::error!(error = %e, "Failed to create database pool — auto-provisioning disabled");
-                None
-            }
-        }
-    } else {
-        info!("DATABASE_URL not set — auto-provisioning on /start disabled");
-        None
-    };
-
-    // Optionally initialize Redis event publisher
-    let event_publisher = if let Some(ref redis_url) = config.redis_url {
-        RedisEventPublisher::connect(redis_url, config.redis_max_stream_length).await
-    } else {
-        info!("REDIS_URL not set — environment event publishing disabled");
-        None
-    };
-
-    // Create broadcast channel for SSE fan-out
-    let (sse_tx, _) = broadcast::channel::<String>(config.sse_broadcast_capacity);
-
-    // Graceful-shutdown token
+    // Infrastructure services
+    startup::spawn_metrics_server(config.server.metrics_port);
+    let db_pool = startup::init_database(config.database_url.as_deref()).await;
+    let event_publisher = startup::init_event_publisher(&config).await;
     let cancel = CancellationToken::new();
-
-    // Spawn SSE Redis consumer if Redis is configured
-    if let Some(ref redis_url) = config.redis_url {
-        let client = redis::Client::open(redis_url.as_str())?;
-        let conn = redis::aio::ConnectionManager::new(client).await?;
-        let consumer = RedisStreamConsumer::new(
-            conn,
-            config.sse_consumer_id.clone(),
-            sse_tx.clone(),
-            cancel.clone(),
-        );
-        tokio::spawn(consumer.run());
-        info!(consumer_id = %config.sse_consumer_id, "SSE Redis consumer spawned");
-    } else {
-        info!("REDIS_URL not set — SSE Redis consumer disabled");
-    }
-
-    let sse_state = SseState {
-        broadcast: sse_tx,
-        cancel: cancel.clone(),
-    };
-
-    // Optionally initialize S3 client
-    let s3_client = if config.s3_bucket_name.is_some() {
-        let aws_config = aws_config::defaults(aws_config::BehaviorVersion::latest())
-            .region(aws_config::Region::new(config.s3_region.clone()))
-            .load()
-            .await;
-        let client = aws_sdk_s3::Client::new(&aws_config);
-        info!("S3 client initialized");
-        Some(client)
-    } else {
-        info!("S3_BUCKET_NAME not set — file uploads disabled");
-        None
-    };
-
-    // Initialize K8s client and start API server
-    let k8s = K8sClient::new(config.sandbox_namespace.clone()).await?;
+    let sse_state = startup::init_sse(&config, cancel.clone()).await?;
+    let s3_client = startup::init_s3(&config).await;
+    let k8s = sandbox::k8s::client::K8sClient::new(config.sandbox.namespace.clone()).await?;
     info!("K8s client initialized");
 
-    // Install graceful shutdown handler
-    let cancel_for_signal = cancel.clone();
-    tokio::spawn(async move {
-        let _ = tokio::signal::ctrl_c().await;
-        info!("Received shutdown signal, cancelling background tasks");
-        cancel_for_signal.cancel();
-    });
+    startup::install_shutdown_handler(cancel.clone());
+    startup::spawn_grpc_server(&config, db_pool.as_ref(), event_publisher.clone());
 
-    // Spawn gRPC server for sandbox communication
-    {
-        let grpc_events = event_publisher.clone();
-        let grpc_db = db_pool.clone();
-        let grpc_port = config.grpc_port;
-        let grpc_token_secret = config.task_token_secret.clone();
-        tokio::spawn(async move {
-            let svc = BackendSandboxServiceImpl {
-                events: grpc_events,
-                db: grpc_db,
-                task_token_secret: grpc_token_secret,
-            };
-            let addr = std::net::SocketAddr::from(([0, 0, 0, 0], grpc_port));
-            info!(port = grpc_port, "Starting backend gRPC server");
-            if let Err(e) = tonic::transport::Server::builder()
-                .add_service(
-                    sandbox_proto::backend_sandbox_service_server::BackendSandboxServiceServer::new(svc),
-                )
-                .serve(addr)
-                .await
-            {
-                tracing::error!(error = %e, "gRPC server failed");
-            }
-        });
-    }
-
-    start_api_server(
+    // Build sandbox provider (works without a database — just loses auto-provision)
+    let reaper_k8s = k8s.clone();
+    let sandbox_provider = startup::build_sandbox_provider(
         &config,
-        k8s,
-        db_pool,
-        event_publisher,
-        sse_state,
-        s3_client,
-        cancel,
-    )
-    .await?;
-
-    Ok(())
-}
-
-/// Print the merged OpenAPI spec as JSON to stdout and exit.
-fn dump_openapi() -> Result<(), Box<dyn std::error::Error>> {
-    let merged = build_merged_openapi();
-    println!("{}", merged.to_pretty_json()?);
-    Ok(())
-}
-
-/// Build the merged OpenAPI spec from all API doc structs.
-///
-/// All `*ApiDoc` structs have their paths registered via `#[openapi(paths(...))]`,
-/// so we can build the full spec without constructing any routers or providing real state.
-fn build_merged_openapi() -> utoipa::openapi::OpenApi {
-    use sandbox::routes::SandboxApiDoc;
-    use auth::routes::AuthApiDoc;
-    use task::routes::TaskApiDoc;
-    use message::routes::MessageApiDoc;
-    use command::routes::CommandApiDoc;
-    use file_storage::routes::FileStorageApiDoc;
-    use figma::routes::FigmaApiDoc;
-    use repository::routes::RepositoryApiDoc;
-    use tag::routes::TagApiDoc;
-    use provider_settings::routes::ProviderSettingsApiDoc;
-    use channel::routes::ChannelApiDoc;
-    use utoipa::OpenApi;
-
-    // Event schemas (no paths — schema-only doc for generated TS types)
-    #[derive(OpenApi)]
-    #[openapi(
-        components(schemas(
-            moatless_events::EventType,
-            moatless_events::SandboxSubType,
-            moatless_events::ServerSubType,
-            moatless_events::AgentSubType,
-            moatless_events::TaskSubType,
-            moatless_events::TaskTurnSubType,
-            moatless_events::ServerEventPayload,
-            moatless_events::StreamEvent,
-        ))
-    )]
-    struct EventsApiDoc;
-
-    let mut merged = SandboxApiDoc::openapi();
-    merged.merge(AuthApiDoc::openapi());
-    merged.merge(TaskApiDoc::openapi());
-    merged.merge(MessageApiDoc::openapi());
-    merged.merge(CommandApiDoc::openapi());
-    merged.merge(FileStorageApiDoc::openapi());
-    merged.merge(FigmaApiDoc::openapi());
-    merged.merge(RepositoryApiDoc::openapi());
-    merged.merge(TagApiDoc::openapi());
-    merged.merge(ProviderSettingsApiDoc::openapi());
-    merged.merge(ChannelApiDoc::openapi());
-    merged.merge(EventsApiDoc::openapi());
-
-    merged.info = utoipa::openapi::InfoBuilder::new()
-        .title("Moatless Vibe Backend API")
-        .version(env!("CARGO_PKG_VERSION"))
-        .description(Some("Workspace orchestration and authentication for Moatless Vibe"))
-        .build();
-
-    merged
-}
-
-/// Build channel providers from config.
-fn build_channel_providers(config: &Config) -> Option<channel::provider::ChannelProviders> {
-    let mut providers = channel::provider::ChannelProviders::new();
-    let mut has_any = false;
-
-    if let (Some(ref token), Some(ref secret)) =
-        (&config.slack_bot_token, &config.slack_signing_secret)
-    {
-        let slack = channel::slack::provider::SlackProvider::new(
-            token,
-            secret,
-            config.slack_bot_user_id.clone(),
-        );
-        providers.register(Arc::new(slack));
-        has_any = true;
-        info!("Slack channel provider configured");
-    }
-
-    if has_any {
-        Some(providers)
-    } else {
-        info!("No channel providers configured");
-        None
-    }
-}
-
-/// Build OAuth providers from config.
-fn build_oauth_providers(config: &Config) -> OAuthProviders {
-    let github = auth::oauth::github::GitHubOAuthProvider::from_config(config).map(|p| {
-        info!("GitHub OAuth provider configured");
-        Arc::new(p) as Arc<dyn auth::oauth::provider::OAuthProvider>
-    });
-
-    let auth0 = auth::oauth::auth0::Auth0OAuthProvider::from_config(config).map(|p| {
-        info!("Auth0 OAuth provider configured");
-        Arc::new(p) as Arc<dyn auth::oauth::provider::OAuthProvider>
-    });
-
-    OAuthProviders { github, auth0 }
-}
-
-/// Start the API server on the configured port.
-async fn start_api_server(
-    config: &Config,
-    k8s: K8sClient,
-    db_pool: Option<db::DbPool>,
-    event_publisher: Option<RedisEventPublisher>,
-    sse_state: SseState,
-    s3_client: Option<aws_sdk_s3::Client>,
-    cancel: CancellationToken,
-) -> Result<(), Box<dyn std::error::Error>> {
-    use sandbox::k8s::provider::K8sSandboxProvider;
-    use sandbox::routes::{api_router, SandboxApiState};
-
-    let status_resolver = StatusResolver::new(
         k8s.clone(),
-        Arc::new(config.clone()),
-        db_pool.clone(),
+        db_pool.as_ref(),
+        event_publisher.clone(),
     );
 
-    let provider = K8sSandboxProvider {
-        config: Arc::new(config.clone()),
-        k8s: k8s.clone(),
-        status_resolver,
-        db_pool: db_pool.clone(),
-        event_publisher: event_publisher.clone(),
-    };
-
-    let sandbox_provider: Arc<dyn sandbox::provider::SandboxProvider> = Arc::new(provider);
-
-    // Clone K8s client before it's moved into the pod watcher (needed by idle reaper)
-    let reaper_k8s = k8s.clone();
-
-    // Spawn pod lifecycle watcher (requires Redis event publisher)
+    // Spawn pod lifecycle watcher
     if let Some(ref publisher) = event_publisher {
         sandbox::k8s::pod_watcher::spawn_pod_lifecycle_watcher(
             k8s,
             publisher.clone(),
-            db_pool.clone(),
             cancel.clone(),
         );
         info!("Pod lifecycle watcher spawned");
@@ -350,48 +75,34 @@ async fn start_api_server(
         info!("Pod lifecycle watcher disabled (requires Redis)");
     }
 
-    let sandbox_state = SandboxApiState {
+    // ── Build router ────────────────────────────────────────────────────
+    let sandbox_state = sandbox::routes::SandboxApiState {
         provider: Arc::clone(&sandbox_provider),
     };
+    let (mut router, mut api) = sandbox::routes::api_router(sandbox_state);
 
-    // Build sandbox router with OpenAPI
-    let (mut router, mut merged_api) = api_router(sandbox_state);
-
-    // Add auth routes if database is available
+    // Auth routes (needs DB)
     if let Some(ref pool) = db_pool {
-        let oauth_providers = build_oauth_providers(config);
-        let auth_cache = AuthCache::new(config.auth_cache_ttl_secs);
-        let auth_state = AuthState {
-            db: pool.clone(),
-            config: Arc::new(config.clone()),
-            providers: Arc::new(oauth_providers),
-            cache: auth_cache,
-        };
+        let auth_state = auth::routes::AuthState::new(pool.clone(), Arc::new(config.clone()));
         let (auth_router, auth_api) = auth::routes::auth_router(auth_state);
         router = router.merge(auth_router);
-        merged_api.merge(auth_api);
-        info!(
-            auth_provider = ?config.auth_provider,
-            auth_cache_ttl_secs = config.auth_cache_ttl_secs,
-            "Auth routes registered"
-        );
+        api.merge(auth_api);
+        info!(auth_provider = ?config.auth.provider, "Auth routes registered");
     } else {
         info!("Auth routes disabled (no database)");
     }
 
-    // Add new API routes if database is available
+    // Domain routes (need DB)
     if let Some(pool) = db_pool {
-        // Build channel providers
-        let channel_providers = build_channel_providers(config);
-
-        let app_state = AppState {
-            db: pool,
-            config: Arc::new(config.clone()),
-            sandbox: sandbox_provider,
-            events: event_publisher,
-            s3: s3_client,
-            channel_providers: channel_providers.map(Arc::new),
-        };
+        let channel_providers = channel::provider::ChannelProviders::from_config(&config);
+        let app_state = AppState::new(
+            pool,
+            Arc::new(config.clone()),
+            sandbox_provider,
+            event_publisher,
+            s3_client,
+            channel_providers.map(Arc::new),
+        );
 
         let modules = vec![
             task::routes::task_router(app_state.clone()),
@@ -404,80 +115,95 @@ async fn start_api_server(
             provider_settings::routes::provider_settings_router(app_state.clone()),
             channel::routes::channel_router(app_state.clone()),
         ];
-        for (module_router, module_api) in modules {
-            router = router.merge(module_router);
-            merged_api.merge(module_api);
+        for (mod_router, mod_api) in modules {
+            router = router.merge(mod_router);
+            api.merge(mod_api);
         }
+        info!("Domain routes registered");
 
-        info!("Task/message/command/file/figma/repository/tag/provider routes registered");
-
-        // Spawn event handler consumer if Redis is available
-        if let Some(ref redis_url) = config.redis_url {
-            match redis::Client::open(redis_url.as_str()) {
-                Ok(client) => match redis::aio::ConnectionManager::new(client).await {
-                    Ok(conn) => {
-                        let handler_state = app_state.clone();
-                        let handler_cancel = cancel.clone();
-                        tokio::spawn(event_handler::spawn_event_handler(
-                            conn,
-                            handler_state,
-                            handler_cancel,
-                        ));
-                        info!("Event handler consumer spawned");
-                    }
-                    Err(e) => {
-                        tracing::warn!(error = %e, "Failed to connect Redis for event handler");
-                    }
-                },
-                Err(e) => {
-                    tracing::warn!(error = %e, "Failed to create Redis client for event handler");
-                }
-            }
-        }
-
-        // Spawn idle sandbox reaper
-        if app_state.config.sandbox_idle_reaper_enabled {
-            sandbox::idle_reaper::spawn_idle_reaper(
-                reaper_k8s,
-                app_state.db.clone(),
-                Arc::clone(&app_state.sandbox),
-                Arc::clone(&app_state.config),
-                cancel.clone(),
-            );
-            info!(
-                idle_timeout_minutes = app_state.config.sandbox_idle_timeout_minutes,
-                check_interval_secs = app_state.config.sandbox_idle_check_interval_secs,
-                "Idle sandbox reaper spawned"
-            );
-        } else {
-            info!("Idle sandbox reaper disabled");
-        }
+        // Background workers
+        spawn_event_handler(&config, &app_state, cancel.clone()).await;
+        spawn_idle_reaper(&app_state, reaper_k8s, cancel.clone());
     } else {
-        info!("New API routes disabled (no database)");
+        info!("Domain routes disabled (no database)");
     }
 
-    // Feature flags route (no database required)
+    // Routes that don't require a database
     router = router.route(
         "/api/v1/feature-flags",
         axum::routing::get(feature_flags::get_feature_flags),
     );
-
-    // Add SSE routes
     router = router.merge(sse_router(sse_state));
     info!("SSE routes registered");
 
-    // Serve OpenAPI spec at /openapi.json
-    let openapi_json = merged_api.clone();
+    let openapi_json = api.clone();
     let router = router.route(
         "/openapi.json",
         axum::routing::get(move || async move { Json(openapi_json) }),
     );
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], config.port));
+    // ── Serve ───────────────────────────────────────────────────────────
+    let addr = SocketAddr::from(([0, 0, 0, 0], config.server.port));
     let listener = TcpListener::bind(addr).await?;
-    info!(port = config.port, "API server started");
-
+    info!(port = config.server.port, "API server started");
     axum::serve(listener, router).await?;
 
     Ok(())
+}
+
+// =========================================================================
+// Small private helpers (kept in main to avoid over-abstracting)
+// =========================================================================
+
+/// Spawn the Redis event-handler consumer if Redis is configured.
+async fn spawn_event_handler(
+    config: &Config,
+    app_state: &AppState,
+    cancel: CancellationToken,
+) {
+    let Some(ref redis_url) = config.redis.url else { return };
+
+    let client = match redis::Client::open(redis_url.as_str()) {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!(error = %e, "Failed to create Redis client for event handler");
+            return;
+        }
+    };
+    let conn = match redis::aio::ConnectionManager::new(client).await {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!(error = %e, "Failed to connect Redis for event handler");
+            return;
+        }
+    };
+
+    let state = app_state.clone();
+    tokio::spawn(event_handler::spawn_event_handler(conn, state, cancel));
+    info!("Event handler consumer spawned");
+}
+
+/// Spawn the idle-sandbox reaper if enabled.
+fn spawn_idle_reaper(
+    app_state: &AppState,
+    k8s: sandbox::k8s::client::K8sClient,
+    cancel: CancellationToken,
+) {
+    if !app_state.config.sandbox.idle_reaper_enabled {
+        info!("Idle sandbox reaper disabled");
+        return;
+    }
+    sandbox::idle_reaper::spawn_idle_reaper(
+        k8s,
+        app_state.messages.clone(),
+        app_state.tasks.clone(),
+        Arc::clone(&app_state.sandbox),
+        Arc::clone(&app_state.config),
+        cancel,
+    );
+    info!(
+        idle_timeout_minutes = app_state.config.sandbox.idle_timeout_minutes,
+        check_interval_secs = app_state.config.sandbox.idle_check_interval_secs,
+        "Idle sandbox reaper spawned"
+    );
 }

@@ -7,11 +7,10 @@ use std::env;
 use tracing::{info, warn};
 
 use super::client::K8sClient;
-use crate::auth::provider_token_dao;
-use crate::db::DbPool;
-use crate::repository::dao as repository_dao;
+use crate::auth::provider_token_dao::ProviderTokenRepository;
+use crate::repository::dao::RepoRepository;
 use crate::repository::models::Repository;
-use crate::task::dao as task_dao;
+use crate::task::dao::TaskRepository;
 use crate::sandbox::error::SandboxError;
 use crate::sandbox::models::{ProvisionPlan, ProvisionRequest, RepoConfig, ServerConfig};
 
@@ -23,12 +22,14 @@ use crate::sandbox::models::{ProvisionPlan, ProvisionRequest, RepoConfig, Server
 /// 3. Resolve credentials (K8s Secret → env var fallback)
 /// 4. Assemble the ProvisionRequest
 pub async fn build_provision_request(
-    pool: &DbPool,
+    tasks: &dyn TaskRepository,
+    repos: &dyn RepoRepository,
+    provider_tokens: &dyn ProviderTokenRepository,
     k8s: &K8sClient,
     task_id: &str,
 ) -> Result<ProvisionRequest, SandboxError> {
     // 1. Read task from DB
-    let task = task_dao::find_by_id_internal(pool, task_id)
+    let task = tasks.find_by_id_internal(task_id)
         .await
         .map_err(|e| SandboxError::Internal(format!("DB error reading task: {e}")))?
         .ok_or_else(|| {
@@ -42,7 +43,7 @@ pub async fn build_provision_request(
     );
 
     // 2. Read repository from DB
-    let repo = repository_dao::find_repository_by_id(pool, &task.repository_id)
+    let repo = repos.find_repository_by_id(&task.repository_id)
         .await
         .map_err(|e| SandboxError::Internal(format!("DB error reading repository: {e}")))?
         .ok_or_else(|| {
@@ -54,7 +55,7 @@ pub async fn build_provision_request(
 
     // 3. Resolve credentials
     let (git_provider_token, anthropic_api_key, claude_oauth_token) =
-        resolve_credentials(k8s, task_id, pool, task.created_by.as_deref()).await;
+        resolve_credentials(k8s, task_id, provider_tokens, task.created_by.as_deref()).await;
 
     // Ensure we have at least some auth
     if anthropic_api_key.is_none() && claude_oauth_token.is_none() {
@@ -95,7 +96,7 @@ pub async fn build_provision_request(
 async fn resolve_credentials(
     _k8s: &K8sClient,
     task_id: &str,
-    pool: &DbPool,
+    provider_tokens: &dyn ProviderTokenRepository,
     user_id: Option<&str>,
 ) -> (Option<String>, Option<String>, Option<String>) {
     let mut git_token: Option<String> = None;
@@ -104,7 +105,7 @@ async fn resolve_credentials(
 
     // Step 1: Fill from provider_tokens table
     if let Some(uid) = user_id {
-        match provider_token_dao::find_provider_token(pool, uid, "github").await {
+        match provider_tokens.find_provider_token(uid, "github").await {
             Ok(Some(row)) => {
                 info!(task_id = %task_id, "Auto-provision: GitHub token resolved from provider_tokens");
                 git_token = Some(row.access_token);
@@ -115,7 +116,7 @@ async fn resolve_credentials(
             }
         }
 
-        match provider_token_dao::find_provider_token(pool, uid, "claude").await {
+        match provider_tokens.find_provider_token(uid, "claude").await {
             Ok(Some(row)) => {
                 info!(task_id = %task_id, "Auto-provision: Claude token resolved from provider_tokens");
                 claude = Some(row.access_token);
@@ -187,12 +188,16 @@ pub fn build_server_configs(repo: &Repository) -> Vec<ServerConfig> {
 ///
 /// Resolves task_id → task → repository → build_server_configs (with port assignment).
 /// Returns Err on DB failures or missing rows so callers can log appropriately.
-pub async fn get_server_configs(pool: &DbPool, task_id: &str) -> Result<Vec<ServerConfig>, String> {
-    let task = task_dao::find_by_id_internal(pool, task_id)
+pub async fn get_server_configs(
+    tasks: &dyn TaskRepository,
+    repos: &dyn RepoRepository,
+    task_id: &str,
+) -> Result<Vec<ServerConfig>, String> {
+    let task = tasks.find_by_id_internal(task_id)
         .await
         .map_err(|e| format!("Failed to fetch task {task_id}: {e}"))?
         .ok_or_else(|| format!("Task {task_id} not found"))?;
-    let repo = repository_dao::find_repository_by_id(pool, &task.repository_id)
+    let repo = repos.find_repository_by_id(&task.repository_id)
         .await
         .map_err(|e| format!("Failed to fetch repository {}: {e}", task.repository_id))?
         .ok_or_else(|| format!("Repository {} not found", task.repository_id))?;

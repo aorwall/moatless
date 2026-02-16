@@ -100,7 +100,7 @@ impl FromRequestParts<AppState> for AuthUser {
         {
             let secret = state
                 .config
-                .task_token_secret
+                .sandbox.task_token_secret
                 .as_deref()
                 .ok_or_else(|| AuthError("Token verification not configured".to_string()))?;
 

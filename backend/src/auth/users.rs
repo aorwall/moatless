@@ -1,6 +1,8 @@
 //! User table queries.
 
+use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+
 use crate::db::DbPool;
 
 #[derive(sqlx::FromRow, Debug)]
@@ -16,45 +18,57 @@ pub struct User {
     pub last_login_at: DateTime<Utc>,
 }
 
-/// Get user by ID.
-pub async fn get_user(pool: &DbPool, user_id: &str) -> Result<Option<User>, sqlx::Error> {
-    sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
-        .bind(user_id)
-        .fetch_optional(pool)
-        .await
+/// Repository trait for user persistence.
+#[cfg_attr(test, mockall::automock)]
+#[async_trait]
+pub trait UserRepository: Send + Sync {
+    async fn get_user(&self, user_id: &str) -> Result<Option<User>, sqlx::Error>;
+    async fn upsert_user(&self, user: &User) -> Result<(), sqlx::Error>;
+    async fn list_users(&self) -> Result<Vec<User>, sqlx::Error>;
 }
 
-/// Upsert user (insert or update on conflict).
-pub async fn upsert_user(pool: &DbPool, user: &User) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        r#"
-        INSERT INTO users (id, login, email, name, avatar_url, provider, role, created_at, last_login_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-        ON CONFLICT (id) DO UPDATE SET
-            login = EXCLUDED.login,
-            email = EXCLUDED.email,
-            name = EXCLUDED.name,
-            avatar_url = EXCLUDED.avatar_url,
-            last_login_at = EXCLUDED.last_login_at
-        "#,
-    )
-    .bind(&user.id)
-    .bind(&user.login)
-    .bind(&user.email)
-    .bind(&user.name)
-    .bind(&user.avatar_url)
-    .bind(&user.provider)
-    .bind(&user.role)
-    .bind(user.created_at)
-    .bind(user.last_login_at)
-    .execute(pool)
-    .await?;
-    Ok(())
-}
+/// PostgreSQL implementation of [`UserRepository`].
+pub struct PgUserRepository(pub DbPool);
 
-/// List all users.
-pub async fn list_users(pool: &DbPool) -> Result<Vec<User>, sqlx::Error> {
-    sqlx::query_as::<_, User>("SELECT * FROM users ORDER BY login ASC")
-        .fetch_all(pool)
-        .await
+#[async_trait]
+impl UserRepository for PgUserRepository {
+    async fn get_user(&self, user_id: &str) -> Result<Option<User>, sqlx::Error> {
+        sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
+            .bind(user_id)
+            .fetch_optional(&self.0)
+            .await
+    }
+
+    async fn upsert_user(&self, user: &User) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            INSERT INTO users (id, login, email, name, avatar_url, provider, role, created_at, last_login_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            ON CONFLICT (id) DO UPDATE SET
+                login = EXCLUDED.login,
+                email = EXCLUDED.email,
+                name = EXCLUDED.name,
+                avatar_url = EXCLUDED.avatar_url,
+                last_login_at = EXCLUDED.last_login_at
+            "#,
+        )
+        .bind(&user.id)
+        .bind(&user.login)
+        .bind(&user.email)
+        .bind(&user.name)
+        .bind(&user.avatar_url)
+        .bind(&user.provider)
+        .bind(&user.role)
+        .bind(user.created_at)
+        .bind(user.last_login_at)
+        .execute(&self.0)
+        .await?;
+        Ok(())
+    }
+
+    async fn list_users(&self) -> Result<Vec<User>, sqlx::Error> {
+        sqlx::query_as::<_, User>("SELECT * FROM users ORDER BY login ASC")
+            .fetch_all(&self.0)
+            .await
+    }
 }

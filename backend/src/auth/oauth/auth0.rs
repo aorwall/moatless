@@ -23,10 +23,10 @@ pub struct Auth0OAuthProvider {
 impl Auth0OAuthProvider {
     /// Create from config. Returns None if Auth0 is not configured.
     pub fn from_config(config: &Config) -> Option<Self> {
-        let domain = config.auth0_domain.clone()?;
-        let client_id = config.auth0_client_id.clone()?;
-        let client_secret = config.auth0_client_secret.clone()?;
-        let callback_url = config.auth0_callback_url.clone()?;
+        let domain = config.auth.auth0_domain.clone()?;
+        let client_id = config.auth.auth0_client_id.clone()?;
+        let client_secret = config.auth.auth0_client_secret.clone()?;
+        let callback_url = config.auth.auth0_callback_url.clone()?;
         let http = reqwest::Client::builder()
             .timeout(Duration::from_secs(30))
             .build()
@@ -36,8 +36,8 @@ impl Auth0OAuthProvider {
             client_id,
             client_secret,
             callback_url,
-            audience: config.auth0_audience.clone(),
-            groups_claim: config.auth0_groups_claim.clone(),
+            audience: config.auth.auth0_audience.clone(),
+            groups_claim: config.auth.auth0_groups_claim.clone(),
             http,
         })
     }

@@ -20,6 +20,7 @@ pub mod repository;
 pub mod sandbox;
 pub mod sandbox_grpc_server;
 pub mod sse;
+pub mod startup;
 pub mod state;
 pub mod tag;
 pub mod task;

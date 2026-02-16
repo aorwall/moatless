@@ -19,9 +19,9 @@ pub struct GitHubOAuthProvider {
 impl GitHubOAuthProvider {
     /// Create from config. Returns None if GitHub OAuth is not configured.
     pub fn from_config(config: &Config) -> Option<Self> {
-        let client_id = config.github_client_id.clone()?;
-        let client_secret = config.github_client_secret.clone()?;
-        let callback_url = config.github_callback_url.clone()?;
+        let client_id = config.auth.github_client_id.clone()?;
+        let client_secret = config.auth.github_client_secret.clone()?;
+        let callback_url = config.auth.github_callback_url.clone()?;
         let http = reqwest::Client::builder()
             .timeout(Duration::from_secs(30))
             .build()
@@ -30,7 +30,7 @@ impl GitHubOAuthProvider {
             client_id,
             client_secret,
             callback_url,
-            scope: config.github_oauth_scope.clone(),
+            scope: config.auth.github_oauth_scope.clone(),
             http,
         })
     }

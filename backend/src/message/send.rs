@@ -1,8 +1,7 @@
 //! Message sending orchestration — send_message_flow and send_tool_response_flow.
 
-use super::dao as message_dao;
 use super::models::{TaskMessageContentBlock, TaskMessageContext, TaskMessage};
-use crate::task::dao::{self as task_dao, TaskPatch};
+use crate::task::dao::TaskPatch;
 use crate::message::models::{ContentBlockType, MessageRole, MessageType};
 use crate::state::AppState;
 use crate::task::schemas::MessageContextInput;
@@ -25,8 +24,15 @@ pub async fn send_message_flow(
 
     // Build enriched content blocks (includes figma, preview, element contexts + file attachments)
     let enriched_blocks =
-        enricher::build_content_blocks(&state.db, &state.config, message, contexts, file_ids)
-            .await;
+        enricher::build_content_blocks(
+            state.figma_imports.as_ref(),
+            state.files.as_ref(),
+            &state.config,
+            message,
+            contexts,
+            file_ids,
+        )
+        .await;
     let content = serde_json::to_value(&enriched_blocks).unwrap_or_else(|_| {
         serde_json::json!([{ "type": "text", "text": message }])
     });
@@ -89,15 +95,14 @@ pub async fn send_message_flow(
 
     // Persist message
     let contexts: Vec<TaskMessageContext> = vec![];
-    message_dao::append(&state.db, &msg_row, &contexts, &[ui_block])
+    state.messages.append(&msg_row, &contexts, &[ui_block])
         .await
         .map_err(|e| MessageError::Internal(format!("Failed to persist message: {e}")))?;
 
     tracing::info!(task_id = %task_id, "Message persisted");
 
     // Update task last_message_at (running state is derived on frontend)
-    task_dao::update_task(
-        &state.db,
+    state.tasks.update_task(
         task_id,
         &TaskPatch {
             last_message_at: Some(now),
@@ -173,7 +178,7 @@ pub async fn send_tool_response_flow(
 
     let contexts: Vec<TaskMessageContext> = vec![];
     let blocks: Vec<TaskMessageContentBlock> = vec![];
-    message_dao::append(&state.db, &msg_row, &contexts, &blocks)
+    state.messages.append(&msg_row, &contexts, &blocks)
         .await
         .map_err(|e| MessageError::Internal(format!("Failed to persist tool response: {e}")))?;
 

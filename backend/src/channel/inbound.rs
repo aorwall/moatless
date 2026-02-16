@@ -2,11 +2,8 @@
 
 use tracing::{info, warn};
 
-use super::config_dao as channel_config_dao;
 use super::config_dao::ChannelConfigPatch;
 use super::models::ChannelConfig;
-use super::thread_dao as channel_thread_dao;
-use crate::task::dao as task_dao;
 use crate::task::models::{Task, TaskStatus, Visibility};
 use crate::state::AppState;
 
@@ -47,8 +44,7 @@ pub async fn process_inbound(
 
             // For ongoing mode, update the config's ongoing_task_id
             if RoutingMode::parse(&config.routing_mode)? == RoutingMode::Ongoing {
-                channel_config_dao::update(
-                    &state.db,
+                state.channel_configs.update(
                     &config.id,
                     &ChannelConfigPatch {
                         ongoing_task_id: Some(Some(task_id.clone())),
@@ -64,11 +60,10 @@ pub async fn process_inbound(
 
     // Create or update thread record
     let thread = if let Some(existing) = thread {
-        channel_thread_dao::touch(&state.db, existing.id, Some(&msg.thread_properties)).await?;
+        state.channel_threads.touch(existing.id, Some(&msg.thread_properties)).await?;
         existing
     } else {
-        channel_thread_dao::insert(
-            &state.db,
+        state.channel_threads.insert(
             &config.id,
             &task_id,
             &msg.message_thread_id,
@@ -131,7 +126,7 @@ async fn create_task_for_channel(
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
 
     // Generate short_id
-    let short_id = generate_short_id(&state.db).await?;
+    let short_id = generate_short_id(state).await?;
 
     let row = Task {
         task_id: task_id.clone(),
@@ -155,7 +150,7 @@ async fn create_task_for_channel(
         created_at_db: None,
     };
 
-    task_dao::insert_task(&state.db, &row)
+    state.tasks.insert_task(&row)
         .await
         .map_err(|e| ChannelError::Internal(format!("Failed to create task: {e}")))?;
 
@@ -185,10 +180,10 @@ fn apply_prompt_template(config: &ChannelConfig, message: &str) -> String {
 }
 
 /// Generate a unique short ID.
-async fn generate_short_id(pool: &crate::db::DbPool) -> Result<String, ChannelError> {
+async fn generate_short_id(state: &AppState) -> Result<String, ChannelError> {
     for _ in 0..10 {
         let id = nanoid::nanoid!(8, &nanoid::alphabet::SAFE);
-        if !task_dao::exists_by_short_id(pool, &id)
+        if !state.tasks.exists_by_short_id(&id)
             .await
             .map_err(|e| ChannelError::Internal(format!("Short ID check failed: {e}")))?
         {

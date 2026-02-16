@@ -1,14 +1,10 @@
-//! Task HTTP handlers — coordinate DAO calls + enrichment.
+//! Task HTTP handlers — coordinate repository calls + enrichment.
 
 use axum::extract::{Path, Query, State};
 use axum::Json;
 
 use moatless_events::TaskSubType;
 
-use crate::auth::users;
-use crate::repository::dao as repository_dao;
-use crate::tag::dao as tag_dao;
-use super::dao as task_dao;
 use super::dao::TaskPatch;
 use super::models::Task;
 use crate::extractors::AuthUser;
@@ -35,7 +31,7 @@ pub async fn create_task(
     Json(req): Json<CreateTaskRequest>,
 ) -> Result<Json<CreateTaskResponse>, TaskError> {
     // Validate repository exists
-    let repo = repository_dao::find_repository_by_id(&state.db, &req.repository_id)
+    let repo = state.repositories.find_repository_by_id(&req.repository_id)
         .await?
         .ok_or_else(|| TaskError::RepoNotFound(req.repository_id.clone()))?;
 
@@ -45,7 +41,7 @@ pub async fn create_task(
     }
 
     let task_id = uuid::Uuid::new_v4().to_string();
-    let short_id = generate_unique_short_id(&state.db).await?;
+    let short_id = generate_unique_short_id(&state).await?;
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let agent_type = req.agent_type.unwrap_or_else(|| "claude-code".to_string());
 
@@ -71,7 +67,7 @@ pub async fn create_task(
         created_at_db: None,
     };
 
-    task_dao::insert_task(&state.db, &row).await?;
+    state.tasks.insert_task(&row).await?;
     tracing::info!(task_id = %task_id, user_id = %auth.user_id, repository_id = %req.repository_id, "Task created");
 
     // Emit task event
@@ -139,12 +135,12 @@ pub async fn create_vibe_task(
     Json(req): Json<CreateVibeTaskRequest>,
 ) -> Result<Json<CreateTaskResponse>, TaskError> {
     // Find the template repository
-    let repo = repository_dao::find_repository_by_id(&state.db, &req.template_id)
+    let repo = state.repositories.find_repository_by_id(&req.template_id)
         .await?
         .ok_or_else(|| TaskError::RepoNotFound(req.template_id.clone()))?;
 
     let task_id = uuid::Uuid::new_v4().to_string();
-    let short_id = generate_unique_short_id(&state.db).await?;
+    let short_id = generate_unique_short_id(&state).await?;
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
 
     let row = Task {
@@ -169,7 +165,7 @@ pub async fn create_vibe_task(
         created_at_db: None,
     };
 
-    task_dao::insert_task(&state.db, &row).await?;
+    state.tasks.insert_task(&row).await?;
     tracing::info!(task_id = %task_id, user_id = %auth.user_id, template_id = %req.template_id, "Vibe task created");
 
     if let Some(ref events) = state.events {
@@ -231,8 +227,7 @@ pub async fn list_tasks(
     let limit = query.limit.unwrap_or(50).min(200);
     let offset = query.offset.unwrap_or(0);
 
-    let (rows, total) = task_dao::list_tasks(
-        &state.db,
+    let (rows, total) = state.tasks.list_tasks(
         &auth.user_id,
         limit,
         offset,
@@ -244,7 +239,7 @@ pub async fn list_tasks(
     .await?;
 
     let task_ids: Vec<String> = rows.iter().map(|r| r.task_id.clone()).collect();
-    let all_tags = tag_dao::get_tags_for_tasks(&state.db, &task_ids).await?;
+    let all_tags = state.tags.get_tags_for_tasks(&task_ids).await?;
 
     // Batch resolve user display names
     let creator_ids: Vec<String> = rows
@@ -317,7 +312,7 @@ pub async fn get_task(
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<Json<TaskResponse>, TaskError> {
-    let row = task_dao::find_by_id(&state.db, &task_id, &auth.user_id)
+    let row = state.tasks.find_by_id(&task_id, &auth.user_id)
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
@@ -349,12 +344,11 @@ pub async fn update_task_metadata(
         validate_task_name(name)?;
     }
 
-    let _existing = task_dao::find_by_id(&state.db, &task_id, &auth.user_id)
+    let _existing = state.tasks.find_by_id(&task_id, &auth.user_id)
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
-    task_dao::update_task(
-        &state.db,
+    state.tasks.update_task(
         &task_id,
         &TaskPatch {
             name: req.name,
@@ -365,7 +359,7 @@ pub async fn update_task_metadata(
     .await?;
     tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Task metadata updated");
 
-    let row = task_dao::find_by_id(&state.db, &task_id, &auth.user_id)
+    let row = state.tasks.find_by_id(&task_id, &auth.user_id)
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
@@ -391,7 +385,7 @@ pub async fn delete_task(
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<axum::http::StatusCode, TaskError> {
-    let _existing = task_dao::find_by_id(&state.db, &task_id, &auth.user_id)
+    let _existing = state.tasks.find_by_id(&task_id, &auth.user_id)
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
@@ -400,7 +394,7 @@ pub async fn delete_task(
         tracing::warn!(task_id = %task_id, error = %e, "Failed to cleanup workspace on delete");
     }
 
-    task_dao::delete_task(&state.db, &task_id).await?;
+    state.tasks.delete_task(&task_id).await?;
     tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Task deleted");
 
     Ok(axum::http::StatusCode::NO_CONTENT)
@@ -424,7 +418,7 @@ pub async fn close_task(
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<Json<TaskResponse>, TaskError> {
-    let row = task_dao::find_by_id(&state.db, &task_id, &auth.user_id)
+    let row = state.tasks.find_by_id(&task_id, &auth.user_id)
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
@@ -434,8 +428,7 @@ pub async fn close_task(
     }
     tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Task closed");
 
-    task_dao::update_task(
-        &state.db,
+    state.tasks.update_task(
         &task_id,
         &TaskPatch {
             status: Some(TaskStatus::Closed),
@@ -455,7 +448,7 @@ pub async fn close_task(
             .await;
     }
 
-    let updated = task_dao::find_by_id(&state.db, &task_id, &auth.user_id)
+    let updated = state.tasks.find_by_id(&task_id, &auth.user_id)
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
@@ -482,7 +475,7 @@ pub async fn start_task(
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<axum::http::StatusCode, TaskError> {
-    let row = task_dao::find_by_id(&state.db, &task_id, &auth.user_id)
+    let row = state.tasks.find_by_id(&task_id, &auth.user_id)
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
@@ -520,7 +513,7 @@ pub async fn stop_task(
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<axum::http::StatusCode, TaskError> {
-    let _task = task_dao::find_by_id(&state.db, &task_id, &auth.user_id)
+    let _task = state.tasks.find_by_id(&task_id, &auth.user_id)
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
@@ -530,8 +523,7 @@ pub async fn stop_task(
     }
 
     // Update task status
-    task_dao::update_task(
-        &state.db,
+    state.tasks.update_task(
         &task_id,
         &TaskPatch {
             status: Some(TaskStatus::Open),
@@ -565,13 +557,13 @@ pub async fn set_task_tags(
     Path(task_id): Path<String>,
     Json(req): Json<SetTagsRequest>,
 ) -> Result<Json<Vec<TagResponse>>, TaskError> {
-    let _existing = task_dao::find_by_id(&state.db, &task_id, &auth.user_id)
+    let _existing = state.tasks.find_by_id(&task_id, &auth.user_id)
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
-    let tags = tag_dao::find_or_create_tags(&state.db, &req.tags).await?;
+    let tags = state.tags.find_or_create_tags(&req.tags).await?;
     let tag_ids: Vec<String> = tags.iter().map(|t| t.tag_id.clone()).collect();
-    tag_dao::set_task_tags(&state.db, &task_id, &tag_ids).await?;
+    state.tags.set_task_tags(&task_id, &tag_ids).await?;
     tracing::info!(task_id = %task_id, user_id = %auth.user_id, tag_count = tags.len(), "Task tags updated");
 
     let response: Vec<TagResponse> = tags
@@ -606,12 +598,11 @@ pub async fn update_visibility(
     Path(task_id): Path<String>,
     Json(req): Json<UpdateVisibilityRequest>,
 ) -> Result<Json<TaskResponse>, TaskError> {
-    let _existing = task_dao::find_by_id(&state.db, &task_id, &auth.user_id)
+    let _existing = state.tasks.find_by_id(&task_id, &auth.user_id)
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
-    task_dao::update_task(
-        &state.db,
+    state.tasks.update_task(
         &task_id,
         &TaskPatch {
             visibility: Some(req.visibility),
@@ -621,7 +612,7 @@ pub async fn update_visibility(
     .await?;
     tracing::info!(task_id = %task_id, user_id = %auth.user_id, visibility = %req.visibility, "Task visibility updated");
 
-    let row = task_dao::find_by_id(&state.db, &task_id, &auth.user_id)
+    let row = state.tasks.find_by_id(&task_id, &auth.user_id)
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
@@ -639,7 +630,7 @@ async fn enrich_task(
     state: &AppState,
     _user_id: &str,
 ) -> Result<TaskResponse, TaskError> {
-    let tags = tag_dao::get_tags_for_task(&state.db, &row.task_id).await?;
+    let tags = state.tags.get_tags_for_task(&row.task_id).await?;
     let tag_responses: Vec<TagResponse> = tags
         .iter()
         .map(|t| TagResponse {
@@ -648,7 +639,7 @@ async fn enrich_task(
         })
         .collect();
 
-    let repo_name = repository_dao::find_repository_by_id(&state.db, &row.repository_id)
+    let repo_name = state.repositories.find_repository_by_id(&row.repository_id)
         .await?
         .map(|r| r.name);
 
@@ -724,10 +715,10 @@ fn validate_task_name(name: &str) -> Result<(), TaskError> {
 }
 
 /// Generate a unique short ID for a task.
-async fn generate_unique_short_id(pool: &crate::db::DbPool) -> Result<String, TaskError> {
+async fn generate_unique_short_id(state: &AppState) -> Result<String, TaskError> {
     for _ in 0..10 {
         let id = nanoid::nanoid!(8, &nanoid::alphabet::SAFE);
-        if !task_dao::exists_by_short_id(pool, &id).await? {
+        if !state.tasks.exists_by_short_id(&id).await? {
             return Ok(id);
         }
     }
@@ -750,7 +741,7 @@ async fn resolve_user_display_names(
 
 /// Resolve a single user's display name.
 async fn resolve_single_user_display_name(state: &AppState, user_id: &str) -> Option<String> {
-    match users::get_user(&state.db, user_id).await {
+    match state.users.get_user(user_id).await {
         Ok(Some(user)) => Some(user.name.unwrap_or(user.login)),
         _ => None,
     }
@@ -763,7 +754,7 @@ async fn resolve_repo_names(
 ) -> std::collections::HashMap<String, String> {
     let mut map = std::collections::HashMap::new();
     for rid in repo_ids {
-        if let Ok(Some(repo)) = repository_dao::find_repository_by_id(&state.db, rid).await {
+        if let Ok(Some(repo)) = state.repositories.find_repository_by_id(rid).await {
             map.insert(rid.clone(), repo.name);
         }
     }

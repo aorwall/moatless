@@ -59,7 +59,7 @@ pub fn transform_to_ui(
             }
             MessageType::User => {
                 // Skip tool_result user messages (inlined into assistant)
-                if msg.message_content.as_array().map_or(false, |arr| {
+                if msg.message_content.as_array().is_some_and(|arr| {
                     arr.iter().any(|b| b.get("type").and_then(|v| v.as_str()) == Some("tool_result"))
                 }) {
                     continue;

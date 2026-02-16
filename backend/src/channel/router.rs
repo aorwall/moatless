@@ -1,9 +1,6 @@
 //! Core routing logic: config lookup → task routing based on routing mode.
 
-use super::config_dao as channel_config_dao;
 use super::models::{ChannelConfig, ChannelThread};
-use super::thread_dao as channel_thread_dao;
-use crate::task::dao as task_dao;
 use crate::state::AppState;
 
 use super::error::ChannelError;
@@ -32,8 +29,7 @@ pub async fn route_message(
     msg: &InboundMessage,
 ) -> Result<RoutingResult, ChannelError> {
     // 1. Find config
-    let config = channel_config_dao::find_by_provider_source(
-        &state.db,
+    let config = state.channel_configs.find_by_provider_source(
         msg.provider.as_str(),
         &msg.source_id,
     )
@@ -49,7 +45,7 @@ pub async fn route_message(
 
     // 2. Check for existing thread
     let existing_thread = if let Some(ref thread_id) = msg.thread_id {
-        channel_thread_dao::find_by_config_and_thread(&state.db, &config.id, thread_id).await?
+        state.channel_threads.find_by_config_and_thread(&config.id, thread_id).await?
     } else {
         None
     };
@@ -68,7 +64,7 @@ pub async fn route_message(
             if let Some(ref task_id) = config.ongoing_task_id {
                 // Verify task is still open
                 if let Ok(Some(task)) =
-                    task_dao::find_by_id_internal(&state.db, task_id).await
+                    state.tasks.find_by_id_internal(task_id).await
                 {
                     if task.status == crate::task::models::TaskStatus::Open {
                         return Ok(RoutingResult::ExistingTask {

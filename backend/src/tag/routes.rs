@@ -24,5 +24,5 @@ pub fn tag_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenApi) {
         .with_state(state)
         .split_for_parts();
 
-    (router.into(), api)
+    (router, api)
 }

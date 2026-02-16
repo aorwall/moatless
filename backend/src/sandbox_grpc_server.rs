@@ -5,6 +5,7 @@
 
 use std::collections::HashMap;
 use std::env;
+use std::sync::Arc;
 
 use serde_json::Value;
 use tonic::{Request, Response, Status};
@@ -16,10 +17,9 @@ use sandbox_proto::{
     GetPendingMessagesResponse, PublishEventRequest, PublishEventResponse,
 };
 
-use crate::auth::provider_token_dao;
-use crate::db::DbPool;
-use crate::message::dao as message_dao;
-use crate::events::RedisEventPublisher;
+use crate::auth::provider_token_dao::ProviderTokenRepository;
+use crate::message::dao::MessageRepository;
+use crate::events::EventPublisher;
 use crate::sandbox::jwt;
 
 /// Known credential env var names.
@@ -33,10 +33,11 @@ impl CredentialKey {
     pub const CLAUDE_CODE_OAUTH_TOKEN: &str = "CLAUDE_CODE_OAUTH_TOKEN";
 }
 
-/// gRPC server state — holds Redis publisher, DB pool, and JWT secret.
+/// gRPC server state — holds event publisher, repository trait objects, and JWT secret.
 pub struct BackendSandboxServiceImpl {
-    pub events: Option<RedisEventPublisher>,
-    pub db: Option<DbPool>,
+    pub events: Option<Arc<dyn EventPublisher>>,
+    pub messages: Option<Arc<dyn MessageRepository>>,
+    pub provider_tokens: Option<Arc<dyn ProviderTokenRepository>>,
     /// JWT signing key for verifying sandbox auth tokens.
     pub task_token_secret: Option<String>,
 }
@@ -156,14 +157,14 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
 
         let req = request.into_inner();
 
-        let Some(ref pool) = self.db else {
+        let Some(ref messages) = self.messages else {
             return Ok(Response::new(GetPendingMessagesResponse {
                 messages: vec![],
             }));
         };
 
         // Fetch pending user messages from DB
-        let pending = message_dao::get_pending_user(pool, &req.task_id)
+        let pending = messages.get_pending_user(&req.task_id)
             .await
             .map_err(|e| {
                 warn!(error = %e, task_id = %req.task_id, "Failed to fetch pending messages");
@@ -229,10 +230,10 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         }
 
         // Step 2: Fill remaining gaps from provider_tokens DB table
-        if let Some(ref pool) = self.db {
+        if let Some(ref provider_tokens) = self.provider_tokens {
             // GitHub token (from user's OAuth connection)
             if !credentials.contains_key(CredentialKey::GITHUB_TOKEN) {
-                match provider_token_dao::find_provider_token(pool, &claims.user_id, "github").await
+                match provider_tokens.find_provider_token(&claims.user_id, "github").await
                 {
                     Ok(Some(row)) => {
                         credentials.insert(
@@ -251,7 +252,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             if !credentials.contains_key(CredentialKey::CLAUDE_CODE_OAUTH_TOKEN)
                 && !credentials.contains_key(CredentialKey::ANTHROPIC_API_KEY)
             {
-                match provider_token_dao::find_provider_token(pool, &claims.user_id, "claude").await
+                match provider_tokens.find_provider_token(&claims.user_id, "claude").await
                 {
                     Ok(Some(row)) => {
                         credentials.insert(

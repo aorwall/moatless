@@ -8,8 +8,6 @@ use axum::http::{header, StatusCode};
 use axum::response::IntoResponse;
 use axum::Json;
 
-use super::dao as figma_import_dao;
-use crate::auth::provider_token_dao;
 use super::models::FigmaImport;
 use crate::extractors::AuthUser;
 use crate::file_storage::s3;
@@ -66,7 +64,7 @@ pub async fn import_clipboard(
         created_at: Some(now),
     };
 
-    figma_import_dao::insert(&state.db, &row).await?;
+    state.figma_imports.insert(&row).await?;
 
     Ok(Json(FigmaImportResponse {
         import_id,
@@ -99,7 +97,7 @@ pub async fn import_node(
     let (file_key, node_id) = parse_figma_url(&req.url)?;
 
     // Get user's Figma token
-    let token = provider_token_dao::find_provider_token(&state.db, &auth.user_id, "figma")
+    let token = state.provider_tokens.find_provider_token(&auth.user_id, "figma")
         .await
         .map_err(FigmaError::Db)?
         .ok_or_else(|| {
@@ -176,11 +174,11 @@ pub async fn import_node(
                             if let Ok(img_bytes) = img_resp.bytes().await {
                                 // Upload to S3
                                 if let (Some(ref s3_client), Some(ref bucket)) =
-                                    (&state.s3, &state.config.s3_bucket_name)
+                                    (&state.s3, &state.config.s3.bucket_name)
                                 {
                                     let key = format!(
                                         "{}/figma/{}.png",
-                                        state.config.s3_key_prefix,
+                                        state.config.s3.key_prefix,
                                         nanoid::nanoid!()
                                     );
                                     if s3::put_object(
@@ -221,7 +219,7 @@ pub async fn import_node(
         created_at: Some(now),
     };
 
-    figma_import_dao::insert(&state.db, &row).await?;
+    state.figma_imports.insert(&row).await?;
 
     Ok(Json(FigmaImportResponse {
         import_id,
@@ -281,7 +279,7 @@ pub async fn get_import(
     _auth: AuthUser,
     Path(import_id): Path<String>,
 ) -> Result<Json<FigmaImportDetailResponse>, FigmaError> {
-    let row = figma_import_dao::find_by_id(&state.db, &import_id)
+    let row = state.figma_imports.find_by_id(&import_id)
         .await?
         .ok_or_else(|| FigmaError::NotFound(import_id))?;
 
@@ -338,7 +336,7 @@ pub async fn get_import_image(
     _auth: AuthUser,
     Path(import_id): Path<String>,
 ) -> Result<impl IntoResponse, FigmaError> {
-    let row = figma_import_dao::find_by_id(&state.db, &import_id)
+    let row = state.figma_imports.find_by_id(&import_id)
         .await?
         .ok_or_else(|| FigmaError::NotFound(import_id.clone()))?;
 
@@ -348,7 +346,7 @@ pub async fn get_import_image(
         )));
     }
 
-    let (s3_client, bucket) = match (&state.s3, &state.config.s3_bucket_name) {
+    let (s3_client, bucket) = match (&state.s3, &state.config.s3.bucket_name) {
         (Some(client), Some(bucket)) => (client, bucket),
         _ => {
             return Err(FigmaError::StorageError(
@@ -358,12 +356,12 @@ pub async fn get_import_image(
     };
 
     // Look for the image in S3 by import_id pattern
-    let key = format!("{}/figma/{}.png", state.config.s3_key_prefix, import_id);
+    let key = format!("{}/figma/{}.png", state.config.s3.key_prefix, import_id);
 
     let (bytes, content_type) =
         s3::get_object(s3_client, bucket, &key)
             .await
-            .map_err(|e| FigmaError::StorageError(e))?;
+            .map_err(FigmaError::StorageError)?;
 
     Ok((
         StatusCode::OK,
