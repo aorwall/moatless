@@ -37,7 +37,7 @@ pub fn build_options(
     let permission_handler = InteractivePermissionHandler::new(agent_state);
 
     // Determine session resume
-    let resume = resolve_resume(request);
+    let (resume, continue_conversation) = resolve_resume(request);
 
     ClaudeOptions {
         model,
@@ -47,9 +47,11 @@ pub fn build_options(
         cli_path: Some(config.claude_cli_path.clone()),
         plugins: if plugins.is_empty() { None } else { Some(plugins) },
         resume,
+        continue_conversation,
         can_use_tool: Some(Arc::new(permission_handler)),
         cancellation_token: Some(cancel_token),
         max_turns: config.agent_config.timeout.map(|t| t as u32),
+        init_timeout: Some(std::time::Duration::from_secs(120)),
         env,
         ..ClaudeOptions::default()
     }
@@ -99,15 +101,15 @@ fn build_plugins(config: &Config) -> Vec<PluginConfig> {
 }
 
 /// Resolve session resume from request.
-fn resolve_resume(request: &AgentRunRequest) -> Option<String> {
+///
+/// Returns `(resume_session_id, continue_conversation)`:
+/// - `WithId(id)` → `--resume <id>`
+/// - `Last` → `--continue` (let the CLI find the latest session)
+fn resolve_resume(request: &AgentRunRequest) -> (Option<String>, Option<bool>) {
     use super::types::ResumeSession;
     match &request.resume {
-        Some(ResumeSession::WithId(session_id)) => Some(session_id.clone()),
-        Some(ResumeSession::Last) => {
-            // true means "resume last session" — caller should resolve to actual session ID
-            // For now, return None and let the executor handle it
-            None
-        }
-        None => None,
+        Some(ResumeSession::WithId(session_id)) => (Some(session_id.clone()), None),
+        Some(ResumeSession::Last) => (None, Some(true)),
+        None => (None, None),
     }
 }

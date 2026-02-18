@@ -62,6 +62,7 @@ pub async fn send_message(
             command.agent_mode.as_ref(),
             &req.file_ids,
             &[],
+            req.resume.unwrap_or(true),
         )
         .await?;
     } else {
@@ -74,6 +75,7 @@ pub async fn send_message(
             req.agent_mode.as_ref(),
             &req.file_ids,
             &req.contexts,
+            req.resume.unwrap_or(true),
         )
         .await?;
     }
@@ -175,9 +177,7 @@ pub async fn get_pending_messages(
             message_content: Some(m.message_content.clone()),
             agent_mode: m.agent_mode.clone(),
             model: m.model.clone(),
-            resume_session_id: m.resume_session_id.clone(),
-            turn_status: None,
-            turn_result: None,
+            resume: m.resume,
             will_not_resume: None,
         })
         .collect();
@@ -190,9 +190,7 @@ pub async fn get_pending_messages(
             message_content: None,
             agent_mode: None,
             model: None,
-            resume_session_id: None,
-            turn_status: result.turn_status,
-            turn_result: result.turn_result.clone(),
+            resume: true,
             will_not_resume: result.will_not_resume,
         });
     }

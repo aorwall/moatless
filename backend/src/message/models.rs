@@ -17,8 +17,10 @@ pub enum MessageType {
     User,
     /// SDK user messages stored as "system" to distinguish from frontend user messages.
     System,
-    /// Agent turn result (completed/error/stopped).
+    /// Agent turn result (completed/stopped).
     Result,
+    /// Agent error result.
+    Error,
 }
 
 impl MessageType {
@@ -28,6 +30,7 @@ impl MessageType {
             Self::User => "user",
             Self::System => "system",
             Self::Result => "result",
+            Self::Error => "error",
         }
     }
 }
@@ -40,12 +43,13 @@ impl std::fmt::Display for MessageType {
 
 impl TryFrom<&str> for MessageType {
     type Error = String;
-    fn try_from(s: &str) -> Result<Self, Self::Error> {
+    fn try_from(s: &str) -> Result<Self, String> {
         match s {
             "assistant" => Ok(Self::Assistant),
             "user" => Ok(Self::User),
             "system" => Ok(Self::System),
             "result" => Ok(Self::Result),
+            "error" => Ok(Self::Error),
             other => Err(format!("unknown MessageType: {other:?}")),
         }
     }
@@ -85,6 +89,7 @@ impl sqlx::Encode<'_, sqlx::Postgres> for MessageType {
 pub enum MessageRole {
     User,
     Assistant,
+    System,
 }
 
 impl MessageRole {
@@ -92,6 +97,7 @@ impl MessageRole {
         match self {
             Self::User => "user",
             Self::Assistant => "assistant",
+            Self::System => "system",
         }
     }
 }
@@ -108,6 +114,7 @@ impl TryFrom<&str> for MessageRole {
         match s {
             "user" => Ok(Self::User),
             "assistant" => Ok(Self::Assistant),
+            "system" => Ok(Self::System),
             other => Err(format!("unknown MessageRole: {other:?}")),
         }
     }
@@ -129,71 +136,6 @@ impl<'r> sqlx::Decode<'r, sqlx::Postgres> for MessageRole {
 }
 
 impl sqlx::Encode<'_, sqlx::Postgres> for MessageRole {
-    fn encode_by_ref(
-        &self,
-        buf: &mut sqlx::postgres::PgArgumentBuffer,
-    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
-        <&str as sqlx::Encode<sqlx::Postgres>>::encode_by_ref(&self.as_str(), buf)
-    }
-}
-
-// =============================================================================
-// TurnStatus
-// =============================================================================
-
-/// Outcome of an agent turn.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum TurnStatus {
-    Completed,
-    Error,
-    Stopped,
-}
-
-impl TurnStatus {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Completed => "completed",
-            Self::Error => "error",
-            Self::Stopped => "stopped",
-        }
-    }
-}
-
-impl std::fmt::Display for TurnStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-impl TryFrom<&str> for TurnStatus {
-    type Error = String;
-    fn try_from(s: &str) -> Result<Self, String> {
-        match s {
-            "completed" => Ok(Self::Completed),
-            "error" => Ok(Self::Error),
-            "stopped" => Ok(Self::Stopped),
-            other => Err(format!("unknown TurnStatus: {other:?}")),
-        }
-    }
-}
-
-impl sqlx::Type<sqlx::Postgres> for TurnStatus {
-    fn type_info() -> sqlx::postgres::PgTypeInfo {
-        <String as sqlx::Type<sqlx::Postgres>>::type_info()
-    }
-}
-
-impl<'r> sqlx::Decode<'r, sqlx::Postgres> for TurnStatus {
-    fn decode(
-        value: sqlx::postgres::PgValueRef<'r>,
-    ) -> Result<Self, sqlx::error::BoxDynError> {
-        let s = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
-        TurnStatus::try_from(s.as_str()).map_err(Into::into)
-    }
-}
-
-impl sqlx::Encode<'_, sqlx::Postgres> for TurnStatus {
     fn encode_by_ref(
         &self,
         buf: &mut sqlx::postgres::PgArgumentBuffer,
@@ -305,13 +247,11 @@ pub struct TaskMessage {
     pub tool_use_result: Option<serde_json::Value>,
     pub attachments: Option<serde_json::Value>,
     pub agent_session_id: Option<String>,
-    pub turn_status: Option<TurnStatus>,
-    pub turn_result: Option<String>,
     pub will_not_resume: Option<bool>,
     pub run_metrics: Option<serde_json::Value>,
     pub agent_mode: Option<AgentMode>,
     pub model: Option<String>,
-    pub resume_session_id: Option<String>,
+    pub resume: bool,
     pub sent_at: Option<DateTime<Utc>>,
     pub created_at: Option<DateTime<Utc>>,
 }
@@ -348,13 +288,11 @@ impl TaskMessage {
             tool_use_result: None,
             attachments: None,
             agent_session_id: None,
-            turn_status: None,
-            turn_result: None,
             will_not_resume: None,
             run_metrics: None,
             agent_mode: None,
             model: None,
-            resume_session_id: None,
+            resume: true,
             sent_at: None,
             created_at: None,
         }
@@ -408,6 +346,7 @@ mod tests {
         assert_eq!(serde_json::to_string(&MessageType::User).unwrap(), "\"user\"");
         assert_eq!(serde_json::to_string(&MessageType::System).unwrap(), "\"system\"");
         assert_eq!(serde_json::to_string(&MessageType::Result).unwrap(), "\"result\"");
+        assert_eq!(serde_json::to_string(&MessageType::Error).unwrap(), "\"error\"");
 
         let parsed: MessageType = serde_json::from_str("\"assistant\"").unwrap();
         assert_eq!(parsed, MessageType::Assistant);
@@ -417,13 +356,7 @@ mod tests {
     fn message_role_serde_roundtrip() {
         assert_eq!(serde_json::to_string(&MessageRole::User).unwrap(), "\"user\"");
         assert_eq!(serde_json::to_string(&MessageRole::Assistant).unwrap(), "\"assistant\"");
-    }
-
-    #[test]
-    fn turn_status_serde_roundtrip() {
-        assert_eq!(serde_json::to_string(&TurnStatus::Completed).unwrap(), "\"completed\"");
-        assert_eq!(serde_json::to_string(&TurnStatus::Error).unwrap(), "\"error\"");
-        assert_eq!(serde_json::to_string(&TurnStatus::Stopped).unwrap(), "\"stopped\"");
+        assert_eq!(serde_json::to_string(&MessageRole::System).unwrap(), "\"system\"");
     }
 
     #[test]
@@ -438,7 +371,6 @@ mod tests {
     fn try_from_unknown_returns_error() {
         assert!(MessageType::try_from("unknown").is_err());
         assert!(MessageRole::try_from("admin").is_err());
-        assert!(TurnStatus::try_from("pending").is_err());
         assert!(ContentBlockType::try_from("video").is_err());
     }
 
@@ -448,11 +380,10 @@ mod tests {
         assert_eq!(MessageType::Assistant.to_string(), "assistant");
         assert_eq!(MessageType::System.to_string(), "system");
         assert_eq!(MessageType::Result.to_string(), "result");
+        assert_eq!(MessageType::Error.to_string(), "error");
         assert_eq!(MessageRole::User.to_string(), "user");
         assert_eq!(MessageRole::Assistant.to_string(), "assistant");
-        assert_eq!(TurnStatus::Completed.to_string(), "completed");
-        assert_eq!(TurnStatus::Error.to_string(), "error");
-        assert_eq!(TurnStatus::Stopped.to_string(), "stopped");
+        assert_eq!(MessageRole::System.to_string(), "system");
         assert_eq!(ContentBlockType::Text.to_string(), "text");
         assert_eq!(ContentBlockType::ToolUse.to_string(), "tool_use");
         assert_eq!(ContentBlockType::ToolResult.to_string(), "tool_result");
@@ -477,6 +408,5 @@ mod tests {
         assert_eq!(msg.message_content, content);
         assert!(msg.session_id.is_none());
         assert!(msg.agent_session_id.is_none());
-        assert!(msg.turn_status.is_none());
     }
 }

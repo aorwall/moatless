@@ -168,7 +168,7 @@ async fn insert_and_provision_task(
     // If a message was provided, send it to the agent
     if let Some(msg) = message {
         if let Err(e) = crate::message::send::send_message_flow(
-            state, task_id, msg, model, agent_mode, file_ids, contexts,
+            state, task_id, msg, model, agent_mode, file_ids, contexts, true,
         )
         .await
         {

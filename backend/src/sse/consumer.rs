@@ -8,7 +8,7 @@ use redis::aio::ConnectionManager;
 use redis::Value;
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 /// Consumer group name prefix. Each pod gets its own group (`sse-{hostname}`)
 /// so that every pod receives every message — required for SSE fan-out where
@@ -57,7 +57,7 @@ impl RedisStreamConsumer {
                 if self.cancel.is_cancelled() {
                     break;
                 }
-                error!(error = %e, "SSE consumer error, retrying in 2s");
+                warn!(error = %e, "Redis connection lost in SSE consumer, retrying in 2s");
                 tokio::select! {
                     () = tokio::time::sleep(std::time::Duration::from_secs(2)) => {}
                     () = self.cancel.cancelled() => { break; }

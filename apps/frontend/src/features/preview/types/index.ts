@@ -36,6 +36,8 @@ export interface SandboxEvent {
   isError: boolean
   message?: string
   reason?: string
+  /** Server name for server events (e.g., "preview", "files") */
+  serverName?: string
   payload: Record<string, unknown>
 }
 

@@ -105,7 +105,7 @@ function ChatContainer({
   // Retry workspace mutation for handling failed provisioning
   const retryWorkspaceMutation = useWorkspaceRetry(taskId)
 
-  // Fetch messages for this task (needed early for derived running state)
+  // Fetch messages for this task
   const {
     data: messages,
     isLoading: isLoadingMessages,
@@ -114,13 +114,8 @@ function ChatContainer({
     enabled: !!taskId,
   })
 
-  // Running = last non-queued message is not a result AND sandbox is ready
-  const isTaskRunning = useMemo(() => {
-    const lastNonQueuedMessage = messages?.filter((m) => !m.isQueued)?.at(-1)
-    const hasUnfinishedWork =
-      lastNonQueuedMessage != null && lastNonQueuedMessage.messageType !== 'result'
-    return hasUnfinishedWork && envStatus === 'ready'
-  }, [messages, envStatus])
+  // Agent running state: driven by workspace status (updated via SSE events + backend gRPC)
+  const isTaskRunning = workspaceStatus?.agentState === 'running'
 
   // Fetch available commands when task is not running
   const { data: availableCommands = [] } = useTaskCommands(taskId, {

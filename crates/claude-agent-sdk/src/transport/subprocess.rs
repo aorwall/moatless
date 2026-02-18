@@ -41,6 +41,11 @@ impl SubprocessTransport {
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
 
+        // Always unset CLAUDECODE — the SDK spawns a new independent CLI process
+        // and this variable would cause the child to refuse to start with
+        // "Claude Code cannot be launched inside another Claude Code session".
+        cmd.env_remove("CLAUDECODE");
+
         if let Some(cwd) = &options.cwd {
             cmd.current_dir(cwd);
         }
@@ -139,68 +144,86 @@ impl SubprocessTransport {
         Ok(())
     }
 
-    /// Close the subprocess: send SIGTERM, wait 5 seconds, then SIGKILL.
+    /// Close the subprocess gracefully:
+    /// 1. Close stdin (EOF) — let the CLI finish naturally
+    /// 2. Wait briefly for natural exit
+    /// 3. SIGTERM if still running (polite shutdown request)
+    /// 4. Wait for SIGTERM to take effect
+    /// 5. SIGKILL as last resort
     pub(crate) async fn close(&mut self) {
-        // Close stdin first to signal EOF
-        // (dropping the Arc<Mutex<ChildStdin>> won't close it immediately
-        // if other references exist, but we try)
-        drop(self.stdin.clone());
-
-        // Send SIGTERM
-        if let Err(e) = self.child.start_kill() {
-            warn!(error = %e, "Failed to send kill signal to CLI process");
+        // Step 1: Close stdin to send EOF
+        // Must call shutdown() — dropping an Arc clone doesn't close the pipe
+        {
+            let mut stdin = self.stdin.lock().await;
+            let _ = stdin.shutdown().await;
         }
 
-        // Wait with timeout
-        let exit_status = match tokio::time::timeout(
+        // Step 2: Wait briefly for natural exit after EOF
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            self.child.wait(),
+        )
+        .await
+        {
+            Ok(Ok(status)) => {
+                let stderr_lines = collect_stderr(&mut self._stderr_task).await;
+                log_exit_status(status, &stderr_lines);
+                return;
+            }
+            Ok(Err(e)) => {
+                warn!(error = %e, "Error waiting for CLI process after stdin close");
+            }
+            Err(_) => {
+                debug!("CLI process did not exit after stdin close, sending SIGTERM");
+            }
+        }
+
+        // Step 3: Send SIGTERM (Unix only; on other platforms skip to SIGKILL)
+        #[cfg(unix)]
+        {
+            if let Some(pid) = self.child.id() {
+                // SAFETY: sending SIGTERM to a known child PID we spawned;
+                // worst case the process already exited and the call is a no-op.
+                #[allow(unsafe_code)]
+                unsafe {
+                    libc::kill(pid as libc::pid_t, libc::SIGTERM);
+                }
+            }
+        }
+
+        // Step 4: Wait for SIGTERM to take effect
+        match tokio::time::timeout(
             std::time::Duration::from_secs(5),
             self.child.wait(),
         )
         .await
         {
-            Ok(Ok(status)) => Some(status),
+            Ok(Ok(status)) => {
+                let stderr_lines = collect_stderr(&mut self._stderr_task).await;
+                log_exit_status(status, &stderr_lines);
+                return;
+            }
             Ok(Err(e)) => {
-                warn!(error = %e, "Error waiting for CLI process");
-                None
+                warn!(error = %e, "Error waiting for CLI process after SIGTERM");
             }
             Err(_) => {
-                warn!("CLI process did not exit within 5s, force killing");
-                let _ = self.child.kill().await;
-                None
+                warn!("CLI process did not exit within 5s after SIGTERM, force killing");
             }
-        };
+        }
 
-        // Collect stderr output from the background drain task
+        // Step 5: SIGKILL — last resort
+        let _ = self.child.kill().await;
+
+        // Collect stderr and log
         let stderr_lines = collect_stderr(&mut self._stderr_task).await;
-
-        // Log exit status with full context
-        if let Some(status) = exit_status {
-            if status.success() {
-                info!(code = status.code(), "CLI process exited");
+        if !stderr_lines.is_empty() {
+            let tail = if stderr_lines.len() > 20 {
+                &stderr_lines[stderr_lines.len() - 20..]
             } else {
-                // On Unix, a signal-killed process has code() == None;
-                // use the signal number from .signal() instead.
-                #[cfg(unix)]
-                let signal = std::os::unix::process::ExitStatusExt::signal(&status);
-                #[cfg(not(unix))]
-                let signal: Option<i32> = None;
-
-                warn!(
-                    code = status.code(),
-                    signal = signal,
-                    stderr_lines = stderr_lines.len(),
-                    "CLI process exited with error"
-                );
-
-                // Log last stderr lines for debugging (cap at 20 lines)
-                let tail = if stderr_lines.len() > 20 {
-                    &stderr_lines[stderr_lines.len() - 20..]
-                } else {
-                    &stderr_lines
-                };
-                for line in tail {
-                    debug!(line = %line, "CLI stderr (tail)");
-                }
+                &stderr_lines
+            };
+            for line in tail {
+                warn!(line = %line, "CLI stderr");
             }
         }
     }
@@ -465,6 +488,43 @@ async fn collect_stderr(task: &mut JoinHandle<Vec<String>>) -> Vec<String> {
         Err(_) => {
             debug!("Stderr drain task did not complete within 2s");
             Vec::new()
+        }
+    }
+}
+
+/// Log the exit status of the CLI process at the appropriate level.
+fn log_exit_status(status: std::process::ExitStatus, stderr_lines: &[String]) {
+    if status.success() {
+        debug!(code = status.code(), "CLI process exited cleanly");
+        return;
+    }
+
+    #[cfg(unix)]
+    let signal = std::os::unix::process::ExitStatusExt::signal(&status);
+    #[cfg(not(unix))]
+    let signal: Option<i32> = None;
+
+    if status.code().is_none() {
+        // Killed by signal (e.g. SIGTERM we sent) — expected during shutdown
+        debug!(
+            signal = signal,
+            "CLI process terminated by signal (expected during shutdown)"
+        );
+    } else {
+        // Non-zero exit code — the process failed on its own
+        warn!(
+            code = status.code(),
+            signal = signal,
+            stderr_lines = stderr_lines.len(),
+            "CLI process exited with non-zero code"
+        );
+        let tail = if stderr_lines.len() > 20 {
+            &stderr_lines[stderr_lines.len() - 20..]
+        } else {
+            stderr_lines
+        };
+        for line in tail {
+            warn!(line = %line, "CLI stderr");
         }
     }
 }

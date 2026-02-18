@@ -1,8 +1,10 @@
 import type { TaskResponse } from '@moatless/api-client'
 import { Link } from '@tanstack/react-router'
 import { type ColumnDef, flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight, X } from 'lucide-react'
+import { toast } from 'sonner'
 import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
+import { useCloseTask, useDeleteTask } from '@/features/tasks/hooks/use-tasks'
 import { Badge } from '@/lib/components/ui/badge'
 import { Button } from '@/lib/components/ui/button'
 import {
@@ -13,6 +15,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/lib/components/ui/table'
+import { useApiError } from '@/lib/hooks/use-api-error'
 
 function formatCost(cost?: number): string {
   if (cost === undefined || cost === null || cost === 0) {
@@ -29,6 +32,57 @@ function formatDate(date: Date | string): string {
     hour: '2-digit',
     minute: '2-digit',
   })
+}
+
+function TaskActionCell({ task }: { task: TaskResponse }) {
+  const { formatErrorForDisplay } = useApiError()
+  const isClosed = task.status === 'closed'
+
+  const closeTaskMutation = useCloseTask(task.taskId, {
+    onError: (error) => {
+      try {
+        const formattedError = formatErrorForDisplay(error)
+        toast.error(formattedError.title, { description: formattedError.message })
+      } catch {
+        toast.error('Failed to close task', { description: error.message })
+      }
+    },
+  })
+
+  const deleteTaskMutation = useDeleteTask({
+    onError: (error) => {
+      try {
+        const formattedError = formatErrorForDisplay(error)
+        toast.error(formattedError.title, { description: formattedError.message })
+      } catch {
+        toast.error('Failed to delete task', { description: error.message })
+      }
+    },
+  })
+
+  const handleClick = () => {
+    if (isClosed) {
+      deleteTaskMutation.mutate(task.taskId)
+    } else {
+      closeTaskMutation.mutate()
+    }
+  }
+
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="h-6 w-6 opacity-0 group-hover/row:opacity-100 transition-opacity"
+      onClick={(e) => {
+        e.stopPropagation()
+        handleClick()
+      }}
+      disabled={closeTaskMutation.isPending || deleteTaskMutation.isPending}
+    >
+      <X className="h-4 w-4" />
+      <span className="sr-only">{isClosed ? 'Delete task' : 'Close task'}</span>
+    </Button>
+  )
 }
 
 const columns: ColumnDef<TaskResponse>[] = [
@@ -115,6 +169,12 @@ const columns: ColumnDef<TaskResponse>[] = [
       </span>
     ),
   },
+  {
+    id: 'actions',
+    header: '',
+    size: 48,
+    cell: ({ row }) => <TaskActionCell task={row.original} />,
+  },
 ]
 
 interface TaskTableProps {
@@ -156,7 +216,7 @@ export function TaskTable({ tasks, total, page, pageSize, onPageChange }: TaskTa
           <TableBody>
             {table.getRowModel().rows.length > 0 ? (
               table.getRowModel().rows.map((row) => (
-                <TableRow key={row.id} className="cursor-pointer">
+                <TableRow key={row.id} className="cursor-pointer group/row">
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id}>
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}

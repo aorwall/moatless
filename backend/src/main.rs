@@ -73,8 +73,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             k8s,
             publisher.clone(),
             cancel.clone(),
+            config.sandbox.max_crash_restart_count,
         );
-        info!("Pod lifecycle watcher spawned");
+        info!(
+            max_crash_restart_count = config.sandbox.max_crash_restart_count,
+            "Pod lifecycle watcher spawned"
+        );
     } else {
         info!("Pod lifecycle watcher disabled (requires Redis)");
     }

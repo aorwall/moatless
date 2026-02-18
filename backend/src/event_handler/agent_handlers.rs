@@ -4,7 +4,7 @@ use moatless_events::{TaskSubType, TaskTurnSubType};
 
 use crate::message::models::{TaskMessageContentBlock, TaskMessageContext, TaskMessage};
 use crate::task::dao::TaskPatch;
-use crate::message::models::{ContentBlockType, MessageRole, MessageType, TurnStatus};
+use crate::message::models::{ContentBlockType, MessageRole, MessageType};
 use crate::shared_models::AgentMode;
 use crate::state::AppState;
 use crate::task::models::TaskStatus;
@@ -59,10 +59,10 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
             }
         };
 
-    let (turn_status, will_not_resume, task_status) = match &sdk_result {
-        Some(r) if r.is_error.unwrap_or(false) => (TurnStatus::Error, true, TaskStatus::Error),
-        Some(_) => (TurnStatus::Completed, false, TaskStatus::Open),
-        None => (TurnStatus::Error, true, TaskStatus::Error),
+    let (result_message_type, will_not_resume, task_status) = match &sdk_result {
+        Some(r) if r.is_error.unwrap_or(false) => (MessageType::Error, true, TaskStatus::Error),
+        Some(_) => (MessageType::Result, false, TaskStatus::Open),
+        None => (MessageType::Error, true, TaskStatus::Error),
     };
 
     // Build result text
@@ -102,7 +102,7 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
         "text": result_text
     }]);
 
-    let msg_row = build_result_message_row(&event.task_id, &msg_uuid, &now, content, turn_status, will_not_resume, session_id, agent_mode, model);
+    let msg_row = build_result_message_row(&event.task_id, &msg_uuid, &now, content, result_message_type, will_not_resume, session_id, agent_mode, model);
     let contexts: Vec<TaskMessageContext> = vec![];
     let blocks = vec![TaskMessageContentBlock {
         id: 0,
@@ -142,10 +142,9 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
 
     // Emit events
     if let Some(ref events) = state.events {
-        let turn_sub = match turn_status {
-            TurnStatus::Error => TaskTurnSubType::Error,
-            TurnStatus::Completed => TaskTurnSubType::Completed,
-            TurnStatus::Stopped => TaskTurnSubType::Stopped,
+        let turn_sub = match result_message_type {
+            MessageType::Error => TaskTurnSubType::Error,
+            _ => TaskTurnSubType::Completed,
         };
         events
             .publish_task_turn_event(
@@ -224,7 +223,7 @@ pub async fn handle_agent_stopped(state: &AppState, event: &AgentEvent) {
         _ => None,
     };
 
-    let msg_row = build_result_message_row(&event.task_id, &msg_uuid, &now, content, TurnStatus::Stopped, true, None, agent_mode, None);
+    let msg_row = build_result_message_row(&event.task_id, &msg_uuid, &now, content, MessageType::Result, true, None, agent_mode, None);
     let contexts: Vec<TaskMessageContext> = vec![];
     let blocks = vec![TaskMessageContentBlock {
         id: 0,
@@ -271,21 +270,21 @@ pub async fn handle_agent_stopped(state: &AppState, event: &AgentEvent) {
     }
 }
 
-/// Handle `agent.error` event.
+/// Handle `agent.error` or `sandbox.fatal` event.
 pub async fn handle_agent_error(state: &AppState, event: &AgentEvent) {
-    // Guard: only create error result if task has messages and last isn't already a result
+    // Guard: only create error result if task has messages and last isn't already a result/error
     match state.messages.get_last_message_type(&event.task_id).await {
         Ok(None) => {
-            tracing::debug!(task_id = %event.task_id, "Skipping agent.error — no messages exist for task");
+            tracing::debug!(task_id = %event.task_id, "Skipping error — no messages exist for task");
             return;
         }
-        Ok(Some(MessageType::Result)) => {
-            tracing::debug!(task_id = %event.task_id, "Skipping agent.error — last message is already a result");
+        Ok(Some(MessageType::Result | MessageType::Error)) => {
+            tracing::debug!(task_id = %event.task_id, "Skipping error — last message is already a result/error");
             return;
         }
-        Ok(Some(_)) => {} // Has messages, last is not result — proceed
+        Ok(Some(_)) => {} // Has messages, last is not result/error — proceed
         Err(e) => {
-            tracing::warn!(task_id = %event.task_id, error = %e, "Failed to check message state for agent.error");
+            tracing::warn!(task_id = %event.task_id, error = %e, "Failed to check message state for error event");
             return; // Fail safe: don't create orphan results
         }
     }
@@ -310,7 +309,7 @@ pub async fn handle_agent_error(state: &AppState, event: &AgentEvent) {
         _ => None,
     };
 
-    let msg_row = build_result_message_row(&event.task_id, &msg_uuid, &now, content, TurnStatus::Error, true, None, agent_mode, None);
+    let msg_row = build_result_message_row(&event.task_id, &msg_uuid, &now, content, MessageType::Error, true, None, agent_mode, None);
     let contexts: Vec<TaskMessageContext> = vec![];
     let blocks = vec![TaskMessageContentBlock {
         id: 0,
@@ -355,6 +354,12 @@ pub async fn handle_agent_error(state: &AppState, event: &AgentEvent) {
             )
             .await;
     }
+}
+
+/// Handle `sandbox.fatal` event — delegates to `handle_agent_error` to create
+/// an error result message when the sandbox crashes fatally (OOM, crash loop, etc.).
+pub async fn handle_sandbox_fatal(state: &AppState, event: &AgentEvent) {
+    handle_agent_error(state, event).await;
 }
 
 /// Handle `agent.message` event — persist SDK messages and auto-tag skills.
@@ -464,13 +469,11 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
         tool_use_result: None,
         attachments: None,
         agent_session_id: None,
-        turn_status: None,
-        turn_result: None,
         will_not_resume: None,
         run_metrics: None,
         agent_mode,
         model: None,
-        resume_session_id: None,
+        resume: true,
         sent_at: None,
         created_at: None,
     };
@@ -630,22 +633,8 @@ fn build_content_blocks_from_payload(content: &serde_json::Value) -> Vec<TaskMes
 /// Build result text from SDK result message.
 fn build_result_text(sdk_result: &Option<SdkResultMessage>) -> String {
     match sdk_result {
-        Some(r) => {
-            let default_subtype = if r.is_error.unwrap_or(false) { "error" } else { "completed" };
-            let subtype = r.subtype.as_deref().unwrap_or(default_subtype);
-            if r.is_error.unwrap_or(false) {
-                let error_detail = r.result.as_deref().unwrap_or("Unknown error");
-                format!("Agent {subtype} with error: {error_detail}")
-            } else {
-                let result_detail = r.result.as_deref().unwrap_or("");
-                if result_detail.is_empty() {
-                    format!("Agent {subtype}")
-                } else {
-                    format!("Agent {subtype}: {result_detail}")
-                }
-            }
-        }
-        None => "Agent completed (unreadable result)".to_string(),
+        Some(r) => r.result.clone().unwrap_or_default(),
+        None => String::new(),
     }
 }
 
@@ -656,7 +645,7 @@ fn build_result_message_row(
     uuid: &str,
     timestamp: &str,
     content: serde_json::Value,
-    turn_status: TurnStatus,
+    message_type: MessageType,
     will_not_resume: bool,
     session_id: Option<String>,
     agent_mode: Option<AgentMode>,
@@ -666,7 +655,7 @@ fn build_result_message_row(
         id: 0,
         task_id: task_id.to_string(),
         uuid: uuid.to_string(),
-        message_type: MessageType::Result,
+        message_type,
         user_type: "system".to_string(),
         parent_uuid: None,
         is_sidechain: None,
@@ -691,13 +680,11 @@ fn build_result_message_row(
         tool_use_result: None,
         attachments: None,
         agent_session_id: None,
-        turn_status: Some(turn_status),
-        turn_result: None,
         will_not_resume: Some(will_not_resume),
         run_metrics: None,
         agent_mode,
         model,
-        resume_session_id: None,
+        resume: true,
         sent_at: None,
         created_at: None,
     }
@@ -830,14 +817,11 @@ mod tests {
 
     #[test]
     fn build_result_text_none() {
-        assert_eq!(
-            build_result_text(&None),
-            "Agent completed (unreadable result)"
-        );
+        assert_eq!(build_result_text(&None), "");
     }
 
     #[test]
-    fn build_result_text_success_with_detail() {
+    fn build_result_text_with_detail() {
         let r = SdkResultMessage {
             session_id: None,
             is_error: Some(false),
@@ -848,11 +832,11 @@ mod tests {
             num_turns: None,
             duration_ms: None,
         };
-        assert_eq!(build_result_text(&Some(r)), "Agent completed: All tasks done");
+        assert_eq!(build_result_text(&Some(r)), "All tasks done");
     }
 
     #[test]
-    fn build_result_text_success_empty_result() {
+    fn build_result_text_empty_result() {
         let r = SdkResultMessage {
             session_id: None,
             is_error: Some(false),
@@ -863,7 +847,7 @@ mod tests {
             num_turns: None,
             duration_ms: None,
         };
-        assert_eq!(build_result_text(&Some(r)), "Agent finished");
+        assert_eq!(build_result_text(&Some(r)), "");
     }
 
     #[test]
@@ -878,21 +862,6 @@ mod tests {
             num_turns: None,
             duration_ms: None,
         };
-        assert_eq!(build_result_text(&Some(r)), "Agent crashed with error: OOM");
-    }
-
-    #[test]
-    fn build_result_text_missing_subtype() {
-        let r = SdkResultMessage {
-            session_id: None,
-            is_error: None,
-            subtype: None,
-            result: Some("done".to_string()),
-            total_cost_usd: None,
-            usage: None,
-            num_turns: None,
-            duration_ms: None,
-        };
-        assert_eq!(build_result_text(&Some(r)), "Agent completed: done");
+        assert_eq!(build_result_text(&Some(r)), "OOM");
     }
 }

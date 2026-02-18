@@ -28,6 +28,7 @@ pub trait MessageRepository: Send + Sync {
     async fn get_last_result(&self, task_id: &str) -> Result<Option<TaskMessage>, sqlx::Error>;
     async fn get_last_user_message(&self, task_id: &str) -> Result<Option<TaskMessage>, sqlx::Error>;
     async fn get_latest_session_id(&self, task_id: &str) -> Result<Option<String>, sqlx::Error>;
+    async fn get_latest_agent_session_id(&self, task_id: &str) -> Result<Option<String>, sqlx::Error>;
     async fn set_session_id_for_task(&self, task_id: &str, session_id: &str) -> Result<u64, sqlx::Error>;
     async fn delete_queued(&self, task_id: &str, message_uuid: &str) -> Result<bool, sqlx::Error>;
     async fn get_last_message_type(&self, task_id: &str) -> Result<Option<super::models::MessageType>, sqlx::Error>;
@@ -55,8 +56,8 @@ impl MessageRepository for PgMessageRepository {
                     assistant_usage_cache_creation_input_tokens,
                     assistant_usage_cache_read_input_tokens,
                     tool_use_result, attachments, agent_session_id,
-                    turn_status, turn_result, will_not_resume, run_metrics,
-                    agent_mode, model, resume_session_id, sent_at, created_at
+                    will_not_resume, run_metrics,
+                    agent_mode, model, resume, sent_at, created_at
                 FROM task_messages
                 WHERE task_id = $1
                 ORDER BY timestamp, id"#,
@@ -108,19 +109,18 @@ impl MessageRepository for PgMessageRepository {
                 assistant_usage_cache_creation_input_tokens,
                 assistant_usage_cache_read_input_tokens,
                 tool_use_result, attachments, agent_session_id,
-                turn_status, turn_result, will_not_resume, run_metrics,
-                agent_mode, model, resume_session_id
+                will_not_resume, run_metrics,
+                agent_mode, model, resume
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
                 $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
                 $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
-                $31, $32, $33, $34
+                $31, $32
             )
             ON CONFLICT (uuid) DO UPDATE SET
+                message_type = EXCLUDED.message_type,
                 message_content = EXCLUDED.message_content,
                 agent_session_id = COALESCE(EXCLUDED.agent_session_id, task_messages.agent_session_id),
-                turn_status = COALESCE(EXCLUDED.turn_status, task_messages.turn_status),
-                turn_result = COALESCE(EXCLUDED.turn_result, task_messages.turn_result),
                 will_not_resume = COALESCE(EXCLUDED.will_not_resume, task_messages.will_not_resume),
                 run_metrics = COALESCE(EXCLUDED.run_metrics, task_messages.run_metrics)
             RETURNING id"#,
@@ -152,13 +152,11 @@ impl MessageRepository for PgMessageRepository {
         .bind(&msg.tool_use_result)
         .bind(&msg.attachments)
         .bind(&msg.agent_session_id)
-        .bind(msg.turn_status)
-        .bind(&msg.turn_result)
         .bind(msg.will_not_resume)
         .bind(&msg.run_metrics)
         .bind(&msg.agent_mode)
         .bind(&msg.model)
-        .bind(&msg.resume_session_id)
+        .bind(msg.resume)
         .fetch_one(&mut *tx)
         .await?;
 
@@ -215,13 +213,13 @@ impl MessageRepository for PgMessageRepository {
                 assistant_usage_cache_creation_input_tokens,
                 assistant_usage_cache_read_input_tokens,
                 tool_use_result, attachments, agent_session_id,
-                turn_status, turn_result, will_not_resume, run_metrics,
-                agent_mode, model, resume_session_id, sent_at, created_at
+                will_not_resume, run_metrics,
+                agent_mode, model, resume, sent_at, created_at
             FROM task_messages
             WHERE task_id = $1
               AND agent_session_id IS NULL
               AND (message_type = 'user'
-                   OR (message_type = 'result' AND turn_status = 'error'))
+                   OR message_type = 'error')
             ORDER BY timestamp, id"#,
         )
         .bind(task_id)
@@ -241,10 +239,10 @@ impl MessageRepository for PgMessageRepository {
                 assistant_usage_cache_creation_input_tokens,
                 assistant_usage_cache_read_input_tokens,
                 tool_use_result, attachments, agent_session_id,
-                turn_status, turn_result, will_not_resume, run_metrics,
-                agent_mode, model, resume_session_id, sent_at, created_at
+                will_not_resume, run_metrics,
+                agent_mode, model, resume, sent_at, created_at
             FROM task_messages
-            WHERE task_id = $1 AND message_type = 'result'
+            WHERE task_id = $1 AND message_type IN ('result', 'error')
             ORDER BY timestamp DESC
             LIMIT 1"#,
         )
@@ -265,8 +263,8 @@ impl MessageRepository for PgMessageRepository {
                 assistant_usage_cache_creation_input_tokens,
                 assistant_usage_cache_read_input_tokens,
                 tool_use_result, attachments, agent_session_id,
-                turn_status, turn_result, will_not_resume, run_metrics,
-                agent_mode, model, resume_session_id, sent_at, created_at
+                will_not_resume, run_metrics,
+                agent_mode, model, resume, sent_at, created_at
             FROM task_messages
             WHERE task_id = $1 AND message_type = 'user'
             ORDER BY timestamp DESC
@@ -281,6 +279,20 @@ impl MessageRepository for PgMessageRepository {
         let row: Option<(Option<String>,)> = sqlx::query_as(
             r#"SELECT session_id FROM task_messages
                WHERE task_id = $1 AND session_id IS NOT NULL
+               ORDER BY timestamp DESC
+               LIMIT 1"#,
+        )
+        .bind(task_id)
+        .fetch_optional(&self.0)
+        .await?;
+
+        Ok(row.and_then(|r| r.0))
+    }
+
+    async fn get_latest_agent_session_id(&self, task_id: &str) -> Result<Option<String>, sqlx::Error> {
+        let row: Option<(Option<String>,)> = sqlx::query_as(
+            r#"SELECT agent_session_id FROM task_messages
+               WHERE task_id = $1 AND agent_session_id IS NOT NULL
                ORDER BY timestamp DESC
                LIMIT 1"#,
         )

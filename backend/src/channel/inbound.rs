@@ -95,6 +95,7 @@ pub async fn process_inbound(
         None,
         &msg.file_ids,
         &[],
+        true,
     )
     .await
     {

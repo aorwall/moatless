@@ -6,7 +6,7 @@ import type {
 import type { Event, EventType } from '@moatless/types'
 import { useQueryClient } from '@tanstack/react-query'
 import type React from 'react'
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { getInvalidationKeys, invalidateByTool, shouldInvalidateTaskList } from '@/features/events'
 import { applyTaskEventUpdate } from '@/features/tasks/utils/query-helpers'
@@ -37,7 +37,7 @@ export function GlobalEventStreamProvider({
 }: GlobalEventStreamProviderProps) {
   const [isConnected, setIsConnected] = useState(false)
   const [connectionError, setConnectionError] = useState<Error | null>(null)
-  const [lastEvent, setLastEvent] = useState<Event | null>(null)
+  const lastEventRef = useRef<Event | null>(null)
   const [eventsByTask] = useState(() => new Map<string, Event[]>())
 
   const abortControllerRef = useRef<AbortController | null>(null)
@@ -67,7 +67,6 @@ export function GlobalEventStreamProvider({
         environmentStatus: 'not_created',
         agentState: 'none',
         servers: [],
-        isRunning: false,
         workspaceReady: false,
         canExecute: false,
       }
@@ -75,10 +74,14 @@ export function GlobalEventStreamProvider({
       switch (event.type) {
         case 'agent':
           if (event.subType === 'started') {
-            return { ...current, agentState: 'running', isRunning: true }
+            return { ...current, agentState: 'running' }
           }
-          if (event.subType === 'stopped' || event.subType === 'error') {
-            return { ...current, agentState: 'idle', isRunning: false }
+          if (
+            event.subType === 'completed' ||
+            event.subType === 'stopped' ||
+            event.subType === 'error'
+          ) {
+            return { ...current, agentState: 'idle' }
           }
           break
         case 'sandbox': {
@@ -158,7 +161,7 @@ export function GlobalEventStreamProvider({
           }
           const updatedServers = old.servers.map((s: ServerEntry) =>
             s.name === serverName
-              ? { ...s, status: event.payload.status, error: event.payload.error }
+              ? { ...s, status: event.payload.status, error: event.payload.message }
               : s,
           )
           return { ...old, servers: updatedServers }
@@ -258,8 +261,8 @@ export function GlobalEventStreamProvider({
         }
       }
 
-      // Update local state
-      setLastEvent(event)
+      // Track last event (ref to avoid re-renders)
+      lastEventRef.current = event
 
       // Store event by task
       const taskEvents = eventsByTask.get(event.taskId) || []
@@ -588,15 +591,18 @@ export function GlobalEventStreamProvider({
   // Note: We don't handle visibility changes to ensure a stable connection
   // The stream will remain connected even when the tab is in the background
 
-  const value: GlobalEventStreamContextType = {
-    isConnected,
-    connectionError,
-    lastEvent,
-    eventsByTask,
-    subscribeToTask,
-    subscribeToAll,
-    subscribeToType,
-  }
+  const value = useMemo<GlobalEventStreamContextType>(
+    () => ({
+      isConnected,
+      connectionError,
+      lastEvent: lastEventRef.current,
+      eventsByTask,
+      subscribeToTask,
+      subscribeToAll,
+      subscribeToType,
+    }),
+    [isConnected, connectionError, eventsByTask, subscribeToTask, subscribeToAll, subscribeToType],
+  )
 
   return (
     <GlobalEventStreamContext.Provider value={value}>{children}</GlobalEventStreamContext.Provider>

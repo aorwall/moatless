@@ -6,9 +6,9 @@
 use redis::aio::ConnectionManager;
 use redis::Value;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
-use moatless_events::{AgentSubType, TaskSubType, TaskTurnSubType};
+use moatless_events::{AgentSubType, SandboxSubType, TaskSubType, TaskTurnSubType};
 
 use crate::state::AppState;
 
@@ -59,7 +59,7 @@ impl EventHandlerConsumer {
                 if self.cancel.is_cancelled() {
                     break;
                 }
-                error!(error = %e, "Event handler consumer error, retrying in 2s");
+                warn!(error = %e, "Redis connection lost in event handler consumer, retrying in 2s");
                 tokio::select! {
                     () = tokio::time::sleep(std::time::Duration::from_secs(2)) => {}
                     () = self.cancel.cancelled() => { break; }
@@ -254,6 +254,10 @@ impl EventHandlerConsumer {
             }
             EventKey::Task(TaskSubType::MetadataUpdated) => {
                 agent_handlers::handle_task_metadata_updated(&self.state, event).await;
+            }
+            // Sandbox fatal — pod watcher detected a fatal crash (OOM, crash loop, etc.)
+            EventKey::Sandbox(SandboxSubType::Fatal) => {
+                agent_handlers::handle_sandbox_fatal(&self.state, event).await;
             }
             // Known SSE-only event types — forwarded to frontend but not processed here
             EventKey::Sandbox(_)

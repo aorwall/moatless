@@ -65,10 +65,16 @@ impl Orchestrator {
                 tracker.cancel_all();
             }
 
+            let shutdown_reason = match &result {
+                Ok(()) => "completed",
+                Err(SdkError::Cancelled) => "cancelled",
+                Err(_) => "error",
+            };
+
             // Close the transport
             transport.close().await;
 
-            info!("Orchestrator shutdown complete");
+            debug!(reason = shutdown_reason, "Orchestrator shutdown complete");
         })
     }
 

@@ -68,11 +68,10 @@ pub fn transform_to_ui(
                 let ui_msg = transform_user(msg, &msg_blocks);
                 ui_messages.push(ui_msg);
             }
-            MessageType::System => {
-                let ui_msg = transform_system(msg);
-                ui_messages.push(ui_msg);
+            MessageType::System | MessageType::Result => {
+                continue;
             }
-            MessageType::Result => {
+            MessageType::Error => {
                 let ui_msg = transform_result(msg, &msg_blocks);
                 ui_messages.push(ui_msg);
             }
@@ -192,27 +191,6 @@ fn transform_user(msg: &TaskMessage, blocks: &[&TaskMessageContentBlock]) -> UiM
     }
 }
 
-fn transform_system(msg: &TaskMessage) -> UiMessage {
-    let content = extract_text_from_content(&msg.message_content);
-
-    UiMessage {
-        uuid: msg.uuid.clone(),
-        message_type: msg.message_type,
-        role: msg.message_role,
-        timestamp: msg.timestamp.clone(),
-        session_id: msg.session_id.clone(),
-        turn_number: msg.turn_number,
-        agent_mode: None,
-        model: None,
-        is_queued: None,
-        content,
-        tool_results: vec![],
-        has_pending_user_input: None,
-        assistant: None,
-        result: None,
-    }
-}
-
 fn transform_result(msg: &TaskMessage, blocks: &[&TaskMessageContentBlock]) -> UiMessage {
     let content = if blocks.is_empty() {
         extract_text_from_content(&msg.message_content)
@@ -246,8 +224,6 @@ fn transform_result(msg: &TaskMessage, blocks: &[&TaskMessageContentBlock]) -> U
         has_pending_user_input: None,
         assistant: None,
         result: Some(UiResultMeta {
-            turn_status: msg.turn_status,
-            turn_result: msg.turn_result.clone(),
             will_not_resume: msg.will_not_resume,
             run_metrics: msg.run_metrics.clone(),
         }),

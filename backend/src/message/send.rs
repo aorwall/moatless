@@ -11,6 +11,7 @@ use super::enricher;
 use super::error::MessageError;
 
 /// The main message flow — called by message handlers, task creation, and channel inbound.
+#[allow(clippy::too_many_arguments)]
 pub async fn send_message_flow(
     state: &AppState,
     task_id: &str,
@@ -19,6 +20,7 @@ pub async fn send_message_flow(
     agent_mode: Option<&AgentMode>,
     file_ids: &[String],
     contexts: &[MessageContextInput],
+    resume: bool,
 ) -> Result<(), MessageError> {
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let msg_uuid = uuid::Uuid::new_v4().to_string();
@@ -67,13 +69,11 @@ pub async fn send_message_flow(
         tool_use_result: None,
         attachments: None,
         agent_session_id: None, // Not yet acknowledged
-        turn_status: None,
-        turn_result: None,
         will_not_resume: None,
         run_metrics: None,
         agent_mode: agent_mode.cloned(),
         model: model.map(std::string::ToString::to_string),
-        resume_session_id: None,
+        resume,
         sent_at: None,
         created_at: None,
     };
@@ -136,7 +136,7 @@ pub async fn persist_error_result(
         id: 0,
         task_id: task_id.to_string(),
         uuid: msg_uuid,
-        message_type: MessageType::Result,
+        message_type: MessageType::Error,
         user_type: "system".to_string(),
         parent_uuid: None,
         is_sidechain: None,
@@ -161,13 +161,11 @@ pub async fn persist_error_result(
         tool_use_result: None,
         attachments: None,
         agent_session_id: None,
-        turn_status: Some(super::models::TurnStatus::Error),
-        turn_result: Some(error_text.to_string()),
         will_not_resume: Some(false),
         run_metrics: None,
         agent_mode: None,
         model: None,
-        resume_session_id: None,
+        resume: true,
         sent_at: None,
         created_at: None,
     };
@@ -242,13 +240,11 @@ pub async fn send_tool_response_flow(
         tool_use_result: None,
         attachments: None,
         agent_session_id: None,
-        turn_status: None,
-        turn_result: None,
         will_not_resume: None,
         run_metrics: None,
         agent_mode: None,
         model: None,
-        resume_session_id: None,
+        resume: true,
         sent_at: None,
         created_at: None,
     };

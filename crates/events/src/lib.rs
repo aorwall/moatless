@@ -71,6 +71,7 @@ pub enum SandboxSubType {
     Stopped,
     Removing,
     Error,
+    Fatal,
 }
 
 impl SandboxSubType {
@@ -82,6 +83,7 @@ impl SandboxSubType {
             Self::Stopped => "stopped",
             Self::Removing => "removing",
             Self::Error => "error",
+            Self::Fatal => "fatal",
         }
     }
 }
@@ -102,6 +104,7 @@ impl TryFrom<&str> for SandboxSubType {
             "stopped" => Ok(Self::Stopped),
             "removing" => Ok(Self::Removing),
             "error" => Ok(Self::Error),
+            "fatal" => Ok(Self::Fatal),
             other => Err(format!("unknown SandboxSubType: {other}")),
         }
     }
@@ -305,10 +308,29 @@ impl TryFrom<&str> for TaskTurnSubType {
 pub struct ServerEventPayload {
     pub server_name: String,
     pub status: ServerSubType,
+    /// Human-readable contextual detail (e.g. "ContainerCreating", "CrashLoopBackOff").
+    /// Always set by the publisher. `#[serde(default)]` handles old events without this field.
+    #[serde(default)]
+    pub message: String,
+}
+
+/// Sandbox event payload — typed payload for sandbox lifecycle events.
+///
+/// Used by the pod watcher and provider to publish structured events
+/// instead of raw `serde_json::Value`.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct SandboxEventPayload {
+    /// Human-readable description of the event.
+    #[serde(default)]
+    pub message: String,
+    /// K8s lifecycle event name (e.g. "pod_ready", "container_oom_killed").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lifecycle_event: Option<String>,
+    /// Error detail when applicable.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub detail: Option<String>,
 }
 
 /// SSE event envelope — the shape of events streamed to the frontend.
@@ -357,7 +379,7 @@ impl SubType {
 
     pub fn is_error(&self) -> bool {
         match self {
-            Self::Sandbox(SandboxSubType::Error) => true,
+            Self::Sandbox(SandboxSubType::Error | SandboxSubType::Fatal) => true,
             Self::Server(ServerSubType::Failed) => true,
             Self::Agent(s) => s.is_error(),
             Self::TaskTurn(s) => s.is_error(),
@@ -464,13 +486,33 @@ mod tests {
         let payload = ServerEventPayload {
             server_name: "preview".to_string(),
             status: ServerSubType::Started,
-            error: None,
-            detail: None,
+            message: String::new(),
         };
         let json = serde_json::to_value(&payload).unwrap();
         assert_eq!(json["serverName"], "preview");
         assert_eq!(json["status"], "started");
-        assert!(json.get("error").is_none());
+        assert_eq!(json["message"], "");
+    }
+
+    #[test]
+    fn server_event_payload_with_message() {
+        let payload = ServerEventPayload {
+            server_name: "preview".to_string(),
+            status: ServerSubType::Starting,
+            message: "ContainerCreating".to_string(),
+        };
+        let json = serde_json::to_value(&payload).unwrap();
+        assert_eq!(json["message"], "ContainerCreating");
+    }
+
+    #[test]
+    fn server_event_payload_deserializes_without_message() {
+        let json = serde_json::json!({
+            "serverName": "preview",
+            "status": "started"
+        });
+        let payload: ServerEventPayload = serde_json::from_value(json).unwrap();
+        assert_eq!(payload.message, "");
     }
 
     #[test]

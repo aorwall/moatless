@@ -205,7 +205,11 @@ impl SandboxProvider for K8sSandboxProvider {
 
         if let Some(ref publisher) = self.event_publisher {
             publisher
-                .publish_sandbox_event(task_id, moatless_events::SandboxSubType::Stopped, None)
+                .publish_sandbox_event(
+                    task_id,
+                    moatless_events::SandboxSubType::Stopped,
+                    "Stopped",
+                )
                 .await;
         }
 
@@ -365,6 +369,7 @@ impl SandboxProvider for K8sSandboxProvider {
         query: &str,
         limit: u32,
     ) -> Result<Vec<FileSearchResult>, SandboxError> {
+        self.require_sandbox_ready(task_id).await?;
         let service_name = generate_service_name(task_id);
         let results =
             health::search_sandbox_files(&service_name, self.k8s.namespace(), self.config.sandbox.grpc_port, query, limit)
@@ -381,11 +386,11 @@ impl SandboxProvider for K8sSandboxProvider {
         task_id: &str,
         root_path: &str,
     ) -> Result<FileTreeResponse, SandboxError> {
-        let client = self.grpc_client(task_id)?;
+        let client = self.ready_grpc_client(task_id).await?;
         let resp = client
             .get_file_tree(root_path)
             .await
-            .map_err(|e| SandboxError::Internal(format!("gRPC get_file_tree failed: {e}")))?;
+            .map_err(|e| Self::classify_grpc_error(e, "get_file_tree"))?;
 
         let summary = resp.git_summary.map_or(
             GitSummaryDto {
@@ -412,11 +417,11 @@ impl SandboxProvider for K8sSandboxProvider {
         path: &str,
         include_changes: bool,
     ) -> Result<FileContentResponse, SandboxError> {
-        let client = self.grpc_client(task_id)?;
+        let client = self.ready_grpc_client(task_id).await?;
         let resp = client
             .read_file(path, include_changes)
             .await
-            .map_err(|e| SandboxError::Internal(format!("gRPC read_file failed: {e}")))?;
+            .map_err(|e| Self::classify_grpc_error(e, "read_file"))?;
 
         Ok(FileContentResponse::from(resp))
     }
@@ -427,11 +432,11 @@ impl SandboxProvider for K8sSandboxProvider {
         path: &str,
         content: &str,
     ) -> Result<(), SandboxError> {
-        let client = self.grpc_client(task_id)?;
+        let client = self.ready_grpc_client(task_id).await?;
         client
             .write_file(path, content)
             .await
-            .map_err(|e| SandboxError::Internal(format!("gRPC write_file failed: {e}")))?;
+            .map_err(|e| Self::classify_grpc_error(e, "write_file"))?;
         Ok(())
     }
 
@@ -441,11 +446,11 @@ impl SandboxProvider for K8sSandboxProvider {
         path: &str,
         recursive: bool,
     ) -> Result<ListFilesResponse, SandboxError> {
-        let client = self.grpc_client(task_id)?;
+        let client = self.ready_grpc_client(task_id).await?;
         let files = client
             .list_files(path, recursive)
             .await
-            .map_err(|e| SandboxError::Internal(format!("gRPC list_files failed: {e}")))?;
+            .map_err(|e| Self::classify_grpc_error(e, "list_files"))?;
         Ok(ListFilesResponse { files })
     }
 
@@ -456,11 +461,11 @@ impl SandboxProvider for K8sSandboxProvider {
         case_sensitive: bool,
         max_results: i32,
     ) -> Result<SearchByNameResponse, SandboxError> {
-        let client = self.grpc_client(task_id)?;
+        let client = self.ready_grpc_client(task_id).await?;
         let resp = client
             .search_files_by_name(query, case_sensitive, max_results)
             .await
-            .map_err(|e| SandboxError::Internal(format!("gRPC search_files_by_name failed: {e}")))?;
+            .map_err(|e| Self::classify_grpc_error(e, "search_files_by_name"))?;
 
         Ok(SearchByNameResponse {
             files: resp.files.into_iter().map(FileNameMatchDto::from).collect(),
@@ -485,6 +490,42 @@ impl K8sSandboxProvider {
         .map_err(|e| SandboxError::Internal(format!("Failed to create gRPC client: {e}")))
     }
 
+    /// Fast readiness gate — checks deployment replicas before attempting gRPC.
+    async fn require_sandbox_ready(&self, task_id: &str) -> Result<(), SandboxError> {
+        match deployment::get_deployment_replicas(&self.k8s, task_id).await {
+            Ok((0, _)) => {
+                Err(SandboxError::NotReady("Sandbox is stopped".into()))
+            }
+            Ok(_) => Ok(()),
+            Err(_) => {
+                // Deployment might not exist at all
+                match deployment::find_deployment(&self.k8s, task_id).await {
+                    Ok(None) => Err(SandboxError::NotReady("Sandbox not provisioned".into())),
+                    Ok(Some(_)) => Ok(()), // exists but replicas check failed — try gRPC anyway
+                    Err(e) => Err(SandboxError::KubeError(e)),
+                }
+            }
+        }
+    }
+
+    /// Get a gRPC client after verifying the sandbox is running.
+    /// All file/search operations MUST use this instead of `grpc_client()`.
+    async fn ready_grpc_client(&self, task_id: &str) -> Result<SandboxGrpcClient, SandboxError> {
+        self.require_sandbox_ready(task_id).await?;
+        self.grpc_client(task_id)
+    }
+
+    /// Classify gRPC errors: Unavailable/connection errors → NotReady (503),
+    /// everything else → Internal (500).
+    fn classify_grpc_error(e: tonic::Status, operation: &str) -> SandboxError {
+        match e.code() {
+            tonic::Code::Unavailable | tonic::Code::DeadlineExceeded => {
+                SandboxError::NotReady(format!("Sandbox unreachable: {operation}"))
+            }
+            _ => SandboxError::Internal(format!("gRPC {operation} failed: {e}")),
+        }
+    }
+
     /// Publish an "initializing" event (fire-and-forget).
     ///
     /// The pod_watcher handles all subsequent readiness tracking and server
@@ -492,7 +533,11 @@ impl K8sSandboxProvider {
     async fn publish_initializing(&self, task_id: &str) {
         if let Some(ref publisher) = self.event_publisher {
             publisher
-                .publish_sandbox_event(task_id, moatless_events::SandboxSubType::Initializing, None)
+                .publish_sandbox_event(
+                    task_id,
+                    moatless_events::SandboxSubType::Initializing,
+                    "Starting",
+                )
                 .await;
         }
     }

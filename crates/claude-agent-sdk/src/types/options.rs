@@ -35,6 +35,10 @@ pub struct ClaudeOptions {
     pub max_budget_usd: Option<f64>,
     pub max_thinking_tokens: Option<i64>,
 
+    // -- Timeouts --
+    /// Timeout for the initialize control request. Default: 60s.
+    pub init_timeout: Option<std::time::Duration>,
+
     // -- Session --
     pub resume: Option<String>,
     pub resume_session_at: Option<String>,

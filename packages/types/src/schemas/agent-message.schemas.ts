@@ -159,9 +159,7 @@ const AssistantAgentMessageSchema = BaseAgentMessageSchema.extend({
 
 // Result agent message schema (appended when agent completes a turn)
 const ResultAgentMessageSchema = BaseAgentMessageSchema.extend({
-  type: z.literal('result'),
-  turnStatus: z.enum(['completed', 'failed']),
-  turnResult: z.string().optional(),
+  type: z.enum(['result', 'error']),
   willNotResume: z.boolean().optional(),
   runMetrics: RunMetricsSchema.optional(),
 })

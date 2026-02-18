@@ -50,6 +50,8 @@ message PendingMessage {
   optional bool resume = 4;
   optional string agent_type = 5;
   optional bool is_error = 6;
+  // The agent_session_id from the previous turn — used for --resume <id>
+  optional string resume_session_id = 7;
 }
 
 message ContentBlock {
@@ -84,6 +86,7 @@ message GetCredentialsResponse {
 service SandboxService {
   rpc ExecuteAgent(ExecuteAgentRequest) returns (ExecuteAgentResponse);
   rpc StopAgent(StopAgentRequest) returns (StopAgentResponse);
+  rpc GetAgentStatus(GetAgentStatusRequest) returns (GetAgentStatusResponse);
   rpc NotifyMessages(NotifyMessagesRequest) returns (NotifyMessagesResponse);
   rpc SearchFiles(SearchFilesRequest) returns (SearchFilesResponse);
 
@@ -107,6 +110,13 @@ message ExecuteAgentResponse {}
 
 message StopAgentRequest {}
 message StopAgentResponse {}
+
+message GetAgentStatusRequest {}
+message GetAgentStatusResponse {
+  string status = 1;             // "idle", "running", "stopped"
+  optional string session_id = 2;
+  optional string last_error = 3;
+}
 
 message NotifyMessagesRequest {}
 message NotifyMessagesResponse {}

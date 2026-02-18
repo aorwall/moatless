@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::message::models::{MessageRole, MessageType, TurnStatus};
+use crate::message::models::{MessageRole, MessageType};
 use crate::shared_models::AgentMode;
 use crate::task::schemas::MessageContextInput;
 
@@ -89,8 +89,6 @@ pub struct UiUsage {
 #[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UiResultMeta {
-    pub turn_status: Option<TurnStatus>,
-    pub turn_result: Option<String>,
     pub will_not_resume: Option<bool>,
     #[schema(value_type = Object)]
     pub run_metrics: Option<serde_json::Value>,
@@ -118,12 +116,7 @@ pub struct PendingMessageItem {
     pub agent_mode: Option<AgentMode>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub resume_session_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub turn_status: Option<TurnStatus>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub turn_result: Option<String>,
+    pub resume: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub will_not_resume: Option<bool>,
 }

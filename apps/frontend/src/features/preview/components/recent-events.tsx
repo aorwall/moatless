@@ -1,6 +1,7 @@
 import { AlertTriangle, CheckCircle2, Server, XCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { SandboxEvent } from '../types'
+import { getDisplayMessage } from '../utils/event-messages'
 
 interface RecentEventsProps {
   events: SandboxEvent[]
@@ -56,26 +57,20 @@ export function RecentEvents({ events, className }: RecentEventsProps) {
         <span className="text-[10px] font-medium uppercase text-muted-foreground tracking-wider px-1">
           Recent events
         </span>
-        {recentEvents.map((event) => {
-          const detail = typeof event.payload.detail === 'string' ? event.payload.detail : undefined
-          const displayMessage = event.message || detail
-          return (
-            <div key={event.eventId} className="flex items-center gap-1.5 px-1 py-0.5">
-              {getEventIcon(event)}
-              <span className="text-xs font-medium truncate flex-1">
-                {event.subType}
-                {displayMessage && (
-                  <span className="font-normal text-muted-foreground ml-1 truncate">
-                    {displayMessage}
-                  </span>
-                )}
+        {recentEvents.map((event) => (
+          <div key={event.eventId} className="flex items-center gap-1.5 px-1 py-0.5">
+            {getEventIcon(event)}
+            <span className="text-xs font-medium truncate flex-1">
+              {event.subType}
+              <span className="font-normal text-muted-foreground ml-1 truncate">
+                {getDisplayMessage(event)}
               </span>
-              <span className="text-[10px] text-muted-foreground shrink-0 tabular-nums">
-                {formatRelativeTime(event.timestamp)}
-              </span>
-            </div>
-          )
-        })}
+            </span>
+            <span className="text-[10px] text-muted-foreground shrink-0 tabular-nums">
+              {formatRelativeTime(event.timestamp)}
+            </span>
+          </div>
+        ))}
       </div>
     </div>
   )

@@ -157,12 +157,22 @@ impl InternalPendingMessage {
     fn from_proto(msg: sandbox_proto::PendingMessage) -> Self {
         let content = super::types::content_blocks_from_proto(msg.content);
 
+        // Resolve resume mode:
+        // 1. If resume_session_id is set → --resume <id> (specific session)
+        // 2. If resume=true but no session id → --continue (latest local session)
+        // 3. Otherwise → no resume
+        let resume = if let Some(session_id) = msg.resume_session_id {
+            Some(ResumeSession::WithId(session_id))
+        } else {
+            msg.resume.filter(|&b| b).map(|_| ResumeSession::Last)
+        };
+
         Self {
             content,
             is_error: msg.is_error.unwrap_or(false),
             model: msg.model,
             system_prompt: msg.system_prompt,
-            resume: msg.resume.filter(|&b| b).map(|_| ResumeSession::Last),
+            resume,
             agent_type: msg.agent_type,
         }
     }

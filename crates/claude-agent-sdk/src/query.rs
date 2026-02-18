@@ -104,6 +104,10 @@ impl QueryHandle {
                 "type".to_string(),
                 serde_json::Value::String("user".to_string()),
             );
+            // The CLI expects `message.content` as a plain string, not an array
+            // of content blocks. Using the array format causes session resume to
+            // fail (the CLI can't replay array-format user messages).
+            flatten_content_to_string(obj);
         }
         let json = serde_json::to_string(&value)?;
         self.stdin_writer.write_json_line(&json).await
@@ -151,6 +155,15 @@ impl QueryHandle {
                 timeout_ms: 30_000,
             }),
         }
+    }
+}
+
+impl Drop for QueryHandle {
+    fn drop(&mut self) {
+        // Cancel the token to ensure the orchestrator exits and the subprocess
+        // is cleaned up. This is idempotent — safe to call after close() or
+        // if the orchestrator already finished.
+        self.cancellation_token.cancel();
     }
 }
 
@@ -204,33 +217,43 @@ pub async fn query(prompt: &str, mut options: ClaudeOptions) -> Result<QueryHand
     stdin_writer.write_json_line(&json).await?;
 
     // Wait for init response
-    match tokio::time::timeout(std::time::Duration::from_secs(30), init_rx).await {
+    let init_timeout = options
+        .init_timeout
+        .unwrap_or(std::time::Duration::from_secs(60));
+
+    match tokio::time::timeout(init_timeout, init_rx).await {
         Ok(Ok(Ok(_))) => {
             debug!("Initialize control request succeeded");
         }
         Ok(Ok(Err(error_info))) => {
+            cancellation_token.cancel();
             return Err(SdkError::ControlError {
                 request_id: init_id,
                 error: error_info.error,
             });
         }
         Ok(Err(_)) => {
+            cancellation_token.cancel();
             return Err(SdkError::TransportClosed);
         }
         Err(_) => {
+            cancellation_token.cancel();
             return Err(SdkError::ControlTimeout {
                 request_id: init_id,
-                timeout_ms: 30_000,
+                timeout_ms: init_timeout.as_millis() as u64,
             });
         }
     }
 
     // 5. Write user prompt as NDJSON
+    // NOTE: The CLI expects `content` as a plain string for user messages,
+    // NOT as an array of content blocks. Using the array format causes
+    // session resume to fail (the CLI can't replay array-format messages).
     let user_msg = serde_json::json!({
         "type": "user",
         "message": {
             "role": "user",
-            "content": [{"type": "text", "text": prompt}]
+            "content": prompt
         }
     });
 
@@ -297,23 +320,30 @@ pub async fn query_streaming(mut options: ClaudeOptions) -> Result<QueryHandle> 
     stdin_writer.write_json_line(&json).await?;
 
     // Wait for init response
-    match tokio::time::timeout(std::time::Duration::from_secs(30), init_rx).await {
+    let init_timeout = options
+        .init_timeout
+        .unwrap_or(std::time::Duration::from_secs(60));
+
+    match tokio::time::timeout(init_timeout, init_rx).await {
         Ok(Ok(Ok(_))) => {
             debug!("Initialize control request succeeded");
         }
         Ok(Ok(Err(error_info))) => {
+            cancellation_token.cancel();
             return Err(SdkError::ControlError {
                 request_id: init_id,
                 error: error_info.error,
             });
         }
         Ok(Err(_)) => {
+            cancellation_token.cancel();
             return Err(SdkError::TransportClosed);
         }
         Err(_) => {
+            cancellation_token.cancel();
             return Err(SdkError::ControlTimeout {
                 request_id: init_id,
-                timeout_ms: 30_000,
+                timeout_ms: init_timeout.as_millis() as u64,
             });
         }
     }
@@ -325,6 +355,35 @@ pub async fn query_streaming(mut options: ClaudeOptions) -> Result<QueryHandle> 
         request_tracker,
         cancellation_token,
     })
+}
+
+/// Convert `message.content` from an array of content blocks to a plain string.
+///
+/// The CLI expects user message content as a string (e.g. `"content": "hello"`),
+/// not as an array of content blocks (`"content": [{"type":"text","text":"hello"}]`).
+/// If content is an array of text blocks, join them into a single string.
+fn flatten_content_to_string(obj: &mut serde_json::Map<String, serde_json::Value>) {
+    if let Some(msg) = obj.get_mut("message").and_then(|m| m.as_object_mut()) {
+        if let Some(content) = msg.get("content") {
+            if let Some(arr) = content.as_array() {
+                let text: String = arr
+                    .iter()
+                    .filter_map(|block| {
+                        if block.get("type").and_then(|t| t.as_str()) == Some("text") {
+                            block.get("text").and_then(|t| t.as_str()).map(String::from)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                msg.insert(
+                    "content".to_string(),
+                    serde_json::Value::String(text),
+                );
+            }
+        }
+    }
 }
 
 /// Extract server names from the SDK MCP servers map.
@@ -387,5 +446,49 @@ fn build_initialize_request(
         system_prompt,
         append_system_prompt,
         agents: options.agents.clone(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn flatten_content_array_to_string() {
+        let mut obj = serde_json::json!({
+            "message": {
+                "role": "user",
+                "content": [{"type": "text", "text": "hello world"}]
+            }
+        });
+        flatten_content_to_string(obj.as_object_mut().unwrap());
+        assert_eq!(obj["message"]["content"], "hello world");
+    }
+
+    #[test]
+    fn flatten_content_already_string() {
+        let mut obj = serde_json::json!({
+            "message": {
+                "role": "user",
+                "content": "already a string"
+            }
+        });
+        flatten_content_to_string(obj.as_object_mut().unwrap());
+        assert_eq!(obj["message"]["content"], "already a string");
+    }
+
+    #[test]
+    fn flatten_content_multiple_text_blocks() {
+        let mut obj = serde_json::json!({
+            "message": {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "first line"},
+                    {"type": "text", "text": "second line"}
+                ]
+            }
+        });
+        flatten_content_to_string(obj.as_object_mut().unwrap());
+        assert_eq!(obj["message"]["content"], "first line\nsecond line");
     }
 }

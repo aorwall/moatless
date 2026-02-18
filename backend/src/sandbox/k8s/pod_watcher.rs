@@ -18,10 +18,10 @@ use std::sync::Arc;
 
 use futures::TryStreamExt;
 use k8s_openapi::api::core::v1::Pod;
-use kube::api::Api;
+use kube::api::{Api, LogParams};
 use kube::runtime::watcher::{self, Config as WatcherConfig};
 use moatless_events::{
-    AgentSubType, SandboxSubType, ServerEventPayload, ServerSubType,
+    SandboxEventPayload, SandboxSubType, ServerEventPayload, ServerSubType,
 };
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -60,6 +60,9 @@ struct PodObservedState {
     failure_detail: Option<String>,
     /// Server container snapshots (excludes sandbox container).
     server_containers: Vec<ServerContainerState>,
+    /// Whether a fatal event has already been published for this pod.
+    /// Suppresses repeated fatal events during CrashLoopBackOff.
+    fatal_published: bool,
 }
 
 /// Spawn the pod lifecycle watcher as a background tokio task.
@@ -73,6 +76,7 @@ pub fn spawn_pod_lifecycle_watcher(
     k8s: K8sClient,
     event_publisher: Arc<dyn EventPublisher>,
     cancel: CancellationToken,
+    max_crash_restart_count: i32,
 ) -> JoinHandle<()> {
     let identity = std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".to_string());
 
@@ -94,6 +98,7 @@ pub fn spawn_pod_lifecycle_watcher(
                         event_publisher.as_ref(),
                         &leader_election,
                         &cancel,
+                        max_crash_restart_count,
                     )
                     .await;
                     // Watch ended (stream error or leadership lost) — re-enter loop
@@ -125,6 +130,7 @@ async fn run_pod_watch(
     event_publisher: &dyn EventPublisher,
     leader_election: &LeaderElection,
     cancel: &CancellationToken,
+    max_crash_restart_count: i32,
 ) {
     let pods_api: Api<Pod> = Api::namespaced(k8s.client.clone(), k8s.namespace());
     let wc = WatcherConfig::default().labels("app.kubernetes.io/managed-by=moatless");
@@ -162,6 +168,7 @@ async fn run_pod_watch(
                             &watcher_event,
                             &mut pod_states,
                             event_publisher,
+                            max_crash_restart_count,
                         ).await;
                     }
                     Ok(None) => {
@@ -196,6 +203,7 @@ async fn process_watcher_event(
     event: &watcher::Event<Pod>,
     pod_states: &mut HashMap<String, PodObservedState>,
     event_publisher: &dyn EventPublisher,
+    max_crash_restart_count: i32,
 ) {
     match event {
         watcher::Event::Apply(pod) | watcher::Event::InitApply(pod) => {
@@ -212,7 +220,7 @@ async fn process_watcher_event(
                 .unwrap_or("unknown")
                 .to_string();
 
-            let new_state = extract_pod_observed_state(pod, &pod_name, &task_id);
+            let mut new_state = extract_pod_observed_state(pod, &pod_name, &task_id);
 
             // During InitApply, populate the map silently without publishing events
             if is_init {
@@ -236,14 +244,15 @@ async fn process_watcher_event(
                         pod_name = %pod_name,
                         "New pod replacing failed sibling — emitting pod_recovering"
                     );
-                    let payload = serde_json::json!({
-                        "lifecycleEvent": "pod_recovering",
-                    });
                     event_publisher
                         .publish_sandbox_event_with_payload(
                             &task_id,
                             SandboxSubType::Initializing,
-                            payload,
+                            &SandboxEventPayload {
+                                message: "Recovering from a failed pod".to_string(),
+                                lifecycle_event: Some("pod_recovering".to_string()),
+                                ..Default::default()
+                            },
                         )
                         .await;
                 }
@@ -279,15 +288,16 @@ async fn process_watcher_event(
                         &ServerEventPayload {
                             server_name: server_name.clone(),
                             status: *server_sub_type,
-                            error: sc.and_then(|s| s.error.clone()),
-                            detail: sc.and_then(|s| s.detail.clone()),
+                            message: format_server_message(sc),
                         },
                     )
                     .await;
             }
 
-            // If sandbox entered an error state, force all servers to Failed.
-            // When the pod crashes, server containers terminate too — semantically they failed.
+            // Check if this is an intentional stop (Deployment scaled to 0).
+            // When the idle reaper or user explicitly stops a sandbox, the pod
+            // terminates with exit code 137 (SIGKILL) which would otherwise be
+            // misinterpreted as a crash.
             let has_error_transition = transitions.iter().any(|(sub_type, _)| {
                 matches!(
                     lifecycle_sub_type_to_env_status(sub_type),
@@ -295,7 +305,21 @@ async fn process_watcher_event(
                 )
             });
 
-            if has_error_transition {
+            let is_intentional_stop = if has_error_transition {
+                match deployment::get_deployment_replicas(k8s, &task_id).await {
+                    Ok((desired, _)) => desired == 0,
+                    Err(e) => {
+                        debug!(task_id = %task_id, error = %e, "Could not check deployment replicas");
+                        false
+                    }
+                }
+            } else {
+                false
+            };
+
+            // If sandbox entered an error state AND this is NOT an intentional stop,
+            // force all servers to Failed (pod crash kills server containers too).
+            if has_error_transition && !is_intentional_stop {
                 for sc in &new_state.server_containers {
                     let server_name = sc.name.strip_suffix("-server").unwrap_or(&sc.name);
                     // Skip servers already reported as failed by detect_server_transitions
@@ -318,11 +342,10 @@ async fn process_watcher_event(
                             &ServerEventPayload {
                                 server_name: server_name.to_string(),
                                 status: ServerSubType::Failed,
-                                error: sc
+                                message: sc
                                     .error
                                     .clone()
-                                    .or_else(|| Some("Pod terminated".to_string())),
-                                detail: None,
+                                    .unwrap_or_else(|| "Pod terminated".to_string()),
                             },
                         )
                         .await;
@@ -330,8 +353,19 @@ async fn process_watcher_event(
             }
 
             for (sub_type, error_msg) in &transitions {
-                let env_status = lifecycle_sub_type_to_env_status(sub_type);
-                let sandbox_sub = env_status_to_sandbox_sub_type(&env_status);
+                // For intentional stops, downgrade error-level transitions to Stopped
+                let (env_status, sandbox_sub) = if is_intentional_stop
+                    && matches!(
+                        lifecycle_sub_type_to_env_status(sub_type),
+                        EnvironmentStatus::Error
+                    )
+                {
+                    (EnvironmentStatus::Stopped, SandboxSubType::Stopped)
+                } else {
+                    let env_status = lifecycle_sub_type_to_env_status(sub_type);
+                    let sandbox_sub = env_status_to_sandbox_sub_type(&env_status);
+                    (env_status, sandbox_sub)
+                };
 
                 info!(
                     task_id = %task_id,
@@ -341,52 +375,137 @@ async fn process_watcher_event(
                     error = ?error_msg,
                     exit_code = ?new_state.exit_code,
                     failure_detail = ?new_state.failure_detail,
+                    intentional_stop = is_intentional_stop,
                     "Pod lifecycle event detected"
                 );
 
-                let payload = serde_json::json!({
-                    "lifecycleEvent": sub_type,
-                    "error": error_msg,
-                });
                 event_publisher
                     .publish_sandbox_event_with_payload(
                         &task_id,
                         sandbox_sub,
-                        payload,
+                        &SandboxEventPayload {
+                            message: format_sandbox_lifecycle_message(sub_type, error_msg.as_deref()),
+                            lifecycle_event: Some(sub_type.clone()),
+                            error: if is_intentional_stop { None } else { error_msg.clone() },
+                        },
                     )
                     .await;
             }
 
-            // If any transition is fatal, also publish agent.error
-            // so the event handler creates an error result message
+            // Carry over fatal_published from previous state, then reset on recovery
+            if let Some(prev) = prev_state {
+                new_state.fatal_published = prev.fatal_published;
+            }
+            if transitions.iter().any(|(sub, _)| sub == "pod_ready") {
+                new_state.fatal_published = false;
+            }
+
+            // Only truly irrecoverable events are fatal — pod-level failures
+            // where K8s will NOT restart the container.
+            // Container-level crashes (OOM, terminated, crash loop) are not fatal
+            // because K8s will restart them. The auto-stop threshold handles
+            // persistent crash loops separately.
             let has_fatal = transitions.iter().any(|(sub_type, _)| {
-                matches!(
-                    sub_type.as_str(),
-                    "container_oom_killed"
-                        | "container_crash_loop"
-                        | "pod_failed"
-                        | "pod_evicted"
-                        | "container_terminated"
-                )
+                matches!(sub_type.as_str(), "pod_failed" | "pod_evicted")
             });
 
-            if has_fatal {
+            if has_fatal && !is_intentional_stop && !new_state.fatal_published {
                 let error_msg = transitions
                     .iter().find_map(|(_, err)| err.as_ref())
                     .cloned()
                     .unwrap_or_else(|| "Sandbox terminated unexpectedly".to_string());
 
                 event_publisher
-                    .publish_agent_event(
+                    .publish_sandbox_event_with_payload(
                         &task_id,
-                        AgentSubType::Error,
-                        None,
-                        serde_json::json!({
-                            "error": format!("Sandbox terminated: {}", error_msg),
-                            "source": "pod_watcher",
-                        }),
+                        SandboxSubType::Fatal,
+                        &SandboxEventPayload {
+                            message: format!("Sandbox terminated: {error_msg}"),
+                            lifecycle_event: Some("fatal".to_string()),
+                            error: Some(error_msg),
+                        },
                     )
                     .await;
+
+                new_state.fatal_published = true;
+            }
+
+            // Auto-stop sandbox if restart count exceeds threshold
+            if max_crash_restart_count > 0
+                && new_state.restart_count >= max_crash_restart_count
+                && !is_intentional_stop
+            {
+                let prev_below_threshold =
+                    prev_state.is_none_or(|p| p.restart_count < max_crash_restart_count);
+
+                if prev_below_threshold {
+                    warn!(
+                        task_id = %task_id,
+                        pod_name = %pod_name,
+                        restart_count = new_state.restart_count,
+                        threshold = max_crash_restart_count,
+                        "Restart count exceeded threshold, auto-stopping sandbox"
+                    );
+
+                    // Fetch container logs for root cause before stopping
+                    let logs = fetch_sandbox_logs(k8s, &pod_name, 50).await;
+
+                    // Build detailed error message with code blocks for technical details
+                    let mut error_parts = vec![format!(
+                        "Sandbox auto-stopped after {} restarts (threshold: {}).",
+                        new_state.restart_count, max_crash_restart_count
+                    )];
+                    if let Some(exit_code) = new_state.exit_code {
+                        error_parts.push(format!("Exit code: `{exit_code}`"));
+                    }
+                    if let Some(ref detail) = new_state.failure_detail {
+                        error_parts.push(format!("Failure: `{detail}`"));
+                    }
+                    if let Some(ref logs) = logs {
+                        error_parts.push(format!("Container logs:\n```\n{logs}\n```"));
+                    }
+                    let detailed_error = error_parts.join("\n");
+
+                    // Publish detailed sandbox.fatal with root cause
+                    event_publisher
+                        .publish_sandbox_event_with_payload(
+                            &task_id,
+                            SandboxSubType::Fatal,
+                            &SandboxEventPayload {
+                                message: detailed_error.clone(),
+                                lifecycle_event: Some("auto_stopped".to_string()),
+                                error: Some(detailed_error),
+                            },
+                        )
+                        .await;
+
+                    // Scale deployment to 0
+                    if let Err(e) = deployment::scale_deployment(k8s, &task_id, 0).await {
+                        warn!(
+                            task_id = %task_id,
+                            error = %e,
+                            "Failed to auto-stop crash-looping sandbox"
+                        );
+                    }
+                }
+            }
+
+            // Auto-scale down when sandbox container exits cleanly (Completed).
+            // This prevents K8s from restarting the container into CrashLoopBackOff.
+            let has_completed = transitions.iter().any(|(sub, _)| sub == "sandbox_completed");
+            if has_completed && !is_intentional_stop {
+                info!(
+                    task_id = %task_id,
+                    pod_name = %pod_name,
+                    "Sandbox completed cleanly, scaling deployment to 0"
+                );
+                if let Err(e) = deployment::scale_deployment(k8s, &task_id, 0).await {
+                    warn!(
+                        task_id = %task_id,
+                        error = %e,
+                        "Failed to scale down completed sandbox"
+                    );
+                }
             }
 
             pod_states.insert(pod_name, new_state);
@@ -469,43 +588,37 @@ async fn process_watcher_event(
                             &ServerEventPayload {
                                 server_name: server_name.to_string(),
                                 status: server_sub,
-                                error: if env_status == EnvironmentStatus::NotCreated {
-                                    Some("Pod deleted".to_string())
+                                message: if env_status == EnvironmentStatus::NotCreated {
+                                    "Pod deleted".to_string()
                                 } else {
-                                    None
+                                    String::new()
                                 },
-                                detail: None,
                             },
                         )
                         .await;
                 }
 
-                let payload = serde_json::json!({
-                    "lifecycleEvent": "pod_deleted",
-                });
+                let delete_message = if sandbox_sub == SandboxSubType::Stopped {
+                    "Stopped"
+                } else {
+                    "Removed"
+                };
                 event_publisher
                     .publish_sandbox_event_with_payload(
                         &task_id,
                         sandbox_sub,
-                        payload,
+                        &SandboxEventPayload {
+                            message: delete_message.to_string(),
+                            lifecycle_event: Some("pod_deleted".to_string()),
+                            ..Default::default()
+                        },
                     )
                     .await;
 
-                // For unexpected deletions (no Deployment), also publish agent.error
-                // so the event handler creates an error result message
-                if env_status == EnvironmentStatus::NotCreated {
-                    event_publisher
-                        .publish_agent_event(
-                            &task_id,
-                            AgentSubType::Error,
-                            None,
-                            serde_json::json!({
-                                "error": "Sandbox terminated: Pod deleted",
-                                "source": "pod_watcher",
-                            }),
-                        )
-                        .await;
-                }
+                // No sandbox.fatal here — "no Deployment + pod deleted" is always
+                // intentional cleanup (the cleanup handler deletes the Deployment first).
+                // Fatal events only come from the Apply handler for truly irrecoverable
+                // transitions (pod_failed, pod_evicted).
             } else {
                 info!(
                     task_id = %task_id,
@@ -624,6 +737,7 @@ fn extract_pod_observed_state(pod: &Pod, pod_name: &str, task_id: &str) -> PodOb
         exit_code,
         failure_detail,
         server_containers,
+        fatal_published: false,
     }
 }
 
@@ -657,6 +771,18 @@ fn detect_transitions(
                     Some(format!("Container terminated: {reason}")),
                 ));
             }
+        }
+    }
+
+    // Detect clean sandbox exit (Completed with exit code 0).
+    // Instead of silently ignoring it, emit a transition so we can
+    // scale the deployment to 0 and prevent CrashLoopBackOff.
+    if current.terminated_reason.as_deref() == Some("Completed")
+        && current.exit_code == Some(0)
+    {
+        let prev_reason = prev.and_then(|p| p.terminated_reason.as_deref());
+        if prev_reason != Some("Completed") {
+            events.push(("sandbox_completed".to_string(), None));
         }
     }
 
@@ -769,14 +895,37 @@ fn detect_server_transitions(
     events
 }
 
+/// Fetch the last N lines of the sandbox container's logs.
+/// Returns `None` if logs can't be fetched (best-effort, never fails).
+async fn fetch_sandbox_logs(k8s: &K8sClient, pod_name: &str, tail_lines: i64) -> Option<String> {
+    let pods_api: Api<Pod> = Api::namespaced(k8s.client.clone(), k8s.namespace());
+    let params = LogParams {
+        container: Some("sandbox".to_string()),
+        tail_lines: Some(tail_lines),
+        ..Default::default()
+    };
+    match pods_api.logs(pod_name, &params).await {
+        Ok(logs) if !logs.is_empty() => Some(logs),
+        Ok(_) => None,
+        Err(e) => {
+            debug!(pod_name = %pod_name, error = %e, "Failed to fetch sandbox logs for root cause");
+            None
+        }
+    }
+}
+
 /// Map a lifecycle event sub_type to the corresponding EnvironmentStatus.
 fn lifecycle_sub_type_to_env_status(sub_type: &str) -> EnvironmentStatus {
     match sub_type {
         "pod_deleted" => EnvironmentStatus::NotCreated,
-        "pod_evicted" | "pod_failed" | "container_oom_killed" | "container_terminated"
-        | "container_crash_loop" => EnvironmentStatus::Error,
+        "pod_evicted" | "pod_failed" => EnvironmentStatus::Error,
+        // Container-level crashes stay Initializing — K8s will restart them.
+        // Only pod-level failures (evicted, failed) are truly dead.
+        "container_oom_killed" | "container_terminated" | "container_crash_loop" => {
+            EnvironmentStatus::Initializing
+        }
         "pod_ready" => EnvironmentStatus::Ready,
-        "pod_succeeded" => EnvironmentStatus::Stopped,
+        "pod_succeeded" | "sandbox_completed" => EnvironmentStatus::Stopped,
         "container_restarted" | "pod_recovering" => EnvironmentStatus::Initializing,
         _ => EnvironmentStatus::Error,
     }
@@ -791,6 +940,38 @@ fn env_status_to_sandbox_sub_type(env_status: &EnvironmentStatus) -> SandboxSubT
         EnvironmentStatus::Stopped => SandboxSubType::Stopped,
         EnvironmentStatus::Removing => SandboxSubType::Removing,
         EnvironmentStatus::Error => SandboxSubType::Error,
+    }
+}
+
+/// Generate a human-readable message for a server container event.
+///
+/// Since `server_name` and `status` are separate fields, this returns only
+/// the contextual detail (e.g. "ContainerCreating", "CrashLoopBackOff").
+fn format_server_message(sc: Option<&ServerContainerState>) -> String {
+    // Prefer detail, then error, then empty
+    sc.and_then(|s| s.detail.as_deref())
+        .or_else(|| sc.and_then(|s| s.error.as_deref()))
+        .unwrap_or("")
+        .to_string()
+}
+
+/// Generate a human-readable message for a sandbox lifecycle event.
+fn format_sandbox_lifecycle_message(lifecycle_event: &str, error: Option<&str>) -> String {
+    match lifecycle_event {
+        "pod_ready" => "Ready".to_string(),
+        "pod_recovering" => "Recovering from a failed pod".to_string(),
+        "container_oom_killed" => "Out of memory (OOMKilled)".to_string(),
+        "container_crash_loop" => "Crash-looping".to_string(),
+        "container_restarted" => "Container restarted".to_string(),
+        "container_terminated" => match error {
+            Some(err) => format!("Terminated: {err}"),
+            None => "Terminated unexpectedly".to_string(),
+        },
+        "pod_failed" => "Pod failed".to_string(),
+        "pod_evicted" => "Pod evicted".to_string(),
+        "pod_succeeded" | "sandbox_completed" => "Completed".to_string(),
+        "pod_deleted" => "Pod deleted".to_string(),
+        other => other.replace('_', " "),
     }
 }
 

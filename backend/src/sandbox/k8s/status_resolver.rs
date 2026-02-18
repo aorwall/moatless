@@ -7,18 +7,20 @@
 use k8s_openapi::api::core::v1::Pod;
 use kube::api::{Api, ListParams};
 use std::sync::Arc;
-use tracing::warn;
+use tracing::{debug, warn};
 
 use super::auto_provision;
 use super::client::K8sClient;
 use super::deployment;
 use super::health;
+use super::naming::generate_service_name;
 use super::pod_status::{is_sandbox_container_ready, pick_best_pod};
 use crate::config::Config;
 use crate::repository::dao::RepoRepository;
-use crate::task::dao::TaskRepository;
+use crate::sandbox::grpc_client::SandboxGrpcClient;
 use crate::sandbox::models::*;
 use crate::sandbox::schemas::*;
+use crate::task::dao::TaskRepository;
 
 /// Read-only domain service for resolving sandbox status from the K8s API.
 pub struct StatusResolver {
@@ -98,13 +100,15 @@ impl StatusResolver {
                 })
                 .collect();
 
+            // Query actual agent status from the sandbox pod via gRPC
+            let agent_state = self.fetch_agent_state(task_id).await;
+
             return WorkspaceStatusFullResponse {
                 workspace_state: WorkspaceState::Exists,
                 environment_status,
                 environment_error: None,
-                agent_state: AgentState::None,
+                agent_state,
                 servers,
-                is_running: false,
                 workspace_ready: true,
                 can_execute: true,
                 resources: None,
@@ -161,7 +165,6 @@ impl StatusResolver {
             environment_error: None,
             agent_state: AgentState::None,
             servers,
-            is_running: false,
             workspace_ready: false,
             can_execute,
             resources: None,
@@ -184,8 +187,35 @@ impl StatusResolver {
     }
 
     // =========================================================================
-    // Private helpers (moved from K8sSandboxProvider)
+    // Private helpers
     // =========================================================================
+
+    /// Query the sandbox pod for current agent status via gRPC.
+    ///
+    /// Returns `AgentState::None` on any gRPC error (timeout, unavailable, etc.)
+    /// so that status resolution remains resilient.
+    async fn fetch_agent_state(&self, task_id: &str) -> AgentState {
+        let service_name = generate_service_name(task_id);
+        let client = match SandboxGrpcClient::for_service(
+            &service_name,
+            self.k8s.namespace(),
+            self.config.sandbox.grpc_port,
+        ) {
+            Ok(c) => c,
+            Err(e) => {
+                debug!(task_id = %task_id, error = %e, "Failed to create gRPC client for agent status");
+                return AgentState::None;
+            }
+        };
+
+        match client.get_agent_status().await {
+            Ok(resp) => AgentState::from(resp.status.as_str()),
+            Err(e) => {
+                debug!(task_id = %task_id, error = %e, "Failed to fetch agent status via gRPC");
+                AgentState::None
+            }
+        }
+    }
 
     /// Resolve the effective pod phase, checking Deployment replicas first.
     ///

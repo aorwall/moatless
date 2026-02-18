@@ -320,6 +320,13 @@ impl ContainerObservedStatus {
     pub fn to_server_status(&self) -> ServerStatus {
         use crate::sandbox::k8s::pod_status::SERVER_FAILURE_REASONS;
 
+        // Terminated containers are always stopped, regardless of started/ready flags.
+        // During intentional shutdown (scale-to-0), K8s sends SIGTERM and containers
+        // transition through Terminated while `started` may still be true.
+        if matches!(self.state, ContainerState::Terminated) {
+            return ServerStatus::Stopped;
+        }
+
         if self.ready && self.started {
             ServerStatus::Started
         } else if self.started {
@@ -545,6 +552,21 @@ mod tests {
             "preview-server",
             false,
             false,
+            ContainerState::Terminated,
+            0,
+            None,
+        );
+        assert_eq!(cs.to_server_status(), ServerStatus::Stopped);
+    }
+
+    #[test]
+    fn server_status_terminated_with_started_flag_is_stopped() {
+        // During shutdown, K8s may still report started=true while container is Terminated.
+        // Must return Stopped, not Starting.
+        let cs = ContainerObservedStatus::test(
+            "preview-server",
+            false,
+            true, // started=true (still set during graceful shutdown)
             ContainerState::Terminated,
             0,
             None,

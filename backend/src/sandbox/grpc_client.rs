@@ -8,9 +8,10 @@ use std::time::Duration;
 
 use sandbox_proto::sandbox_service_client::SandboxServiceClient;
 use sandbox_proto::{
-    ExecuteAgentRequest, GetFileTreeRequest, GetFileTreeResponse, ListFilesRequest,
-    NotifyMessagesRequest, ReadFileRequest, ReadFileResponse, SearchFilesByNameRequest,
-    SearchFilesByNameResponse, SearchFilesRequest, StopAgentRequest, WriteFileRequest,
+    ExecuteAgentRequest, GetAgentStatusRequest, GetAgentStatusResponse, GetFileTreeRequest,
+    GetFileTreeResponse, ListFilesRequest, NotifyMessagesRequest, ReadFileRequest,
+    ReadFileResponse, SearchFilesByNameRequest, SearchFilesByNameResponse, SearchFilesRequest,
+    StopAgentRequest, WriteFileRequest,
 };
 use tonic::transport::Channel;
 use tracing::debug;
@@ -69,6 +70,25 @@ impl SandboxGrpcClient {
         let mut client = self.client.clone();
         client.stop_agent(StopAgentRequest {}).await?;
         Ok(())
+    }
+
+    /// Get the current agent status from the sandbox.
+    pub async fn get_agent_status(&self) -> Result<GetAgentStatusResponse, tonic::Status> {
+        let mut client = self.client.clone();
+        let result = tokio::time::timeout(Duration::from_secs(5), async {
+            client
+                .get_agent_status(GetAgentStatusRequest {})
+                .await
+        })
+        .await;
+
+        match result {
+            Ok(Ok(resp)) => Ok(resp.into_inner()),
+            Ok(Err(e)) => Err(e),
+            Err(_) => Err(tonic::Status::deadline_exceeded(
+                "Get agent status gRPC request timed out",
+            )),
+        }
     }
 
     /// Notify the sandbox that new messages are available.

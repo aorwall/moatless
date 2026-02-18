@@ -228,6 +228,7 @@ fn build_sandbox_container(
         name: "sandbox".to_string(),
         image: Some(image),
         image_pull_policy: Some(config.sandbox.image_pull_policy.clone()),
+        command: Some(vec!["/usr/local/bin/sandbox".to_string()]),
         ports: Some(vec![
             ContainerPort {
                 container_port: 8001,

@@ -5278,7 +5278,6 @@
           "environmentStatus",
           "agentState",
           "servers",
-          "isRunning",
           "workspaceReady",
           "canExecute"
         ],
@@ -5297,9 +5296,6 @@
           },
           "environmentStatus": {
             "$ref": "#/components/schemas/EnvironmentStatus"
-          },
-          "isRunning": {
-            "type": "boolean"
           },
           "resources": {
             "oneOf": [

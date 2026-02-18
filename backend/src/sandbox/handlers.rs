@@ -312,6 +312,7 @@ pub async fn server_logs_handler(
     request_body = SearchFilesRequest,
     responses(
         (status = 200, description = "File search results", body = Vec<FileSearchResult>),
+        (status = 503, description = "Sandbox not ready", body = ErrorBody),
         (status = 500, description = "Internal error", body = ErrorBody)
     )
 )]
@@ -371,6 +372,7 @@ pub struct ListFilesQuery {
     ),
     responses(
         (status = 200, description = "File tree with git summary", body = FileTreeResponse),
+        (status = 503, description = "Sandbox not ready", body = ErrorBody),
         (status = 500, description = "Internal error", body = ErrorBody)
     )
 )]
@@ -396,6 +398,7 @@ pub async fn file_tree_handler(
     responses(
         (status = 200, description = "File content", body = FileContentResponse),
         (status = 404, description = "File not found", body = ErrorBody),
+        (status = 503, description = "Sandbox not ready", body = ErrorBody),
         (status = 500, description = "Internal error", body = ErrorBody)
     )
 )]
@@ -424,6 +427,7 @@ pub async fn read_file_handler(
     responses(
         (status = 204, description = "File written successfully"),
         (status = 400, description = "Invalid path", body = ErrorBody),
+        (status = 503, description = "Sandbox not ready", body = ErrorBody),
         (status = 500, description = "Internal error", body = ErrorBody)
     )
 )]
@@ -450,6 +454,7 @@ pub async fn write_file_handler(
     ),
     responses(
         (status = 200, description = "File list", body = ListFilesResponse),
+        (status = 503, description = "Sandbox not ready", body = ErrorBody),
         (status = 500, description = "Internal error", body = ErrorBody)
     )
 )]
@@ -475,6 +480,7 @@ pub async fn list_files_handler(
     request_body = SearchByNameRequest,
     responses(
         (status = 200, description = "Search results", body = SearchByNameResponse),
+        (status = 503, description = "Sandbox not ready", body = ErrorBody),
         (status = 500, description = "Internal error", body = ErrorBody)
     )
 )]

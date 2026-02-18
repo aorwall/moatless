@@ -108,7 +108,6 @@ export function useCreateTask(
             environmentStatus: 'initializing',
             agentState: 'none',
             servers: [],
-            isRunning: false,
             workspaceReady: false,
             canExecute: false,
           },
@@ -405,19 +404,40 @@ export function useUpdateTaskMetadata(
 export function useDeleteTask(options?: UseMutationOptions<{ status: string }, Error, string>) {
   const queryClient = useQueryClient()
 
-  return useMutation({
-    ...options,
-    mutationFn: (taskId: string) => tasksApi.deleteTask(taskId),
-    onSuccess: (data, taskId, onMutateResult, mutationContext) => {
-      // Invalidate all task queries to refresh the list
-      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.all })
-      // Also invalidate the specific task
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.tasks.detail(taskId),
-      })
-      options?.onSuccess?.(data, taskId, onMutateResult, mutationContext)
+  return useMutation<{ status: string }, Error, string, { previousTask: TaskResponse | undefined }>(
+    {
+      ...options,
+      mutationFn: (taskId: string) => tasksApi.deleteTask(taskId),
+      onMutate: async (taskId) => {
+        await queryClient.cancelQueries({ queryKey: queryKeys.tasks.lists() })
+
+        const previousTask = queryClient.getQueryData<TaskResponse>(queryKeys.tasks.detail(taskId))
+
+        // Optimistically remove from all cached lists
+        updateTaskInLists(queryClient, taskId, null)
+
+        return { previousTask }
+      },
+      onError: (error, taskId, context, mutationContext) => {
+        // Rollback: restore task in lists
+        if (context?.previousTask) {
+          updateTaskInLists(queryClient, taskId, context.previousTask)
+        }
+        options?.onError?.(error, taskId, context, mutationContext)
+      },
+      onSettled: async () => {
+        await queryClient.refetchQueries({
+          queryKey: queryKeys.tasks.lists(),
+          exact: false,
+          type: 'active',
+        })
+      },
+      onSuccess: (data, taskId, onMutateResult, mutationContext) => {
+        queryClient.removeQueries({ queryKey: queryKeys.tasks.detail(taskId) })
+        options?.onSuccess?.(data, taskId, onMutateResult, mutationContext)
+      },
     },
-  })
+  )
 }
 
 export function useDeployTask(taskId: string, options?: UseMutationOptions<DeployResponse, Error>) {
@@ -478,7 +498,6 @@ export function useCreateVibeTask(
             environmentStatus: 'initializing',
             agentState: 'none',
             servers: [],
-            isRunning: false,
             workspaceReady: false,
             canExecute: false,
           },

@@ -42,6 +42,7 @@ export const EnvironmentStatusSchema = z.enum([
   'stopped', // Container/pod was running but is now stopped (not an error)
   'removing', // Container/pod being cleaned up
   'error',
+  'fatal', // Sandbox crashed fatally (OOM, crash loop, pod eviction)
 ])
 
 export type EnvironmentStatus = z.infer<typeof EnvironmentStatusSchema>
@@ -242,7 +243,6 @@ export const WorkspaceStatusResponseSchema = z.object({
   environmentError: z.string().optional(),
   agentState: AgentStateSchema.or(z.literal('none')).default('none'),
   servers: z.array(ServerEntrySchema),
-  isRunning: z.boolean(),
   workspaceReady: z.boolean(),
   canExecute: z.boolean(),
   resources: ResourceMetricsSchema.optional(),

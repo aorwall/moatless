@@ -240,12 +240,12 @@ function MessageHistoryComponent({
   // Handle error state
   if (error) {
     return (
-      <div className={cn('flex-1 overflow-hidden min-h-0', className)}>
-        <div className="h-full flex flex-col p-4">
-          <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4">
-            <div className="text-sm text-destructive text-center">
-              Failed to load messages: {getErrorMessage(error)}
-            </div>
+      <div
+        className={cn('flex-1 min-h-0 flex flex-col items-center justify-center p-4', className)}
+      >
+        <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4">
+          <div className="text-sm text-destructive text-center">
+            Failed to load messages: {getErrorMessage(error)}
           </div>
         </div>
       </div>

@@ -167,9 +167,12 @@ export function applyTaskEventUpdate(queryClient: QueryClient, event: Event): vo
       queryClient.setQueryData(queryKeys.tasks.detail(taskId), updatedTask)
     }
 
-    // Always update task in all list caches, even if detail isn't cached
-    // This ensures sidebar and dashboard stay in sync with events
-    updateTaskInLists(queryClient, taskId, taskUpdates)
+    // Only update list caches for status-affecting changes (not timestamp-only updates)
+    // Timestamp-only updates (e.g. lastMessageAt from agent.message) create new object
+    // references in every cached list, causing unnecessary re-renders of TaskCard components
+    if ('status' in taskUpdates) {
+      updateTaskInLists(queryClient, taskId, taskUpdates)
+    }
   }
 }
 

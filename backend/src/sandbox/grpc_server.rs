@@ -171,6 +171,11 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
                 Status::internal("Failed to fetch pending messages")
             })?;
 
+        // Look up latest agent_session_id for --resume <id>
+        let resume_session_id = messages.get_latest_agent_session_id(&req.task_id)
+            .await
+            .unwrap_or(None);
+
         // Convert DB rows to proto messages.
         // message_content is a JSON array: [{"type":"text","text":"..."}, ...]
         // Error result messages are flagged with is_error so the sandbox
@@ -189,9 +194,10 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
                     content,
                     model: row.model.clone(),
                     system_prompt: None,
-                    resume: row.resume_session_id.as_ref().map(|_| true),
+                    resume: Some(row.resume),
                     agent_type: row.agent_mode.as_ref().map(|m| m.0.clone()),
                     is_error: if is_error { Some(true) } else { None },
+                    resume_session_id: resume_session_id.clone(),
                 })
             })
             .collect();
@@ -211,7 +217,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         let claims = self.verify_auth(&request)?;
         let req = request.into_inner();
 
-        info!(
+        debug!(
             task_id = %req.task_id,
             user_id = %claims.user_id,
             "GetCredentials request"
@@ -331,7 +337,7 @@ fn parse_content_blocks(value: &Value) -> Vec<sandbox_proto::ContentBlock> {
                         })
                     }
                     Ok(DbContentBlock::Other) => {
-                        debug!("Unknown content block type, skipping");
+                        info!("Unknown content block type, skipping");
                         None
                     }
                     Ok(DbContentBlock::Text { .. }) => None, // empty text

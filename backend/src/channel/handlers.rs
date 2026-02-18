@@ -56,8 +56,11 @@ pub async fn slack_webhook(
     let payload: serde_json::Value = serde_json::from_slice(&body)
         .map_err(|e| ChannelError::BadRequest(format!("Invalid JSON: {e}")))?;
 
+    let event_type = payload.get("type").and_then(|v| v.as_str()).unwrap_or("unknown");
+    info!(event_type, "Slack webhook received");
+
     // Handle url_verification before config lookup (no channel info needed)
-    if payload.get("type").and_then(|v| v.as_str()) == Some("url_verification") {
+    if event_type == "url_verification" {
         // Still verify signature
         let timestamp = headers
             .get("x-slack-request-timestamp")
@@ -147,6 +150,8 @@ pub async fn create_config(
     auth: AuthUser,
     Json(req): Json<CreateChannelConfigRequest>,
 ) -> Result<Json<ChannelConfigResponse>, ChannelError> {
+    info!(provider = %req.provider, source_id = %req.source_id, "Creating channel config");
+
     // Validate repository exists
     state.repositories.find_repository_by_id(&req.repository_id)
         .await?
@@ -208,6 +213,8 @@ pub async fn list_configs(
     _auth: AuthUser,
     Query(query): Query<ListChannelConfigsQuery>,
 ) -> Result<Json<Vec<ChannelConfigResponse>>, ChannelError> {
+    info!(provider = ?query.provider, repository_id = ?query.repository_id, "Listing channel configs");
+
     let rows = state.channel_configs.list(
         query.provider.as_deref(),
         query.repository_id.as_deref(),
@@ -237,6 +244,8 @@ pub async fn get_config(
     _auth: AuthUser,
     Path(id): Path<String>,
 ) -> Result<Json<ChannelConfigResponse>, ChannelError> {
+    info!(config_id = %id, "Getting channel config");
+
     let row = state.channel_configs.find_by_id(&id)
         .await?
         .ok_or_else(|| ChannelError::ConfigNotFound(id))?;
@@ -264,6 +273,8 @@ pub async fn update_config(
     Path(id): Path<String>,
     Json(req): Json<UpdateChannelConfigRequest>,
 ) -> Result<Json<ChannelConfigResponse>, ChannelError> {
+    info!(config_id = %id, "Updating channel config");
+
     // Verify exists
     state.channel_configs.find_by_id(&id)
         .await?
@@ -305,12 +316,13 @@ pub async fn delete_config(
     _auth: AuthUser,
     Path(id): Path<String>,
 ) -> Result<StatusCode, ChannelError> {
+    info!(config_id = %id, "Deleting channel config");
+
     state.channel_configs.find_by_id(&id)
         .await?
         .ok_or_else(|| ChannelError::ConfigNotFound(id.clone()))?;
 
     state.channel_configs.delete(&id).await?;
-    info!(config_id = %id, "Channel config deleted");
 
     Ok(StatusCode::NO_CONTENT)
 }

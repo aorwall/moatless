@@ -57,6 +57,10 @@ function TaskPageComponent() {
           isError: event.isError,
           message: payload.message != null ? String(payload.message) : undefined,
           reason: payload.reason != null ? String(payload.reason) : undefined,
+          serverName:
+            event.type === 'server' && payload.serverName != null
+              ? String(payload.serverName)
+              : undefined,
           payload,
         },
       ])

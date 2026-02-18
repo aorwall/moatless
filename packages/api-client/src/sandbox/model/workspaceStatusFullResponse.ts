@@ -20,7 +20,6 @@ export interface WorkspaceStatusFullResponse {
   /** @nullable */
   environmentError?: string | null;
   environmentStatus: EnvironmentStatus;
-  isRunning: boolean;
   resources?: null | ResourceMetrics;
   servers: ServerEntry[];
   workspaceReady: boolean;

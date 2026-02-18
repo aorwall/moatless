@@ -62,7 +62,6 @@ pub struct WorkspaceStatusFullResponse {
     pub environment_error: Option<String>,
     pub agent_state: AgentState,
     pub servers: Vec<ServerEntry>,
-    pub is_running: bool,
     pub workspace_ready: bool,
     pub can_execute: bool,
     #[serde(skip_serializing_if = "Option::is_none")]

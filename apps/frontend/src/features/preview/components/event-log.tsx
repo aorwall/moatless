@@ -5,6 +5,7 @@ import { ScrollArea } from '@/lib/components/ui/scroll-area'
 import { useAutoScroll } from '@/lib/hooks/use-auto-scroll'
 import { cn } from '@/lib/utils'
 import type { SandboxEvent } from '../types'
+import { getDisplayMessage, getSourceLabel } from '../utils/event-messages'
 
 interface EventLogProps {
   events: SandboxEvent[]
@@ -88,16 +89,11 @@ export function EventLog({ events }: EventLogProps) {
                     : 'bg-blue-500/10 text-blue-500',
                 )}
               >
-                {event.type}
+                {getSourceLabel(event)}
               </span>
               <span className={cn('truncate', getEventColor(event))}>
                 <span className="font-semibold">{event.subType}</span>
-                {event.message && (
-                  <span className="text-muted-foreground ml-1">— {event.message}</span>
-                )}
-                {!event.message && event.reason && (
-                  <span className="text-muted-foreground ml-1">— {event.reason}</span>
-                )}
+                <span className="text-muted-foreground ml-1">{getDisplayMessage(event)}</span>
               </span>
             </div>
           ))}

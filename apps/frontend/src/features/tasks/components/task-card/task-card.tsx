@@ -8,7 +8,7 @@ import { toast } from 'sonner'
 import { useTaskEventSubscription } from '@/features/events/contexts/global-event-stream-provider'
 import { MinifiedEventItem } from '@/features/tasks/components/minified-event-viewer/minified-event-item'
 import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
-import { useCloseTask } from '@/features/tasks/hooks/use-tasks'
+import { useCloseTask, useDeleteTask } from '@/features/tasks/hooks/use-tasks'
 import { formatRunningDuration } from '@/features/tasks/utils/format-duration'
 import { isTaskRunning } from '@/features/tasks/utils/task-status'
 import { type Todo, TodoList } from '@/lib/components/chat/message-history/tool-calls'
@@ -253,6 +253,8 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
   // Error formatting hook
   const { formatErrorForDisplay } = useApiError()
 
+  const isClosed = task.status === 'closed'
+
   // Close task mutation with error handling
   const closeTaskMutation = useCloseTask(task.taskId, {
     onError: (error) => {
@@ -270,6 +272,22 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
     },
   })
 
+  // Delete task mutation for closed tasks
+  const deleteTaskMutation = useDeleteTask({
+    onError: (error) => {
+      try {
+        const formattedError = formatErrorForDisplay(error)
+        toast.error(formattedError.title, {
+          description: formattedError.message,
+        })
+      } catch {
+        toast.error('Failed to delete task', {
+          description: error.message,
+        })
+      }
+    },
+  })
+
   // State for live duration updates
   const [runningDuration, setRunningDuration] = useState<string>('')
 
@@ -277,25 +295,30 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
   const [realtimeEvents, setRealtimeEvents] = useState<Event[]>([])
 
   // Subscribe to real-time events for this task
+  const taskRunning = isTaskRunning(task)
   const handleNewEvent = useCallback(
     (event: Event) => {
-      if (isTaskRunning(task) && isMessageOrToolEvent(event)) {
+      if (taskRunning && isMessageOrToolEvent(event)) {
         setRealtimeEvents((prev) => [...prev, event])
       }
     },
-    [task],
+    [taskRunning],
   )
 
   useTaskEventSubscription(task.taskId, handleNewEvent)
 
-  // Handle close button click
+  // Handle close/delete button click
   const handleClose = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault()
       e.stopPropagation()
-      closeTaskMutation.mutate()
+      if (isClosed) {
+        deleteTaskMutation.mutate(task.taskId)
+      } else {
+        closeTaskMutation.mutate()
+      }
     },
-    [closeTaskMutation],
+    [isClosed, deleteTaskMutation, closeTaskMutation, task.taskId],
   )
 
   const allEvents = useMemo(() => getUniqueEvents(realtimeEvents), [realtimeEvents])
@@ -308,20 +331,21 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
 
   // Reset realtime events when task status changes
   useEffect(() => {
-    if (!isTaskRunning(task)) {
+    if (!taskRunning) {
       setRealtimeEvents([])
     }
-  }, [task])
+  }, [taskRunning])
 
   // Update running duration every second for running tasks
+  const taskCreatedAt = task.createdAt
   useEffect(() => {
-    if (!(isTaskRunning(task) && task.createdAt)) {
+    if (!(taskRunning && taskCreatedAt)) {
       setRunningDuration('')
       return
     }
 
-    return setupDurationInterval(task.createdAt, setRunningDuration)
-  }, [task])
+    return setupDurationInterval(taskCreatedAt, setRunningDuration)
+  }, [taskRunning, taskCreatedAt])
 
   return (
     <Card className="group relative cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md">
@@ -331,10 +355,10 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
         size="icon"
         className="absolute right-2 top-2 z-10 h-6 w-6 opacity-0 transition-opacity group-hover:opacity-100"
         onClick={handleClose}
-        disabled={closeTaskMutation.isPending}
+        disabled={closeTaskMutation.isPending || deleteTaskMutation.isPending}
       >
         <X className="h-4 w-4" />
-        <span className="sr-only">Close task</span>
+        <span className="sr-only">{isClosed ? 'Delete task' : 'Close task'}</span>
       </Button>
 
       <Link to="/tasks/$task-id" params={{ 'task-id': task.taskId }}>

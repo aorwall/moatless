@@ -190,6 +190,15 @@ async fn verify_handler(
         return Ok((StatusCode::OK, "OK").into_response());
     }
 
+    let fwd_method = headers
+        .get("x-forwarded-method")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("-");
+    let fwd_uri = headers
+        .get("x-forwarded-uri")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("-");
+
     // Try API key (Authorization: Bearer mvk_xxx)
     if let Some(auth_header) = headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()) {
         if auth_header.starts_with("Bearer mvk_") {
@@ -198,7 +207,7 @@ async fn verify_handler(
                 debug!(user_id = %payload.user_id, "Auth verify: API key valid");
                 return Ok(verify_success_response(&payload.user_id, &payload.user_login, payload.role.as_str(), &payload.provider, payload.group_id.as_deref()));
             }
-            warn!("Auth verify: invalid API key");
+            warn!(method = fwd_method, uri = fwd_uri, "Auth verify: invalid API key");
             return Err(AuthError::InvalidApiKey);
         }
     }
@@ -206,7 +215,7 @@ async fn verify_handler(
     // Try session cookies — there may be duplicates when COOKIE_DOMAIN changed
     let session_ids = cookie::get_all_cookie_values(&headers, &state.config.auth.session_cookie_name);
     if session_ids.is_empty() {
-        warn!("Auth verify: no session cookie found");
+        warn!(method = fwd_method, uri = fwd_uri, "Auth verify: no session cookie found");
         return Err(AuthError::Unauthorized);
     }
 

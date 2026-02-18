@@ -9,11 +9,11 @@ use tracing::info;
 
 use sandbox_proto::sandbox_service_server::SandboxService;
 use sandbox_proto::{
-    ExecuteAgentRequest, ExecuteAgentResponse, GetFileTreeRequest, GetFileTreeResponse,
-    ListFilesRequest, ListFilesResponse, NotifyMessagesRequest, NotifyMessagesResponse,
-    ReadFileRequest, ReadFileResponse, SearchFilesByNameRequest, SearchFilesByNameResponse,
-    SearchFilesRequest, SearchFilesResponse, StopAgentRequest, StopAgentResponse,
-    WriteFileRequest, WriteFileResponse,
+    ExecuteAgentRequest, ExecuteAgentResponse, GetAgentStatusRequest, GetAgentStatusResponse,
+    GetFileTreeRequest, GetFileTreeResponse, ListFilesRequest, ListFilesResponse,
+    NotifyMessagesRequest, NotifyMessagesResponse, ReadFileRequest, ReadFileResponse,
+    SearchFilesByNameRequest, SearchFilesByNameResponse, SearchFilesRequest, SearchFilesResponse,
+    StopAgentRequest, StopAgentResponse, WriteFileRequest, WriteFileResponse,
 };
 
 use crate::agent::claude_code::spawn_agent_execution;
@@ -75,6 +75,23 @@ impl SandboxService for SandboxServiceImpl {
 
         info!("Agent stopped via gRPC");
         Ok(Response::new(StopAgentResponse {}))
+    }
+
+    async fn get_agent_status(
+        &self,
+        _request: Request<GetAgentStatusRequest>,
+    ) -> Result<Response<GetAgentStatusResponse>, Status> {
+        let status = match self.state.agent.status().await {
+            AgentStatus::Idle => "idle",
+            AgentStatus::Running => "running",
+            AgentStatus::Stopped => "stopped",
+        };
+
+        Ok(Response::new(GetAgentStatusResponse {
+            status: status.to_string(),
+            session_id: self.state.agent.last_session_id().await,
+            last_error: self.state.agent.last_error().await,
+        }))
     }
 
     async fn notify_messages(

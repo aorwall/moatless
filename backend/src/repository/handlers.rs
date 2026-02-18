@@ -4,7 +4,7 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::Json;
 
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use super::dao::RepositoryPatch;
 use super::models::{Repository, RepositoryKind, RepositoryProvider};
@@ -432,7 +432,7 @@ async fn fetch_github_branches(
         }
     }
 
-    info!("Fetched {} branches for {owner}/{repo}", all_branches.len());
+    debug!("Fetched {} branches for {owner}/{repo}", all_branches.len());
 
     // Fetch repo metadata to get default_branch (best-effort)
     #[derive(serde::Deserialize)]

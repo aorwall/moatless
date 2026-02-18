@@ -12,8 +12,8 @@
 
 use async_trait::async_trait;
 use moatless_events::{
-    AgentSubType, EventType, SandboxSubType, ServerEventPayload, ServerSubType, SubType,
-    TaskSubType, TaskTurnSubType,
+    AgentSubType, EventType, SandboxEventPayload, SandboxSubType, ServerEventPayload,
+    ServerSubType, SubType, TaskSubType, TaskTurnSubType,
 };
 use redis::aio::ConnectionManager;
 use serde::Serialize;
@@ -53,20 +53,20 @@ pub fn describe_event_metrics() {
 /// correct lifetimes for `Option<&str>` in async-trait methods.
 #[async_trait]
 pub trait EventPublisher: Send + Sync {
-    /// Publish a sandbox lifecycle event.
+    /// Publish a sandbox lifecycle event with a message.
     async fn publish_sandbox_event(
         &self,
         task_id: &str,
         sub_type: SandboxSubType,
-        error_message: Option<&str>,
+        message: &str,
     );
 
-    /// Publish a sandbox lifecycle event with a custom JSON payload.
+    /// Publish a sandbox lifecycle event with a typed payload.
     async fn publish_sandbox_event_with_payload(
         &self,
         task_id: &str,
         sub_type: SandboxSubType,
-        payload: serde_json::Value,
+        payload: &SandboxEventPayload,
     );
 
     /// Publish a server container event.
@@ -314,13 +314,13 @@ impl EventPublisher for RedisEventPublisher {
         &self,
         task_id: &str,
         sub_type: SandboxSubType,
-        error_message: Option<&str>,
+        message: &str,
     ) {
-        let payload = match error_message {
-            Some(msg) => serde_json::json!({ "error": msg }),
-            None => serde_json::json!({}),
+        let payload = SandboxEventPayload {
+            message: message.to_string(),
+            ..Default::default()
         };
-        self.publish_sandbox_event_with_payload(task_id, sub_type, payload)
+        self.publish_sandbox_event_with_payload(task_id, sub_type, &payload)
             .await;
     }
 
@@ -328,15 +328,16 @@ impl EventPublisher for RedisEventPublisher {
         &self,
         task_id: &str,
         sub_type: SandboxSubType,
-        payload: serde_json::Value,
+        payload: &SandboxEventPayload,
     ) {
+        let payload_value = serde_json::to_value(payload).unwrap_or_default();
         self.publish_event_typed(
             task_id,
             EventType::Sandbox,
             sub_type.into(),
             None,
             None,
-            payload,
+            payload_value,
         )
         .await;
     }

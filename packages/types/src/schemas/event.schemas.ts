@@ -68,8 +68,7 @@ export const ServerEventPayloadSchema = z.object({
   previousStatus: z
     .enum(['stopped', 'installing', 'starting', 'started', 'failed', 'timeout'])
     .optional(),
-  error: z.string().optional(),
-  detail: z.string().optional(),
+  message: z.string().default(''),
 })
 
 // Navigation event payload schema

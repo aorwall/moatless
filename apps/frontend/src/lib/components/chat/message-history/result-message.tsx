@@ -7,14 +7,14 @@ interface ResultMessageProps {
 }
 
 function ResultMessageComponent({ message }: ResultMessageProps) {
-  const status = message.result?.turnStatus
+  const messageType = message.messageType
 
   // Success results are silent — don't show anything
-  if (status === 'completed') {
+  if (messageType === 'result') {
     return null
   }
 
-  const isError = status === 'error'
+  const isError = messageType === 'error'
   const text = message.content?.[0]?.text
 
   return (
@@ -33,9 +33,6 @@ function ResultMessageComponent({ message }: ResultMessageProps) {
       )}
       <div className="text-sm">
         {isError && <span className="font-medium text-destructive">Agent Error</span>}
-        {status === 'stopped' && (
-          <span className="font-medium text-muted-foreground">Agent Stopped</span>
-        )}
         {text && <p className="text-muted-foreground mt-0.5">{text}</p>}
       </div>
     </div>
