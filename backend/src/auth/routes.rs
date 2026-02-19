@@ -29,8 +29,8 @@ use super::oauth::provider::OAuthProvider;
 use super::session;
 use super::schemas::{
     ApiKeyCreateResponse, ApiKeyListItem, CreateApiKeyRequest, MessageResponse,
-    OAuthCallbackQuery, SessionResponse, UserInfo, UserListItem, UserListResponse,
-    format_datetime, format_datetime_opt,
+    OAuthCallbackQuery, SessionResponse, UpdateUserRequest, UserInfo, UserListItem,
+    UserListResponse, format_datetime, format_datetime_opt,
 };
 
 /// Type-safe container for configured OAuth providers.
@@ -111,6 +111,7 @@ impl AuthState {
     paths(
         verify_handler,
         me_handler,
+        update_me_handler,
         logout_handler,
         exchange_api_key_handler,
         create_api_key_handler,
@@ -126,7 +127,7 @@ pub fn auth_router(state: AuthState) -> (axum::Router, utoipa::openapi::OpenApi)
     // Build OpenAPI-documented routes
     let (openapi_router, api) = OpenApiRouter::with_openapi(AuthApiDoc::openapi())
         .routes(routes!(verify_handler))
-        .routes(routes!(me_handler))
+        .routes(routes!(me_handler, update_me_handler))
         .routes(routes!(logout_handler))
         .routes(routes!(exchange_api_key_handler))
         .routes(routes!(create_api_key_handler, list_api_keys_handler))
@@ -338,6 +339,59 @@ fn session_to_response(session: &Session) -> SessionResponse {
         }),
         expires_at: Some(format_datetime(session.expires_at)),
     }
+}
+
+// ============================================================================
+// PATCH /api/v1/auth/me — update current user profile
+// ============================================================================
+
+/// Update current user's profile (name, email).
+#[utoipa::path(
+    patch,
+    path = "/api/v1/auth/me",
+    tag = "auth",
+    request_body = UpdateUserRequest,
+    responses(
+        (status = 200, description = "Profile updated", body = SessionResponse),
+        (status = 401, description = "Not authenticated", body = ErrorBody),
+        (status = 404, description = "User not found", body = ErrorBody)
+    )
+)]
+async fn update_me_handler(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    Json(body): Json<UpdateUserRequest>,
+) -> Result<Json<SessionResponse>, AuthError> {
+    let session = authenticate_from_cookie(&state, &headers).await?;
+
+    // Update the users table
+    let _user = state
+        .users
+        .update_user_profile(
+            &session.user_id,
+            body.name.clone(),
+            body.email.clone(),
+        )
+        .await?
+        .ok_or_else(|| AuthError::NotFound("User not found".to_string()))?;
+
+    // Update all active sessions so /auth/me returns fresh data
+    state
+        .sessions
+        .update_user_info(&session.user_id, body.name, body.email)
+        .await?;
+
+    // Invalidate auth cache so verify picks up new info
+    state.cache.invalidate_session(&session.id).await;
+
+    // Re-fetch the current session to return updated data
+    let updated_session = state
+        .sessions
+        .get_session(&session.id)
+        .await?
+        .ok_or(AuthError::SessionExpired)?;
+
+    Ok(Json(session_to_response(&updated_session)))
 }
 
 // ============================================================================

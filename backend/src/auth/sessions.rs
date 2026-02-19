@@ -32,6 +32,12 @@ pub trait SessionRepository: Send + Sync {
     async fn get_session(&self, session_id: &str) -> Result<Option<Session>, sqlx::Error>;
     async fn insert_session(&self, session: &Session) -> Result<(), sqlx::Error>;
     async fn delete_session(&self, session_id: &str) -> Result<(), sqlx::Error>;
+    async fn update_user_info(
+        &self,
+        user_id: &str,
+        name: Option<String>,
+        email: Option<String>,
+    ) -> Result<(), sqlx::Error>;
 }
 
 /// PostgreSQL implementation of [`SessionRepository`].
@@ -82,6 +88,23 @@ impl SessionRepository for PgSessionRepository {
             .bind(session_id)
             .execute(&self.0)
             .await?;
+        Ok(())
+    }
+
+    async fn update_user_info(
+        &self,
+        user_id: &str,
+        name: Option<String>,
+        email: Option<String>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "UPDATE sessions SET user_name = COALESCE($2, user_name), user_email = COALESCE($3, user_email) WHERE user_id = $1",
+        )
+        .bind(user_id)
+        .bind(name)
+        .bind(email)
+        .execute(&self.0)
+        .await?;
         Ok(())
     }
 }

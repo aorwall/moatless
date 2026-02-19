@@ -17,6 +17,14 @@ pub struct OAuthCallbackQuery {
     pub state: Option<String>,
 }
 
+/// Body for PATCH /api/v1/auth/me.
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateUserRequest {
+    pub name: Option<String>,
+    pub email: Option<String>,
+}
+
 /// Body for POST /api/v1/auth/api-keys.
 #[derive(Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]

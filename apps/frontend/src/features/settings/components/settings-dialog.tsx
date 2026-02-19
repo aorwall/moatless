@@ -1,13 +1,25 @@
-import { Bot, Figma, Github, Gitlab, Key, Package, Terminal } from 'lucide-react'
+import {
+  Bot,
+  Figma,
+  Github,
+  Gitlab,
+  Key,
+  MessageSquare,
+  Package,
+  Terminal,
+  User,
+} from 'lucide-react'
 import { useMemo, useState } from 'react'
 import {
   ApiKeyConfigurationSection,
+  ChannelConfigurationSection,
   ClaudeConfigurationSection,
   CommandConfigurationSection,
   FigmaConfigurationSection,
   GitHubConfigurationSection,
   GitLabConfigurationSection,
   MarketplaceConfigurationSection,
+  ProfileConfigurationSection,
 } from '@/features/settings'
 import { SidebarDialog } from '@/lib/components/ui/sidebar-dialog'
 import { useFeatureFlag } from '@/lib/hooks/use-feature-flag'
@@ -21,14 +33,22 @@ interface SettingsDialogProps {
 export function SettingsDialog({
   open,
   onOpenChange,
-  defaultSection = 'github',
+  defaultSection = 'profile',
 }: SettingsDialogProps) {
   const [activeSection, setActiveSection] = useState(defaultSection)
   const showClaudeSettings = useFeatureFlag('SHOW_CLAUDE_SETTINGS')
   const isGitLabEnabled = useFeatureFlag('GITLAB_ENABLED')
+  const isSlackEnabled = useFeatureFlag('SLACK_CHANNEL')
 
   const sections = useMemo(() => {
     const allSections = []
+
+    // Profile - always visible, placed first
+    allSections.push({
+      id: 'profile',
+      label: 'Profile',
+      icon: <User className="h-4 w-4" />,
+    })
 
     // Claude settings - controlled by SHOW_CLAUDE_SETTINGS flag
     if (showClaudeSettings) {
@@ -73,6 +93,15 @@ export function SettingsDialog({
       },
     )
 
+    // Channels - controlled by SLACK_CHANNEL flag
+    if (isSlackEnabled) {
+      allSections.push({
+        id: 'channels',
+        label: 'Channels',
+        icon: <MessageSquare className="h-4 w-4" />,
+      })
+    }
+
     // Marketplaces - admin only
     allSections.push({
       id: 'marketplaces',
@@ -81,7 +110,7 @@ export function SettingsDialog({
     })
 
     return allSections
-  }, [showClaudeSettings, isGitLabEnabled])
+  }, [showClaudeSettings, isGitLabEnabled, isSlackEnabled])
 
   return (
     <SidebarDialog open={open} onOpenChange={onOpenChange}>
@@ -101,6 +130,7 @@ export function SettingsDialog({
       </SidebarDialog.Sidebar>
 
       <SidebarDialog.Content title={sections.find((s) => s.id === activeSection)?.label}>
+        {activeSection === 'profile' && <ProfileConfigurationSection key="profile" />}
         {activeSection === 'claude' && <ClaudeConfigurationSection key="claude" />}
         {activeSection === 'github' && <GitHubConfigurationSection key="github" />}
         {activeSection === 'gitlab' && <GitLabConfigurationSection key="gitlab" />}
@@ -108,6 +138,7 @@ export function SettingsDialog({
         {activeSection === 'api-keys' && <ApiKeyConfigurationSection key="api-keys" />}
         {activeSection === 'marketplaces' && <MarketplaceConfigurationSection key="marketplaces" />}
         {activeSection === 'commands' && <CommandConfigurationSection key="commands" />}
+        {activeSection === 'channels' && <ChannelConfigurationSection key="channels" />}
       </SidebarDialog.Content>
     </SidebarDialog>
   )
