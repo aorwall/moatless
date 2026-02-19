@@ -87,7 +87,6 @@ pub struct ProviderAccessToken {
 /// Full provider token row from the `provider_tokens` table.
 #[derive(sqlx::FromRow, Debug, Clone)]
 pub struct ProviderToken {
-    pub id: i32,
     pub user_id: String,
     pub provider: String,
     pub access_token: String,
