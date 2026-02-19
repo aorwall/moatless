@@ -51,6 +51,11 @@ impl SlackProvider {
         &self.signing_secret
     }
 
+    /// List Slack channels the bot is a member of.
+    pub async fn list_channels(&self) -> Result<Vec<super::api::SlackChannelInfo>, ChannelError> {
+        self.api.list_conversations().await
+    }
+
     /// Parse a Slack Events API webhook into an InboundMessage.
     ///
     /// Handles: signature verification, url_verification challenge,
@@ -154,10 +159,16 @@ impl SlackProvider {
         }
 
         // 10. Resolve Slack user → system user
-        let user_id = if let Some(id) = self.resolve_user(user, db).await? { id } else {
-            warn!(slack_user = %user, "Could not resolve Slack user to system user");
-            // Use the Slack user ID as fallback
-            user.to_string()
+        let Some(user_id) = self.resolve_user(user, db).await? else {
+            warn!(slack_user = %user, source_id = %channel, "Cannot process message: Slack user not mapped to system user");
+            // Reply in thread telling user they need to register
+            let reply_ts = thread_ts.unwrap_or(ts);
+            let _ = self.api.post_message(
+                channel,
+                "Sorry, I couldn't find your account. Please make sure you're registered in the system with the same email as your Slack profile.",
+                Some(reply_ts),
+            ).await;
+            return Ok(SlackWebhookResult::Ignore);
         };
 
         // Build thread properties
@@ -198,19 +209,30 @@ impl ChannelProvider for SlackProvider {
         identity: &str,
         db: &DbPool,
     ) -> Result<Option<String>, ChannelError> {
+        use tracing::info;
+
         // Look up Slack user email → find system user by email
         let email = self.api.get_user_email(identity).await?;
-        if let Some(email) = email {
-            let user = sqlx::query_scalar::<_, String>(
-                "SELECT id FROM users WHERE email = $1 LIMIT 1",
-            )
-            .bind(&email)
-            .fetch_optional(db)
-            .await
-            .map_err(|e| ChannelError::Internal(format!("User lookup failed: {e}")))?;
-            return Ok(user);
+        let Some(email) = email else {
+            warn!(slack_user = %identity, "Slack API returned no email for user");
+            return Ok(None);
+        };
+
+        let row: Option<(String, String)> = sqlx::query_as(
+            "SELECT id, login FROM users WHERE email = $1 LIMIT 1",
+        )
+        .bind(&email)
+        .fetch_optional(db)
+        .await
+        .map_err(|e| ChannelError::Internal(format!("User lookup failed: {e}")))?;
+
+        if let Some((id, login)) = row {
+            info!(slack_user = %identity, email = %email, user_id = %id, login = %login, "Resolved Slack user to system user");
+            Ok(Some(id))
+        } else {
+            warn!(slack_user = %identity, email = %email, "No system user found for Slack user email");
+            Ok(None)
         }
-        Ok(None)
     }
 
     async fn send_reply(
