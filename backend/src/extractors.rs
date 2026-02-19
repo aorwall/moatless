@@ -114,6 +114,18 @@ impl FromRequestParts<AppState> for AuthUser {
             });
         }
 
+        // Path 3: No auth provider configured — use default user (Docker Compose / local dev)
+        if state.config.auth.provider.is_none() {
+            return Ok(AuthUser {
+                user_id: "local-user".to_string(),
+                login: "local-user".to_string(),
+                role: Some("admin".to_string()),
+                provider: Some("none".to_string()),
+                group_id: None,
+                task_id,
+            });
+        }
+
         // Neither auth path succeeded
         Err(AuthError("Missing X-User-Id or X-User-Token header".to_string()))
     }

@@ -4,8 +4,8 @@
 //! Public-facing endpoints are authenticated via Traefik ForwardAuth middleware —
 //! the controller itself doesn't validate auth tokens.
 
-use axum::http::StatusCode;
 use axum::response::IntoResponse;
+use axum::Json;
 use std::sync::Arc;
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -76,5 +76,5 @@ pub fn api_router(state: SandboxApiState) -> (axum::Router, utoipa::openapi::Ope
 
 /// Health check handler (not documented in OpenAPI — infrastructure only).
 async fn health_handler() -> impl IntoResponse {
-    (StatusCode::OK, "OK")
+    Json(serde_json::json!({"status": "ok"}))
 }

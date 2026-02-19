@@ -47,6 +47,13 @@ done
 # Change to the project root directory
 cd "$(dirname "$0")/.."
 
+# Auto-detect DATA_DIR if not set (absolute host path for sibling container mounts)
+if [ -z "$DATA_DIR" ]; then
+  export DATA_DIR="$(pwd)/data"
+  echo "DATA_DIR not set, using: $DATA_DIR"
+fi
+mkdir -p "$DATA_DIR"
+
 echo "=========================================="
 echo "Stopping existing moatless containers..."
 echo "=========================================="
@@ -87,16 +94,10 @@ docker/build-sandbox.sh --local
 
 echo ""
 echo "=========================================="
-echo "Building app bundle..."
-echo "=========================================="
-bun run build:package
-
-echo ""
-echo "=========================================="
-echo "Building app Docker image..."
+echo "Building backend Docker image..."
 echo "=========================================="
 docker buildx use desktop-linux 2>/dev/null || true
-docker build -t aorwall/moatless-vibe:latest -f docker/Dockerfile.app .
+docker build -t ghcr.io/aorwall/moatless-vibe-backend:latest -f backend/Dockerfile .
 
 echo ""
 echo "=========================================="
@@ -108,7 +109,8 @@ docker compose -f docker-compose/docker-compose.yml \
 
 echo ""
 echo "=========================================="
-echo "Done! Backend running at http://localhost:8000"
+echo "Done! Backend running at http://localhost:8080"
+echo "Run 'bun run dev' to start the frontend dev server."
 echo "=========================================="
 
 # Filter function for log levels
@@ -122,20 +124,21 @@ filter_logs() {
           echo "$line"
           ;;
         info)
-          # Show info, warn, error (exclude debug)
-          if ! echo "$line" | grep -q '"level":"debug"'; then
+          # Show info, warn, error (exclude debug and trace)
+          # Handles both pino ("debug") and tracing ("DEBUG"/"TRACE") formats
+          if ! echo "$line" | grep -qiE '"level"\s*:\s*"(debug|trace)"'; then
             echo "$line"
           fi
           ;;
         warn)
           # Show warn and error only
-          if echo "$line" | grep -qE '"level":"(warn|error)"'; then
+          if echo "$line" | grep -qiE '"level"\s*:\s*"(warn|error)"'; then
             echo "$line"
           fi
           ;;
         error)
           # Show error only
-          if echo "$line" | grep -q '"level":"error"'; then
+          if echo "$line" | grep -qi '"level"\s*:\s*"error"'; then
             echo "$line"
           fi
           ;;
@@ -162,18 +165,24 @@ pretty_print() {
       # Shorten container name (remove moatless- prefix)
       short_name="${container#moatless-}"
 
-      # Try to parse as JSON with jq
+      # Try to parse as JSON with jq (supports both pino and tracing-subscriber formats)
       if parsed=$(echo "$json" | jq -r '
-        # Format timestamp (ms to HH:MM:SS)
-        ((.time // 0) / 1000 | strflocaltime("%H:%M:%S")) as $ts |
-        # Format level uppercase with padding
-        ((.level // "unknown") | ascii_upcase | if length < 5 then . + " " else . end) as $lvl |
-        # Get message
-        (.msg // "") as $msg |
-        # Get extra fields (exclude standard pino fields)
-        (to_entries | map(select(.key | IN("level","time","pid","hostname","msg") | not))) as $extras |
-        # Build output
-        { ts: $ts, lvl: $lvl, msg: $msg, extras: $extras, level: .level }
+        # Detect format: tracing uses "timestamp" (ISO 8601), pino uses "time" (ms epoch)
+        if .timestamp then
+          # tracing-subscriber JSON format
+          (.timestamp | split("T")[1] | split(".")[0]) as $ts |
+          ((.level // "unknown") | ascii_upcase | if length < 5 then . + " " else . end) as $lvl |
+          (.fields.message // .target // "") as $msg |
+          (.fields | to_entries | map(select(.key | IN("message") | not))) as $extras |
+          { ts: $ts, lvl: $lvl, msg: $msg, extras: $extras, level: (.level // "unknown" | ascii_downcase) }
+        else
+          # pino JSON format
+          ((.time // 0) / 1000 | strflocaltime("%H:%M:%S")) as $ts |
+          ((.level // "unknown") | ascii_upcase | if length < 5 then . + " " else . end) as $lvl |
+          (.msg // "") as $msg |
+          (to_entries | map(select(.key | IN("level","time","pid","hostname","msg") | not))) as $extras |
+          { ts: $ts, lvl: $lvl, msg: $msg, extras: $extras, level: .level }
+        end
         | @json
       ' 2>/dev/null); then
         # Extract parsed values

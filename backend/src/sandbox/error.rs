@@ -19,6 +19,9 @@ pub enum SandboxError {
     #[error("Pod build failed: {0}")]
     PodBuildError(String),
 
+    #[error("Docker API error: {0}")]
+    DockerError(String),
+
     #[error("Sandbox not ready: {0}")]
     NotReady(String),
 
@@ -44,6 +47,10 @@ impl IntoResponse for SandboxError {
             }
             Self::KubeError(ref e) => {
                 tracing::error!(error = %e, "Kubernetes API error in sandbox handler");
+                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
+            }
+            Self::DockerError(ref msg) => {
+                tracing::error!(error = %msg, "Docker API error in sandbox handler");
                 (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
             }
             Self::Internal(ref msg) => {

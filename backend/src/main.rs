@@ -13,7 +13,7 @@ use tracing::info;
 
 use moatless_vibe_backend::auth;
 use moatless_vibe_backend::channel;
-use moatless_vibe_backend::config::Config;
+use moatless_vibe_backend::config::{Config, SandboxProviderType};
 use moatless_vibe_backend::event_handler;
 use moatless_vibe_backend::feature_flags;
 use moatless_vibe_backend::sandbox;
@@ -52,35 +52,74 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cancel = CancellationToken::new();
     let sse_state = startup::init_sse(&config, cancel.clone()).await?;
     let s3_client = startup::init_s3(&config).await;
-    let k8s = sandbox::k8s::client::K8sClient::new(config.sandbox.namespace.clone()).await?;
-    info!("K8s client initialized");
-
     startup::install_shutdown_handler(cancel.clone());
     startup::spawn_grpc_server(&config, db_pool.as_ref(), event_publisher.clone());
 
-    // Build sandbox provider (works without a database — just loses auto-provision)
-    let reaper_k8s = k8s.clone();
-    let sandbox_provider = startup::build_sandbox_provider(
-        &config,
-        k8s.clone(),
-        db_pool.as_ref(),
-        event_publisher.clone(),
-    );
+    // Build sandbox provider based on configured provider type
+    let sandbox_provider: Arc<dyn sandbox::provider::SandboxProvider>;
+    let reaper_k8s: Option<sandbox::k8s::client::K8sClient>;
 
-    // Spawn pod lifecycle watcher
-    if let Some(ref publisher) = event_publisher {
-        sandbox::k8s::pod_watcher::spawn_pod_lifecycle_watcher(
-            k8s,
-            publisher.clone(),
-            cancel.clone(),
-            config.sandbox.max_crash_restart_count,
-        );
-        info!(
-            max_crash_restart_count = config.sandbox.max_crash_restart_count,
-            "Pod lifecycle watcher spawned"
-        );
-    } else {
-        info!("Pod lifecycle watcher disabled (requires Redis)");
+    match config.sandbox_provider {
+        SandboxProviderType::Kubernetes => {
+            let k8s = sandbox::k8s::client::K8sClient::new(config.sandbox.namespace.clone()).await?;
+            info!("K8s client initialized");
+
+            reaper_k8s = Some(k8s.clone());
+            sandbox_provider = startup::build_sandbox_provider(
+                &config,
+                k8s.clone(),
+                db_pool.as_ref(),
+                event_publisher.clone(),
+            );
+
+            // Spawn pod lifecycle watcher
+            if let Some(ref publisher) = event_publisher {
+                sandbox::k8s::pod_watcher::spawn_pod_lifecycle_watcher(
+                    k8s,
+                    publisher.clone(),
+                    cancel.clone(),
+                    config.sandbox.max_crash_restart_count,
+                );
+                info!(
+                    max_crash_restart_count = config.sandbox.max_crash_restart_count,
+                    "Pod lifecycle watcher spawned"
+                );
+            } else {
+                info!("Pod lifecycle watcher disabled (requires Redis)");
+            }
+        }
+        SandboxProviderType::Docker => {
+            let docker_client = sandbox::docker::client::DockerClient::new(
+                config.docker.network.clone(),
+                config.docker.data_dir.clone(),
+                config.docker.container_data_dir.clone(),
+            )?;
+            info!("Docker client initialized");
+
+            reaper_k8s = None;
+            sandbox_provider = startup::build_docker_sandbox_provider(
+                &config,
+                docker_client.clone(),
+                db_pool.as_ref(),
+                event_publisher.clone(),
+            );
+
+            // Spawn container lifecycle watcher
+            if let Some(ref publisher) = event_publisher {
+                sandbox::docker::container_watcher::spawn_container_lifecycle_watcher(
+                    docker_client,
+                    publisher.clone(),
+                    cancel.clone(),
+                    config.sandbox.max_crash_restart_count,
+                );
+                info!(
+                    max_crash_restart_count = config.sandbox.max_crash_restart_count,
+                    "Container lifecycle watcher spawned"
+                );
+            } else {
+                info!("Container lifecycle watcher disabled (requires Redis)");
+            }
+        }
     }
 
     // ── Build router ────────────────────────────────────────────────────
@@ -131,7 +170,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Background workers
         spawn_event_handler(&config, &app_state, cancel.clone()).await;
-        spawn_idle_reaper(&app_state, reaper_k8s, cancel.clone());
+        if let Some(k8s) = reaper_k8s {
+            spawn_idle_reaper(&app_state, k8s, cancel.clone());
+        } else {
+            info!("Idle sandbox reaper disabled (Docker mode — K8s leader election not available)");
+        }
     } else {
         info!("Domain routes disabled (no database)");
     }

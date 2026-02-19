@@ -209,7 +209,7 @@ pub fn install_shutdown_handler(cancel: CancellationToken) {
 }
 
 // =========================================================================
-// K8s sandbox provider
+// Sandbox providers
 // =========================================================================
 
 /// Build the K8s sandbox provider with optional DB-backed repositories.
@@ -245,6 +245,46 @@ pub fn build_sandbox_provider(
     Arc::new(K8sSandboxProvider {
         config: Arc::new(config.clone()),
         k8s,
+        status_resolver,
+        users,
+        tasks,
+        repos,
+        provider_tokens,
+        event_publisher,
+    })
+}
+
+/// Build the Docker sandbox provider with optional DB-backed repositories.
+pub fn build_docker_sandbox_provider(
+    config: &Config,
+    client: crate::sandbox::docker::client::DockerClient,
+    db_pool: Option<&DbPool>,
+    event_publisher: Option<Arc<dyn EventPublisher>>,
+) -> Arc<dyn crate::sandbox::provider::SandboxProvider> {
+    use crate::auth::provider_token_dao::PgProviderTokenRepository;
+    use crate::auth::users::PgUserRepository;
+    use crate::repository::dao::PgRepoRepository;
+    use crate::sandbox::docker::provider::DockerSandboxProvider;
+    use crate::sandbox::docker::status_resolver::DockerStatusResolver;
+    use crate::task::dao::PgTaskRepository;
+
+    let tasks: Option<Arc<dyn crate::task::dao::TaskRepository>> =
+        db_pool.map(|p| Arc::new(PgTaskRepository(p.clone())) as _);
+    let repos: Option<Arc<dyn crate::repository::dao::RepoRepository>> =
+        db_pool.map(|p| Arc::new(PgRepoRepository(p.clone())) as _);
+    let users: Option<Arc<dyn crate::auth::users::UserRepository>> =
+        db_pool.map(|p| Arc::new(PgUserRepository(p.clone())) as _);
+    let provider_tokens: Option<Arc<dyn crate::auth::provider_token_dao::ProviderTokenRepository>> =
+        db_pool.map(|p| Arc::new(PgProviderTokenRepository(p.clone())) as _);
+
+    let status_resolver = DockerStatusResolver::new(
+        client.clone(),
+        Arc::new(config.clone()),
+    );
+
+    Arc::new(DockerSandboxProvider {
+        config: Arc::new(config.clone()),
+        client,
         status_resolver,
         users,
         tasks,

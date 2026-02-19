@@ -8,6 +8,34 @@ use std::env;
 use std::fmt;
 use std::str::FromStr;
 
+/// Which sandbox provider implementation to use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SandboxProviderType {
+    Kubernetes,
+    Docker,
+}
+
+impl fmt::Display for SandboxProviderType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Kubernetes => write!(f, "kubernetes"),
+            Self::Docker => write!(f, "docker"),
+        }
+    }
+}
+
+impl FromStr for SandboxProviderType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "kubernetes" | "k8s" => Ok(Self::Kubernetes),
+            "docker" => Ok(Self::Docker),
+            _ => Err(format!("unknown sandbox provider: {s}")),
+        }
+    }
+}
+
 /// Supported auth providers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AuthProvider {
@@ -253,6 +281,22 @@ impl fmt::Debug for SlackConfig {
     }
 }
 
+/// Docker-specific sandbox configuration.
+#[derive(Debug, Clone)]
+pub struct DockerConfig {
+    /// Docker network name for sandbox containers (default: "moatless")
+    pub network: String,
+    /// Default sandbox container image for Docker mode
+    pub image: String,
+    /// Host path for shared data volumes — must be the absolute host path
+    /// because sandbox containers are siblings, not children
+    pub data_dir: String,
+    /// Container-internal path where data is mounted (for backend file ops)
+    pub container_data_dir: String,
+    /// Backend container hostname on the Docker network (for sandbox → backend gRPC)
+    pub backend_hostname: String,
+}
+
 /// Database configuration.
 #[derive(Debug, Clone)]
 pub struct DatabaseConfig {
@@ -270,7 +314,10 @@ pub struct DatabaseConfig {
 #[derive(Debug, Clone)]
 pub struct Config {
     pub server: ServerConfig,
+    /// Which sandbox provider to use (Kubernetes or Docker).
+    pub sandbox_provider: SandboxProviderType,
     pub sandbox: SandboxConfig,
+    pub docker: DockerConfig,
     pub proxy: ProxyConfig,
     /// PostgreSQL connection URL. When set, enables DB-backed features.
     pub database_url: Option<String>,
@@ -298,12 +345,25 @@ impl Config {
         let sandbox_namespace = env_str("SANDBOX_NAMESPACE", "workspaces");
         let database_url = env_opt("DATABASE_URL");
 
+        // Determine sandbox provider: SANDBOX_PROVIDER takes priority,
+        // fall back to WORKSPACE_EXECUTION_MODE for backwards compatibility.
+        let sandbox_provider = env_opt("SANDBOX_PROVIDER")
+            .and_then(|v| v.parse().ok())
+            .or_else(|| {
+                env_opt("WORKSPACE_EXECUTION_MODE")
+                    .filter(|v| v == "docker")
+                    .map(|_| SandboxProviderType::Docker)
+            })
+            .unwrap_or(SandboxProviderType::Kubernetes);
+
         let config = Self {
             server: ServerConfig {
                 port: env_or("PORT", 8080),
                 metrics_port: env_or("METRICS_PORT", 9090),
                 grpc_port: env_or("GRPC_PORT", 50051),
             },
+
+            sandbox_provider,
 
             sandbox: SandboxConfig {
                 namespace: sandbox_namespace.clone(),
@@ -333,6 +393,17 @@ impl Config {
                 traefik_auth_middleware_namespace: env::var("TRAEFIK_AUTH_MIDDLEWARE_NAMESPACE")
                     .unwrap_or(sandbox_namespace),
                 traefik_entry_point: env_str("TRAEFIK_ENTRY_POINT", "websecure"),
+            },
+
+            docker: DockerConfig {
+                network: env_str("DOCKER_NETWORK", "moatless"),
+                image: env_str(
+                    "DOCKER_SANDBOX_IMAGE",
+                    "ghcr.io/aorwall/moatless-vibe-sandbox-js:latest",
+                ),
+                data_dir: env_str("DATA_DIR", "/data"),
+                container_data_dir: env_str("CONTAINER_DATA_DIR", "/data"),
+                backend_hostname: env_str("DOCKER_BACKEND_HOSTNAME", "moatless-backend"),
             },
 
             database_url: database_url.clone(),
@@ -432,11 +503,27 @@ impl Config {
             }
         }
 
-        // Validate sandbox namespace is not empty
-        if self.sandbox.namespace.is_empty() {
-            return Err(ConfigError::Invalid(
-                "SANDBOX_NAMESPACE cannot be empty".into(),
-            ));
+        // Provider-specific validation
+        match self.sandbox_provider {
+            SandboxProviderType::Kubernetes => {
+                if self.sandbox.namespace.is_empty() {
+                    return Err(ConfigError::Invalid(
+                        "SANDBOX_NAMESPACE cannot be empty".into(),
+                    ));
+                }
+            }
+            SandboxProviderType::Docker => {
+                if self.docker.network.is_empty() {
+                    return Err(ConfigError::Invalid(
+                        "DOCKER_NETWORK cannot be empty when SANDBOX_PROVIDER=docker".into(),
+                    ));
+                }
+                if self.docker.data_dir.is_empty() {
+                    return Err(ConfigError::Invalid(
+                        "DATA_DIR cannot be empty when SANDBOX_PROVIDER=docker".into(),
+                    ));
+                }
+            }
         }
 
         Ok(())
@@ -535,6 +622,7 @@ mod tests {
     fn minimal_config() -> Config {
         Config {
             server: ServerConfig { port: 8080, metrics_port: 9090, grpc_port: 50051 },
+            sandbox_provider: SandboxProviderType::Kubernetes,
             sandbox: SandboxConfig {
                 namespace: "test".into(),
                 image: "test:latest".into(),
@@ -561,6 +649,13 @@ mod tests {
                 traefik_auth_middleware_name: "test".into(),
                 traefik_auth_middleware_namespace: "test".into(),
                 traefik_entry_point: "web".into(),
+            },
+            docker: DockerConfig {
+                network: "test-network".into(),
+                image: "test-sandbox:latest".into(),
+                data_dir: "/data".into(),
+                container_data_dir: "/data".into(),
+                backend_hostname: "moatless-backend".into(),
             },
             database_url: None,
             database: DatabaseConfig { url: None, max_connections: 5 },
