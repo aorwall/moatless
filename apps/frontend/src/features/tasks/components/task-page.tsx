@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { useTaskEventSubscription } from '@/features/events'
 import { FileExplorer } from '@/features/files'
 import { Preview, SandboxStatusOverlay } from '@/features/preview'
+import { useHistoricalSandboxEvents } from '@/features/preview/hooks/use-task-events'
 import type { ElementInfo, SandboxEvent, StartupEvent } from '@/features/preview/types'
 import { useWorkspaceStatus } from '@/features/tasks'
 import { useWorkspaceRetry } from '@/features/tasks/hooks/use-workspace-status'
@@ -18,6 +19,39 @@ import { TaskLeftHeader } from './task-header/task-left-header'
 import { TaskPageLayout } from './task-page-layout'
 import { TaskDetailSkeleton } from './task-skeletons'
 import { WorkspaceHeader } from './workspace-header'
+
+/** Map a raw Event to a SandboxEvent for the Events tab. */
+function toSandboxEvent(event: Event): SandboxEvent | null {
+  if (event.type !== 'sandbox' && event.type !== 'server') {
+    return null
+  }
+  const rawSubType = (event as { subType?: string }).subType
+  const payload = (event as { payload?: Record<string, unknown> }).payload ?? {}
+  return {
+    eventId: event.eventId,
+    type: event.type as 'sandbox' | 'server',
+    subType: rawSubType ?? '',
+    timestamp: event.timestamp ? new Date(event.timestamp).toISOString() : new Date().toISOString(),
+    isError: event.isError,
+    message: payload.message != null ? String(payload.message) : undefined,
+    reason: payload.reason != null ? String(payload.reason) : undefined,
+    serverName:
+      event.type === 'server' && payload.serverName != null
+        ? String(payload.serverName)
+        : undefined,
+    payload,
+  }
+}
+
+/** Check if a sandbox event subType is a startup-phase event. */
+function isStartupSubType(subType: string | undefined): boolean {
+  return subType === 'initializing' || subType === 'k8s_event' || subType === 'sandbox_event'
+}
+
+/** Check if a sandbox event subType signals the end of the startup phase. */
+function isStartupEndSubType(subType: string | undefined): boolean {
+  return subType === 'ready' || subType === 'error' || subType === 'stopped'
+}
 
 function TaskPageComponent() {
   const taskId = useTaskId()
@@ -40,42 +74,55 @@ function TaskPageComponent() {
   // Sandbox/server lifecycle events for Events tab and recent events box
   const [sandboxEvents, setSandboxEvents] = useState<SandboxEvent[]>([])
 
+  // Track seen event IDs for deduplication between historical and live SSE events
+  const seenEventIds = useRef<Set<string>>(new Set())
+
+  // Fetch historical sandbox/server events so events persist across page reloads
+  const historicalEventsQuery = useHistoricalSandboxEvents(taskId)
+
+  // Seed sandboxEvents from historical data when query resolves
+  useEffect(() => {
+    const data = historicalEventsQuery.data
+    if (!data || data.length === 0) {
+      return
+    }
+
+    const mapped: SandboxEvent[] = []
+    for (const event of data) {
+      if (seenEventIds.current.has(event.eventId)) {
+        continue
+      }
+      seenEventIds.current.add(event.eventId)
+      const se = toSandboxEvent(event)
+      if (se) {
+        mapped.push(se)
+      }
+    }
+
+    if (mapped.length > 0) {
+      setSandboxEvents((prev) => {
+        // Merge: historical first, then any live events that arrived before the query resolved
+        const liveOnly = prev.filter((e) => !seenEventIds.current.has(e.eventId))
+        return [...mapped, ...liveOnly]
+      })
+    }
+  }, [historicalEventsQuery.data])
+
   const handleTaskEvent = useCallback((event: Event) => {
-    const rawSubType = (event as { subType?: string }).subType
-    if (event.type === 'sandbox' || event.type === 'server') {
-      // Collect all sandbox/server events for the Events tab
-      const payload = (event as { payload?: Record<string, unknown> }).payload ?? {}
-      setSandboxEvents((prev) => [
-        ...prev,
-        {
-          eventId: event.eventId,
-          type: event.type as 'sandbox' | 'server',
-          subType: rawSubType ?? '',
-          timestamp: event.timestamp
-            ? new Date(event.timestamp).toISOString()
-            : new Date().toISOString(),
-          isError: event.isError,
-          message: payload.message != null ? String(payload.message) : undefined,
-          reason: payload.reason != null ? String(payload.reason) : undefined,
-          serverName:
-            event.type === 'server' && payload.serverName != null
-              ? String(payload.serverName)
-              : undefined,
-          payload,
-        },
-      ])
+    // Append sandbox/server events for the Events tab (with dedup)
+    const se = toSandboxEvent(event)
+    if (se) {
+      if (seenEventIds.current.has(event.eventId)) {
+        return
+      }
+      seenEventIds.current.add(event.eventId)
+      setSandboxEvents((prev) => [...prev, se])
     }
 
     if (event.type === 'sandbox') {
-      // Sandbox init events now arrive as subType "initializing" with reason/message in payload.
-      // Also handle legacy k8s_event/sandbox_event subTypes for backwards compatibility.
-      if (
-        rawSubType === 'initializing' ||
-        rawSubType === 'k8s_event' ||
-        rawSubType === 'sandbox_event'
-      ) {
+      const rawSubType = (event as { subType?: string }).subType
+      if (isStartupSubType(rawSubType)) {
         const payload = (event as { payload?: Record<string, unknown> }).payload ?? {}
-        // Only add to startup timeline if payload has detail fields (reason/message)
         if (payload.reason || payload.message) {
           setStartupEvents((prev) => [
             ...prev,
@@ -90,7 +137,7 @@ function TaskPageComponent() {
           ])
         }
       }
-      if (rawSubType === 'ready' || rawSubType === 'error' || rawSubType === 'stopped') {
+      if (isStartupEndSubType(rawSubType)) {
         setStartupEvents([])
       }
     }

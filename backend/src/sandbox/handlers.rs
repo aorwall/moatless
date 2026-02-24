@@ -3,15 +3,13 @@
 //! Extracted from routes.rs for consistency with other modules
 //! (task/, message/, agent/, etc.).
 
-use axum::extract::{Path, Query, State};
+use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::IntoResponse;
 use axum::Json;
 use futures::stream::Stream;
-use serde::Deserialize;
-use tracing::{error, info};
-use utoipa::IntoParams;
+use tracing::{error, info, warn};
 
 use super::error::SandboxError;
 use super::routes::SandboxApiState;
@@ -19,6 +17,9 @@ use super::models::*;
 use super::schemas::*;
 
 /// Provision a new sandbox workspace for a task.
+///
+/// Builds the provision request internally from DB state (task, repository,
+/// credentials). No request body required.
 #[utoipa::path(
     post,
     path = "/api/sandbox/v1/tasks/{task_id}/provision",
@@ -26,7 +27,6 @@ use super::schemas::*;
     params(
         ("task_id" = String, Path, description = "Task identifier")
     ),
-    request_body = ProvisionRequest,
     responses(
         (status = 200, description = "Workspace provisioned successfully", body = ProvisionResponse),
         (status = 500, description = "Provisioning failed", body = ErrorBody)
@@ -35,9 +35,16 @@ use super::schemas::*;
 pub async fn provision_handler(
     State(state): State<SandboxApiState>,
     Path(task_id): Path<String>,
-    Json(request): Json<ProvisionRequest>,
 ) -> Result<Json<ProvisionResponse>, SandboxError> {
     info!(task_id = %task_id, "POST /provision");
+
+    let (tasks, repos, provider_tokens) = match (&state.tasks, &state.repos, &state.provider_tokens) {
+        (Some(t), Some(r), Some(pt)) => (t.as_ref(), r.as_ref(), pt.as_ref()),
+        _ => return Err(SandboxError::Internal("Database not available for provisioning".into())),
+    };
+
+    let request = super::auto_provision::build_provision_request(tasks, repos, provider_tokens, &task_id).await?;
+
     match state.provider.provision(&task_id, &request).await {
         Ok(response) => {
             info!(task_id = %task_id, "Provision succeeded");
@@ -48,52 +55,6 @@ pub async fn provision_handler(
             Err(e)
         }
     }
-}
-
-/// Get environment status for a task workspace.
-#[utoipa::path(
-    get,
-    path = "/api/sandbox/v1/tasks/{task_id}/env-status",
-    tag = "sandbox",
-    params(
-        ("task_id" = String, Path, description = "Task identifier")
-    ),
-    responses(
-        (status = 200, description = "Environment status", body = StatusResponse),
-        (status = 500, description = "Internal error", body = ErrorBody)
-    )
-)]
-pub async fn status_handler(
-    State(state): State<SandboxApiState>,
-    Path(task_id): Path<String>,
-) -> impl IntoResponse {
-    match state.provider.status(&task_id).await {
-        Ok(resp) => Json(resp).into_response(),
-        Err(e) => {
-            error!(task_id = %task_id, error = %e, "env-status failed");
-            e.into_response()
-        }
-    }
-}
-
-/// Check if a task's sandbox is healthy.
-#[utoipa::path(
-    get,
-    path = "/api/sandbox/v1/tasks/{task_id}/health",
-    tag = "sandbox",
-    params(
-        ("task_id" = String, Path, description = "Task identifier")
-    ),
-    responses(
-        (status = 200, description = "Health check result", body = HealthResponse)
-    )
-)]
-pub async fn health_check_handler(
-    State(state): State<SandboxApiState>,
-    Path(task_id): Path<String>,
-) -> impl IntoResponse {
-    let resp = state.provider.health(&task_id).await;
-    Json(resp)
 }
 
 /// Get full workspace status including servers and agent state.
@@ -114,7 +75,10 @@ pub async fn sandbox_status_handler(
     State(state): State<SandboxApiState>,
     Path(task_id): Path<String>,
 ) -> impl IntoResponse {
-    match state.provider.sandbox_status(&task_id).await {
+    // Resolve server configs from DB
+    let server_configs = resolve_server_configs(&state, &task_id).await;
+
+    match state.provider.sandbox_status(&task_id, &server_configs).await {
         Ok(resp) => Json(resp).into_response(),
         Err(e) => {
             error!(task_id = %task_id, error = %e, "sandbox status failed");
@@ -148,36 +112,6 @@ pub async fn stop_handler(
         }
         Err(e) => {
             error!(task_id = %task_id, error = %e, "Stop failed");
-            Err(e)
-        }
-    }
-}
-
-/// Start a stopped workspace.
-#[utoipa::path(
-    post,
-    path = "/api/sandbox/v1/tasks/{task_id}/start",
-    tag = "sandbox",
-    params(
-        ("task_id" = String, Path, description = "Task identifier")
-    ),
-    responses(
-        (status = 204, description = "Workspace started"),
-        (status = 500, description = "Start failed", body = ErrorBody)
-    )
-)]
-pub async fn start_handler(
-    State(state): State<SandboxApiState>,
-    Path(task_id): Path<String>,
-) -> Result<StatusCode, SandboxError> {
-    info!(task_id = %task_id, "POST /start");
-    match state.provider.start(&task_id).await {
-        Ok(_result) => {
-            info!(task_id = %task_id, "Start succeeded");
-            Ok(StatusCode::NO_CONTENT)
-        }
-        Err(e) => {
-            error!(task_id = %task_id, error = %e, "Start failed");
             Err(e)
         }
     }
@@ -264,13 +198,21 @@ pub async fn server_status_handler(
     State(state): State<SandboxApiState>,
     Path(task_id): Path<String>,
 ) -> impl IntoResponse {
-    match state.provider.server_status(&task_id).await {
-        Ok(resp) => Json(resp).into_response(),
+    // Resolve server configs from DB
+    let server_configs = resolve_server_configs(&state, &task_id).await;
+
+    // Fetch container statuses from the provider
+    let container_statuses = match state.provider.container_statuses(&task_id).await {
+        Ok(cs) => cs,
         Err(e) => {
-            error!(task_id = %task_id, error = %e, "server status failed");
-            e.into_response()
+            error!(task_id = %task_id, error = %e, "server container_statuses failed");
+            return e.into_response();
         }
-    }
+    };
+
+    // Merge config + container statuses into server snapshots
+    let servers = merge_server_status(&server_configs, &container_statuses);
+    Json(ServerStatusResponse { servers }).into_response()
 }
 
 /// Stream server logs via SSE.
@@ -301,202 +243,42 @@ pub async fn server_logs_handler(
     Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
 }
 
-/// Search files in a task's sandbox workspace.
-#[utoipa::path(
-    post,
-    path = "/api/sandbox/v1/tasks/{task_id}/search-files",
-    tag = "sandbox",
-    params(
-        ("task_id" = String, Path, description = "Task identifier")
-    ),
-    request_body = SearchFilesRequest,
-    responses(
-        (status = 200, description = "File search results", body = Vec<FileSearchResult>),
-        (status = 503, description = "Sandbox not ready", body = ErrorBody),
-        (status = 500, description = "Internal error", body = ErrorBody)
-    )
-)]
-pub async fn search_files_handler(
-    State(state): State<SandboxApiState>,
-    Path(task_id): Path<String>,
-    Json(req): Json<SearchFilesRequest>,
-) -> Result<Json<Vec<FileSearchResult>>, SandboxError> {
-    let results = state
-        .provider
-        .search_files(&task_id, &req.query, req.limit.unwrap_or(20))
-        .await?;
-    Ok(Json(results))
-}
-
 // =============================================================================
-// File operation handlers
+// Private helpers
 // =============================================================================
 
-/// Query parameters for the file tree endpoint.
-#[derive(Debug, Deserialize, IntoParams)]
-pub struct FileTreeQuery {
-    /// Root path relative to workspace (default ".")
-    #[serde(default)]
-    pub path: Option<String>,
-}
-
-/// Query parameters for reading a file.
-#[derive(Debug, Deserialize, IntoParams)]
-pub struct ReadFileQuery {
-    /// File path relative to workspace
-    pub path: String,
-    /// Include git change info (old_content, additions, deletions)
-    #[serde(default)]
-    pub changes: Option<bool>,
-}
-
-/// Query parameters for listing files.
-#[derive(Debug, Deserialize, IntoParams)]
-pub struct ListFilesQuery {
-    /// Path relative to workspace (default ".")
-    #[serde(default)]
-    pub path: Option<String>,
-    /// List files recursively
-    #[serde(default)]
-    pub recursive: Option<bool>,
-}
-
-/// Get the file tree with git change overlay.
-#[utoipa::path(
-    get,
-    path = "/api/sandbox/v1/tasks/{task_id}/files/tree",
-    tag = "sandbox",
-    params(
-        ("task_id" = String, Path, description = "Task identifier"),
-        FileTreeQuery,
-    ),
-    responses(
-        (status = 200, description = "File tree with git summary", body = FileTreeResponse),
-        (status = 503, description = "Sandbox not ready", body = ErrorBody),
-        (status = 500, description = "Internal error", body = ErrorBody)
-    )
-)]
-pub async fn file_tree_handler(
-    State(state): State<SandboxApiState>,
-    Path(task_id): Path<String>,
-    Query(query): Query<FileTreeQuery>,
-) -> Result<Json<FileTreeResponse>, SandboxError> {
-    let root_path = query.path.as_deref().unwrap_or(".");
-    let result = state.provider.get_file_tree(&task_id, root_path).await?;
-    Ok(Json(result))
-}
-
-/// Read a file from the sandbox workspace.
-#[utoipa::path(
-    get,
-    path = "/api/sandbox/v1/tasks/{task_id}/files/read",
-    tag = "sandbox",
-    params(
-        ("task_id" = String, Path, description = "Task identifier"),
-        ReadFileQuery,
-    ),
-    responses(
-        (status = 200, description = "File content", body = FileContentResponse),
-        (status = 404, description = "File not found", body = ErrorBody),
-        (status = 503, description = "Sandbox not ready", body = ErrorBody),
-        (status = 500, description = "Internal error", body = ErrorBody)
-    )
-)]
-pub async fn read_file_handler(
-    State(state): State<SandboxApiState>,
-    Path(task_id): Path<String>,
-    Query(query): Query<ReadFileQuery>,
-) -> Result<Json<FileContentResponse>, SandboxError> {
-    let include_changes = query.changes.unwrap_or(false);
-    let result = state
-        .provider
-        .read_file(&task_id, &query.path, include_changes)
-        .await?;
-    Ok(Json(result))
-}
-
-/// Write a file in the sandbox workspace.
-#[utoipa::path(
-    post,
-    path = "/api/sandbox/v1/tasks/{task_id}/files/write",
-    tag = "sandbox",
-    params(
-        ("task_id" = String, Path, description = "Task identifier")
-    ),
-    request_body = WriteFileRequestBody,
-    responses(
-        (status = 204, description = "File written successfully"),
-        (status = 400, description = "Invalid path", body = ErrorBody),
-        (status = 503, description = "Sandbox not ready", body = ErrorBody),
-        (status = 500, description = "Internal error", body = ErrorBody)
-    )
-)]
-pub async fn write_file_handler(
-    State(state): State<SandboxApiState>,
-    Path(task_id): Path<String>,
-    Json(req): Json<WriteFileRequestBody>,
-) -> Result<StatusCode, SandboxError> {
-    state
-        .provider
-        .write_file(&task_id, &req.path, &req.content)
-        .await?;
-    Ok(StatusCode::NO_CONTENT)
-}
-
-/// List files in the sandbox workspace.
-#[utoipa::path(
-    get,
-    path = "/api/sandbox/v1/tasks/{task_id}/files/list",
-    tag = "sandbox",
-    params(
-        ("task_id" = String, Path, description = "Task identifier"),
-        ListFilesQuery,
-    ),
-    responses(
-        (status = 200, description = "File list", body = ListFilesResponse),
-        (status = 503, description = "Sandbox not ready", body = ErrorBody),
-        (status = 500, description = "Internal error", body = ErrorBody)
-    )
-)]
-pub async fn list_files_handler(
-    State(state): State<SandboxApiState>,
-    Path(task_id): Path<String>,
-    Query(query): Query<ListFilesQuery>,
-) -> Result<Json<ListFilesResponse>, SandboxError> {
-    let path = query.path.as_deref().unwrap_or(".");
-    let recursive = query.recursive.unwrap_or(false);
-    let result = state.provider.list_files(&task_id, path, recursive).await?;
-    Ok(Json(result))
-}
-
-/// Search files by name in the sandbox workspace.
-#[utoipa::path(
-    post,
-    path = "/api/sandbox/v1/tasks/{task_id}/files/search-by-name",
-    tag = "sandbox",
-    params(
-        ("task_id" = String, Path, description = "Task identifier")
-    ),
-    request_body = SearchByNameRequest,
-    responses(
-        (status = 200, description = "Search results", body = SearchByNameResponse),
-        (status = 503, description = "Sandbox not ready", body = ErrorBody),
-        (status = 500, description = "Internal error", body = ErrorBody)
-    )
-)]
-pub async fn search_by_name_handler(
-    State(state): State<SandboxApiState>,
-    Path(task_id): Path<String>,
-    Json(req): Json<SearchByNameRequest>,
-) -> Result<Json<SearchByNameResponse>, SandboxError> {
-    let result = state
-        .provider
-        .search_files_by_name(
-            &task_id,
-            &req.query,
-            req.case_sensitive.unwrap_or(false),
-            req.max_results.unwrap_or(0),
+/// Resolve server configs from DB via the SandboxApiState repositories.
+async fn resolve_server_configs(state: &SandboxApiState, task_id: &str) -> Vec<ServerConfig> {
+    if let (Some(ref tasks), Some(ref repos)) = (&state.tasks, &state.repos) {
+        super::auto_provision::get_server_configs_for_task(
+            tasks.as_ref(),
+            repos.as_ref(),
+            task_id,
         )
-        .await?;
-    Ok(Json(result))
+        .await
+    } else {
+        warn!(task_id = %task_id, "No task/repo repositories available for server config resolution");
+        vec![]
+    }
+}
+
+/// Merge server configs (from DB) with container statuses (from runtime)
+/// into `ServerSnapshot` entries for the `ServerStatusResponse`.
+fn merge_server_status(
+    server_configs: &[ServerConfig],
+    container_statuses: &[ContainerObservedStatus],
+) -> Vec<ServerSnapshot> {
+    server_configs
+        .iter()
+        .map(|config| {
+            let container = container_statuses.iter().find(|cs| {
+                let name = cs.name.strip_suffix("-server").unwrap_or(&cs.name);
+                name == config.name
+            });
+            let status = container.map_or(ServerStatus::Starting, ContainerObservedStatus::to_server_status);
+            let mut snapshot = ServerSnapshot::from_config(config, status);
+            snapshot.error = container.and_then(|cs| cs.waiting_reason.clone());
+            snapshot
+        })
+        .collect()
 }

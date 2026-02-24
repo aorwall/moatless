@@ -82,21 +82,41 @@ pub async fn send_message(
 
     // Ensure the sandbox is running (auto-provisions if needed).
     // Only notify if already running — a starting sandbox fetches pending messages on startup.
-    match state.sandbox.start(&task_id).await {
-        Ok(crate::sandbox::provider::StartResult::AlreadyRunning) => {
-            // Sandbox is up — notify it about the new message.
-            crate::sandbox::notify::notify_sandbox_for_task(&state, &task_id).await;
-        }
-        Ok(crate::sandbox::provider::StartResult::Starting) => {
-            // Sandbox is starting — it will fetch pending messages on startup.
-            tracing::info!(task_id = %task_id, "Sandbox starting, skipping notification");
+    match crate::sandbox::auto_provision::build_provision_request(
+        state.tasks.as_ref(),
+        state.repositories.as_ref(),
+        state.provider_tokens.as_ref(),
+        &task_id,
+    )
+    .await
+    {
+        Ok(request) => {
+            match state.sandbox.provision(&task_id, &request).await {
+                Ok(resp) if resp.status == crate::sandbox::models::EnvironmentStatus::Ready => {
+                    // Sandbox was already running — notify it about the new message.
+                    crate::sandbox::notify::notify_sandbox_for_task(&state, &task_id).await;
+                }
+                Ok(_) => {
+                    // Sandbox is starting — it will fetch pending messages on startup.
+                    tracing::info!(task_id = %task_id, "Sandbox starting, skipping notification");
+                }
+                Err(e) => {
+                    tracing::warn!(task_id = %task_id, error = %e, "Failed to provision sandbox for message delivery");
+                    send::persist_error_result(
+                        &state,
+                        &task_id,
+                        &format!("Failed to provision sandbox: {e}"),
+                    )
+                    .await;
+                }
+            }
         }
         Err(e) => {
-            tracing::warn!(task_id = %task_id, error = %e, "Failed to start sandbox for message delivery");
+            tracing::warn!(task_id = %task_id, error = %e, "Failed to build provision request for message delivery");
             send::persist_error_result(
                 &state,
                 &task_id,
-                &format!("Failed to start sandbox: {e}"),
+                &format!("Failed to build provision request: {e}"),
             )
             .await;
         }

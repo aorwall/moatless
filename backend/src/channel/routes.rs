@@ -13,6 +13,7 @@ use crate::state::AppState;
     ),
     paths(
         handlers::slack_webhook,
+        handlers::list_slack_channels,
         handlers::create_config,
         handlers::list_configs,
         handlers::get_config,
@@ -26,6 +27,7 @@ pub struct ChannelApiDoc;
 pub fn channel_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenApi) {
     let (router, api) = OpenApiRouter::with_openapi(ChannelApiDoc::openapi())
         .routes(routes!(handlers::slack_webhook))
+        .routes(routes!(handlers::list_slack_channels))
         .routes(routes!(handlers::create_config, handlers::list_configs))
         .routes(routes!(
             handlers::get_config,

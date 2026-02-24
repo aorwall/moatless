@@ -242,7 +242,7 @@ impl RedisStreamConsumer {
 }
 
 /// Extract a String from a Redis Value.
-fn extract_string(v: &Value) -> Option<String> {
+pub(super) fn extract_string(v: &Value) -> Option<String> {
     match v {
         Value::BulkString(bytes) => String::from_utf8(bytes.clone()).ok(),
         Value::SimpleString(s) => Some(s.clone()),
@@ -251,7 +251,7 @@ fn extract_string(v: &Value) -> Option<String> {
 }
 
 /// Extract a named field value from a flat [key, val, key, val, ...] array.
-fn extract_field(fields: &[Value], name: &str) -> Option<String> {
+pub(super) fn extract_field(fields: &[Value], name: &str) -> Option<String> {
     let mut iter = fields.iter();
     while let Some(key) = iter.next() {
         let val = iter.next()?;

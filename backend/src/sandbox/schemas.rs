@@ -21,21 +21,6 @@ pub struct ProvisionResponse {
     pub status: EnvironmentStatus,
 }
 
-/// Status response
-#[derive(Debug, Serialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct StatusResponse {
-    pub status: EnvironmentStatus,
-    pub pod_name: Option<String>,
-    pub last_error: Option<String>,
-}
-
-/// Health response
-#[derive(Debug, Serialize, ToSchema)]
-pub struct HealthResponse {
-    pub healthy: bool,
-}
-
 /// Single server entry in the workspace status response
 #[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -260,6 +245,37 @@ impl From<sandbox_proto::FileNameMatch> for FileNameMatchDto {
     }
 }
 
+impl From<sandbox_proto::GetFileTreeResponse> for FileTreeResponse {
+    fn from(resp: sandbox_proto::GetFileTreeResponse) -> Self {
+        let git_summary = resp.git_summary.map_or(
+            GitSummaryDto {
+                total_files: 0,
+                total_additions: 0,
+                total_deletions: 0,
+                total_staged: 0,
+                total_modified: 0,
+                compare_base: "HEAD".to_string(),
+                has_changes: false,
+            },
+            GitSummaryDto::from,
+        );
+
+        Self {
+            tree: resp.tree.into_iter().map(FileTreeNodeDto::from).collect(),
+            git_summary,
+        }
+    }
+}
+
+impl From<sandbox_proto::SearchFilesByNameResponse> for SearchByNameResponse {
+    fn from(resp: sandbox_proto::SearchFilesByNameResponse) -> Self {
+        Self {
+            files: resp.files.into_iter().map(FileNameMatchDto::from).collect(),
+            total_matches: resp.total_matches,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -271,26 +287,6 @@ mod tests {
         };
         let json = serde_json::to_value(&resp).unwrap();
         assert_eq!(json["status"], "initializing");
-    }
-
-    #[test]
-    fn status_response_serializes_camel_case() {
-        let resp = StatusResponse {
-            status: EnvironmentStatus::Ready,
-            pod_name: Some("sandbox-abc-xyz".into()),
-            last_error: None,
-        };
-        let json = serde_json::to_value(&resp).unwrap();
-        assert_eq!(json["status"], "ready");
-        assert_eq!(json["podName"], "sandbox-abc-xyz");
-        assert!(json["lastError"].is_null());
-    }
-
-    #[test]
-    fn health_response_serializes() {
-        let resp = HealthResponse { healthy: true };
-        let json = serde_json::to_value(&resp).unwrap();
-        assert_eq!(json["healthy"], true);
     }
 
     #[test]

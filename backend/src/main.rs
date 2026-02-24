@@ -68,7 +68,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             sandbox_provider = startup::build_sandbox_provider(
                 &config,
                 k8s.clone(),
-                db_pool.as_ref(),
                 event_publisher.clone(),
             );
 
@@ -100,7 +99,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             sandbox_provider = startup::build_docker_sandbox_provider(
                 &config,
                 docker_client.clone(),
-                db_pool.as_ref(),
                 event_publisher.clone(),
             );
 
@@ -123,8 +121,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // ── Build router ────────────────────────────────────────────────────
+
+    // Build optional repos for SandboxApiState (server config resolution in handlers)
+    let sandbox_tasks: Option<Arc<dyn moatless_vibe_backend::task::dao::TaskRepository>> =
+        db_pool.as_ref().map(|p| {
+            Arc::new(moatless_vibe_backend::task::dao::PgTaskRepository(p.clone()))
+                as Arc<dyn moatless_vibe_backend::task::dao::TaskRepository>
+        });
+    let sandbox_repos: Option<Arc<dyn moatless_vibe_backend::repository::dao::RepoRepository>> =
+        db_pool.as_ref().map(|p| {
+            Arc::new(moatless_vibe_backend::repository::dao::PgRepoRepository(p.clone()))
+                as Arc<dyn moatless_vibe_backend::repository::dao::RepoRepository>
+        });
+    let sandbox_provider_tokens: Option<Arc<dyn moatless_vibe_backend::auth::provider_token_dao::ProviderTokenRepository>> =
+        db_pool.as_ref().map(|p| {
+            Arc::new(moatless_vibe_backend::auth::provider_token_dao::PgProviderTokenRepository(p.clone()))
+                as Arc<dyn moatless_vibe_backend::auth::provider_token_dao::ProviderTokenRepository>
+        });
+
     let sandbox_state = sandbox::routes::SandboxApiState {
         provider: Arc::clone(&sandbox_provider),
+        tasks: sandbox_tasks,
+        repos: sandbox_repos,
+        provider_tokens: sandbox_provider_tokens,
     };
     let (mut router, mut api) = sandbox::routes::api_router(sandbox_state);
 

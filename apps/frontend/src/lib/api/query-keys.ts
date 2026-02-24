@@ -33,6 +33,7 @@ export const queryKeys = {
     fileContent: (taskId: string, filePath: string, changes?: boolean) =>
       [...queryKeys.tasks.files(taskId), 'content', filePath, changes] as const,
     commands: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'commands'] as const,
+    events: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'events'] as const,
   },
 
   tags: {
@@ -59,6 +60,14 @@ export const queryKeys = {
     all: () => [...queryKeys.all, 'claude-code'] as const,
     settings: () => [...queryKeys.claudeCode.all(), 'settings'] as const,
     tools: () => [...queryKeys.claudeCode.all(), 'tools'] as const,
+  },
+
+  channels: {
+    all: () => [...queryKeys.all, 'channels'] as const,
+    configs: () => [...queryKeys.channels.all(), 'configs'] as const,
+    configsList: (params?: { provider?: string; repositoryId?: string }) =>
+      [...queryKeys.channels.configs(), 'list', params] as const,
+    slackChannels: () => [...queryKeys.channels.all(), 'slack-channels'] as const,
   },
 
   settings: {

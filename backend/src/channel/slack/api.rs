@@ -1,6 +1,6 @@
-//! Slack Web API client — chat.postMessage, reactions.add/remove, users.info, conversations.replies.
+//! Slack Web API client — chat.postMessage, reactions.add/remove, users.info, conversations.list/replies.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tracing::warn;
 
 use crate::channel::error::ChannelError;
@@ -48,6 +48,33 @@ struct SlackMessage {
     user: Option<String>,
     #[allow(dead_code)] // Deserialized from Slack API but not directly read
     ts: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ConversationsListResponse {
+    ok: bool,
+    error: Option<String>,
+    channels: Option<Vec<SlackChannelItem>>,
+    response_metadata: Option<ResponseMetadata>,
+}
+
+#[derive(Deserialize)]
+struct SlackChannelItem {
+    id: String,
+    name: Option<String>,
+    is_member: Option<bool>,
+}
+
+#[derive(Deserialize)]
+struct ResponseMetadata {
+    next_cursor: Option<String>,
+}
+
+/// Slack channel info returned to callers.
+#[derive(Debug, Clone, Serialize)]
+pub struct SlackChannelInfo {
+    pub id: String,
+    pub name: String,
 }
 
 impl SlackApi {
@@ -194,6 +221,70 @@ impl SlackApi {
             .user
             .and_then(|u| u.profile)
             .and_then(|p| p.email))
+    }
+
+    /// List Slack channels the bot is a member of.
+    pub async fn list_conversations(&self) -> Result<Vec<SlackChannelInfo>, ChannelError> {
+        let mut all_channels = Vec::new();
+        let mut cursor: Option<String> = None;
+
+        loop {
+            let mut query = vec![
+                ("types", "public_channel,private_channel"),
+                ("exclude_archived", "true"),
+                ("limit", "200"),
+            ];
+            let cursor_val;
+            if let Some(ref c) = cursor {
+                cursor_val = c.clone();
+                query.push(("cursor", &cursor_val));
+            }
+
+            let resp: ConversationsListResponse = self
+                .client
+                .get("https://slack.com/api/conversations.list")
+                .bearer_auth(&self.token)
+                .query(&query)
+                .send()
+                .await
+                .map_err(|e| {
+                    ChannelError::ProviderApi(format!("conversations.list failed: {e}"))
+                })?
+                .json()
+                .await
+                .map_err(|e| {
+                    ChannelError::ProviderApi(format!("conversations.list parse: {e}"))
+                })?;
+
+            if !resp.ok {
+                let err = resp.error.unwrap_or_default();
+                warn!(error = %err, "Slack conversations.list failed");
+                return Err(ChannelError::ProviderApi(format!(
+                    "conversations.list: {err}"
+                )));
+            }
+
+            if let Some(channels) = resp.channels {
+                for ch in channels {
+                    // Only include channels the bot is a member of
+                    if ch.is_member.unwrap_or(false) {
+                        all_channels.push(SlackChannelInfo {
+                            id: ch.id,
+                            name: ch.name.unwrap_or_default(),
+                        });
+                    }
+                }
+            }
+
+            // Handle pagination
+            match resp.response_metadata.and_then(|m| m.next_cursor) {
+                Some(c) if !c.is_empty() => cursor = Some(c),
+                _ => break,
+            }
+        }
+
+        all_channels.sort_by(|a, b| a.name.cmp(&b.name));
+        Ok(all_channels)
     }
 
     /// Fetch thread replies for context enrichment.

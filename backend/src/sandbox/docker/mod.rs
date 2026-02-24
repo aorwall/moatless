@@ -8,7 +8,6 @@
 pub mod client;
 pub mod container_builder;
 pub mod container_watcher;
-pub mod health;
 pub mod naming;
 pub mod provider;
 pub mod status_resolver;

@@ -56,6 +56,14 @@ pub struct ListChannelConfigsQuery {
     pub repository_id: Option<String>,
 }
 
+/// Available Slack channel info for dropdown selection.
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SlackChannelInfoResponse {
+    pub id: String,
+    pub name: String,
+}
+
 impl ChannelConfigResponse {
     pub fn from_model(row: &super::models::ChannelConfig) -> Self {
         let provider = ChannelType::parse(&row.provider)

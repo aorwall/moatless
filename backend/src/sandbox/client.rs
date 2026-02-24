@@ -16,20 +16,35 @@ use sandbox_proto::{
 use tonic::transport::Channel;
 use tracing::debug;
 
-/// Errors that can occur when constructing a [`SandboxGrpcClient`].
+use super::error::SandboxError;
+
+/// Errors that can occur when constructing a [`SandboxClient`].
 #[derive(Debug, thiserror::Error)]
-pub enum GrpcClientError {
+pub enum ClientError {
     #[error("invalid gRPC endpoint URI: {0}")]
     InvalidUri(#[from] tonic::codegen::http::uri::InvalidUri),
 }
 
+/// Classify gRPC errors into appropriate `SandboxError` variants.
+///
+/// Unavailable/connection errors → `NotReady` (503),
+/// everything else → `Internal` (500).
+pub fn classify_grpc_error(e: tonic::Status, operation: &str) -> SandboxError {
+    match e.code() {
+        tonic::Code::Unavailable | tonic::Code::DeadlineExceeded => {
+            SandboxError::NotReady(format!("Sandbox unreachable: {operation}"))
+        }
+        _ => SandboxError::Internal(format!("gRPC {operation} failed: {e}")),
+    }
+}
+
 /// Wrapper around `SandboxServiceClient` for calling sandbox pods via gRPC.
 #[derive(Clone)]
-pub struct SandboxGrpcClient {
+pub struct SandboxClient {
     client: SandboxServiceClient<Channel>,
 }
 
-impl SandboxGrpcClient {
+impl SandboxClient {
     /// Create a gRPC client for a sandbox pod using K8s service DNS.
     ///
     /// Uses `connect_lazy()` — no upfront TCP connection.
@@ -37,7 +52,7 @@ impl SandboxGrpcClient {
         service_name: &str,
         namespace: &str,
         port: u16,
-    ) -> Result<Self, GrpcClientError> {
+    ) -> Result<Self, ClientError> {
         let url = format!(
             "http://{service_name}.{namespace}.svc.cluster.local:{port}"
         );
@@ -45,7 +60,7 @@ impl SandboxGrpcClient {
     }
 
     /// Create a gRPC client from a URL.
-    pub fn connect(url: &str) -> Result<Self, GrpcClientError> {
+    pub fn connect(url: &str) -> Result<Self, ClientError> {
         let channel = Channel::from_shared(url.to_string())?
             .connect_timeout(Duration::from_secs(5))
             .timeout(Duration::from_secs(10))

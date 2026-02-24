@@ -10,15 +10,17 @@ The `sandbox` module is a Rust (Axum) service that manages the full lifecycle of
 
 ### Provider Abstraction
 
-`SandboxProvider` trait (`provider.rs`) defines the provider-agnostic interface for sandbox operations: provision, start, stop, restart, cleanup, status, health, server logs, and file search. The only implementation is `K8sSandboxProvider` (`k8s/provider.rs`).
+`SandboxProvider` trait (`provider.rs`) defines the provider-agnostic interface for sandbox lifecycle operations: provision, start, stop, restart, cleanup, status, server logs, file search, and `sandbox_client()`. Implementations: `K8sSandboxProvider` (`k8s/provider.rs`) and `DockerSandboxProvider` (`docker/provider.rs`).
 
 ### Request Flow
 
 ```
 HTTP request → routes.rs (Axum OpenApiRouter)
-             → handlers.rs (extract Path/Json, delegate to provider)
-             → K8sSandboxProvider (orchestrates K8s resources)
-             → k8s/* modules (Deployment, Service, PVC, Secret, Ingress)
+             → handlers.rs (lifecycle: provision, stop, start, restart, cleanup, status, search)
+             → file_handlers.rs (file ops: tree, read, write, list, search-by-name)
+                 ├→ provider.sandbox_client() → SandboxClient (gRPC direct)
+             → SandboxProvider impl (K8s or Docker)
+             → k8s/* or docker/* modules
 ```
 
 ### K8s Resources per Sandbox
@@ -29,8 +31,7 @@ Provisioning a sandbox creates these resources (all labeled `moatless.io/task-id
 2. **Pod** (via Deployment) — contains a `sandbox` container + dynamic server containers (`files-server`, `preview-server`, etc.)
 3. **Service** (ClusterIP) — exposes sandbox HTTP (8001), gRPC, and server ports
 4. **PVC** — optional persistent workspace storage
-5. **Secret** — per-user credentials (shared across tasks)
-6. **IngressRoute** (Traefik CRD) — optional, one per server port, pattern: `{task_id}--{port}.{proxy_domain}`
+5. **IngressRoute** (Traefik CRD) — optional, one per server port, pattern: `{task_id}--{port}.{proxy_domain}`
 
 Deployment and Service names are deterministic: `moatless-ws-{sanitized_task_id}` (see `k8s/naming.rs`).
 
@@ -63,7 +64,9 @@ There is no Redis caching layer for status — all reads go directly to the K8s 
 
 ### gRPC Communication
 
-`SandboxGrpcClient` (`grpc_client.rs`) calls sandbox pods via gRPC (K8s service DNS): execute-agent, stop-agent, notify-messages, search-files. Uses lazy connection with 5s connect timeout, 10s request timeout.
+`SandboxClient` (`client.rs`) calls sandbox pods via gRPC: execute-agent, stop-agent, notify-messages, file operations (tree, read, write, list, search-by-name), and search-files. Uses lazy connection with 5s connect timeout, 10s request timeout. The `classify_grpc_error()` function maps gRPC errors to `SandboxError` (Unavailable→NotReady/503, others→Internal/500).
+
+File operation handlers (`file_handlers.rs`) call `provider.sandbox_client()` to get a ready `SandboxClient`, then invoke file methods directly — no provider-level duplication.
 
 `notify.rs` provides fire-and-forget convenience for notifying a sandbox that new messages are available.
 
@@ -79,6 +82,9 @@ There is no Redis caching layer for status — all reads go directly to the K8s 
 
 | Type | Location | Purpose |
 |------|----------|---------|
+| `SandboxClient` | `client.rs` | gRPC client wrapper for sandbox pod calls |
+| `ClientError` | `client.rs` | Error constructing a `SandboxClient` |
+| `classify_grpc_error()` | `client.rs` | Maps `tonic::Status` → `SandboxError` (Unavailable→NotReady, else→Internal) |
 | `ServerConfig` | `models.rs` | Data-driven server definition: name, port, docker_image, start_commands, env_vars, default, enable_inspector |
 | `ServerSnapshot` | `models.rs` | Cached server state: config fields + runtime status/error. Built via `from_config(&ServerConfig, status)` |
 | `ServerCapabilities` | `models.rs` | Derived from `enable_inspector` via `server_capabilities_from_config()` / `server_capabilities_from_snapshot()` |
@@ -94,19 +100,23 @@ There is no Redis caching layer for status — all reads go directly to the K8s 
 
 All endpoints are under `/api/sandbox/v1/tasks/{task_id}/`:
 
-| Method | Path | Handler |
-|--------|------|---------|
-| POST | `/provision` | Create sandbox resources |
-| GET | `/env-status` | Lightweight environment status |
-| GET | `/status` | Full workspace status (env + servers + agent) |
-| GET | `/health` | Health check |
-| POST | `/stop` | Scale Deployment to 0 |
-| POST | `/start` | Scale to 1 (or auto-provision) |
-| POST | `/restart` | Delete pods (Deployment recreates) |
-| POST | `/cleanup` | Delete all K8s resources |
-| GET | `/server/status` | Server container statuses |
-| GET | `/servers/{server_name}/logs` | SSE stream of server logs |
-| POST | `/search-files` | File search via gRPC |
+| Method | Path | Handler file | Description |
+|--------|------|-------------|-------------|
+| POST | `/provision` | `handlers.rs` | Create sandbox resources |
+| GET | `/env-status` | `handlers.rs` | Lightweight environment status |
+| GET | `/status` | `handlers.rs` | Full workspace status (env + servers + agent) |
+| POST | `/stop` | `handlers.rs` | Scale Deployment to 0 |
+| POST | `/start` | `handlers.rs` | Scale to 1 (or auto-provision) |
+| POST | `/restart` | `handlers.rs` | Delete pods (Deployment recreates) |
+| POST | `/cleanup` | `handlers.rs` | Delete all resources |
+| GET | `/server/status` | `handlers.rs` | Server container statuses |
+| GET | `/servers/{server_name}/logs` | `handlers.rs` | SSE stream of server logs |
+| POST | `/search-files` | `handlers.rs` | File search via provider |
+| GET | `/files/tree` | `file_handlers.rs` | File tree with git overlay (via `SandboxClient`) |
+| GET | `/files/read` | `file_handlers.rs` | Read file content (via `SandboxClient`) |
+| POST | `/files/write` | `file_handlers.rs` | Write file (via `SandboxClient`) |
+| GET | `/files/list` | `file_handlers.rs` | List files (via `SandboxClient`) |
+| POST | `/files/search-by-name` | `file_handlers.rs` | Search files by name (via `SandboxClient`) |
 
 Infrastructure health: `GET /health`, `GET /healthz` (not in OpenAPI).
 
@@ -133,15 +143,24 @@ Both use `HOSTNAME` env var as identity.
 sandbox/
 ├── mod.rs              # Module declarations
 ├── models.rs           # Domain types: config, provisioning, K8s status, containers
-├── schemas.rs          # API schemas: request/response DTOs (ErrorBody, responses)
+├── schemas.rs          # API schemas: request/response DTOs (ErrorBody, responses, From impls)
 ├── error.rs            # SandboxError enum → HTTP responses
-├── provider.rs         # SandboxProvider trait
+├── provider.rs         # SandboxProvider trait (lifecycle + sandbox_client())
 ├── routes.rs           # Axum router + OpenAPI doc
-├── handlers.rs         # HTTP handler functions
-├── grpc_client.rs      # gRPC client for sandbox pod calls
+├── handlers.rs         # Lifecycle handler functions (provision, status, stop, start, etc.)
+├── file_handlers.rs    # File operation handlers (tree, read, write, list, search-by-name)
+├── client.rs           # SandboxClient gRPC wrapper + classify_grpc_error()
 ├── notify.rs           # Fire-and-forget gRPC notification
 ├── idle_reaper.rs      # Background idle sandbox detector
 ├── jwt.rs              # JWT generation/verification
+├── docker/
+│   ├── mod.rs           # Docker submodule declarations
+│   ├── client.rs        # DockerClient wrapper (bollard)
+│   ├── provider.rs      # DockerSandboxProvider (SandboxProvider impl)
+│   ├── naming.rs        # Container name generation
+│   ├── container_builder.rs  # Docker container config builder
+│   ├── status_resolver.rs    # Docker status resolution
+│   └── health.rs        # File search via gRPC (Docker)
 └── k8s/
     ├── mod.rs           # K8s submodule declarations
     ├── client.rs        # K8sClient wrapper
@@ -151,12 +170,11 @@ sandbox/
     ├── deployment.rs    # Deployment CRUD + scaling
     ├── service.rs       # ClusterIP Service CRUD
     ├── pvc.rs           # PersistentVolumeClaim CRUD
-    ├── secret.rs        # Per-user Secret CRUD
     ├── ingress.rs       # Traefik IngressRoute CRD CRUD
     ├── pod_status.rs    # Pure pod inspection functions + test helpers
     ├── pod_watcher.rs   # Leader-elected pod lifecycle watcher + event publishing
     ├── status_resolver.rs  # Read-only status resolution (direct K8s API)
-    ├── health.rs        # Container status fetching + log streaming + file search
+    ├── pod_reader.rs    # Container status fetching + log streaming
     ├── leader_election.rs  # K8s Lease-based leader election
     └── auto_provision.rs   # Auto-provision from DB state
 ```

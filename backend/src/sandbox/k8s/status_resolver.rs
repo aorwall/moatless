@@ -1,80 +1,61 @@
 //! Read-only domain service for resolving sandbox status.
 //!
 //! Resolves environment and server status directly from the K8s API.
-//! Server entries are built config-first (repo config from DB) with
-//! K8s container probe statuses overlaid.
+//! Server entries are built config-first (server configs passed by caller)
+//! with K8s container probe statuses overlaid.
 
 use k8s_openapi::api::core::v1::Pod;
 use kube::api::{Api, ListParams};
 use std::sync::Arc;
 use tracing::{debug, warn};
 
-use super::auto_provision;
 use super::client::K8sClient;
 use super::deployment;
-use super::health;
+use super::pod_reader;
 use super::naming::generate_service_name;
 use super::pod_status::{is_sandbox_container_ready, pick_best_pod};
 use crate::config::Config;
-use crate::repository::dao::RepoRepository;
-use crate::sandbox::grpc_client::SandboxGrpcClient;
+use crate::sandbox::client::SandboxClient;
 use crate::sandbox::models::*;
 use crate::sandbox::schemas::*;
-use crate::task::dao::TaskRepository;
 
 /// Read-only domain service for resolving sandbox status from the K8s API.
+///
+/// Pure infrastructure — no database dependencies. Server configs are
+/// provided by callers (resolved from DB in handlers).
 pub struct StatusResolver {
     k8s: K8sClient,
     config: Arc<Config>,
-    tasks: Option<Arc<dyn TaskRepository>>,
-    repos: Option<Arc<dyn RepoRepository>>,
 }
 
 impl StatusResolver {
     pub fn new(
         k8s: K8sClient,
         config: Arc<Config>,
-        tasks: Option<Arc<dyn TaskRepository>>,
-        repos: Option<Arc<dyn RepoRepository>>,
     ) -> Self {
         Self {
             k8s,
             config,
-            tasks,
-            repos,
-        }
-    }
-
-    /// Lightweight env status from K8s API.
-    pub async fn resolve_status(&self, task_id: &str) -> StatusResponse {
-        let phase = self.resolve_pod_phase(task_id).await;
-        let pod_name = if phase == PodPhase::Running || phase == PodPhase::Pending {
-            self.get_task_pod_name(task_id).await
-        } else {
-            None
-        };
-
-        StatusResponse {
-            status: phase.to_environment_status(),
-            pod_name,
-            last_error: None,
         }
     }
 
     /// Full sandbox status (env + servers) from K8s API.
+    ///
+    /// `server_configs` are the canonical server definitions from the DB.
+    /// K8s container statuses are overlaid onto them.
     pub async fn resolve_sandbox_status(
         &self,
         task_id: &str,
+        server_configs: &[ServerConfig],
     ) -> WorkspaceStatusFullResponse {
         let phase = self.resolve_pod_phase(task_id).await;
         let environment_status = phase.to_environment_status();
         let is_running = phase == PodPhase::Running;
 
         if is_running {
-            // Config-first: start from repo config, overlay K8s container statuses
-            let server_configs = self.get_server_configs(task_id).await;
+            // Config-first: start from server configs, overlay K8s container statuses
             let container_statuses =
-                health::fetch_server_container_statuses(&self.k8s, task_id).await;
+                pod_reader::fetch_server_container_statuses(&self.k8s, task_id).await;
 
             let servers: Vec<ServerEntry> = server_configs
                 .iter()
@@ -128,9 +109,8 @@ impl StatusResolver {
             phase,
             PodPhase::Pending | PodPhase::Failed | PodPhase::Unknown
         ) {
-            let server_configs = self.get_server_configs(task_id).await;
             let container_statuses =
-                health::fetch_server_container_statuses(&self.k8s, task_id).await;
+                pod_reader::fetch_server_container_statuses(&self.k8s, task_id).await;
 
             server_configs
                 .iter()
@@ -156,7 +136,24 @@ impl StatusResolver {
                 })
                 .collect()
         } else {
-            self.servers_from_repo_config(task_id).await
+            // For Stopped/NotFound, show configs with Starting status as fallback
+            server_configs
+                .iter()
+                .map(|config| {
+                    let url = self.build_proxy_url(task_id, config.port);
+                    ServerEntry {
+                        name: config.name.clone(),
+                        label: config.label.clone().unwrap_or_else(|| config.name.clone()),
+                        port: config.port,
+                        status: ServerStatus::Starting,
+                        url,
+                        error: None,
+                        detail: None,
+                        default: config.default,
+                        capabilities: server_capabilities_from_config(config),
+                    }
+                })
+                .collect()
         };
 
         WorkspaceStatusFullResponse {
@@ -171,21 +168,6 @@ impl StatusResolver {
         }
     }
 
-    /// Direct K8s health check (no caching).
-    pub async fn resolve_health(&self, task_id: &str) -> HealthResponse {
-        let pods_api: Api<Pod> =
-            Api::namespaced(self.k8s.client.clone(), self.k8s.namespace());
-        let lp = ListParams::default()
-            .labels(&format!("moatless.io/task-id={task_id}"));
-        let healthy = match pods_api.list(&lp).await {
-            Ok(list) => {
-                pick_best_pod(&list.items).is_some_and(is_sandbox_container_ready)
-            }
-            Err(_) => false,
-        };
-        HealthResponse { healthy }
-    }
-
     // =========================================================================
     // Private helpers
     // =========================================================================
@@ -196,7 +178,7 @@ impl StatusResolver {
     /// so that status resolution remains resilient.
     async fn fetch_agent_state(&self, task_id: &str) -> AgentState {
         let service_name = generate_service_name(task_id);
-        let client = match SandboxGrpcClient::for_service(
+        let client = match SandboxClient::for_service(
             &service_name,
             self.k8s.namespace(),
             self.config.sandbox.grpc_port,
@@ -274,20 +256,6 @@ impl StatusResolver {
         }
     }
 
-    /// Get the name of the first pod matching a task ID.
-    async fn get_task_pod_name(&self, task_id: &str) -> Option<String> {
-        let pods_api: Api<Pod> =
-            Api::namespaced(self.k8s.client.clone(), self.k8s.namespace());
-        let lp = ListParams::default()
-            .labels(&format!("moatless.io/task-id={task_id}"));
-
-        if let Ok(list) = pods_api.list(&lp).await {
-            pick_best_pod(&list.items).and_then(|p| p.metadata.name.clone())
-        } else {
-            None
-        }
-    }
-
     /// Build a proxy URL for a server port using the configured proxy domain.
     fn build_proxy_url(&self, task_id: &str, port: u16) -> Option<String> {
         self.config.proxy.domain.as_ref().map(|domain| {
@@ -296,52 +264,5 @@ impl StatusResolver {
                 self.config.proxy.protocol, task_id, port, domain
             )
         })
-    }
-
-    /// Get the canonical server configs for a task from the DB.
-    async fn get_server_configs(
-        &self,
-        task_id: &str,
-    ) -> Vec<crate::sandbox::models::ServerConfig> {
-        let (Some(ref tasks), Some(ref repos)) = (&self.tasks, &self.repos) else {
-            return vec![];
-        };
-
-        match auto_provision::get_server_configs(tasks.as_ref(), repos.as_ref(), task_id).await {
-            Ok(configs) => configs,
-            Err(e) => {
-                warn!(task_id = %task_id, error = %e, "Failed to get server configs");
-                vec![]
-            }
-        }
-    }
-
-    /// Derive server entries from the repository config in the DB.
-    ///
-    /// Used as a fallback when K8s returns no container statuses (e.g. pod
-    /// not yet scheduled). Returns configured servers with `Starting` status
-    /// so the frontend shows them while the sandbox boots.
-    async fn servers_from_repo_config(
-        &self,
-        task_id: &str,
-    ) -> Vec<ServerEntry> {
-        self.get_server_configs(task_id)
-            .await
-            .into_iter()
-            .map(|s| {
-                let url = self.build_proxy_url(task_id, s.port);
-                ServerEntry {
-                    label: s.label.clone().unwrap_or_else(|| s.name.clone()),
-                    default: s.default,
-                    capabilities: server_capabilities_from_config(&s),
-                    name: s.name,
-                    port: s.port,
-                    status: ServerStatus::Starting,
-                    url,
-                    error: None,
-                    detail: None,
-                }
-            })
-            .collect()
     }
 }

@@ -115,24 +115,27 @@ pub async fn init_sse(
 ) -> Result<SseState, redis::RedisError> {
     let (tx, _) = broadcast::channel::<String>(config.sse.broadcast_capacity);
 
-    if let Some(ref redis_url) = config.redis.url {
+    let redis_conn = if let Some(ref redis_url) = config.redis.url {
         let client = redis::Client::open(redis_url.as_str())?;
         let conn = redis::aio::ConnectionManager::new(client).await?;
         let consumer = RedisStreamConsumer::new(
-            conn,
+            conn.clone(),
             config.sse.consumer_id.clone(),
             tx.clone(),
             cancel.clone(),
         );
         tokio::spawn(consumer.run());
         info!(consumer_id = %config.sse.consumer_id, "SSE Redis consumer spawned");
+        Some(conn)
     } else {
         info!("REDIS_URL not set — SSE Redis consumer disabled");
-    }
+        None
+    };
 
     Ok(SseState {
         broadcast: tx,
         cancel,
+        redis: redis_conn,
     })
 }
 
@@ -213,69 +216,40 @@ pub fn install_shutdown_handler(cancel: CancellationToken) {
 // =========================================================================
 
 /// Build the K8s sandbox provider with optional DB-backed repositories.
+///
+/// The provider itself is pure infrastructure — no DB dependencies.
+/// DB-backed repos are returned separately for use in `SandboxApiState`.
 pub fn build_sandbox_provider(
     config: &Config,
     k8s: K8sClient,
-    db_pool: Option<&DbPool>,
     event_publisher: Option<Arc<dyn EventPublisher>>,
 ) -> Arc<dyn crate::sandbox::provider::SandboxProvider> {
-    use crate::auth::provider_token_dao::PgProviderTokenRepository;
-    use crate::auth::users::PgUserRepository;
-    use crate::repository::dao::PgRepoRepository;
     use crate::sandbox::k8s::provider::K8sSandboxProvider;
     use crate::sandbox::k8s::status_resolver::StatusResolver;
-    use crate::task::dao::PgTaskRepository;
-
-    let tasks: Option<Arc<dyn crate::task::dao::TaskRepository>> =
-        db_pool.map(|p| Arc::new(PgTaskRepository(p.clone())) as _);
-    let repos: Option<Arc<dyn crate::repository::dao::RepoRepository>> =
-        db_pool.map(|p| Arc::new(PgRepoRepository(p.clone())) as _);
-    let users: Option<Arc<dyn crate::auth::users::UserRepository>> =
-        db_pool.map(|p| Arc::new(PgUserRepository(p.clone())) as _);
-    let provider_tokens: Option<Arc<dyn crate::auth::provider_token_dao::ProviderTokenRepository>> =
-        db_pool.map(|p| Arc::new(PgProviderTokenRepository(p.clone())) as _);
 
     let status_resolver = StatusResolver::new(
         k8s.clone(),
         Arc::new(config.clone()),
-        tasks.clone(),
-        repos.clone(),
     );
 
     Arc::new(K8sSandboxProvider {
         config: Arc::new(config.clone()),
         k8s,
         status_resolver,
-        users,
-        tasks,
-        repos,
-        provider_tokens,
         event_publisher,
     })
 }
 
 /// Build the Docker sandbox provider with optional DB-backed repositories.
+///
+/// The provider itself is pure infrastructure — no DB dependencies.
 pub fn build_docker_sandbox_provider(
     config: &Config,
     client: crate::sandbox::docker::client::DockerClient,
-    db_pool: Option<&DbPool>,
     event_publisher: Option<Arc<dyn EventPublisher>>,
 ) -> Arc<dyn crate::sandbox::provider::SandboxProvider> {
-    use crate::auth::provider_token_dao::PgProviderTokenRepository;
-    use crate::auth::users::PgUserRepository;
-    use crate::repository::dao::PgRepoRepository;
     use crate::sandbox::docker::provider::DockerSandboxProvider;
     use crate::sandbox::docker::status_resolver::DockerStatusResolver;
-    use crate::task::dao::PgTaskRepository;
-
-    let tasks: Option<Arc<dyn crate::task::dao::TaskRepository>> =
-        db_pool.map(|p| Arc::new(PgTaskRepository(p.clone())) as _);
-    let repos: Option<Arc<dyn crate::repository::dao::RepoRepository>> =
-        db_pool.map(|p| Arc::new(PgRepoRepository(p.clone())) as _);
-    let users: Option<Arc<dyn crate::auth::users::UserRepository>> =
-        db_pool.map(|p| Arc::new(PgUserRepository(p.clone())) as _);
-    let provider_tokens: Option<Arc<dyn crate::auth::provider_token_dao::ProviderTokenRepository>> =
-        db_pool.map(|p| Arc::new(PgProviderTokenRepository(p.clone())) as _);
 
     let status_resolver = DockerStatusResolver::new(
         client.clone(),
@@ -286,10 +260,6 @@ pub fn build_docker_sandbox_provider(
         config: Arc::new(config.clone()),
         client,
         status_resolver,
-        users,
-        tasks,
-        repos,
-        provider_tokens,
         event_publisher,
     })
 }

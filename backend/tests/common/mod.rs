@@ -9,13 +9,14 @@ use sqlx::PgPool;
 
 use moatless_vibe_backend::command::models::Command;
 use moatless_vibe_backend::config::{
-    AuthConfig, Config, DatabaseConfig, ProxyConfig, RedisConfig, S3Config, SandboxConfig,
-    ServerConfig, SlackConfig, SseConfig,
+    AuthConfig, Config, DatabaseConfig, DockerConfig, ProxyConfig, RedisConfig, S3Config,
+    SandboxConfig, SandboxProviderType, ServerConfig, SlackConfig, SseConfig,
 };
 use moatless_vibe_backend::message::models::{MessageRole, MessageType, TaskMessage};
 use moatless_vibe_backend::repository::models::{Repository, RepositoryKind, RepositoryProvider};
 use moatless_vibe_backend::sandbox::error::SandboxError;
 use moatless_vibe_backend::sandbox::provider::SandboxProvider;
+use moatless_vibe_backend::sandbox::client::SandboxClient;
 use moatless_vibe_backend::sandbox::models::*;
 use moatless_vibe_backend::sandbox::schemas::*;
 use moatless_vibe_backend::state::AppState;
@@ -40,29 +41,16 @@ impl SandboxProvider for MockSandboxProvider {
         Err(SandboxError::Internal("mock: not implemented".into()))
     }
 
-    async fn status(&self, _task_id: &str) -> Result<StatusResponse, SandboxError> {
-        Err(SandboxError::Internal("mock: not implemented".into()))
-    }
-
-    async fn health(&self, _task_id: &str) -> HealthResponse {
-        HealthResponse {
-            healthy: false,
-        }
-    }
-
     async fn sandbox_status(
         &self,
         _task_id: &str,
+        _server_configs: &[moatless_vibe_backend::sandbox::models::ServerConfig],
     ) -> Result<WorkspaceStatusFullResponse, SandboxError> {
         Err(SandboxError::Internal("mock: not implemented".into()))
     }
 
     async fn stop(&self, _task_id: &str) -> Result<(), SandboxError> {
         Ok(()) // best-effort in handlers
-    }
-
-    async fn start(&self, _task_id: &str) -> Result<(), SandboxError> {
-        Err(SandboxError::Internal("mock: not implemented".into()))
     }
 
     async fn restart(&self, _task_id: &str) -> Result<(), SandboxError> {
@@ -73,11 +61,11 @@ impl SandboxProvider for MockSandboxProvider {
         Ok(()) // best-effort in handlers
     }
 
-    async fn server_status(
+    async fn container_statuses(
         &self,
         _task_id: &str,
-    ) -> Result<ServerStatusResponse, SandboxError> {
-        Err(SandboxError::Internal("mock: not implemented".into()))
+    ) -> Result<Vec<ContainerObservedStatus>, SandboxError> {
+        Ok(vec![])
     }
 
     async fn server_logs(
@@ -96,6 +84,10 @@ impl SandboxProvider for MockSandboxProvider {
     ) -> Result<Vec<FileSearchResult>, SandboxError> {
         Err(SandboxError::Internal("mock: not implemented".into()))
     }
+
+    async fn sandbox_client(&self, _task_id: &str) -> Result<SandboxClient, SandboxError> {
+        Err(SandboxError::Internal("mock: not implemented".into()))
+    }
 }
 
 // =========================================================================
@@ -111,6 +103,7 @@ pub fn test_config() -> Config {
             metrics_port: 0,
             grpc_port: 50051,
         },
+        sandbox_provider: SandboxProviderType::Kubernetes,
         sandbox: SandboxConfig {
             namespace: "test".into(),
             image: "test-sandbox:latest".into(),
@@ -129,6 +122,14 @@ pub fn test_config() -> Config {
             idle_reaper_enabled: false,
             idle_timeout_minutes: 60,
             idle_check_interval_secs: 300,
+            max_crash_restart_count: 5,
+        },
+        docker: DockerConfig {
+            network: "moatless".into(),
+            image: "test-sandbox:latest".into(),
+            data_dir: "/tmp/moatless-data".into(),
+            container_data_dir: "/tmp/moatless-data".into(),
+            backend_hostname: "backend".into(),
         },
         proxy: ProxyConfig {
             domain: None,

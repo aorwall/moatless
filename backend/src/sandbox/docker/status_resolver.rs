@@ -9,7 +9,7 @@ use tracing::{debug, warn};
 use super::client::DockerClient;
 use super::naming::generate_container_name;
 use crate::config::Config;
-use crate::sandbox::grpc_client::SandboxGrpcClient;
+use crate::sandbox::client::SandboxClient;
 use crate::sandbox::models::*;
 use crate::sandbox::schemas::*;
 
@@ -22,18 +22,6 @@ pub struct DockerStatusResolver {
 impl DockerStatusResolver {
     pub fn new(client: DockerClient, config: Arc<Config>) -> Self {
         Self { client, config }
-    }
-
-    /// Lightweight env status from Docker API.
-    pub async fn resolve_status(&self, task_id: &str) -> StatusResponse {
-        let container_name = generate_container_name(task_id);
-        let env_status = self.inspect_environment_status(&container_name).await;
-
-        StatusResponse {
-            status: env_status,
-            pod_name: None,
-            last_error: None,
-        }
     }
 
     /// Full sandbox status (env + agent state) from Docker API.
@@ -77,15 +65,6 @@ impl DockerStatusResolver {
             workspace_ready: false,
             can_execute,
             resources: None,
-        }
-    }
-
-    /// Direct Docker health check.
-    pub async fn resolve_health(&self, task_id: &str) -> HealthResponse {
-        let container_name = generate_container_name(task_id);
-        let status = self.inspect_environment_status(&container_name).await;
-        HealthResponse {
-            healthy: status == EnvironmentStatus::Ready,
         }
     }
 
@@ -134,7 +113,7 @@ impl DockerStatusResolver {
             "http://{}:{}",
             container_name, self.config.sandbox.grpc_port
         );
-        let client = match SandboxGrpcClient::connect(&url) {
+        let client = match SandboxClient::connect(&url) {
             Ok(c) => c,
             Err(e) => {
                 debug!(task_id = %task_id, error = %e, "Failed to create gRPC client for agent status");

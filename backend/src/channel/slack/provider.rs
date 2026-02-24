@@ -151,8 +151,9 @@ impl SlackProvider {
             return Ok(SlackWebhookResult::Ignore);
         }
 
-        // 9. Strip bot mention from text (e.g., "<@U123> fix the bug" → "fix the bug")
+        // 9. Strip bot mention and convert Slack mrkdwn to readable text
         let clean_text = strip_bot_mention(text, self.bot_user_id.as_deref());
+        let clean_text = super::format::format_slack_text(&clean_text);
 
         if clean_text.trim().is_empty() {
             return Ok(SlackWebhookResult::Ignore);

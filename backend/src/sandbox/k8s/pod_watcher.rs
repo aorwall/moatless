@@ -41,6 +41,9 @@ struct ServerContainerState {
     status: String,
     error: Option<String>,
     detail: Option<String>,
+    terminated_reason: Option<String>,
+    exit_code: Option<i32>,
+    memory_limit: Option<String>,
 }
 
 /// Observed state for a single pod, used for transition detection.
@@ -713,15 +716,39 @@ fn extract_pod_observed_state(pod: &Pod, pod_name: &str, task_id: &str) -> PodOb
                 .any(|c| c.type_ == "Ready" && c.status == "True")
         });
 
+    // Build a map of container name → memory limit from pod spec
+    let memory_limits: HashMap<String, String> = pod
+        .spec
+        .as_ref()
+        .map(|spec| {
+            spec.containers
+                .iter()
+                .filter_map(|c| {
+                    let limit = c
+                        .resources
+                        .as_ref()?
+                        .limits
+                        .as_ref()?
+                        .get("memory")?;
+                    Some((c.name.clone(), limit.0.clone()))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
     // Extract server container states
     let server_containers = extract_container_observed_statuses(pod)
         .into_iter()
         .map(|cs| {
+            let memory_limit = memory_limits.get(&cs.name).cloned();
             ServerContainerState {
                 name: cs.name.clone(),
                 status: cs.to_server_status().to_string(),
                 error: cs.error_reason(),
                 detail: cs.detail_reason(),
+                terminated_reason: cs.terminated_reason.clone(),
+                exit_code: cs.exit_code,
+                memory_limit,
             }
         })
         .collect();
@@ -946,11 +973,32 @@ fn env_status_to_sandbox_sub_type(env_status: &EnvironmentStatus) -> SandboxSubT
 /// Generate a human-readable message for a server container event.
 ///
 /// Since `server_name` and `status` are separate fields, this returns only
-/// the contextual detail (e.g. "ContainerCreating", "CrashLoopBackOff").
+/// the contextual detail (e.g. "ContainerCreating", "Out of memory (limit: 1536Mi)").
 fn format_server_message(sc: Option<&ServerContainerState>) -> String {
-    // Prefer detail, then error, then empty
-    sc.and_then(|s| s.detail.as_deref())
-        .or_else(|| sc.and_then(|s| s.error.as_deref()))
+    let sc = match sc {
+        Some(s) => s,
+        None => return String::new(),
+    };
+
+    // Termination reasons take priority
+    if let Some(reason) = &sc.terminated_reason {
+        return match reason.as_str() {
+            "OOMKilled" => match &sc.memory_limit {
+                Some(limit) => format!("Out of memory (limit: {limit})"),
+                None => "Out of memory (OOMKilled)".to_string(),
+            },
+            "Completed" => String::new(),
+            _ => match sc.exit_code {
+                Some(code) => format!("Terminated: {reason} (exit code: {code})"),
+                None => format!("Terminated: {reason}"),
+            },
+        };
+    }
+
+    // Fall back to detail, then error
+    sc.detail
+        .as_deref()
+        .or(sc.error.as_deref())
         .unwrap_or("")
         .to_string()
 }

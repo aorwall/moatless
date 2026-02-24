@@ -4,9 +4,11 @@
 //! and services. The `k8s` submodule contains Kubernetes-specific
 //! implementation details.
 
+pub mod auto_provision;
 pub mod docker;
 pub mod error;
-pub mod grpc_client;
+pub mod client;
+pub mod file_handlers;
 pub mod grpc_server;
 pub mod handlers;
 pub mod idle_reaper;

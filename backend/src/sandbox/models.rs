@@ -78,15 +78,6 @@ pub struct ServerConfig {
     pub env_vars: Option<HashMap<String, String>>,
 }
 
-/// Per-user credentials for K8s Secret
-#[derive(Debug, Clone, Serialize)]
-pub struct UserCredentials {
-    pub github_token: Option<String>,
-    pub anthropic_api_key: Option<String>,
-    pub claude_oauth_token: Option<String>,
-    pub user_auth_token: Option<String>,
-}
-
 /// Matches TS WorkspaceExistenceSchema: 'exists' | 'missing' | 'invalid'
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
@@ -313,6 +304,14 @@ pub struct ContainerObservedStatus {
     pub state: ContainerState,
     pub restart_count: i32,
     pub waiting_reason: Option<String>,
+    /// Reason from `state.terminated` (e.g. "OOMKilled", "Error", "Completed").
+    pub terminated_reason: Option<String>,
+    /// Exit code from `state.terminated`.
+    pub exit_code: Option<i32>,
+    /// Reason from `last_state.terminated` (after a restart).
+    pub last_terminated_reason: Option<String>,
+    /// Exit code from `last_state.terminated`.
+    pub last_exit_code: Option<i32>,
 }
 
 impl ContainerObservedStatus {
@@ -320,10 +319,16 @@ impl ContainerObservedStatus {
     pub fn to_server_status(&self) -> ServerStatus {
         use crate::sandbox::k8s::pod_status::SERVER_FAILURE_REASONS;
 
-        // Terminated containers are always stopped, regardless of started/ready flags.
-        // During intentional shutdown (scale-to-0), K8s sends SIGTERM and containers
-        // transition through Terminated while `started` may still be true.
+        // Terminated containers: OOMKilled or non-zero exit → Failed, else Stopped.
         if matches!(self.state, ContainerState::Terminated) {
+            if self.terminated_reason.as_deref() == Some("OOMKilled") {
+                return ServerStatus::Failed;
+            }
+            if self.exit_code.is_some_and(|c| c != 0)
+                && self.terminated_reason.as_deref() != Some("Completed")
+            {
+                return ServerStatus::Failed;
+            }
             return ServerStatus::Stopped;
         }
 
@@ -348,10 +353,23 @@ impl ContainerObservedStatus {
         }
     }
 
-    /// Return the waiting reason only if it is a failure reason.
+    /// Return the error reason — terminated reasons take priority, then waiting reasons.
     pub fn error_reason(&self) -> Option<String> {
         use crate::sandbox::k8s::pod_status::SERVER_FAILURE_REASONS;
 
+        // Terminated reason (e.g. OOMKilled, Error)
+        if let Some(reason) = &self.terminated_reason {
+            if reason != "Completed" {
+                return Some(reason.clone());
+            }
+        }
+        // Post-restart context from last_state
+        if let Some(reason) = &self.last_terminated_reason {
+            if reason == "OOMKilled" {
+                return Some(format!("Restarted after {reason}"));
+            }
+        }
+        // Waiting reason
         self.waiting_reason.as_deref().and_then(|r| {
             if SERVER_FAILURE_REASONS.contains(&r) {
                 Some(r.to_string())
@@ -393,6 +411,29 @@ impl ContainerObservedStatus {
             state,
             restart_count,
             waiting_reason: waiting_reason.map(String::from),
+            terminated_reason: None,
+            exit_code: None,
+            last_terminated_reason: None,
+            last_exit_code: None,
+        }
+    }
+
+    fn test_terminated(
+        name: &str,
+        terminated_reason: Option<&str>,
+        exit_code: Option<i32>,
+    ) -> Self {
+        Self {
+            name: name.to_string(),
+            ready: false,
+            started: false,
+            state: ContainerState::Terminated,
+            restart_count: 0,
+            waiting_reason: None,
+            terminated_reason: terminated_reason.map(String::from),
+            exit_code,
+            last_terminated_reason: None,
+            last_exit_code: None,
         }
     }
 }
@@ -872,6 +913,55 @@ mod tests {
         );
         assert!(cs.error_reason().is_none());
         assert!(cs.detail_reason().is_none());
+    }
+
+    #[test]
+    fn error_reason_returns_terminated_reason() {
+        let cs = ContainerObservedStatus::test_terminated("test", Some("OOMKilled"), Some(137));
+        assert_eq!(cs.error_reason().as_deref(), Some("OOMKilled"));
+    }
+
+    #[test]
+    fn error_reason_skips_completed_terminated() {
+        let cs = ContainerObservedStatus::test_terminated("test", Some("Completed"), Some(0));
+        assert!(cs.error_reason().is_none());
+    }
+
+    #[test]
+    fn error_reason_returns_last_state_oom() {
+        let mut cs = ContainerObservedStatus::test(
+            "test", false, false, ContainerState::Running, 1, None,
+        );
+        cs.last_terminated_reason = Some("OOMKilled".to_string());
+        assert_eq!(cs.error_reason().as_deref(), Some("Restarted after OOMKilled"));
+    }
+
+    // =========================================================================
+    // ContainerObservedStatus::to_server_status() — termination variants
+    // =========================================================================
+
+    #[test]
+    fn server_status_terminated_oom_killed_is_failed() {
+        let cs = ContainerObservedStatus::test_terminated("preview-server", Some("OOMKilled"), Some(137));
+        assert_eq!(cs.to_server_status(), ServerStatus::Failed);
+    }
+
+    #[test]
+    fn server_status_terminated_nonzero_exit_is_failed() {
+        let cs = ContainerObservedStatus::test_terminated("preview-server", Some("Error"), Some(1));
+        assert_eq!(cs.to_server_status(), ServerStatus::Failed);
+    }
+
+    #[test]
+    fn server_status_terminated_completed_is_stopped() {
+        let cs = ContainerObservedStatus::test_terminated("preview-server", Some("Completed"), Some(0));
+        assert_eq!(cs.to_server_status(), ServerStatus::Stopped);
+    }
+
+    #[test]
+    fn server_status_terminated_zero_exit_no_reason_is_stopped() {
+        let cs = ContainerObservedStatus::test_terminated("preview-server", None, Some(0));
+        assert_eq!(cs.to_server_status(), ServerStatus::Stopped);
     }
 
     // =========================================================================

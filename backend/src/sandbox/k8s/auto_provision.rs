@@ -151,7 +151,7 @@ async fn resolve_credentials(
 }
 
 /// Build a `RepoConfig` from the database repository row.
-fn build_repo_config(repo: &Repository) -> RepoConfig {
+pub fn build_repo_config(repo: &Repository) -> RepoConfig {
     let servers = build_servers(repo);
     let plugin_ids = parse_json_string_array(&repo.plugins);
 
@@ -283,7 +283,7 @@ fn assign_missing_ports(servers: &mut [ServerConfig]) {
 }
 
 /// Parse the `env_vars` JSONB column into a HashMap.
-fn parse_env_vars(repo: &Repository) -> Option<HashMap<String, String>> {
+pub fn parse_env_vars(repo: &Repository) -> Option<HashMap<String, String>> {
     repo.env_vars
         .as_ref()
         .and_then(|v| serde_json::from_value(v.clone()).ok())

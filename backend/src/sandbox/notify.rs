@@ -1,6 +1,6 @@
 //! Fire-and-forget notification to sandbox pods/containers via gRPC.
 
-use super::grpc_client::SandboxGrpcClient;
+use super::client::SandboxClient;
 use crate::config::SandboxProviderType;
 use crate::state::AppState;
 
@@ -24,7 +24,7 @@ pub async fn notify_sandbox_for_task(state: &AppState, task_id: &str) {
         }
     };
 
-    let client = match SandboxGrpcClient::connect(&url) {
+    let client = match SandboxClient::connect(&url) {
         Ok(c) => c,
         Err(e) => {
             tracing::warn!(
@@ -43,7 +43,7 @@ pub async fn notify_sandbox_for_task(state: &AppState, task_id: &str) {
 ///
 /// Fire-and-forget: logs warnings on failure, never propagates errors.
 pub async fn notify_sandbox(namespace: &str, service_name: &str, grpc_port: u16) {
-    let client = match SandboxGrpcClient::for_service(service_name, namespace, grpc_port) {
+    let client = match SandboxClient::for_service(service_name, namespace, grpc_port) {
         Ok(c) => c,
         Err(e) => {
             tracing::warn!(

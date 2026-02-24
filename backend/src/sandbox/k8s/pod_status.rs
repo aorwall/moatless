@@ -177,6 +177,30 @@ pub fn extract_container_observed_statuses(pod: &Pod) -> Vec<ContainerObservedSt
                 _ => (ContainerState::Unknown, None),
             };
 
+            let terminated_reason = cs
+                .state
+                .as_ref()
+                .and_then(|s| s.terminated.as_ref())
+                .and_then(|t| t.reason.clone());
+
+            let exit_code = cs
+                .state
+                .as_ref()
+                .and_then(|s| s.terminated.as_ref())
+                .map(|t| t.exit_code);
+
+            let last_terminated_reason = cs
+                .last_state
+                .as_ref()
+                .and_then(|s| s.terminated.as_ref())
+                .and_then(|t| t.reason.clone());
+
+            let last_exit_code = cs
+                .last_state
+                .as_ref()
+                .and_then(|s| s.terminated.as_ref())
+                .map(|t| t.exit_code);
+
             ContainerObservedStatus {
                 name: cs.name.clone(),
                 ready: cs.ready,
@@ -184,6 +208,10 @@ pub fn extract_container_observed_statuses(pod: &Pod) -> Vec<ContainerObservedSt
                 state,
                 restart_count: cs.restart_count,
                 waiting_reason,
+                terminated_reason,
+                exit_code,
+                last_terminated_reason,
+                last_exit_code,
             }
         })
         .collect()
@@ -208,8 +236,8 @@ pub fn env_status_to_pod_phase(status: &EnvironmentStatus) -> PodPhase {
 #[cfg(test)]
 pub mod test_helpers {
     use k8s_openapi::api::core::v1::{
-        ContainerState as K8sState, ContainerStateRunning, ContainerStateWaiting, ContainerStatus,
-        Pod, PodStatus,
+        ContainerState as K8sState, ContainerStateRunning, ContainerStateTerminated,
+        ContainerStateWaiting, ContainerStatus, Pod, PodStatus,
     };
     use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 
@@ -248,6 +276,24 @@ pub mod test_helpers {
         Pod {
             status: Some(PodStatus {
                 container_statuses: Some(statuses),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
+    }
+
+    pub fn terminated_container(name: &str, reason: &str, exit_code: i32) -> ContainerStatus {
+        ContainerStatus {
+            name: name.to_string(),
+            ready: false,
+            started: Some(false),
+            restart_count: 0,
+            state: Some(K8sState {
+                terminated: Some(ContainerStateTerminated {
+                    reason: Some(reason.to_string()),
+                    exit_code,
+                    ..Default::default()
+                }),
                 ..Default::default()
             }),
             ..Default::default()
@@ -584,6 +630,47 @@ mod tests {
         let pod = Pod::default();
         let statuses = extract_container_observed_statuses(&pod);
         assert!(statuses.is_empty());
+    }
+
+    #[test]
+    fn extract_statuses_captures_oom_killed_reason() {
+        let pod = pod_with_containers(vec![
+            running_container("sandbox", true, true),
+            terminated_container("preview-server", "OOMKilled", 137),
+        ]);
+
+        let statuses = extract_container_observed_statuses(&pod);
+        assert_eq!(statuses.len(), 1);
+        assert_eq!(statuses[0].name, "preview-server");
+        assert_eq!(statuses[0].terminated_reason.as_deref(), Some("OOMKilled"));
+        assert_eq!(statuses[0].exit_code, Some(137));
+        assert_eq!(statuses[0].to_server_status(), ServerStatus::Failed);
+    }
+
+    #[test]
+    fn extract_statuses_captures_error_termination() {
+        let pod = pod_with_containers(vec![
+            running_container("sandbox", true, true),
+            terminated_container("preview-server", "Error", 1),
+        ]);
+
+        let statuses = extract_container_observed_statuses(&pod);
+        assert_eq!(statuses.len(), 1);
+        assert_eq!(statuses[0].terminated_reason.as_deref(), Some("Error"));
+        assert_eq!(statuses[0].exit_code, Some(1));
+        assert_eq!(statuses[0].to_server_status(), ServerStatus::Failed);
+    }
+
+    #[test]
+    fn extract_statuses_completed_is_stopped() {
+        let pod = pod_with_containers(vec![
+            running_container("sandbox", true, true),
+            terminated_container("preview-server", "Completed", 0),
+        ]);
+
+        let statuses = extract_container_observed_statuses(&pod);
+        assert_eq!(statuses.len(), 1);
+        assert_eq!(statuses[0].to_server_status(), ServerStatus::Stopped);
     }
 
     // =========================================================================

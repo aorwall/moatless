@@ -156,12 +156,26 @@ async fn insert_and_provision_task(
     }
 
     // Always provision sandbox
-    match state.sandbox.start(task_id).await {
-        Ok(_result) => {
-            tracing::info!(task_id = %task_id, "Sandbox provisioning started (initializing)");
+    match crate::sandbox::auto_provision::build_provision_request(
+        state.tasks.as_ref(),
+        state.repositories.as_ref(),
+        state.provider_tokens.as_ref(),
+        task_id,
+    )
+    .await
+    {
+        Ok(request) => {
+            match state.sandbox.provision(task_id, &request).await {
+                Ok(_response) => {
+                    tracing::info!(task_id = %task_id, "Sandbox provisioning started (initializing)");
+                }
+                Err(e) => {
+                    tracing::warn!(task_id = %task_id, error = %e, "Failed to provision sandbox");
+                }
+            }
         }
         Err(e) => {
-            tracing::warn!(task_id = %task_id, error = %e, "Failed to provision sandbox");
+            tracing::warn!(task_id = %task_id, error = %e, "Failed to build provision request");
         }
     }
 
@@ -465,10 +479,19 @@ pub async fn start_task(
 
     tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Starting task");
 
-    let _result = state.sandbox.start(&task_id).await
+    let request = crate::sandbox::auto_provision::build_provision_request(
+        state.tasks.as_ref(),
+        state.repositories.as_ref(),
+        state.provider_tokens.as_ref(),
+        &task_id,
+    )
+    .await
+    .map_err(|e| TaskError::Internal(e.to_string()))?;
+
+    state.sandbox.provision(&task_id, &request).await
         .map_err(|e| TaskError::Internal(e.to_string()))?;
 
-    tracing::info!(task_id = %task_id, "Sandbox start initiated (initializing)");
+    tracing::info!(task_id = %task_id, "Sandbox provision initiated (initializing)");
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
 

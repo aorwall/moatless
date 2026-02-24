@@ -1,0 +1,233 @@
+//! File operation handlers for sandbox workspaces.
+//!
+//! These handlers call `SandboxClient` directly via `provider.sandbox_client()`,
+//! eliminating the need for file methods on the `SandboxProvider` trait.
+
+use axum::extract::{Path, Query, State};
+use axum::http::StatusCode;
+use axum::Json;
+use serde::Deserialize;
+use utoipa::IntoParams;
+
+use super::client::classify_grpc_error;
+use super::error::SandboxError;
+use super::routes::SandboxApiState;
+use super::schemas::*;
+
+/// Search files in a task's sandbox workspace.
+#[utoipa::path(
+    post,
+    path = "/api/sandbox/v1/tasks/{task_id}/search-files",
+    tag = "sandbox",
+    params(
+        ("task_id" = String, Path, description = "Task identifier")
+    ),
+    request_body = SearchFilesRequest,
+    responses(
+        (status = 200, description = "File search results", body = Vec<FileSearchResult>),
+        (status = 503, description = "Sandbox not ready", body = ErrorBody),
+        (status = 500, description = "Internal error", body = ErrorBody)
+    )
+)]
+pub async fn search_files_handler(
+    State(state): State<SandboxApiState>,
+    Path(task_id): Path<String>,
+    Json(req): Json<SearchFilesRequest>,
+) -> Result<Json<Vec<FileSearchResult>>, SandboxError> {
+    let client = state.provider.sandbox_client(&task_id).await?;
+    let files = client
+        .search_files(&req.query, req.limit.unwrap_or(20) as i32)
+        .await
+        .map_err(|e| classify_grpc_error(e, "search_files"))?;
+    let results = files
+        .into_iter()
+        .map(|path| {
+            let name = path.rsplit('/').next().unwrap_or(&path).to_string();
+            FileSearchResult {
+                path,
+                name,
+                file_type: None,
+            }
+        })
+        .collect();
+    Ok(Json(results))
+}
+
+/// Query parameters for the file tree endpoint.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct FileTreeQuery {
+    /// Root path relative to workspace (default ".")
+    #[serde(default)]
+    pub path: Option<String>,
+}
+
+/// Query parameters for reading a file.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct ReadFileQuery {
+    /// File path relative to workspace
+    pub path: String,
+    /// Include git change info (old_content, additions, deletions)
+    #[serde(default)]
+    pub changes: Option<bool>,
+}
+
+/// Query parameters for listing files.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct ListFilesQuery {
+    /// Path relative to workspace (default ".")
+    #[serde(default)]
+    pub path: Option<String>,
+    /// List files recursively
+    #[serde(default)]
+    pub recursive: Option<bool>,
+}
+
+/// Get the file tree with git change overlay.
+#[utoipa::path(
+    get,
+    path = "/api/sandbox/v1/tasks/{task_id}/files/tree",
+    tag = "sandbox",
+    params(
+        ("task_id" = String, Path, description = "Task identifier"),
+        FileTreeQuery,
+    ),
+    responses(
+        (status = 200, description = "File tree with git summary", body = FileTreeResponse),
+        (status = 503, description = "Sandbox not ready", body = ErrorBody),
+        (status = 500, description = "Internal error", body = ErrorBody)
+    )
+)]
+pub async fn file_tree_handler(
+    State(state): State<SandboxApiState>,
+    Path(task_id): Path<String>,
+    Query(query): Query<FileTreeQuery>,
+) -> Result<Json<FileTreeResponse>, SandboxError> {
+    let root_path = query.path.as_deref().unwrap_or(".");
+    let client = state.provider.sandbox_client(&task_id).await?;
+    let resp = client
+        .get_file_tree(root_path)
+        .await
+        .map_err(|e| classify_grpc_error(e, "get_file_tree"))?;
+    Ok(Json(FileTreeResponse::from(resp)))
+}
+
+/// Read a file from the sandbox workspace.
+#[utoipa::path(
+    get,
+    path = "/api/sandbox/v1/tasks/{task_id}/files/read",
+    tag = "sandbox",
+    params(
+        ("task_id" = String, Path, description = "Task identifier"),
+        ReadFileQuery,
+    ),
+    responses(
+        (status = 200, description = "File content", body = FileContentResponse),
+        (status = 404, description = "File not found", body = ErrorBody),
+        (status = 503, description = "Sandbox not ready", body = ErrorBody),
+        (status = 500, description = "Internal error", body = ErrorBody)
+    )
+)]
+pub async fn read_file_handler(
+    State(state): State<SandboxApiState>,
+    Path(task_id): Path<String>,
+    Query(query): Query<ReadFileQuery>,
+) -> Result<Json<FileContentResponse>, SandboxError> {
+    let include_changes = query.changes.unwrap_or(false);
+    let client = state.provider.sandbox_client(&task_id).await?;
+    let resp = client
+        .read_file(&query.path, include_changes)
+        .await
+        .map_err(|e| classify_grpc_error(e, "read_file"))?;
+    Ok(Json(FileContentResponse::from(resp)))
+}
+
+/// Write a file in the sandbox workspace.
+#[utoipa::path(
+    post,
+    path = "/api/sandbox/v1/tasks/{task_id}/files/write",
+    tag = "sandbox",
+    params(
+        ("task_id" = String, Path, description = "Task identifier")
+    ),
+    request_body = WriteFileRequestBody,
+    responses(
+        (status = 204, description = "File written successfully"),
+        (status = 400, description = "Invalid path", body = ErrorBody),
+        (status = 503, description = "Sandbox not ready", body = ErrorBody),
+        (status = 500, description = "Internal error", body = ErrorBody)
+    )
+)]
+pub async fn write_file_handler(
+    State(state): State<SandboxApiState>,
+    Path(task_id): Path<String>,
+    Json(req): Json<WriteFileRequestBody>,
+) -> Result<StatusCode, SandboxError> {
+    let client = state.provider.sandbox_client(&task_id).await?;
+    client
+        .write_file(&req.path, &req.content)
+        .await
+        .map_err(|e| classify_grpc_error(e, "write_file"))?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// List files in the sandbox workspace.
+#[utoipa::path(
+    get,
+    path = "/api/sandbox/v1/tasks/{task_id}/files/list",
+    tag = "sandbox",
+    params(
+        ("task_id" = String, Path, description = "Task identifier"),
+        ListFilesQuery,
+    ),
+    responses(
+        (status = 200, description = "File list", body = ListFilesResponse),
+        (status = 503, description = "Sandbox not ready", body = ErrorBody),
+        (status = 500, description = "Internal error", body = ErrorBody)
+    )
+)]
+pub async fn list_files_handler(
+    State(state): State<SandboxApiState>,
+    Path(task_id): Path<String>,
+    Query(query): Query<ListFilesQuery>,
+) -> Result<Json<ListFilesResponse>, SandboxError> {
+    let path = query.path.as_deref().unwrap_or(".");
+    let recursive = query.recursive.unwrap_or(false);
+    let client = state.provider.sandbox_client(&task_id).await?;
+    let files = client
+        .list_files(path, recursive)
+        .await
+        .map_err(|e| classify_grpc_error(e, "list_files"))?;
+    Ok(Json(ListFilesResponse { files }))
+}
+
+/// Search files by name in the sandbox workspace.
+#[utoipa::path(
+    post,
+    path = "/api/sandbox/v1/tasks/{task_id}/files/search-by-name",
+    tag = "sandbox",
+    params(
+        ("task_id" = String, Path, description = "Task identifier")
+    ),
+    request_body = SearchByNameRequest,
+    responses(
+        (status = 200, description = "Search results", body = SearchByNameResponse),
+        (status = 503, description = "Sandbox not ready", body = ErrorBody),
+        (status = 500, description = "Internal error", body = ErrorBody)
+    )
+)]
+pub async fn search_by_name_handler(
+    State(state): State<SandboxApiState>,
+    Path(task_id): Path<String>,
+    Json(req): Json<SearchByNameRequest>,
+) -> Result<Json<SearchByNameResponse>, SandboxError> {
+    let client = state.provider.sandbox_client(&task_id).await?;
+    let resp = client
+        .search_files_by_name(
+            &req.query,
+            req.case_sensitive.unwrap_or(false),
+            req.max_results.unwrap_or(0),
+        )
+        .await
+        .map_err(|e| classify_grpc_error(e, "search_files_by_name"))?;
+    Ok(Json(SearchByNameResponse::from(resp)))
+}

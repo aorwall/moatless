@@ -25,10 +25,11 @@ pub async fn process_inbound(
 
     let (task_id, config, thread) = match routing_result {
         RoutingResult::NoConfig => {
-            info!(
+            warn!(
                 provider = msg.provider.as_str(),
                 source_id = %msg.source_id,
-                "No active channel config found, ignoring message"
+                user_id = %msg.user_id,
+                "Cannot route message: no active channel config found for provider+source"
             );
             return Err(ChannelError::ConfigNotFound(format!(
                 "{}:{}",
@@ -39,9 +40,44 @@ pub async fn process_inbound(
             task_id,
             thread,
             config,
-        } => (task_id, config, thread),
+        } => {
+            info!(
+                task_id = %task_id,
+                provider = config.provider,
+                source_id = %config.source_id,
+                routing_mode = ?config.routing_mode,
+                has_thread = thread.is_some(),
+                "Routing message to existing task"
+            );
+            (task_id, config, thread)
+        }
         RoutingResult::NewTask { config } => {
+            info!(
+                provider = config.provider,
+                source_id = %config.source_id,
+                repository_id = %config.repository_id,
+                routing_mode = ?config.routing_mode,
+                "Creating new task for channel message"
+            );
             let task_id = create_task_for_channel(state, &config, &msg).await?;
+
+            // Provision sandbox (mirrors task/handlers.rs)
+            match crate::sandbox::auto_provision::build_provision_request(
+                state.tasks.as_ref(),
+                state.repositories.as_ref(),
+                state.provider_tokens.as_ref(),
+                &task_id,
+            )
+            .await
+            {
+                Ok(request) => {
+                    match state.sandbox.provision(&task_id, &request).await {
+                        Ok(_) => info!(task_id = %task_id, "Sandbox provisioning started for channel task"),
+                        Err(e) => warn!(task_id = %task_id, error = %e, "Failed to provision sandbox for channel task"),
+                    }
+                }
+                Err(e) => warn!(task_id = %task_id, error = %e, "Failed to build provision request for channel task"),
+            }
 
             // For ongoing mode, update the config's ongoing_task_id
             if config.routing_mode == RoutingMode::Ongoing {
@@ -83,8 +119,33 @@ pub async fn process_inbound(
         }
     }
 
-    // Apply prompt template if configured
-    let message_text = apply_prompt_template(&config, &msg.text);
+    // Fetch thread context if this is a reply in an existing thread
+    let thread_context = if msg.thread_id.is_some() {
+        if let Some(provider) = providers.get_by_name(&config.provider) {
+            match provider.fetch_context(&thread, &config, 20).await {
+                Ok(Some(ctx)) => Some(ctx),
+                Ok(None) => None,
+                Err(e) => {
+                    warn!(error = %e, "Failed to fetch thread context");
+                    None
+                }
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    // Apply prompt template if configured, prepending thread context if available
+    let message_text = if let Some(ref ctx) = thread_context {
+        format!(
+            "Previous thread messages for context:\n\n{ctx}\n\n---\n\nNew message:\n{}",
+            apply_prompt_template(&config, &msg.text)
+        )
+    } else {
+        apply_prompt_template(&config, &msg.text)
+    };
 
     // Send message to the task
     if let Err(e) = crate::message::send::send_message_flow(
@@ -99,7 +160,7 @@ pub async fn process_inbound(
     )
     .await
     {
-        warn!(task_id = %task_id, error = %e, "Failed to send channel message to task");
+        warn!(task_id = %task_id, provider = config.provider, source_id = %config.source_id, error = %e, "Failed to send channel message to task");
         // Try to set error status
         if let Some(provider) = providers.get_by_name(&config.provider) {
             let _ = provider

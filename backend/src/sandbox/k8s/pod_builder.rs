@@ -54,6 +54,11 @@ pub fn build_pod(
         plan.git_clone_url.clone(),
     );
     annotations.insert("moatless.io/created-at".to_string(), chrono_now_iso());
+    // Prevent Karpenter from evicting running sandbox pods during node consolidation.
+    annotations.insert(
+        "karpenter.sh/do-not-disrupt".to_string(),
+        "true".to_string(),
+    );
 
     // ── Volumes ─────────────────────────────────────────────────────
     let mut volumes = vec![

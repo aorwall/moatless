@@ -64,6 +64,9 @@ base64 = "0.22"
 # URL encoding
 serde_urlencoded = "0.7"
 
+# Regex (Slack mrkdwn parsing)
+regex = "1"
+
 # Cookie parsing/building
 cookie = "0.18"
 

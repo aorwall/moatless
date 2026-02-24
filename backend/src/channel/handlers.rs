@@ -91,6 +91,8 @@ pub async fn slack_webhook(
         .unwrap_or("");
 
     if source_id.is_empty() {
+        let event_subtype = payload.pointer("/event/type").and_then(|v| v.as_str()).unwrap_or("unknown");
+        warn!(event_type, event_subtype, "Slack webhook has no channel ID in event payload, ignoring");
         return Ok(StatusCode::OK.into_response());
     }
 
@@ -100,7 +102,14 @@ pub async fn slack_webhook(
 
     let config = match config {
         Some(c) if c.active => c,
-        _ => return Ok(StatusCode::OK.into_response()), // No config, ignore
+        Some(_) => {
+            info!(source_id, "Slack message ignored: channel config exists but is inactive");
+            return Ok(StatusCode::OK.into_response());
+        }
+        None => {
+            info!(source_id, "Slack message ignored: no channel config for this channel");
+            return Ok(StatusCode::OK.into_response());
+        }
     };
 
     // Parse event with config context
@@ -125,8 +134,56 @@ pub async fn slack_webhook(
             });
             Ok(StatusCode::OK.into_response())
         }
-        SlackWebhookResult::Ignore => Ok(StatusCode::OK.into_response()),
+        SlackWebhookResult::Ignore => {
+            info!(source_id, "Slack event ignored by provider (bot message, unsupported event, or deduplicated)");
+            Ok(StatusCode::OK.into_response())
+        }
     }
+}
+
+// =========================================================================
+// Slack channel discovery
+// =========================================================================
+
+/// List available Slack channels the bot is a member of.
+#[utoipa::path(
+    get,
+    path = "/api/v1/channels/slack/channels",
+    tag = "channels",
+    responses(
+        (status = 200, description = "Available Slack channels", body = Vec<SlackChannelInfoResponse>),
+        (status = 400, description = "Slack not configured", body = crate::sandbox::schemas::ErrorBody)
+    )
+)]
+pub async fn list_slack_channels(
+    State(state): State<AppState>,
+    _auth: AuthUser,
+) -> Result<Json<Vec<SlackChannelInfoResponse>>, ChannelError> {
+    let providers = state
+        .channel_providers
+        .as_ref()
+        .ok_or_else(|| ChannelError::ProviderNotConfigured("slack".into()))?;
+
+    let slack = providers
+        .get(ChannelType::Slack)
+        .ok_or_else(|| ChannelError::ProviderNotConfigured("slack".into()))?;
+
+    let slack_provider = slack
+        .as_any()
+        .downcast_ref::<super::slack::provider::SlackProvider>()
+        .ok_or_else(|| ChannelError::Internal("Provider type mismatch".into()))?;
+
+    let channels = slack_provider.list_channels().await?;
+
+    let items: Vec<SlackChannelInfoResponse> = channels
+        .into_iter()
+        .map(|ch| SlackChannelInfoResponse {
+            id: ch.id,
+            name: ch.name,
+        })
+        .collect();
+
+    Ok(Json(items))
 }
 
 // =========================================================================
