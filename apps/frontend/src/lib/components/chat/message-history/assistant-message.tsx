@@ -514,8 +514,8 @@ export function AssistantMessageComponent({
   onToggleToolCall,
 }: AssistantMessageProps) {
   const [isExpanded, setIsExpanded] = useState(false)
-  const isHidden = message.messageType === 'transcript_only'
-  const isSummary = message.messageType === 'compact_summary'
+  const isHidden = (message.messageType as string) === 'transcript_only'
+  const isSummary = (message.messageType as string) === 'compact_summary'
 
   // Build a lookup map from toolUseId to toolResult
   const toolResultMap = buildToolResultMap(message)

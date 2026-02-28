@@ -23,8 +23,8 @@ function getTextContent(message: UiMessage): string {
 
 export function UserMessageComponent({ message, onPreviewUrlClick }: UserMessageProps) {
   const [isExpanded, setIsExpanded] = useState(false)
-  const isHidden = message.messageType === 'transcript_only'
-  const isSummary = message.messageType === 'compact_summary'
+  const isHidden = (message.messageType as string) === 'transcript_only'
+  const isSummary = (message.messageType as string) === 'compact_summary'
   const textContent = getTextContent(message)
 
   // Extract contexts and attachments from message metadata if available
