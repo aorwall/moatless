@@ -5,11 +5,11 @@
  * Workspace orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
-import type { ExecutionTarget } from './executionTarget';
+import type { EnvironmentStatus } from './environmentStatus';
 
 /**
  * Provision response
  */
 export interface ProvisionResponse {
-  executionTarget: ExecutionTarget;
+  status: EnvironmentStatus;
 }

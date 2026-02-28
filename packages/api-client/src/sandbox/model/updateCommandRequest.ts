@@ -5,13 +5,13 @@
  * Workspace orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
+import type { AgentMode } from './agentMode';
 import type { UpdateCommandRequestConditions } from './updateCommandRequestConditions';
 
 export interface UpdateCommandRequest {
   /** @nullable */
   active?: boolean | null;
-  /** @nullable */
-  agentMode?: string | null;
+  agentMode?: null | AgentMode;
   /** @nullable */
   conditions?: UpdateCommandRequestConditions;
   /** @nullable */

@@ -8,7 +8,6 @@
   "exports": {
     ".": "./src/index.ts",
     "./custom-instance": "./custom-instance.ts",
-    "./sandbox/agent/agent": "./src/sandbox/agent/agent.ts",
     "./sandbox/api-keys/api-keys": "./src/sandbox/api-keys/api-keys.ts",
     "./sandbox/auth/auth": "./src/sandbox/auth/auth.ts",
     "./sandbox/commands/commands": "./src/sandbox/commands/commands.ts",

@@ -5,6 +5,7 @@
  * Workspace orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
+import type { RoutingMode } from './routingMode';
 import type { UpdateChannelConfigRequestProviderConfig } from './updateChannelConfigRequestProviderConfig';
 
 export interface UpdateChannelConfigRequest {
@@ -14,8 +15,7 @@ export interface UpdateChannelConfigRequest {
   promptTemplate?: string | null;
   /** @nullable */
   providerConfig?: UpdateChannelConfigRequestProviderConfig;
-  /** @nullable */
-  routingMode?: string | null;
+  routingMode?: null | RoutingMode;
   /** @nullable */
   sourceName?: string | null;
 }

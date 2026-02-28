@@ -5,7 +5,8 @@
  * Workspace orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
+import type { Visibility } from './visibility';
 
 export interface UpdateVisibilityRequest {
-  visibility: string;
+  visibility: Visibility;
 }

@@ -5,6 +5,7 @@
  * Workspace orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
+import type { TaskStatus } from './taskStatus';
 
 export type ListTasksParams = {
 /**
@@ -15,10 +16,7 @@ limit?: number | null;
  * @nullable
  */
 offset?: number | null;
-/**
- * @nullable
- */
-status?: string | null;
+status?: null | TaskStatus;
 /**
  * @nullable
  */

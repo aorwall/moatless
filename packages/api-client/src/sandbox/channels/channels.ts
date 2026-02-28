@@ -29,6 +29,7 @@ import type {
   CreateChannelConfigRequest,
   ErrorBody,
   ListConfigsParams,
+  SlackChannelInfoResponse,
   UpdateChannelConfigRequest
 } from '.././model';
 
@@ -579,6 +580,137 @@ export const useDeleteConfig = <TError = ErrorType<ErrorBody>,
       return useMutation(getDeleteConfigMutationOptions(options), queryClient);
     }
     /**
+ * @summary List available Slack channels the bot is a member of.
+ */
+export type listSlackChannelsResponse200 = {
+  data: SlackChannelInfoResponse[]
+  status: 200
+}
+
+export type listSlackChannelsResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+    
+export type listSlackChannelsResponseSuccess = (listSlackChannelsResponse200) & {
+  headers: Headers;
+};
+export type listSlackChannelsResponseError = (listSlackChannelsResponse400) & {
+  headers: Headers;
+};
+
+export type listSlackChannelsResponse = (listSlackChannelsResponseSuccess | listSlackChannelsResponseError)
+
+export const getListSlackChannelsUrl = () => {
+
+
+  
+
+  return `/api/v1/channels/slack/channels`
+}
+
+export const listSlackChannels = async ( options?: RequestInit): Promise<listSlackChannelsResponse> => {
+  
+  return customInstance<listSlackChannelsResponse>(getListSlackChannelsUrl(),
+  {      
+    ...options,
+    method: 'GET'
+    
+    
+  }
+);}
+
+
+
+
+
+export const getListSlackChannelsQueryKey = () => {
+    return [
+    `/api/v1/channels/slack/channels`
+    ] as const;
+    }
+
+    
+export const getListSlackChannelsQueryOptions = <TData = Awaited<ReturnType<typeof listSlackChannels>>, TError = ErrorType<ErrorBody>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listSlackChannels>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListSlackChannelsQueryKey();
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listSlackChannels>>> = ({ signal }) => listSlackChannels({ signal, ...requestOptions });
+
+      
+
+      
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listSlackChannels>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
+}
+
+export type ListSlackChannelsQueryResult = NonNullable<Awaited<ReturnType<typeof listSlackChannels>>>
+export type ListSlackChannelsQueryError = ErrorType<ErrorBody>
+
+
+export function useListSlackChannels<TData = Awaited<ReturnType<typeof listSlackChannels>>, TError = ErrorType<ErrorBody>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listSlackChannels>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listSlackChannels>>,
+          TError,
+          Awaited<ReturnType<typeof listSlackChannels>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useListSlackChannels<TData = Awaited<ReturnType<typeof listSlackChannels>>, TError = ErrorType<ErrorBody>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listSlackChannels>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listSlackChannels>>,
+          TError,
+          Awaited<ReturnType<typeof listSlackChannels>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useListSlackChannels<TData = Awaited<ReturnType<typeof listSlackChannels>>, TError = ErrorType<ErrorBody>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listSlackChannels>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+/**
+ * @summary List available Slack channels the bot is a member of.
+ */
+
+export function useListSlackChannels<TData = Awaited<ReturnType<typeof listSlackChannels>>, TError = ErrorType<ErrorBody>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listSlackChannels>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
+
+  const queryOptions = getListSlackChannelsQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary List available Slack channels the bot is a member of.
+ */
+export const prefetchListSlackChannelsQuery = async <TData = Awaited<ReturnType<typeof listSlackChannels>>, TError = ErrorType<ErrorBody>>(
+ queryClient: QueryClient,  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listSlackChannels>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+
+  ): Promise<QueryClient> => {
+
+  const queryOptions = getListSlackChannelsQueryOptions(options)
+
+  await queryClient.prefetchQuery(queryOptions);
+
+  return queryClient;
+}
+
+
+
+/**
  * @summary Handle Slack Events API webhook.
  */
 export type slackWebhookResponse200 = {

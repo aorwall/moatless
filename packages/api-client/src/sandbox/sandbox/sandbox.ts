@@ -26,14 +26,20 @@ import type {
 
 import type {
   ErrorBody,
+  FileContentResponse,
   FileSearchResult,
-  HealthResponse,
-  ProvisionRequest,
+  FileTreeHandlerParams,
+  FileTreeResponse,
+  ListFilesHandlerParams,
+  ListFilesResponse,
   ProvisionResponse,
+  ReadFileHandlerParams,
+  SearchByNameRequest,
+  SearchByNameResponse,
   SearchFilesRequest,
   ServerStatusResponse,
-  StatusResponse,
-  WorkspaceStatusFullResponse
+  WorkspaceStatusFullResponse,
+  WriteFileRequestBody
 } from '.././model';
 
 import { customInstance } from '../../../custom-instance';
@@ -137,38 +143,52 @@ export const useCleanupHandler = <TError = ErrorType<ErrorBody>,
       return useMutation(getCleanupHandlerMutationOptions(options), queryClient);
     }
     /**
- * @summary Get environment status for a task workspace.
+ * @summary List files in the sandbox workspace.
  */
-export type statusHandlerResponse200 = {
-  data: StatusResponse
+export type listFilesHandlerResponse200 = {
+  data: ListFilesResponse
   status: 200
 }
 
-export type statusHandlerResponse500 = {
+export type listFilesHandlerResponse500 = {
   data: ErrorBody
   status: 500
 }
+
+export type listFilesHandlerResponse503 = {
+  data: ErrorBody
+  status: 503
+}
     
-export type statusHandlerResponseSuccess = (statusHandlerResponse200) & {
+export type listFilesHandlerResponseSuccess = (listFilesHandlerResponse200) & {
   headers: Headers;
 };
-export type statusHandlerResponseError = (statusHandlerResponse500) & {
+export type listFilesHandlerResponseError = (listFilesHandlerResponse500 | listFilesHandlerResponse503) & {
   headers: Headers;
 };
 
-export type statusHandlerResponse = (statusHandlerResponseSuccess | statusHandlerResponseError)
+export type listFilesHandlerResponse = (listFilesHandlerResponseSuccess | listFilesHandlerResponseError)
 
-export const getStatusHandlerUrl = (taskId: string,) => {
+export const getListFilesHandlerUrl = (taskId: string,
+    params?: ListFilesHandlerParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
+    
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
 
-  
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/sandbox/v1/tasks/${taskId}/env-status`
+  return stringifiedParams.length > 0 ? `/api/sandbox/v1/tasks/${taskId}/files/list?${stringifiedParams}` : `/api/sandbox/v1/tasks/${taskId}/files/list`
 }
 
-export const statusHandler = async (taskId: string, options?: RequestInit): Promise<statusHandlerResponse> => {
+export const listFilesHandler = async (taskId: string,
+    params?: ListFilesHandlerParams, options?: RequestInit): Promise<listFilesHandlerResponse> => {
   
-  return customInstance<statusHandlerResponse>(getStatusHandlerUrl(taskId),
+  return customInstance<listFilesHandlerResponse>(getListFilesHandlerUrl(taskId,params),
   {      
     ...options,
     method: 'GET'
@@ -181,69 +201,75 @@ export const statusHandler = async (taskId: string, options?: RequestInit): Prom
 
 
 
-export const getStatusHandlerQueryKey = (taskId: string,) => {
+export const getListFilesHandlerQueryKey = (taskId: string,
+    params?: ListFilesHandlerParams,) => {
     return [
-    `/api/sandbox/v1/tasks/${taskId}/env-status`
+    `/api/sandbox/v1/tasks/${taskId}/files/list`, ...(params ? [params] : [])
     ] as const;
     }
 
     
-export const getStatusHandlerQueryOptions = <TData = Awaited<ReturnType<typeof statusHandler>>, TError = ErrorType<ErrorBody>>(taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof statusHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+export const getListFilesHandlerQueryOptions = <TData = Awaited<ReturnType<typeof listFilesHandler>>, TError = ErrorType<ErrorBody>>(taskId: string,
+    params?: ListFilesHandlerParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listFilesHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getStatusHandlerQueryKey(taskId);
+  const queryKey =  queryOptions?.queryKey ?? getListFilesHandlerQueryKey(taskId,params);
 
   
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof statusHandler>>> = ({ signal }) => statusHandler(taskId, { signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listFilesHandler>>> = ({ signal }) => listFilesHandler(taskId,params, { signal, ...requestOptions });
 
       
 
       
 
-   return  { queryKey, queryFn, enabled: !!(taskId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof statusHandler>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
+   return  { queryKey, queryFn, enabled: !!(taskId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listFilesHandler>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
 }
 
-export type StatusHandlerQueryResult = NonNullable<Awaited<ReturnType<typeof statusHandler>>>
-export type StatusHandlerQueryError = ErrorType<ErrorBody>
+export type ListFilesHandlerQueryResult = NonNullable<Awaited<ReturnType<typeof listFilesHandler>>>
+export type ListFilesHandlerQueryError = ErrorType<ErrorBody>
 
 
-export function useStatusHandler<TData = Awaited<ReturnType<typeof statusHandler>>, TError = ErrorType<ErrorBody>>(
- taskId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof statusHandler>>, TError, TData>> & Pick<
+export function useListFilesHandler<TData = Awaited<ReturnType<typeof listFilesHandler>>, TError = ErrorType<ErrorBody>>(
+ taskId: string,
+    params: undefined |  ListFilesHandlerParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listFilesHandler>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof statusHandler>>,
+          Awaited<ReturnType<typeof listFilesHandler>>,
           TError,
-          Awaited<ReturnType<typeof statusHandler>>
+          Awaited<ReturnType<typeof listFilesHandler>>
         > , 'initialData'
       >, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
-export function useStatusHandler<TData = Awaited<ReturnType<typeof statusHandler>>, TError = ErrorType<ErrorBody>>(
- taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof statusHandler>>, TError, TData>> & Pick<
+export function useListFilesHandler<TData = Awaited<ReturnType<typeof listFilesHandler>>, TError = ErrorType<ErrorBody>>(
+ taskId: string,
+    params?: ListFilesHandlerParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listFilesHandler>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof statusHandler>>,
+          Awaited<ReturnType<typeof listFilesHandler>>,
           TError,
-          Awaited<ReturnType<typeof statusHandler>>
+          Awaited<ReturnType<typeof listFilesHandler>>
         > , 'initialData'
       >, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
-export function useStatusHandler<TData = Awaited<ReturnType<typeof statusHandler>>, TError = ErrorType<ErrorBody>>(
- taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof statusHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+export function useListFilesHandler<TData = Awaited<ReturnType<typeof listFilesHandler>>, TError = ErrorType<ErrorBody>>(
+ taskId: string,
+    params?: ListFilesHandlerParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listFilesHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
 /**
- * @summary Get environment status for a task workspace.
+ * @summary List files in the sandbox workspace.
  */
 
-export function useStatusHandler<TData = Awaited<ReturnType<typeof statusHandler>>, TError = ErrorType<ErrorBody>>(
- taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof statusHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+export function useListFilesHandler<TData = Awaited<ReturnType<typeof listFilesHandler>>, TError = ErrorType<ErrorBody>>(
+ taskId: string,
+    params?: ListFilesHandlerParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listFilesHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient 
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
 
-  const queryOptions = getStatusHandlerQueryOptions(taskId,options)
+  const queryOptions = getListFilesHandlerQueryOptions(taskId,params,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
 
@@ -251,14 +277,15 @@ export function useStatusHandler<TData = Awaited<ReturnType<typeof statusHandler
 }
 
 /**
- * @summary Get environment status for a task workspace.
+ * @summary List files in the sandbox workspace.
  */
-export const prefetchStatusHandlerQuery = async <TData = Awaited<ReturnType<typeof statusHandler>>, TError = ErrorType<ErrorBody>>(
- queryClient: QueryClient, taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof statusHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+export const prefetchListFilesHandlerQuery = async <TData = Awaited<ReturnType<typeof listFilesHandler>>, TError = ErrorType<ErrorBody>>(
+ queryClient: QueryClient, taskId: string,
+    params?: ListFilesHandlerParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listFilesHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 
   ): Promise<QueryClient> => {
 
-  const queryOptions = getStatusHandlerQueryOptions(taskId,options)
+  const queryOptions = getListFilesHandlerQueryOptions(taskId,params,options)
 
   await queryClient.prefetchQuery(queryOptions);
 
@@ -268,31 +295,57 @@ export const prefetchStatusHandlerQuery = async <TData = Awaited<ReturnType<type
 
 
 /**
- * @summary Check if a task's sandbox is healthy.
+ * @summary Read a file from the sandbox workspace.
  */
-export type healthCheckHandlerResponse200 = {
-  data: HealthResponse
+export type readFileHandlerResponse200 = {
+  data: FileContentResponse
   status: 200
 }
-    
-export type healthCheckHandlerResponseSuccess = (healthCheckHandlerResponse200) & {
-  headers: Headers;
-};
-;
 
-export type healthCheckHandlerResponse = (healthCheckHandlerResponseSuccess)
-
-export const getHealthCheckHandlerUrl = (taskId: string,) => {
-
-
-  
-
-  return `/api/sandbox/v1/tasks/${taskId}/health`
+export type readFileHandlerResponse404 = {
+  data: ErrorBody
+  status: 404
 }
 
-export const healthCheckHandler = async (taskId: string, options?: RequestInit): Promise<healthCheckHandlerResponse> => {
+export type readFileHandlerResponse500 = {
+  data: ErrorBody
+  status: 500
+}
+
+export type readFileHandlerResponse503 = {
+  data: ErrorBody
+  status: 503
+}
+    
+export type readFileHandlerResponseSuccess = (readFileHandlerResponse200) & {
+  headers: Headers;
+};
+export type readFileHandlerResponseError = (readFileHandlerResponse404 | readFileHandlerResponse500 | readFileHandlerResponse503) & {
+  headers: Headers;
+};
+
+export type readFileHandlerResponse = (readFileHandlerResponseSuccess | readFileHandlerResponseError)
+
+export const getReadFileHandlerUrl = (taskId: string,
+    params: ReadFileHandlerParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/sandbox/v1/tasks/${taskId}/files/read?${stringifiedParams}` : `/api/sandbox/v1/tasks/${taskId}/files/read`
+}
+
+export const readFileHandler = async (taskId: string,
+    params: ReadFileHandlerParams, options?: RequestInit): Promise<readFileHandlerResponse> => {
   
-  return customInstance<healthCheckHandlerResponse>(getHealthCheckHandlerUrl(taskId),
+  return customInstance<readFileHandlerResponse>(getReadFileHandlerUrl(taskId,params),
   {      
     ...options,
     method: 'GET'
@@ -305,69 +358,75 @@ export const healthCheckHandler = async (taskId: string, options?: RequestInit):
 
 
 
-export const getHealthCheckHandlerQueryKey = (taskId: string,) => {
+export const getReadFileHandlerQueryKey = (taskId: string,
+    params?: ReadFileHandlerParams,) => {
     return [
-    `/api/sandbox/v1/tasks/${taskId}/health`
+    `/api/sandbox/v1/tasks/${taskId}/files/read`, ...(params ? [params] : [])
     ] as const;
     }
 
     
-export const getHealthCheckHandlerQueryOptions = <TData = Awaited<ReturnType<typeof healthCheckHandler>>, TError = ErrorType<unknown>>(taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof healthCheckHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+export const getReadFileHandlerQueryOptions = <TData = Awaited<ReturnType<typeof readFileHandler>>, TError = ErrorType<ErrorBody>>(taskId: string,
+    params: ReadFileHandlerParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof readFileHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getHealthCheckHandlerQueryKey(taskId);
+  const queryKey =  queryOptions?.queryKey ?? getReadFileHandlerQueryKey(taskId,params);
 
   
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof healthCheckHandler>>> = ({ signal }) => healthCheckHandler(taskId, { signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof readFileHandler>>> = ({ signal }) => readFileHandler(taskId,params, { signal, ...requestOptions });
 
       
 
       
 
-   return  { queryKey, queryFn, enabled: !!(taskId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof healthCheckHandler>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
+   return  { queryKey, queryFn, enabled: !!(taskId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof readFileHandler>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
 }
 
-export type HealthCheckHandlerQueryResult = NonNullable<Awaited<ReturnType<typeof healthCheckHandler>>>
-export type HealthCheckHandlerQueryError = ErrorType<unknown>
+export type ReadFileHandlerQueryResult = NonNullable<Awaited<ReturnType<typeof readFileHandler>>>
+export type ReadFileHandlerQueryError = ErrorType<ErrorBody>
 
 
-export function useHealthCheckHandler<TData = Awaited<ReturnType<typeof healthCheckHandler>>, TError = ErrorType<unknown>>(
- taskId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof healthCheckHandler>>, TError, TData>> & Pick<
+export function useReadFileHandler<TData = Awaited<ReturnType<typeof readFileHandler>>, TError = ErrorType<ErrorBody>>(
+ taskId: string,
+    params: ReadFileHandlerParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof readFileHandler>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof healthCheckHandler>>,
+          Awaited<ReturnType<typeof readFileHandler>>,
           TError,
-          Awaited<ReturnType<typeof healthCheckHandler>>
+          Awaited<ReturnType<typeof readFileHandler>>
         > , 'initialData'
       >, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
-export function useHealthCheckHandler<TData = Awaited<ReturnType<typeof healthCheckHandler>>, TError = ErrorType<unknown>>(
- taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof healthCheckHandler>>, TError, TData>> & Pick<
+export function useReadFileHandler<TData = Awaited<ReturnType<typeof readFileHandler>>, TError = ErrorType<ErrorBody>>(
+ taskId: string,
+    params: ReadFileHandlerParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof readFileHandler>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof healthCheckHandler>>,
+          Awaited<ReturnType<typeof readFileHandler>>,
           TError,
-          Awaited<ReturnType<typeof healthCheckHandler>>
+          Awaited<ReturnType<typeof readFileHandler>>
         > , 'initialData'
       >, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
-export function useHealthCheckHandler<TData = Awaited<ReturnType<typeof healthCheckHandler>>, TError = ErrorType<unknown>>(
- taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof healthCheckHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+export function useReadFileHandler<TData = Awaited<ReturnType<typeof readFileHandler>>, TError = ErrorType<ErrorBody>>(
+ taskId: string,
+    params: ReadFileHandlerParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof readFileHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
 /**
- * @summary Check if a task's sandbox is healthy.
+ * @summary Read a file from the sandbox workspace.
  */
 
-export function useHealthCheckHandler<TData = Awaited<ReturnType<typeof healthCheckHandler>>, TError = ErrorType<unknown>>(
- taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof healthCheckHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+export function useReadFileHandler<TData = Awaited<ReturnType<typeof readFileHandler>>, TError = ErrorType<ErrorBody>>(
+ taskId: string,
+    params: ReadFileHandlerParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof readFileHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient 
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
 
-  const queryOptions = getHealthCheckHandlerQueryOptions(taskId,options)
+  const queryOptions = getReadFileHandlerQueryOptions(taskId,params,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
 
@@ -375,14 +434,15 @@ export function useHealthCheckHandler<TData = Awaited<ReturnType<typeof healthCh
 }
 
 /**
- * @summary Check if a task's sandbox is healthy.
+ * @summary Read a file from the sandbox workspace.
  */
-export const prefetchHealthCheckHandlerQuery = async <TData = Awaited<ReturnType<typeof healthCheckHandler>>, TError = ErrorType<unknown>>(
- queryClient: QueryClient, taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof healthCheckHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+export const prefetchReadFileHandlerQuery = async <TData = Awaited<ReturnType<typeof readFileHandler>>, TError = ErrorType<ErrorBody>>(
+ queryClient: QueryClient, taskId: string,
+    params: ReadFileHandlerParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof readFileHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 
   ): Promise<QueryClient> => {
 
-  const queryOptions = getHealthCheckHandlerQueryOptions(taskId,options)
+  const queryOptions = getReadFileHandlerQueryOptions(taskId,params,options)
 
   await queryClient.prefetchQuery(queryOptions);
 
@@ -392,6 +452,355 @@ export const prefetchHealthCheckHandlerQuery = async <TData = Awaited<ReturnType
 
 
 /**
+ * @summary Search files by name in the sandbox workspace.
+ */
+export type searchByNameHandlerResponse200 = {
+  data: SearchByNameResponse
+  status: 200
+}
+
+export type searchByNameHandlerResponse500 = {
+  data: ErrorBody
+  status: 500
+}
+
+export type searchByNameHandlerResponse503 = {
+  data: ErrorBody
+  status: 503
+}
+    
+export type searchByNameHandlerResponseSuccess = (searchByNameHandlerResponse200) & {
+  headers: Headers;
+};
+export type searchByNameHandlerResponseError = (searchByNameHandlerResponse500 | searchByNameHandlerResponse503) & {
+  headers: Headers;
+};
+
+export type searchByNameHandlerResponse = (searchByNameHandlerResponseSuccess | searchByNameHandlerResponseError)
+
+export const getSearchByNameHandlerUrl = (taskId: string,) => {
+
+
+  
+
+  return `/api/sandbox/v1/tasks/${taskId}/files/search-by-name`
+}
+
+export const searchByNameHandler = async (taskId: string,
+    searchByNameRequest: SearchByNameRequest, options?: RequestInit): Promise<searchByNameHandlerResponse> => {
+  
+  return customInstance<searchByNameHandlerResponse>(getSearchByNameHandlerUrl(taskId),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      searchByNameRequest,)
+  }
+);}
+
+
+
+
+export const getSearchByNameHandlerMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof searchByNameHandler>>, TError,{taskId: string;data: SearchByNameRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof searchByNameHandler>>, TError,{taskId: string;data: SearchByNameRequest}, TContext> => {
+
+const mutationKey = ['searchByNameHandler'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof searchByNameHandler>>, {taskId: string;data: SearchByNameRequest}> = (props) => {
+          const {taskId,data} = props ?? {};
+
+          return  searchByNameHandler(taskId,data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SearchByNameHandlerMutationResult = NonNullable<Awaited<ReturnType<typeof searchByNameHandler>>>
+    export type SearchByNameHandlerMutationBody = SearchByNameRequest
+    export type SearchByNameHandlerMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Search files by name in the sandbox workspace.
+ */
+export const useSearchByNameHandler = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof searchByNameHandler>>, TError,{taskId: string;data: SearchByNameRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof searchByNameHandler>>,
+        TError,
+        {taskId: string;data: SearchByNameRequest},
+        TContext
+      > => {
+      return useMutation(getSearchByNameHandlerMutationOptions(options), queryClient);
+    }
+    /**
+ * @summary Get the file tree with git change overlay.
+ */
+export type fileTreeHandlerResponse200 = {
+  data: FileTreeResponse
+  status: 200
+}
+
+export type fileTreeHandlerResponse500 = {
+  data: ErrorBody
+  status: 500
+}
+
+export type fileTreeHandlerResponse503 = {
+  data: ErrorBody
+  status: 503
+}
+    
+export type fileTreeHandlerResponseSuccess = (fileTreeHandlerResponse200) & {
+  headers: Headers;
+};
+export type fileTreeHandlerResponseError = (fileTreeHandlerResponse500 | fileTreeHandlerResponse503) & {
+  headers: Headers;
+};
+
+export type fileTreeHandlerResponse = (fileTreeHandlerResponseSuccess | fileTreeHandlerResponseError)
+
+export const getFileTreeHandlerUrl = (taskId: string,
+    params?: FileTreeHandlerParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/sandbox/v1/tasks/${taskId}/files/tree?${stringifiedParams}` : `/api/sandbox/v1/tasks/${taskId}/files/tree`
+}
+
+export const fileTreeHandler = async (taskId: string,
+    params?: FileTreeHandlerParams, options?: RequestInit): Promise<fileTreeHandlerResponse> => {
+  
+  return customInstance<fileTreeHandlerResponse>(getFileTreeHandlerUrl(taskId,params),
+  {      
+    ...options,
+    method: 'GET'
+    
+    
+  }
+);}
+
+
+
+
+
+export const getFileTreeHandlerQueryKey = (taskId: string,
+    params?: FileTreeHandlerParams,) => {
+    return [
+    `/api/sandbox/v1/tasks/${taskId}/files/tree`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+    
+export const getFileTreeHandlerQueryOptions = <TData = Awaited<ReturnType<typeof fileTreeHandler>>, TError = ErrorType<ErrorBody>>(taskId: string,
+    params?: FileTreeHandlerParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof fileTreeHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getFileTreeHandlerQueryKey(taskId,params);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof fileTreeHandler>>> = ({ signal }) => fileTreeHandler(taskId,params, { signal, ...requestOptions });
+
+      
+
+      
+
+   return  { queryKey, queryFn, enabled: !!(taskId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof fileTreeHandler>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
+}
+
+export type FileTreeHandlerQueryResult = NonNullable<Awaited<ReturnType<typeof fileTreeHandler>>>
+export type FileTreeHandlerQueryError = ErrorType<ErrorBody>
+
+
+export function useFileTreeHandler<TData = Awaited<ReturnType<typeof fileTreeHandler>>, TError = ErrorType<ErrorBody>>(
+ taskId: string,
+    params: undefined |  FileTreeHandlerParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof fileTreeHandler>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof fileTreeHandler>>,
+          TError,
+          Awaited<ReturnType<typeof fileTreeHandler>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useFileTreeHandler<TData = Awaited<ReturnType<typeof fileTreeHandler>>, TError = ErrorType<ErrorBody>>(
+ taskId: string,
+    params?: FileTreeHandlerParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof fileTreeHandler>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof fileTreeHandler>>,
+          TError,
+          Awaited<ReturnType<typeof fileTreeHandler>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useFileTreeHandler<TData = Awaited<ReturnType<typeof fileTreeHandler>>, TError = ErrorType<ErrorBody>>(
+ taskId: string,
+    params?: FileTreeHandlerParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof fileTreeHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+/**
+ * @summary Get the file tree with git change overlay.
+ */
+
+export function useFileTreeHandler<TData = Awaited<ReturnType<typeof fileTreeHandler>>, TError = ErrorType<ErrorBody>>(
+ taskId: string,
+    params?: FileTreeHandlerParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof fileTreeHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
+
+  const queryOptions = getFileTreeHandlerQueryOptions(taskId,params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get the file tree with git change overlay.
+ */
+export const prefetchFileTreeHandlerQuery = async <TData = Awaited<ReturnType<typeof fileTreeHandler>>, TError = ErrorType<ErrorBody>>(
+ queryClient: QueryClient, taskId: string,
+    params?: FileTreeHandlerParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof fileTreeHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+
+  ): Promise<QueryClient> => {
+
+  const queryOptions = getFileTreeHandlerQueryOptions(taskId,params,options)
+
+  await queryClient.prefetchQuery(queryOptions);
+
+  return queryClient;
+}
+
+
+
+/**
+ * @summary Write a file in the sandbox workspace.
+ */
+export type writeFileHandlerResponse204 = {
+  data: void
+  status: 204
+}
+
+export type writeFileHandlerResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
+export type writeFileHandlerResponse500 = {
+  data: ErrorBody
+  status: 500
+}
+
+export type writeFileHandlerResponse503 = {
+  data: ErrorBody
+  status: 503
+}
+    
+export type writeFileHandlerResponseSuccess = (writeFileHandlerResponse204) & {
+  headers: Headers;
+};
+export type writeFileHandlerResponseError = (writeFileHandlerResponse400 | writeFileHandlerResponse500 | writeFileHandlerResponse503) & {
+  headers: Headers;
+};
+
+export type writeFileHandlerResponse = (writeFileHandlerResponseSuccess | writeFileHandlerResponseError)
+
+export const getWriteFileHandlerUrl = (taskId: string,) => {
+
+
+  
+
+  return `/api/sandbox/v1/tasks/${taskId}/files/write`
+}
+
+export const writeFileHandler = async (taskId: string,
+    writeFileRequestBody: WriteFileRequestBody, options?: RequestInit): Promise<writeFileHandlerResponse> => {
+  
+  return customInstance<writeFileHandlerResponse>(getWriteFileHandlerUrl(taskId),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      writeFileRequestBody,)
+  }
+);}
+
+
+
+
+export const getWriteFileHandlerMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof writeFileHandler>>, TError,{taskId: string;data: WriteFileRequestBody}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof writeFileHandler>>, TError,{taskId: string;data: WriteFileRequestBody}, TContext> => {
+
+const mutationKey = ['writeFileHandler'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof writeFileHandler>>, {taskId: string;data: WriteFileRequestBody}> = (props) => {
+          const {taskId,data} = props ?? {};
+
+          return  writeFileHandler(taskId,data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type WriteFileHandlerMutationResult = NonNullable<Awaited<ReturnType<typeof writeFileHandler>>>
+    export type WriteFileHandlerMutationBody = WriteFileRequestBody
+    export type WriteFileHandlerMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Write a file in the sandbox workspace.
+ */
+export const useWriteFileHandler = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof writeFileHandler>>, TError,{taskId: string;data: WriteFileRequestBody}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof writeFileHandler>>,
+        TError,
+        {taskId: string;data: WriteFileRequestBody},
+        TContext
+      > => {
+      return useMutation(getWriteFileHandlerMutationOptions(options), queryClient);
+    }
+    /**
+ * Builds the provision request internally from DB state (task, repository,
+credentials). No request body required.
  * @summary Provision a new sandbox workspace for a task.
  */
 export type provisionHandlerResponse200 = {
@@ -421,16 +830,14 @@ export const getProvisionHandlerUrl = (taskId: string,) => {
   return `/api/sandbox/v1/tasks/${taskId}/provision`
 }
 
-export const provisionHandler = async (taskId: string,
-    provisionRequest: ProvisionRequest, options?: RequestInit): Promise<provisionHandlerResponse> => {
+export const provisionHandler = async (taskId: string, options?: RequestInit): Promise<provisionHandlerResponse> => {
   
   return customInstance<provisionHandlerResponse>(getProvisionHandlerUrl(taskId),
   {      
     ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(
-      provisionRequest,)
+    method: 'POST'
+    
+    
   }
 );}
 
@@ -438,8 +845,8 @@ export const provisionHandler = async (taskId: string,
 
 
 export const getProvisionHandlerMutationOptions = <TError = ErrorType<ErrorBody>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof provisionHandler>>, TError,{taskId: string;data: ProvisionRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
-): UseMutationOptions<Awaited<ReturnType<typeof provisionHandler>>, TError,{taskId: string;data: ProvisionRequest}, TContext> => {
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof provisionHandler>>, TError,{taskId: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof provisionHandler>>, TError,{taskId: string}, TContext> => {
 
 const mutationKey = ['provisionHandler'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
@@ -451,10 +858,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof provisionHandler>>, {taskId: string;data: ProvisionRequest}> = (props) => {
-          const {taskId,data} = props ?? {};
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof provisionHandler>>, {taskId: string}> = (props) => {
+          const {taskId} = props ?? {};
 
-          return  provisionHandler(taskId,data,requestOptions)
+          return  provisionHandler(taskId,requestOptions)
         }
 
 
@@ -465,18 +872,18 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type ProvisionHandlerMutationResult = NonNullable<Awaited<ReturnType<typeof provisionHandler>>>
-    export type ProvisionHandlerMutationBody = ProvisionRequest
+    
     export type ProvisionHandlerMutationError = ErrorType<ErrorBody>
 
     /**
  * @summary Provision a new sandbox workspace for a task.
  */
 export const useProvisionHandler = <TError = ErrorType<ErrorBody>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof provisionHandler>>, TError,{taskId: string;data: ProvisionRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof provisionHandler>>, TError,{taskId: string}, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof provisionHandler>>,
         TError,
-        {taskId: string;data: ProvisionRequest},
+        {taskId: string},
         TContext
       > => {
       return useMutation(getProvisionHandlerMutationOptions(options), queryClient);
@@ -581,11 +988,16 @@ export type searchFilesHandlerResponse500 = {
   data: ErrorBody
   status: 500
 }
+
+export type searchFilesHandlerResponse503 = {
+  data: ErrorBody
+  status: 503
+}
     
 export type searchFilesHandlerResponseSuccess = (searchFilesHandlerResponse200) & {
   headers: Headers;
 };
-export type searchFilesHandlerResponseError = (searchFilesHandlerResponse500) & {
+export type searchFilesHandlerResponseError = (searchFilesHandlerResponse500 | searchFilesHandlerResponse503) & {
   headers: Headers;
 };
 
@@ -933,121 +1345,33 @@ export const prefetchServerLogsHandlerQuery = async <TData = Awaited<ReturnType<
 
 
 /**
- * @summary Start a stopped workspace.
- */
-export type startHandlerResponse204 = {
-  data: void
-  status: 204
-}
-
-export type startHandlerResponse500 = {
-  data: ErrorBody
-  status: 500
-}
-    
-export type startHandlerResponseSuccess = (startHandlerResponse204) & {
-  headers: Headers;
-};
-export type startHandlerResponseError = (startHandlerResponse500) & {
-  headers: Headers;
-};
-
-export type startHandlerResponse = (startHandlerResponseSuccess | startHandlerResponseError)
-
-export const getStartHandlerUrl = (taskId: string,) => {
-
-
-  
-
-  return `/api/sandbox/v1/tasks/${taskId}/start`
-}
-
-export const startHandler = async (taskId: string, options?: RequestInit): Promise<startHandlerResponse> => {
-  
-  return customInstance<startHandlerResponse>(getStartHandlerUrl(taskId),
-  {      
-    ...options,
-    method: 'POST'
-    
-    
-  }
-);}
-
-
-
-
-export const getStartHandlerMutationOptions = <TError = ErrorType<ErrorBody>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startHandler>>, TError,{taskId: string}, TContext>, request?: SecondParameter<typeof customInstance>}
-): UseMutationOptions<Awaited<ReturnType<typeof startHandler>>, TError,{taskId: string}, TContext> => {
-
-const mutationKey = ['startHandler'];
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-      
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof startHandler>>, {taskId: string}> = (props) => {
-          const {taskId} = props ?? {};
-
-          return  startHandler(taskId,requestOptions)
-        }
-
-
-
-        
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type StartHandlerMutationResult = NonNullable<Awaited<ReturnType<typeof startHandler>>>
-    
-    export type StartHandlerMutationError = ErrorType<ErrorBody>
-
-    /**
- * @summary Start a stopped workspace.
- */
-export const useStartHandler = <TError = ErrorType<ErrorBody>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startHandler>>, TError,{taskId: string}, TContext>, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient): UseMutationResult<
-        Awaited<ReturnType<typeof startHandler>>,
-        TError,
-        {taskId: string},
-        TContext
-      > => {
-      return useMutation(getStartHandlerMutationOptions(options), queryClient);
-    }
-    /**
  * @summary Get full workspace status including servers and agent state.
  */
-export type workspaceStatusHandlerResponse200 = {
+export type sandboxStatusHandlerResponse200 = {
   data: WorkspaceStatusFullResponse
   status: 200
 }
 
-export type workspaceStatusHandlerResponse500 = {
+export type sandboxStatusHandlerResponse500 = {
   data: ErrorBody
   status: 500
 }
 
-export type workspaceStatusHandlerResponse503 = {
+export type sandboxStatusHandlerResponse503 = {
   data: ErrorBody
   status: 503
 }
     
-export type workspaceStatusHandlerResponseSuccess = (workspaceStatusHandlerResponse200) & {
+export type sandboxStatusHandlerResponseSuccess = (sandboxStatusHandlerResponse200) & {
   headers: Headers;
 };
-export type workspaceStatusHandlerResponseError = (workspaceStatusHandlerResponse500 | workspaceStatusHandlerResponse503) & {
+export type sandboxStatusHandlerResponseError = (sandboxStatusHandlerResponse500 | sandboxStatusHandlerResponse503) & {
   headers: Headers;
 };
 
-export type workspaceStatusHandlerResponse = (workspaceStatusHandlerResponseSuccess | workspaceStatusHandlerResponseError)
+export type sandboxStatusHandlerResponse = (sandboxStatusHandlerResponseSuccess | sandboxStatusHandlerResponseError)
 
-export const getWorkspaceStatusHandlerUrl = (taskId: string,) => {
+export const getSandboxStatusHandlerUrl = (taskId: string,) => {
 
 
   
@@ -1055,9 +1379,9 @@ export const getWorkspaceStatusHandlerUrl = (taskId: string,) => {
   return `/api/sandbox/v1/tasks/${taskId}/status`
 }
 
-export const workspaceStatusHandler = async (taskId: string, options?: RequestInit): Promise<workspaceStatusHandlerResponse> => {
+export const sandboxStatusHandler = async (taskId: string, options?: RequestInit): Promise<sandboxStatusHandlerResponse> => {
   
-  return customInstance<workspaceStatusHandlerResponse>(getWorkspaceStatusHandlerUrl(taskId),
+  return customInstance<sandboxStatusHandlerResponse>(getSandboxStatusHandlerUrl(taskId),
   {      
     ...options,
     method: 'GET'
@@ -1070,69 +1394,69 @@ export const workspaceStatusHandler = async (taskId: string, options?: RequestIn
 
 
 
-export const getWorkspaceStatusHandlerQueryKey = (taskId: string,) => {
+export const getSandboxStatusHandlerQueryKey = (taskId: string,) => {
     return [
     `/api/sandbox/v1/tasks/${taskId}/status`
     ] as const;
     }
 
     
-export const getWorkspaceStatusHandlerQueryOptions = <TData = Awaited<ReturnType<typeof workspaceStatusHandler>>, TError = ErrorType<ErrorBody>>(taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof workspaceStatusHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+export const getSandboxStatusHandlerQueryOptions = <TData = Awaited<ReturnType<typeof sandboxStatusHandler>>, TError = ErrorType<ErrorBody>>(taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof sandboxStatusHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getWorkspaceStatusHandlerQueryKey(taskId);
+  const queryKey =  queryOptions?.queryKey ?? getSandboxStatusHandlerQueryKey(taskId);
 
   
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof workspaceStatusHandler>>> = ({ signal }) => workspaceStatusHandler(taskId, { signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof sandboxStatusHandler>>> = ({ signal }) => sandboxStatusHandler(taskId, { signal, ...requestOptions });
 
       
 
       
 
-   return  { queryKey, queryFn, enabled: !!(taskId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof workspaceStatusHandler>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
+   return  { queryKey, queryFn, enabled: !!(taskId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof sandboxStatusHandler>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
 }
 
-export type WorkspaceStatusHandlerQueryResult = NonNullable<Awaited<ReturnType<typeof workspaceStatusHandler>>>
-export type WorkspaceStatusHandlerQueryError = ErrorType<ErrorBody>
+export type SandboxStatusHandlerQueryResult = NonNullable<Awaited<ReturnType<typeof sandboxStatusHandler>>>
+export type SandboxStatusHandlerQueryError = ErrorType<ErrorBody>
 
 
-export function useWorkspaceStatusHandler<TData = Awaited<ReturnType<typeof workspaceStatusHandler>>, TError = ErrorType<ErrorBody>>(
- taskId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof workspaceStatusHandler>>, TError, TData>> & Pick<
+export function useSandboxStatusHandler<TData = Awaited<ReturnType<typeof sandboxStatusHandler>>, TError = ErrorType<ErrorBody>>(
+ taskId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof sandboxStatusHandler>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof workspaceStatusHandler>>,
+          Awaited<ReturnType<typeof sandboxStatusHandler>>,
           TError,
-          Awaited<ReturnType<typeof workspaceStatusHandler>>
+          Awaited<ReturnType<typeof sandboxStatusHandler>>
         > , 'initialData'
       >, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
-export function useWorkspaceStatusHandler<TData = Awaited<ReturnType<typeof workspaceStatusHandler>>, TError = ErrorType<ErrorBody>>(
- taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof workspaceStatusHandler>>, TError, TData>> & Pick<
+export function useSandboxStatusHandler<TData = Awaited<ReturnType<typeof sandboxStatusHandler>>, TError = ErrorType<ErrorBody>>(
+ taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof sandboxStatusHandler>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof workspaceStatusHandler>>,
+          Awaited<ReturnType<typeof sandboxStatusHandler>>,
           TError,
-          Awaited<ReturnType<typeof workspaceStatusHandler>>
+          Awaited<ReturnType<typeof sandboxStatusHandler>>
         > , 'initialData'
       >, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
-export function useWorkspaceStatusHandler<TData = Awaited<ReturnType<typeof workspaceStatusHandler>>, TError = ErrorType<ErrorBody>>(
- taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof workspaceStatusHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+export function useSandboxStatusHandler<TData = Awaited<ReturnType<typeof sandboxStatusHandler>>, TError = ErrorType<ErrorBody>>(
+ taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof sandboxStatusHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
 /**
  * @summary Get full workspace status including servers and agent state.
  */
 
-export function useWorkspaceStatusHandler<TData = Awaited<ReturnType<typeof workspaceStatusHandler>>, TError = ErrorType<ErrorBody>>(
- taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof workspaceStatusHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+export function useSandboxStatusHandler<TData = Awaited<ReturnType<typeof sandboxStatusHandler>>, TError = ErrorType<ErrorBody>>(
+ taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof sandboxStatusHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient 
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
 
-  const queryOptions = getWorkspaceStatusHandlerQueryOptions(taskId,options)
+  const queryOptions = getSandboxStatusHandlerQueryOptions(taskId,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
 
@@ -1142,12 +1466,12 @@ export function useWorkspaceStatusHandler<TData = Awaited<ReturnType<typeof work
 /**
  * @summary Get full workspace status including servers and agent state.
  */
-export const prefetchWorkspaceStatusHandlerQuery = async <TData = Awaited<ReturnType<typeof workspaceStatusHandler>>, TError = ErrorType<ErrorBody>>(
- queryClient: QueryClient, taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof workspaceStatusHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+export const prefetchSandboxStatusHandlerQuery = async <TData = Awaited<ReturnType<typeof sandboxStatusHandler>>, TError = ErrorType<ErrorBody>>(
+ queryClient: QueryClient, taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof sandboxStatusHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 
   ): Promise<QueryClient> => {
 
-  const queryOptions = getWorkspaceStatusHandlerQueryOptions(taskId,options)
+  const queryOptions = getSandboxStatusHandlerQueryOptions(taskId,options)
 
   await queryClient.prefetchQuery(queryOptions);
 

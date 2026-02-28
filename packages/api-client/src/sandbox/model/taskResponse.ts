@@ -5,10 +5,15 @@
  * Workspace orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
+import type { AgentType } from './agentType';
 import type { TagResponse } from './tagResponse';
+import type { TaskStatus } from './taskStatus';
+import type { Visibility } from './visibility';
 
 export interface TaskResponse {
-  agentType: string;
+  /** @nullable */
+  agentState?: string | null;
+  agentType: AgentType;
   /** @nullable */
   branch?: string | null;
   createdAt: string;
@@ -18,6 +23,10 @@ export interface TaskResponse {
   createdByDisplayName?: string | null;
   /** @nullable */
   description?: string | null;
+  /** @nullable */
+  environmentStatus?: string | null;
+  /** @nullable */
+  isRunning?: boolean | null;
   lastMessageAt: string;
   /** @nullable */
   name?: string | null;
@@ -28,7 +37,7 @@ export interface TaskResponse {
   shortId?: string | null;
   /** @nullable */
   siteUrl?: string | null;
-  status: string;
+  status: TaskStatus;
   tags: TagResponse[];
   taskId: string;
   /** @nullable */
@@ -37,5 +46,5 @@ export interface TaskResponse {
   totalCostUsd: number;
   /** @nullable */
   vibe?: boolean | null;
-  visibility: string;
+  visibility: Visibility;
 }

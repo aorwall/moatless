@@ -850,6 +850,94 @@ export const useStartTask = <TError = ErrorType<ErrorBody>,
       return useMutation(getStartTaskMutationOptions(options), queryClient);
     }
     /**
+ * @summary Stop the agent running on a task.
+ */
+export type stopTaskResponse204 = {
+  data: void
+  status: 204
+}
+
+export type stopTaskResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+    
+export type stopTaskResponseSuccess = (stopTaskResponse204) & {
+  headers: Headers;
+};
+export type stopTaskResponseError = (stopTaskResponse404) & {
+  headers: Headers;
+};
+
+export type stopTaskResponse = (stopTaskResponseSuccess | stopTaskResponseError)
+
+export const getStopTaskUrl = (taskId: string,) => {
+
+
+  
+
+  return `/api/v1/tasks/${taskId}/stop`
+}
+
+export const stopTask = async (taskId: string, options?: RequestInit): Promise<stopTaskResponse> => {
+  
+  return customInstance<stopTaskResponse>(getStopTaskUrl(taskId),
+  {      
+    ...options,
+    method: 'POST'
+    
+    
+  }
+);}
+
+
+
+
+export const getStopTaskMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof stopTask>>, TError,{taskId: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof stopTask>>, TError,{taskId: string}, TContext> => {
+
+const mutationKey = ['stopTask'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof stopTask>>, {taskId: string}> = (props) => {
+          const {taskId} = props ?? {};
+
+          return  stopTask(taskId,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type StopTaskMutationResult = NonNullable<Awaited<ReturnType<typeof stopTask>>>
+    
+    export type StopTaskMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Stop the agent running on a task.
+ */
+export const useStopTask = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof stopTask>>, TError,{taskId: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof stopTask>>,
+        TError,
+        {taskId: string},
+        TContext
+      > => {
+      return useMutation(getStopTaskMutationOptions(options), queryClient);
+    }
+    /**
  * @summary Set tags for a task.
  */
 export type setTaskTagsResponse200 = {

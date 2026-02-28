@@ -5,7 +5,6 @@
  * Do not edit generated files directly — run `bun run generate` to regenerate.
  */
 
-export * from './sandbox/agent/agent'
 export * from './sandbox/api-keys/api-keys'
 export * from './sandbox/auth/auth'
 export * from './sandbox/commands/commands'

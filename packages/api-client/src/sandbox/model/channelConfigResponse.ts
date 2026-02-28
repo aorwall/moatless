@@ -6,6 +6,8 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { ChannelConfigResponseProviderConfig } from './channelConfigResponseProviderConfig';
+import type { ChannelType } from './channelType';
+import type { RoutingMode } from './routingMode';
 
 export interface ChannelConfigResponse {
   active: boolean;
@@ -16,11 +18,11 @@ export interface ChannelConfigResponse {
   ongoingTaskId?: string | null;
   /** @nullable */
   promptTemplate?: string | null;
-  provider: string;
+  provider: ChannelType;
   /** @nullable */
   providerConfig?: ChannelConfigResponseProviderConfig;
   repositoryId: string;
-  routingMode: string;
+  routingMode: RoutingMode;
   sourceId: string;
   /** @nullable */
   sourceName?: string | null;

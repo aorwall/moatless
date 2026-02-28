@@ -5,13 +5,13 @@
  * Workspace orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
+import type { AgentMode } from './agentMode';
+import type { AgentType } from './agentType';
 import type { MessageContextInput } from './messageContextInput';
 
 export interface CreateTaskRequest {
-  /** @nullable */
-  agentMode?: string | null;
-  /** @nullable */
-  agentType?: string | null;
+  agentMode?: null | AgentMode;
+  agentType?: null | AgentType;
   /** @nullable */
   branch?: string | null;
   contexts?: MessageContextInput[];

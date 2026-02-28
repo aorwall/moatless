@@ -6,10 +6,10 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { CreateRepositoryRequestEnvVars } from './createRepositoryRequestEnvVars';
-import type { CreateRepositoryRequestPlugins } from './createRepositoryRequestPlugins';
-import type { CreateRepositoryRequestServers } from './createRepositoryRequestServers';
-import type { CreateRepositoryRequestServerStartCommands } from './createRepositoryRequestServerStartCommands';
-import type { CreateRepositoryRequestSetupCommands } from './createRepositoryRequestSetupCommands';
+import type { RepositoryKind } from './repositoryKind';
+import type { RepositoryProvider } from './repositoryProvider';
+import type { ServerConfig } from './serverConfig';
+import type { Visibility } from './visibility';
 
 export interface CreateRepositoryRequest {
   /** @nullable */
@@ -28,24 +28,22 @@ export interface CreateRepositoryRequest {
   enableInspector?: boolean | null;
   /** @nullable */
   envVars?: CreateRepositoryRequestEnvVars;
-  kind: string;
+  kind: RepositoryKind;
   name: string;
   /** @nullable */
-  plugins?: CreateRepositoryRequestPlugins;
-  /** @nullable */
-  provider?: string | null;
+  plugins?: string[] | null;
+  provider?: null | RepositoryProvider;
   /** @nullable */
   remoteUrl?: string | null;
   /** @nullable */
-  serverStartCommands?: CreateRepositoryRequestServerStartCommands;
+  serverStartCommands?: string[] | null;
   /** @nullable */
-  servers?: CreateRepositoryRequestServers;
+  servers?: ServerConfig[] | null;
   /** @nullable */
-  setupCommands?: CreateRepositoryRequestSetupCommands;
+  setupCommands?: string[] | null;
   /** @nullable */
   startupTimeoutSeconds?: number | null;
   /** @nullable */
   systemPrompt?: string | null;
-  /** @nullable */
-  visibility?: string | null;
+  visibility?: null | Visibility;
 }

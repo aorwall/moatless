@@ -15,6 +15,8 @@ export interface ServerEntry {
   capabilities: ServerCapabilities;
   default: boolean;
   /** @nullable */
+  detail?: string | null;
+  /** @nullable */
   error?: string | null;
   label: string;
   name: string;

@@ -5,13 +5,13 @@
  * Workspace orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
-import type { GetPendingMessagesResponseMessagesItem } from './getPendingMessagesResponseMessagesItem';
+import type { PendingMessageItem } from './pendingMessageItem';
 
 /**
  * Response for GET /messages/pending.
  */
 export interface GetPendingMessagesResponse {
-  messages: GetPendingMessagesResponseMessagesItem[];
+  messages: PendingMessageItem[];
   /** @minimum 0 */
   totalCount: number;
 }

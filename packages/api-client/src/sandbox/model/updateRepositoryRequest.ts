@@ -5,11 +5,9 @@
  * Workspace orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
+import type { ServerConfig } from './serverConfig';
 import type { UpdateRepositoryRequestEnvVars } from './updateRepositoryRequestEnvVars';
-import type { UpdateRepositoryRequestPlugins } from './updateRepositoryRequestPlugins';
-import type { UpdateRepositoryRequestServers } from './updateRepositoryRequestServers';
-import type { UpdateRepositoryRequestServerStartCommands } from './updateRepositoryRequestServerStartCommands';
-import type { UpdateRepositoryRequestSetupCommands } from './updateRepositoryRequestSetupCommands';
+import type { Visibility } from './visibility';
 
 export interface UpdateRepositoryRequest {
   /** @nullable */
@@ -31,19 +29,18 @@ export interface UpdateRepositoryRequest {
   /** @nullable */
   name?: string | null;
   /** @nullable */
-  plugins?: UpdateRepositoryRequestPlugins;
+  plugins?: string[] | null;
   /** @nullable */
   remoteUrl?: string | null;
   /** @nullable */
-  serverStartCommands?: UpdateRepositoryRequestServerStartCommands;
+  serverStartCommands?: string[] | null;
   /** @nullable */
-  servers?: UpdateRepositoryRequestServers;
+  servers?: ServerConfig[] | null;
   /** @nullable */
-  setupCommands?: UpdateRepositoryRequestSetupCommands;
+  setupCommands?: string[] | null;
   /** @nullable */
   startupTimeoutSeconds?: number | null;
   /** @nullable */
   systemPrompt?: string | null;
-  /** @nullable */
-  visibility?: string | null;
+  visibility?: null | Visibility;
 }

@@ -13,9 +13,5 @@ import type { UiResultMetaRunMetrics } from './uiResultMetaRunMetrics';
 export interface UiResultMeta {
   runMetrics: UiResultMetaRunMetrics;
   /** @nullable */
-  turnResult?: string | null;
-  /** @nullable */
-  turnStatus?: string | null;
-  /** @nullable */
   willNotResume?: boolean | null;
 }

@@ -27,7 +27,8 @@ import type {
 import type {
   ErrorBody,
   MessageResponse,
-  SessionResponse
+  SessionResponse,
+  UpdateUserRequest
 } from '.././model';
 
 import { customInstance } from '../../../custom-instance';
@@ -350,6 +351,100 @@ export const prefetchMeHandlerQuery = async <TData = Awaited<ReturnType<typeof m
 
 
 /**
+ * @summary Update current user's profile (name, email).
+ */
+export type updateMeHandlerResponse200 = {
+  data: SessionResponse
+  status: 200
+}
+
+export type updateMeHandlerResponse401 = {
+  data: ErrorBody
+  status: 401
+}
+
+export type updateMeHandlerResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+    
+export type updateMeHandlerResponseSuccess = (updateMeHandlerResponse200) & {
+  headers: Headers;
+};
+export type updateMeHandlerResponseError = (updateMeHandlerResponse401 | updateMeHandlerResponse404) & {
+  headers: Headers;
+};
+
+export type updateMeHandlerResponse = (updateMeHandlerResponseSuccess | updateMeHandlerResponseError)
+
+export const getUpdateMeHandlerUrl = () => {
+
+
+  
+
+  return `/api/v1/auth/me`
+}
+
+export const updateMeHandler = async (updateUserRequest: UpdateUserRequest, options?: RequestInit): Promise<updateMeHandlerResponse> => {
+  
+  return customInstance<updateMeHandlerResponse>(getUpdateMeHandlerUrl(),
+  {      
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      updateUserRequest,)
+  }
+);}
+
+
+
+
+export const getUpdateMeHandlerMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateMeHandler>>, TError,{data: UpdateUserRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateMeHandler>>, TError,{data: UpdateUserRequest}, TContext> => {
+
+const mutationKey = ['updateMeHandler'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateMeHandler>>, {data: UpdateUserRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  updateMeHandler(data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateMeHandlerMutationResult = NonNullable<Awaited<ReturnType<typeof updateMeHandler>>>
+    export type UpdateMeHandlerMutationBody = UpdateUserRequest
+    export type UpdateMeHandlerMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Update current user's profile (name, email).
+ */
+export const useUpdateMeHandler = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateMeHandler>>, TError,{data: UpdateUserRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof updateMeHandler>>,
+        TError,
+        {data: UpdateUserRequest},
+        TContext
+      > => {
+      return useMutation(getUpdateMeHandlerMutationOptions(options), queryClient);
+    }
+    /**
  * @summary Verify authentication via session cookie or API key (Traefik ForwardAuth).
  */
 export type verifyHandlerResponse200 = {

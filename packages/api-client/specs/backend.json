@@ -41,13 +41,13 @@
         }
       }
     },
-    "/api/sandbox/v1/tasks/{task_id}/env-status": {
+    "/api/sandbox/v1/tasks/{task_id}/files/list": {
       "get": {
         "tags": [
           "sandbox"
         ],
-        "summary": "Get environment status for a task workspace.",
-        "operationId": "status_handler",
+        "summary": "List files in the sandbox workspace.",
+        "operationId": "list_files_handler",
         "parameters": [
           {
             "name": "task_id",
@@ -57,15 +57,39 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "description": "Path relative to workspace (default \".\")",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "recursive",
+            "in": "query",
+            "description": "List files recursively",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "Environment status",
+            "description": "File list",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/StatusResponse"
+                  "$ref": "#/components/schemas/ListFilesResponse"
                 }
               }
             }
@@ -79,17 +103,27 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Sandbox not ready",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
           }
         }
       }
     },
-    "/api/sandbox/v1/tasks/{task_id}/health": {
+    "/api/sandbox/v1/tasks/{task_id}/files/read": {
       "get": {
         "tags": [
           "sandbox"
         ],
-        "summary": "Check if a task's sandbox is healthy.",
-        "operationId": "health_check_handler",
+        "summary": "Read a file from the sandbox workspace.",
+        "operationId": "read_file_handler",
         "parameters": [
           {
             "name": "task_id",
@@ -99,15 +133,66 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "description": "File path relative to workspace",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "changes",
+            "in": "query",
+            "description": "Include git change info (old_content, additions, deletions)",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "Health check result",
+            "description": "File content",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HealthResponse"
+                  "$ref": "#/components/schemas/FileContentResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "File not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Sandbox not ready",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
                 }
               }
             }
@@ -115,13 +200,13 @@
         }
       }
     },
-    "/api/sandbox/v1/tasks/{task_id}/provision": {
+    "/api/sandbox/v1/tasks/{task_id}/files/search-by-name": {
       "post": {
         "tags": [
           "sandbox"
         ],
-        "summary": "Provision a new sandbox workspace for a task.",
-        "operationId": "provision_handler",
+        "summary": "Search files by name in the sandbox workspace.",
+        "operationId": "search_by_name_handler",
         "parameters": [
           {
             "name": "task_id",
@@ -137,12 +222,194 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ProvisionRequest"
+                "$ref": "#/components/schemas/SearchByNameRequest"
               }
             }
           },
           "required": true
         },
+        "responses": {
+          "200": {
+            "description": "Search results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchByNameResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Sandbox not ready",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sandbox/v1/tasks/{task_id}/files/tree": {
+      "get": {
+        "tags": [
+          "sandbox"
+        ],
+        "summary": "Get the file tree with git change overlay.",
+        "operationId": "file_tree_handler",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "description": "Root path relative to workspace (default \".\")",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "File tree with git summary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileTreeResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Sandbox not ready",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sandbox/v1/tasks/{task_id}/files/write": {
+      "post": {
+        "tags": [
+          "sandbox"
+        ],
+        "summary": "Write a file in the sandbox workspace.",
+        "operationId": "write_file_handler",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WriteFileRequestBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "File written successfully"
+          },
+          "400": {
+            "description": "Invalid path",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Sandbox not ready",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sandbox/v1/tasks/{task_id}/provision": {
+      "post": {
+        "tags": [
+          "sandbox"
+        ],
+        "summary": "Provision a new sandbox workspace for a task.",
+        "description": "Builds the provision request internally from DB state (task, repository,\ncredentials). No request body required.",
+        "operationId": "provision_handler",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Workspace provisioned successfully",
@@ -253,6 +520,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Sandbox not ready",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
           }
         }
       }
@@ -344,48 +621,13 @@
         }
       }
     },
-    "/api/sandbox/v1/tasks/{task_id}/start": {
-      "post": {
-        "tags": [
-          "sandbox"
-        ],
-        "summary": "Start a stopped workspace.",
-        "operationId": "start_handler",
-        "parameters": [
-          {
-            "name": "task_id",
-            "in": "path",
-            "description": "Task identifier",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Workspace started"
-          },
-          "500": {
-            "description": "Start failed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/sandbox/v1/tasks/{task_id}/status": {
       "get": {
         "tags": [
           "sandbox"
         ],
         "summary": "Get full workspace status including servers and agent state.",
-        "operationId": "workspace_status_handler",
+        "operationId": "sandbox_status_handler",
         "parameters": [
           {
             "name": "task_id",
@@ -675,6 +917,55 @@
             }
           }
         }
+      },
+      "patch": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Update current user's profile (name, email).",
+        "operationId": "update_me_handler",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUserRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Profile updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "User not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/auth/verify": {
@@ -908,6 +1199,40 @@
           },
           "404": {
             "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/channels/slack/channels": {
+      "get": {
+        "tags": [
+          "channels"
+        ],
+        "summary": "List available Slack channels the bot is a member of.",
+        "operationId": "list_slack_channels",
+        "responses": {
+          "200": {
+            "description": "Available Slack channels",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SlackChannelInfoResponse"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Slack not configured",
             "content": {
               "application/json": {
                 "schema": {
@@ -1803,6 +2128,107 @@
         }
       }
     },
+    "/api/v1/settings/gitness/config": {
+      "get": {
+        "tags": [
+          "provider-settings"
+        ],
+        "summary": "Get current Gitness configuration for the user.",
+        "operationId": "get_gitness_config",
+        "responses": {
+          "200": {
+            "description": "Gitness config",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitnessConfigResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "provider-settings"
+        ],
+        "summary": "Disconnect Gitness by deleting the stored token.",
+        "operationId": "delete_gitness_config",
+        "responses": {
+          "200": {
+            "description": "Gitness disconnected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitnessConfigResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/settings/gitness/pat": {
+      "put": {
+        "tags": [
+          "provider-settings"
+        ],
+        "summary": "Save a Gitness Personal Access Token after validating it.",
+        "operationId": "save_gitness_pat",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveGitnessPATRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "PAT saved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitnessConfigResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tags": {
       "get": {
         "tags": [
@@ -1874,9 +2300,13 @@
             "in": "query",
             "required": false,
             "schema": {
-              "type": [
-                "string",
-                "null"
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/components/schemas/TaskStatus"
+                }
               ]
             }
           },
@@ -2208,56 +2638,6 @@
             }
           }
         }
-      },
-      "post": {
-        "tags": [
-          "agent"
-        ],
-        "summary": "Send a named command to the agent for a task.",
-        "operationId": "send_command",
-        "parameters": [
-          {
-            "name": "task_id",
-            "in": "path",
-            "description": "Task identifier",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SendCommandRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Command sent",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SendMessageResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Task or command not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
       }
     },
     "/api/v1/tasks/{task_id}/messages": {
@@ -2303,9 +2683,10 @@
       },
       "post": {
         "tags": [
-          "agent"
+          "messages"
         ],
         "summary": "Send a message to the agent for a task.",
+        "description": "If `command_name` is set, the command's prompt is used instead of `message`.",
         "operationId": "send_message",
         "parameters": [
           {
@@ -2493,10 +2874,10 @@
     "/api/v1/tasks/{task_id}/stop": {
       "post": {
         "tags": [
-          "agent"
+          "tasks"
         ],
         "summary": "Stop the agent running on a task.",
-        "operationId": "stop_agent",
+        "operationId": "stop_task",
         "parameters": [
           {
             "name": "task_id",
@@ -2765,6 +3146,10 @@
   },
   "components": {
     "schemas": {
+      "AgentMode": {
+        "type": "string",
+        "description": "Agent mode identifier (open-ended, e.g. \"plan\", \"code\")."
+      },
       "AgentState": {
         "type": "string",
         "description": "Matches TS AgentStateSchema: 'idle' | 'running' | 'none'",
@@ -2773,6 +3158,23 @@
           "running",
           "none"
         ]
+      },
+      "AgentSubType": {
+        "type": "string",
+        "description": "Agent sub-types.",
+        "enum": [
+          "started",
+          "stopped",
+          "message",
+          "completed",
+          "error",
+          "pending_response",
+          "session_init"
+        ]
+      },
+      "AgentType": {
+        "type": "string",
+        "description": "Agent type identifier (open-ended, e.g. \"claude-code\")."
       },
       "ApiKeyCreateResponse": {
         "type": "object",
@@ -2936,7 +3338,7 @@
             ]
           },
           "provider": {
-            "type": "string"
+            "$ref": "#/components/schemas/ChannelType"
           },
           "providerConfig": {
             "type": [
@@ -2948,7 +3350,7 @@
             "type": "string"
           },
           "routingMode": {
-            "type": "string"
+            "$ref": "#/components/schemas/RoutingMode"
           },
           "sourceId": {
             "type": "string"
@@ -2963,6 +3365,14 @@
             "type": "string"
           }
         }
+      },
+      "ChannelType": {
+        "type": "string",
+        "description": "Channel provider identifier.",
+        "enum": [
+          "slack",
+          "email"
+        ]
       },
       "CommandResponse": {
         "type": "object",
@@ -2979,9 +3389,13 @@
             ]
           },
           "agentMode": {
-            "type": [
-              "string",
-              "null"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentMode"
+              }
             ]
           },
           "conditions": {
@@ -3064,7 +3478,7 @@
             ]
           },
           "provider": {
-            "type": "string"
+            "$ref": "#/components/schemas/ChannelType"
           },
           "providerConfig": {
             "type": [
@@ -3076,7 +3490,7 @@
             "type": "string"
           },
           "routingMode": {
-            "type": "string"
+            "$ref": "#/components/schemas/RoutingMode"
           },
           "sourceId": {
             "type": "string"
@@ -3104,9 +3518,13 @@
             ]
           },
           "agentMode": {
-            "type": [
-              "string",
-              "null"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentMode"
+              }
             ]
           },
           "conditions": {
@@ -3197,24 +3615,37 @@
             "type": [
               "object",
               "null"
-            ]
+            ],
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
           },
           "kind": {
-            "type": "string"
+            "$ref": "#/components/schemas/RepositoryKind"
           },
           "name": {
             "type": "string"
           },
           "plugins": {
             "type": [
-              "object",
+              "array",
               "null"
-            ]
+            ],
+            "items": {
+              "type": "string"
+            }
           },
           "provider": {
-            "type": [
-              "string",
-              "null"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RepositoryProvider"
+              }
             ]
           },
           "remoteUrl": {
@@ -3225,21 +3656,30 @@
           },
           "serverStartCommands": {
             "type": [
-              "object",
+              "array",
               "null"
-            ]
+            ],
+            "items": {
+              "type": "string"
+            }
           },
           "servers": {
             "type": [
-              "object",
+              "array",
               "null"
-            ]
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ServerConfig"
+            }
           },
           "setupCommands": {
             "type": [
-              "object",
+              "array",
               "null"
-            ]
+            ],
+            "items": {
+              "type": "string"
+            }
           },
           "startupTimeoutSeconds": {
             "type": [
@@ -3255,9 +3695,13 @@
             ]
           },
           "visibility": {
-            "type": [
-              "string",
-              "null"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Visibility"
+              }
             ]
           }
         }
@@ -3269,15 +3713,23 @@
         ],
         "properties": {
           "agentMode": {
-            "type": [
-              "string",
-              "null"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentMode"
+              }
             ]
           },
           "agentType": {
-            "type": [
-              "string",
-              "null"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentType"
+              }
             ]
           },
           "branch": {
@@ -3336,7 +3788,7 @@
         ],
         "properties": {
           "status": {
-            "type": "string"
+            "$ref": "#/components/schemas/TaskStatus"
           },
           "task": {
             "$ref": "#/components/schemas/TaskResponse"
@@ -3405,6 +3857,18 @@
           }
         }
       },
+      "EventType": {
+        "type": "string",
+        "description": "Top-level event types.\n\nSerializes to the exact strings the frontend `EventTypeSchema` expects.\nRenamed: \"environment\" → \"sandbox\" to avoid confusion with K8s environments.",
+        "enum": [
+          "task",
+          "taskTurn",
+          "sandbox",
+          "agent",
+          "server",
+          "resources"
+        ]
+      },
       "ExchangeTokenRequest": {
         "type": "object",
         "required": [
@@ -3436,76 +3900,6 @@
               "string",
               "null"
             ]
-          }
-        }
-      },
-      "ExecutionTarget": {
-        "type": "object",
-        "description": "Execution target returned after provisioning",
-        "required": [
-          "mode",
-          "podNamespace",
-          "serviceName",
-          "status",
-          "repositoryCloneUrl",
-          "sandboxPort",
-          "previewHostPort",
-          "servers"
-        ],
-        "properties": {
-          "mode": {
-            "type": "string"
-          },
-          "podName": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "podNamespace": {
-            "type": "string"
-          },
-          "podPhase": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "previewHostPort": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "repositoryBranch": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "repositoryCloneUrl": {
-            "type": "string"
-          },
-          "sandboxPort": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "servers": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "integer",
-              "format": "int32",
-              "minimum": 0
-            },
-            "propertyNames": {
-              "type": "string"
-            }
-          },
-          "serviceName": {
-            "type": "string"
-          },
-          "status": {
-            "$ref": "#/components/schemas/EnvironmentStatus"
           }
         }
       },
@@ -3599,6 +3993,61 @@
           }
         }
       },
+      "FileContentResponse": {
+        "type": "object",
+        "description": "File content response with optional git change info.",
+        "required": [
+          "content"
+        ],
+        "properties": {
+          "additions": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "content": {
+            "type": "string"
+          },
+          "deletions": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "isModified": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "oldContent": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "FileNameMatchDto": {
+        "type": "object",
+        "description": "A file name match in the search results.",
+        "required": [
+          "path",
+          "matches"
+        ],
+        "properties": {
+          "matches": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "path": {
+            "type": "string"
+          }
+        }
+      },
       "FileSearchResult": {
         "type": "object",
         "description": "Single file search result from sandbox.",
@@ -3618,6 +4067,84 @@
           },
           "path": {
             "type": "string"
+          }
+        }
+      },
+      "FileTreeNodeDto": {
+        "type": "object",
+        "description": "A node in the file tree (file or directory).",
+        "required": [
+          "name",
+          "path",
+          "type",
+          "isChanged"
+        ],
+        "properties": {
+          "additions": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "children": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/FileTreeNodeDto"
+            }
+          },
+          "deletions": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "gitStatus": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "isChanged": {
+            "type": "boolean"
+          },
+          "isStaged": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        }
+      },
+      "FileTreeResponse": {
+        "type": "object",
+        "description": "File tree response with git change summary.",
+        "required": [
+          "tree",
+          "gitSummary"
+        ],
+        "properties": {
+          "gitSummary": {
+            "$ref": "#/components/schemas/GitSummaryDto"
+          },
+          "tree": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FileTreeNodeDto"
+            }
           }
         }
       },
@@ -3652,7 +4179,7 @@
           "messages": {
             "type": "array",
             "items": {
-              "type": "object"
+              "$ref": "#/components/schemas/PendingMessageItem"
             }
           },
           "totalCount": {
@@ -3684,15 +4211,67 @@
           }
         }
       },
-      "HealthResponse": {
+      "GitSummaryDto": {
         "type": "object",
-        "description": "Health response",
+        "description": "Git change summary across the workspace.",
         "required": [
-          "healthy"
+          "totalFiles",
+          "totalAdditions",
+          "totalDeletions",
+          "totalStaged",
+          "totalModified",
+          "compareBase",
+          "hasChanges"
         ],
         "properties": {
-          "healthy": {
+          "compareBase": {
+            "type": "string"
+          },
+          "hasChanges": {
             "type": "boolean"
+          },
+          "totalAdditions": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalDeletions": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalFiles": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalModified": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalStaged": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "GitnessConfigResponse": {
+        "type": "object",
+        "required": [
+          "connected"
+        ],
+        "properties": {
+          "baseUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "connected": {
+            "type": "boolean"
+          },
+          "login": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -3722,6 +4301,21 @@
           "url": {
             "type": "string",
             "description": "Full Figma URL (e.g., https://www.figma.com/file/{key}/Title?node-id={id})"
+          }
+        }
+      },
+      "ListFilesResponse": {
+        "type": "object",
+        "description": "Response for listing files.",
+        "required": [
+          "files"
+        ],
+        "properties": {
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -3773,6 +4367,26 @@
             "type": "string"
           }
         }
+      },
+      "MessageRole": {
+        "type": "string",
+        "description": "Role of the message sender.",
+        "enum": [
+          "user",
+          "assistant",
+          "system"
+        ]
+      },
+      "MessageType": {
+        "type": "string",
+        "description": "Type of message in the conversation.",
+        "enum": [
+          "assistant",
+          "user",
+          "system",
+          "result",
+          "error"
+        ]
       },
       "OAuthUrlResponse": {
         "type": "object",
@@ -3845,72 +4459,55 @@
           }
         }
       },
-      "ProvisionPlan": {
+      "PendingMessageItem": {
         "type": "object",
-        "description": "Provision plan with all configuration needed to create a workspace",
+        "description": "A pending message item (user message or result message).",
         "required": [
-          "repoConfig",
-          "gitCloneUrl"
+          "uuid",
+          "messageType",
+          "timestamp",
+          "resume"
         ],
         "properties": {
-          "anthropicApiKey": {
-            "type": [
-              "string",
-              "null"
+          "agentMode": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentMode"
+              }
             ]
           },
-          "claudeOauthToken": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "envVars": {
+          "messageContent": {
             "type": [
               "object",
               "null"
-            ],
-            "description": "Custom environment variables",
-            "additionalProperties": {
-              "type": "string"
-            },
-            "propertyNames": {
-              "type": "string"
-            }
+            ]
           },
-          "gitBranch": {
+          "messageType": {
+            "$ref": "#/components/schemas/MessageType"
+          },
+          "model": {
             "type": [
               "string",
               "null"
             ]
           },
-          "gitCloneUrl": {
+          "resume": {
+            "type": "boolean"
+          },
+          "timestamp": {
             "type": "string"
           },
-          "gitProviderToken": {
+          "uuid": {
+            "type": "string"
+          },
+          "willNotResume": {
             "type": [
-              "string",
+              "boolean",
               "null"
             ]
-          },
-          "repoConfig": {
-            "$ref": "#/components/schemas/RepoConfig"
-          }
-        }
-      },
-      "ProvisionRequest": {
-        "type": "object",
-        "description": "Provision plan sent from TS backend",
-        "required": [
-          "plan",
-          "userId"
-        ],
-        "properties": {
-          "plan": {
-            "$ref": "#/components/schemas/ProvisionPlan"
-          },
-          "userId": {
-            "type": "string"
           }
         }
       },
@@ -3918,69 +4515,29 @@
         "type": "object",
         "description": "Provision response",
         "required": [
-          "executionTarget"
+          "status"
         ],
         "properties": {
-          "executionTarget": {
-            "$ref": "#/components/schemas/ExecutionTarget"
+          "status": {
+            "$ref": "#/components/schemas/EnvironmentStatus"
           }
         }
       },
-      "RepoConfig": {
-        "type": "object",
-        "description": "Repository config for provisioning and sandbox environment",
-        "required": [
-          "name",
-          "codeExecution",
-          "previewConfig"
-        ],
-        "properties": {
-          "codeExecution": {
-            "type": "object",
-            "description": "Code execution configuration (dockerImage, envVars, etc.)"
-          },
-          "dockerImage": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Per-repository sandbox image override"
-          },
-          "name": {
-            "type": "string"
-          },
-          "pluginIds": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "type": "string"
-            },
-            "description": "Plugin IDs (format: {name}@{marketplace}) — sandbox resolves to paths"
-          },
-          "previewConfig": {
-            "type": "object",
-            "description": "Preview server configuration"
-          },
-          "servers": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "$ref": "#/components/schemas/ServerConfig"
-            },
-            "description": "Servers with allocated ports"
-          },
-          "systemPrompt": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "System prompt for the agent"
-          }
-        }
+      "RepositoryKind": {
+        "type": "string",
+        "enum": [
+          "git",
+          "remote",
+          "template"
+        ]
+      },
+      "RepositoryProvider": {
+        "type": "string",
+        "enum": [
+          "github",
+          "gitlab",
+          "gitness"
+        ]
       },
       "RepositoryResponse": {
         "type": "object",
@@ -4049,27 +4606,40 @@
             "type": [
               "object",
               "null"
-            ]
+            ],
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
           },
           "id": {
             "type": "string"
           },
           "kind": {
-            "type": "string"
+            "$ref": "#/components/schemas/RepositoryKind"
           },
           "name": {
             "type": "string"
           },
           "plugins": {
             "type": [
-              "object",
+              "array",
               "null"
-            ]
+            ],
+            "items": {
+              "type": "string"
+            }
           },
           "provider": {
-            "type": [
-              "string",
-              "null"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RepositoryProvider"
+              }
             ]
           },
           "remoteUrl": {
@@ -4080,21 +4650,30 @@
           },
           "serverStartCommands": {
             "type": [
-              "object",
+              "array",
               "null"
-            ]
+            ],
+            "items": {
+              "type": "string"
+            }
           },
           "servers": {
             "type": [
-              "object",
+              "array",
               "null"
-            ]
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ServerConfig"
+            }
           },
           "setupCommands": {
             "type": [
-              "object",
+              "array",
               "null"
-            ]
+            ],
+            "items": {
+              "type": "string"
+            }
           },
           "startupTimeoutSeconds": {
             "type": [
@@ -4116,7 +4695,7 @@
             ]
           },
           "visibility": {
-            "type": "string"
+            "$ref": "#/components/schemas/Visibility"
           }
         }
       },
@@ -4164,6 +4743,43 @@
           }
         }
       },
+      "RoutingMode": {
+        "type": "string",
+        "description": "Routing mode from channel_configs.routing_mode.",
+        "enum": [
+          "ongoing",
+          "per_message",
+          "thread_based"
+        ]
+      },
+      "SandboxSubType": {
+        "type": "string",
+        "description": "Sandbox sub-types — valid status values for sandbox lifecycle events.\n\nThese match the frontend `EnvironmentStatusSchema` values.",
+        "enum": [
+          "not_created",
+          "initializing",
+          "ready",
+          "stopped",
+          "removing",
+          "error",
+          "fatal"
+        ]
+      },
+      "SaveGitnessPATRequest": {
+        "type": "object",
+        "required": [
+          "baseUrl",
+          "token"
+        ],
+        "properties": {
+          "baseUrl": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          }
+        }
+      },
       "SavePatRequest": {
         "type": "object",
         "required": [
@@ -4172,6 +4788,51 @@
         "properties": {
           "token": {
             "type": "string"
+          }
+        }
+      },
+      "SearchByNameRequest": {
+        "type": "object",
+        "description": "Request body for searching files by name.",
+        "required": [
+          "query"
+        ],
+        "properties": {
+          "caseSensitive": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "maxResults": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "query": {
+            "type": "string"
+          }
+        }
+      },
+      "SearchByNameResponse": {
+        "type": "object",
+        "description": "Response for searching files by name.",
+        "required": [
+          "files",
+          "totalMatches"
+        ],
+        "properties": {
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FileNameMatchDto"
+            }
+          },
+          "totalMatches": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },
@@ -4195,35 +4856,6 @@
           }
         }
       },
-      "SendCommandRequest": {
-        "type": "object",
-        "required": [
-          "commandName"
-        ],
-        "properties": {
-          "commandName": {
-            "type": "string"
-          },
-          "fileIds": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "model": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "resume": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          }
-        }
-      },
       "SendMessageRequest": {
         "type": "object",
         "required": [
@@ -4231,9 +4863,13 @@
         ],
         "properties": {
           "agentMode": {
-            "type": [
-              "string",
-              "null"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentMode"
+              }
             ]
           },
           "commandName": {
@@ -4340,15 +4976,66 @@
         "type": "object",
         "description": "Server config entry",
         "required": [
-          "name",
-          "port"
+          "name"
         ],
         "properties": {
+          "autoReload": {
+            "type": "boolean"
+          },
+          "default": {
+            "type": "boolean"
+          },
+          "dockerImage": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Per-server Docker image. Falls back to sandbox_image if not set."
+          },
+          "enableInspector": {
+            "type": "boolean"
+          },
+          "envVars": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Per-server environment variables.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "name": {
             "type": "string"
           },
           "port": {
             "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "startCommands": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "startupTimeoutSeconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           }
@@ -4371,6 +5058,12 @@
           },
           "default": {
             "type": "boolean"
+          },
+          "detail": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "error": {
             "type": [
@@ -4400,18 +5093,41 @@
           }
         }
       },
+      "ServerEventPayload": {
+        "type": "object",
+        "description": "Server event payload — matches frontend `ServerEventPayloadSchema`.",
+        "required": [
+          "serverName",
+          "status"
+        ],
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "Human-readable contextual detail (e.g. \"ContainerCreating\", \"CrashLoopBackOff\").\nAlways set by the publisher. `#[serde(default)]` handles old events without this field."
+          },
+          "serverName": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ServerSubType"
+          }
+        }
+      },
       "ServerSnapshot": {
         "type": "object",
         "description": "Server snapshot from sandbox GET /status",
         "required": [
           "name",
-          "label",
-          "port",
-          "builtin",
           "status"
         ],
         "properties": {
           "builtin": {
+            "type": "boolean"
+          },
+          "default": {
+            "type": "boolean"
+          },
+          "enable_inspector": {
             "type": "boolean"
           },
           "error": {
@@ -4440,7 +5156,7 @@
             "minimum": 0
           },
           "status": {
-            "type": "string"
+            "$ref": "#/components/schemas/ServerStatus"
           }
         }
       },
@@ -4469,6 +5185,17 @@
             }
           }
         }
+      },
+      "ServerSubType": {
+        "type": "string",
+        "description": "Server sub-types — server container lifecycle.\n\n`Failed` covers all error conditions (was: Failed, Error, Timeout — consolidated).",
+        "enum": [
+          "installing",
+          "starting",
+          "started",
+          "stopped",
+          "failed"
+        ]
       },
       "SessionResponse": {
         "type": "object",
@@ -4506,27 +5233,53 @@
           }
         }
       },
-      "StatusResponse": {
+      "SlackChannelInfoResponse": {
         "type": "object",
-        "description": "Status response",
+        "description": "Available Slack channel info for dropdown selection.",
         "required": [
-          "status"
+          "id",
+          "name"
         ],
         "properties": {
-          "lastError": {
-            "type": [
-              "string",
-              "null"
-            ]
+          "id": {
+            "type": "string"
           },
-          "podName": {
-            "type": [
-              "string",
-              "null"
-            ]
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "StreamEvent": {
+        "type": "object",
+        "description": "SSE event envelope — the shape of events streamed to the frontend.\n\nThis is the canonical wire format for all SSE events. The frontend\nreceives this shape and dispatches on `event_type` + `sub_type`.",
+        "required": [
+          "eventId",
+          "type",
+          "subType",
+          "taskId",
+          "timestamp",
+          "isError",
+          "payload"
+        ],
+        "properties": {
+          "eventId": {
+            "type": "string"
           },
-          "status": {
-            "$ref": "#/components/schemas/EnvironmentStatus"
+          "isError": {
+            "type": "boolean"
+          },
+          "payload": {},
+          "subType": {
+            "type": "string"
+          },
+          "taskId": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string"
+          },
+          "type": {
+            "$ref": "#/components/schemas/EventType"
           }
         }
       },
@@ -4560,8 +5313,14 @@
           "tags"
         ],
         "properties": {
+          "agentState": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "agentType": {
-            "type": "string"
+            "$ref": "#/components/schemas/AgentType"
           },
           "branch": {
             "type": [
@@ -4587,6 +5346,18 @@
           "description": {
             "type": [
               "string",
+              "null"
+            ]
+          },
+          "environmentStatus": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "isRunning": {
+            "type": [
+              "boolean",
               "null"
             ]
           },
@@ -4621,7 +5392,7 @@
             ]
           },
           "status": {
-            "type": "string"
+            "$ref": "#/components/schemas/TaskStatus"
           },
           "tags": {
             "type": "array",
@@ -4652,9 +5423,39 @@
             ]
           },
           "visibility": {
-            "type": "string"
+            "$ref": "#/components/schemas/Visibility"
           }
         }
+      },
+      "TaskStatus": {
+        "type": "string",
+        "description": "Task lifecycle status.",
+        "enum": [
+          "open",
+          "closed",
+          "error"
+        ]
+      },
+      "TaskSubType": {
+        "type": "string",
+        "description": "Task sub-types.",
+        "enum": [
+          "created",
+          "open",
+          "closed",
+          "updated",
+          "metadata.updated"
+        ]
+      },
+      "TaskTurnSubType": {
+        "type": "string",
+        "description": "TaskTurn sub-types.",
+        "enum": [
+          "active",
+          "completed",
+          "error",
+          "stopped"
+        ]
       },
       "UiAssistantMeta": {
         "type": "object",
@@ -4741,9 +5542,13 @@
         ],
         "properties": {
           "agentMode": {
-            "type": [
-              "string",
-              "null"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentMode"
+              }
             ]
           },
           "assistant": {
@@ -4778,7 +5583,7 @@
             ]
           },
           "messageType": {
-            "type": "string"
+            "$ref": "#/components/schemas/MessageType"
           },
           "model": {
             "type": [
@@ -4798,7 +5603,7 @@
             ]
           },
           "role": {
-            "type": "string"
+            "$ref": "#/components/schemas/MessageRole"
           },
           "sessionId": {
             "type": [
@@ -4837,18 +5642,6 @@
         "properties": {
           "runMetrics": {
             "type": "object"
-          },
-          "turnResult": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "turnStatus": {
-            "type": [
-              "string",
-              "null"
-            ]
           },
           "willNotResume": {
             "type": [
@@ -4938,9 +5731,13 @@
             ]
           },
           "routingMode": {
-            "type": [
-              "string",
-              "null"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RoutingMode"
+              }
             ]
           },
           "sourceName": {
@@ -4961,9 +5758,13 @@
             ]
           },
           "agentMode": {
-            "type": [
-              "string",
-              "null"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentMode"
+              }
             ]
           },
           "conditions": {
@@ -5053,7 +5854,13 @@
             "type": [
               "object",
               "null"
-            ]
+            ],
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
           },
           "name": {
             "type": [
@@ -5063,9 +5870,12 @@
           },
           "plugins": {
             "type": [
-              "object",
+              "array",
               "null"
-            ]
+            ],
+            "items": {
+              "type": "string"
+            }
           },
           "remoteUrl": {
             "type": [
@@ -5075,21 +5885,30 @@
           },
           "serverStartCommands": {
             "type": [
-              "object",
+              "array",
               "null"
-            ]
+            ],
+            "items": {
+              "type": "string"
+            }
           },
           "servers": {
             "type": [
-              "object",
+              "array",
               "null"
-            ]
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ServerConfig"
+            }
           },
           "setupCommands": {
             "type": [
-              "object",
+              "array",
               "null"
-            ]
+            ],
+            "items": {
+              "type": "string"
+            }
           },
           "startupTimeoutSeconds": {
             "type": [
@@ -5105,9 +5924,13 @@
             ]
           },
           "visibility": {
-            "type": [
-              "string",
-              "null"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Visibility"
+              }
             ]
           }
         }
@@ -5129,6 +5952,24 @@
           }
         }
       },
+      "UpdateUserRequest": {
+        "type": "object",
+        "description": "Body for PATCH /api/v1/auth/me.",
+        "properties": {
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "UpdateVisibilityRequest": {
         "type": "object",
         "required": [
@@ -5136,7 +5977,7 @@
         ],
         "properties": {
           "visibility": {
-            "type": "string"
+            "$ref": "#/components/schemas/Visibility"
           }
         }
       },
@@ -5215,7 +6056,7 @@
             "type": "string"
           },
           "role": {
-            "type": "string"
+            "$ref": "#/components/schemas/UserRole"
           }
         }
       },
@@ -5261,6 +6102,21 @@
             }
           }
         }
+      },
+      "UserRole": {
+        "type": "string",
+        "enum": [
+          "user",
+          "admin"
+        ]
+      },
+      "Visibility": {
+        "type": "string",
+        "description": "Task visibility level.",
+        "enum": [
+          "public",
+          "private"
+        ]
       },
       "WorkspaceState": {
         "type": "string",
@@ -5320,6 +6176,22 @@
             "$ref": "#/components/schemas/WorkspaceState"
           }
         }
+      },
+      "WriteFileRequestBody": {
+        "type": "object",
+        "description": "Request body for writing a file.",
+        "required": [
+          "path",
+          "content"
+        ],
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        }
       }
     }
   },
@@ -5346,11 +6218,7 @@
     },
     {
       "name": "messages",
-      "description": "Message retrieval and management"
-    },
-    {
-      "name": "agent",
-      "description": "Agent execution — message sending, commands, and lifecycle"
+      "description": "Message sending, retrieval, and management"
     },
     {
       "name": "commands",
@@ -5374,7 +6242,7 @@
     },
     {
       "name": "provider-settings",
-      "description": "GitHub OAuth/PAT management"
+      "description": "GitHub OAuth/PAT & Gitness PAT management"
     },
     {
       "name": "channels",

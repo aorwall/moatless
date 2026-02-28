@@ -9,4 +9,4 @@
 /**
  * @nullable
  */
-export type UpdateRepositoryRequestEnvVars = { [key: string]: unknown } | null;
+export type UpdateRepositoryRequestEnvVars = {[key: string]: string} | null;

@@ -5,11 +5,11 @@
  * Workspace orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
+import type { RepositoryKind } from './repositoryKind';
+import type { RepositoryProvider } from './repositoryProvider';
 import type { RepositoryResponseEnvVars } from './repositoryResponseEnvVars';
-import type { RepositoryResponsePlugins } from './repositoryResponsePlugins';
-import type { RepositoryResponseServers } from './repositoryResponseServers';
-import type { RepositoryResponseServerStartCommands } from './repositoryResponseServerStartCommands';
-import type { RepositoryResponseSetupCommands } from './repositoryResponseSetupCommands';
+import type { ServerConfig } from './serverConfig';
+import type { Visibility } from './visibility';
 
 export interface RepositoryResponse {
   /** @nullable */
@@ -33,25 +33,24 @@ export interface RepositoryResponse {
   /** @nullable */
   envVars?: RepositoryResponseEnvVars;
   id: string;
-  kind: string;
+  kind: RepositoryKind;
   name: string;
   /** @nullable */
-  plugins?: RepositoryResponsePlugins;
-  /** @nullable */
-  provider?: string | null;
+  plugins?: string[] | null;
+  provider?: null | RepositoryProvider;
   /** @nullable */
   remoteUrl?: string | null;
   /** @nullable */
-  serverStartCommands?: RepositoryResponseServerStartCommands;
+  serverStartCommands?: string[] | null;
   /** @nullable */
-  servers?: RepositoryResponseServers;
+  servers?: ServerConfig[] | null;
   /** @nullable */
-  setupCommands?: RepositoryResponseSetupCommands;
+  setupCommands?: string[] | null;
   /** @nullable */
   startupTimeoutSeconds?: number | null;
   /** @nullable */
   systemPrompt?: string | null;
   /** @nullable */
   updatedAt?: string | null;
-  visibility: string;
+  visibility: Visibility;
 }

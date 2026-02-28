@@ -5,6 +5,9 @@
  * Workspace orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
+import type { AgentMode } from './agentMode';
+import type { MessageRole } from './messageRole';
+import type { MessageType } from './messageType';
 import type { UiAssistantMeta } from './uiAssistantMeta';
 import type { UiContentBlock } from './uiContentBlock';
 import type { UiResultMeta } from './uiResultMeta';
@@ -14,8 +17,7 @@ import type { UiToolResult } from './uiToolResult';
  * UI-facing message representation.
  */
 export interface UiMessage {
-  /** @nullable */
-  agentMode?: string | null;
+  agentMode?: null | AgentMode;
   assistant?: null | UiAssistantMeta;
   /** Content blocks for this message. */
   content: UiContentBlock[];
@@ -26,11 +28,11 @@ export interface UiMessage {
   hasPendingUserInput?: boolean | null;
   /** @nullable */
   isQueued?: boolean | null;
-  messageType: string;
+  messageType: MessageType;
   /** @nullable */
   model?: string | null;
   result?: null | UiResultMeta;
-  role: string;
+  role: MessageRole;
   /** @nullable */
   sessionId?: string | null;
   timestamp: string;

@@ -5,6 +5,7 @@
  * Workspace orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
+import type { UserRole } from './userRole';
 
 /**
  * User info within session response.
@@ -19,5 +20,5 @@ export interface UserInfo {
   /** @nullable */
   name?: string | null;
   provider: string;
-  role: string;
+  role: UserRole;
 }

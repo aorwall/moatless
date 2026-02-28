@@ -28,7 +28,9 @@ import type {
   DeleteMessageResponse,
   ErrorBody,
   GetMessagesResponse,
-  GetPendingMessagesResponse
+  GetPendingMessagesResponse,
+  SendMessageRequest,
+  SendMessageResponse
 } from '.././model';
 
 import { customInstance } from '../../../custom-instance';
@@ -175,6 +177,97 @@ export const prefetchGetMessagesQuery = async <TData = Awaited<ReturnType<typeof
 
 
 /**
+ * If `command_name` is set, the command's prompt is used instead of `message`.
+ * @summary Send a message to the agent for a task.
+ */
+export type sendMessageResponse200 = {
+  data: SendMessageResponse
+  status: 200
+}
+
+export type sendMessageResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+    
+export type sendMessageResponseSuccess = (sendMessageResponse200) & {
+  headers: Headers;
+};
+export type sendMessageResponseError = (sendMessageResponse404) & {
+  headers: Headers;
+};
+
+export type sendMessageResponse = (sendMessageResponseSuccess | sendMessageResponseError)
+
+export const getSendMessageUrl = (taskId: string,) => {
+
+
+  
+
+  return `/api/v1/tasks/${taskId}/messages`
+}
+
+export const sendMessage = async (taskId: string,
+    sendMessageRequest: SendMessageRequest, options?: RequestInit): Promise<sendMessageResponse> => {
+  
+  return customInstance<sendMessageResponse>(getSendMessageUrl(taskId),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      sendMessageRequest,)
+  }
+);}
+
+
+
+
+export const getSendMessageMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendMessage>>, TError,{taskId: string;data: SendMessageRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof sendMessage>>, TError,{taskId: string;data: SendMessageRequest}, TContext> => {
+
+const mutationKey = ['sendMessage'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof sendMessage>>, {taskId: string;data: SendMessageRequest}> = (props) => {
+          const {taskId,data} = props ?? {};
+
+          return  sendMessage(taskId,data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SendMessageMutationResult = NonNullable<Awaited<ReturnType<typeof sendMessage>>>
+    export type SendMessageMutationBody = SendMessageRequest
+    export type SendMessageMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Send a message to the agent for a task.
+ */
+export const useSendMessage = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendMessage>>, TError,{taskId: string;data: SendMessageRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof sendMessage>>,
+        TError,
+        {taskId: string;data: SendMessageRequest},
+        TContext
+      > => {
+      return useMutation(getSendMessageMutationOptions(options), queryClient);
+    }
+    /**
  * @summary Get pending messages for a task.
  */
 export type getPendingMessagesResponse200 = {

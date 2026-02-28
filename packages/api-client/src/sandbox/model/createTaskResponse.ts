@@ -6,9 +6,10 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { TaskResponse } from './taskResponse';
+import type { TaskStatus } from './taskStatus';
 
 export interface CreateTaskResponse {
-  status: string;
+  status: TaskStatus;
   task: TaskResponse;
   taskId: string;
 }

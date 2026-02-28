@@ -5,15 +5,18 @@
  * Workspace orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
+import type { ServerStatus } from './serverStatus';
 
 /**
  * Server snapshot from sandbox GET /status
  */
 export interface ServerSnapshot {
-  builtin: boolean;
+  builtin?: boolean;
+  default?: boolean;
+  enable_inspector?: boolean;
   /** @nullable */
   error?: string | null;
-  label: string;
+  label?: string;
   name: string;
   /**
    * @minimum 0
@@ -21,6 +24,6 @@ export interface ServerSnapshot {
    */
   pid?: number | null;
   /** @minimum 0 */
-  port: number;
-  status: string;
+  port?: number;
+  status: ServerStatus;
 }

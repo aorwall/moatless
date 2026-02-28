@@ -29,7 +29,9 @@ import type {
   ExchangeTokenRequest,
   ExchangeTokenResponse,
   GitHubConfigResponse,
+  GitnessConfigResponse,
   OAuthUrlResponse,
+  SaveGitnessPATRequest,
   SavePatRequest
 } from '.././model';
 
@@ -572,5 +574,313 @@ export const useSaveGithubPat = <TError = ErrorType<ErrorBody>,
         TContext
       > => {
       return useMutation(getSaveGithubPatMutationOptions(options), queryClient);
+    }
+    /**
+ * @summary Get current Gitness configuration for the user.
+ */
+export type getGitnessConfigResponse200 = {
+  data: GitnessConfigResponse
+  status: 200
+}
+
+export type getGitnessConfigResponse401 = {
+  data: ErrorBody
+  status: 401
+}
+    
+export type getGitnessConfigResponseSuccess = (getGitnessConfigResponse200) & {
+  headers: Headers;
+};
+export type getGitnessConfigResponseError = (getGitnessConfigResponse401) & {
+  headers: Headers;
+};
+
+export type getGitnessConfigResponse = (getGitnessConfigResponseSuccess | getGitnessConfigResponseError)
+
+export const getGetGitnessConfigUrl = () => {
+
+
+  
+
+  return `/api/v1/settings/gitness/config`
+}
+
+export const getGitnessConfig = async ( options?: RequestInit): Promise<getGitnessConfigResponse> => {
+  
+  return customInstance<getGitnessConfigResponse>(getGetGitnessConfigUrl(),
+  {      
+    ...options,
+    method: 'GET'
+    
+    
+  }
+);}
+
+
+
+
+
+export const getGetGitnessConfigQueryKey = () => {
+    return [
+    `/api/v1/settings/gitness/config`
+    ] as const;
+    }
+
+    
+export const getGetGitnessConfigQueryOptions = <TData = Awaited<ReturnType<typeof getGitnessConfig>>, TError = ErrorType<ErrorBody>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getGitnessConfig>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetGitnessConfigQueryKey();
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getGitnessConfig>>> = ({ signal }) => getGitnessConfig({ signal, ...requestOptions });
+
+      
+
+      
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getGitnessConfig>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
+}
+
+export type GetGitnessConfigQueryResult = NonNullable<Awaited<ReturnType<typeof getGitnessConfig>>>
+export type GetGitnessConfigQueryError = ErrorType<ErrorBody>
+
+
+export function useGetGitnessConfig<TData = Awaited<ReturnType<typeof getGitnessConfig>>, TError = ErrorType<ErrorBody>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getGitnessConfig>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getGitnessConfig>>,
+          TError,
+          Awaited<ReturnType<typeof getGitnessConfig>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useGetGitnessConfig<TData = Awaited<ReturnType<typeof getGitnessConfig>>, TError = ErrorType<ErrorBody>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getGitnessConfig>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getGitnessConfig>>,
+          TError,
+          Awaited<ReturnType<typeof getGitnessConfig>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useGetGitnessConfig<TData = Awaited<ReturnType<typeof getGitnessConfig>>, TError = ErrorType<ErrorBody>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getGitnessConfig>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+/**
+ * @summary Get current Gitness configuration for the user.
+ */
+
+export function useGetGitnessConfig<TData = Awaited<ReturnType<typeof getGitnessConfig>>, TError = ErrorType<ErrorBody>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getGitnessConfig>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
+
+  const queryOptions = getGetGitnessConfigQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get current Gitness configuration for the user.
+ */
+export const prefetchGetGitnessConfigQuery = async <TData = Awaited<ReturnType<typeof getGitnessConfig>>, TError = ErrorType<ErrorBody>>(
+ queryClient: QueryClient,  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getGitnessConfig>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+
+  ): Promise<QueryClient> => {
+
+  const queryOptions = getGetGitnessConfigQueryOptions(options)
+
+  await queryClient.prefetchQuery(queryOptions);
+
+  return queryClient;
+}
+
+
+
+/**
+ * @summary Disconnect Gitness by deleting the stored token.
+ */
+export type deleteGitnessConfigResponse200 = {
+  data: GitnessConfigResponse
+  status: 200
+}
+
+export type deleteGitnessConfigResponse401 = {
+  data: ErrorBody
+  status: 401
+}
+    
+export type deleteGitnessConfigResponseSuccess = (deleteGitnessConfigResponse200) & {
+  headers: Headers;
+};
+export type deleteGitnessConfigResponseError = (deleteGitnessConfigResponse401) & {
+  headers: Headers;
+};
+
+export type deleteGitnessConfigResponse = (deleteGitnessConfigResponseSuccess | deleteGitnessConfigResponseError)
+
+export const getDeleteGitnessConfigUrl = () => {
+
+
+  
+
+  return `/api/v1/settings/gitness/config`
+}
+
+export const deleteGitnessConfig = async ( options?: RequestInit): Promise<deleteGitnessConfigResponse> => {
+  
+  return customInstance<deleteGitnessConfigResponse>(getDeleteGitnessConfigUrl(),
+  {      
+    ...options,
+    method: 'DELETE'
+    
+    
+  }
+);}
+
+
+
+
+export const getDeleteGitnessConfigMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteGitnessConfig>>, TError,void, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteGitnessConfig>>, TError,void, TContext> => {
+
+const mutationKey = ['deleteGitnessConfig'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteGitnessConfig>>, void> = () => {
+          
+
+          return  deleteGitnessConfig(requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteGitnessConfigMutationResult = NonNullable<Awaited<ReturnType<typeof deleteGitnessConfig>>>
+    
+    export type DeleteGitnessConfigMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Disconnect Gitness by deleting the stored token.
+ */
+export const useDeleteGitnessConfig = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteGitnessConfig>>, TError,void, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof deleteGitnessConfig>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getDeleteGitnessConfigMutationOptions(options), queryClient);
+    }
+    /**
+ * @summary Save a Gitness Personal Access Token after validating it.
+ */
+export type saveGitnessPatResponse200 = {
+  data: GitnessConfigResponse
+  status: 200
+}
+
+export type saveGitnessPatResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+    
+export type saveGitnessPatResponseSuccess = (saveGitnessPatResponse200) & {
+  headers: Headers;
+};
+export type saveGitnessPatResponseError = (saveGitnessPatResponse400) & {
+  headers: Headers;
+};
+
+export type saveGitnessPatResponse = (saveGitnessPatResponseSuccess | saveGitnessPatResponseError)
+
+export const getSaveGitnessPatUrl = () => {
+
+
+  
+
+  return `/api/v1/settings/gitness/pat`
+}
+
+export const saveGitnessPat = async (saveGitnessPATRequest: SaveGitnessPATRequest, options?: RequestInit): Promise<saveGitnessPatResponse> => {
+  
+  return customInstance<saveGitnessPatResponse>(getSaveGitnessPatUrl(),
+  {      
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      saveGitnessPATRequest,)
+  }
+);}
+
+
+
+
+export const getSaveGitnessPatMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveGitnessPat>>, TError,{data: SaveGitnessPATRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof saveGitnessPat>>, TError,{data: SaveGitnessPATRequest}, TContext> => {
+
+const mutationKey = ['saveGitnessPat'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof saveGitnessPat>>, {data: SaveGitnessPATRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  saveGitnessPat(data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SaveGitnessPatMutationResult = NonNullable<Awaited<ReturnType<typeof saveGitnessPat>>>
+    export type SaveGitnessPatMutationBody = SaveGitnessPATRequest
+    export type SaveGitnessPatMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Save a Gitness Personal Access Token after validating it.
+ */
+export const useSaveGitnessPat = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveGitnessPat>>, TError,{data: SaveGitnessPATRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof saveGitnessPat>>,
+        TError,
+        {data: SaveGitnessPATRequest},
+        TContext
+      > => {
+      return useMutation(getSaveGitnessPatMutationOptions(options), queryClient);
     }
     
