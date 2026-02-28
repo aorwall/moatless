@@ -1,4 +1,7 @@
 //! Git configuration and repository cloning.
+//!
+//! Provider-agnostic: uses `GIT_TOKEN` (set by credentials.rs based on
+//! `GIT_PROVIDER`) and the full clone URL from `GIT_CLONE_URL`.
 
 use std::path::Path;
 
@@ -7,36 +10,47 @@ use tracing::{info, warn};
 
 use crate::config::Config;
 
-/// Configure git authentication using `gh auth setup-git`.
+/// Configure git authentication.
 ///
-/// Also resolves git user name/email from the GitHub API via `gh api user`.
-pub async fn configure_git(_config: &Config) -> Result<(), String> {
-    // Only configure if GITHUB_TOKEN is available
-    if std::env::var("GITHUB_TOKEN").is_err() {
-        info!("GITHUB_TOKEN not set — skipping git configuration");
+/// For GitHub: uses `gh auth setup-git` + resolves user info via `gh api user`.
+/// For other providers: configures token-based HTTPS auth via git credential helper.
+pub async fn configure_git(config: &Config) -> Result<(), String> {
+    let is_github = config.git_provider == "github";
+
+    // GitHub-specific: use gh CLI for credential management
+    if is_github {
+        if std::env::var("GITHUB_TOKEN").is_err() && std::env::var("GIT_TOKEN").is_err() {
+            info!("No git token set — skipping git configuration");
+            return Ok(());
+        }
+
+        // Configure gh CLI to use git credential helper
+        if let Err(e) = run_command("gh", &["auth", "setup-git"]).await {
+            warn!(error = %e, "gh auth setup-git failed, continuing with manual config");
+        }
+
+        // SSH to HTTPS conversion (GitHub only)
+        let _ = run_command(
+            "git",
+            &[
+                "config",
+                "--global",
+                "url.https://github.com/.insteadOf",
+                "git@github.com:",
+            ],
+        )
+        .await;
+    } else if std::env::var("GIT_TOKEN").is_err() {
+        info!(provider = %config.git_provider, "No git token set — skipping git configuration");
         return Ok(());
     }
 
-    // Configure gh CLI to use git credential helper
-    run_command("gh", &["auth", "setup-git"]).await?;
-
-    // SSH to HTTPS conversion
-    run_command(
-        "git",
-        &[
-            "config",
-            "--global",
-            "url.https://github.com/.insteadOf",
-            "git@github.com:",
-        ],
-    )
-    .await?;
-
-    // Resolve git user info from GitHub API
+    // Resolve git user info
     let user_name = std::env::var("GIT_USER_NAME").ok();
     let user_email = std::env::var("GIT_USER_EMAIL").ok();
 
-    if user_name.is_none() || user_email.is_none() {
+    // Try to resolve user info from GitHub API (GitHub only)
+    if is_github && (user_name.is_none() || user_email.is_none()) {
         match resolve_github_user().await {
             Ok((name, email)) => {
                 if user_name.is_none() {
@@ -64,11 +78,20 @@ pub async fn configure_git(_config: &Config) -> Result<(), String> {
         run_command("git", &["config", "--global", "user.email", email]).await?;
     }
 
-    info!("Git authentication configured");
+    // For non-GitHub providers, set a fallback user if nothing was configured
+    if !is_github && user_name.is_none() && user_email.is_none() {
+        let _ = run_command("git", &["config", "--global", "user.name", "Moatless Agent"]).await;
+        let _ = run_command("git", &["config", "--global", "user.email", "agent@moatless.ai"]).await;
+    }
+
+    info!(provider = %config.git_provider, "Git authentication configured");
     Ok(())
 }
 
-/// Clone a repository, trying `gh repo clone` first then falling back to `git clone`.
+/// Clone a repository using the clone URL directly.
+///
+/// For GitHub repos, tries `gh repo clone` first, then falls back to `git clone`.
+/// For other providers, uses `git clone` with token-authenticated HTTPS URL.
 pub async fn clone_repository(config: &Config) -> Result<(), String> {
     let Some(ref clone_url) = config.git_clone_url else {
         return Ok(());
@@ -80,60 +103,73 @@ pub async fn clone_repository(config: &Config) -> Result<(), String> {
         return Ok(());
     }
 
-    // Extract owner/repo from URL
-    let repo_path = clone_url
-        .replace("https://github.com/", "")
-        .replace("git@github.com:", "")
-        .trim_end_matches(".git")
-        .to_string();
+    let is_github = config.git_provider == "github";
 
-    info!(repo = %repo_path, branch = ?config.git_branch, "Cloning repository");
+    // Normalize empty branch to None
+    let branch = config.git_branch.as_deref().filter(|b| !b.is_empty());
 
-    // Try gh repo clone first
-    let mut args = vec!["repo", "clone", &repo_path, &config.workspace_dir, "--"];
-    args.push("--depth");
-    args.push("1");
+    info!(
+        url = %clone_url,
+        provider = %config.git_provider,
+        branch = ?branch,
+        "Cloning repository"
+    );
 
-    let branch_owned;
-    if let Some(ref branch) = config.git_branch {
-        args.push("--branch");
-        branch_owned = branch.clone();
-        args.push(&branch_owned);
+    // GitHub: try `gh repo clone` first (handles auth automatically)
+    if is_github {
+        let repo_path = extract_github_repo_path(clone_url);
+        let mut args = vec!["repo", "clone", &repo_path, &config.workspace_dir, "--"];
+        args.push("--depth");
+        args.push("1");
+
+        if let Some(b) = branch {
+            args.push("--branch");
+            args.push(b);
+        }
+
+        match run_command("gh", &args).await {
+            Ok(()) => {
+                info!("Repository cloned successfully via gh CLI");
+                return Ok(());
+            }
+            Err(e) => {
+                warn!(error = %e, "gh repo clone failed, falling back to git clone");
+            }
+        }
     }
 
-    match run_command("gh", &args).await {
-        Ok(()) => {
-            info!("Repository cloned successfully");
-            return Ok(());
-        }
-        Err(e) => {
-            warn!(error = %e, "gh repo clone failed, falling back to git clone");
-        }
-    }
+    // Try git clone with token auth (works for all providers)
+    let git_token = std::env::var("GIT_TOKEN")
+        .or_else(|_| std::env::var("GITHUB_TOKEN"))
+        .ok();
 
-    // Fallback: git clone with HTTPS token auth (if available)
-    if let Ok(token) = std::env::var("GITHUB_TOKEN") {
-        let https_url = format!("https://x-access-token:{token}@github.com/{repo_path}.git");
+    if let Some(token) = git_token {
+        let auth_url = inject_token_into_url(clone_url, &token);
         let mut git_args = vec!["clone", "--depth", "1"];
-        if let Some(ref branch) = config.git_branch {
+        if let Some(b) = branch {
             git_args.push("--branch");
-            git_args.push(branch);
+            git_args.push(b);
         }
-        git_args.push(&https_url);
+        git_args.push(&auth_url);
         git_args.push(&config.workspace_dir);
-        run_command("git", &git_args).await?;
-        info!("Repository cloned successfully (git fallback with token)");
-        return Ok(());
+        match run_command("git", &git_args).await {
+            Ok(()) => {
+                info!("Repository cloned successfully with token auth");
+                return Ok(());
+            }
+            Err(e) => {
+                warn!(error = %e, "git clone with token failed, trying without auth");
+            }
+        }
     }
 
     // Last resort: plain git clone (works for public repos)
-    let plain_url = format!("https://github.com/{repo_path}.git");
     let mut git_args = vec!["clone", "--depth", "1"];
-    if let Some(ref branch) = config.git_branch {
+    if let Some(b) = branch {
         git_args.push("--branch");
-        git_args.push(branch);
+        git_args.push(b);
     }
-    git_args.push(&plain_url);
+    git_args.push(clone_url);
     git_args.push(&config.workspace_dir);
     match run_command("git", &git_args).await {
         Ok(()) => {
@@ -143,6 +179,37 @@ pub async fn clone_repository(config: &Config) -> Result<(), String> {
         Err(e) => {
             Err(format!("All clone methods failed. Last error: {e}"))
         }
+    }
+}
+
+/// Extract "owner/repo" from a GitHub URL.
+///
+/// Handles:
+/// - `https://github.com/owner/repo.git`
+/// - `git@github.com:owner/repo.git`
+fn extract_github_repo_path(url: &str) -> String {
+    url.replace("https://github.com/", "")
+        .replace("git@github.com:", "")
+        .trim_end_matches(".git")
+        .to_string()
+}
+
+/// Inject a token into an HTTPS clone URL.
+///
+/// Converts `https://host/path.git` → `https://x-access-token:{token}@host/path.git`.
+/// If the URL already has credentials embedded, replaces them.
+fn inject_token_into_url(url: &str, token: &str) -> String {
+    if let Some(rest) = url.strip_prefix("https://") {
+        // Strip any existing credentials (user:pass@)
+        let host_and_path = if let Some(at_pos) = rest.find('@') {
+            &rest[at_pos + 1..]
+        } else {
+            rest
+        };
+        format!("https://x-access-token:{token}@{host_and_path}")
+    } else {
+        // Not an HTTPS URL, return as-is (ssh, etc.)
+        url.to_string()
     }
 }
 
@@ -195,4 +262,55 @@ async fn run_command(program: &str, args: &[&str]) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extract_github_repo_path_https() {
+        assert_eq!(
+            extract_github_repo_path("https://github.com/owner/repo.git"),
+            "owner/repo"
+        );
+    }
+
+    #[test]
+    fn extract_github_repo_path_ssh() {
+        assert_eq!(
+            extract_github_repo_path("git@github.com:owner/repo.git"),
+            "owner/repo"
+        );
+    }
+
+    #[test]
+    fn inject_token_basic() {
+        assert_eq!(
+            inject_token_into_url("https://github.com/owner/repo.git", "tok123"),
+            "https://x-access-token:tok123@github.com/owner/repo.git"
+        );
+    }
+
+    #[test]
+    fn inject_token_gitness() {
+        assert_eq!(
+            inject_token_into_url("https://gitness.example.com/org/repo.git", "eyJ"),
+            "https://x-access-token:eyJ@gitness.example.com/org/repo.git"
+        );
+    }
+
+    #[test]
+    fn inject_token_replaces_existing_credentials() {
+        assert_eq!(
+            inject_token_into_url("https://old:cred@github.com/owner/repo.git", "new_token"),
+            "https://x-access-token:new_token@github.com/owner/repo.git"
+        );
+    }
+
+    #[test]
+    fn inject_token_ssh_passthrough() {
+        let ssh_url = "git@github.com:owner/repo.git";
+        assert_eq!(inject_token_into_url(ssh_url, "tok"), ssh_url);
+    }
 }

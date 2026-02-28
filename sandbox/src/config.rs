@@ -99,6 +99,8 @@ pub struct Config {
     pub git_clone_url: Option<String>,
     /// Git branch to clone
     pub git_branch: Option<String>,
+    /// Git provider name (github, gitlab, gitness)
+    pub git_provider: String,
     /// Raw REPO_CONFIG JSON (for entrypoint compat)
     pub repo_config_raw: Option<String>,
     /// Setup commands from REPO_CONFIG.codeExecution.setupCommands
@@ -160,6 +162,7 @@ impl Config {
             claude_config_dir,
             git_clone_url: env::var("GIT_CLONE_URL").ok(),
             git_branch: env::var("GIT_BRANCH").ok(),
+            git_provider: env::var("GIT_PROVIDER").unwrap_or_else(|_| "github".to_string()),
             repo_config_raw: env::var("REPO_CONFIG").ok(),
             setup_commands: parsed.setup_commands,
             plugin_ids: parsed.plugin_ids,

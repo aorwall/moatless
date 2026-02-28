@@ -46,6 +46,27 @@ pub async fn fetch_and_apply_credentials(state: &SandboxState) -> Result<(), Str
                     }
                 }
 
+                // Map provider-specific token to GIT_TOKEN based on GIT_PROVIDER
+                // so git.rs can use a single env var for clone authentication.
+                // Skip if GIT_TOKEN is already set (e.g. injected by pod builder).
+                if std::env::var("GIT_TOKEN").is_err() {
+                    let git_provider = state.config.git_provider.as_str();
+                    let provider_token_key = match git_provider {
+                        "gitlab" => "GITLAB_TOKEN",
+                        "gitness" => "GITNESS_TOKEN",
+                        _ => "GITHUB_TOKEN", // default to GitHub
+                    };
+                    if let Some(token) = resp.credentials.get(provider_token_key).cloned() {
+                        resp.credentials.entry("GIT_TOKEN".to_string()).or_insert_with(|| {
+                            // SAFETY: called during single-threaded init phase.
+                            unsafe {
+                                std::env::set_var("GIT_TOKEN", &token);
+                            }
+                            token.clone()
+                        });
+                    }
+                }
+
                 // Alias GITHUB_TOKEN → GH_TOKEN for `gh` CLI compatibility
                 if let Some(token) = resp.credentials.get("GITHUB_TOKEN").cloned() {
                     resp.credentials.entry("GH_TOKEN".to_string()).or_insert_with(|| {
