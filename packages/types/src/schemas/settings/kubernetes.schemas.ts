@@ -24,13 +24,13 @@ export const KubernetesResourcesSchema = z.object({
 export type KubernetesResources = z.infer<typeof KubernetesResourcesSchema>
 
 /**
- * Workspace execution mode
- * - docker: Run workspaces in Docker containers (local development)
- * - kubernetes: Run workspaces as Kubernetes pods (production)
+ * Sandbox execution mode
+ * - docker: Run sandboxes in Docker containers (local development)
+ * - kubernetes: Run sandboxes as Kubernetes pods (production)
  */
-export const WorkspaceExecutionModeSchema = z.enum(['docker', 'kubernetes'])
+export const SandboxExecutionModeSchema = z.enum(['docker', 'kubernetes'])
 
-export type WorkspaceExecutionMode = z.infer<typeof WorkspaceExecutionModeSchema>
+export type SandboxExecutionMode = z.infer<typeof SandboxExecutionModeSchema>
 
 /**
  * Kubernetes settings for pod-based workspace execution

@@ -6,8 +6,8 @@ import { FileExplorer } from '@/features/files'
 import { Preview, SandboxStatusOverlay } from '@/features/preview'
 import { useHistoricalSandboxEvents } from '@/features/preview/hooks/use-task-events'
 import type { ElementInfo, SandboxEvent, StartupEvent } from '@/features/preview/types'
-import { useWorkspaceStatus } from '@/features/tasks'
-import { useWorkspaceRetry } from '@/features/tasks/hooks/use-workspace-status'
+import { useSandboxStatus } from '@/features/tasks'
+import { useSandboxRetry } from '@/features/tasks/hooks/use-sandbox-status'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { Skeleton } from '@/lib/components/ui/skeleton'
@@ -168,14 +168,14 @@ function TaskPageComponent() {
   // Get current preview path from URL state
   const { previewPath } = usePreviewPath()
 
-  // Fetch workspace status to determine capabilities and server URL
-  // Fetch workspace status only once the task is known to be open
-  const workspaceStatusQuery = useWorkspaceStatus(taskId, taskQuery.data)
-  const workspaceStatus = workspaceStatusQuery.data
-  const servers = workspaceStatus?.servers
+  // Fetch sandbox status to determine capabilities and server URL
+  // Fetch sandbox status only once the task is known to be open
+  const sandboxStatusQuery = useSandboxStatus(taskId, taskQuery.data)
+  const sandboxStatus = sandboxStatusQuery.data
+  const servers = sandboxStatus?.servers
 
   // Hook for retrying/starting sandbox (used by files view)
-  const retryMutation = useWorkspaceRetry(taskId)
+  const retryMutation = useSandboxRetry(taskId)
 
   // Get current view from URL with smart defaults
   const { view, setView, isMobile } = useTaskView({
@@ -267,9 +267,9 @@ function TaskPageComponent() {
   }
 
   // Determine which workspace content to show based on unified view
-  // Don't render final content until workspace status is loaded to ensure correct view
+  // Don't render final content until sandbox status is loaded to ensure correct view
   const workspaceContent = (() => {
-    if (workspaceStatusQuery.isLoading) {
+    if (sandboxStatusQuery.isLoading) {
       return (
         <div className="p-4 space-y-4">
           <Skeleton className="h-10 w-full" />
@@ -279,12 +279,12 @@ function TaskPageComponent() {
       )
     }
 
-    if (workspaceStatusQuery.error) {
-      return <ErrorAlert error={workspaceStatusQuery.error} />
+    if (sandboxStatusQuery.error) {
+      return <ErrorAlert error={sandboxStatusQuery.error} />
     }
 
     if (view === 'files') {
-      const isSandboxReady = workspaceStatus?.environmentStatus === 'ready'
+      const isSandboxReady = sandboxStatus?.environmentStatus === 'ready'
       return (
         <ErrorBoundary componentName="File Explorer">
           <div className="h-full flex flex-col">
@@ -293,10 +293,10 @@ function TaskPageComponent() {
               {isSandboxReady ? (
                 <FileExplorer taskId={taskId} />
               ) : (
-                workspaceStatus?.environmentStatus && (
+                sandboxStatus?.environmentStatus && (
                   <SandboxStatusOverlay
-                    environmentStatus={workspaceStatus.environmentStatus}
-                    environmentError={workspaceStatus.environmentError ?? undefined}
+                    environmentStatus={sandboxStatus.environmentStatus}
+                    environmentError={sandboxStatus.environmentError ?? undefined}
                     sandboxEvents={sandboxEvents}
                     onRetry={() => retryMutation.mutate()}
                     isRetrying={retryMutation.isPending}
@@ -317,15 +317,15 @@ function TaskPageComponent() {
       <ErrorBoundary componentName="Preview">
         <Preview
           taskId={taskId}
-          environmentStatus={workspaceStatus?.environmentStatus}
-          environmentError={workspaceStatus?.environmentError ?? undefined}
+          environmentStatus={sandboxStatus?.environmentStatus}
+          environmentError={sandboxStatus?.environmentError ?? undefined}
           startupEvents={startupEvents}
           onToggleElementContext={handleToggleElementContext}
           onNavigationReady={handleNavigationReady}
           onTroubleshootRequest={handleTroubleshootRequest}
           servers={servers}
           activeServer={activeServerName}
-          resources={workspaceStatus?.resources ?? undefined}
+          resources={sandboxStatus?.resources ?? undefined}
           sandboxEvents={sandboxEvents}
         />
       </ErrorBoundary>

@@ -24,25 +24,25 @@ function getSandboxStatusConfig(status: EnvironmentStatus, error?: string): Sand
     initializing: {
       icon: <Loader2 className="h-12 w-12 text-muted-foreground animate-spin" />,
       title: 'Setting Up Sandbox',
-      message: 'Please wait while the workspace is being prepared...',
+      message: 'Please wait while the sandbox is being prepared...',
       showRetry: false,
     },
     stopped: {
       icon: <AlertCircle className="h-12 w-12 text-orange-500" />,
       title: 'Sandbox Stopped',
-      message: 'The workspace container was stopped',
+      message: 'The sandbox was stopped',
       showRetry: true,
     },
     error: {
       icon: <XCircle className="h-12 w-12 text-destructive" />,
       title: 'Sandbox Error',
-      message: error || 'An error occurred with the workspace environment',
+      message: error || 'An error occurred with the sandbox environment',
       showRetry: true,
     },
     removing: {
       icon: <Loader2 className="h-12 w-12 text-muted-foreground animate-spin" />,
       title: 'Removing Sandbox',
-      message: 'Please wait while the workspace is being removed...',
+      message: 'Please wait while the sandbox is being removed...',
       showRetry: false,
     },
     ready: {

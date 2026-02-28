@@ -7,71 +7,71 @@ import {
 import type { UseQueryOptions } from '@tanstack/react-query'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/api/query-keys'
-import { useTaskWorkspaceStatusQuery } from './use-task-queries'
+import { useTaskSandboxStatusQuery } from './use-task-queries'
 
-interface UseWorkspaceStatusOptions
+interface UseSandboxStatusOptions
   extends Omit<UseQueryOptions<WorkspaceStatusFullResponse>, 'queryKey' | 'queryFn'> {
   enabled?: boolean
 }
 
 /**
- * Hook to fetch workspace status for a task
+ * Hook to fetch sandbox status for a task
  * - Fetches for active tasks (open, running, error)
  * - Stops fetching for terminal states (closed, merged)
  * - Polls intelligently based on environment/agent state
  * - Provides derived states for components
  */
-export function useWorkspaceStatus(
+export function useSandboxStatus(
   taskId: string,
   task?: TaskResponse,
-  options?: UseWorkspaceStatusOptions,
+  options?: UseSandboxStatusOptions,
 ) {
   const isEnabled = options?.enabled ?? true
 
-  return useTaskWorkspaceStatusQuery(taskId, {
+  return useTaskSandboxStatusQuery(taskId, {
     ...options,
     enabled: isEnabled && task?.status !== 'closed',
-  } as Parameters<typeof useTaskWorkspaceStatusQuery>[1])
+  } as Parameters<typeof useTaskSandboxStatusQuery>[1])
 }
 
 /**
- * Hook to retry workspace provisioning after a failure
+ * Hook to retry sandbox provisioning after a failure
  * Calls backend's provision endpoint directly
  * Note: Status updates are handled by SSE events in global-event-stream-provider
  */
-export function useWorkspaceRetry(taskId: string) {
+export function useSandboxRetry(taskId: string) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: () => provisionHandler(taskId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.workspaceStatus(taskId) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.sandboxStatus(taskId) })
     },
   })
 }
 
 /**
- * Hook to restart workspace via backend (Deployment pod restart)
+ * Hook to restart sandbox via backend (Deployment pod restart)
  * Preserves workspace data (PVC in K8s)
  */
-export function useWorkspaceRestart(taskId: string) {
+export function useSandboxRestart(taskId: string) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: () => restartHandler(taskId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.workspaceStatus(taskId) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.sandboxStatus(taskId) })
     },
   })
 }
 
 /**
- * Hook to stop workspace via backend (scale Deployment to 0)
+ * Hook to stop sandbox via backend (scale Deployment to 0)
  */
-export function useWorkspaceStop(taskId: string) {
+export function useSandboxStop(taskId: string) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: () => stopHandler(taskId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.workspaceStatus(taskId) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.sandboxStatus(taskId) })
     },
   })
 }

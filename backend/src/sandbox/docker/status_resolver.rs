@@ -32,7 +32,7 @@ impl DockerStatusResolver {
         &self,
         task_id: &str,
         server_configs: &[ServerConfig],
-    ) -> WorkspaceStatusFullResponse {
+    ) -> SandboxStatusFullResponse {
         let container_name = generate_container_name(task_id);
         let env_status = self.inspect_environment_status(&container_name).await;
         let is_running = env_status == EnvironmentStatus::Ready;
@@ -41,33 +41,33 @@ impl DockerStatusResolver {
             let agent_state = self.fetch_agent_state(task_id).await;
             let servers = self.resolve_server_entries(task_id, server_configs).await;
 
-            return WorkspaceStatusFullResponse {
-                workspace_state: WorkspaceState::Exists,
+            return SandboxStatusFullResponse {
+                sandbox_state: SandboxState::Exists,
                 environment_status: env_status,
                 environment_error: None,
                 agent_state,
                 servers,
-                workspace_ready: true,
+                sandbox_ready: true,
                 can_execute: true,
                 resources: None,
             };
         }
 
         // Container is not running
-        let workspace_state = match env_status {
-            EnvironmentStatus::NotCreated => WorkspaceState::Missing,
-            _ => WorkspaceState::Exists,
+        let sandbox_state = match env_status {
+            EnvironmentStatus::NotCreated => SandboxState::Missing,
+            _ => SandboxState::Exists,
         };
 
         let can_execute = env_status == EnvironmentStatus::Stopped;
 
-        WorkspaceStatusFullResponse {
-            workspace_state,
+        SandboxStatusFullResponse {
+            sandbox_state,
             environment_status: env_status,
             environment_error: None,
             agent_state: AgentState::None,
             servers: vec![],
-            workspace_ready: false,
+            sandbox_ready: false,
             can_execute,
             resources: None,
         }

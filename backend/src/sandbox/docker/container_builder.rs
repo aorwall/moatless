@@ -128,7 +128,7 @@ pub fn build_container_config(
     // ── Bind mounts ───────────────────────────────────────────────
     let workspace_host_path = generate_workspace_host_path(&config.docker.data_dir, task_id);
     let data_host_path = generate_data_host_path(&config.docker.data_dir, task_id);
-    let mounts = vec![
+    let mut mounts = vec![
         Mount {
             target: Some("/opt/moatless/repo".to_string()),
             source: Some(workspace_host_path),
@@ -144,6 +144,22 @@ pub fn build_container_config(
             ..Default::default()
         },
     ];
+
+    // ── Docker socket mount (opt-in) ────────────────────────────
+    // Repo-level `docker_access` overrides global `enable_socket_mount`.
+    let docker_access = plan
+        .repo_config
+        .docker_access
+        .unwrap_or(config.docker.enable_socket_mount);
+    if docker_access {
+        mounts.push(Mount {
+            target: Some("/var/run/docker.sock".to_string()),
+            source: Some(config.docker.socket_path.clone()),
+            typ: Some(MountTypeEnum::BIND),
+            read_only: Some(false),
+            ..Default::default()
+        });
+    }
 
     // ── Host config ───────────────────────────────────────────────
     let host_config = HostConfig {
@@ -396,6 +412,9 @@ mod tests {
                 data_dir: "/data".into(),
                 container_data_dir: "/data".into(),
                 backend_hostname: "moatless-backend".into(),
+                enable_socket_mount: false,
+                socket_path: "/var/run/docker.sock".into(),
+                extra_networks: vec![],
             },
             database_url: None,
             database: DatabaseConfig { url: None, max_connections: 5 },
@@ -435,6 +454,8 @@ mod tests {
                 system_prompt: None,
                 code_execution: None,
                 preview_config: None,
+                docker_access: None,
+                docker_networks: None,
             },
             git_clone_url: "https://github.com/test/repo.git".into(),
             git_branch: Some("main".into()),
@@ -507,7 +528,7 @@ mod tests {
         let mounts = host_config.mounts.unwrap();
         assert_eq!(mounts.len(), 2);
         assert_eq!(mounts[0].target.as_deref(), Some("/opt/moatless/repo"));
-        assert_eq!(mounts[0].source.as_deref(), Some("/data/tasks/task-1"));
+        assert_eq!(mounts[0].source.as_deref(), Some("/data/tasks/task-1/repo"));
         assert_eq!(mounts[1].target.as_deref(), Some("/opt/moatless/data"));
         assert_eq!(mounts[1].source.as_deref(), Some("/data/tasks/task-1/data"));
     }
@@ -605,5 +626,65 @@ mod tests {
         assert!(env.iter().any(|e| e == "PORT=3000"));
         assert!(env.iter().any(|e| e == "WORKSPACE_PATH=/opt/moatless/repo"));
         assert!(env.iter().any(|e| e == "DATA_DIR=/opt/moatless/data"));
+    }
+
+    // ── Docker socket access tests ──────────────────────────────
+
+    #[test]
+    fn no_docker_socket_by_default() {
+        let config = test_config();
+        let plan = test_plan();
+        let cc = build_container_config(&config, "task-1", &plan, None);
+        let mounts = cc.host_config.unwrap().mounts.unwrap();
+        assert_eq!(mounts.len(), 2);
+        assert!(!mounts.iter().any(|m| m.target.as_deref() == Some("/var/run/docker.sock")));
+    }
+
+    #[test]
+    fn docker_socket_via_repo_config() {
+        let config = test_config();
+        let mut plan = test_plan();
+        plan.repo_config.docker_access = Some(true);
+        let cc = build_container_config(&config, "task-1", &plan, None);
+        let mounts = cc.host_config.unwrap().mounts.unwrap();
+        assert_eq!(mounts.len(), 3);
+        let socket_mount = mounts.iter().find(|m| m.target.as_deref() == Some("/var/run/docker.sock"));
+        assert!(socket_mount.is_some());
+        assert_eq!(socket_mount.unwrap().source.as_deref(), Some("/var/run/docker.sock"));
+    }
+
+    #[test]
+    fn docker_socket_via_global_config() {
+        let mut config = test_config();
+        config.docker.enable_socket_mount = true;
+        let plan = test_plan();
+        let cc = build_container_config(&config, "task-1", &plan, None);
+        let mounts = cc.host_config.unwrap().mounts.unwrap();
+        assert_eq!(mounts.len(), 3);
+        assert!(mounts.iter().any(|m| m.target.as_deref() == Some("/var/run/docker.sock")));
+    }
+
+    #[test]
+    fn repo_config_false_overrides_global_true() {
+        let mut config = test_config();
+        config.docker.enable_socket_mount = true;
+        let mut plan = test_plan();
+        plan.repo_config.docker_access = Some(false);
+        let cc = build_container_config(&config, "task-1", &plan, None);
+        let mounts = cc.host_config.unwrap().mounts.unwrap();
+        assert_eq!(mounts.len(), 2);
+        assert!(!mounts.iter().any(|m| m.target.as_deref() == Some("/var/run/docker.sock")));
+    }
+
+    #[test]
+    fn custom_socket_path() {
+        let mut config = test_config();
+        config.docker.enable_socket_mount = true;
+        config.docker.socket_path = "/custom/docker.sock".into();
+        let plan = test_plan();
+        let cc = build_container_config(&config, "task-1", &plan, None);
+        let mounts = cc.host_config.unwrap().mounts.unwrap();
+        let socket_mount = mounts.iter().find(|m| m.target.as_deref() == Some("/var/run/docker.sock")).unwrap();
+        assert_eq!(socket_mount.source.as_deref(), Some("/custom/docker.sock"));
     }
 }

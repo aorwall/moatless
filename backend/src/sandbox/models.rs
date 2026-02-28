@@ -56,6 +56,15 @@ pub struct RepoConfig {
     /// Preview server configuration
     #[schema(value_type = Object)]
     pub preview_config: Option<serde_json::Value>,
+    // --- Docker access (opt-in) ---
+    /// Mount Docker socket inside sandbox container (default: false).
+    /// Overrides global DOCKER_ENABLE_SOCKET_MOUNT when set.
+    #[serde(default)]
+    pub docker_access: Option<bool>,
+    /// Additional Docker networks to connect sandbox to.
+    /// Overrides global DOCKER_EXTRA_NETWORKS when set.
+    #[serde(default)]
+    pub docker_networks: Option<Vec<String>>,
 }
 
 /// Server config entry
@@ -85,10 +94,10 @@ pub struct ServerConfig {
     pub env_vars: Option<HashMap<String, String>>,
 }
 
-/// Matches TS WorkspaceExistenceSchema: 'exists' | 'missing' | 'invalid'
+/// Matches TS SandboxStateSchema: 'exists' | 'missing'
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
-pub enum WorkspaceState {
+pub enum SandboxState {
     Exists,
     Missing,
 }
@@ -972,13 +981,13 @@ mod tests {
     }
 
     // =========================================================================
-    // WorkspaceState serde
+    // SandboxState serde
     // =========================================================================
 
     #[test]
-    fn workspace_state_serde() {
-        assert_eq!(serde_json::to_string(&WorkspaceState::Exists).unwrap(), "\"exists\"");
-        assert_eq!(serde_json::to_string(&WorkspaceState::Missing).unwrap(), "\"missing\"");
+    fn sandbox_state_serde() {
+        assert_eq!(serde_json::to_string(&SandboxState::Exists).unwrap(), "\"exists\"");
+        assert_eq!(serde_json::to_string(&SandboxState::Missing).unwrap(), "\"missing\"");
     }
 
     // =========================================================================

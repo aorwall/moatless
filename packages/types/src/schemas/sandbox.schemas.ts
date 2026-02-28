@@ -33,7 +33,7 @@ export const GitChangesSchema = z.object({
   modifications: z.number().describe('Files modified in working directory'),
 })
 
-export const WorkspaceTypeSchema = z.enum(['local', 'docker'])
+export const SandboxTypeSchema = z.enum(['local', 'docker'])
 
 export const EnvironmentStatusSchema = z.enum([
   'not_created',
@@ -47,34 +47,34 @@ export const EnvironmentStatusSchema = z.enum([
 
 export type EnvironmentStatus = z.infer<typeof EnvironmentStatusSchema>
 
-export const WorkspaceExistenceSchema = z.enum(['exists', 'missing', 'invalid'])
+export const SandboxExistenceSchema = z.enum(['exists', 'missing', 'invalid'])
 
 export const AgentStateSchema = z.enum(['idle', 'running', 'none'])
 
-export const BaseWorkspaceSchema = z.object({
+export const BaseSandboxSchema = z.object({
   id: z.string(),
-  type: WorkspaceTypeSchema,
+  type: SandboxTypeSchema,
   repositoryId: z.string(),
   status: EnvironmentStatusSchema,
   createdAt: dateSchema,
   error: z.string().optional(),
 })
 
-export const LocalWorkspaceSchema = BaseWorkspaceSchema.extend({
+export const LocalSandboxSchema = BaseSandboxSchema.extend({
   type: z.literal('local'),
   path: z.string(),
   branch: z.string().optional(),
   originalBranch: z.string().optional(),
 })
 
-export const DockerWorkspaceSchema = BaseWorkspaceSchema.extend({
+export const DockerSandboxSchema = BaseSandboxSchema.extend({
   type: z.literal('docker'),
   containerName: z.string(),
   port: z.number().optional(),
   image: z.string().optional(),
 })
 
-export const WorkspaceSchema = z.union([LocalWorkspaceSchema, DockerWorkspaceSchema])
+export const SandboxSchema = z.union([LocalSandboxSchema, DockerSandboxSchema])
 
 z.object({
   path: z.string(),
@@ -165,9 +165,9 @@ export const FileTreeWithChangesResponseSchema = z.object({
   }),
 })
 
-export const WorkspaceSetupRequestSchema = z.object({})
+export const SandboxSetupRequestSchema = z.object({})
 
-export const WorkspaceSetupResponseSchema = z.object({
+export const SandboxSetupResponseSchema = z.object({
   success: z.boolean(),
   message: z.string(),
   status: EnvironmentStatusSchema,
@@ -184,7 +184,7 @@ z.object({
   serverRestarted: z.boolean().optional(),
 })
 
-export type Workspace = z.infer<typeof WorkspaceSchema>
+export type Sandbox = z.infer<typeof SandboxSchema>
 export type FileTreeNode = z.infer<typeof FileTreeNodeSchema>
 export type FileTreeWithChangesResponse = z.infer<typeof FileTreeWithChangesResponseSchema>
 export type GitStatus = z.infer<typeof GitStatusSchema>
@@ -192,7 +192,7 @@ export type GitSyncStatus = z.infer<typeof GitSyncStatusSchema>
 export type GitChanges = z.infer<typeof GitChangesSchema>
 
 z.object({
-  state: WorkspaceExistenceSchema,
+  state: SandboxExistenceSchema,
   path: z.string(),
 })
 
@@ -237,8 +237,8 @@ export const ResourceMetricsSchema = z.object({
   uptimeSeconds: z.number(),
 })
 
-export const WorkspaceStatusResponseSchema = z.object({
-  workspaceState: WorkspaceExistenceSchema,
+export const SandboxStatusResponseSchema = z.object({
+  workspaceState: SandboxExistenceSchema,
   environmentStatus: EnvironmentStatusSchema,
   environmentError: z.string().optional(),
   agentState: AgentStateSchema.or(z.literal('none')).default('none'),
@@ -248,7 +248,7 @@ export const WorkspaceStatusResponseSchema = z.object({
   resources: ResourceMetricsSchema.optional(),
 })
 
-export type WorkspaceStatusResponse = z.infer<typeof WorkspaceStatusResponseSchema>
+export type SandboxStatusResponse = z.infer<typeof SandboxStatusResponseSchema>
 export type ResourceMetrics = z.infer<typeof ResourceMetricsSchema>
 export type ServerEntry = z.infer<typeof ServerEntrySchema>
 export type ServerCapabilities = z.infer<typeof ServerCapabilitiesSchema>

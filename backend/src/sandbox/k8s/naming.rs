@@ -41,7 +41,7 @@ pub fn generate_service_name(task_id: &str) -> String {
 
 /// Generate a unique PVC name for a task.
 ///
-/// Format: `moatless-workspace-{sanitized_task_id}-{base36_timestamp}` (max 63 chars).
+/// Format: `moatless-sandbox-{sanitized_task_id}-{base36_timestamp}` (max 63 chars).
 pub fn generate_pvc_name(task_id: &str) -> String {
     let sanitized = sanitize_k8s_name(task_id, 30);
     let timestamp = std::time::SystemTime::now()
@@ -49,7 +49,7 @@ pub fn generate_pvc_name(task_id: &str) -> String {
         .unwrap_or_default()
         .as_millis();
     let ts_str = radix_fmt(timestamp);
-    truncate_k8s(format!("moatless-workspace-{sanitized}-{ts_str}"))
+    truncate_k8s(format!("moatless-sandbox-{sanitized}-{ts_str}"))
 }
 
 /// Generate a unique pod name for a task.
@@ -111,7 +111,7 @@ mod tests {
     #[test]
     fn test_generate_pvc_name_format() {
         let name = generate_pvc_name("task-123");
-        assert!(name.starts_with("moatless-workspace-task-123-"));
+        assert!(name.starts_with("moatless-sandbox-task-123-"));
         assert!(name.len() <= 63);
     }
 

@@ -4,12 +4,12 @@ import { getTaskStatusConfig } from '@/features/tasks/utils/task-status'
 import { Badge } from '@/lib/components/ui/badge'
 import { Popover, PopoverContent, PopoverTrigger } from '@/lib/components/ui/popover'
 
-interface WorkspaceStatusPopupProps {
+interface SandboxStatusPopupProps {
   totalCostUsd: number
-  workspace?: WorkspaceStatusFullResponse
+  sandbox?: WorkspaceStatusFullResponse
 }
 
-function WorkspaceStatusPopup({ totalCostUsd, workspace }: WorkspaceStatusPopupProps) {
+function SandboxStatusPopup({ totalCostUsd, sandbox }: SandboxStatusPopupProps) {
   return (
     <div className="space-y-3 w-64">
       <div>
@@ -24,46 +24,46 @@ function WorkspaceStatusPopup({ totalCostUsd, workspace }: WorkspaceStatusPopupP
         </div>
       </div>
 
-      {workspace && (
+      {sandbox && (
         <div>
-          <h4 className="font-medium text-sm mb-2">Workspace Status</h4>
+          <h4 className="font-medium text-sm mb-2">Sandbox Status</h4>
           <div className="space-y-2 text-xs">
             <div className="flex justify-between">
               <span className="text-muted-foreground">Environment:</span>
               <Badge
-                variant={workspace.environmentStatus === 'ready' ? 'default' : 'secondary'}
+                variant={sandbox.environmentStatus === 'ready' ? 'default' : 'secondary'}
                 className="h-5 text-xs"
               >
-                {workspace.environmentStatus}
+                {sandbox.environmentStatus}
               </Badge>
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Agent:</span>
               <Badge
-                variant={workspace.agentState === 'running' ? 'default' : 'outline'}
+                variant={sandbox.agentState === 'running' ? 'default' : 'outline'}
                 className="h-5 text-xs"
               >
-                {workspace.agentState}
+                {sandbox.agentState}
               </Badge>
             </div>
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Workspace:</span>
+              <span className="text-muted-foreground">Sandbox:</span>
               <Badge
-                variant={workspace.workspaceState === 'exists' ? 'default' : 'destructive'}
+                variant={sandbox.workspaceState === 'exists' ? 'default' : 'destructive'}
                 className="h-5 text-xs"
               >
-                {workspace.workspaceState}
+                {sandbox.workspaceState}
               </Badge>
             </div>
           </div>
         </div>
       )}
 
-      {workspace?.environmentError && (
+      {sandbox?.environmentError && (
         <div>
           <h4 className="font-medium text-sm mb-2 text-red-600">Error</h4>
           <div className="text-xs text-red-600 bg-red-50 p-2 rounded">
-            {workspace.environmentError}
+            {sandbox.environmentError}
           </div>
         </div>
       )}
@@ -73,20 +73,20 @@ function WorkspaceStatusPopup({ totalCostUsd, workspace }: WorkspaceStatusPopupP
 
 interface TaskStatusIconProps {
   task: Pick<TaskResponse, 'status' | 'totalCostUsd'>
-  workspace?: WorkspaceStatusFullResponse
+  sandbox?: WorkspaceStatusFullResponse
   showText?: boolean
   className?: string
 }
 
 export function TaskStatusIcon({
   task,
-  workspace,
+  sandbox,
   showText = true,
   className = '',
 }: TaskStatusIconProps) {
   const statusConfig = getTaskStatusConfig(task.status)
 
-  const environmentStatus = workspace?.environmentStatus
+  const environmentStatus = sandbox?.environmentStatus
 
   // Determine icon and color based on task status primarily
   let icon = statusConfig.icon
@@ -128,7 +128,7 @@ export function TaskStatusIcon({
         </button>
       </PopoverTrigger>
       <PopoverContent className="w-auto p-3" align="start">
-        <WorkspaceStatusPopup totalCostUsd={totalCostUsd} workspace={workspace} />
+        <SandboxStatusPopup totalCostUsd={totalCostUsd} sandbox={sandbox} />
       </PopoverContent>
     </Popover>
   )

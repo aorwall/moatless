@@ -16,7 +16,7 @@ use super::routes::SandboxApiState;
 use super::models::*;
 use super::schemas::*;
 
-/// Provision a new sandbox workspace for a task.
+/// Provision a new sandbox for a task.
 ///
 /// Builds the provision request internally from DB state (task, repository,
 /// credentials). No request body required.
@@ -28,7 +28,7 @@ use super::schemas::*;
         ("task_id" = String, Path, description = "Task identifier")
     ),
     responses(
-        (status = 200, description = "Workspace provisioned successfully", body = ProvisionResponse),
+        (status = 200, description = "Sandbox provisioned successfully", body = ProvisionResponse),
         (status = 500, description = "Provisioning failed", body = ErrorBody)
     )
 )]
@@ -57,7 +57,7 @@ pub async fn provision_handler(
     }
 }
 
-/// Get full workspace status including servers and agent state.
+/// Get full sandbox status including servers and agent state.
 #[utoipa::path(
     get,
     path = "/api/sandbox/v1/tasks/{task_id}/status",
@@ -66,8 +66,8 @@ pub async fn provision_handler(
         ("task_id" = String, Path, description = "Task identifier")
     ),
     responses(
-        (status = 200, description = "Full workspace status", body = WorkspaceStatusFullResponse),
-        (status = 503, description = "Workspace not ready", body = ErrorBody),
+        (status = 200, description = "Full sandbox status", body = SandboxStatusFullResponse),
+        (status = 503, description = "Sandbox not ready", body = ErrorBody),
         (status = 500, description = "Internal error", body = ErrorBody)
     )
 )]
@@ -87,7 +87,7 @@ pub async fn sandbox_status_handler(
     }
 }
 
-/// Stop a running workspace.
+/// Stop a running sandbox.
 #[utoipa::path(
     post,
     path = "/api/sandbox/v1/tasks/{task_id}/stop",
@@ -96,7 +96,7 @@ pub async fn sandbox_status_handler(
         ("task_id" = String, Path, description = "Task identifier")
     ),
     responses(
-        (status = 204, description = "Workspace stopped"),
+        (status = 204, description = "Sandbox stopped"),
         (status = 500, description = "Stop failed", body = ErrorBody)
     )
 )]
@@ -117,7 +117,7 @@ pub async fn stop_handler(
     }
 }
 
-/// Restart a workspace (stop + start).
+/// Restart a sandbox (stop + start).
 #[utoipa::path(
     post,
     path = "/api/sandbox/v1/tasks/{task_id}/restart",
@@ -126,7 +126,7 @@ pub async fn stop_handler(
         ("task_id" = String, Path, description = "Task identifier")
     ),
     responses(
-        (status = 204, description = "Workspace restarted"),
+        (status = 204, description = "Sandbox restarted"),
         (status = 500, description = "Restart failed", body = ErrorBody)
     )
 )]
@@ -147,7 +147,7 @@ pub async fn restart_handler(
     }
 }
 
-/// Clean up a workspace and all associated resources.
+/// Clean up a sandbox and all associated resources.
 #[utoipa::path(
     post,
     path = "/api/sandbox/v1/tasks/{task_id}/cleanup",
@@ -156,7 +156,7 @@ pub async fn restart_handler(
         ("task_id" = String, Path, description = "Task identifier")
     ),
     responses(
-        (status = 204, description = "Workspace cleaned up"),
+        (status = 204, description = "Sandbox cleaned up"),
         (status = 500, description = "Cleanup failed", body = ErrorBody)
     )
 )]

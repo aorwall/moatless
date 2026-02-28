@@ -36,7 +36,7 @@ pub fn build_pod(
     labels.insert("moatless.io/task-id".to_string(), task_id.to_string());
     labels.insert(
         "app.kubernetes.io/name".to_string(),
-        "moatless-workspace".to_string(),
+        "moatless-sandbox".to_string(),
     );
     labels.insert(
         "app.kubernetes.io/component".to_string(),

@@ -1,4 +1,9 @@
-import type { AgentEvent, Event, TaskEvent, WorkspaceEvent } from '@moatless/types'
+import type {
+  AgentEvent,
+  Event,
+  SandboxEvent as SandboxEventType,
+  TaskEvent,
+} from '@moatless/types'
 import { describe, expect, it } from 'vitest'
 import { queryKeys } from '@/lib/api/query-keys'
 import {
@@ -62,20 +67,20 @@ describe('event-handlers', () => {
       expect(keys[0]).toBe(queryKeys.tasks.messages)
     })
 
-    it('should return correct invalidation keys for WORKSPACE event', () => {
+    it('should return correct invalidation keys for SANDBOX event', () => {
       const event: Event = {
         eventId: 'event-4',
-        type: 'workspace',
+        type: 'sandbox',
         taskId: 'task-999',
         isError: false,
         payload: {},
-      } as WorkspaceEvent
+      } as SandboxEventType
 
       const keys = getInvalidationKeys(event)
 
       expect(keys).toHaveLength(2)
-      expect(keys[0]('task-999')).toEqual(queryKeys.tasks.workspaceStatus('task-999'))
-      expect(keys[1]('task-999')).toEqual(queryKeys.tasks.workspaceSetup('task-999'))
+      expect(keys[0]('task-999')).toEqual(queryKeys.tasks.sandboxStatus('task-999'))
+      expect(keys[1]('task-999')).toEqual(queryKeys.tasks.sandboxSetup('task-999'))
     })
   })
 

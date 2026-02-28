@@ -56,11 +56,12 @@ pub fn generate_server_container_name(task_id: &str, server_name: &str) -> Strin
 
 /// Generate the host volume path for a task's workspace.
 ///
-/// Format: `{data_dir}/tasks/{task_id}/`
+/// Format: `{data_dir}/tasks/{task_id}/repo`
 pub fn generate_workspace_host_path(data_dir: &str, task_id: &str) -> String {
     let mut path = PathBuf::from(data_dir);
     path.push("tasks");
     path.push(task_id);
+    path.push("repo");
     path.to_string_lossy().to_string()
 }
 
@@ -124,7 +125,7 @@ mod tests {
     fn workspace_path_basic() {
         assert_eq!(
             generate_workspace_host_path("/data", "task-123"),
-            "/data/tasks/task-123"
+            "/data/tasks/task-123/repo"
         );
     }
 

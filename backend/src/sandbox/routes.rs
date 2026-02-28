@@ -32,7 +32,7 @@ pub struct SandboxApiState {
 #[derive(OpenApi)]
 #[openapi(
     tags(
-        (name = "sandbox", description = "Sandbox workspace lifecycle management"),
+        (name = "sandbox", description = "Sandbox lifecycle management"),
     ),
     paths(
         handlers::provision_handler,

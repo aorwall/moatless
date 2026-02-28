@@ -3,7 +3,7 @@ name = "moatless-vibe-backend"
 version = "0.1.0"
 edition = "2021"
 authors = ["Moatless Team"]
-description = "Backend service for Moatless Vibe (workspace orchestration, auth, tasks, agent)"
+description = "Backend service for Moatless Vibe (sandbox orchestration, auth, tasks, agent)"
 license = "AGPL-3.0-or-later"
 
 [dependencies]

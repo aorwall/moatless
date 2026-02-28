@@ -3,7 +3,7 @@ name = "moatless-sandbox"
 version = "0.1.0"
 edition = "2021"
 authors = ["Moatless Team"]
-description = "Sandbox runtime for Moatless Vibe workspace pods"
+description = "Sandbox runtime for Moatless Vibe sandbox pods"
 license = "AGPL-3.0-or-later"
 
 [lib]

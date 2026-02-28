@@ -318,7 +318,7 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
         .title("Moatless Vibe Backend API")
         .version(env!("CARGO_PKG_VERSION"))
         .description(Some(
-            "Workspace orchestration and authentication for Moatless Vibe",
+            "Sandbox orchestration and authentication for Moatless Vibe",
         ))
         .build();
 

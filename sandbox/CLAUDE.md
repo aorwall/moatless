@@ -1,6 +1,6 @@
 # moatless-sandbox
 
-Rust sandbox runtime for Moatless Vibe workspace pods. Replaces the TypeScript `apps/sandbox/`.
+Rust sandbox runtime for Moatless Vibe sandbox pods. Replaces the TypeScript `apps/sandbox/`.
 
 ## Commands
 

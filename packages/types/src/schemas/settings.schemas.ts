@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { ClaudeSettingsSchema } from './settings/claude.schemas.js'
 import {
   KubernetesSettingsSchema,
-  WorkspaceExecutionModeSchema,
+  SandboxExecutionModeSchema,
 } from './settings/kubernetes.schemas.js'
 import { PublishSettingsSchema } from './settings/publish.schemas.js'
 
@@ -11,7 +11,7 @@ export const ApplicationSettingsSchema = z.object({
   repositoriesDir: z.string().optional(),
   defaultWorkspaceType: z.enum(['docker', 'local']).optional(),
   // Workspace execution mode: 'local' or 'kubernetes'
-  workspaceExecutionMode: WorkspaceExecutionModeSchema.optional(),
+  sandboxExecutionMode: SandboxExecutionModeSchema.optional(),
   // Claude settings at root level
   oauthToken: z.string().optional(),
   // Nested settings
@@ -49,7 +49,7 @@ export const updateSettingsSchema = z
     dataDir: z.string().nullable().optional(),
     repositoriesDir: z.string().nullable().optional(),
     defaultWorkspaceType: z.enum(['docker', 'local']).nullable().optional(),
-    workspaceExecutionMode: WorkspaceExecutionModeSchema.nullable().optional(),
+    sandboxExecutionMode: SandboxExecutionModeSchema.nullable().optional(),
     oauthToken: z.string().nullable().optional(),
     claude: z
       .object({

@@ -183,6 +183,8 @@ pub fn build_repo_config(repo: &Repository) -> RepoConfig {
         system_prompt: repo.system_prompt.clone(),
         code_execution,
         preview_config,
+        docker_access: None,
+        docker_networks: None,
     }
 }
 

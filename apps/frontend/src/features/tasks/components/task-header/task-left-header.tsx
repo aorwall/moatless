@@ -1,7 +1,7 @@
 import { Globe, Lock, MoreVertical, Pencil, RefreshCw } from 'lucide-react'
 import { useState } from 'react'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
-import { useWorkspaceRestart, useWorkspaceStatus } from '@/features/tasks'
+import { useSandboxRestart, useSandboxStatus } from '@/features/tasks'
 import { MobileViewToggle } from '@/features/tasks/components/mobile-view-toggle'
 import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
 import { useTaskId } from '@/features/tasks/contexts/task-providers'
@@ -18,14 +18,14 @@ export function TaskLeftHeader() {
   const taskId = useTaskId()
   const taskQuery = useTaskDetailQuery(taskId)
   const { data: repositories } = useRepositoriesList()
-  const { data: workspaceStatus } = useWorkspaceStatus(taskId, taskQuery.data)
-  const servers = workspaceStatus?.servers
+  const { data: sandboxStatus } = useSandboxStatus(taskId, taskQuery.data)
+  const servers = sandboxStatus?.servers
   const { view, setView, isMobile } = useTaskView()
   const updateVisibility = useUpdateTaskVisibility(taskId)
   const updateMetadata = useUpdateTaskMetadata(taskId, {
     onSuccess: () => setIsEditDialogOpen(false),
   })
-  const workspaceRestart = useWorkspaceRestart(taskId)
+  const sandboxRestart = useSandboxRestart(taskId)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const task = taskQuery.data
@@ -132,16 +132,14 @@ export function TaskLeftHeader() {
             <Button
               variant="ghost"
               className="w-full justify-start gap-2 h-8 px-2"
-              disabled={workspaceRestart.isPending}
+              disabled={sandboxRestart.isPending}
               onClick={() => {
-                workspaceRestart.mutate()
+                sandboxRestart.mutate()
                 setIsMenuOpen(false)
               }}
             >
-              <RefreshCw
-                className={`h-4 w-4 ${workspaceRestart.isPending ? 'animate-spin' : ''}`}
-              />
-              Restart Workspace
+              <RefreshCw className={`h-4 w-4 ${sandboxRestart.isPending ? 'animate-spin' : ''}`} />
+              Restart Sandbox
             </Button>
           </PopoverContent>
         </Popover>

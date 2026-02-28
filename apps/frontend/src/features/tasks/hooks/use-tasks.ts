@@ -99,9 +99,9 @@ export function useCreateTask(
           ])
         }
 
-        // Seed workspace status cache with initializing state for instant feedback
+        // Seed sandbox status cache with initializing state for instant feedback
         queryClient.setQueryData<WorkspaceStatusFullResponse>(
-          queryKeys.tasks.workspaceStatus(response.taskId),
+          queryKeys.tasks.sandboxStatus(response.taskId),
           {
             workspaceState: 'missing',
             environmentStatus: 'initializing',
@@ -112,9 +112,9 @@ export function useCreateTask(
           },
         )
 
-        // Prefetch actual workspace status in background (staleTime: 0 forces fetch)
+        // Prefetch actual sandbox status in background (staleTime: 0 forces fetch)
         queryClient.prefetchQuery({
-          queryKey: queryKeys.tasks.workspaceStatus(response.taskId),
+          queryKey: queryKeys.tasks.sandboxStatus(response.taskId),
           queryFn: () =>
             unwrapResponse<WorkspaceStatusFullResponse>(sandboxStatusHandler(response.taskId)),
           staleTime: 0,
@@ -185,10 +185,10 @@ export function useSendMessage(
 
       // Create optimistic message — mark as queued when the agent is already running,
       // since the backend will save it with agentSessionId = NULL
-      const workspaceStatus = queryClient.getQueryData<WorkspaceStatusFullResponse>(
-        queryKeys.tasks.workspaceStatus(taskId),
+      const sandboxStatus = queryClient.getQueryData<WorkspaceStatusFullResponse>(
+        queryKeys.tasks.sandboxStatus(taskId),
       )
-      const isQueued = workspaceStatus?.agentState === 'running'
+      const isQueued = sandboxStatus?.agentState === 'running'
       const optimisticMessage: UiMessage = {
         uuid: `temp-message-${Date.now()}`,
         role: 'user',

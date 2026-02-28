@@ -11,7 +11,7 @@ use futures::stream::BoxStream;
 use super::client::SandboxClient;
 use super::error::SandboxError;
 use super::models::{ContainerObservedStatus, ProvisionRequest, ServerConfig};
-use super::schemas::{ProvisionResponse, WorkspaceStatusFullResponse};
+use super::schemas::{ProvisionResponse, SandboxStatusFullResponse};
 
 #[async_trait]
 pub trait SandboxProvider: Send + Sync {
@@ -36,7 +36,7 @@ pub trait SandboxProvider: Send + Sync {
         &self,
         task_id: &str,
         server_configs: &[ServerConfig],
-    ) -> Result<WorkspaceStatusFullResponse, SandboxError>;
+    ) -> Result<SandboxStatusFullResponse, SandboxError>;
 
     /// Stop a sandbox (preserve storage, scale to 0).
     async fn stop(&self, task_id: &str) -> Result<(), SandboxError>;

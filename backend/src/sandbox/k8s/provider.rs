@@ -47,7 +47,7 @@ impl SandboxProvider for K8sSandboxProvider {
         task_id: &str,
         request: &ProvisionRequest,
     ) -> Result<ProvisionResponse, SandboxError> {
-        info!(task_id = %task_id, user_id = %request.user_id, "Provisioning workspace");
+        info!(task_id = %task_id, user_id = %request.user_id, "Provisioning sandbox");
 
         let plan = &request.plan;
 
@@ -105,7 +105,7 @@ impl SandboxProvider for K8sSandboxProvider {
             pod_builder::build_servers_map(plan).into_iter().collect();
 
         // 5. Create Deployment (wraps pod spec) + Service
-        let _deployment_name = deployment::create_workspace_deployment(
+        let _deployment_name = deployment::create_sandbox_deployment(
             &self.k8s,
             task_id,
             pod,
@@ -129,7 +129,7 @@ impl SandboxProvider for K8sSandboxProvider {
             task_id = %task_id,
             service_name = %service_name,
             server_count = server_ports.len(),
-            "Workspace provisioned, returning immediately (pod starting in background)"
+            "Sandbox provisioned, returning immediately (pod starting in background)"
         );
 
         // Publish initializing event (pod_watcher handles the rest)
@@ -144,12 +144,12 @@ impl SandboxProvider for K8sSandboxProvider {
         &self,
         task_id: &str,
         server_configs: &[ServerConfig],
-    ) -> Result<WorkspaceStatusFullResponse, SandboxError> {
+    ) -> Result<SandboxStatusFullResponse, SandboxError> {
         Ok(self.status_resolver.resolve_sandbox_status(task_id, server_configs).await)
     }
 
     async fn stop(&self, task_id: &str) -> Result<(), SandboxError> {
-        info!(task_id = %task_id, "Stopping workspace (scaling Deployment to 0)");
+        info!(task_id = %task_id, "Stopping sandbox (scaling Deployment to 0)");
 
         // Scale Deployment to 0 — keeps Service and IngressRoutes alive
         match deployment::find_deployment(&self.k8s, task_id).await {
@@ -180,7 +180,7 @@ impl SandboxProvider for K8sSandboxProvider {
     }
 
     async fn restart(&self, task_id: &str) -> Result<(), SandboxError> {
-        info!(task_id = %task_id, "Restarting workspace (deleting pods, Deployment will recreate)");
+        info!(task_id = %task_id, "Restarting sandbox (deleting pods, Deployment will recreate)");
 
         // Ensure Deployment is scaled to 1 (in case it was stopped)
         if let Ok((desired, _)) = deployment::get_deployment_replicas(&self.k8s, task_id).await {
@@ -203,7 +203,7 @@ impl SandboxProvider for K8sSandboxProvider {
     }
 
     async fn cleanup(&self, task_id: &str) -> Result<(), SandboxError> {
-        info!(task_id = %task_id, "Cleaning up workspace (deleting all resources)");
+        info!(task_id = %task_id, "Cleaning up sandbox (deleting all resources)");
 
         // Delete Deployment (cascades to pods and ReplicaSets)
         if let Err(e) = deployment::delete_deployment(&self.k8s, task_id).await {

@@ -13,6 +13,8 @@ export { searchFilesRoute } from './routes/file.routes'
 
 // Health routes
 export { healthRoute } from './routes/health.routes'
+// Sandbox routes
+export { sandboxProvisionRoute, sandboxStatusRoute } from './routes/sandbox.routes'
 // Server routes
 export {
   serverLogsRoute,
@@ -20,5 +22,3 @@ export {
   startServerRoute,
   stopServerRoute,
 } from './routes/server.routes'
-// Workspace routes
-export { workspaceProvisionRoute, workspaceStatusRoute } from './routes/workspace.routes'

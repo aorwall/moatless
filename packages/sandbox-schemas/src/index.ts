@@ -82,6 +82,19 @@ export {
 } from './git.schemas'
 // Health schemas
 export { type HealthResponse, HealthResponseSchema } from './health.schemas'
+// Sandbox provisioning schemas
+export {
+  type RepositoryConfig,
+  RepositoryConfigSchema,
+  type SandboxProvisionRequest,
+  SandboxProvisionRequestSchema,
+  type SandboxProvisionResponse,
+  SandboxProvisionResponseSchema,
+  type SandboxProvisionStatus,
+  SandboxProvisionStatusSchema,
+  type SandboxStatusResponse,
+  SandboxStatusResponseSchema,
+} from './sandbox.schemas'
 // Sandbox path constants
 export {
   SANDBOX_CACHE_DIR,
@@ -113,16 +126,3 @@ export {
   type StopServerResponse,
   StopServerResponseSchema,
 } from './server.schemas'
-// Workspace schemas
-export {
-  type RepositoryConfig,
-  RepositoryConfigSchema,
-  type WorkspaceProvisionRequest,
-  WorkspaceProvisionRequestSchema,
-  type WorkspaceProvisionResponse,
-  WorkspaceProvisionResponseSchema,
-  type WorkspaceProvisionStatus,
-  WorkspaceProvisionStatusSchema,
-  type WorkspaceStatusResponse,
-  WorkspaceStatusResponseSchema,
-} from './workspace.schemas'

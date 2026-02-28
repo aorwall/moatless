@@ -20,9 +20,8 @@ export const queryKeys = {
     // Sub-resources - automatically invalidated with parent
     messages: (taskId: string, filters?: { limit?: number; offset?: number }) =>
       [...queryKeys.tasks.detail(taskId), 'messages', filters] as const,
-    workspaceStatus: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'workspace'] as const,
-    workspaceSetup: (taskId: string) =>
-      [...queryKeys.tasks.detail(taskId), 'workspace-setup'] as const,
+    sandboxStatus: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'sandbox'] as const,
+    sandboxSetup: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'sandbox-setup'] as const,
     serverStatus: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'server'] as const,
     serverLogs: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'server-logs'] as const,
 

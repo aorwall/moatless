@@ -8,6 +8,7 @@ import { FigmaImportDialog } from '@/features/figma/components/figma-import-dial
 import { SettingsDialog, useFigmaConfig } from '@/features/settings'
 import { useTaskId } from '@/features/tasks/contexts/task-providers'
 import { useFileSearch } from '@/features/tasks/hooks/use-file-search'
+import { useSandboxRetry, useSandboxStatus } from '@/features/tasks/hooks/use-sandbox-status'
 import { useTaskInputs } from '@/features/tasks/hooks/use-task-inputs'
 import { useTaskDetailQuery } from '@/features/tasks/hooks/use-task-queries'
 import {
@@ -17,7 +18,6 @@ import {
   useTaskCommands,
   useTaskMessages,
 } from '@/features/tasks/hooks/use-tasks'
-import { useWorkspaceRetry, useWorkspaceStatus } from '@/features/tasks/hooks/use-workspace-status'
 import {
   AskUserQuestionInput,
   ChatInput,
@@ -59,10 +59,10 @@ function getPlaceholderText(
   status: string | undefined,
 ): string {
   if (envStatus === 'initializing') {
-    return 'Task queued: setting up workspace...'
+    return 'Task queued: setting up sandbox...'
   }
   if (envStatus === 'error') {
-    return 'Workspace setup failed. Check error details above.'
+    return 'Sandbox setup failed. Check error details above.'
   }
   if (isTaskRunning) {
     return 'Task is running... Type your next request'
@@ -97,13 +97,13 @@ function ChatContainer({
   const { data: task } = useTaskDetailQuery(taskId)
   const status = task?.status
 
-  // Poll workspace status only while the task remains open (hook handles gating)
-  const workspaceStatusQuery = useWorkspaceStatus(taskId, task)
-  const workspaceStatus = workspaceStatusQuery.data
-  const envStatus = workspaceStatus?.environmentStatus
+  // Poll sandbox status only while the task remains open (hook handles gating)
+  const sandboxStatusQuery = useSandboxStatus(taskId, task)
+  const sandboxStatus = sandboxStatusQuery.data
+  const envStatus = sandboxStatus?.environmentStatus
 
-  // Retry workspace mutation for handling failed provisioning
-  const retryWorkspaceMutation = useWorkspaceRetry(taskId)
+  // Retry sandbox mutation for handling failed provisioning
+  const retrySandboxMutation = useSandboxRetry(taskId)
 
   // Fetch messages for this task
   const {
@@ -114,8 +114,8 @@ function ChatContainer({
     enabled: !!taskId,
   })
 
-  // Agent running state: driven by workspace status (updated via SSE events + backend gRPC)
-  const isTaskRunning = workspaceStatus?.agentState === 'running'
+  // Agent running state: driven by sandbox status (updated via SSE events + backend gRPC)
+  const isTaskRunning = sandboxStatus?.agentState === 'running'
 
   // Fetch available commands when task is not running
   const { data: availableCommands = [] } = useTaskCommands(taskId, {
@@ -421,26 +421,26 @@ function ChatContainer({
         error={messagesError as Error | null}
         isRunning={isTaskRunning}
         environmentStatus={envStatus}
-        environmentError={workspaceStatus?.environmentError ?? undefined}
+        environmentError={sandboxStatus?.environmentError ?? undefined}
         onPreviewUrlClick={onPreviewUrlClick}
       />
 
-      {/* Workspace error banner with retry button */}
-      {envStatus === 'error' && workspaceStatus?.environmentError && (
+      {/* Sandbox error banner with retry button */}
+      {envStatus === 'error' && sandboxStatus?.environmentError && (
         <div className="mx-4 mb-2 px-4 py-3 bg-destructive/10 border border-destructive/20 rounded-lg flex items-center justify-between gap-4">
           <div className="min-w-0 flex-1">
-            <p className="text-sm text-destructive font-medium">Workspace setup failed</p>
+            <p className="text-sm text-destructive font-medium">Sandbox setup failed</p>
             <p className="text-sm text-muted-foreground truncate">
-              {workspaceStatus.environmentError}
+              {sandboxStatus.environmentError}
             </p>
           </div>
           <Button
             variant="outline"
             size="sm"
-            onClick={() => retryWorkspaceMutation.mutate()}
-            disabled={retryWorkspaceMutation.isPending}
+            onClick={() => retrySandboxMutation.mutate()}
+            disabled={retrySandboxMutation.isPending}
           >
-            {retryWorkspaceMutation.isPending ? (
+            {retrySandboxMutation.isPending ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 Retrying...

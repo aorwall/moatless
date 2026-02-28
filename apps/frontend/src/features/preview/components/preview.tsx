@@ -1,7 +1,7 @@
 import { AlertCircle, Loader2, Server, XCircle } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useSandboxRetry } from '@/features/tasks/hooks/use-sandbox-status'
 import { usePreviewPath, usePreviewViewport } from '@/features/tasks/hooks/use-task-view'
-import { useWorkspaceRetry } from '@/features/tasks/hooks/use-workspace-status'
 import { Button } from '@/lib/components/ui/button'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/components/ui/resizable'
 import { cn } from '@/lib/utils'
@@ -116,7 +116,7 @@ export function Preview({
   className,
 }: PreviewProps) {
   // Hook for retrying/starting sandbox
-  const retryMutation = useWorkspaceRetry(taskId)
+  const retryMutation = useSandboxRetry(taskId)
 
   // Determine if sandbox is running
   const isSandboxRunning = environmentStatus === 'ready'

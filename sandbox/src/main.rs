@@ -1,8 +1,8 @@
-//! Moatless Sandbox — runtime service for workspace pods.
+//! Moatless Sandbox — runtime service for sandbox pods.
 //!
 //! Provides gRPC API for agent execution, status, and file search.
 //! HTTP is kept only for K8s health probes.
-//! Runs inside each workspace container/pod.
+//! Runs inside each sandbox container/pod.
 
 use std::net::SocketAddr;
 use std::sync::Arc;

@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use super::models::{
-    AgentState, EnvironmentStatus, ResourceMetrics, ServerCapabilities, ServerSnapshot,
-    ServerStatus, WorkspaceState,
+    AgentState, EnvironmentStatus, ResourceMetrics, SandboxState, ServerCapabilities,
+    ServerSnapshot, ServerStatus,
 };
 
 /// Generic error body returned by all error responses.
@@ -38,16 +38,16 @@ pub struct ServerEntry {
     pub capabilities: ServerCapabilities,
 }
 
-/// Full workspace status response to frontend (matches TS WorkspaceStatusResponse)
+/// Full sandbox status response to frontend (matches TS SandboxStatusFullResponse)
 #[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
-pub struct WorkspaceStatusFullResponse {
-    pub workspace_state: WorkspaceState,
+pub struct SandboxStatusFullResponse {
+    pub sandbox_state: SandboxState,
     pub environment_status: EnvironmentStatus,
     pub environment_error: Option<String>,
     pub agent_state: AgentState,
     pub servers: Vec<ServerEntry>,
-    pub workspace_ready: bool,
+    pub sandbox_ready: bool,
     pub can_execute: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resources: Option<ResourceMetrics>,

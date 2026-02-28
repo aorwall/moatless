@@ -1,4 +1,4 @@
-//! Kubernetes Deployment lifecycle operations for workspace sandboxes.
+//! Kubernetes Deployment lifecycle operations for sandboxes.
 //!
 //! Wraps pod specs (built by `pod_builder`) in Deployments for automatic
 //! restart, stop (scale to 0), and start (scale to 1) without needing
@@ -19,7 +19,7 @@ use crate::sandbox::error::SandboxError;
 /// Extracts the pod's `.spec` and wraps it as the Deployment's pod template.
 /// Labels are preserved so the Service selector (`moatless.io/task-id`) still matches.
 /// Returns the deployment name on success.
-pub async fn create_workspace_deployment(
+pub async fn create_sandbox_deployment(
     k8s: &K8sClient,
     task_id: &str,
     pod: Pod,
@@ -46,7 +46,7 @@ pub async fn create_workspace_deployment(
     let mut labels = BTreeMap::new();
     labels.insert(
         "app.kubernetes.io/name".to_string(),
-        "moatless-workspace".to_string(),
+        "moatless-sandbox".to_string(),
     );
     labels.insert(
         "app.kubernetes.io/component".to_string(),

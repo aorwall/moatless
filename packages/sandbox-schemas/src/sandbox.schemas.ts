@@ -25,9 +25,9 @@ export const RepositoryConfigSchema = z.object({
 export type RepositoryConfig = z.infer<typeof RepositoryConfigSchema>
 
 /**
- * Workspace provision request schema
+ * Sandbox provision request schema
  */
-export const WorkspaceProvisionRequestSchema = z.object({
+export const SandboxProvisionRequestSchema = z.object({
   taskId: z.string(),
   gitCloneUrl: z.string().optional(),
   gitBranch: z.string().optional(),
@@ -35,39 +35,39 @@ export const WorkspaceProvisionRequestSchema = z.object({
   repositoryConfig: RepositoryConfigSchema.optional(),
 })
 
-export type WorkspaceProvisionRequest = z.infer<typeof WorkspaceProvisionRequestSchema>
+export type SandboxProvisionRequest = z.infer<typeof SandboxProvisionRequestSchema>
 
 /**
- * Workspace provision status enum
+ * Sandbox provision status enum
  */
-export const WorkspaceProvisionStatusSchema = z.enum(['pending', 'ready', 'failed'])
+export const SandboxProvisionStatusSchema = z.enum(['pending', 'ready', 'failed'])
 
-export type WorkspaceProvisionStatus = z.infer<typeof WorkspaceProvisionStatusSchema>
+export type SandboxProvisionStatus = z.infer<typeof SandboxProvisionStatusSchema>
 
 /**
- * Workspace provision response schema
+ * Sandbox provision response schema
  */
-export const WorkspaceProvisionResponseSchema = z.object({
+export const SandboxProvisionResponseSchema = z.object({
   success: z.boolean(),
   taskId: z.string(),
   workspaceDir: z.string().optional(),
-  status: WorkspaceProvisionStatusSchema.optional(),
+  status: SandboxProvisionStatusSchema.optional(),
   error: z.string().optional(),
 })
 
-export type WorkspaceProvisionResponse = z.infer<typeof WorkspaceProvisionResponseSchema>
+export type SandboxProvisionResponse = z.infer<typeof SandboxProvisionResponseSchema>
 
 /**
- * Workspace status response schema
+ * Sandbox status response schema
  */
-export const WorkspaceStatusResponseSchema = z.object({
+export const SandboxStatusResponseSchema = z.object({
   taskId: z.string(),
   workspaceDir: z.string(),
-  status: WorkspaceProvisionStatusSchema,
+  status: SandboxProvisionStatusSchema,
   gitCloneUrl: z.string().optional(),
   gitBranch: z.string().optional(),
   currentBranch: z.string().optional(),
   error: z.string().optional(),
 })
 
-export type WorkspaceStatusResponse = z.infer<typeof WorkspaceStatusResponseSchema>
+export type SandboxStatusResponse = z.infer<typeof SandboxStatusResponseSchema>

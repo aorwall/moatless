@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { dateSchema } from '../utils/validation.js'
-import { EnvironmentStatusSchema, ResourceMetricsSchema } from './workspace.schemas.js'
+import { EnvironmentStatusSchema, ResourceMetricsSchema } from './sandbox.schemas.js'
 
 // ============================================
 // Event Types and Enums
@@ -11,7 +11,6 @@ import { EnvironmentStatusSchema, ResourceMetricsSchema } from './workspace.sche
 export const EventTypeSchema = z.enum([
   'task', // Task lifecycle
   'taskTurn', // Task turn execution
-  'workspace', // Workspace operations
   'sandbox', // Sandbox lifecycle (was 'environment')
   'agent', // Agent lifecycle + messages + results
   'server', // Preview server management
@@ -117,17 +116,10 @@ export const TaskTurnEventSchema = BaseEventSchema.extend({
   payload: TaskTurnPayloadSchema,
 })
 
-// Workspace event
-export const WorkspaceEventSchema = BaseEventSchema.extend({
-  type: z.literal('workspace'),
-  subType: z.enum(['ready', 'destroyed', 'error']),
-  payload: EventPayloadSchema,
-})
-
-// Sandbox lifecycle event (was EnvironmentEventSchema)
+// Sandbox lifecycle event (consolidated from sandbox + workspace events)
 export const SandboxEventSchema = BaseEventSchema.extend({
   type: z.literal('sandbox'),
-  subType: EnvironmentStatusSchema,
+  subType: z.union([EnvironmentStatusSchema, z.enum(['ready', 'destroyed', 'error'])]),
   payload: EventPayloadSchema,
 })
 
@@ -192,7 +184,6 @@ export const AgentEventSchema = BaseEventSchema.extend({
 export const EventSchema = z.discriminatedUnion('type', [
   TaskEventSchema,
   TaskTurnEventSchema,
-  WorkspaceEventSchema,
   SandboxEventSchema,
   ServerEventSchema,
   NavigationEventSchema,
@@ -236,7 +227,7 @@ export type {
 
 export type TaskEvent = z.infer<typeof TaskEventSchema>
 export type TaskTurnEvent = z.infer<typeof TaskTurnEventSchema>
-export type WorkspaceEvent = z.infer<typeof WorkspaceEventSchema>
+export type SandboxEvent = z.infer<typeof SandboxEventSchema>
 export type ServerEvent = z.infer<typeof ServerEventSchema>
 export type ResourcesEvent = z.infer<typeof ResourcesEventSchema>
 export type AgentEvent = z.infer<typeof AgentEventSchema>

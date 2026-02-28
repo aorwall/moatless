@@ -47,7 +47,7 @@ impl StatusResolver {
         &self,
         task_id: &str,
         server_configs: &[ServerConfig],
-    ) -> WorkspaceStatusFullResponse {
+    ) -> SandboxStatusFullResponse {
         let phase = self.resolve_pod_phase(task_id).await;
         let environment_status = phase.to_environment_status();
         let is_running = phase == PodPhase::Running;
@@ -84,22 +84,22 @@ impl StatusResolver {
             // Query actual agent status from the sandbox pod via gRPC
             let agent_state = self.fetch_agent_state(task_id).await;
 
-            return WorkspaceStatusFullResponse {
-                workspace_state: WorkspaceState::Exists,
+            return SandboxStatusFullResponse {
+                sandbox_state: SandboxState::Exists,
                 environment_status,
                 environment_error: None,
                 agent_state,
                 servers,
-                workspace_ready: true,
+                sandbox_ready: true,
                 can_execute: true,
                 resources: None,
             };
         }
 
         // Pod is not running
-        let workspace_state = match phase {
-            PodPhase::NotFound => WorkspaceState::Missing,
-            _ => WorkspaceState::Exists,
+        let sandbox_state = match phase {
+            PodPhase::NotFound => SandboxState::Missing,
+            _ => SandboxState::Exists,
         };
 
         let can_execute = phase == PodPhase::Stopped;
@@ -156,13 +156,13 @@ impl StatusResolver {
                 .collect()
         };
 
-        WorkspaceStatusFullResponse {
-            workspace_state,
+        SandboxStatusFullResponse {
+            sandbox_state,
             environment_status,
             environment_error: None,
             agent_state: AgentState::None,
             servers,
-            workspace_ready: false,
+            sandbox_ready: false,
             can_execute,
             resources: None,
         }
@@ -215,7 +215,7 @@ impl StatusResolver {
                 }
             }
         } else {
-            // No Deployment found — workspace doesn't exist
+            // No Deployment found — sandbox doesn't exist
             return PodPhase::NotFound;
         }
 

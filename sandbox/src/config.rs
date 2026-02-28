@@ -1,6 +1,6 @@
 //! Configuration loaded from environment variables.
 //!
-//! The sandbox runs inside a workspace pod and receives its configuration
+//! The sandbox runs inside a sandbox pod and receives its configuration
 //! via environment variables set by the orchestrator.
 
 use std::env;

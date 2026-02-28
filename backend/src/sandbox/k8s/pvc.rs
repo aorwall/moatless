@@ -48,7 +48,7 @@ pub async fn create_task_pvc(
     let mut labels = BTreeMap::new();
     labels.insert(
         "app.kubernetes.io/name".to_string(),
-        "moatless-workspace".to_string(),
+        "moatless-sandbox".to_string(),
     );
     labels.insert(
         "app.kubernetes.io/component".to_string(),

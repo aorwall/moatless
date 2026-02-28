@@ -10,6 +10,8 @@ use bollard::container::{
     ListContainersOptions, RemoveContainerOptions, RestartContainerOptions, StartContainerOptions,
     StopContainerOptions,
 };
+use bollard::network::ConnectNetworkOptions;
+use bollard::models::EndpointSettings;
 use futures::stream::BoxStream;
 use std::sync::Arc;
 use tracing::{info, warn};
@@ -151,7 +153,37 @@ impl SandboxProvider for DockerSandboxProvider {
             "Docker sandbox provisioned"
         );
 
-        // 6. Create and start server sidecar containers
+        // 6. Connect to extra Docker networks (opt-in)
+        let extra_networks = plan
+            .repo_config
+            .docker_networks
+            .as_deref()
+            .unwrap_or(&self.config.docker.extra_networks);
+        for network in extra_networks {
+            if let Err(e) = self
+                .client
+                .docker
+                .connect_network(
+                    network,
+                    ConnectNetworkOptions {
+                        container: container_name.clone(),
+                        endpoint_config: EndpointSettings::default(),
+                    },
+                )
+                .await
+            {
+                warn!(
+                    task_id = %task_id,
+                    network = %network,
+                    error = %e,
+                    "Failed to connect sandbox to extra network (non-fatal)"
+                );
+            } else {
+                info!(task_id = %task_id, network = %network, "Connected sandbox to extra network");
+            }
+        }
+
+        // 7. Create and start server sidecar containers
         if let Some(ref servers) = plan.repo_config.servers {
             for server in servers {
                 if let Err(e) = self.create_and_start_server_container(task_id, server).await {
@@ -176,7 +208,7 @@ impl SandboxProvider for DockerSandboxProvider {
         &self,
         task_id: &str,
         server_configs: &[ServerConfig],
-    ) -> Result<WorkspaceStatusFullResponse, SandboxError> {
+    ) -> Result<SandboxStatusFullResponse, SandboxError> {
         Ok(self.status_resolver.resolve_sandbox_status(task_id, server_configs).await)
     }
 

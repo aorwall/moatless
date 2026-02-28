@@ -36,9 +36,9 @@ export const SANDBOX_ENDPOINTS = {
   SERVER_STOP: '/server/stop',
   SERVER_STATUS: '/server/status',
   SERVER_LOGS: '/server/logs',
-  // Workspace
-  WORKSPACE_PROVISION: '/workspace/provision',
-  WORKSPACE_STATUS: '/workspace/status',
+  // Sandbox
+  SANDBOX_PROVISION: '/workspace/provision',
+  SANDBOX_STATUS: '/workspace/status',
 } as const
 
 export type SandboxEndpoint = (typeof SANDBOX_ENDPOINTS)[keyof typeof SANDBOX_ENDPOINTS]

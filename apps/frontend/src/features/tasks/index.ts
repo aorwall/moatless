@@ -26,7 +26,7 @@ export {
   useTaskStreamingState,
   useTaskUI,
 } from './contexts/task-providers'
-
+export * from './hooks/use-sandbox-status'
 // URL state hooks and types
 export {
   type TaskView,
@@ -36,10 +36,8 @@ export {
   useTaskView,
   type ViewportMode,
 } from './hooks/use-task-view'
-
 // Hooks
 export * from './hooks/use-tasks'
-export * from './hooks/use-workspace-status'
 
 // Utils
 export * from './utils/format-duration'

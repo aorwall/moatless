@@ -243,20 +243,20 @@ describe('GlobalEventStreamProvider', () => {
     })
 
     // Non-status-affecting event
-    const workspaceEvent = {
+    const sandboxEvent = {
       id: 'event-1',
-      type: 'workspace',
+      type: 'sandbox',
       taskId: 'task-111',
       timestamp: Date.now(),
       data: {},
     }
 
-    simulateEvent(workspaceEvent)
+    simulateEvent(sandboxEvent)
 
     await waitFor(() => {
-      // Should invalidate workspace-specific queries
+      // Should invalidate sandbox-specific queries
       expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
-        queryKey: queryKeys.tasks.workspaceStatus('task-111'),
+        queryKey: queryKeys.tasks.sandboxStatus('task-111'),
       })
       // Should NOT invalidate task lists
       expect(queryClient.invalidateQueries).not.toHaveBeenCalledWith({

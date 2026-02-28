@@ -25,20 +25,17 @@ export function useTaskDetailQuery(taskId: string, options?: TaskDetailQueryOpti
   })
 }
 
-type TaskWorkspaceStatusQueryOptions = Omit<
+type TaskSandboxStatusQueryOptions = Omit<
   UseQueryOptions<
     WorkspaceStatusFullResponse,
     Error,
     WorkspaceStatusFullResponse,
-    ReturnType<typeof queryKeys.tasks.workspaceStatus>
+    ReturnType<typeof queryKeys.tasks.sandboxStatus>
   >,
   'queryKey' | 'queryFn'
 >
 
-export function useTaskWorkspaceStatusQuery(
-  taskId: string,
-  options?: TaskWorkspaceStatusQueryOptions,
-) {
+export function useTaskSandboxStatusQuery(taskId: string, options?: TaskSandboxStatusQueryOptions) {
   const {
     enabled = true,
     staleTime = 5000,
@@ -50,7 +47,7 @@ export function useTaskWorkspaceStatusQuery(
   // Callers can override with refetchInterval if polling is specifically needed
 
   return useQuery({
-    queryKey: queryKeys.tasks.workspaceStatus(taskId),
+    queryKey: queryKeys.tasks.sandboxStatus(taskId),
     queryFn: () => unwrapResponse<WorkspaceStatusFullResponse>(sandboxStatusHandler(taskId)),
     enabled: enabled && !!taskId,
     staleTime,

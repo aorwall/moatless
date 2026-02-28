@@ -1,12 +1,12 @@
 import { useQuery } from '@tanstack/react-query'
-import { useTaskWorkspaceStatusQuery } from '@/features/tasks/hooks/use-task-queries'
+import { useTaskSandboxStatusQuery } from '@/features/tasks/hooks/use-task-queries'
 import { queryKeys } from '@/lib/api/query-keys'
 import { fetchFileTree } from '../api/files-api'
 import type { FileTreeResponse } from '../types'
 
 export function useFileTree(taskId: string, rootPath = '.') {
-  const { data: workspaceStatus } = useTaskWorkspaceStatusQuery(taskId)
-  const isSandboxReady = workspaceStatus?.environmentStatus === 'ready'
+  const { data: sandboxStatus } = useTaskSandboxStatusQuery(taskId)
+  const isSandboxReady = sandboxStatus?.environmentStatus === 'ready'
 
   return useQuery<FileTreeResponse>({
     queryKey: [...queryKeys.tasks.files(taskId), 'tree', rootPath],

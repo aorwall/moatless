@@ -56,8 +56,8 @@ export function GlobalEventStreamProvider({
   // Event deduplication - prevent processing same event multiple times
   const processedEventIds = useRef<Set<string>>(new Set())
 
-  // Helper: Update workspace status based on event type
-  const updateWorkspaceStatus = useCallback(
+  // Helper: Update sandbox status based on event type
+  const updateSandboxStatus = useCallback(
     (
       event: Event,
       old: WorkspaceStatusFullResponse | undefined,
@@ -85,7 +85,7 @@ export function GlobalEventStreamProvider({
           }
           break
         case 'sandbox': {
-          // Only update if subType is a valid EnvironmentStatus
+          // Handle environment status updates
           const validStatuses = [
             'not_created',
             'initializing',
@@ -108,10 +108,7 @@ export function GlobalEventStreamProvider({
               canExecute: event.subType === 'ready' && current.agentState === 'idle',
             }
           }
-          return current
-        }
-        case 'workspace': {
-          // Only update if subType is a valid WorkspaceState
+          // Handle workspace state updates (exists/missing)
           const validStates = ['exists', 'missing']
           if (validStates.includes(event.subType || '')) {
             return { ...current, workspaceState: event.subType as 'exists' | 'missing' }
@@ -139,18 +136,18 @@ export function GlobalEventStreamProvider({
         return // Skip optimistic updates for metadata changes
       }
 
-      // Apply optimistic updates for workspace status events
-      if (event.type === 'agent' || event.type === 'sandbox' || event.type === 'workspace') {
-        const queryKey = queryKeys.tasks.workspaceStatus(event.taskId)
+      // Apply optimistic updates for sandbox status events
+      if (event.type === 'agent' || event.type === 'sandbox') {
+        const queryKey = queryKeys.tasks.sandboxStatus(event.taskId)
         queryClient.setQueryData(queryKey, (old: WorkspaceStatusFullResponse | undefined) =>
-          updateWorkspaceStatus(event, old),
+          updateSandboxStatus(event, old),
         )
       }
 
       // Apply optimistic updates for server events — update the matching server
-      // entry inside the workspace status `servers` array by serverName
+      // entry inside the sandbox status `servers` array by serverName
       if (event.type === 'server') {
-        const wsKey = queryKeys.tasks.workspaceStatus(event.taskId)
+        const wsKey = queryKeys.tasks.sandboxStatus(event.taskId)
         queryClient.setQueryData(wsKey, (old: WorkspaceStatusFullResponse | undefined) => {
           if (!old) {
             return old
@@ -170,7 +167,7 @@ export function GlobalEventStreamProvider({
 
       // Apply optimistic updates for resource metrics events
       if (event.type === 'resources') {
-        const wsKey = queryKeys.tasks.workspaceStatus(event.taskId)
+        const wsKey = queryKeys.tasks.sandboxStatus(event.taskId)
         queryClient.setQueryData(wsKey, (old: WorkspaceStatusFullResponse | undefined) => {
           if (!old) {
             return old
@@ -218,7 +215,7 @@ export function GlobalEventStreamProvider({
         })
       }
     },
-    [queryClient, updateWorkspaceStatus],
+    [queryClient, updateSandboxStatus],
   )
 
   // Helper: Notify all subscribers about the event

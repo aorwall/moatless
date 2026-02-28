@@ -24,23 +24,19 @@ export const EVENT_INVALIDATION_MAP = {
   },
   agent: {
     // Agent subtypes have different invalidation needs
-    started: [queryKeys.tasks.workspaceStatus],
-    stopped: [queryKeys.tasks.workspaceStatus],
+    started: [queryKeys.tasks.sandboxStatus],
+    stopped: [queryKeys.tasks.sandboxStatus],
     message: [queryKeys.tasks.messages], // Only messages, not status
     completed: [queryKeys.tasks.detail], // Full turn impact
-    error: [queryKeys.tasks.detail, queryKeys.tasks.workspaceStatus],
-  },
-  workspace: {
-    // Workspace operations affect multiple areas
-    '*': [queryKeys.tasks.workspaceStatus, queryKeys.tasks.workspaceSetup],
+    error: [queryKeys.tasks.detail, queryKeys.tasks.sandboxStatus],
   },
   sandbox: {
-    // Sandbox lifecycle changes only affect workspace status
-    '*': [queryKeys.tasks.workspaceStatus],
+    // Sandbox lifecycle changes affect sandbox status and setup
+    '*': [queryKeys.tasks.sandboxStatus, queryKeys.tasks.sandboxSetup],
   },
   server: {
-    // Server events affect workspace status (servers are embedded in workspace status)
-    '*': [queryKeys.tasks.workspaceStatus],
+    // Server events affect sandbox status (servers are embedded in sandbox status)
+    '*': [queryKeys.tasks.sandboxStatus],
   },
   navigation: {},
   preview: {
@@ -56,8 +52,7 @@ export const STATUS_AFFECTING_SUBTYPES = {
   task: ['created', 'open', 'closed', 'updated'], // All task subtypes affect status
   taskTurn: ['active', 'completed', 'error', 'updated'], // Execution changes and screenshot updates affect status
   agent: ['started', 'stopped', 'completed', 'error'], // Only state changes, not messages
-  sandbox: ['ready', 'error', 'fatal'], // Only final states affect status
-  workspace: ['ready', 'destroyed', 'error'], // Only final states affect status
+  sandbox: ['ready', 'error', 'fatal', 'destroyed'], // Only final states affect status
   server: ['starting', 'started', 'stopped', 'failed'], // Only state changes affect status
   navigation: [],
   preview: [], // Preview events don't affect task status

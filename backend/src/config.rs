@@ -295,6 +295,12 @@ pub struct DockerConfig {
     pub container_data_dir: String,
     /// Backend container hostname on the Docker network (for sandbox → backend gRPC)
     pub backend_hostname: String,
+    /// Mount Docker socket in sandbox containers (default: false)
+    pub enable_socket_mount: bool,
+    /// Host path to Docker socket (default: "/var/run/docker.sock")
+    pub socket_path: String,
+    /// Additional Docker networks to connect sandbox containers to
+    pub extra_networks: Vec<String>,
 }
 
 /// Database configuration.
@@ -345,15 +351,8 @@ impl Config {
         let sandbox_namespace = env_str("SANDBOX_NAMESPACE", "workspaces");
         let database_url = env_opt("DATABASE_URL");
 
-        // Determine sandbox provider: SANDBOX_PROVIDER takes priority,
-        // fall back to WORKSPACE_EXECUTION_MODE for backwards compatibility.
         let sandbox_provider = env_opt("SANDBOX_PROVIDER")
             .and_then(|v| v.parse().ok())
-            .or_else(|| {
-                env_opt("WORKSPACE_EXECUTION_MODE")
-                    .filter(|v| v == "docker")
-                    .map(|_| SandboxProviderType::Docker)
-            })
             .unwrap_or(SandboxProviderType::Kubernetes);
 
         let config = Self {
@@ -404,6 +403,11 @@ impl Config {
                 data_dir: env_str("DATA_DIR", "/data"),
                 container_data_dir: env_str("CONTAINER_DATA_DIR", "/data"),
                 backend_hostname: env_str("DOCKER_BACKEND_HOSTNAME", "moatless-backend"),
+                enable_socket_mount: env_bool("DOCKER_ENABLE_SOCKET_MOUNT", false),
+                socket_path: env_str("DOCKER_SOCKET_PATH", "/var/run/docker.sock"),
+                extra_networks: env_opt("DOCKER_EXTRA_NETWORKS")
+                    .map(|s| s.split(',').map(|n| n.trim().to_string()).filter(|n| !n.is_empty()).collect())
+                    .unwrap_or_default(),
             },
 
             database_url: database_url.clone(),
@@ -656,6 +660,9 @@ mod tests {
                 data_dir: "/data".into(),
                 container_data_dir: "/data".into(),
                 backend_hostname: "moatless-backend".into(),
+                enable_socket_mount: false,
+                socket_path: "/var/run/docker.sock".into(),
+                extra_networks: vec![],
             },
             database_url: None,
             database: DatabaseConfig { url: None, max_connections: 5 },
