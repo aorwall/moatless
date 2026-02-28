@@ -78,6 +78,7 @@ impl sqlx::Encode<'_, sqlx::Postgres> for RepositoryKind {
 pub enum RepositoryProvider {
     Github,
     Gitlab,
+    Gitness,
 }
 
 impl RepositoryProvider {
@@ -85,6 +86,7 @@ impl RepositoryProvider {
         match self {
             Self::Github => "github",
             Self::Gitlab => "gitlab",
+            Self::Gitness => "gitness",
         }
     }
 }
@@ -101,6 +103,7 @@ impl TryFrom<&str> for RepositoryProvider {
         match s {
             "github" => Ok(Self::Github),
             "gitlab" => Ok(Self::Gitlab),
+            "gitness" => Ok(Self::Gitness),
             other => Err(format!("unknown RepositoryProvider: {other:?}")),
         }
     }

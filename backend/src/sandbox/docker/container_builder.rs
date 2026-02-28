@@ -48,6 +48,8 @@ pub fn build_container_config(
         ),
     ];
 
+    env.push(format!("GIT_PROVIDER={}", plan.git_provider));
+
     if let Some(ref branch) = plan.git_branch {
         env.push(format!("GIT_BRANCH={branch}"));
     }
@@ -298,6 +300,7 @@ mod tests {
             },
             git_clone_url: "https://github.com/test/repo.git".into(),
             git_branch: Some("main".into()),
+            git_provider: "github".into(),
             git_provider_token: Some("gh_token".into()),
             claude_oauth_token: None,
             anthropic_api_key: Some("sk-ant-key".into()),

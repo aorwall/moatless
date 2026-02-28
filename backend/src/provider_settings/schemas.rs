@@ -40,3 +40,20 @@ pub struct ExchangeTokenResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub login: Option<String>,
 }
+
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct GitnessConfigResponse {
+    pub connected: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub login: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<String>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveGitnessPATRequest {
+    pub base_url: String,
+    pub token: String,
+}

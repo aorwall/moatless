@@ -169,6 +169,14 @@ fn build_sandbox_container(
         env.push(env_var("GIT_BRANCH", branch));
     }
 
+    // Git provider (github, gitlab, gitness)
+    env.push(env_var("GIT_PROVIDER", &plan.git_provider));
+
+    // Git token for clone authentication
+    if let Some(ref token) = plan.git_provider_token {
+        env.push(env_var("GIT_TOKEN", token));
+    }
+
     // REPO_CONFIG env var (pass-through for sandbox)
     if let Some(repo_config_json) = build_repo_config_json(plan) {
         env.push(env_var("REPO_CONFIG", &repo_config_json));

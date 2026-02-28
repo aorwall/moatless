@@ -22,11 +22,18 @@ pub struct ProvisionPlan {
     pub repo_config: RepoConfig,
     pub git_clone_url: String,
     pub git_branch: Option<String>,
+    /// Git provider name (e.g. "github", "gitlab", "gitness")
+    #[serde(default = "default_git_provider")]
+    pub git_provider: String,
     pub git_provider_token: Option<String>,
     pub claude_oauth_token: Option<String>,
     pub anthropic_api_key: Option<String>,
     /// Custom environment variables
     pub env_vars: Option<HashMap<String, String>>,
+}
+
+fn default_git_provider() -> String {
+    "github".to_string()
 }
 
 /// Repository config for provisioning and sandbox environment

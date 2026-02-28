@@ -29,6 +29,8 @@ pub struct CredentialKey;
 
 impl CredentialKey {
     pub const GITHUB_TOKEN: &str = "GITHUB_TOKEN";
+    pub const GITLAB_TOKEN: &str = "GITLAB_TOKEN";
+    pub const GITNESS_TOKEN: &str = "GITNESS_TOKEN";
     pub const ANTHROPIC_API_KEY: &str = "ANTHROPIC_API_KEY";
     pub const CLAUDE_CODE_OAUTH_TOKEN: &str = "CLAUDE_CODE_OAUTH_TOKEN";
 }
@@ -226,8 +228,15 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         let mut credentials: HashMap<String, String> = HashMap::new();
 
         // Step 1: Environment variables (from moatless-secrets) take priority
+        // Git provider tokens (one per provider)
         if let Ok(token) = env::var("GITHUB_PAT") {
             credentials.insert(CredentialKey::GITHUB_TOKEN.to_string(), token);
+        }
+        if let Ok(token) = env::var("GITLAB_PAT") {
+            credentials.insert(CredentialKey::GITLAB_TOKEN.to_string(), token);
+        }
+        if let Ok(token) = env::var("GITNESS_PAT") {
+            credentials.insert(CredentialKey::GITNESS_TOKEN.to_string(), token);
         }
         if let Ok(key) = env::var("ANTHROPIC_API_KEY") {
             credentials.insert(CredentialKey::ANTHROPIC_API_KEY.to_string(), key);
@@ -241,19 +250,21 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
 
         // Step 2: Fill remaining gaps from provider_tokens DB table
         if let Some(ref provider_tokens) = self.provider_tokens {
-            // GitHub token (from user's OAuth connection)
-            if !credentials.contains_key(CredentialKey::GITHUB_TOKEN) {
-                match provider_tokens.find_provider_token(&claims.user_id, "github").await
-                {
-                    Ok(Some(row)) => {
-                        credentials.insert(
-                            CredentialKey::GITHUB_TOKEN.to_string(),
-                            row.access_token,
-                        );
-                    }
-                    Ok(None) => {}
-                    Err(e) => {
-                        warn!(error = %e, user_id = %claims.user_id, "Failed to query github provider_token");
+            // Git provider tokens (per-provider lookup)
+            for (provider, cred_key) in [
+                ("github", CredentialKey::GITHUB_TOKEN),
+                ("gitlab", CredentialKey::GITLAB_TOKEN),
+                ("gitness", CredentialKey::GITNESS_TOKEN),
+            ] {
+                if !credentials.contains_key(cred_key) {
+                    match provider_tokens.find_provider_token(&claims.user_id, provider).await {
+                        Ok(Some(row)) => {
+                            credentials.insert(cred_key.to_string(), row.access_token);
+                        }
+                        Ok(None) => {}
+                        Err(e) => {
+                            warn!(error = %e, user_id = %claims.user_id, provider, "Failed to query provider_token");
+                        }
                     }
                 }
             }
@@ -282,6 +293,8 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             task_id = %req.task_id,
             user_id = %claims.user_id,
             has_github = credentials.contains_key(CredentialKey::GITHUB_TOKEN),
+            has_gitlab = credentials.contains_key(CredentialKey::GITLAB_TOKEN),
+            has_gitness = credentials.contains_key(CredentialKey::GITNESS_TOKEN),
             has_anthropic = credentials.contains_key(CredentialKey::ANTHROPIC_API_KEY),
             has_claude_oauth = credentials.contains_key(CredentialKey::CLAUDE_CODE_OAUTH_TOKEN),
             "Credentials resolved"

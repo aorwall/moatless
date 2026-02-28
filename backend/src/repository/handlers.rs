@@ -298,9 +298,27 @@ pub async fn get_branches(
             ))
         })?;
 
+    // For Gitness, we also need the base URL from provider_tokens metadata
     let result = match provider {
         RepositoryProvider::Github => fetch_github_branches(remote_url, &token.access_token).await?,
         RepositoryProvider::Gitlab => fetch_gitlab_branches(remote_url, &token.access_token).await?,
+        RepositoryProvider::Gitness => {
+            let full_token = state.provider_tokens.find_provider_token_full(&auth.user_id, "gitness")
+                .await
+                .map_err(RepositoryError::Db)?;
+            let base_url = full_token
+                .as_ref()
+                .and_then(|t| t.metadata.as_ref())
+                .and_then(|m| m.get("base_url"))
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| {
+                    RepositoryError::BadRequest(
+                        "Gitness base URL not configured. Please reconnect your Gitness account in Settings.".to_string()
+                    )
+                })?
+                .to_string();
+            fetch_gitness_branches(remote_url, &token.access_token, &base_url).await?
+        }
     };
 
     let default_branch = repo
@@ -545,6 +563,128 @@ async fn fetch_gitlab_branches(
         .iter()
         .find(|b| b.default == Some(true))
         .map(|b| b.name.clone());
+
+    Ok(BranchFetchResult {
+        branches: all_branches.into_iter().map(|b| b.name).collect(),
+        default_branch,
+    })
+}
+
+/// Fetch branches from Gitness API.
+///
+/// Gitness API: `GET {base_url}/api/v1/repos/{repo_ref}/branches`
+/// The `repo_ref` is the URL-encoded repository path (e.g. `org/repo`).
+async fn fetch_gitness_branches(
+    remote_url: &str,
+    token: &str,
+    base_url: &str,
+) -> Result<BranchFetchResult, RepositoryError> {
+    // Extract the repo path by stripping the base URL prefix
+    let url = remote_url
+        .trim_end_matches('/')
+        .trim_end_matches(".git");
+    let base = base_url.trim_end_matches('/');
+
+    // Try stripping the base URL to get the repo path (e.g. "org/repo")
+    let repo_path = url
+        .strip_prefix(&format!("{base}/"))
+        .or_else(|| {
+            // Also try stripping https://<host>/ patterns
+            let base_without_scheme = base
+                .strip_prefix("https://")
+                .or_else(|| base.strip_prefix("http://"))
+                .unwrap_or(base);
+            let url_without_scheme = url
+                .strip_prefix("https://")
+                .or_else(|| url.strip_prefix("http://"))
+                .unwrap_or(url);
+            url_without_scheme.strip_prefix(&format!("{base_without_scheme}/"))
+        })
+        .ok_or_else(|| {
+            RepositoryError::BadRequest(format!(
+                "Cannot extract repo path from Gitness URL: {remote_url} (base: {base_url})"
+            ))
+        })?;
+
+    let encoded_ref = urlencoding::encode(repo_path);
+
+    let client = reqwest::Client::new();
+
+    #[derive(serde::Deserialize)]
+    struct GnBranch {
+        name: String,
+    }
+
+    let mut all_branches: Vec<GnBranch> = Vec::new();
+    let mut page = 1u32;
+    loop {
+        let resp = client
+            .get(format!(
+                "{base}/api/v1/repos/{encoded_ref}/branches?limit=100&page={page}"
+            ))
+            .header("Authorization", format!("Bearer {token}"))
+            .send()
+            .await
+            .map_err(|e| {
+                RepositoryError::ProviderError(format!("Gitness API request failed: {e}"))
+            })?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(RepositoryError::ProviderError(format!(
+                "Gitness API returned {status}: {body}"
+            )));
+        }
+
+        let branches: Vec<GnBranch> = resp.json().await.map_err(|e| {
+            RepositoryError::ProviderError(format!("Failed to parse Gitness response: {e}"))
+        })?;
+
+        let count = branches.len();
+        all_branches.extend(branches);
+
+        if count < 100 {
+            break;
+        }
+        page += 1;
+        if page > 20 {
+            warn!("Gitness branches pagination capped at 2000 for {repo_path}");
+            break;
+        }
+    }
+
+    // Fetch repo metadata to get default branch (best-effort)
+    #[derive(serde::Deserialize)]
+    struct GnRepo {
+        default_branch: Option<String>,
+    }
+
+    let default_branch = match client
+        .get(format!("{base}/api/v1/repos/{encoded_ref}"))
+        .header("Authorization", format!("Bearer {token}"))
+        .send()
+        .await
+    {
+        Ok(repo_resp) if repo_resp.status().is_success() => {
+            match repo_resp.json::<GnRepo>().await {
+                Ok(r) => r.default_branch,
+                Err(e) => {
+                    warn!("Failed to parse Gitness repo metadata for {repo_path}: {e}");
+                    None
+                }
+            }
+        }
+        Ok(repo_resp) => {
+            let status = repo_resp.status();
+            warn!("Gitness repo metadata returned {status} for {repo_path}");
+            None
+        }
+        Err(e) => {
+            warn!("Gitness repo metadata request failed for {repo_path}: {e}");
+            None
+        }
+    };
 
     Ok(BranchFetchResult {
         branches: all_branches.into_iter().map(|b| b.name).collect(),

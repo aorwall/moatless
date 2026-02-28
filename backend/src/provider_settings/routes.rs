@@ -9,7 +9,7 @@ use crate::state::AppState;
 #[derive(OpenApi)]
 #[openapi(
     tags(
-        (name = "provider-settings", description = "GitHub OAuth/PAT management"),
+        (name = "provider-settings", description = "GitHub OAuth/PAT & Gitness PAT management"),
     ),
     paths(
         handlers::get_github_config,
@@ -17,6 +17,9 @@ use crate::state::AppState;
         handlers::get_github_oauth_url,
         handlers::exchange_github_token,
         handlers::delete_github_config,
+        handlers::get_gitness_config,
+        handlers::save_gitness_pat,
+        handlers::delete_gitness_config,
     )
 )]
 pub struct ProviderSettingsApiDoc;
@@ -28,6 +31,8 @@ pub fn provider_settings_router(state: AppState) -> (axum::Router, utoipa::opena
         .routes(routes!(handlers::save_github_pat))
         .routes(routes!(handlers::get_github_oauth_url))
         .routes(routes!(handlers::exchange_github_token))
+        .routes(routes!(handlers::get_gitness_config, handlers::delete_gitness_config))
+        .routes(routes!(handlers::save_gitness_pat))
         .with_state(state)
         .split_for_parts();
 

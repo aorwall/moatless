@@ -1,4 +1,4 @@
-//! GitHub provider settings HTTP handlers.
+//! Provider settings HTTP handlers (GitHub, Gitness).
 
 use axum::extract::State;
 use axum::Json;
@@ -8,6 +8,7 @@ use crate::state::AppState;
 
 use super::error::ProviderSettingsError;
 use super::github_client;
+use super::gitness_client;
 use super::schemas::*;
 
 /// Get current GitHub configuration for the user.
@@ -215,5 +216,122 @@ pub async fn delete_github_config(
         connected: false,
         login: None,
         token_type: None,
+    }))
+}
+
+// =========================================================================
+// Gitness handlers
+// =========================================================================
+
+/// Get current Gitness configuration for the user.
+#[utoipa::path(
+    get,
+    path = "/api/v1/settings/gitness/config",
+    tag = "provider-settings",
+    responses(
+        (status = 200, description = "Gitness config", body = GitnessConfigResponse),
+        (status = 401, description = "Not authenticated", body = crate::sandbox::schemas::ErrorBody)
+    )
+)]
+pub async fn get_gitness_config(
+    State(state): State<AppState>,
+    auth: AuthUser,
+) -> Result<Json<GitnessConfigResponse>, ProviderSettingsError> {
+    let token = state.provider_tokens.find_provider_token_full(&auth.user_id, "gitness")
+        .await?;
+
+    match token {
+        Some(row) => {
+            let login = row
+                .metadata
+                .as_ref()
+                .and_then(|m| m.get("login"))
+                .and_then(|v| v.as_str())
+                .map(std::string::ToString::to_string);
+
+            let base_url = row
+                .metadata
+                .as_ref()
+                .and_then(|m| m.get("base_url"))
+                .and_then(|v| v.as_str())
+                .map(std::string::ToString::to_string);
+
+            Ok(Json(GitnessConfigResponse {
+                connected: true,
+                login,
+                base_url,
+            }))
+        }
+        None => Ok(Json(GitnessConfigResponse {
+            connected: false,
+            login: None,
+            base_url: None,
+        })),
+    }
+}
+
+/// Save a Gitness Personal Access Token after validating it.
+#[utoipa::path(
+    put,
+    path = "/api/v1/settings/gitness/pat",
+    tag = "provider-settings",
+    request_body = SaveGitnessPATRequest,
+    responses(
+        (status = 200, description = "PAT saved", body = GitnessConfigResponse),
+        (status = 400, description = "Invalid token", body = crate::sandbox::schemas::ErrorBody)
+    )
+)]
+pub async fn save_gitness_pat(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Json(req): Json<SaveGitnessPATRequest>,
+) -> Result<Json<GitnessConfigResponse>, ProviderSettingsError> {
+    // Validate the token by calling Gitness API
+    let login = gitness_client::validate_gitness_token(&req.base_url, &req.token)
+        .await
+        .map_err(ProviderSettingsError::ProviderError)?;
+
+    let metadata = serde_json::json!({
+        "login": login,
+        "base_url": req.base_url,
+    });
+
+    state.provider_tokens.upsert_token(
+        &auth.user_id,
+        "gitness",
+        &req.token,
+        None,
+        Some("pat"),
+        Some(&metadata),
+    )
+    .await?;
+
+    Ok(Json(GitnessConfigResponse {
+        connected: true,
+        login: Some(login),
+        base_url: Some(req.base_url),
+    }))
+}
+
+/// Disconnect Gitness by deleting the stored token.
+#[utoipa::path(
+    delete,
+    path = "/api/v1/settings/gitness/config",
+    tag = "provider-settings",
+    responses(
+        (status = 200, description = "Gitness disconnected", body = GitnessConfigResponse),
+        (status = 401, description = "Not authenticated", body = crate::sandbox::schemas::ErrorBody)
+    )
+)]
+pub async fn delete_gitness_config(
+    State(state): State<AppState>,
+    auth: AuthUser,
+) -> Result<Json<GitnessConfigResponse>, ProviderSettingsError> {
+    state.provider_tokens.delete_token(&auth.user_id, "gitness").await?;
+
+    Ok(Json(GitnessConfigResponse {
+        connected: false,
+        login: None,
+        base_url: None,
     }))
 }

@@ -9,6 +9,7 @@ use tracing::{info, warn};
 
 use crate::auth::provider_token_dao::ProviderTokenRepository;
 use crate::repository::dao::RepoRepository;
+use crate::repository::models::RepositoryProvider;
 use crate::sandbox::error::SandboxError;
 use crate::sandbox::models::{ProvisionRequest, ServerConfig};
 use crate::task::dao::TaskRepository;
@@ -62,8 +63,9 @@ pub async fn build_provision_request(
         })?;
 
     // 3. Resolve credentials
+    let git_provider = repo.provider.unwrap_or(RepositoryProvider::Github);
     let (git_provider_token, anthropic_api_key, claude_oauth_token) =
-        resolve_credentials(task_id, provider_tokens, task.created_by.as_deref()).await;
+        resolve_credentials(task_id, provider_tokens, task.created_by.as_deref(), git_provider).await;
 
     // Ensure we have at least some auth
     if anthropic_api_key.is_none() && claude_oauth_token.is_none() {
@@ -84,6 +86,7 @@ pub async fn build_provision_request(
         repo_config,
         git_clone_url,
         git_branch,
+        git_provider: git_provider.as_str().to_string(),
         git_provider_token,
         claude_oauth_token,
         anthropic_api_key,
@@ -102,21 +105,24 @@ async fn resolve_credentials(
     task_id: &str,
     provider_tokens: &dyn ProviderTokenRepository,
     user_id: Option<&str>,
+    git_provider: RepositoryProvider,
 ) -> (Option<String>, Option<String>, Option<String>) {
     let mut git_token: Option<String> = None;
     let mut anthropic: Option<String> = None;
     let mut claude: Option<String> = None;
 
+    let provider_str = git_provider.as_str();
+
     // Step 1: Fill from provider_tokens table
     if let Some(uid) = user_id {
-        match provider_tokens.find_provider_token(uid, "github").await {
+        match provider_tokens.find_provider_token(uid, provider_str).await {
             Ok(Some(row)) => {
-                info!(task_id = %task_id, "Auto-provision: GitHub token resolved from provider_tokens");
+                info!(task_id = %task_id, provider = %provider_str, "Auto-provision: git token resolved from provider_tokens");
                 git_token = Some(row.access_token);
             }
             Ok(None) => {}
             Err(e) => {
-                warn!(task_id = %task_id, error = %e, "Auto-provision: failed to query provider_tokens for github");
+                warn!(task_id = %task_id, provider = %provider_str, error = %e, "Auto-provision: failed to query provider_tokens for git provider");
             }
         }
 
@@ -132,9 +138,13 @@ async fn resolve_credentials(
         }
     }
 
-    // Step 2: Fill remaining gaps from environment variables
+    // Step 2: Fill remaining gaps from environment variables (per-provider fallback)
     if git_token.is_none() {
-        git_token = env::var("GITHUB_PAT").ok();
+        git_token = match git_provider {
+            RepositoryProvider::Github => env::var("GITHUB_PAT").ok(),
+            RepositoryProvider::Gitlab => env::var("GITLAB_PAT").ok(),
+            RepositoryProvider::Gitness => env::var("GITNESS_PAT").ok(),
+        };
     }
     if anthropic.is_none() {
         anthropic = env::var("ANTHROPIC_API_KEY").ok();
@@ -145,6 +155,7 @@ async fn resolve_credentials(
 
     info!(
         task_id = %task_id,
+        provider = %provider_str,
         has_git_token = git_token.is_some(),
         has_anthropic = anthropic.is_some(),
         has_claude_oauth = claude.is_some(),
