@@ -12,9 +12,9 @@ use bollard::models::{
 };
 use bollard::container::Config as ContainerConfig;
 
-use super::naming::{generate_container_name, generate_workspace_host_path};
+use super::naming::{generate_container_name, generate_data_host_path, generate_server_container_name, generate_workspace_host_path};
 use crate::config::Config;
-use crate::sandbox::models::ProvisionPlan;
+use crate::sandbox::models::{ProvisionPlan, ServerConfig};
 
 /// Build a complete `bollard::container::Config` for a sandbox container.
 ///
@@ -125,15 +125,25 @@ pub fn build_container_config(
         );
     }
 
-    // ── Bind mount ────────────────────────────────────────────────
+    // ── Bind mounts ───────────────────────────────────────────────
     let workspace_host_path = generate_workspace_host_path(&config.docker.data_dir, task_id);
-    let mounts = vec![Mount {
-        target: Some("/opt/moatless/repo".to_string()),
-        source: Some(workspace_host_path),
-        typ: Some(MountTypeEnum::BIND),
-        read_only: Some(false),
-        ..Default::default()
-    }];
+    let data_host_path = generate_data_host_path(&config.docker.data_dir, task_id);
+    let mounts = vec![
+        Mount {
+            target: Some("/opt/moatless/repo".to_string()),
+            source: Some(workspace_host_path),
+            typ: Some(MountTypeEnum::BIND),
+            read_only: Some(false),
+            ..Default::default()
+        },
+        Mount {
+            target: Some("/opt/moatless/data".to_string()),
+            source: Some(data_host_path),
+            typ: Some(MountTypeEnum::BIND),
+            read_only: Some(false),
+            ..Default::default()
+        },
+    ];
 
     // ── Host config ───────────────────────────────────────────────
     let host_config = HostConfig {
@@ -209,6 +219,134 @@ fn build_repo_config_json(plan: &ProvisionPlan) -> Option<String> {
     }
 
     Some(serde_json::Value::Object(map).to_string())
+}
+
+/// Default preview server image (matches K8s sidecar pattern).
+const DEFAULT_SERVER_IMAGE: &str = "aorwall/moatless-vibe-preview-server:latest";
+
+/// Build a `bollard::container::Config` for a server sidecar container.
+///
+/// Mirrors the K8s `build_server_containers()` pattern: each server config
+/// produces a container that waits for the `.workspace-ready` sentinel,
+/// then runs the start commands.
+pub fn build_server_container_config(
+    config: &Config,
+    task_id: &str,
+    server: &ServerConfig,
+) -> ContainerConfig<String> {
+    let container_name = generate_server_container_name(task_id, &server.name);
+
+    // ── Image ──────────────────────────────────────────────────────
+    let image = server
+        .docker_image
+        .clone()
+        .unwrap_or_else(|| DEFAULT_SERVER_IMAGE.to_string());
+
+    // ── Environment variables ─────────────────────────────────────
+    let mut env = vec![
+        format!("PORT={}", server.port),
+        "WORKSPACE_PATH=/opt/moatless/repo".to_string(),
+        "DATA_DIR=/opt/moatless/data".to_string(),
+    ];
+
+    if let Some(ref extra) = server.env_vars {
+        for (k, v) in extra {
+            env.push(format!("{k}={v}"));
+        }
+    }
+
+    // ── Command ──────────────────────────────────────────────────
+    // Wait for workspace-ready sentinel, then run start commands.
+    // Mirrors K8s pod_builder inline wait pattern.
+    let cmd = match &server.start_commands {
+        Some(cmds) if !cmds.is_empty() => {
+            let joined_cmd = cmds.join(" && ");
+            Some(vec![
+                "bash".to_string(),
+                "-c".to_string(),
+                format!(
+                    "until [ -f /opt/moatless/data/.workspace-ready ]; do sleep 2; done && \
+                     cd /opt/moatless/repo && {joined_cmd}"
+                ),
+            ])
+        }
+        _ => None,
+    };
+
+    // ── Labels ─────────────────────────────────────────────────────
+    let mut labels = HashMap::new();
+    labels.insert("created-by".to_string(), "moatless".to_string());
+    labels.insert("moatless.service".to_string(), "server".to_string());
+    labels.insert("moatless.io/task-id".to_string(), task_id.to_string());
+    labels.insert(
+        "moatless.io/server-name".to_string(),
+        server.name.clone(),
+    );
+    labels.insert(
+        "app.kubernetes.io/managed-by".to_string(),
+        "moatless".to_string(),
+    );
+
+    // ── Exposed ports ─────────────────────────────────────────────
+    #[allow(clippy::zero_sized_map_values)]
+    let mut exposed_ports: HashMap<String, HashMap<(), ()>> = HashMap::new();
+    let port_key = format!("{}/tcp", server.port);
+    #[allow(clippy::zero_sized_map_values)]
+    exposed_ports.insert(port_key.clone(), HashMap::new());
+
+    // ── Port bindings (dynamic host port mapping) ─────────────────
+    let mut port_bindings: HashMap<String, Option<Vec<PortBinding>>> = HashMap::new();
+    port_bindings.insert(
+        port_key,
+        Some(vec![PortBinding {
+            host_ip: Some("0.0.0.0".to_string()),
+            host_port: Some(String::new()), // empty = dynamic assignment
+        }]),
+    );
+
+    // ── Bind mounts ───────────────────────────────────────────────
+    let workspace_host_path = generate_workspace_host_path(&config.docker.data_dir, task_id);
+    let data_host_path = generate_data_host_path(&config.docker.data_dir, task_id);
+    let mounts = vec![
+        Mount {
+            target: Some("/opt/moatless/repo".to_string()),
+            source: Some(workspace_host_path),
+            typ: Some(MountTypeEnum::BIND),
+            read_only: Some(false),
+            ..Default::default()
+        },
+        Mount {
+            target: Some("/opt/moatless/data".to_string()),
+            source: Some(data_host_path),
+            typ: Some(MountTypeEnum::BIND),
+            read_only: Some(false),
+            ..Default::default()
+        },
+    ];
+
+    // ── Host config ───────────────────────────────────────────────
+    let host_config = HostConfig {
+        network_mode: Some(config.docker.network.clone()),
+        mounts: Some(mounts),
+        port_bindings: Some(port_bindings),
+        restart_policy: Some(RestartPolicy {
+            name: Some(RestartPolicyNameEnum::UNLESS_STOPPED),
+            maximum_retry_count: None,
+        }),
+        ..Default::default()
+    };
+
+    // ── Container config ──────────────────────────────────────────
+    ContainerConfig {
+        image: Some(image),
+        hostname: Some(container_name),
+        env: Some(env),
+        labels: Some(labels),
+        exposed_ports: Some(exposed_ports),
+        host_config: Some(host_config),
+        cmd,
+        ..Default::default()
+    }
 }
 
 #[cfg(test)]
@@ -361,15 +499,17 @@ mod tests {
     }
 
     #[test]
-    fn container_config_has_bind_mount() {
+    fn container_config_has_bind_mounts() {
         let config = test_config();
         let plan = test_plan();
         let cc = build_container_config(&config, "task-1", &plan, None);
         let host_config = cc.host_config.unwrap();
         let mounts = host_config.mounts.unwrap();
-        assert_eq!(mounts.len(), 1);
+        assert_eq!(mounts.len(), 2);
         assert_eq!(mounts[0].target.as_deref(), Some("/opt/moatless/repo"));
         assert_eq!(mounts[0].source.as_deref(), Some("/data/tasks/task-1"));
+        assert_eq!(mounts[1].target.as_deref(), Some("/opt/moatless/data"));
+        assert_eq!(mounts[1].source.as_deref(), Some("/data/tasks/task-1/data"));
     }
 
     #[test]
@@ -381,4 +521,89 @@ mod tests {
         assert_eq!(host_config.network_mode.unwrap(), "moatless");
     }
 
+    // ── Server container config tests ──────────────────────────────
+
+    fn test_server_config() -> ServerConfig {
+        ServerConfig {
+            name: "preview".into(),
+            label: Some("Preview".into()),
+            port: 3000,
+            start_commands: Some(vec!["bun run dev".into()]),
+            docker_image: None,
+            env_vars: None,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn server_config_uses_default_image() {
+        let config = test_config();
+        let server = test_server_config();
+        let cc = build_server_container_config(&config, "task-1", &server);
+        assert_eq!(cc.image.unwrap(), DEFAULT_SERVER_IMAGE);
+    }
+
+    #[test]
+    fn server_config_uses_custom_image() {
+        let config = test_config();
+        let mut server = test_server_config();
+        server.docker_image = Some("custom-server:v1".into());
+        let cc = build_server_container_config(&config, "task-1", &server);
+        assert_eq!(cc.image.unwrap(), "custom-server:v1");
+    }
+
+    #[test]
+    fn server_config_has_correct_labels() {
+        let config = test_config();
+        let server = test_server_config();
+        let cc = build_server_container_config(&config, "task-1", &server);
+        let labels = cc.labels.unwrap();
+        assert_eq!(labels.get("moatless.service").unwrap(), "server");
+        assert_eq!(labels.get("moatless.io/task-id").unwrap(), "task-1");
+        assert_eq!(labels.get("moatless.io/server-name").unwrap(), "preview");
+    }
+
+    #[test]
+    fn server_config_has_workspace_ready_wait() {
+        let config = test_config();
+        let server = test_server_config();
+        let cc = build_server_container_config(&config, "task-1", &server);
+        let cmd = cc.cmd.unwrap();
+        assert_eq!(cmd[0], "bash");
+        assert_eq!(cmd[1], "-c");
+        assert!(cmd[2].contains(".workspace-ready"));
+        assert!(cmd[2].contains("bun run dev"));
+    }
+
+    #[test]
+    fn server_config_exposes_server_port() {
+        let config = test_config();
+        let server = test_server_config();
+        let cc = build_server_container_config(&config, "task-1", &server);
+        let ports = cc.exposed_ports.unwrap();
+        assert!(ports.contains_key("3000/tcp"));
+    }
+
+    #[test]
+    fn server_config_has_bind_mounts() {
+        let config = test_config();
+        let server = test_server_config();
+        let cc = build_server_container_config(&config, "task-1", &server);
+        let host_config = cc.host_config.unwrap();
+        let mounts = host_config.mounts.unwrap();
+        assert_eq!(mounts.len(), 2);
+        assert_eq!(mounts[0].target.as_deref(), Some("/opt/moatless/repo"));
+        assert_eq!(mounts[1].target.as_deref(), Some("/opt/moatless/data"));
+    }
+
+    #[test]
+    fn server_config_env_vars() {
+        let config = test_config();
+        let server = test_server_config();
+        let cc = build_server_container_config(&config, "task-1", &server);
+        let env = cc.env.unwrap();
+        assert!(env.iter().any(|e| e == "PORT=3000"));
+        assert!(env.iter().any(|e| e == "WORKSPACE_PATH=/opt/moatless/repo"));
+        assert!(env.iter().any(|e| e == "DATA_DIR=/opt/moatless/data"));
+    }
 }

@@ -164,23 +164,21 @@ base.describe("Full Docker Workflow", () => {
 
 	// ─── Test 3: Preview server starts ─────────────────────────────────────
 
-	base("preview server should start (or be absent in Docker mode)", async ({}, testInfo) => {
-		testInfo.setTimeout(60000);
+	base("preview server should start", async ({}, testInfo) => {
+		testInfo.setTimeout(120000);
 		const taskId = task!.taskId;
 
-		// In Docker mode, the status resolver returns servers: [] because preview
-		// servers are only managed as sidecar containers in Kubernetes mode.
-		// Poll for a short period to check if servers appear; if not, pass with a note.
-		const deadline = Date.now() + 30000;
+		// Poll until a server container is started and has a URL.
+		// Server containers wait for the .workspace-ready sentinel before starting,
+		// so this may take a while (sandbox init → git clone → bun install → sentinel → server boot).
+		const deadline = Date.now() + 90000;
 		let serverUrl: string | undefined;
-		let hasAnyServers = false;
 
 		while (Date.now() < deadline) {
 			try {
 				const status = await api.getWorkspaceStatus(taskId);
 
 				if (status.servers && status.servers.length > 0) {
-					hasAnyServers = true;
 					const server =
 						status.servers.find((s) => s.default && s.status === "started") ||
 						status.servers.find((s) => s.status === "started");
@@ -198,12 +196,6 @@ base.describe("Full Docker Workflow", () => {
 				// Not available yet
 			}
 			await new Promise((resolve) => setTimeout(resolve, 3000));
-		}
-
-		if (!hasAnyServers) {
-			// Docker mode — no preview servers are managed
-			console.log("  No servers reported (expected in Docker execution mode — preview servers are K8s-only)");
-			return;
 		}
 
 		expect(serverUrl).toBeDefined();

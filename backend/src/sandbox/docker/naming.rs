@@ -38,6 +38,22 @@ pub fn generate_container_name(task_id: &str) -> String {
     format!("{prefix}{sanitized}")
 }
 
+/// Generate a deterministic Docker container name for a server sidecar.
+///
+/// Format: `moatless-server-{sanitized_task_id}-{sanitized_server_name}` (max 128 chars).
+pub fn generate_server_container_name(task_id: &str, server_name: &str) -> String {
+    let prefix = "moatless-server-";
+    let separator = "-";
+    // Available chars = max - prefix - separator
+    let available = MAX_CONTAINER_NAME_LEN - prefix.len() - separator.len();
+    // Split available space: give 2/3 to task_id, 1/3 to server_name (min 10)
+    let name_budget = available.min(server_name.len()).max(10.min(available));
+    let task_budget = available.saturating_sub(name_budget);
+    let sanitized_task = sanitize_docker_name(task_id, task_budget);
+    let sanitized_name = sanitize_docker_name(server_name, name_budget);
+    format!("{prefix}{sanitized_task}{separator}{sanitized_name}")
+}
+
 /// Generate the host volume path for a task's workspace.
 ///
 /// Format: `{data_dir}/tasks/{task_id}/`
@@ -45,6 +61,18 @@ pub fn generate_workspace_host_path(data_dir: &str, task_id: &str) -> String {
     let mut path = PathBuf::from(data_dir);
     path.push("tasks");
     path.push(task_id);
+    path.to_string_lossy().to_string()
+}
+
+/// Generate the host volume path for a task's shared data directory.
+///
+/// Used for the `.workspace-ready` sentinel file that server containers
+/// poll before starting. Format: `{data_dir}/tasks/{task_id}/data/`
+pub fn generate_data_host_path(data_dir: &str, task_id: &str) -> String {
+    let mut path = PathBuf::from(data_dir);
+    path.push("tasks");
+    path.push(task_id);
+    path.push("data");
     path.to_string_lossy().to_string()
 }
 
@@ -106,5 +134,29 @@ mod tests {
         let path = generate_workspace_host_path("/data/", "task-123");
         assert!(path.contains("tasks"));
         assert!(path.contains("task-123"));
+    }
+
+    #[test]
+    fn server_container_name_basic() {
+        assert_eq!(
+            generate_server_container_name("task-123", "preview"),
+            "moatless-server-task-123-preview"
+        );
+    }
+
+    #[test]
+    fn server_container_name_sanitizes() {
+        assert_eq!(
+            generate_server_container_name("TASK/123", "Preview Server"),
+            "moatless-server-task-123-preview-server"
+        );
+    }
+
+    #[test]
+    fn server_container_name_truncation() {
+        let long_id = "a".repeat(200);
+        let name = generate_server_container_name(&long_id, "preview");
+        assert!(name.len() <= MAX_CONTAINER_NAME_LEN);
+        assert!(name.starts_with("moatless-server-"));
     }
 }

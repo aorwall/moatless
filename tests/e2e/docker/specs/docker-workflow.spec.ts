@@ -38,11 +38,8 @@ test.describe.configure({ mode: "serial" });
 let workspaceProvisioned = false;
 
 /**
- * Ensures workspace is provisioned (and optionally preview is ready).
+ * Ensures workspace is provisioned and preview server is ready.
  * Only provisions once - subsequent calls are no-ops.
- *
- * In Docker mode, preview servers are not managed (servers array is always empty),
- * so we skip waiting for preview and just wait for workspace readiness.
  */
 async function ensureWorkspaceReady(
 	api: ApiClient,
@@ -52,7 +49,7 @@ async function ensureWorkspaceReady(
 
 	await waitForWorkspaceReady(api, taskId, { timeout: 180000 });
 
-	// Check if servers are available (K8s mode) or empty (Docker mode)
+	// Wait for preview server to be ready
 	const status = await api.getWorkspaceStatus(taskId);
 	if (status.servers && status.servers.length > 0) {
 		await waitForPreviewReady(api, taskId, {
@@ -61,7 +58,7 @@ async function ensureWorkspaceReady(
 		});
 		console.log("  Workspace provisioned and preview ready (shared across all tests)");
 	} else {
-		console.log("  Workspace provisioned (Docker mode — no preview servers)");
+		console.log("  Workspace provisioned (no server configs for this template)");
 	}
 
 	workspaceProvisioned = true;
@@ -135,21 +132,19 @@ test.describe("Docker Workflow E2E", () => {
 	});
 
 	test.describe("Preview Server via Docker", () => {
-		test("should auto-start preview server on workspace ready (or be absent in Docker mode)", async ({
+		test("should auto-start preview server on workspace ready", async ({
 			api,
 			sse,
 			testTask,
 		}) => {
-			// Ensure workspace is provisioned (preview starts automatically in K8s mode)
+			// Ensure workspace is provisioned (preview starts automatically)
 			await ensureWorkspaceReady(api, testTask.taskId);
 
 			// Check workspace status for server entries
 			const wsStatus = await api.getWorkspaceStatus(testTask.taskId);
 
-			if (!wsStatus.servers || wsStatus.servers.length === 0) {
-				console.log("  No servers reported (expected in Docker mode — preview servers are K8s-only)");
-				return;
-			}
+			expect(wsStatus.servers).toBeDefined();
+			expect(wsStatus.servers.length).toBeGreaterThan(0);
 
 			const preview =
 				wsStatus.servers.find((s) => s.default) ||
@@ -166,17 +161,14 @@ test.describe("Docker Workflow E2E", () => {
 			// Note: Event may not be captured if it occurred before SSE collector started
 		});
 
-		test("should get preview server status (or be absent in Docker mode)", async ({ api, testTask }) => {
+		test("should get preview server status", async ({ api, testTask }) => {
 			// Ensure workspace is provisioned
 			await ensureWorkspaceReady(api, testTask.taskId);
 
 			// Get status via workspace API
 			const wsStatus = await api.getWorkspaceStatus(testTask.taskId);
 
-			if (!wsStatus.servers || wsStatus.servers.length === 0) {
-				console.log("  No servers reported (expected in Docker mode)");
-				return;
-			}
+			expect(wsStatus.servers.length).toBeGreaterThan(0);
 
 			const preview =
 				wsStatus.servers.find((s) => s.default) ||
@@ -184,17 +176,14 @@ test.describe("Docker Workflow E2E", () => {
 			expect(preview?.status).toBe("started");
 		});
 
-		test("should access preview server content (or be absent in Docker mode)", async ({ api, testTask }) => {
+		test("should access preview server content", async ({ api, testTask }) => {
 			// Ensure workspace is provisioned
 			await ensureWorkspaceReady(api, testTask.taskId);
 
 			// Get preview URL from workspace status
 			const wsStatus = await api.getWorkspaceStatus(testTask.taskId);
 
-			if (!wsStatus.servers || wsStatus.servers.length === 0) {
-				console.log("  No servers reported (expected in Docker mode)");
-				return;
-			}
+			expect(wsStatus.servers.length).toBeGreaterThan(0);
 
 			const preview =
 				wsStatus.servers.find((s) => s.default) ||
