@@ -134,6 +134,7 @@ pub async fn clone_repository(config: &Config) -> Result<(), String> {
             }
             Err(e) => {
                 warn!(error = %e, "gh repo clone failed, falling back to git clone");
+                clean_workspace_dir(&config.workspace_dir).await;
             }
         }
     }
@@ -159,6 +160,7 @@ pub async fn clone_repository(config: &Config) -> Result<(), String> {
             }
             Err(e) => {
                 warn!(error = %e, "git clone with token failed, trying without auth");
+                clean_workspace_dir(&config.workspace_dir).await;
             }
         }
     }
@@ -180,6 +182,34 @@ pub async fn clone_repository(config: &Config) -> Result<(), String> {
             Err(format!("All clone methods failed. Last error: {e}"))
         }
     }
+}
+
+/// Remove contents of the workspace directory without removing the directory itself.
+///
+/// This is needed between clone fallback attempts: a failed `git clone` may leave
+/// partial data (`.git/`, etc.) that causes the next attempt to fail with
+/// "directory already exists and is not an empty directory". The directory itself
+/// is kept because it may be a mount point (e.g. a Kubernetes PVC).
+async fn clean_workspace_dir(dir: &str) {
+    let Ok(mut entries) = tokio::fs::read_dir(dir).await else {
+        return;
+    };
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let path = entry.path();
+        let ft = match entry.file_type().await {
+            Ok(ft) => ft,
+            Err(_) => continue,
+        };
+        let result = if ft.is_dir() {
+            tokio::fs::remove_dir_all(&path).await
+        } else {
+            tokio::fs::remove_file(&path).await
+        };
+        if let Err(e) = result {
+            warn!(path = %path.display(), error = %e, "Failed to clean workspace entry");
+        }
+    }
+    info!(dir = %dir, "Cleaned workspace directory for next clone attempt");
 }
 
 /// Extract "owner/repo" from a GitHub URL.

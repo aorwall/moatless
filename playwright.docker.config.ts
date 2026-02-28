@@ -1,4 +1,9 @@
+import { config } from "dotenv";
+import { resolve } from "node:path";
 import { defineConfig } from "@playwright/test";
+
+// Load docker-compose env vars (CLAUDE_CODE_OAUTH_TOKEN, BACKEND_PORT, etc.)
+config({ path: resolve(__dirname, "docker-compose/.env.docker-compose") });
 
 /**
  * Playwright configuration for Docker-compose E2E tests.
@@ -38,7 +43,9 @@ export default defineConfig({
 	// Shared settings for all tests
 	use: {
 		// Base URL for API requests - docker-compose backend
-		baseURL: process.env.DOCKER_COMPOSE_URL || "http://localhost:8080",
+		baseURL:
+			process.env.DOCKER_COMPOSE_URL ||
+			`http://localhost:${process.env.BACKEND_PORT || "8080"}`,
 
 		// Collect trace when retrying the failed test
 		trace: "on-first-retry",
