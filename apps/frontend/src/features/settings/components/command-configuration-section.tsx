@@ -36,7 +36,7 @@ import { Textarea } from '@/lib/components/ui/textarea'
 import { getErrorMessage } from '@/lib/utils/error'
 
 type GitSyncStatus = 'synced' | 'ahead' | 'behind' | 'diverged' | 'uncommitted_changes' | 'error'
-type TaskStatus = 'open' | 'running' | 'error' | 'merged' | 'closed'
+type TaskStatus = 'open' | 'error' | 'closed'
 
 interface CommandFormData {
   name: string

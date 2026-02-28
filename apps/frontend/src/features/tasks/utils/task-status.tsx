@@ -1,4 +1,3 @@
-import type { TaskResponse } from '@moatless/api-client'
 import { AlertCircle, CheckCircle, CircleDot, GitMerge, Loader2, PlayCircle } from 'lucide-react'
 import type { ReactElement } from 'react'
 
@@ -10,8 +9,10 @@ export interface TaskStatusConfig {
 
 /**
  * Determines if a task is currently running based on task status.
+ * Note: The backend task status only tracks lifecycle (open/closed/error).
+ * Agent running state is tracked via workspace agentState in real-time.
  */
-export function isTaskRunning(task: Pick<TaskResponse, 'status'>): boolean {
+export function isTaskRunning(task: { status: string }): boolean {
   return task.status === 'running'
 }
 

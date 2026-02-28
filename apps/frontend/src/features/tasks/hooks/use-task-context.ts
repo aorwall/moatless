@@ -9,7 +9,8 @@ export function useTaskStatus() {
 
   return {
     status,
-    isAgentRunning: status === 'running',
+    // Agent running state is tracked via workspace agentState, not task status
+    isAgentRunning: false,
     canExecute: status === 'open',
     isComplete: status === 'closed',
   }

@@ -8,7 +8,7 @@ import type {
   WorkspaceStatusFullResponse,
 } from '@moatless/api-client'
 import { unwrapResponse } from '@moatless/api-client/custom-instance'
-import { workspaceStatusHandler } from '@moatless/api-client/sandbox/sandbox/sandbox'
+import { sandboxStatusHandler } from '@moatless/api-client/sandbox/sandbox/sandbox'
 import type {
   AskUserQuestionResponse,
   CreateTaskRequest,
@@ -38,7 +38,7 @@ import { queryKeys } from '@/lib/api/query-keys'
 export function useTasksList(
   params?: {
     activeOnly?: boolean
-    status?: 'open' | 'running' | 'error' | 'merged' | 'closed'
+    status?: 'open' | 'error' | 'closed'
     limit?: number
     offset?: number
     tag?: string
@@ -117,7 +117,7 @@ export function useCreateTask(
         queryClient.prefetchQuery({
           queryKey: queryKeys.tasks.workspaceStatus(response.taskId),
           queryFn: () =>
-            unwrapResponse<WorkspaceStatusFullResponse>(workspaceStatusHandler(response.taskId)),
+            unwrapResponse<WorkspaceStatusFullResponse>(sandboxStatusHandler(response.taskId)),
           staleTime: 0,
         })
       } else {
@@ -186,7 +186,10 @@ export function useSendMessage(
 
       // Create optimistic message — mark as queued when the agent is already running,
       // since the backend will save it with agentSessionId = NULL
-      const isQueued = previousTask?.status === 'running'
+      const workspaceStatus = queryClient.getQueryData<WorkspaceStatusFullResponse>(
+        queryKeys.tasks.workspaceStatus(taskId),
+      )
+      const isQueued = workspaceStatus?.agentState === 'running'
       const optimisticMessage: UiMessage = {
         uuid: `temp-message-${Date.now()}`,
         role: 'user',
@@ -507,7 +510,7 @@ export function useCreateVibeTask(
         queryClient.prefetchQuery({
           queryKey: queryKeys.tasks.workspaceStatus(data.taskId),
           queryFn: () =>
-            unwrapResponse<WorkspaceStatusFullResponse>(workspaceStatusHandler(data.taskId)),
+            unwrapResponse<WorkspaceStatusFullResponse>(sandboxStatusHandler(data.taskId)),
           staleTime: 0,
         })
       }

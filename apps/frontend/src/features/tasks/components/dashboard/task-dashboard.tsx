@@ -83,7 +83,7 @@ interface TaskDashboardProps {
   tag?: string
   createdBy?: string
   repositoryId?: string
-  status?: 'open' | 'running' | 'error' | 'merged' | 'closed'
+  status?: 'open' | 'error' | 'closed'
   page: number
   onSearchChange: (params: DashboardSearchParams) => void
 }

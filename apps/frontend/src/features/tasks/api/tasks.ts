@@ -10,14 +10,11 @@ import type {
   UiMessage,
 } from '@moatless/api-client'
 import { unwrapResponse } from '@moatless/api-client/custom-instance'
-import {
-  sendMessage as sendMessageHandler,
-  stopAgent as stopAgentHandler,
-} from '@moatless/api-client/sandbox/agent/agent'
 import { getAvailableCommands as getAvailableCommandsHandler } from '@moatless/api-client/sandbox/commands/commands'
 import {
   deleteQueuedMessage as deleteQueuedMessageHandler,
   getMessages as getMessagesHandler,
+  sendMessage as sendMessageHandler,
 } from '@moatless/api-client/sandbox/messages/messages'
 import {
   closeTask as closeTaskHandler,
@@ -26,6 +23,7 @@ import {
   deleteTask as deleteTaskHandler,
   getTask as getTaskHandler,
   listTasks as listTasksHandler,
+  stopTask as stopAgentHandler,
   updateTaskMetadata as updateTaskMetadataHandler,
   updateVisibility as updateVisibilityHandler,
 } from '@moatless/api-client/sandbox/tasks/tasks'
@@ -33,13 +31,13 @@ import type { CreateTaskRequest, CreateVibeTaskRequest, MessageContext } from '@
 
 export const tasksApi = {
   async getActiveTasks(): Promise<string[]> {
-    const response = await unwrapResponse<ListTasksResponse>(listTasksHandler({ status: 'active' }))
+    const response = await unwrapResponse<ListTasksResponse>(listTasksHandler({ status: 'open' }))
     return response.items.map((task) => task.taskId)
   },
 
   async listTasks(params?: {
     activeOnly?: boolean
-    status?: 'open' | 'running' | 'error' | 'merged' | 'closed'
+    status?: 'open' | 'error' | 'closed'
     limit?: number
     offset?: number
     tag?: string
@@ -48,7 +46,7 @@ export const tasksApi = {
   }): Promise<ListTasksResponse> {
     return await unwrapResponse(
       listTasksHandler({
-        status: params?.status || (params?.activeOnly ? 'active' : undefined),
+        status: params?.status || (params?.activeOnly ? 'open' : undefined),
         limit: params?.limit,
         offset: params?.offset,
         tag: params?.tag,

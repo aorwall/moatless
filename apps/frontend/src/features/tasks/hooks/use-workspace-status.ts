@@ -1,7 +1,7 @@
 import type { TaskResponse, WorkspaceStatusFullResponse } from '@moatless/api-client'
 import {
+  provisionHandler,
   restartHandler,
-  startHandler,
   stopHandler,
 } from '@moatless/api-client/sandbox/sandbox/sandbox'
 import type { UseQueryOptions } from '@tanstack/react-query'
@@ -30,19 +30,19 @@ export function useWorkspaceStatus(
 
   return useTaskWorkspaceStatusQuery(taskId, {
     ...options,
-    enabled: isEnabled && task?.status !== 'closed' && task?.status !== 'merged',
+    enabled: isEnabled && task?.status !== 'closed',
   } as Parameters<typeof useTaskWorkspaceStatusQuery>[1])
 }
 
 /**
  * Hook to retry workspace provisioning after a failure
- * Calls backend's start endpoint directly
+ * Calls backend's provision endpoint directly
  * Note: Status updates are handled by SSE events in global-event-stream-provider
  */
 export function useWorkspaceRetry(taskId: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: () => startHandler(taskId),
+    mutationFn: () => provisionHandler(taskId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.tasks.workspaceStatus(taskId) })
     },
@@ -70,19 +70,6 @@ export function useWorkspaceStop(taskId: string) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: () => stopHandler(taskId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.workspaceStatus(taskId) })
-    },
-  })
-}
-
-/**
- * Hook to start a stopped workspace via backend (scale Deployment to 1)
- */
-export function useWorkspaceStart(taskId: string) {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: () => startHandler(taskId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.tasks.workspaceStatus(taskId) })
     },

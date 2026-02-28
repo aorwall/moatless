@@ -10,10 +10,7 @@ const tasksSearchSchema = z.object({
   tag: z.string().optional().catch(undefined),
   createdBy: z.string().optional().catch(undefined),
   repositoryId: z.string().optional().catch(undefined),
-  status: z
-    .enum(['all', 'open', 'running', 'error', 'merged', 'closed'])
-    .optional()
-    .catch(undefined),
+  status: z.enum(['all', 'open', 'error', 'closed']).optional().catch(undefined),
   page: z.coerce.number().min(1).optional().catch(undefined),
 })
 

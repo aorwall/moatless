@@ -12,14 +12,14 @@ import {
 } from '@/lib/components/ui/select'
 import { ToggleGroup, ToggleGroupItem } from '@/lib/components/ui/toggle-group'
 
-const STATUS_OPTIONS = ['open', 'running', 'error', 'merged', 'closed'] as const
+const STATUS_OPTIONS = ['open', 'error', 'closed'] as const
 
 export interface DashboardSearchParams {
   view?: 'cards' | 'table'
   tag?: string
   createdBy?: string
   repositoryId?: string
-  status?: 'all' | 'open' | 'running' | 'error' | 'merged' | 'closed'
+  status?: 'all' | 'open' | 'error' | 'closed'
   page?: number
 }
 
