@@ -20,7 +20,7 @@ export function FigmaClipboardTestPage() {
     applyComponentProps: true,
     filterHidden: true,
     detectStructuralFrames: true,
-    skipIconTailwind: true,
+    detectIcons: true,
     sortChildrenByPosition: true,
     includePositionCoords: false,
     flattenStructuralWrappers: true,

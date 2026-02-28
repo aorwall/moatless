@@ -135,8 +135,8 @@ const OPTION_GROUPS: Record<string, OptionDefinition[]> = {
       indent: 0,
     },
     {
-      key: 'skipIconTailwind' as const,
-      label: 'Skip Icon Tailwind',
+      key: 'detectIcons' as const,
+      label: 'Detect Icons',
       description:
         '🎨 Icon detection: Detects icon components and adds meta.iconType and meta.iconDescription. Prevents incorrect styling suggestions.',
       defaultValue: true,
