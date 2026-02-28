@@ -11,7 +11,6 @@ import {
 } from '@/features/repositories'
 import { useTaskInputs } from '@/features/tasks/hooks/use-task-inputs'
 import { useCreateTask } from '@/features/tasks/hooks/use-tasks'
-import { ApiError } from '@/lib/api/client'
 import { queryKeys } from '@/lib/api/query-keys'
 import {
   ChatInput,
@@ -92,7 +91,11 @@ export function CreateCodeTask({
 
   // Clear stored repository ID on 404 error
   useEffect(() => {
-    if (repositoryError instanceof ApiError && repositoryError.status === 404) {
+    if (
+      repositoryError &&
+      'status' in repositoryError &&
+      (repositoryError as { status: number }).status === 404
+    ) {
       onRepositoryChange('')
       toast.info('Previously selected repository no longer exists')
     }

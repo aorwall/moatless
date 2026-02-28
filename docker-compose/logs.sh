@@ -70,7 +70,7 @@ done
 cd "$(dirname "$0")/.."
 
 # Build docker-compose command
-COMPOSE_CMD="docker compose -f docker-compose/docker-compose.yml logs -f"
+COMPOSE_CMD="docker compose -f docker-compose/docker-compose.yml --env-file docker-compose/.env.docker-compose logs -f"
 
 if [ -n "$TAIL_LINES" ]; then
   COMPOSE_CMD="$COMPOSE_CMD --tail $TAIL_LINES"
@@ -78,6 +78,9 @@ fi
 
 if [ -n "$SERVICE" ]; then
   COMPOSE_CMD="$COMPOSE_CMD $SERVICE"
+else
+  # Default: skip frontend (nginx access logs are noise)
+  COMPOSE_CMD="$COMPOSE_CMD backend postgres redis"
 fi
 
 if [ "$PRETTY" = "true" ]; then

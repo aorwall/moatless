@@ -160,9 +160,9 @@ helm install moatless ./k8s/helm/moatless-vibe \
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `replicaCount` | Number of API replicas | `1` |
-| `image.repository` | API image repository | `ghcr.io/aorwall/moatless-vibe` |
+| `image.repository` | API image repository | `aorwall/moatless-vibe-frontend` |
 | `image.tag` | Image tag | Chart `appVersion` |
-| `sandboxImage.repository` | Sandbox image repository | `ghcr.io/aorwall/moatless-vibe-worker` |
+| `sandboxImage.repository` | Sandbox image repository | `aorwall/moatless-vibe-sandbox` |
 
 ### Database Parameters
 

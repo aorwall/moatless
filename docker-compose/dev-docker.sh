@@ -49,7 +49,7 @@ cd "$(dirname "$0")/.."
 
 # Auto-detect DATA_DIR if not set (absolute host path for sibling container mounts)
 if [ -z "$DATA_DIR" ]; then
-  export DATA_DIR="$(pwd)/data"
+  export DATA_DIR="${HOME}/.moatless/data"
   echo "DATA_DIR not set, using: $DATA_DIR"
 fi
 mkdir -p "$DATA_DIR"
@@ -97,7 +97,7 @@ echo "=========================================="
 echo "Building backend Docker image..."
 echo "=========================================="
 docker buildx use desktop-linux 2>/dev/null || true
-docker build -t ghcr.io/aorwall/moatless-vibe-backend:latest -f backend/Dockerfile .
+docker build -t aorwall/moatless-vibe-backend:latest -f docker/Dockerfile.backend .
 
 echo ""
 echo "=========================================="

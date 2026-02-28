@@ -187,6 +187,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         info!("Domain routes registered");
 
+        // Seed default repositories
+        repository::seed::seed_default_repositories(&*app_state.repositories).await;
+
         // Background workers
         spawn_event_handler(&config, &app_state, cancel.clone()).await;
         if let Some(k8s) = reaper_k8s {

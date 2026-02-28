@@ -8,7 +8,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Default values
-IMAGE_NAME="moatless-vibe"
+IMAGE_NAME="moatless-vibe-frontend"
 REGISTRY="aorwall"
 TAG="latest"
 PLATFORM="linux/amd64,linux/arm64"

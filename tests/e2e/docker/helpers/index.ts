@@ -11,13 +11,15 @@
 export { ApiClient } from "./api-client";
 export type {
 	CreateRepositoryRequest,
-	CreateTaskRequest,
+	CreateVibeTaskRequest,
+	GetMessagesResponse,
 	GitDiffFile,
 	GitDiffResponse,
-	PreviewStatus,
-	Repository,
-	Task,
-	WorkspaceStatus,
+	RepositoryResponse,
+	ServerStatusResponse,
+	TaskResponse,
+	UiMessage,
+	WorkspaceStatusFullResponse,
 } from "./api-client";
 
 // SSE Event Collector

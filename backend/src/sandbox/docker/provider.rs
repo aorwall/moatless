@@ -61,16 +61,17 @@ impl SandboxProvider for DockerSandboxProvider {
             ExistingContainerResult::Exists => {
                 // Container exists but not running — start it
                 info!(task_id = %task_id, "Starting existing stopped container");
+                self.publish_initializing(task_id).await;
                 self.client
                     .docker
                     .start_container(&container_name, None::<StartContainerOptions<String>>)
                     .await
                     .map_err(|e| SandboxError::DockerError(format!("Failed to start container: {e}")))?;
 
-                self.publish_initializing(task_id).await;
+                self.publish_ready(task_id).await;
 
                 return Ok(ProvisionResponse {
-                    status: EnvironmentStatus::Initializing,
+                    status: EnvironmentStatus::Ready,
                 });
             }
             ExistingContainerResult::NotFound => {} // Continue provisioning
@@ -127,6 +128,9 @@ impl SandboxProvider for DockerSandboxProvider {
             .await
             .map_err(|e| SandboxError::DockerError(format!("Failed to create container: {e}")))?;
 
+        // Publish initializing event before starting
+        self.publish_initializing(task_id).await;
+
         self.client
             .docker
             .start_container(&container_name, None::<StartContainerOptions<String>>)
@@ -140,11 +144,10 @@ impl SandboxProvider for DockerSandboxProvider {
             "Docker sandbox provisioned"
         );
 
-        // Publish initializing event
-        self.publish_initializing(task_id).await;
+        self.publish_ready(task_id).await;
 
         Ok(ProvisionResponse {
-            status: EnvironmentStatus::Initializing,
+            status: EnvironmentStatus::Ready,
         })
     }
 
@@ -191,6 +194,8 @@ impl SandboxProvider for DockerSandboxProvider {
 
         let container_name = generate_container_name(task_id);
 
+        self.publish_initializing(task_id).await;
+
         self.client
             .docker
             .restart_container(&container_name, Some(RestartContainerOptions { t: 30 }))
@@ -199,7 +204,7 @@ impl SandboxProvider for DockerSandboxProvider {
                 SandboxError::DockerError(format!("Failed to restart container: {e}"))
             })?;
 
-        self.publish_initializing(task_id).await;
+        self.publish_ready(task_id).await;
 
         Ok(())
     }
@@ -328,6 +333,19 @@ impl DockerSandboxProvider {
                     task_id,
                     moatless_events::SandboxSubType::Initializing,
                     "Starting",
+                )
+                .await;
+        }
+    }
+
+    /// Publish a "ready" event (fire-and-forget).
+    async fn publish_ready(&self, task_id: &str) {
+        if let Some(ref publisher) = self.event_publisher {
+            publisher
+                .publish_sandbox_event(
+                    task_id,
+                    moatless_events::SandboxSubType::Ready,
+                    "Running",
                 )
                 .await;
         }

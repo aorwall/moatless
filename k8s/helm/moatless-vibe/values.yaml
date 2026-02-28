@@ -7,7 +7,7 @@ replicaCount: 1
 # Static frontend nginx image
 image:
   # -- Docker image repository
-  repository: aorwall/moatless-vibe
+  repository: aorwall/moatless-vibe-frontend
   # -- Image pull policy
   pullPolicy: Always
   # -- Overrides the image tag (default: chart appVersion)
@@ -16,7 +16,7 @@ image:
 # Sandbox image (full dev environment, ~5-8GB)
 sandboxImage:
   # -- Docker image repository for sandbox pods
-  repository: aorwall/moatless-vibe-worker
+  repository: aorwall/moatless-vibe-sandbox
   # -- Image pull policy for sandbox pods
   pullPolicy: Always
   # -- Overrides the sandbox image tag (default: same as main image tag)
@@ -317,10 +317,10 @@ kubernetes:
   namespace: ""
   # -- Sandbox image override (object format with repository + tag, or full image string)
   # Examples:
-  #   --set kubernetes.sandboxImage.repository=aorwall/moatless-vibe-worker
+  #   --set kubernetes.sandboxImage.repository=aorwall/moatless-vibe-sandbox
   #   --set kubernetes.sandboxImage.tag=v1.0.0
   # Or as a full string:
-  #   --set kubernetes.sandboxImage=aorwall/moatless-vibe-worker:v1.0.0
+  #   --set kubernetes.sandboxImage=aorwall/moatless-vibe-sandbox:v1.0.0
   # Defaults to sandboxImage section below if not set
   sandboxImage:
     repository: ""

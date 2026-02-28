@@ -1226,11 +1226,11 @@ The event system is built on the `@moatless/messaging` package, which provides u
 WORKSPACE_EXECUTION_MODE=docker|kubernetes  # Default: kubernetes
 
 # Backend - Docker settings (when WORKSPACE_EXECUTION_MODE=docker)
-DOCKER_SANDBOX_IMAGE=ghcr.io/aorwall/moatless-vibe-worker:latest
+DOCKER_SANDBOX_IMAGE=aorwall/moatless-vibe-sandbox:latest
 
 # Backend - Kubernetes settings (when WORKSPACE_EXECUTION_MODE=kubernetes)
 K8S_NAMESPACE=moatless
-K8S_WORKER_IMAGE=ghcr.io/aorwall/moatless-vibe-worker:latest
+K8S_SANDBOX_IMAGE=aorwall/moatless-vibe-sandbox:latest
 K8S_RESOURCE_LIMIT_CPU=2
 K8S_RESOURCE_LIMIT_MEMORY=4Gi
 K8S_POD_STARTUP_TIMEOUT=120

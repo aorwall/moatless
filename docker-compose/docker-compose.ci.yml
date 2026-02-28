@@ -6,8 +6,7 @@ services:
     # Use the RC image built in CI (set via APP_IMAGE env var)
     image: ${APP_IMAGE}
     environment:
-      NODE_ENV: production
-      LOG_LEVEL: info
+      RUST_LOG: info
       # Disable authentication for CI testing
       AUTH_PROVIDER: disabled
       # DATA_DIR is the HOST path for Docker sibling container volume mounts
@@ -22,3 +21,6 @@ services:
     volumes:
       # Override data volume mount to use CI workspace
       - ${DATA_DIR}:/data
+
+  frontend:
+    image: ${FRONTEND_IMAGE:-aorwall/moatless-vibe:latest}

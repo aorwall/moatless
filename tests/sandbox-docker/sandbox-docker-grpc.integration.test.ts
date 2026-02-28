@@ -7,7 +7,7 @@
  *
  * Prerequisites:
  * - Docker daemon must be running
- * - Sandbox image: ghcr.io/aorwall/moatless-vibe-sandbox-js:latest
+ * - Sandbox image: aorwall/moatless-vibe-sandbox-js:latest
  *   (or set SANDBOX_DOCKER_IMAGE env var)
  * - CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY for agent tests
  *

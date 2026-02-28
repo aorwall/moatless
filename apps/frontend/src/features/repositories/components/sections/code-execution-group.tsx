@@ -35,7 +35,7 @@ export function CodeExecutionGroup({ formData, onUpdateField }: CodeExecutionGro
         <ConfigurationInput
           value={formData.dockerImage || ''}
           onChange={(e) => updateField('dockerImage', e.target.value || null)}
-          placeholder="ghcr.io/org/image:latest"
+          placeholder="aorwall/moatless-vibe-sandbox-js:latest"
         />
       </ConfigurationItem>
 

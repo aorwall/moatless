@@ -171,7 +171,7 @@ The `REPO_CONFIG` environment variable contains a JSON-encoded configuration obj
   "systemPrompt": "Optional additional system prompt for the agent",
   "codeExecution": {
     "setupCommands": ["npm install", "npm run build"],
-    "dockerImage": "ghcr.io/org/custom-image:latest"
+    "dockerImage": "aorwall/moatless-vibe-sandbox-js:latest"
   },
   "previewConfig": {
     "serverStartCommands": ["npm", "run", "dev"],

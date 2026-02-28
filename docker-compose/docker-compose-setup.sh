@@ -37,7 +37,7 @@ if [ ! -f .env.docker-compose ]; then
     echo "⚠️  IMPORTANT: You must edit .env.docker-compose and set the following required values:"
     echo ""
     echo "   1. CLAUDE_CODE_OAUTH_TOKEN - Get from https://claude.ai/settings/code"
-    echo "   2. SESSION_SECRET - Generate with: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\""
+    echo "   2. TASK_TOKEN_SECRET - Generate with: openssl rand -hex 32"
     echo "   3. POSTGRES_PASSWORD - Change from default password"
     echo ""
     read -p "Press Enter to open .env.docker-compose in your editor..."
@@ -62,8 +62,8 @@ if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ] || [ "$CLAUDE_CODE_OAUTH_TOKEN" = "your_cla
     VALIDATION_FAILED=true
 fi
 
-if [ -z "$SESSION_SECRET" ] || [ "$SESSION_SECRET" = "your_session_secret_here" ]; then
-    echo "❌ SESSION_SECRET is required. Generate with: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\""
+if [ -z "$TASK_TOKEN_SECRET" ] || [ "$TASK_TOKEN_SECRET" = "your_task_token_secret_here" ]; then
+    echo "❌ TASK_TOKEN_SECRET is required. Generate with: openssl rand -hex 32"
     VALIDATION_FAILED=true
 fi
 
@@ -103,7 +103,8 @@ echo ""
 echo "✅ Setup complete!"
 echo ""
 echo "🌐 Services are running:"
-echo "   - Backend:  http://localhost:${BACKEND_PORT:-8000}"
+echo "   - Frontend: http://localhost:${FRONTEND_PORT:-3000}"
+echo "   - Backend:  http://localhost:${BACKEND_PORT:-8080}"
 echo ""
 echo "📊 Useful commands:"
 echo "   View logs:        $DOCKER_COMPOSE -f \"$COMPOSE_FILE\" --env-file .env.docker-compose logs -f"

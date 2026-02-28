@@ -10,7 +10,7 @@ on:
         required: true
 
 env:
-  IMAGE_NAME: aorwall/moatless-vibe
+  IMAGE_NAME: aorwall/moatless-vibe-frontend
   SANDBOX_IMAGE_NAME: aorwall/moatless-vibe-sandbox-js
   BACKEND_IMAGE_NAME: aorwall/moatless-vibe-backend
   PREVIEW_SERVER_IMAGE: aorwall/moatless-vibe-preview-server
@@ -120,7 +120,7 @@ jobs:
         run: |
           docker build \
             --platform linux/amd64 \
-            -f backend/Dockerfile \
+            -f docker/Dockerfile.backend \
             -t ${{ env.BACKEND_IMAGE_NAME }}:${{ needs.version.outputs.version }} \
             -t ${{ env.BACKEND_IMAGE_NAME }}:latest \
             .

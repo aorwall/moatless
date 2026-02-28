@@ -2,7 +2,7 @@
 set -e
 
 # Configuration
-IMAGE_NAME="${IMAGE_NAME:-aorwall/moatless-vibe-worker}"
+IMAGE_NAME="${IMAGE_NAME:-aorwall/moatless-vibe-sandbox}"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
 NAMESPACE="${NAMESPACE:-vibe}"
 RELEASE_NAME="${RELEASE_NAME:-vibe}"
@@ -38,7 +38,7 @@ Options:
     --deploy-only     Only deploy with Helm (assumes image already pushed)
     --skip-build      Skip Docker build, only push and deploy
     --tag TAG         Docker image tag (default: latest)
-    --image IMAGE     Docker image name (default: aorwall/moatless-vibe-worker)
+    --image IMAGE     Docker image name (default: aorwall/moatless-vibe-sandbox)
     --namespace NS    Kubernetes namespace (default: vibe)
     --values FILE     Values file for Helm (e.g., ./k8s/helm/values-moatless.yaml)
     -h, --help        Show this help message

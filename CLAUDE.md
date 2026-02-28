@@ -61,20 +61,23 @@ CLAUDE_SDK_E2E=1 cargo test -p claude-agent-sdk -- --ignored
 ```bash
 # Build Docker images
 ./docker/build-app.sh [--tag v1.0.0] [--push]         # frontend (Nginx)
+./docker/build-backend.sh [IMAGE_NAME] [TAG]           # backend (cross-compile + push)
 ./docker/build-sandbox.sh [--tag v1.0.0] [--push]      # sandbox images
+./docker/build-servers.sh [--tag v1.0.0] [--push]      # files-server, preview-server
 
 # Local development with Docker Compose
 bun run dev:docker
 ```
 
-### Kubernetes Deployment (via Makefile)
+### Kubernetes Deployment (via Taskfile)
 ```bash
-make deploy              # build, push, and deploy everything
-make deploy-app          # build, push, and deploy app only
-make deploy TAG=v2.0.0   # deploy with specific tag
-make status              # show deployment status
-make logs                # show app logs
-make restart             # restart app deployment
+# Requires: https://taskfile.dev
+task deploy              # build, push, and deploy everything
+task deploy:frontend     # build, push, and deploy frontend only
+task deploy TAG=v2.0.0   # deploy with specific tag
+task status              # show deployment status
+task logs                # show app logs
+task restart             # restart app deployment
 ```
 
 ### Releasing
@@ -270,8 +273,7 @@ For sandbox-specific architecture, see [Sandbox Architecture](./docs/sandbox-arc
 │   │   ├── sandbox_grpc_server.rs # gRPC server (receives from sandbox pods)
 │   │   └── metrics.rs             # Prometheus metrics
 │   ├── tests/
-│   ├── Cargo.toml
-│   └── Dockerfile                 # Multi-stage cross-compile build
+│   └── Cargo.toml
 ├── sandbox/                       # Rust sandbox runtime (runs in K8s pods)
 │   ├── src/
 │   │   ├── main.rs                # Entry point: config → gRPC server + HTTP /health
@@ -301,6 +303,8 @@ For sandbox-specific architecture, see [Sandbox Architecture](./docs/sandbox-arc
 │   └── shell-utils/               # Shell utility functions
 ├── docker/                        # Docker configurations
 │   ├── Dockerfile.app             # Frontend (Nginx + static files)
+│   ├── Dockerfile.backend         # Backend (multi-stage cross-compile)
+│   ├── Dockerfile.backend-cross   # Backend (minimal runtime, local cross-compile)
 │   ├── Dockerfile.sandbox         # Base sandbox (Ubuntu 24.04 + Claude CLI)
 │   ├── Dockerfile.sandbox-js      # JS/TS sandbox (+ Playwright)
 │   ├── Dockerfile.sandbox-full    # Full dev sandbox (Python/Rust/Go/Java)
@@ -312,7 +316,7 @@ For sandbox-specific architecture, see [Sandbox Architecture](./docs/sandbox-arc
 │   └── helm/moatless-vibe/        # Helm chart
 ├── drizzle/                       # PostgreSQL migrations (SQL files)
 ├── Cargo.toml                     # Rust workspace root
-├── Makefile                       # Deployment automation
+├── Taskfile.yml                   # Deployment automation (taskfile.dev)
 └── package.json                   # Root npm config (frontend/scripts)
 ```
 

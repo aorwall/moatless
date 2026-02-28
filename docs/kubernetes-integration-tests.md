@@ -49,7 +49,7 @@ Only works if you have direct access to pod IPs (VPN, port-forward, or in-cluste
 ```bash
 K8S_ENABLED=true \
 K8S_NAMESPACE=vibe \
-K8S_WORKER_IMAGE=aorwall/moatless-vibe-worker:latest \
+K8S_SANDBOX_IMAGE=aorwall/moatless-vibe-sandbox:latest \
 NODE_TLS_REJECT_UNAUTHORIZED=0 \
 bun test apps/backend/src/features/workspace/drivers/__tests__/kubernetes-environment-driver.integration.test.ts
 ```

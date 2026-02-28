@@ -3,7 +3,7 @@
 use axum::extract::{Path, Query, State};
 use axum::Json;
 
-use moatless_events::TaskSubType;
+use moatless_events::{SandboxEventPayload, SandboxSubType, TaskSubType};
 
 use super::dao::{TaskFilter, TaskPatch};
 use super::models::Task;
@@ -125,11 +125,37 @@ async fn insert_and_provision_task(
                 }
                 Err(e) => {
                     tracing::warn!(task_id = %task_id, error = %e, "Failed to provision sandbox");
+                    if let Some(ref events) = state.events {
+                        events
+                            .publish_sandbox_event_with_payload(
+                                task_id,
+                                SandboxSubType::Error,
+                                &SandboxEventPayload {
+                                    message: format!("Failed to provision sandbox: {e}"),
+                                    error: Some(e.to_string()),
+                                    ..Default::default()
+                                },
+                            )
+                            .await;
+                    }
                 }
             }
         }
         Err(e) => {
             tracing::warn!(task_id = %task_id, error = %e, "Failed to build provision request");
+            if let Some(ref events) = state.events {
+                events
+                    .publish_sandbox_event_with_payload(
+                        task_id,
+                        SandboxSubType::Error,
+                        &SandboxEventPayload {
+                            message: format!("Failed to build provision request: {e}"),
+                            error: Some(e.to_string()),
+                            ..Default::default()
+                        },
+                    )
+                    .await;
+            }
         }
     }
 

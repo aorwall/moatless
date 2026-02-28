@@ -1,37 +1,37 @@
 # Docker Build Guide
 
-## Worker Images
+## Sandbox Images
 
-Two worker images are available for task execution in Kubernetes:
+Two sandbox images are available for task execution in Kubernetes:
 
 | Image | Size | Use Case |
 |-------|------|----------|
-| `aorwall/moatless-vibe-worker` | ~1.7GB | Full polyglot (Python, Node, Go, Rust, Java) |
-| `aorwall/moatless-vibe-worker-js` | ~530MB | JavaScript/TypeScript only |
+| `aorwall/moatless-vibe-sandbox` | ~1.7GB | Full polyglot (Python, Node, Go, Rust, Java) |
+| `aorwall/moatless-vibe-sandbox-js` | ~530MB | JavaScript/TypeScript only |
 
 ## Building Images
 
-### Full Worker (all languages)
+### Full Sandbox (all languages)
 
 ```bash
 # Build for local platform
-./docker/build-worker.sh
+./docker/build-sandbox.sh
 
 # Build for K8s (linux/amd64) and push
-./docker/build-worker.sh --platform linux/amd64 --push
+./docker/build-sandbox.sh --platform linux/amd64 --push
 
 # Build with custom tag
-./docker/build-worker.sh --tag v1.0.0 --push
+./docker/build-sandbox.sh --tag v1.0.0 --push
 ```
 
-### Slim JS/TS Worker
+### Slim JS/TS Sandbox
 
 ```bash
 # Build for local platform
-./docker/build-worker-js.sh
+./docker/build-sandbox.sh
 
 # Build for K8s and push
-./docker/build-worker-js.sh --platform linux/amd64 --push
+./docker/build-sandbox.sh --platform linux/amd64 --push
 ```
 
 ### Test Runner (for K8s integration tests)
@@ -52,14 +52,14 @@ All build scripts support:
 | `--no-cache` | Build without Docker cache |
 | `--help` | Show help |
 
-## Using Custom Worker Images
+## Using Custom Sandbox Images
 
 ### In Kubernetes Settings
 
 ```json
 {
   "kubernetes": {
-    "image": "aorwall/moatless-vibe-worker-js:latest"
+    "image": "aorwall/moatless-vibe-sandbox-js:latest"
   }
 }
 ```
@@ -67,12 +67,12 @@ All build scripts support:
 ### Via Environment Variable
 
 ```bash
-K8S_WORKER_IMAGE=aorwall/moatless-vibe-worker-js:latest
+K8S_SANDBOX_IMAGE=aorwall/moatless-vibe-sandbox-js:latest
 ```
 
 ## What's in Each Image
 
-### Full Worker (`moatless-vibe-worker`)
+### Full Sandbox (`moatless-vibe-sandbox`)
 - Node.js 22, Bun, npm/pnpm/yarn
 - Python 3.12 (pyenv)
 - Go 1.23
@@ -81,7 +81,7 @@ K8S_WORKER_IMAGE=aorwall/moatless-vibe-worker-js:latest
 - Playwright + Chromium
 - Claude Code CLI
 
-### Slim Worker (`moatless-vibe-worker-js`)
+### Slim Sandbox (`moatless-vibe-sandbox-js`)
 - Node.js 22, Bun, npm/pnpm/yarn
 - TypeScript, tsx
 - Playwright (no browsers)
@@ -92,7 +92,7 @@ K8S_WORKER_IMAGE=aorwall/moatless-vibe-worker-js:latest
 For K8s clusters (typically linux/amd64), always specify the platform:
 
 ```bash
-./docker/build-worker.sh --platform linux/amd64 --push
+./docker/build-sandbox.sh --platform linux/amd64 --push
 ```
 
 This uses `docker buildx` for cross-platform builds.

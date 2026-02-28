@@ -148,6 +148,43 @@ export class SSEEventCollector {
 	}
 
 	/**
+	 * Wait until we've seen N events of a specific type for a task.
+	 * Returns the Nth event (1-indexed), or null on timeout.
+	 */
+	async waitForNthEvent(
+		type: string,
+		subType: string,
+		taskId: string,
+		n: number,
+		timeoutMs = 300000,
+	): Promise<SSEEvent | null> {
+		const startTime = Date.now();
+		const pollInterval = 500;
+
+		while (Date.now() - startTime < timeoutMs) {
+			const matching = this.events.filter(
+				(e) => e.type === type && e.subType === subType && e.taskId === taskId,
+			);
+			if (matching.length >= n) {
+				return matching[n - 1];
+			}
+
+			await new Promise((resolve) => setTimeout(resolve, pollInterval));
+		}
+
+		return null;
+	}
+
+	/**
+	 * Count events matching a type/subType for a task.
+	 */
+	countEvents(type: string, subType: string, taskId: string): number {
+		return this.events.filter(
+			(e) => e.type === type && e.subType === subType && e.taskId === taskId,
+		).length;
+	}
+
+	/**
 	 * Verify that all expected task lifecycle events were received
 	 */
 	verifyTaskLifecycle(taskId: string): TaskLifecycleVerification {

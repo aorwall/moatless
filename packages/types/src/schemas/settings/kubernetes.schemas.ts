@@ -81,7 +81,7 @@ export type KubernetesSettings = z.infer<typeof KubernetesSettingsSchema>
 export const defaultKubernetesSettings: KubernetesSettings = {
   enabled: false,
   namespace: 'moatless',
-  image: 'ghcr.io/aorwall/moatless-vibe-sandbox',
+  image: 'aorwall/moatless-vibe-sandbox',
   podStartupTimeoutSeconds: 120,
   healthCheckIntervalSeconds: 30,
 }

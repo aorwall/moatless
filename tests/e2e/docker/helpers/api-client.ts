@@ -1,94 +1,26 @@
 /**
  * Type-safe API client wrapper for Docker E2E tests.
  *
- * Provides a clean interface for interacting with the Moatless Vibe API
- * during E2E testing against a docker-compose environment.
+ * Uses native fetch instead of Playwright's request fixture to avoid
+ * fixture scoping issues (beforeAll request can't be reused in tests).
+ *
+ * Uses generated types from @moatless/api-client for type safety.
  */
 
-import type { APIRequestContext } from "@playwright/test";
+import type {
+	CreateRepositoryRequest,
+	CreateVibeTaskRequest,
+	GetMessagesResponse,
+	RepositoryResponse,
+	ServerStatusResponse,
+	TaskResponse,
+	UiMessage,
+	WorkspaceStatusFullResponse,
+} from "@moatless/api-client";
 
 // =============================================================================
-// Types
+// Types (only those not available in @moatless/api-client)
 // =============================================================================
-
-export interface CreateRepositoryRequest {
-	kind: "remote" | "template";
-	name: string;
-	remoteUrl: string;
-	provider?: "github" | "gitlab";
-	description?: string;
-	codeExecution?: {
-		dockerImage?: string;
-		setupCommands?: string[];
-		envVars?: Record<string, string>;
-	};
-	previewConfig?: {
-		serverStartCommands?: string[];
-		buildCommand?: string;
-		buildOutputDirectory?: string;
-		startupTimeoutSeconds?: number;
-		autoReload?: boolean;
-	};
-}
-
-export interface Repository {
-	id: string;
-	kind: "remote" | "template";
-	name: string;
-	description?: string;
-	codeExecution: {
-		dockerImage?: string;
-		setupCommands?: string[];
-		envVars?: Record<string, string>;
-	};
-	previewConfig?: {
-		serverStartCommands?: string[];
-		buildCommand?: string;
-		buildOutputDirectory?: string;
-		startupTimeoutSeconds?: number;
-	};
-	remote?: {
-		url: string;
-		provider: string;
-		defaultBranch?: string;
-	};
-	createdAt: string;
-	updatedAt: string;
-}
-
-export interface CreateTaskRequest {
-	agentType: string;
-	repositoryId: string;
-	message?: string;
-	start?: boolean;
-	model?: string;
-	templateId?: string;
-}
-
-export interface Task {
-	taskId: string;
-	shortId?: string;
-	repositoryId: string;
-	agentType: string;
-	status: string;
-	numTurns: number;
-	totalCostUsd: number;
-	siteUrl?: string;
-	createdAt: string;
-	lastMessageAt: string;
-}
-
-export interface WorkspaceStatus {
-	environmentStatus: string;
-	workspaceReady: boolean;
-	executionMode?: string;
-	agentState?: string;
-	preview?: {
-		status: string;
-		url?: string;
-		serverPort?: number;
-	};
-}
 
 export interface GitDiffFile {
 	oldFile?: string;
@@ -101,11 +33,50 @@ export interface GitDiffResponse {
 	files: GitDiffFile[];
 }
 
-export interface PreviewStatus {
-	status: "stopped" | "starting" | "started" | "failed";
-	url?: string;
-	serverPort?: number;
-	error?: string;
+// Re-export generated types for convenience
+export type {
+	CreateRepositoryRequest,
+	CreateVibeTaskRequest,
+	GetMessagesResponse,
+	RepositoryResponse,
+	ServerStatusResponse,
+	TaskResponse,
+	UiMessage,
+	WorkspaceStatusFullResponse,
+};
+
+// =============================================================================
+// Fetch helpers
+// =============================================================================
+
+async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
+	const response = await fetch(url, {
+		...options,
+		headers: {
+			"Content-Type": "application/json",
+			Accept: "application/json",
+			...options?.headers,
+		},
+	});
+	if (!response.ok) {
+		const text = await response.text();
+		throw new Error(`HTTP ${response.status}: ${text}`);
+	}
+	return response.json();
+}
+
+async function fetchOptionalJson<T>(url: string): Promise<T | null> {
+	try {
+		const response = await fetch(url, {
+			headers: { Accept: "application/json" },
+		});
+		if (!response.ok) {
+			return null;
+		}
+		return response.json();
+	} catch {
+		return null;
+	}
 }
 
 // =============================================================================
@@ -113,73 +84,40 @@ export interface PreviewStatus {
 // =============================================================================
 
 export class ApiClient {
-	constructor(
-		private request: APIRequestContext,
-		private baseURL: string,
-	) {}
+	constructor(private baseURL: string) {}
 
 	// =========================================================================
 	// Repository Operations
 	// =========================================================================
 
-	/**
-	 * Create a new repository
-	 */
-	async createRepository(config: CreateRepositoryRequest): Promise<Repository> {
-		const response = await this.request.post(`${this.baseURL}/api/v1/repositories`, {
-			data: config,
+	async createRepository(config: CreateRepositoryRequest): Promise<RepositoryResponse> {
+		return fetchJson<RepositoryResponse>(`${this.baseURL}/api/v1/repositories`, {
+			method: "POST",
+			body: JSON.stringify(config),
 		});
-
-		if (!response.ok()) {
-			const text = await response.text();
-			throw new Error(`Failed to create repository: ${response.status()} ${text}`);
-		}
-
-		return response.json();
 	}
 
-	/**
-	 * Get a repository by ID
-	 */
-	async getRepository(id: string): Promise<Repository> {
-		const response = await this.request.get(`${this.baseURL}/api/v1/repositories/${id}`);
-
-		if (!response.ok()) {
-			throw new Error(`Failed to get repository: ${response.status()}`);
-		}
-
-		return response.json();
+	async getRepository(id: string): Promise<RepositoryResponse> {
+		return fetchJson<RepositoryResponse>(`${this.baseURL}/api/v1/repositories/${id}`);
 	}
 
-	/**
-	 * Delete a repository
-	 */
 	async deleteRepository(id: string): Promise<void> {
-		const response = await this.request.delete(`${this.baseURL}/api/v1/repositories/${id}`);
-
-		if (!response.ok() && response.status() !== 404) {
-			throw new Error(`Failed to delete repository: ${response.status()}`);
+		try {
+			await fetch(`${this.baseURL}/api/v1/repositories/${id}`, { method: "DELETE" });
+		} catch {
+			// Ignore
 		}
 	}
 
 	/**
-	 * List all repositories
+	 * List all repositories.
+	 * NOTE: GET /api/v1/repositories returns RepositoryResponse[] (plain array).
 	 */
-	async listRepositories(): Promise<Repository[]> {
-		const response = await this.request.get(`${this.baseURL}/api/v1/repositories`);
-
-		if (!response.ok()) {
-			throw new Error(`Failed to list repositories: ${response.status()}`);
-		}
-
-		const data = await response.json();
-		return data.repositories || [];
+	async listRepositories(): Promise<RepositoryResponse[]> {
+		return fetchJson<RepositoryResponse[]>(`${this.baseURL}/api/v1/repositories`);
 	}
 
-	/**
-	 * Get the first template repository
-	 */
-	async getTemplateRepository(): Promise<Repository | null> {
+	async getTemplateRepository(): Promise<RepositoryResponse | null> {
 		const repositories = await this.listRepositories();
 		return repositories.find((r) => r.kind === "template") || null;
 	}
@@ -189,81 +127,46 @@ export class ApiClient {
 	// =========================================================================
 
 	/**
-	 * Create a new task
+	 * Create a vibe task from a template.
+	 *
+	 * Maps CreateVibeTaskRequest.templateId → CreateTaskRequest.repositoryId
+	 * and calls POST /api/v1/tasks (the actual backend endpoint).
 	 */
-	async createTask(config: CreateTaskRequest): Promise<Task> {
-		const response = await this.request.post(`${this.baseURL}/api/v1/tasks`, {
-			data: config,
-		});
-
-		if (!response.ok()) {
-			const text = await response.text();
-			throw new Error(`Failed to create task: ${response.status()} ${text}`);
-		}
-
-		return response.json();
+	async createVibeTask(config: CreateVibeTaskRequest): Promise<TaskResponse> {
+		const result = await fetchJson<{ taskId: string; status: string; task: TaskResponse }>(
+			`${this.baseURL}/api/v1/tasks`,
+			{
+				method: "POST",
+				body: JSON.stringify({
+					repositoryId: config.templateId,
+					message: config.message,
+					name: config.name,
+				}),
+			},
+		);
+		return result.task;
 	}
 
-	/**
-	 * Create a vibe task from a template
-	 */
-	async createVibeTask(config: {
-		agentType: string;
-		templateId: string;
-		message?: string;
-		start?: boolean;
-	}): Promise<Task> {
-		const response = await this.request.post(`${this.baseURL}/api/v1/tasks/vibe`, {
-			data: config,
-		});
-
-		if (!response.ok()) {
-			const text = await response.text();
-			throw new Error(`Failed to create vibe task: ${response.status()} ${text}`);
-		}
-
-		return response.json();
+	async getTask(taskId: string): Promise<TaskResponse> {
+		return fetchJson<TaskResponse>(`${this.baseURL}/api/v1/tasks/${taskId}`);
 	}
 
-	/**
-	 * Get a task by ID
-	 */
-	async getTask(taskId: string): Promise<Task> {
-		const response = await this.request.get(`${this.baseURL}/api/v1/tasks/${taskId}`);
-
-		if (!response.ok()) {
-			throw new Error(`Failed to get task: ${response.status()}`);
-		}
-
-		return response.json();
-	}
-
-	/**
-	 * Delete a task
-	 */
 	async deleteTask(taskId: string): Promise<void> {
-		const response = await this.request.delete(`${this.baseURL}/api/v1/tasks/${taskId}`);
-
-		if (!response.ok() && response.status() !== 404) {
-			throw new Error(`Failed to delete task: ${response.status()}`);
+		try {
+			await fetch(`${this.baseURL}/api/v1/tasks/${taskId}`, { method: "DELETE" });
+		} catch {
+			// Ignore
 		}
 	}
 
-	/**
-	 * Stop a running task/agent
-	 */
 	async stopTask(taskId: string): Promise<void> {
-		const response = await this.request.post(`${this.baseURL}/api/v1/tasks/${taskId}/stop`);
-
-		// Accept various success codes - task might not be running
-		if (!response.ok() && response.status() !== 404 && response.status() !== 409) {
-			throw new Error(`Failed to stop task: ${response.status()}`);
+		try {
+			await fetch(`${this.baseURL}/api/v1/tasks/${taskId}/stop`, { method: "POST" });
+		} catch {
+			// Ignore - task might not be running
 		}
 	}
 
-	/**
-	 * Send a message to start or continue agent execution
-	 */
 	async sendMessage(
 		taskId: string,
 		message: string,
@@ -272,106 +175,115 @@ export class ApiClient {
 			model?: string;
 		},
 	): Promise<void> {
-		const response = await this.request.post(`${this.baseURL}/api/v1/tasks/${taskId}/messages`, {
-			data: {
+		await fetchJson(`${this.baseURL}/api/v1/tasks/${taskId}/messages`, {
+			method: "POST",
+			body: JSON.stringify({
 				message,
 				resume: options?.resume ?? true,
 				model: options?.model,
-			},
+			}),
 		});
-
-		if (!response.ok()) {
-			const text = await response.text();
-			throw new Error(`Failed to send message: ${response.status()} ${text}`);
-		}
 	}
 
 	// =========================================================================
 	// Workspace Operations
 	// =========================================================================
 
-	/**
-	 * Get workspace status for a task
-	 */
-	async getWorkspaceStatus(taskId: string): Promise<WorkspaceStatus> {
-		const response = await this.request.get(
-			`${this.baseURL}/api/v1/tasks/${taskId}/workspace-status`,
+	async getWorkspaceStatus(taskId: string): Promise<WorkspaceStatusFullResponse> {
+		return fetchJson<WorkspaceStatusFullResponse>(
+			`${this.baseURL}/api/sandbox/v1/tasks/${taskId}/status`,
 		);
-
-		if (!response.ok()) {
-			throw new Error(`Failed to get workspace status: ${response.status()}`);
-		}
-
-		return response.json();
 	}
 
-	/**
-	 * Get git diff from workspace
-	 */
 	async getGitDiff(taskId: string): Promise<GitDiffResponse> {
-		const response = await this.request.get(`${this.baseURL}/api/v1/tasks/${taskId}/git-diff`);
-
-		if (!response.ok()) {
-			throw new Error(`Failed to get git diff: ${response.status()}`);
-		}
-
-		return response.json();
+		return fetchJson<GitDiffResponse>(`${this.baseURL}/api/v1/tasks/${taskId}/git-diff`);
 	}
 
 	// =========================================================================
 	// Preview Operations
 	// =========================================================================
 
-	/**
-	 * Get preview server status
-	 */
-	async getPreviewStatus(taskId: string): Promise<PreviewStatus> {
-		const response = await this.request.get(
-			`${this.baseURL}/api/v1/tasks/${taskId}/server/status`,
+	async getServerStatus(taskId: string): Promise<ServerStatusResponse> {
+		return fetchJson<ServerStatusResponse>(
+			`${this.baseURL}/api/sandbox/v1/tasks/${taskId}/server/status`,
 		);
-
-		if (!response.ok()) {
-			throw new Error(`Failed to get preview status: ${response.status()}`);
-		}
-
-		return response.json();
 	}
 
-	/**
-	 * Start preview server
-	 */
 	async startPreview(taskId: string): Promise<void> {
-		const response = await this.request.post(`${this.baseURL}/api/v1/tasks/${taskId}/server/start`);
-
-		// Accept 200 OK or 202 Accepted (async operation)
-		if (!response.ok() && response.status() !== 202) {
-			throw new Error(`Failed to start preview: ${response.status()}`);
-		}
+		await fetch(`${this.baseURL}/api/sandbox/v1/tasks/${taskId}/start`, { method: "POST" });
 	}
 
-	/**
-	 * Stop preview server
-	 */
 	async stopPreview(taskId: string): Promise<void> {
-		const response = await this.request.post(`${this.baseURL}/api/v1/tasks/${taskId}/server/stop`);
+		await fetch(`${this.baseURL}/api/sandbox/v1/tasks/${taskId}/stop`, { method: "POST" });
+	}
 
-		if (!response.ok() && response.status() !== 404) {
-			throw new Error(`Failed to stop preview: ${response.status()}`);
+	// =========================================================================
+	// File Operations
+	// =========================================================================
+
+	async readWorkspaceFile(taskId: string, filePath: string): Promise<string | null> {
+		const params = new URLSearchParams({ path: filePath });
+		const data = await fetchOptionalJson<{ content: string }>(
+			`${this.baseURL}/api/sandbox/v1/tasks/${taskId}/files/read?${params}`,
+		);
+		return data?.content ?? null;
+	}
+
+	async listWorkspaceFiles(
+		taskId: string,
+		dirPath: string,
+		recursive = false,
+	): Promise<string[]> {
+		const params = new URLSearchParams({
+			path: dirPath,
+			recursive: String(recursive),
+		});
+		const data = await fetchOptionalJson<{ files: string[] }>(
+			`${this.baseURL}/api/sandbox/v1/tasks/${taskId}/files/list?${params}`,
+		);
+		return data?.files ?? [];
+	}
+
+	// =========================================================================
+	// Message Operations
+	// =========================================================================
+
+	async getTaskMessages(taskId: string): Promise<GetMessagesResponse> {
+		return fetchJson<GetMessagesResponse>(
+			`${this.baseURL}/api/v1/tasks/${taskId}/messages`,
+		);
+	}
+
+	// =========================================================================
+	// Repository Helpers
+	// =========================================================================
+
+	async ensureTemplateRepository(): Promise<RepositoryResponse> {
+		const repositories = await this.listRepositories();
+		const template = repositories.find((r) => r.kind === "template");
+		if (template) {
+			return template;
 		}
+
+		if (repositories.length > 0) {
+			return repositories[0];
+		}
+
+		return this.createRepository({
+			name: "Hello World UI",
+			kind: "template",
+			remoteUrl: "https://github.com/aorwall/hello-world-ui.git",
+		});
 	}
 
 	// =========================================================================
 	// Health Check
 	// =========================================================================
 
-	/**
-	 * Check if the backend is healthy
-	 */
 	async isHealthy(): Promise<boolean> {
 		try {
-			const response = await this.request.get(`${this.baseURL}/health`);
-			if (!response.ok()) return false;
-
+			const response = await fetch(`${this.baseURL}/health`);
+			if (!response.ok) return false;
 			const data = await response.json();
 			return data.status === "ok";
 		} catch {

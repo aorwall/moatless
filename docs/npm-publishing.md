@@ -165,7 +165,7 @@ The Docker build uses a multi-stage approach for optimal caching:
 - Installs moatless-vibe globally
 - Only rebuilds when the application changes
 
-The `docker/build-worker.sh` script:
+The `docker/build-sandbox.sh` script:
 1. Runs `bun build:package` to create the bundled application
 2. Builds the Docker image using cached base layers
 3. Only the application layer rebuilds on code changes
@@ -174,16 +174,16 @@ The `docker/build-worker.sh` script:
 
 ```bash
 # Fast build (uses cache for base system)
-./docker/build-worker.sh --tag latest
+./docker/build-sandbox.sh --tag latest
 
 # Build base system separately (for CI/caching)
 ./docker/build-base.sh --tag latest
 
 # Force full rebuild without cache
-./docker/build-worker.sh --tag latest --no-cache
+./docker/build-sandbox.sh --tag latest --no-cache
 
 # Build for specific platform
-./docker/build-worker.sh --tag latest --platform linux/amd64,linux/arm64
+./docker/build-sandbox.sh --tag latest --platform linux/amd64,linux/arm64
 ```
 
 #### Caching Benefits

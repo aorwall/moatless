@@ -204,10 +204,10 @@ export async function getContainerPort(
 /**
  * Get the container name for a task
  *
- * Convention: moatless-moatable-{taskId-prefix}
+ * Convention: moatless-sandbox-{sanitized_task_id} (matches backend naming.rs)
  */
 export function getContainerNameForTask(taskId: string): string {
-	return `moatless-moatable-${taskId.slice(0, 8)}`;
+	return `moatless-sandbox-${taskId.toLowerCase()}`;
 }
 
 /**
@@ -268,7 +268,7 @@ export async function cleanupTestContainers(): Promise<number> {
 /**
  * Check if the docker-compose environment is healthy
  */
-export async function isDockerComposeHealthy(backendUrl = "http://localhost:8000"): Promise<{
+export async function isDockerComposeHealthy(backendUrl = "http://localhost:8080"): Promise<{
 	healthy: boolean;
 	dockerAvailable: boolean;
 	backendHealthy: boolean;

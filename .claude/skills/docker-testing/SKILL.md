@@ -165,7 +165,7 @@ See `references/preview-troubleshooting.md` for:
 
 **Fix**:
 ```bash
-docker pull ghcr.io/aorwall/moatless-vibe-sandbox-js:latest
+docker pull aorwall/moatless-vibe-sandbox-js:latest
 ```
 
 ### Container Not Starting

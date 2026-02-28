@@ -38,7 +38,7 @@ export default defineConfig({
 	// Shared settings for all tests
 	use: {
 		// Base URL for API requests - docker-compose backend
-		baseURL: process.env.DOCKER_COMPOSE_URL || "http://localhost:8000",
+		baseURL: process.env.DOCKER_COMPOSE_URL || "http://localhost:8080",
 
 		// Collect trace when retrying the failed test
 		trace: "on-first-retry",

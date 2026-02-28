@@ -171,7 +171,7 @@ npx playwright show-report test-results/docker-e2e
 
 | Symptom | Likely Cause | Solution |
 |---------|--------------|----------|
-| Workspace timeout | Slow image pull | Pre-pull image: `docker pull ghcr.io/aorwall/moatless-vibe-sandbox-js:latest` |
+| Workspace timeout | Slow image pull | Pre-pull image: `docker pull aorwall/moatless-vibe-sandbox-js:latest` |
 | Agent never completes | Claude auth issue | Verify `CLAUDE_CODE_OAUTH_TOKEN` is set |
 | Preview not accessible | Port mapping issue | Check docker port mapping: `docker port <container>` |
 | SSE events missing | Redis not running | Verify redis container: `docker ps \| grep redis` |

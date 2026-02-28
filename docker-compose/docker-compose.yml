@@ -45,7 +45,7 @@ services:
       - moatless
 
   backend:
-    image: ghcr.io/aorwall/moatless-vibe-backend:${APP_VERSION:-latest}
+    image: aorwall/moatless-vibe-backend:${APP_VERSION:-latest}
     container_name: moatless-backend
     restart: unless-stopped
     labels:
@@ -71,7 +71,7 @@ services:
       # DATA_DIR must be the absolute HOST path since backend creates sibling containers
       # that need to mount the same host directory. The path ./data is bind-mounted to
       # /data inside the backend container, but sibling containers need the host path.
-      DATA_DIR: ${DATA_DIR:?DATA_DIR must be set to absolute host path (e.g. /home/user/moatless/data). Use dev-docker.sh to auto-detect.}
+      DATA_DIR: ${DATA_DIR:-${HOME}/.moatless/data}
       # CONTAINER_DATA_DIR is where data is mounted inside this container (for file ops)
       CONTAINER_DATA_DIR: /data
 
@@ -91,7 +91,7 @@ services:
 
       # Docker Configuration
       TASK_TOKEN_SECRET: ${TASK_TOKEN_SECRET:?TASK_TOKEN_SECRET must be set}
-      DOCKER_SANDBOX_IMAGE: ${SANDBOX_IMAGE:-ghcr.io/aorwall/moatless-vibe-sandbox-js:latest}
+      DOCKER_SANDBOX_IMAGE: ${SANDBOX_IMAGE:-aorwall/moatless-vibe-sandbox-js:latest}
       DOCKER_NETWORK: docker-compose_moatless
       DOCKER_BACKEND_HOSTNAME: moatless-backend
       SANDBOX_GRPC_PORT: ${SANDBOX_GRPC_PORT:-50052}
@@ -122,19 +122,36 @@ services:
       # Docker socket for creating sibling containers (READ-ONLY for security)
       - /var/run/docker.sock:/var/run/docker.sock:ro
       # Shared data directory for backend and sandboxes (bind mount for sibling container access)
-      - ../data:/data
+      # Must use DATA_DIR (same host path as sandbox bind mounts) — not a relative path
+      - ${DATA_DIR:-${HOME}/.moatless/data}:/data
     ports:
       - "${BACKEND_PORT:-8080}:8080"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
       - moatless
+  frontend:
+    image: aorwall/moatless-vibe:${APP_VERSION:-latest}
+    container_name: moatless-frontend
+    restart: unless-stopped
+    labels:
+      - "created-by=moatless"
+      - "moatless.service=frontend"
+      - "moatless.ecosystem=core"
+    depends_on:
+      - backend
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    networks:
+      - moatless
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 15s
+      start_period: 5s
 
   dozzle:
     image: amir20/dozzle:latest

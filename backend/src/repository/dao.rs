@@ -56,6 +56,8 @@ pub trait RepoRepository: Send + Sync {
     async fn soft_delete(&self, id: &str) -> Result<bool, sqlx::Error>;
     async fn find_by_name_and_user(&self, name: &str, user_id: &str) -> Result<Option<Repository>, sqlx::Error>;
     async fn find_names_by_ids(&self, ids: &[String]) -> Result<Vec<(String, String)>, sqlx::Error>;
+    /// Check if a repository exists by name and creator, **including** soft-deleted rows.
+    async fn exists_by_name_including_deleted(&self, name: &str, created_by: &str) -> Result<bool, sqlx::Error>;
 }
 
 /// PostgreSQL implementation of [`RepoRepository`].
@@ -267,6 +269,17 @@ impl RepoRepository for PgRepoRepository {
         .bind(ids)
         .fetch_all(&self.0)
         .await
+    }
+
+    async fn exists_by_name_including_deleted(&self, name: &str, created_by: &str) -> Result<bool, sqlx::Error> {
+        let row: Option<(i64,)> = sqlx::query_as(
+            "SELECT 1 FROM repositories WHERE name = $1 AND created_by = $2 LIMIT 1"
+        )
+        .bind(name)
+        .bind(created_by)
+        .fetch_optional(&self.0)
+        .await?;
+        Ok(row.is_some())
     }
 }
 

@@ -24,6 +24,7 @@
  */
 
 import { test as base, expect } from "@playwright/test";
+import type { RepositoryResponse, TaskResponse } from "@moatless/api-client";
 import {
 	ApiClient,
 	SSEEventCollector,
@@ -31,7 +32,6 @@ import {
 	isDockerComposeHealthy,
 	saveContainerLogs,
 } from "../helpers";
-import type { Repository, Task } from "../helpers";
 
 // =============================================================================
 // Fixture Types
@@ -44,9 +44,9 @@ interface WorkerFixtures {
 	/** Shared task state created once per worker */
 	sharedTaskState: {
 		taskId: string;
-		task: Task;
+		task: TaskResponse;
 		containerName: string;
-		templateRepository: Repository;
+		templateRepository: RepositoryResponse;
 	};
 }
 
@@ -64,13 +64,13 @@ interface TestFixtures {
 	templateRepository: {
 		id: string;
 		name: string;
-		repository: Repository;
+		repository: RepositoryResponse;
 	};
 
 	/** Test task (references worker-scoped shared task) */
 	testTask: {
 		taskId: string;
-		task: Task;
+		task: TaskResponse;
 		containerName: string;
 		cleanup: () => Promise<void>;
 	};
@@ -81,7 +81,7 @@ interface TestFixtures {
 // =============================================================================
 
 function getBaseURL(): string {
-	return process.env.DOCKER_COMPOSE_URL || "http://localhost:8000";
+	return process.env.DOCKER_COMPOSE_URL || "http://localhost:8080";
 }
 
 function getSSEStreamURL(): string {
@@ -108,19 +108,30 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
 	return response.json();
 }
 
-async function getTemplateRepositoryViaFetch(baseURL: string): Promise<Repository | null> {
-	const data = await fetchJson<{ repositories: Repository[] }>(`${baseURL}/api/v1/repositories`);
-	return data.repositories.find((r) => r.kind === "template") || null;
+async function getTemplateRepositoryViaFetch(baseURL: string): Promise<RepositoryResponse | null> {
+	// GET /api/v1/repositories returns a plain array
+	const data = await fetchJson<RepositoryResponse[]>(`${baseURL}/api/v1/repositories`);
+	return data.find((r) => r.kind === "template") || null;
 }
 
 async function createVibeTaskViaFetch(
 	baseURL: string,
-	config: { agentType: string; templateId: string; message?: string; start?: boolean },
-): Promise<Task> {
-	return fetchJson<Task>(`${baseURL}/api/v1/tasks/vibe`, {
-		method: "POST",
-		body: JSON.stringify(config),
-	});
+	config: { templateId: string; message?: string; name?: string },
+): Promise<TaskResponse> {
+	// Backend endpoint is POST /api/v1/tasks with repositoryId (not templateId)
+	const body = {
+		repositoryId: config.templateId,
+		message: config.message,
+		name: config.name,
+	};
+	const result = await fetchJson<{ taskId: string; status: string; task: TaskResponse }>(
+		`${baseURL}/api/v1/tasks`,
+		{
+			method: "POST",
+			body: JSON.stringify(body),
+		},
+	);
+	return result.task;
 }
 
 async function stopTaskViaFetch(baseURL: string, taskId: string): Promise<void> {
@@ -176,10 +187,8 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
 
 			// Create vibe task from template - this task is shared across ALL tests
 			const task = await createVibeTaskViaFetch(baseURL, {
-				agentType: "claude-code",
 				templateId: templateRepository.id,
 				message: "E2E test task - shared across all tests",
-				start: false,
 			});
 
 			const containerName = getContainerNameForTask(task.taskId);
@@ -211,9 +220,9 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
 	 * Provides a type-safe API client connected to the docker-compose backend.
 	 * Validates that the backend is healthy before providing the client.
 	 */
-	api: async ({ request }, use, testInfo) => {
+	api: async ({}, use, testInfo) => {
 		const baseURL = getBaseURL();
-		const api = new ApiClient(request, baseURL);
+		const api = new ApiClient(baseURL);
 
 		// Verify backend is healthy
 		const health = await isDockerComposeHealthy(baseURL);

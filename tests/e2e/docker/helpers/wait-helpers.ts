@@ -5,7 +5,8 @@
  * during E2E testing against docker-compose environment.
  */
 
-import type { ApiClient, PreviewStatus, WorkspaceStatus } from "./api-client";
+import type { ServerEntry, WorkspaceStatusFullResponse } from "@moatless/api-client";
+import type { ApiClient } from "./api-client";
 import type { SSEEventCollector } from "./sse-collector";
 
 // =============================================================================
@@ -62,36 +63,45 @@ export async function waitForWorkspaceReady(
 }
 
 /**
- * Wait for preview server to be ready
+ * Wait for preview server to be ready.
+ *
+ * Polls getWorkspaceStatus() and checks the servers array for
+ * an entry with status "started".
  *
  * @param api - API client instance
  * @param taskId - Task ID to check
  * @param options - Wait options
- * @returns PreviewStatus if ready, null if timeout
+ * @returns The started ServerEntry if ready, null if timeout
  */
 export async function waitForPreviewReady(
 	api: ApiClient,
 	taskId: string,
 	options?: WaitOptions,
-): Promise<PreviewStatus | null> {
+): Promise<ServerEntry | null> {
 	const { timeout = 120000, interval = 2000, onProgress } = options || {};
 	const startTime = Date.now();
 
 	while (Date.now() - startTime < timeout) {
 		try {
-			const status = await api.getPreviewStatus(taskId);
+			const status = await api.getWorkspaceStatus(taskId);
 
-			if (status.status === "started") {
-				onProgress?.(`Preview ready at ${status.url}`);
-				return status;
+			// Find the default/preview server
+			const server =
+				status.servers?.find((s) => s.default) ||
+				status.servers?.find((s) => s.name === "preview") ||
+				status.servers?.[0];
+
+			if (server?.status === "started") {
+				onProgress?.(`Preview ready at ${server.url}`);
+				return server;
 			}
 
-			if (status.status === "failed") {
-				onProgress?.(`Preview failed: ${status.error}`);
-				return status;
+			if (server?.status === "failed") {
+				onProgress?.(`Preview failed: ${server.error}`);
+				return server;
 			}
 
-			onProgress?.(`Preview status: ${status.status}`);
+			onProgress?.(`Preview status: ${server?.status ?? "no server"}`);
 		} catch (err) {
 			onProgress?.(`Error checking preview: ${err}`);
 		}
@@ -140,8 +150,8 @@ export async function waitForAgentComplete(
 			if (hasSeenRunning && (agentState === "idle" || agentState === "none")) {
 				// Verify agent did some work by checking task
 				const task = await api.getTask(taskId);
-				if (task.numTurns > 0) {
-					onProgress?.(`Agent completed with ${task.numTurns} turns`);
+				if (task.totalCostUsd > 0) {
+					onProgress?.("Agent completed");
 					return true;
 				}
 			}
@@ -218,14 +228,14 @@ export async function waitForAgentIdleViaSSE(
  * @param taskId - Task ID to check
  * @param expectedStatus - Expected environment status
  * @param options - Wait options
- * @returns WorkspaceStatus if matched, null if timeout
+ * @returns WorkspaceStatusFullResponse if matched, null if timeout
  */
 export async function waitForWorkspaceStatus(
 	api: ApiClient,
 	taskId: string,
 	expectedStatus: string,
 	options?: WaitOptions,
-): Promise<WorkspaceStatus | null> {
+): Promise<WorkspaceStatusFullResponse | null> {
 	const { timeout = 60000, interval = 2000, onProgress } = options || {};
 	const startTime = Date.now();
 
@@ -280,4 +290,3 @@ export async function waitForCondition(
 
 	return false;
 }
-

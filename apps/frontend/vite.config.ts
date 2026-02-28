@@ -58,6 +58,7 @@ export default defineConfig(({ mode }) => {
 	const remoteApi = env.VITE_REMOTE_API;
 	const apiKey = env.VITE_API_KEY;
 	const target = remoteApi || "http://localhost:8080";
+	const isRemote = remoteApi && !remoteApi.includes("localhost");
 
 	return {
 		plugins: [
@@ -70,7 +71,7 @@ export default defineConfig(({ mode }) => {
 				routeFileIgnorePattern:
 					"\\.test\\.(ts|tsx|js|jsx)$|\\.spec\\.(ts|tsx|js|jsx)$",
 			}),
-			...(apiKey ? [apiKeyAuthPlugin(target, apiKey)] : []),
+			...(isRemote && apiKey ? [apiKeyAuthPlugin(target, apiKey)] : []),
 		],
 		server: {
 			port: process.env.PORT ? Number(process.env.PORT) : 3000,
@@ -79,7 +80,7 @@ export default defineConfig(({ mode }) => {
 					target,
 					changeOrigin: true,
 					secure: false,
-					...(remoteApi && { cookieDomainRewrite: "" }),
+					...(isRemote && { cookieDomainRewrite: "" }),
 				},
 			},
 		},

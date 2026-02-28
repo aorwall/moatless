@@ -4,20 +4,19 @@
 # Usage:
 #   ./scripts/deploy-dev.sh                    # Build and deploy with auto-generated tag
 #   ./scripts/deploy-dev.sh --tag my-feature   # Use custom tag
-#   ./scripts/deploy-dev.sh --app-only         # Only deploy app (skip worker)
+#   ./scripts/deploy-dev.sh --app-only         # Only deploy app (skip sandbox)
 #   ./scripts/deploy-dev.sh --skip-build       # Skip build, just deploy (use existing tag)
 #
 # Prerequisites:
-#   - Docker logged into ghcr.io: echo $GITHUB_TOKEN | docker login ghcr.io -u $USER --password-stdin
+#   - Docker logged into Docker Hub
 #   - kubectl configured for target cluster
 #   - Helm installed
 
 set -e
 
 # Configuration
-REGISTRY="ghcr.io"
-IMAGE_NAME="aorwall/moatless-vibe"
-WORKER_IMAGE_NAME="aorwall/moatless-vibe-worker-js"
+IMAGE_NAME="aorwall/moatless-vibe-frontend"
+SANDBOX_IMAGE_NAME="aorwall/moatless-vibe-sandbox-js"
 NAMESPACE="vibe"
 HELM_RELEASE="moatless-vibe"
 VALUES_FILE="./k8s/helm/values-moatless.yaml"
@@ -71,17 +70,17 @@ if [ "$SKIP_BUILD" = false ]; then
   docker build \
     --platform linux/amd64 \
     -f docker/Dockerfile.app \
-    -t "${REGISTRY}/${IMAGE_NAME}:${TAG}" \
+    -t "${IMAGE_NAME}:${TAG}" \
     .
 
   echo ""
   echo "==> Pushing app image..."
-  docker push "${REGISTRY}/${IMAGE_NAME}:${TAG}"
+  docker push "${IMAGE_NAME}:${TAG}"
 
   if [ "$APP_ONLY" = false ]; then
     echo ""
-    echo "==> Building worker image using build-worker.sh..."
-    ./docker/build-worker.sh --tag "${TAG}" --only worker-js --skip-base --push
+    echo "==> Building sandbox image using build-sandbox.sh..."
+    ./docker/build-sandbox.sh --tag "${TAG}" --only sandbox-js --skip-base --push
   fi
 fi
 
@@ -98,8 +97,8 @@ HELM_ARGS=(
 )
 
 if [ "$APP_ONLY" = false ]; then
-  HELM_ARGS+=("--set" "kubernetes.workerImage.repository=${REGISTRY}/${WORKER_IMAGE_NAME}")
-  HELM_ARGS+=("--set" "kubernetes.workerImage.tag=${TAG}")
+  HELM_ARGS+=("--set" "kubernetes.sandboxImage.repository=${SANDBOX_IMAGE_NAME}")
+  HELM_ARGS+=("--set" "kubernetes.sandboxImage.tag=${TAG}")
 fi
 
 helm upgrade "${HELM_ARGS[@]}"
@@ -116,9 +115,9 @@ kubectl get pods -n ${NAMESPACE} -l app.kubernetes.io/name=moatless-vibe
 
 echo ""
 echo "=== Deployment Complete ==="
-echo "Image: ${REGISTRY}/${IMAGE_NAME}:${TAG}"
+echo "Image: ${IMAGE_NAME}:${TAG}"
 if [ "$APP_ONLY" = false ]; then
-  echo "Worker: ${REGISTRY}/${WORKER_IMAGE_NAME}:${TAG}"
+  echo "Sandbox: ${SANDBOX_IMAGE_NAME}:${TAG}"
 fi
 echo ""
 echo "Check logs: kubectl logs deployment/${HELM_RELEASE} -n ${NAMESPACE} --tail=50"
