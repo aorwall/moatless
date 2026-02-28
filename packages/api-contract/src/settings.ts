@@ -11,6 +11,8 @@ import {
   GitHubPATRequestSchema,
   GitLabConfigResponseSchema,
   GitLabPATRequestSchema,
+  GitnessConfigResponseSchema,
+  GitnessPATRequestSchema,
   PublishSettingsResponseSchema,
   SystemStatusCheckSchema,
   UpdatePublishSettingsRequestSchema,
@@ -422,6 +424,82 @@ export const saveGitLabPATRoute = createRoute({
       },
     },
     400: { description: 'Invalid token' },
+    401: { description: 'Not authenticated' },
+    500: { description: 'Internal server error' },
+  },
+})
+
+// Gitness Service Connection Routes
+export const getGitnessConfigRoute = createRoute({
+  method: 'get',
+  path: '/api/v1/settings/gitness/config',
+  tags: ['Settings'],
+  description:
+    "Get current user's Gitness connection configuration (PAT, connection status, base URL)",
+  responses: {
+    200: {
+      description: 'Configuration retrieved successfully',
+      content: {
+        'application/json': {
+          schema: GitnessConfigResponseSchema,
+        },
+      },
+    },
+    401: { description: 'Not authenticated' },
+    500: { description: 'Internal server error' },
+  },
+})
+
+export const deleteGitnessConfigRoute = createRoute({
+  method: 'delete',
+  path: '/api/v1/settings/gitness/config',
+  tags: ['Settings'],
+  description:
+    'Disconnect Gitness service connection for the current user by deleting stored tokens',
+  responses: {
+    200: {
+      description: 'Gitness connection removed successfully',
+      content: {
+        'application/json': {
+          schema: z.object({
+            success: z.boolean(),
+            message: z.string(),
+          }),
+        },
+      },
+    },
+    401: { description: 'Not authenticated' },
+    500: { description: 'Internal server error' },
+  },
+})
+
+export const saveGitnessPATRoute = createRoute({
+  method: 'put',
+  path: '/api/v1/settings/gitness/pat',
+  tags: ['Settings'],
+  description: 'Save a Gitness Personal Access Token with base URL for service connection',
+  request: {
+    body: {
+      content: {
+        'application/json': {
+          schema: GitnessPATRequestSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: 'Personal Access Token saved successfully',
+      content: {
+        'application/json': {
+          schema: z.object({
+            success: z.boolean(),
+            message: z.string(),
+          }),
+        },
+      },
+    },
+    400: { description: 'Invalid token or base URL' },
     401: { description: 'Not authenticated' },
     500: { description: 'Internal server error' },
   },

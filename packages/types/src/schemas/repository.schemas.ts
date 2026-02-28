@@ -138,7 +138,7 @@ export const RemoteRepositorySchema = BaseRepositorySchema.extend({
   kind: z.literal('remote'),
   remote: z.object({
     url: z.url('Must be a valid Git URL').describe('Repository URL'),
-    provider: z.enum(['github', 'gitlab']).describe('Git provider type'),
+    provider: z.enum(['github', 'gitlab', 'gitness']).describe('Git provider type'),
     defaultBranch: z.string().optional().describe('Default branch name from provider'),
   }),
 })
@@ -150,7 +150,7 @@ export const TemplateRepositorySchema = BaseRepositorySchema.extend({
   kind: z.literal('template'),
   remote: z.object({
     url: z.url('Must be a valid Git URL').describe('Git repository URL for the template'),
-    provider: z.enum(['github', 'gitlab']).describe('Git provider type'),
+    provider: z.enum(['github', 'gitlab', 'gitness']).describe('Git provider type'),
     defaultBranch: z.string().optional().describe('Default branch name from provider'),
   }),
 })
@@ -167,7 +167,7 @@ export const CreateRemoteRepositorySchema = z.object({
   name: repositoryNameSchema,
   description: z.string().optional(),
   remoteUrl: z.url('Must be a valid Git URL').describe('Repository URL'),
-  provider: z.enum(['github', 'gitlab']).optional(),
+  provider: z.enum(['github', 'gitlab', 'gitness']).optional(),
   systemPrompt: z
     .string()
     .optional()
@@ -188,7 +188,7 @@ export const CreateTemplateRepositorySchema = z.object({
   name: repositoryNameSchema,
   description: z.string().optional(),
   remoteUrl: z.url('Must be a valid Git URL').describe('Git repository URL for the template'),
-  provider: z.enum(['github', 'gitlab']).optional(),
+  provider: z.enum(['github', 'gitlab', 'gitness']).optional(),
   systemPrompt: z
     .string()
     .optional()
@@ -235,7 +235,7 @@ export const UpdateRepositorySchema = z.object({
   description: z.string().nullish(),
   // Remote/Template repository fields
   remoteUrl: z.url().nullish(),
-  provider: z.enum(['github', 'gitlab']).optional(),
+  provider: z.enum(['github', 'gitlab', 'gitness']).optional(),
   defaultBranch: z.string().nullish(),
   // Shared fields
   systemPrompt: z

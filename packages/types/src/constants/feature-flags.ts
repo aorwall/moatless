@@ -46,6 +46,12 @@ export const FEATURE_FLAGS = {
    */
   GITLAB_ENABLED: 'GITLAB_ENABLED',
   /**
+   * Controls whether Gitness configuration is visible in settings
+   * - Settings: Shows/hides the Gitness configuration section
+   * - Disabled by default
+   */
+  GITNESS_ENABLED: 'GITNESS_ENABLED',
+  /**
    * Controls whether Slack channel integration is enabled
    * - Repository settings: Shows/hides Slack channel mapping configuration
    * - Allows mapping Slack channels to repositories for default task creation
@@ -68,5 +74,6 @@ export const FEATURE_FLAG_DEFAULTS: Record<FeatureFlagKey, boolean> = {
   FIGMA_CLIPBOARD_PASTE: true, // Enabled by default
   SHOW_MODEL_SELECTOR: true, // Enabled by default - model selector visible
   GITLAB_ENABLED: false, // Disabled by default
+  GITNESS_ENABLED: false, // Disabled by default
   SLACK_CHANNEL: false, // Disabled by default
 }

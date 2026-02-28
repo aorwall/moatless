@@ -1,6 +1,7 @@
 import {
   Bot,
   Figma,
+  GitBranch,
   Github,
   Gitlab,
   Key,
@@ -18,6 +19,7 @@ import {
   FigmaConfigurationSection,
   GitHubConfigurationSection,
   GitLabConfigurationSection,
+  GitnessConfigurationSection,
   MarketplaceConfigurationSection,
   ProfileConfigurationSection,
 } from '@/features/settings'
@@ -38,6 +40,7 @@ export function SettingsDialog({
   const [activeSection, setActiveSection] = useState(defaultSection)
   const showClaudeSettings = useFeatureFlag('SHOW_CLAUDE_SETTINGS')
   const isGitLabEnabled = useFeatureFlag('GITLAB_ENABLED')
+  const isGitnessEnabled = useFeatureFlag('GITNESS_ENABLED')
   const isSlackEnabled = useFeatureFlag('SLACK_CHANNEL')
 
   const sections = useMemo(() => {
@@ -72,6 +75,15 @@ export function SettingsDialog({
         id: 'gitlab',
         label: 'GitLab',
         icon: <Gitlab className="h-4 w-4" />,
+      })
+    }
+
+    // Gitness - controlled by GITNESS_ENABLED flag
+    if (isGitnessEnabled) {
+      allSections.push({
+        id: 'gitness',
+        label: 'Gitness',
+        icon: <GitBranch className="h-4 w-4" />,
       })
     }
 
@@ -110,7 +122,7 @@ export function SettingsDialog({
     })
 
     return allSections
-  }, [showClaudeSettings, isGitLabEnabled, isSlackEnabled])
+  }, [showClaudeSettings, isGitLabEnabled, isGitnessEnabled, isSlackEnabled])
 
   return (
     <SidebarDialog open={open} onOpenChange={onOpenChange}>
@@ -134,6 +146,7 @@ export function SettingsDialog({
         {activeSection === 'claude' && <ClaudeConfigurationSection key="claude" />}
         {activeSection === 'github' && <GitHubConfigurationSection key="github" />}
         {activeSection === 'gitlab' && <GitLabConfigurationSection key="gitlab" />}
+        {activeSection === 'gitness' && <GitnessConfigurationSection key="gitness" />}
         {activeSection === 'figma' && <FigmaConfigurationSection key="figma" />}
         {activeSection === 'api-keys' && <ApiKeyConfigurationSection key="api-keys" />}
         {activeSection === 'marketplaces' && <MarketplaceConfigurationSection key="marketplaces" />}

@@ -1,4 +1,4 @@
-import type { UpdateRepositoryRequest } from '@moatless/api-client'
+import type { UpdateRepositoryRequest, Visibility } from '@moatless/api-client'
 import {
   ConfigurationGroup,
   ConfigurationInput,
@@ -46,7 +46,7 @@ export function GeneralSettingsGroup({
       >
         <ConfigurationSelect
           value={formData.visibility || 'private'}
-          onValueChange={(value) => onUpdateField('visibility', value)}
+          onValueChange={(value) => onUpdateField('visibility', value as Visibility)}
           options={[
             {
               value: 'private',

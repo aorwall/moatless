@@ -11,7 +11,16 @@ import {
   ConfigurationSectionWrapper as ConfigurationSection,
 } from '@/lib/components/configuration'
 import { Button } from '@/lib/components/ui/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/lib/components/ui/select'
 import { getErrorMessage } from '@/lib/utils/error'
+
+type GitProvider = 'github' | 'gitlab' | 'gitness'
 
 interface RepositoryConfigCreateSectionProps {
   onCancel: () => void
@@ -26,34 +35,45 @@ export function RepositoryConfigCreateSection({
 
   const [inputValue, setInputValue] = useState('')
   const [inputError, setInputError] = useState<string | null>(null)
+  const [provider, setProvider] = useState<GitProvider>('github')
 
-  // Helper: Detect provider from Git URL
-  const detectProvider = (url: string): 'github' | 'gitlab' => {
+  // Helper: Auto-detect provider from Git URL (convenience — user can override)
+  const autoDetectProvider = (url: string): GitProvider | null => {
     if (url.includes('github.com')) {
       return 'github'
     }
     if (url.includes('gitlab.com')) {
       return 'gitlab'
     }
-    throw new Error('Only GitHub and GitLab repositories are supported')
+    return null
   }
 
-  // Helper: Detect if input is a valid remote Git URL (GitHub or GitLab)
-  const isRemoteGitUrl = (input: string): boolean => {
+  // Helper: Validate URL based on selected provider
+  const isValidGitUrl = (input: string, selectedProvider: GitProvider): boolean => {
     const trimmed = input.trim()
-    return trimmed.startsWith('https://github.com/') || trimmed.startsWith('https://gitlab.com/')
+    if (!trimmed.startsWith('https://')) {
+      return false
+    }
+    if (selectedProvider === 'github') {
+      return trimmed.startsWith('https://github.com/')
+    }
+    if (selectedProvider === 'gitlab') {
+      return trimmed.startsWith('https://gitlab.com/')
+    }
+    // Gitness: any HTTPS URL is valid (self-hosted)
+    return true
   }
 
-  // Helper: Extract repository name from Git HTTPS URL (GitHub or GitLab)
+  // Helper: Extract repository name from Git HTTPS URL
   const extractRepoNameFromUrl = (url: string): string | null => {
-    // Supports both GitHub (owner/repo) and GitLab (group/.../project)
-    const regex = /^https:\/\/(github|gitlab)\.com\/(.+?)\/([^/.]+?)(?:\.git)?$/
-    const match = url.match(regex)
-    if (!match) {
-      return null
-    }
-    // Return the last segment (repo/project name)
-    return match[3] || null
+    const cleaned = url
+      .trim()
+      .replace(/\/$/, '')
+      .replace(/\.git$/, '')
+    const parts = cleaned.split('/')
+    // Return the last path segment as repo name
+    const lastPart = parts[parts.length - 1]
+    return lastPart && lastPart.length > 0 ? lastPart : null
   }
 
   const handleSubmit = () => {
@@ -64,24 +84,21 @@ export function RepositoryConfigCreateSection({
       return
     }
 
-    if (!isRemoteGitUrl(trimmedInput)) {
-      toast.error(
-        'Please enter a valid Git HTTPS URL (e.g., https://github.com/owner/repo or https://gitlab.com/group/project)',
-      )
+    if (!isValidGitUrl(trimmedInput, provider)) {
+      if (provider === 'gitness') {
+        toast.error('Please enter a valid HTTPS URL for your Gitness repository')
+      } else {
+        toast.error(`Please enter a valid ${provider === 'github' ? 'GitHub' : 'GitLab'} HTTPS URL`)
+      }
       return
     }
 
-    // Create remote repository (GitHub or GitLab)
     const repoName = extractRepoNameFromUrl(trimmedInput)
 
     if (!repoName) {
-      toast.error(
-        'Please enter a valid Git HTTPS URL (e.g., https://github.com/owner/repo or https://gitlab.com/group/project)',
-      )
+      toast.error('Could not extract repository name from URL')
       return
     }
-
-    const provider = detectProvider(trimmedInput)
 
     const repositoryData: CreateRepositoryRequest = {
       kind: 'remote',
@@ -104,21 +121,54 @@ export function RepositoryConfigCreateSection({
   }
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setInputValue(e.target.value)
+    const value = e.target.value
+    setInputValue(value)
     setInputError(null)
+
+    // Auto-detect provider from URL as convenience
+    const detected = autoDetectProvider(value)
+    if (detected) {
+      setProvider(detected)
+    }
+  }
+
+  const handleProviderChange = (value: string) => {
+    setProvider(value as GitProvider)
+    setInputError(null)
+  }
+
+  const getPlaceholder = (): string => {
+    switch (provider) {
+      case 'github':
+        return 'https://github.com/owner/repo'
+      case 'gitlab':
+        return 'https://gitlab.com/group/project'
+      case 'gitness':
+        return 'https://gitness.example.com/org/repo'
+    }
   }
 
   return (
     <ConfigurationSection>
       <ConfigurationGroup title="Add Repository">
-        <ConfigurationItem
-          label="Repository URL"
-          description="Enter a Git HTTPS URL (GitHub/GitLab)"
-        >
+        <ConfigurationItem label="Git Provider" description="Select the hosting provider">
+          <Select value={provider} onValueChange={handleProviderChange}>
+            <SelectTrigger className="w-48">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="github">GitHub</SelectItem>
+              <SelectItem value="gitlab">GitLab</SelectItem>
+              <SelectItem value="gitness">Gitness</SelectItem>
+            </SelectContent>
+          </Select>
+        </ConfigurationItem>
+
+        <ConfigurationItem label="Repository URL" description="Enter the Git HTTPS URL">
           <ConfigurationInput
             value={inputValue}
             onChange={handleInputChange}
-            placeholder="https://github.com/owner/repo or https://gitlab.com/group/project"
+            placeholder={getPlaceholder()}
             className={inputError ? 'border-destructive' : ''}
             autoFocus
           />

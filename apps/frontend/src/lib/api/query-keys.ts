@@ -79,6 +79,7 @@ export const queryKeys = {
     claudeOAuthUrl: () => [...queryKeys.settings.all(), 'claude', 'oauth-url'] as const,
     github: () => [...queryKeys.settings.all(), 'github'] as const,
     gitlab: () => [...queryKeys.settings.all(), 'gitlab'] as const,
+    gitness: () => [...queryKeys.settings.all(), 'gitness'] as const,
     publish: () => [...queryKeys.settings.all(), 'publish'] as const,
     figma: () => [...queryKeys.settings.all(), 'figma'] as const,
     apiKeys: () => [...queryKeys.settings.all(), 'api-keys'] as const,
