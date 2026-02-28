@@ -4,22 +4,18 @@ import {
   type ClaudeModel,
   DEFAULT_CLAUDE_MODEL,
 } from '@moatless/types'
-import { Bot, Database, FileText, GitBranch, Plus, Wand2 } from 'lucide-react'
+import { Bot, Database, GitBranch, Plus, Wand2 } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
-import {
-  useBranches,
-  useNonTemplateRepositories,
-  useTemplateRepositories,
-} from '@/features/repositories/hooks/use-repositories.ts'
+import { useBranches, useRepositoriesList } from '@/features/repositories/hooks/use-repositories.ts'
 
 // Repository selector hook - now controlled
-// Uses non-template repositories (excludes templates from the list)
+// Shows all repositories (including templates)
 export function useRepositorySelector(
   value?: string,
   onChange?: (value: string) => void,
   enabled = true,
 ) {
-  const { data, isLoading, error, isError } = useNonTemplateRepositories({ enabled })
+  const { data, isLoading, error, isError } = useRepositoriesList({ enabled })
 
   const items = useMemo(
     () =>
@@ -165,68 +161,6 @@ export function useBranchSelector(
       data?.defaultBranch,
       hidden,
     ],
-  )
-}
-
-// Template selector hook - now controlled
-export function useTemplateSelector(
-  value?: string,
-  onChange?: (value: string) => void,
-  enabled = true,
-) {
-  const { data, isLoading } = useTemplateRepositories({ enabled })
-
-  const items = useMemo(
-    () =>
-      data?.map((template) => ({
-        id: template.id,
-        label: template.name,
-      })) || [],
-    [data],
-  )
-
-  // Internal state for uncontrolled mode
-  const [internalValue, setInternalValue] = useState('')
-  const isControlled = value !== undefined
-  const currentValue = isControlled ? value : internalValue
-
-  // Auto-select first template if no value is set
-  const derivedValue = useMemo(() => {
-    if (!currentValue && items.length > 0) {
-      return items[0].id
-    }
-    return currentValue
-  }, [currentValue, items])
-
-  const handleChange = useCallback(
-    (newValue: string) => {
-      if (!isControlled) {
-        setInternalValue(newValue)
-      }
-      onChange?.(newValue)
-    },
-    [isControlled, onChange],
-  )
-
-  const selectedTemplate = useMemo(
-    () => items.find((item) => item.id === derivedValue),
-    [items, derivedValue],
-  )
-
-  return useMemo(
-    () => ({
-      value: derivedValue,
-      onChange: handleChange,
-      loading: isLoading,
-      placeholder: 'Select template',
-      items,
-      width: 'w-[180px]',
-      // New popover selector props
-      icon: FileText,
-      tooltip: 'Choose a template',
-      displayValue: selectedTemplate?.label || 'Select template',
-    }),
-    [derivedValue, handleChange, isLoading, items, selectedTemplate],
   )
 }
 

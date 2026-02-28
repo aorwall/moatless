@@ -12,6 +12,8 @@ use crate::shared_models::{AgentMode, AgentType};
 use crate::state::AppState;
 use crate::task::models::{TaskStatus, Visibility};
 
+use crate::repository::models::RepositoryKind;
+
 use super::error::TaskError;
 use super::schemas::*;
 
@@ -41,6 +43,8 @@ pub async fn create_task(
         validate_task_name(name)?;
     }
 
+    let is_template = repo.kind == RepositoryKind::Template;
+
     let task_id = uuid::Uuid::new_v4().to_string();
     let short_id = generate_unique_short_id(&state).await?;
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
@@ -56,8 +60,8 @@ pub async fn create_task(
         status: TaskStatus::Open,
         total_cost_usd: 0.0,
         site_url: None,
-        template_id: None,
-        vibe: None,
+        template_id: if is_template { Some(req.repository_id.clone()) } else { None },
+        vibe: if is_template { Some(true) } else { None },
         name: req.name.clone(),
         description: req.description.clone(),
         site_id: None,
@@ -79,56 +83,6 @@ pub async fn create_task(
         &req.contexts,
     )
     .await
-}
-
-/// Create a new vibe task from a template.
-#[utoipa::path(
-    post,
-    path = "/api/v1/tasks/vibe",
-    tag = "tasks",
-    request_body = CreateVibeTaskRequest,
-    responses(
-        (status = 200, description = "Vibe task created", body = CreateTaskResponse),
-        (status = 404, description = "Template not found", body = crate::sandbox::schemas::ErrorBody)
-    )
-)]
-pub async fn create_vibe_task(
-    State(state): State<AppState>,
-    auth: AuthUser,
-    Json(req): Json<CreateVibeTaskRequest>,
-) -> Result<Json<CreateTaskResponse>, TaskError> {
-    // Find the template repository
-    let repo = state.repositories.find_repository_by_id(&req.template_id)
-        .await?
-        .ok_or_else(|| TaskError::RepoNotFound(req.template_id.clone()))?;
-
-    let task_id = uuid::Uuid::new_v4().to_string();
-    let short_id = generate_unique_short_id(&state).await?;
-    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-
-    let row = Task {
-        task_id: task_id.clone(),
-        short_id: Some(short_id),
-        created_at: now.clone(),
-        last_message_at: now,
-        agent_type: AgentType(AgentType::CLAUDE_CODE.into()),
-        repository_id: repo.id.clone(),
-        status: TaskStatus::Open,
-        total_cost_usd: 0.0,
-        site_url: None,
-        template_id: Some(req.template_id.clone()),
-        vibe: Some(true),
-        name: req.name.clone(),
-        description: None,
-        site_id: None,
-        site_provider: None,
-        branch: repo.default_branch.clone(),
-        created_by: Some(auth.user_id.clone()),
-        visibility: Visibility::Private,
-        created_at_db: None,
-    };
-
-    insert_and_provision_task(&state, &auth, &row, req.message.as_deref(), None, None, &[], &[]).await
 }
 
 /// Shared logic for creating a task: insert, publish event, provision sandbox, send initial message.

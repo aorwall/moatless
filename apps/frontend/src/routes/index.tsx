@@ -7,9 +7,6 @@ import { RepositoriesConfigurationDialog } from '@/features/repositories'
 import { SettingsDialog } from '@/features/settings'
 import { TaskDashboard } from '@/features/tasks/components/dashboard'
 import type { DashboardSearchParams } from '@/features/tasks/components/dashboard/task-filters'
-import { useTaskPreferences } from '@/features/tasks/hooks/use-task-preferences'
-
-type ViewMode = 'code' | 'vibe'
 
 const indexSearchSchema = z.object({
   view: z.enum(['cards', 'table']).optional().catch(undefined),
@@ -28,16 +25,9 @@ export const Route = createFileRoute('/')({
 function Dashboard() {
   const [repositoriesOpen, setRepositoriesOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const preferences = useTaskPreferences()
-  const [viewMode, setViewMode] = useState<ViewMode>(preferences.viewMode)
   const search = Route.useSearch()
   const navigate = useNavigate({ from: '/' })
   const { user } = useAuth()
-
-  const handleViewModeChange = (mode: ViewMode) => {
-    setViewMode(mode)
-    preferences.setViewMode(mode)
-  }
 
   const handleSearchChange = useCallback(
     (params: DashboardSearchParams) => {
@@ -51,12 +41,9 @@ function Dashboard() {
       <TopBar
         onRepositoriesClick={() => setRepositoriesOpen(true)}
         onSettingsClick={() => setSettingsOpen(true)}
-        viewMode={viewMode}
-        onViewModeChange={handleViewModeChange}
       />
       <div className="flex-1 overflow-auto">
         <TaskDashboard
-          viewMode={viewMode}
           view={search.view ?? 'cards'}
           tag={search.tag}
           createdBy={search.createdBy === 'all' ? undefined : (search.createdBy ?? user?.id)}

@@ -2,7 +2,6 @@ import type { TaskResponse } from '@moatless/api-client'
 import { type ClaudeModel, DEFAULT_CLAUDE_MODEL } from '@moatless/types'
 import { useMemo, useState } from 'react'
 import { CreateCodeTask } from '@/features/tasks/components/create-task/create-code-task'
-import { CreateVibeTask } from '@/features/tasks/components/create-task/create-vibe-task'
 import {
   type DashboardSearchParams,
   TaskFilters,
@@ -29,40 +28,26 @@ function TaskDashboardSkeleton() {
   )
 }
 
-function EmptyTaskState({ viewMode }: { viewMode: ViewMode }) {
+function EmptyTaskState() {
   const preferences = useTaskPreferences()
   const [model, setModel] = useState<ClaudeModel>(DEFAULT_CLAUDE_MODEL)
   return (
     <div className="container mx-auto max-w-7xl p-6">
       {/* Create Task Section */}
       <div className="w-full max-w-3xl mx-auto mt-12 mb-12">
-        {viewMode === 'code' ? (
-          <CreateCodeTask
-            showTitle={true}
-            title="What should we build today?"
-            className="w-full"
-            maxHeight="300px"
-            minHeight="80px"
-            model={model}
-            onModelChange={setModel}
-            agentMode={preferences.agentMode}
-            onAgentModeChange={preferences.setAgentMode}
-            repositoryId={preferences.repositoryId}
-            onRepositoryChange={preferences.setRepositoryId}
-          />
-        ) : (
-          <CreateVibeTask
-            showTitle={true}
-            title="What should we build today?"
-            className="w-full"
-            maxHeight="300px"
-            minHeight="80px"
-            model={model}
-            onModelChange={setModel}
-            templateId={preferences.templateId}
-            onTemplateChange={preferences.setTemplateId}
-          />
-        )}
+        <CreateCodeTask
+          showTitle={true}
+          title="What should we build today?"
+          className="w-full"
+          maxHeight="300px"
+          minHeight="80px"
+          model={model}
+          onModelChange={setModel}
+          agentMode={preferences.agentMode}
+          onAgentModeChange={preferences.setAgentMode}
+          repositoryId={preferences.repositoryId}
+          onRepositoryChange={preferences.setRepositoryId}
+        />
       </div>
 
       {/* Empty State Message */}
@@ -75,10 +60,7 @@ function EmptyTaskState({ viewMode }: { viewMode: ViewMode }) {
   )
 }
 
-type ViewMode = 'code' | 'vibe'
-
 interface TaskDashboardProps {
-  viewMode: ViewMode
   view: 'cards' | 'table'
   tag?: string
   createdBy?: string
@@ -89,7 +71,6 @@ interface TaskDashboardProps {
 }
 
 export function TaskDashboard({
-  viewMode,
   view,
   tag,
   createdBy,
@@ -161,40 +142,26 @@ export function TaskDashboard({
 
   const hasFilters = tag || createdBy || repositoryId || status
   if (sortedTasks.length === 0 && !hasFilters) {
-    return <EmptyTaskState viewMode={viewMode} />
+    return <EmptyTaskState />
   }
 
   return (
     <div className="container mx-auto max-w-7xl p-6">
       {/* Create Task Section */}
       <div className="w-full max-w-3xl mx-auto mt-26 mb-26">
-        {viewMode === 'code' ? (
-          <CreateCodeTask
-            showTitle={true}
-            title="What should we build today?"
-            className="w-full"
-            maxHeight="300px"
-            minHeight="80px"
-            model={model}
-            onModelChange={setModel}
-            agentMode={preferences.agentMode}
-            onAgentModeChange={preferences.setAgentMode}
-            repositoryId={preferences.repositoryId}
-            onRepositoryChange={preferences.setRepositoryId}
-          />
-        ) : (
-          <CreateVibeTask
-            showTitle={true}
-            title="What should we build today?"
-            className="w-full"
-            maxHeight="300px"
-            minHeight="80px"
-            model={model}
-            onModelChange={setModel}
-            templateId={preferences.templateId}
-            onTemplateChange={preferences.setTemplateId}
-          />
-        )}
+        <CreateCodeTask
+          showTitle={true}
+          title="What should we build today?"
+          className="w-full"
+          maxHeight="300px"
+          minHeight="80px"
+          model={model}
+          onModelChange={setModel}
+          agentMode={preferences.agentMode}
+          onAgentModeChange={preferences.setAgentMode}
+          repositoryId={preferences.repositoryId}
+          onRepositoryChange={preferences.setRepositoryId}
+        />
       </div>
 
       {/* Tasks Section */}

@@ -33,7 +33,6 @@ function TasksIndex() {
 
   return (
     <TaskDashboard
-      viewMode="code"
       view={search.view ?? 'cards'}
       tag={search.tag}
       createdBy={search.createdBy === 'all' ? undefined : (search.createdBy ?? user?.id)}

@@ -13,7 +13,6 @@ use crate::state::AppState;
     ),
     paths(
         handlers::create_task,
-        handlers::create_vibe_task,
         handlers::list_tasks,
         handlers::get_task,
         handlers::update_task_metadata,
@@ -31,7 +30,6 @@ pub struct TaskApiDoc;
 pub fn task_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenApi) {
     let (router, api) = OpenApiRouter::with_openapi(TaskApiDoc::openapi())
         .routes(routes!(handlers::create_task, handlers::list_tasks))
-        .routes(routes!(handlers::create_vibe_task))
         .routes(routes!(handlers::get_task, handlers::update_task_metadata, handlers::delete_task))
         .routes(routes!(handlers::close_task))
         .routes(routes!(handlers::start_task))

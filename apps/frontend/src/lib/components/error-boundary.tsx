@@ -84,7 +84,6 @@ Please investigate and fix this issue.`
         onOpenChange={setShowCreateTask}
         defaultRepositoryId={repositoryId}
         defaultMessage={formatErrorForTask()}
-        defaultMode="code"
       />
     </>
   )

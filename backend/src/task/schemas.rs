@@ -25,14 +25,6 @@ pub struct CreateTaskRequest {
 
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
-pub struct CreateVibeTaskRequest {
-    pub template_id: String,
-    pub message: Option<String>,
-    pub name: Option<String>,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
 pub struct MessageContextInput {
     #[serde(rename = "type")]
     pub context_type: String,

@@ -4,23 +4,13 @@ import { useAuth } from '@/features/auth'
 import { Button } from '@/lib/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/lib/components/ui/popover'
 import { Separator } from '@/lib/components/ui/separator'
-import { ViewToggle } from '@/lib/components/view-toggle.tsx'
-
-type ViewMode = 'code' | 'vibe'
 
 interface TopBarProps {
   onRepositoriesClick: () => void
   onSettingsClick: () => void
-  viewMode: ViewMode
-  onViewModeChange: (mode: ViewMode) => void
 }
 
-export function TopBar({
-  onRepositoriesClick,
-  onSettingsClick,
-  viewMode,
-  onViewModeChange,
-}: TopBarProps) {
+export function TopBar({ onRepositoriesClick, onSettingsClick }: TopBarProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const { user, isAuthenticated, logout } = useAuth()
 
@@ -44,7 +34,6 @@ export function TopBar({
       <div className="container mx-auto max-w-7xl flex h-14 items-center px-6">
         <h1 className="font-bold text-lg">Moatless Vibe</h1>
         <div className="ml-auto flex items-center gap-4">
-          <ViewToggle mode={viewMode} onModeChange={onViewModeChange} />
           <Popover open={isMenuOpen} onOpenChange={setIsMenuOpen}>
             <PopoverTrigger asChild>
               <Button variant="ghost" size="icon">

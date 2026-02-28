@@ -1,6 +1,5 @@
 import type {
   CreateTaskRequest as ApiCreateTaskRequest,
-  CreateVibeTaskRequest as ApiCreateVibeTaskRequest,
   SendMessageRequest as ApiSendMessageRequest,
   CommandResponse,
   CreateTaskResponse,
@@ -19,7 +18,6 @@ import {
 import {
   closeTask as closeTaskHandler,
   createTask as createTaskHandler,
-  createVibeTask as createVibeTaskHandler,
   deleteTask as deleteTaskHandler,
   getTask as getTaskHandler,
   listTasks as listTasksHandler,
@@ -27,7 +25,7 @@ import {
   updateTaskMetadata as updateTaskMetadataHandler,
   updateVisibility as updateVisibilityHandler,
 } from '@moatless/api-client/sandbox/tasks/tasks'
-import type { CreateTaskRequest, CreateVibeTaskRequest, MessageContext } from '@moatless/types'
+import type { CreateTaskRequest, MessageContext } from '@moatless/types'
 
 export const tasksApi = {
   async getActiveTasks(): Promise<string[]> {
@@ -125,15 +123,6 @@ export const tasksApi = {
   // TODO: Deploy endpoint not implemented in Rust backend
   deployTask(_taskId: string): Promise<{ success: boolean }> {
     return Promise.resolve({ success: false })
-  },
-
-  async createVibeTask(
-    request: CreateVibeTaskRequest,
-  ): Promise<{ taskId: string; status: string }> {
-    const response = await unwrapResponse<CreateTaskResponse>(
-      createVibeTaskHandler(request as unknown as ApiCreateVibeTaskRequest),
-    )
-    return { taskId: response.taskId, status: response.status }
   },
 
   async updateTaskVisibility(

@@ -88,6 +88,8 @@ export function CreateCodeTask({
     enabled: !!repositoryId,
   })
 
+  const isTemplate = repositoryDetails?.kind === 'template'
+
   // Clear stored repository ID on 404 error
   useEffect(() => {
     if (repositoryError instanceof ApiError && repositoryError.status === 404) {
@@ -163,6 +165,16 @@ export function CreateCodeTask({
 
   const canSubmit = !!repositoryId
 
+  const placeholder = isTemplate
+    ? 'Describe what you want to build...'
+    : 'Describe your coding task or leave empty to just run the app...'
+
+  const chatInputClassName = maxHeight
+    ? `max-h-[${maxHeight}]`
+    : minHeight
+      ? `min-h-[${minHeight}]`
+      : undefined
+
   return (
     <div className={className}>
       {showTitle && (
@@ -176,10 +188,8 @@ export function CreateCodeTask({
           message={message}
           onMessageChange={setMessage}
           onSubmit={handleSubmit}
-          placeholder="Describe your coding task or leave empty to just run the app..."
-          className={
-            maxHeight ? `max-h-[${maxHeight}]` : minHeight ? `min-h-[${minHeight}]` : undefined
-          }
+          placeholder={placeholder}
+          className={chatInputClassName}
           canSubmit={canSubmit}
           onPaste={taskInputs.handlePaste}
         >
@@ -219,7 +229,7 @@ export function CreateCodeTask({
                 />
               </PopoverSelector>
 
-              {!branchSelector.hidden && (
+              {!(branchSelector.hidden || isTemplate) && (
                 <PopoverSelector
                   icon={branchSelector.icon}
                   value={branchSelector.value}
@@ -255,20 +265,22 @@ export function CreateCodeTask({
                 </PopoverSelector>
               )}
 
-              <PopoverSelector
-                icon={agentModeSelector.icon}
-                value={agentModeSelector.value}
-                displayValue={agentModeSelector.displayValue}
-                tooltip={agentModeSelector.tooltip}
-                loading={agentModeSelector.loading}
-                disabled={agentModeSelector.disabled}
-              >
-                <SimpleListPopoverContent
-                  items={agentModeSelector.items}
+              {!isTemplate && (
+                <PopoverSelector
+                  icon={agentModeSelector.icon}
                   value={agentModeSelector.value}
-                  onChange={agentModeSelector.onChange}
-                />
-              </PopoverSelector>
+                  displayValue={agentModeSelector.displayValue}
+                  tooltip={agentModeSelector.tooltip}
+                  loading={agentModeSelector.loading}
+                  disabled={agentModeSelector.disabled}
+                >
+                  <SimpleListPopoverContent
+                    items={agentModeSelector.items}
+                    value={agentModeSelector.value}
+                    onChange={agentModeSelector.onChange}
+                  />
+                </PopoverSelector>
+              )}
             </Selectors>
 
             <div className="flex items-center gap-2">
@@ -288,15 +300,7 @@ export function CreateCodeTask({
               <SendButton
                 disabled={!canSubmit}
                 loading={createTask.isPending}
-                buttonText={
-                  createTask.isPending
-                    ? message.trim()
-                      ? 'Starting...'
-                      : 'Creating...'
-                    : message.trim()
-                      ? 'Start Task'
-                      : 'Create Task'
-                }
+                buttonText={getSubmitButtonText(createTask.isPending, message)}
               />
             </div>
           </div>
@@ -316,4 +320,11 @@ export function CreateCodeTask({
       />
     </div>
   )
+}
+
+function getSubmitButtonText(isPending: boolean, message: string): string {
+  if (isPending) {
+    return message.trim() ? 'Starting...' : 'Creating...'
+  }
+  return message.trim() ? 'Start Task' : 'Create Task'
 }

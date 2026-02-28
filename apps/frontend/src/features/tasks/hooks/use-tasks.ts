@@ -12,7 +12,6 @@ import { sandboxStatusHandler } from '@moatless/api-client/sandbox/sandbox/sandb
 import type {
   AskUserQuestionResponse,
   CreateTaskRequest,
-  CreateVibeTaskRequest,
   DeployResponse,
   ExitPlanModeResponse,
   MessageContext,
@@ -457,72 +456,5 @@ export function useDeployTask(taskId: string, options?: UseMutationOptions<Deplo
       })
       options?.onSuccess?.(data, variables, onMutateResult, mutationContext)
     },
-  })
-}
-
-type CreateVibeTaskResponse = { taskId: string; status: string }
-
-/**
- * Create a vibe task (task from a template repository)
- * This creates a new local repository from the template and then creates a task with it
- */
-export function useCreateVibeTask(
-  options?: UseMutationOptions<CreateVibeTaskResponse, Error, CreateVibeTaskRequest, void>,
-) {
-  const queryClient = useQueryClient()
-  const { onSuccess: externalOnSuccess, ...restOptions } = options ?? {}
-
-  return useMutation<CreateVibeTaskResponse, Error, CreateVibeTaskRequest, void>({
-    mutationFn: async (request: CreateVibeTaskRequest) => {
-      return await tasksApi.createVibeTask(request)
-    },
-    onSuccess: async (data, variables, onMutateResult, mutationContext) => {
-      // Add initial message to messages cache if message was provided
-      if (variables.message && data.taskId) {
-        const initialMessage: UiMessage = {
-          uuid: `initial-${data.taskId}`,
-          role: 'user',
-          content: [{ type: 'text', text: variables.message }],
-          timestamp: new Date().toISOString(),
-          messageType: 'user',
-        }
-
-        queryClient.setQueryData<UiMessage[]>(queryKeys.tasks.messages(data.taskId), [
-          initialMessage,
-        ])
-      }
-
-      // Seed workspace status cache with initializing state for instant feedback
-      if (data.taskId) {
-        queryClient.setQueryData<WorkspaceStatusFullResponse>(
-          queryKeys.tasks.workspaceStatus(data.taskId),
-          {
-            workspaceState: 'missing',
-            environmentStatus: 'initializing',
-            agentState: 'none',
-            servers: [],
-            workspaceReady: false,
-            canExecute: false,
-          },
-        )
-
-        // Prefetch actual workspace status in background (staleTime: 0 forces fetch)
-        queryClient.prefetchQuery({
-          queryKey: queryKeys.tasks.workspaceStatus(data.taskId),
-          queryFn: () =>
-            unwrapResponse<WorkspaceStatusFullResponse>(sandboxStatusHandler(data.taskId)),
-          staleTime: 0,
-        })
-      }
-
-      // The vibe task endpoint only returns taskId and status, not the full task
-      // So we need to invalidate the task lists to refetch with the real data
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.tasks.lists(),
-      })
-
-      externalOnSuccess?.(data, variables, onMutateResult, mutationContext)
-    },
-    ...restOptions,
   })
 }
