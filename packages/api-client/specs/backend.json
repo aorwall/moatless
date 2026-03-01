@@ -3127,6 +3127,69 @@
   },
   "components": {
     "schemas": {
+      "AgentEventPayload": {
+        "type": "object",
+        "description": "Agent event payload — typed shape for `EventType::Agent` events.\n\nAgent payloads are pass-through from the sandbox (Claude CLI output).\nThis struct is primarily for OpenAPI schema generation; at runtime the\nbackend continues to forward `serde_json::Value` payloads.",
+        "properties": {
+          "agentSessionId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The agent session ID."
+          },
+          "contextTokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Context window usage."
+          },
+          "message": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "For \"message\" subtype: the Claude SDK assistant message."
+          },
+          "result": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "For \"completed\" subtype: the SDK result."
+          },
+          "toolInput": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "toolName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "For \"pending_response\" subtype: the tool being invoked."
+          },
+          "totalCost": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Cumulative cost in USD."
+          },
+          "type": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The message role type: \"assistant\", \"user\", etc."
+          }
+        }
+      },
       "AgentMode": {
         "type": "string",
         "description": "Agent mode identifier (open-ended, e.g. \"plan\", \"code\")."
@@ -3156,6 +3219,22 @@
       "AgentType": {
         "type": "string",
         "description": "Agent type identifier (open-ended, e.g. \"claude-code\")."
+      },
+      "AllowedPrompt": {
+        "type": "object",
+        "description": "A tool/prompt that the agent requests permission to execute.",
+        "required": [
+          "tool",
+          "prompt"
+        ],
+        "properties": {
+          "prompt": {
+            "type": "string"
+          },
+          "tool": {
+            "type": "string"
+          }
+        }
       },
       "ApiKeyCreateResponse": {
         "type": "object",
@@ -3244,6 +3323,98 @@
             }
           }
         }
+      },
+      "ApiMessage": {
+        "type": "object",
+        "description": "A message in the Anthropic API format.",
+        "required": [
+          "role",
+          "content"
+        ],
+        "properties": {
+          "content": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ContentBlock"
+            }
+          },
+          "role": {
+            "type": "string"
+          },
+          "usage": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Usage"
+              }
+            ]
+          }
+        }
+      },
+      "AskUserQuestionInput": {
+        "type": "object",
+        "description": "Input payload for the AskUserQuestion tool.",
+        "required": [
+          "questions"
+        ],
+        "properties": {
+          "questions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Question"
+            }
+          }
+        }
+      },
+      "AssistantMessage": {
+        "type": "object",
+        "description": "A complete assistant turn message.",
+        "required": [
+          "uuid",
+          "session_id",
+          "message"
+        ],
+        "properties": {
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AssistantMessageError"
+              }
+            ]
+          },
+          "message": {
+            "$ref": "#/components/schemas/ApiMessage"
+          },
+          "parent_tool_use_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "session_id": {
+            "type": "string"
+          },
+          "uuid": {
+            "type": "string"
+          }
+        }
+      },
+      "AssistantMessageError": {
+        "type": "string",
+        "description": "Error classification for assistant messages.",
+        "enum": [
+          "authentication_failed",
+          "billing_error",
+          "rate_limit",
+          "invalid_request",
+          "server_error",
+          "unknown"
+        ]
       },
       "BranchEntry": {
         "type": "object",
@@ -3413,6 +3584,175 @@
             ]
           }
         }
+      },
+      "ContentBlock": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "text",
+              "type"
+            ],
+            "properties": {
+              "text": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "text"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "name",
+              "input",
+              "type"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "input": {
+                "type": "object"
+              },
+              "name": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "tool_use"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "tool_use_id",
+              "type"
+            ],
+            "properties": {
+              "content": {
+                "type": [
+                  "object",
+                  "null"
+                ]
+              },
+              "is_error": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "tool_use_id": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "tool_result"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "thinking",
+              "signature",
+              "type"
+            ],
+            "properties": {
+              "signature": {
+                "type": "string"
+              },
+              "thinking": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "thinking"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "source",
+              "type"
+            ],
+            "properties": {
+              "source": {
+                "$ref": "#/components/schemas/ImageSource"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "image"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "name",
+              "input",
+              "type"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "input": {
+                "type": "object"
+              },
+              "name": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "server_tool_use"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "tool_use_id",
+              "type"
+            ],
+            "properties": {
+              "content": {
+                "type": [
+                  "object",
+                  "null"
+                ]
+              },
+              "tool_use_id": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "web_search_tool_result"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "A content block within an API message."
       },
       "CreateApiKeyRequest": {
         "type": "object",
@@ -3791,6 +4131,36 @@
           }
         }
       },
+      "ElementContextData": {
+        "type": "object",
+        "description": "Data for an element context (selected UI component).",
+        "required": [
+          "componentId",
+          "path",
+          "line",
+          "column",
+          "componentName"
+        ],
+        "properties": {
+          "column": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "componentId": {
+            "type": "string"
+          },
+          "componentName": {
+            "type": "string"
+          },
+          "line": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "path": {
+            "type": "string"
+          }
+        }
+      },
       "EnvironmentStatus": {
         "type": "string",
         "description": "Matches TS EnvironmentStatusSchema",
@@ -3861,6 +4231,27 @@
           }
         }
       },
+      "ExitPlanModeInput": {
+        "type": "object",
+        "description": "Input payload for the ExitPlanMode tool.",
+        "properties": {
+          "allowedPrompts": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/AllowedPrompt"
+            }
+          },
+          "plan": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "FeatureFlagsResponse": {
         "type": "object",
         "description": "Response shape for GET /api/v1/feature-flags.",
@@ -3900,6 +4291,30 @@
           },
           "slack_channel": {
             "type": "boolean"
+          }
+        }
+      },
+      "FigmaContextData": {
+        "type": "object",
+        "description": "Data for a Figma import context.",
+        "required": [
+          "importId",
+          "fileName",
+          "nodeName",
+          "hasImage"
+        ],
+        "properties": {
+          "fileName": {
+            "type": "string"
+          },
+          "hasImage": {
+            "type": "boolean"
+          },
+          "importId": {
+            "type": "string"
+          },
+          "nodeName": {
+            "type": "string"
           }
         }
       },
@@ -4275,6 +4690,35 @@
           }
         }
       },
+      "ImageSource": {
+        "type": "object",
+        "description": "Image source within a content block.",
+        "required": [
+          "type",
+          "media_type",
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "string"
+          },
+          "media_type": {
+            "type": "string"
+          },
+          "type": {
+            "$ref": "#/components/schemas/ImageSourceType"
+          }
+        }
+      },
+      "ImageSourceType": {
+        "type": "string",
+        "description": "Type of image source.",
+        "enum": [
+          "base64",
+          "url",
+          "unknown"
+        ]
+      },
       "ImportClipboardRequest": {
         "type": "object",
         "required": [
@@ -4338,23 +4782,78 @@
         }
       },
       "MessageContextInput": {
-        "type": "object",
-        "required": [
-          "type",
-          "referenceId",
-          "data"
-        ],
-        "properties": {
-          "data": {
-            "type": "object"
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Selected UI element context.",
+            "required": [
+              "referenceId",
+              "data",
+              "type"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/ElementContextData"
+              },
+              "referenceId": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "element"
+                ]
+              }
+            }
           },
-          "referenceId": {
-            "type": "string"
+          {
+            "type": "object",
+            "description": "Figma import context.",
+            "required": [
+              "referenceId",
+              "data",
+              "type"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/FigmaContextData"
+              },
+              "referenceId": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "figma"
+                ]
+              }
+            }
           },
-          "type": {
-            "type": "string"
+          {
+            "type": "object",
+            "description": "Preview URL context.",
+            "required": [
+              "referenceId",
+              "data",
+              "type"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/PreviewUrlContextData"
+              },
+              "referenceId": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "previewUrl"
+                ]
+              }
+            }
           }
-        }
+        ],
+        "description": "A context attached to a message, discriminated by `type`."
       },
       "MessageResponse": {
         "type": "object",
@@ -4387,6 +4886,78 @@
           "result",
           "error"
         ]
+      },
+      "MoatlessToolName": {
+        "type": "string",
+        "description": "All available Moatless tool names injected into the agent sandbox.",
+        "enum": [
+          "updateTaskMetadata",
+          "install",
+          "updateRepositoryConfig",
+          "getRepositoryConfig",
+          "startOrRestartPreviewServer",
+          "getPreviewServerLogs",
+          "navigatePreview",
+          "clickElement",
+          "evaluateJavaScript",
+          "fillPreviewForm",
+          "takePreviewSnapshot"
+        ]
+      },
+      "ModelUsage": {
+        "type": "object",
+        "description": "Per-model usage statistics.",
+        "required": [
+          "inputTokens",
+          "outputTokens",
+          "cacheReadInputTokens",
+          "cacheCreationInputTokens",
+          "webSearchRequests",
+          "costUSD",
+          "contextWindow",
+          "maxOutputTokens"
+        ],
+        "properties": {
+          "cacheCreationInputTokens": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "cacheReadInputTokens": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "contextWindow": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "costUSD": {
+            "type": "number",
+            "format": "double"
+          },
+          "inputTokens": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "maxOutputTokens": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "outputTokens": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "webSearchRequests": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
       },
       "OAuthUrlResponse": {
         "type": "object",
@@ -4511,6 +5082,44 @@
           }
         }
       },
+      "PermissionDenial": {
+        "type": "object",
+        "description": "Permission denial record.",
+        "required": [
+          "tool_name",
+          "tool_use_id",
+          "tool_input"
+        ],
+        "properties": {
+          "tool_input": {
+            "type": "object"
+          },
+          "tool_name": {
+            "type": "string"
+          },
+          "tool_use_id": {
+            "type": "string"
+          }
+        }
+      },
+      "PreviewUrlContextData": {
+        "type": "object",
+        "description": "Data for a preview URL context.",
+        "required": [
+          "path"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "ProvisionResponse": {
         "type": "object",
         "description": "Provision response",
@@ -4520,6 +5129,52 @@
         "properties": {
           "status": {
             "$ref": "#/components/schemas/EnvironmentStatus"
+          }
+        }
+      },
+      "Question": {
+        "type": "object",
+        "description": "A question presented to the user during agent interaction.",
+        "required": [
+          "question",
+          "options"
+        ],
+        "properties": {
+          "header": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "multiSelect": {
+            "type": "boolean"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QuestionOption"
+            }
+          },
+          "question": {
+            "type": "string"
+          }
+        }
+      },
+      "QuestionOption": {
+        "type": "object",
+        "description": "An option within a question presented to the user.",
+        "required": [
+          "label"
+        ],
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "label": {
+            "type": "string"
           }
         }
       },
@@ -4740,6 +5395,152 @@
           "uptimeSeconds": {
             "type": "number",
             "format": "double"
+          }
+        }
+      },
+      "ResourcesEventPayload": {
+        "type": "object",
+        "description": "Resources event payload — typed shape for `EventType::Resources` events.",
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "ResultError": {
+        "type": "object",
+        "description": "Error result.",
+        "required": [
+          "subtype",
+          "uuid",
+          "session_id",
+          "duration_ms",
+          "duration_api_ms",
+          "is_error",
+          "num_turns",
+          "total_cost_usd",
+          "usage",
+          "modelUsage",
+          "permission_denials",
+          "errors"
+        ],
+        "properties": {
+          "duration_api_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "duration_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "is_error": {
+            "type": "boolean"
+          },
+          "modelUsage": {
+            "type": "object"
+          },
+          "num_turns": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "permission_denials": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PermissionDenial"
+            }
+          },
+          "session_id": {
+            "type": "string"
+          },
+          "subtype": {
+            "type": "string"
+          },
+          "total_cost_usd": {
+            "type": "number",
+            "format": "double"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/Usage"
+          },
+          "uuid": {
+            "type": "string"
+          }
+        }
+      },
+      "ResultSuccess": {
+        "type": "object",
+        "description": "Successful result.",
+        "required": [
+          "uuid",
+          "session_id",
+          "duration_ms",
+          "duration_api_ms",
+          "is_error",
+          "num_turns",
+          "result",
+          "total_cost_usd",
+          "usage",
+          "modelUsage",
+          "permission_denials"
+        ],
+        "properties": {
+          "duration_api_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "duration_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "is_error": {
+            "type": "boolean"
+          },
+          "modelUsage": {
+            "type": "object"
+          },
+          "num_turns": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "permission_denials": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PermissionDenial"
+            }
+          },
+          "result": {
+            "type": "string"
+          },
+          "session_id": {
+            "type": "string"
+          },
+          "structured_output": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "total_cost_usd": {
+            "type": "number",
+            "format": "double"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/Usage"
+          },
+          "uuid": {
+            "type": "string"
           }
         }
       },
@@ -5406,6 +6207,15 @@
           }
         }
       },
+      "TaskEventPayload": {
+        "type": "object",
+        "description": "Task event payload — typed shape for `EventType::Task` events.",
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        }
+      },
       "TaskResponse": {
         "type": "object",
         "required": [
@@ -5554,6 +6364,15 @@
           "updated",
           "metadata.updated"
         ]
+      },
+      "TaskTurnEventPayload": {
+        "type": "object",
+        "description": "TaskTurn event payload — typed shape for `EventType::TaskTurn` events.",
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        }
       },
       "TaskTurnSubType": {
         "type": "string",
@@ -6123,6 +6942,42 @@
           "size": {
             "type": "integer",
             "format": "int64"
+          }
+        }
+      },
+      "Usage": {
+        "type": "object",
+        "description": "Token usage information.",
+        "required": [
+          "input_tokens",
+          "output_tokens"
+        ],
+        "properties": {
+          "cache_creation_input_tokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "cache_read_input_tokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "input_tokens": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "output_tokens": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           }
         }
       },

@@ -1,9 +1,9 @@
+import { apiClient } from '@/lib/api/client'
 import type {
   CreateSlackChannelMappingRequest,
   SlackChannelMappingResponse,
   UpdateSlackChannelMappingRequest,
-} from '@moatless/types'
-import { apiClient } from '@/lib/api/client'
+} from '@/lib/types/slack-channel-mappings'
 
 const BASE_PATH = '/api/v1/channels/slack/mappings'
 

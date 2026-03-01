@@ -1,5 +1,31 @@
-import { UserContentSchema } from '@moatless/types'
 import { z } from 'zod'
+
+const TextContentSchema = z.object({
+  type: z.literal('text'),
+  text: z.string(),
+})
+
+const ToolResultContentSchema = z.object({
+  type: z.literal('tool_result'),
+  tool_use_id: z.string(),
+  content: z.string(),
+  is_error: z.boolean().optional(),
+})
+
+const ImageContentBlockSchema = z.object({
+  type: z.literal('image'),
+  source: z.object({
+    type: z.literal('base64'),
+    media_type: z.enum(['image/png', 'image/jpeg', 'image/gif', 'image/webp']),
+    data: z.string(),
+  }),
+})
+
+const UserContentSchema = z.discriminatedUnion('type', [
+  TextContentSchema,
+  ToolResultContentSchema,
+  ImageContentBlockSchema,
+])
 
 /**
  * File attachment schema for agent execution.

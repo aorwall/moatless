@@ -1,10 +1,10 @@
-import type { Question } from '@moatless/types'
 import { HelpCircle, Loader2, Send } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import { Button } from '@/lib/components/ui/button'
 import { Checkbox } from '@/lib/components/ui/checkbox'
 import { Input } from '@/lib/components/ui/input'
 import { Label } from '@/lib/components/ui/label'
+import type { Question } from '@/lib/types/user-input'
 import { cn } from '@/lib/utils'
 
 interface AskUserQuestionInputProps {

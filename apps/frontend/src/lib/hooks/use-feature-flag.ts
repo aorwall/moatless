@@ -1,5 +1,5 @@
-import type { FeatureFlagKey } from '@moatless/types'
 import { useFeatureFlagsContext } from '@/lib/contexts/feature-flags-context'
+import type { FeatureFlagKey } from '@/lib/types/feature-flags'
 
 /**
  * Hook to check if a specific feature flag is enabled

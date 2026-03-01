@@ -1,4 +1,3 @@
-import type { ClaudePATRequest } from '@moatless/types'
 import {
   type UseMutationOptions,
   useMutation,
@@ -8,6 +7,7 @@ import {
 import { claudeConnectionApi } from '@/features/settings'
 import type { ApiError } from '@/lib/api/client'
 import { queryKeys } from '@/lib/api/query-keys'
+import type { ClaudePATRequest } from '@/lib/types/settings'
 
 /**
  * Get user's Claude connection configuration

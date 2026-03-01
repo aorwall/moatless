@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 /// A message in the Anthropic API format.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ApiMessage {
     pub role: String,
     pub content: Vec<ContentBlock>,
@@ -13,6 +14,7 @@ pub struct ApiMessage {
 
 /// A content block within an API message.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(tag = "type")]
 pub enum ContentBlock {
     #[serde(rename = "text")]
@@ -22,6 +24,7 @@ pub enum ContentBlock {
     ToolUse {
         id: String,
         name: String,
+        #[cfg_attr(feature = "openapi", schema(value_type = Object))]
         input: Value,
     },
 
@@ -29,6 +32,7 @@ pub enum ContentBlock {
     ToolResult {
         tool_use_id: String,
         #[serde(skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
         content: Option<Value>,
         #[serde(skip_serializing_if = "Option::is_none")]
         is_error: Option<bool>,
@@ -47,6 +51,7 @@ pub enum ContentBlock {
     ServerToolUse {
         id: String,
         name: String,
+        #[cfg_attr(feature = "openapi", schema(value_type = Object))]
         input: Value,
     },
 
@@ -54,12 +59,14 @@ pub enum ContentBlock {
     WebSearchToolResult {
         tool_use_id: String,
         #[serde(skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
         content: Option<Value>,
     },
 }
 
 /// Type of image source.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum ImageSourceType {
     Base64,
@@ -70,6 +77,7 @@ pub enum ImageSourceType {
 
 /// Image source within a content block.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ImageSource {
     #[serde(rename = "type")]
     pub source_type: ImageSourceType,
@@ -79,6 +87,7 @@ pub struct ImageSource {
 
 /// Token usage information.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Usage {
     pub input_tokens: u64,
     pub output_tokens: u64,
@@ -90,6 +99,7 @@ pub struct Usage {
 
 /// Per-model usage statistics.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct ModelUsage {
     pub input_tokens: u64,
@@ -105,8 +115,10 @@ pub struct ModelUsage {
 
 /// Permission denial record.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct PermissionDenial {
     pub tool_name: String,
     pub tool_use_id: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = Object))]
     pub tool_input: HashMap<String, Value>,
 }

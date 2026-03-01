@@ -250,6 +250,7 @@ impl SdkMessage {
 
 /// A complete assistant turn message.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct AssistantMessage {
     pub uuid: String,
     pub session_id: String,
@@ -261,6 +262,7 @@ pub struct AssistantMessage {
 
 /// Error classification for assistant messages.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum AssistantMessageError {
     AuthenticationFailed,
@@ -315,6 +317,7 @@ pub enum ResultMessage {
 
 /// Successful result.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ResultSuccess {
     pub uuid: String,
     pub session_id: String,
@@ -326,14 +329,17 @@ pub struct ResultSuccess {
     pub total_cost_usd: f64,
     pub usage: Usage,
     #[serde(rename = "modelUsage")]
+    #[cfg_attr(feature = "openapi", schema(value_type = Object))]
     pub model_usage: HashMap<String, ModelUsage>,
     pub permission_denials: Vec<PermissionDenial>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
     pub structured_output: Option<Value>,
 }
 
 /// Error result.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ResultError {
     pub subtype: String,
     pub uuid: String,
@@ -345,6 +351,7 @@ pub struct ResultError {
     pub total_cost_usd: f64,
     pub usage: Usage,
     #[serde(rename = "modelUsage")]
+    #[cfg_attr(feature = "openapi", schema(value_type = Object))]
     pub model_usage: HashMap<String, ModelUsage>,
     pub permission_denials: Vec<PermissionDenial>,
     pub errors: Vec<String>,

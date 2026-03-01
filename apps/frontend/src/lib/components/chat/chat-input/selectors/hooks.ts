@@ -1,12 +1,12 @@
+import { Bot, Database, GitBranch, Plus, Wand2 } from 'lucide-react'
+import { useCallback, useMemo, useState } from 'react'
+import { useBranches, useRepositoriesList } from '@/features/repositories/hooks/use-repositories.ts'
 import {
   CLAUDE_MODEL_DISPLAY_NAMES,
   CLAUDE_MODELS,
   type ClaudeModel,
   DEFAULT_CLAUDE_MODEL,
-} from '@moatless/types'
-import { Bot, Database, GitBranch, Plus, Wand2 } from 'lucide-react'
-import { useCallback, useMemo, useState } from 'react'
-import { useBranches, useRepositoriesList } from '@/features/repositories/hooks/use-repositories.ts'
+} from '@/lib/types/claude-models'
 
 // Repository selector hook - now controlled
 // Shows all repositories (including templates)

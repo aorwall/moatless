@@ -1,4 +1,4 @@
-import type { ApiErrorResponse } from '@moatless/types'
+import type { ApiErrorResponse } from '@/lib/types/api-errors'
 
 // In production, use relative URLs since frontend is served by backend
 // In development, use the configured API URL or default to localhost

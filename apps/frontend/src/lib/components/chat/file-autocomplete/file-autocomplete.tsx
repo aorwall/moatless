@@ -1,4 +1,4 @@
-import type { FileSearchResult } from '@moatless/types'
+import type { FileSearchResult } from '@moatless/api-client/sandbox/model'
 import { AlertCircle, FileIcon } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 import { getErrorMessage } from '@/lib/utils/error'

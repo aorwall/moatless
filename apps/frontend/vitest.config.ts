@@ -36,7 +36,6 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
-      "@moatless/types": path.resolve(__dirname, "../../packages/types/src"),
       "@test-utils": path.resolve(__dirname, "./src/test-utils"),
       // Stub CSS imports from node_modules (e.g., katex)
       "katex/dist/katex.min.css": path.resolve(__dirname, "./src/test-utils/css-stub.ts"),

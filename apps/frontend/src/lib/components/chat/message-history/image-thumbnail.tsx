@@ -2,7 +2,7 @@ import { useState } from 'react'
 
 interface ImageThumbnailProps {
   data: string // Base64 encoded image data
-  mediaType: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp'
+  mediaType: string
   alt?: string
   size?: 'small' | 'expanded'
 }

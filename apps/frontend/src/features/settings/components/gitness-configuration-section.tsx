@@ -48,7 +48,7 @@ export function GitnessConfigurationSection() {
     }
 
     savePAT.mutate(
-      { baseUrl: baseUrl.trim(), accessToken: pat },
+      { baseUrl: baseUrl.trim(), token: pat },
       {
         onSuccess: () => {
           toast.success('Gitness connection saved successfully')

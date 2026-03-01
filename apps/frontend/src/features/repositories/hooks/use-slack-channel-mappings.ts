@@ -1,6 +1,9 @@
-import type { CreateSlackChannelMappingRequest, SlackChannelMappingResponse } from '@moatless/types'
 import type { UseMutationOptions, UseQueryOptions } from '@tanstack/react-query'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import type {
+  CreateSlackChannelMappingRequest,
+  SlackChannelMappingResponse,
+} from '@/lib/types/slack-channel-mappings'
 import { slackChannelMappingsApi } from '../api/slack-channel-mappings'
 
 // Query keys for Slack channel mappings

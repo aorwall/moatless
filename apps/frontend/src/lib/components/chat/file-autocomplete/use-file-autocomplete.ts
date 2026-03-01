@@ -1,4 +1,4 @@
-import type { FileSearchResult } from '@moatless/types'
+import type { FileSearchResult } from '@moatless/api-client/sandbox/model'
 import type React from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 

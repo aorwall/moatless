@@ -1,4 +1,3 @@
-import type { GitLabPATRequest } from '@moatless/types'
 import {
   type UseMutationOptions,
   useMutation,
@@ -8,6 +7,7 @@ import {
 import { gitlabConnectionApi } from '@/features/settings'
 import type { ApiError } from '@/lib/api/client'
 import { queryKeys } from '@/lib/api/query-keys'
+import type { GitLabPATRequest } from '@/lib/types/settings'
 
 /**
  * Get user's GitLab connection configuration

@@ -1,7 +1,8 @@
-import type { Event, MoatlessToolName } from '@moatless/types'
-import { extractToolNames, hasTools } from '@moatless/types'
 import type { QueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/api/query-keys'
+import { extractToolNames, hasTools } from '@/lib/types/content-guards'
+import type { Event } from '@/lib/types/events'
+import type { MoatlessToolName } from '@/lib/types/tools'
 
 export type InvalidationKeyFunction = (id: string) => readonly unknown[]
 

@@ -1,5 +1,4 @@
 import type { UpdateRepositoryRequest } from '@moatless/api-client'
-import type { PluginInfo } from '@moatless/types'
 import { Loader2, Package, Plus, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { usePlugins } from '@/features/plugins/hooks/use-plugins'
@@ -7,6 +6,7 @@ import { PluginPickerDialog } from '@/features/repositories/components/plugin-pi
 import { ConfigurationGroup, ConfigurationItem } from '@/lib/components/configuration'
 import { Badge } from '@/lib/components/ui/badge'
 import { Button } from '@/lib/components/ui/button'
+import type { PluginInfo } from '@/lib/types/plugins'
 
 interface PluginsGroupProps {
   formData: Partial<UpdateRepositoryRequest>

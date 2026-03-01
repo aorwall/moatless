@@ -993,6 +993,7 @@ dependencies = [
  "tokio-util",
  "tracing",
  "tracing-subscriber",
+ "utoipa",
  "uuid",
 ]
 
@@ -2820,6 +2821,7 @@ dependencies = [
  "base64",
  "bollard",
  "chrono",
+ "claude-agent-sdk",
  "cookie",
  "dotenvy",
  "figma-clipboard",

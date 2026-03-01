@@ -1,6 +1,4 @@
 import type { UiContentBlock, UiMessage, UiToolResult } from '@moatless/api-client'
-import type { AllowedPrompt, Question } from '@moatless/types'
-import { type ImageContentBlock, isImageContentBlock } from '@moatless/types'
 import {
   CheckCircle,
   ChevronDown,
@@ -12,6 +10,8 @@ import {
 } from 'lucide-react'
 import { useState } from 'react'
 import { Response } from '@/lib/components/ai-elements/response'
+import { type ImageContentBlock, isImageContentBlock } from '@/lib/types/content-guards'
+import type { AllowedPrompt, Question } from '@/lib/types/user-input'
 import { cn } from '@/lib/utils'
 import { ImageThumbnail } from './image-thumbnail'
 import { type Todo, TodoList } from './tool-calls'

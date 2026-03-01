@@ -1,4 +1,3 @@
-import type { PluginInfo, PluginMarketplace } from '@moatless/types'
 import {
   AlertCircle,
   ChevronDown,
@@ -28,6 +27,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/lib/components/ui/collapsible'
+import type { PluginInfo, PluginMarketplace } from '@/lib/types/plugins'
 import { getErrorMessage } from '@/lib/utils/error'
 
 export function MarketplaceConfigurationSection() {

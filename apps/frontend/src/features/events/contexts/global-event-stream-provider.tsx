@@ -3,7 +3,6 @@ import type {
   ServerEntry,
   WorkspaceStatusFullResponse,
 } from '@moatless/api-client'
-import type { Event, EventType } from '@moatless/types'
 import { useQueryClient } from '@tanstack/react-query'
 import type React from 'react'
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
@@ -11,6 +10,7 @@ import { toast } from 'sonner'
 import { getInvalidationKeys, invalidateByTool, shouldInvalidateTaskList } from '@/features/events'
 import { applyTaskEventUpdate } from '@/features/tasks/utils/query-helpers'
 import { queryKeys } from '@/lib/api/query-keys'
+import type { Event, EventType } from '@/lib/types/events'
 
 interface GlobalEventStreamContextType {
   isConnected: boolean

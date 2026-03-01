@@ -1,10 +1,10 @@
-import type { Command } from '@moatless/types'
+import type { CommandResponse } from '@moatless/api-client'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { CommandButtons } from '../command-buttons'
 
 describe('CommandButtons', () => {
-  const mockCommands: Command[] = [
+  const mockCommands: CommandResponse[] = [
     {
       name: 'commit',
       description: 'Commit changes',
@@ -98,7 +98,7 @@ describe('CommandButtons', () => {
   })
 
   it('should handle commands without icons', () => {
-    const commandsWithoutIcon: Command[] = [
+    const commandsWithoutIcon: CommandResponse[] = [
       {
         name: 'test',
         description: 'Test command',

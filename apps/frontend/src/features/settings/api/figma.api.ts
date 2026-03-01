@@ -2,7 +2,7 @@ import type {
   FigmaOAuthTokenRequest,
   FigmaOAuthUrlResponse,
   FigmaPATRequest,
-} from '@moatless/types'
+} from '@/lib/types/settings'
 
 interface FigmaConfigResponse {
   connected: boolean

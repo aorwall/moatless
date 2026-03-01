@@ -136,6 +136,56 @@ pub struct DeleteMessageResponse {
 }
 
 // =========================================================================
+// User input types (AskUserQuestion, ExitPlanMode)
+// =========================================================================
+
+/// An option within a question presented to the user.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct QuestionOption {
+    pub label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+/// A question presented to the user during agent interaction.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Question {
+    pub question: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub header: Option<String>,
+    pub options: Vec<QuestionOption>,
+    #[serde(default)]
+    pub multi_select: bool,
+}
+
+/// A tool/prompt that the agent requests permission to execute.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AllowedPrompt {
+    pub tool: String,
+    pub prompt: String,
+}
+
+/// Input payload for the AskUserQuestion tool.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AskUserQuestionInput {
+    pub questions: Vec<Question>,
+}
+
+/// Input payload for the ExitPlanMode tool.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ExitPlanModeInput {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allowed_prompts: Option<Vec<AllowedPrompt>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plan: Option<String>,
+}
+
+// =========================================================================
 // Send message / command types
 // =========================================================================
 

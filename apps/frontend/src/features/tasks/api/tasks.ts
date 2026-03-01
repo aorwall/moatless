@@ -1,9 +1,10 @@
 import type {
-  CreateTaskRequest as ApiCreateTaskRequest,
   SendMessageRequest as ApiSendMessageRequest,
   CommandResponse,
+  CreateTaskRequest,
   CreateTaskResponse,
   ListTasksResponse,
+  MessageContextInput,
   SendMessageResponse,
   TaskResponse,
   UiMessage,
@@ -25,7 +26,6 @@ import {
   updateTaskMetadata as updateTaskMetadataHandler,
   updateVisibility as updateVisibilityHandler,
 } from '@moatless/api-client/sandbox/tasks/tasks'
-import type { CreateTaskRequest, MessageContext } from '@moatless/types'
 
 export const tasksApi = {
   async getActiveTasks(): Promise<string[]> {
@@ -63,7 +63,7 @@ export const tasksApi = {
   },
 
   async createTask(request: CreateTaskRequest): Promise<CreateTaskResponse> {
-    return await unwrapResponse(createTaskHandler(request as unknown as ApiCreateTaskRequest))
+    return await unwrapResponse(createTaskHandler(request))
   },
 
   async sendMessage(
@@ -75,7 +75,7 @@ export const tasksApi = {
       fileIds?: string[]
       commandName?: string
       agentMode?: string
-      contexts?: MessageContext[]
+      contexts?: MessageContextInput[]
       toolUseId?: string
       toolName?: 'AskUserQuestion' | 'ExitPlanMode'
       toolResponse?: unknown
@@ -121,7 +121,7 @@ export const tasksApi = {
   },
 
   // TODO: Deploy endpoint not implemented in Rust backend
-  deployTask(_taskId: string): Promise<{ success: boolean }> {
+  deployTask(_taskId: string): Promise<{ success: boolean; siteUrl?: string; error?: string }> {
     return Promise.resolve({ success: false })
   },
 

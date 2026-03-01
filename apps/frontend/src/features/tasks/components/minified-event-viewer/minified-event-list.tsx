@@ -1,4 +1,4 @@
-import type { Event } from '@moatless/types'
+import type { Event } from '@/lib/types/events'
 import { MinifiedEventItem } from './minified-event-item.tsx'
 
 interface MinifiedEventListProps {

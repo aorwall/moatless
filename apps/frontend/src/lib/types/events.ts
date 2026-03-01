@@ -1,0 +1,78 @@
+/**
+ * Discriminated event sub-types built on top of the api-client's StreamEvent.
+ * The backend sends generic StreamEvent; the frontend narrows by `type` field.
+ */
+import type {
+  AgentEventPayload,
+  AgentSubType,
+  SandboxSubType,
+  ServerEventPayload,
+  ServerSubType,
+  StreamEvent,
+  TaskSubType,
+  TaskTurnSubType,
+} from '@moatless/api-client/sandbox/model'
+
+export interface TaskEvent extends StreamEvent {
+  type: 'task'
+  subType: TaskSubType
+}
+
+export interface TaskTurnEvent extends StreamEvent {
+  type: 'taskTurn'
+  subType: TaskTurnSubType
+}
+
+export interface SandboxEvent extends StreamEvent {
+  type: 'sandbox'
+  subType: SandboxSubType
+}
+
+export interface ServerEvent extends StreamEvent {
+  type: 'server'
+  subType: ServerSubType
+  payload: ServerEventPayload
+}
+
+export interface ResourcesEvent extends StreamEvent {
+  type: 'resources'
+}
+
+export interface AgentEvent extends StreamEvent {
+  type: 'agent'
+  subType: AgentSubType
+  payload: AgentEventPayload
+}
+
+export interface NavigationEvent extends Omit<StreamEvent, 'type'> {
+  type: 'navigation'
+}
+
+export interface PreviewEvent extends Omit<StreamEvent, 'type'> {
+  type: 'preview'
+}
+
+/**
+ * Discriminated union of all specific event types.
+ * Use this instead of StreamEvent when you need to narrow on event.type.
+ */
+export type Event =
+  | TaskEvent
+  | TaskTurnEvent
+  | SandboxEvent
+  | ServerEvent
+  | ResourcesEvent
+  | AgentEvent
+  | NavigationEvent
+  | PreviewEvent
+
+/**
+ * Extended EventType that includes frontend-only event types not in the backend enum.
+ */
+export type EventType =
+  | import('@moatless/api-client/sandbox/model').EventType
+  | 'navigation'
+  | 'preview'
+
+// Re-export StreamEvent and AgentEventPayload from api-client for convenience
+export type { AgentEventPayload, StreamEvent } from '@moatless/api-client/sandbox/model'

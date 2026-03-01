@@ -1,4 +1,4 @@
-import type { FileSearchResult } from '@moatless/types'
+import type { FileSearchResult } from '@moatless/api-client/sandbox/model'
 import type { Meta, StoryObj } from '@storybook/react-vite'
 import { useState } from 'react'
 import { fn } from 'storybook/test'

@@ -19,7 +19,8 @@
     "./sandbox/sandbox/sandbox": "./src/sandbox/sandbox/sandbox.ts",
     "./sandbox/tags/tags": "./src/sandbox/tags/tags.ts",
     "./sandbox/tasks/tasks": "./src/sandbox/tasks/tasks.ts",
-    "./sandbox/users/users": "./src/sandbox/users/users.ts"
+    "./sandbox/users/users": "./src/sandbox/users/users.ts",
+    "./sandbox/model": "./src/sandbox/model/index.ts"
   },
   "scripts": {
     "generate:spec": "cargo run --manifest-path ../../backend/Cargo.toml -- --dump-openapi > specs/backend.json",

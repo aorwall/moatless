@@ -1,4 +1,3 @@
-import type { Question } from '@moatless/types'
 import { CheckCircle, HelpCircle, Loader2 } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import { useTaskId } from '@/features/tasks'
@@ -8,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/lib/components/ui/ca
 import { Checkbox } from '@/lib/components/ui/checkbox'
 import { Input } from '@/lib/components/ui/input'
 import { Label } from '@/lib/components/ui/label'
+import type { Question } from '@/lib/types/user-input'
 import { cn } from '@/lib/utils'
 
 interface Props {

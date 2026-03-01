@@ -1,4 +1,4 @@
-import type { Event, MessageContext } from '@moatless/types'
+import type { MessageContextInput } from '@moatless/api-client'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { useTaskEventSubscription } from '@/features/events'
@@ -11,6 +11,7 @@ import { useSandboxRetry } from '@/features/tasks/hooks/use-sandbox-status'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { Skeleton } from '@/lib/components/ui/skeleton'
+import type { Event } from '@/lib/types/events'
 import { useTaskId } from '../contexts/task-providers'
 import { useTaskDetailQuery } from '../hooks/use-task-queries'
 import { usePreviewPath, useTaskView } from '../hooks/use-task-view'
@@ -59,7 +60,7 @@ function TaskPageComponent() {
   const taskQuery = useTaskDetailQuery(taskId)
 
   // State for managing context items
-  const [contextItems, setContextItems] = useState<MessageContext[]>([])
+  const [contextItems, setContextItems] = useState<MessageContextInput[]>([])
 
   // Ref for command executor exposed by ChatContainer
   const commandExecutorRef = useRef<((commandName: string) => void) | null>(null)
@@ -238,7 +239,7 @@ function TaskPageComponent() {
         })
       } else {
         // Element doesn't exist - add it
-        const newContext: MessageContext = {
+        const newContext: MessageContextInput = {
           type: 'element',
           referenceId: element.componentId,
           data: {

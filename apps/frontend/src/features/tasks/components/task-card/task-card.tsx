@@ -1,5 +1,4 @@
 import type { TaskResponse } from '@moatless/api-client'
-import type { Event } from '@moatless/types'
 import { Link } from '@tanstack/react-router'
 import { Globe, Lock, X } from 'lucide-react'
 import type React from 'react'
@@ -16,6 +15,7 @@ import { Badge } from '@/lib/components/ui/badge'
 import { Button } from '@/lib/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/lib/components/ui/card'
 import { useApiError } from '@/lib/hooks/use-api-error'
+import type { Event } from '@/lib/types/events'
 
 function getRelativeTime(date: Date | string): string {
   const now = new Date()

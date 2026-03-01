@@ -1,4 +1,10 @@
 import { unwrapResponse } from '@moatless/api-client/custom-instance'
+import type {
+  ExchangeTokenRequest,
+  GitHubConfigResponse,
+  OAuthUrlResponse,
+  SavePatRequest,
+} from '@moatless/api-client/sandbox/model'
 import {
   deleteGithubConfig as deleteGithubConfigHandler,
   exchangeGithubToken as exchangeGithubTokenHandler,
@@ -6,12 +12,6 @@ import {
   getGithubOauthUrl as getGithubOauthUrlHandler,
   saveGithubPat as saveGithubPatHandler,
 } from '@moatless/api-client/sandbox/provider-settings/provider-settings'
-import type {
-  GitHubConfigResponse,
-  GitHubOAuthTokenRequest,
-  GitHubOAuthUrlResponse,
-  GitHubPATRequest,
-} from '@moatless/types'
 
 type ExchangeGitHubTokenResponse = { success: boolean; message: string }
 type DisconnectGitHubResponse = { success: boolean; message: string }
@@ -21,14 +21,14 @@ export const githubConnectionApi = {
   /**
    * Get GitHub OAuth authorization URL
    */
-  getOAuthUrl: async (): Promise<GitHubOAuthUrlResponse> => {
-    return await unwrapResponse<GitHubOAuthUrlResponse>(getGithubOauthUrlHandler())
+  getOAuthUrl: async (): Promise<OAuthUrlResponse> => {
+    return await unwrapResponse<OAuthUrlResponse>(getGithubOauthUrlHandler())
   },
 
   /**
    * Exchange OAuth code for access token
    */
-  exchangeToken: async (request: GitHubOAuthTokenRequest): Promise<ExchangeGitHubTokenResponse> => {
+  exchangeToken: async (request: ExchangeTokenRequest): Promise<ExchangeGitHubTokenResponse> => {
     return await unwrapResponse<ExchangeGitHubTokenResponse>(exchangeGithubTokenHandler(request))
   },
 
@@ -49,9 +49,9 @@ export const githubConnectionApi = {
   /**
    * Save Personal Access Token
    */
-  savePAT: async (request: GitHubPATRequest): Promise<SaveGitHubPATResponse> => {
+  savePAT: async (request: SavePatRequest): Promise<SaveGitHubPATResponse> => {
     return await unwrapResponse<SaveGitHubPATResponse>(
-      saveGithubPatHandler({ token: request.accessToken }),
+      saveGithubPatHandler({ token: request.token }),
     )
   },
 }

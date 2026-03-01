@@ -1,4 +1,4 @@
-import type { ClaudeSettingsResponse, UpdateClaudeSettingsRequest } from '@moatless/types'
+import type { ClaudeSettingsResponse, UpdateClaudeSettingsRequest } from '@/lib/types/settings'
 
 // TODO: Claude settings endpoints not implemented in Rust backend
 export const settingsApi = {

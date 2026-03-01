@@ -1,11 +1,11 @@
+import { useCallback } from 'react'
+import { ApiError } from '@/lib/api/client'
 import {
   getErrorMessage,
   getValidationErrors,
   isApiErrorResponse,
   isValidationError,
-} from '@moatless/types'
-import { useCallback } from 'react'
-import { ApiError } from '@/lib/api/client'
+} from '@/lib/types/api-errors'
 
 interface UseApiErrorResult {
   getErrorMessage: (error: unknown) => string

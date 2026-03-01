@@ -1,4 +1,4 @@
-import type { FileSearchResult } from '@moatless/types'
+import type { FileSearchResult } from '@moatless/api-client/sandbox/model'
 import { ArrowUp, Circle, Loader2, Paperclip } from 'lucide-react'
 import type React from 'react'
 import { useRef } from 'react'

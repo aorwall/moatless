@@ -176,6 +176,35 @@ pub struct FileNameMatchDto {
     pub matches: i32,
 }
 
+// ── Moatless tool names ──────────────────────────────────────────
+
+/// All available Moatless tool names injected into the agent sandbox.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub enum MoatlessToolName {
+    #[serde(rename = "updateTaskMetadata")]
+    UpdateTaskMetadata,
+    #[serde(rename = "install")]
+    Install,
+    #[serde(rename = "updateRepositoryConfig")]
+    UpdateRepositoryConfig,
+    #[serde(rename = "getRepositoryConfig")]
+    GetRepositoryConfig,
+    #[serde(rename = "startOrRestartPreviewServer")]
+    StartOrRestartPreviewServer,
+    #[serde(rename = "getPreviewServerLogs")]
+    GetPreviewServerLogs,
+    #[serde(rename = "navigatePreview")]
+    NavigatePreview,
+    #[serde(rename = "clickElement")]
+    ClickElement,
+    #[serde(rename = "evaluateJavaScript")]
+    EvaluateJavaScript,
+    #[serde(rename = "fillPreviewForm")]
+    FillPreviewForm,
+    #[serde(rename = "takePreviewSnapshot")]
+    TakePreviewSnapshot,
+}
+
 // ── Proto conversions ────────────────────────────────────────────
 
 impl From<sandbox_proto::FileTreeNode> for FileTreeNodeDto {

@@ -5,10 +5,23 @@
  * Sandbox orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
-import type { MessageContextInputData } from './messageContextInputData';
+import type { ElementContextData } from './elementContextData';
+import type { FigmaContextData } from './figmaContextData';
+import type { PreviewUrlContextData } from './previewUrlContextData';
 
-export interface MessageContextInput {
-  data: MessageContextInputData;
+/**
+ * A context attached to a message, discriminated by `type`.
+ */
+export type MessageContextInput = {
+  data: ElementContextData;
   referenceId: string;
-  type: string;
-}
+  type: 'element';
+} | {
+  data: FigmaContextData;
+  referenceId: string;
+  type: 'figma';
+} | {
+  data: PreviewUrlContextData;
+  referenceId: string;
+  type: 'previewUrl';
+};

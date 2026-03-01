@@ -1,5 +1,4 @@
-import type { UploadResponse } from '@moatless/api-client'
-import type { MessageContext } from '@moatless/types'
+import type { MessageContextInput, UploadResponse } from '@moatless/api-client'
 import type React from 'react'
 import { useCallback, useState } from 'react'
 import { toast } from 'sonner'
@@ -26,12 +25,12 @@ export interface UseTaskInputsOptions {
    * External context items state (for ChatContainer prop-based management)
    * When provided, the hook will use this instead of internal state
    */
-  contextItems?: MessageContext[]
+  contextItems?: MessageContextInput[]
 
   /**
    * Callback when context items change (for ChatContainer prop-based management)
    */
-  onContextItemsChange?: (contexts: MessageContext[]) => void
+  onContextItemsChange?: (contexts: MessageContextInput[]) => void
 }
 
 export interface UseTaskInputsReturn {
@@ -42,9 +41,9 @@ export interface UseTaskInputsReturn {
   handleRemoveFile: (fileId: string) => void
 
   // Context items state and handlers
-  contextItems: MessageContext[]
+  contextItems: MessageContextInput[]
   handleRemoveContext: (index: number) => void
-  handleAddContext: (context: MessageContext) => void
+  handleAddContext: (context: MessageContextInput) => void
 
   // Figma integration
   figmaDialogOpen: boolean
@@ -116,7 +115,7 @@ export function useTaskInputs(options: UseTaskInputsOptions = {}): UseTaskInputs
   const [uploadedFiles, setUploadedFiles] = useState<UploadResponse[]>([])
 
   // Context items state (internal or external)
-  const [internalContextItems, setInternalContextItems] = useState<MessageContext[]>([])
+  const [internalContextItems, setInternalContextItems] = useState<MessageContextInput[]>([])
   const contextItems = useExternalContext ? externalContextItems : internalContextItems
 
   // Figma dialog state
@@ -156,7 +155,7 @@ export function useTaskInputs(options: UseTaskInputsOptions = {}): UseTaskInputs
   )
 
   const handleAddContext = useCallback(
-    (context: MessageContext) => {
+    (context: MessageContextInput) => {
       if (useExternalContext && onContextItemsChange) {
         onContextItemsChange([...contextItems, context])
       } else {
@@ -179,7 +178,7 @@ export function useTaskInputs(options: UseTaskInputsOptions = {}): UseTaskInputs
         return
       }
 
-      const figmaContext: MessageContext = {
+      const figmaContext: MessageContextInput = {
         type: 'figma',
         referenceId: data.importId,
         data: {
@@ -222,7 +221,7 @@ export function useTaskInputs(options: UseTaskInputsOptions = {}): UseTaskInputs
           return
         }
 
-        const figmaContext: MessageContext = {
+        const figmaContext: MessageContextInput = {
           type: 'figma',
           referenceId: result.importId,
           data: {

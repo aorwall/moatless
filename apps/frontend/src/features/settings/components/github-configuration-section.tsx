@@ -96,7 +96,7 @@ export function GitHubConfigurationSection() {
     setIsConnecting(true)
     try {
       const result = await fetchOAuthUrl()
-      if (result.data?.authUrl) {
+      if (result.data?.url) {
         // Open OAuth URL in new window
         const width = 600
         const height = 700
@@ -104,7 +104,7 @@ export function GitHubConfigurationSection() {
         const top = window.screen.height / 2 - height / 2
 
         popupRef.current = window.open(
-          result.data.authUrl,
+          result.data.url,
           'github-oauth',
           `width=${width},height=${height},left=${left},top=${top}`,
         )
@@ -146,7 +146,7 @@ export function GitHubConfigurationSection() {
     }
 
     savePAT.mutate(
-      { accessToken: pat },
+      { token: pat },
       {
         onSuccess: () => {
           toast.success('Personal Access Token saved successfully')
@@ -214,7 +214,7 @@ export function GitHubConfigurationSection() {
 
   // For non-GitHub authenticated users, show service connection UI
   const isConnected = githubConfig?.connected ?? false
-  const hasOAuthEnabled = githubConfig?.oauthEnabled ?? false
+  const hasOAuthEnabled = githubConfig?.tokenType === 'service-oauth'
 
   return (
     <ConfigurationSectionWrapper>
@@ -231,16 +231,11 @@ export function GitHubConfigurationSection() {
             <AlertDescription className="space-y-2">
               <p className="text-sm">
                 Your GitHub account is connected via{' '}
-                {githubConfig?.method === 'service-oauth' ? 'OAuth' : 'Personal Access Token'}.
+                {githubConfig?.tokenType === 'service-oauth' ? 'OAuth' : 'Personal Access Token'}.
               </p>
-              {githubConfig?.githubLogin && (
+              {githubConfig?.login && (
                 <p className="text-sm">
-                  <strong>Username:</strong> {githubConfig.githubLogin}
-                </p>
-              )}
-              {githubConfig?.connectedAt && (
-                <p className="text-sm text-muted-foreground">
-                  Connected on {new Date(githubConfig.connectedAt).toLocaleDateString()}
+                  <strong>Username:</strong> {githubConfig.login}
                 </p>
               )}
             </AlertDescription>

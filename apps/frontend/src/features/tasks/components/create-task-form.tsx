@@ -1,7 +1,8 @@
-import { CreateTaskRequestSchema, DEFAULT_CLAUDE_MODEL } from '@moatless/types'
+import type { CreateTaskRequest } from '@moatless/api-client/sandbox/model'
 import { useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 import { toast } from 'sonner'
+import { z } from 'zod'
 import { FigmaImportDialog } from '@/features/figma/components/figma-import-dialog'
 import { useRepository } from '@/features/repositories'
 import { useTaskInputs } from '@/features/tasks/hooks/use-task-inputs'
@@ -21,7 +22,19 @@ import { Button } from '@/lib/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/lib/components/ui/card'
 import { Label } from '@/lib/components/ui/label'
 import { useZodForm } from '@/lib/hooks/use-zod-form'
+import { DEFAULT_CLAUDE_MODEL } from '@/lib/types/claude-models'
 import { getErrorMessage } from '@/lib/utils/error'
+
+const CreateTaskRequestSchema = z.object({
+  agentType: z.string(),
+  repositoryId: z.string(),
+  message: z.string().optional(),
+  branch: z.string().optional(),
+  model: z.string().optional(),
+  fileIds: z.array(z.string()).optional(),
+  contexts: z.array(z.unknown()).optional(),
+  agentMode: z.string().optional(),
+})
 
 export function CreateTaskForm() {
   const navigate = useNavigate()
@@ -91,7 +104,7 @@ export function CreateTaskForm() {
       return
     }
 
-    createTask.mutate(result.data)
+    createTask.mutate(result.data as unknown as CreateTaskRequest)
   }
 
   return (

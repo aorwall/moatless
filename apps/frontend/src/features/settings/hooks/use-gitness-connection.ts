@@ -1,4 +1,4 @@
-import type { GitnessPATRequest } from '@moatless/types'
+import type { SaveGitnessPATRequest } from '@moatless/api-client/sandbox/model'
 import {
   type UseMutationOptions,
   useMutation,
@@ -40,7 +40,11 @@ export function useDisconnectGitness(
  * Save Personal Access Token with base URL
  */
 export function useSaveGitnessPAT(
-  options?: UseMutationOptions<{ success: boolean; message: string }, ApiError, GitnessPATRequest>,
+  options?: UseMutationOptions<
+    { success: boolean; message: string },
+    ApiError,
+    SaveGitnessPATRequest
+  >,
 ) {
   const queryClient = useQueryClient()
 

@@ -333,6 +333,71 @@ pub struct SandboxEventPayload {
     pub error: Option<String>,
 }
 
+/// Agent event payload — typed shape for `EventType::Agent` events.
+///
+/// Agent payloads are pass-through from the sandbox (Claude CLI output).
+/// This struct is primarily for OpenAPI schema generation; at runtime the
+/// backend continues to forward `serde_json::Value` payloads.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct AgentEventPayload {
+    /// The message role type: "assistant", "user", etc.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "type")]
+    pub message_type: Option<String>,
+    /// For "message" subtype: the Claude SDK assistant message.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
+    pub message: Option<serde_json::Value>,
+    /// For "completed" subtype: the SDK result.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
+    pub result: Option<serde_json::Value>,
+    /// For "pending_response" subtype: the tool being invoked.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
+    pub tool_input: Option<serde_json::Value>,
+    /// Context window usage.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context_tokens: Option<i64>,
+    /// Cumulative cost in USD.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_cost: Option<f64>,
+    /// The agent session ID.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_session_id: Option<String>,
+}
+
+/// Task event payload — typed shape for `EventType::Task` events.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct TaskEventPayload {
+    #[serde(default)]
+    pub message: String,
+}
+
+/// TaskTurn event payload — typed shape for `EventType::TaskTurn` events.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct TaskTurnEventPayload {
+    #[serde(default)]
+    pub message: String,
+}
+
+/// Resources event payload — typed shape for `EventType::Resources` events.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ResourcesEventPayload {
+    #[serde(default)]
+    pub message: String,
+}
+
 /// SSE event envelope — the shape of events streamed to the frontend.
 ///
 /// This is the canonical wire format for all SSE events. The frontend

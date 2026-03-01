@@ -1,6 +1,7 @@
-import type { FeatureFlagKey, FeatureFlagsResponse } from '@moatless/types'
+import type { FeatureFlagsResponse } from '@moatless/api-client/sandbox/model'
 import { createContext, type ReactNode, useContext, useEffect, useState } from 'react'
 import { apiClient } from '@/lib/api/client'
+import type { FeatureFlagKey } from '@/lib/types/feature-flags'
 
 interface SlackConfig {
   teamId?: string
@@ -37,7 +38,8 @@ export function FeatureFlagsProvider({ children }: FeatureFlagsProviderProps) {
         setFlags({
           netlify_publish: false,
           figma_clipboard_paste: false,
-          figma_images_in_prompt: false,
+          gitlab_enabled: false,
+          show_claude_settings: false,
           show_model_selector: true,
           slack_channel: false,
         })
@@ -59,7 +61,7 @@ export function FeatureFlagsProvider({ children }: FeatureFlagsProviderProps) {
   }
 
   const getSlackConfig = (): SlackConfig | undefined => {
-    return flags?.slack
+    return flags?.slack ?? undefined
   }
 
   return (

@@ -1,4 +1,3 @@
-import { type ClaudeModel, DEFAULT_CLAUDE_MODEL } from '@moatless/types'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
@@ -31,6 +30,7 @@ import {
   useRepositorySelector,
 } from '@/lib/components/chat/chat-input/selectors'
 import { useFeatureFlag } from '@/lib/hooks/use-feature-flag'
+import { type ClaudeModel, DEFAULT_CLAUDE_MODEL } from '@/lib/types/claude-models'
 import { getErrorMessage } from '@/lib/utils/error'
 
 interface CreateCodeTaskProps {

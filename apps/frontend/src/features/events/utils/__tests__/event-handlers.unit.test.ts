@@ -1,11 +1,11 @@
+import { describe, expect, it } from 'vitest'
+import { queryKeys } from '@/lib/api/query-keys'
 import type {
   AgentEvent,
   Event,
   SandboxEvent as SandboxEventType,
   TaskEvent,
-} from '@moatless/types'
-import { describe, expect, it } from 'vitest'
-import { queryKeys } from '@/lib/api/query-keys'
+} from '@/lib/types/events'
 import {
   EVENT_INVALIDATION_MAP,
   getInvalidationKeys,

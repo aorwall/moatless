@@ -1,4 +1,4 @@
-import type { GitLabConfigResponse, GitLabPATRequest } from '@moatless/types'
+import type { GitLabConfigResponse, GitLabPATRequest } from '@/lib/types/settings'
 
 type DisconnectGitLabResponse = { success: boolean; message: string }
 type SaveGitLabPATResponse = { success: boolean; message: string }

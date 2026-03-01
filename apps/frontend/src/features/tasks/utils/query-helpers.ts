@@ -1,7 +1,7 @@
 import type { ListTasksResponse, TaskResponse } from '@moatless/api-client'
-import type { Event } from '@moatless/types'
 import type { QueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/api/query-keys'
+import type { Event } from '@/lib/types/events'
 
 /**
  * Updates a task in all cached task list queries

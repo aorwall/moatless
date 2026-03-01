@@ -1,4 +1,3 @@
-import type { ChannelInfo } from '@moatless/types'
 import { Copy, Loader2, Mail, Plus, Slack, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
@@ -33,8 +32,13 @@ import { useFeatureFlagsContext } from '@/lib/contexts/feature-flags-context'
 import { useFeatureFlag } from '@/lib/hooks/use-feature-flag'
 import { getErrorMessage } from '@/lib/utils/error'
 
+// TODO: Migrate to new channel config API shape from backend
+interface ChannelData {
+  email?: { address: string }
+}
+
 interface ChannelsGroupProps {
-  channels: ChannelInfo | undefined
+  channels: ChannelData | undefined
   repositoryId: string
 }
 

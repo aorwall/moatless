@@ -1,5 +1,4 @@
 import type { TaskResponse } from '@moatless/api-client'
-import { type ClaudeModel, DEFAULT_CLAUDE_MODEL } from '@moatless/types'
 import { useMemo, useState } from 'react'
 import { CreateCodeTask } from '@/features/tasks/components/create-task/create-code-task'
 import {
@@ -11,6 +10,7 @@ import { TaskCard } from '@/features/tasks/components/task-card'
 import { useTaskPreferences } from '@/features/tasks/hooks/use-task-preferences'
 import { useTasksList } from '@/features/tasks/hooks/use-tasks'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
+import { type ClaudeModel, DEFAULT_CLAUDE_MODEL } from '@/lib/types/claude-models'
 
 const PAGE_SIZE = 20
 

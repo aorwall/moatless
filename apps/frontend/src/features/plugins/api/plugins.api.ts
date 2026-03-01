@@ -3,7 +3,7 @@ import type {
   MarketplaceListResponse,
   PluginListResponse,
   PluginMarketplace,
-} from '@moatless/types'
+} from '@/lib/types/plugins'
 
 // TODO: Plugin/marketplace endpoints not implemented in Rust backend
 export const pluginsApi = {

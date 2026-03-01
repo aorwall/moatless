@@ -290,15 +290,41 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     #[derive(OpenApi)]
     #[openapi(
         components(schemas(
+            // Event types + sub-types
             moatless_events::EventType,
             moatless_events::SandboxSubType,
             moatless_events::ServerSubType,
             moatless_events::AgentSubType,
             moatless_events::TaskSubType,
             moatless_events::TaskTurnSubType,
+            // Event payloads
             moatless_events::ServerEventPayload,
             moatless_events::SandboxEventPayload,
+            moatless_events::AgentEventPayload,
+            moatless_events::TaskEventPayload,
+            moatless_events::TaskTurnEventPayload,
+            moatless_events::ResourcesEventPayload,
             moatless_events::StreamEvent,
+            // Claude SDK types
+            claude_agent_sdk::types::content::ContentBlock,
+            claude_agent_sdk::types::content::ImageSource,
+            claude_agent_sdk::types::content::ImageSourceType,
+            claude_agent_sdk::types::content::ApiMessage,
+            claude_agent_sdk::types::content::Usage,
+            claude_agent_sdk::types::content::ModelUsage,
+            claude_agent_sdk::types::content::PermissionDenial,
+            claude_agent_sdk::types::messages::AssistantMessage,
+            claude_agent_sdk::types::messages::AssistantMessageError,
+            claude_agent_sdk::types::messages::ResultSuccess,
+            claude_agent_sdk::types::messages::ResultError,
+            // User-input types
+            crate::message::schemas::QuestionOption,
+            crate::message::schemas::Question,
+            crate::message::schemas::AllowedPrompt,
+            crate::message::schemas::AskUserQuestionInput,
+            crate::message::schemas::ExitPlanModeInput,
+            // Tool names
+            crate::sandbox::schemas::MoatlessToolName,
         ))
     )]
     struct EventsApiDoc;

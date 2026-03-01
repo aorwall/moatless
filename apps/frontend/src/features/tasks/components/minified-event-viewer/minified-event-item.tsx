@@ -1,5 +1,3 @@
-import type { AgentEvent, Event } from '@moatless/types'
-import { isToolUseContent, type ToolUseContent } from '@moatless/types'
 import {
   Bot,
   Code2,
@@ -14,6 +12,8 @@ import {
   Terminal,
 } from 'lucide-react'
 import type React from 'react'
+import { isToolUseContent, type ToolUseContent } from '@/lib/types/content-guards'
+import type { AgentEvent, Event } from '@/lib/types/events'
 
 interface MinifiedEventItemProps {
   event: Event

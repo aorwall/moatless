@@ -1,7 +1,9 @@
 import type {
   CommandResponse,
+  CreateTaskRequest,
   CreateTaskResponse,
   ListTasksResponse,
+  MessageContextInput,
   SendMessageResponse,
   TaskResponse,
   UiMessage,
@@ -9,18 +11,12 @@ import type {
 } from '@moatless/api-client'
 import { unwrapResponse } from '@moatless/api-client/custom-instance'
 import { sandboxStatusHandler } from '@moatless/api-client/sandbox/sandbox/sandbox'
-import type {
-  AskUserQuestionResponse,
-  CreateTaskRequest,
-  DeployResponse,
-  ExitPlanModeResponse,
-  MessageContext,
-} from '@moatless/types'
 import type { UseMutationOptions, UseQueryOptions } from '@tanstack/react-query'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { updateTaskInLists } from '@/features/tasks'
 import { tasksApi } from '@/features/tasks/api/tasks'
 import { queryKeys } from '@/lib/api/query-keys'
+import type { AskUserQuestionResponse, ExitPlanModeResponse } from '@/lib/types/user-input'
 
 /**
  * Task Query Invalidation Strategy:
@@ -141,7 +137,7 @@ interface SendMessageVariables {
   fileIds?: string[]
   commandName?: string
   agentMode?: string
-  contexts?: MessageContext[]
+  contexts?: MessageContextInput[]
   toolUseId?: string
   toolName?: 'AskUserQuestion' | 'ExitPlanMode'
   toolResponse?: AskUserQuestionResponse | ExitPlanModeResponse
@@ -442,10 +438,12 @@ export function useDeleteTask(options?: UseMutationOptions<{ status: string }, E
   )
 }
 
-export function useDeployTask(taskId: string, options?: UseMutationOptions<DeployResponse, Error>) {
+type DeployResult = { success: boolean; siteUrl?: string; error?: string }
+
+export function useDeployTask(taskId: string, options?: UseMutationOptions<DeployResult, Error>) {
   const queryClient = useQueryClient()
 
-  return useMutation<DeployResponse, Error, void>({
+  return useMutation<DeployResult, Error, void>({
     ...options,
     mutationKey: ['tasks', taskId, 'deploy'],
     mutationFn: () => tasksApi.deployTask(taskId),

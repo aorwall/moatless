@@ -1,5 +1,5 @@
 import type { UiMessage } from '@moatless/api-client'
-import type { MessageContext } from '@moatless/types'
+import type { MessageContextInput } from '@moatless/api-client/sandbox/model'
 import { ChevronDown, ChevronRight, Eye, FileText } from 'lucide-react'
 import { useState } from 'react'
 import { Message, MessageContent } from '@/lib/components/ai-elements/message'
@@ -29,7 +29,7 @@ export function UserMessageComponent({ message, onPreviewUrlClick }: UserMessage
 
   // Extract contexts and attachments from message metadata if available
   const contexts = (message as UiMessage & { contexts?: unknown[] }).contexts as
-    | MessageContext[]
+    | MessageContextInput[]
     | undefined
   const attachments = (message as UiMessage & { attachments?: unknown[] }).attachments as
     | Array<{ fileId: string; filename: string; mimeType: string }>

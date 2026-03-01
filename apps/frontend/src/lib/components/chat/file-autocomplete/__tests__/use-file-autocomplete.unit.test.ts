@@ -1,4 +1,4 @@
-import type { FileSearchResult } from '@moatless/types'
+import type { FileSearchResult } from '@moatless/api-client/sandbox/model'
 import { act, renderHook } from '@testing-library/react'
 import type React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -9,18 +9,15 @@ describe('useFileAutocomplete - Tier 1 Tests', () => {
   const mockResults: FileSearchResult[] = [
     {
       path: 'src/components/button.tsx',
-      absolutePath: '/project/src/components/button.tsx',
-      score: 0.95,
+      name: 'button.tsx',
     },
     {
       path: 'src/hooks/use-tasks.ts',
-      absolutePath: '/project/src/hooks/use-tasks.ts',
-      score: 0.9,
+      name: 'use-tasks.ts',
     },
     {
       path: 'src/utils/helpers.ts',
-      absolutePath: '/project/src/utils/helpers.ts',
-      score: 0.85,
+      name: 'helpers.ts',
     },
   ]
 

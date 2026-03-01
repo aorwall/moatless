@@ -1,8 +1,8 @@
-import type { AgentEvent, Event } from '@moatless/types'
 import { Loader2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { formatRunningDuration } from '@/features/tasks/utils/format-duration.ts'
 import { Progress } from '@/lib/components/ui/progress.tsx'
+import type { AgentEvent, Event } from '@/lib/types/events'
 import { MinifiedEventItem } from './minified-event-item.tsx'
 
 interface MinifiedLastThreeEventsDisplayProps {

@@ -103,6 +103,9 @@ figma-clipboard = { path = "../crates/figma-clipboard" }
 # Typed event system (shared with sandbox)
 moatless-events = { path = "../crates/events", features = ["openapi"] }
 
+# Claude agent SDK types (for OpenAPI schema generation)
+claude-agent-sdk = { path = "../crates/claude-agent-sdk", features = ["openapi"] }
+
 # gRPC (sandbox ↔ backend communication)
 sandbox-proto = { path = "../crates/sandbox-proto" }
 tonic = "0.12"

@@ -1,4 +1,3 @@
-import type { Event } from '@moatless/types'
 import {
   createContext,
   type ReactNode,
@@ -9,6 +8,7 @@ import {
   useState,
 } from 'react'
 import { useGlobalEventStream, useTaskEventSubscription } from '@/features/events'
+import type { Event } from '@/lib/types/events'
 
 interface TaskDataContextValue {
   taskId: string

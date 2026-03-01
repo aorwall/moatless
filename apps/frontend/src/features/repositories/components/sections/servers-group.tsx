@@ -1,5 +1,5 @@
 import type { UpdateRepositoryRequest } from '@moatless/api-client'
-import type { ServerConfig } from '@moatless/types'
+import type { ServerConfig } from '@moatless/api-client/sandbox/model'
 import { ChevronDown, Plus, Server, Star, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { EnvironmentVariablesList } from '@/features/repositories/components/environment-variables-list'
@@ -110,7 +110,7 @@ function ServerFields({
 
       <ConfigurationItem label="Label" description="Human-readable name shown in the UI">
         <ConfigurationInput
-          value={server.label}
+          value={server.label ?? ''}
           onChange={(e) => onUpdate({ ...server, label: e.target.value })}
           placeholder="e.g., Preview, Storybook"
         />

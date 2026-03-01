@@ -2,7 +2,7 @@ import type {
   ClaudeConnectionConfig,
   ClaudeOAuthUrlResponse,
   ClaudePATRequest,
-} from '@moatless/types'
+} from '@/lib/types/settings'
 
 type DisconnectClaudeResponse = { success: boolean; message: string }
 type SaveClaudePATResponse = { success: boolean; message: string }

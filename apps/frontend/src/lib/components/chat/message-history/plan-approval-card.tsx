@@ -1,4 +1,3 @@
-import type { AllowedPrompt } from '@moatless/types'
 import { CheckCircle, ChevronDown, ChevronRight, FileText, Loader2, XCircle } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import { useTaskId } from '@/features/tasks'
@@ -12,6 +11,7 @@ import {
   CollapsibleTrigger,
 } from '@/lib/components/ui/collapsible'
 import { Textarea } from '@/lib/components/ui/textarea'
+import type { AllowedPrompt } from '@/lib/types/user-input'
 import { cn } from '@/lib/utils'
 
 interface Props {

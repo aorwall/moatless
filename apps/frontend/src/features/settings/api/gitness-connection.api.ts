@@ -1,4 +1,7 @@
-import type { GitnessConfigResponse, GitnessPATRequest } from '@moatless/types'
+import type {
+  GitnessConfigResponse,
+  SaveGitnessPATRequest,
+} from '@moatless/api-client/sandbox/model'
 import { apiClient } from '@/lib/api/client'
 
 type DisconnectGitnessResponse = { success: boolean; message: string }
@@ -17,10 +20,10 @@ export const gitnessConnectionApi = {
     return response
   },
 
-  savePAT: async (request: GitnessPATRequest): Promise<SaveGitnessPATResponse> => {
+  savePAT: async (request: SaveGitnessPATRequest): Promise<SaveGitnessPATResponse> => {
     const response = await apiClient.put<SaveGitnessPATResponse>('/api/v1/settings/gitness/pat', {
       baseUrl: request.baseUrl,
-      token: request.accessToken,
+      token: request.token,
     })
     return response
   },

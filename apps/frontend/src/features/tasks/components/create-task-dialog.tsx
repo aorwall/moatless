@@ -1,7 +1,6 @@
-import type { ClaudeModel } from '@moatless/types'
-import { DEFAULT_CLAUDE_MODEL } from '@moatless/types'
 import { useState } from 'react'
 import { Dialog, DialogContent } from '@/lib/components/ui/dialog'
+import { type ClaudeModel, DEFAULT_CLAUDE_MODEL } from '@/lib/types/claude-models'
 import { CreateCodeTask } from './create-task/create-code-task'
 
 interface CreateTaskDialogProps {

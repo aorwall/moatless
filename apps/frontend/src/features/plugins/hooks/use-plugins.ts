@@ -1,8 +1,8 @@
-import type { PluginInfo, PluginMarketplace } from '@moatless/types'
 import type { UseMutationOptions, UseQueryOptions } from '@tanstack/react-query'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { pluginsApi } from '@/features/plugins/api/plugins.api'
 import { queryKeys } from '@/lib/api/query-keys'
+import type { PluginInfo, PluginMarketplace } from '@/lib/types/plugins'
 
 // ============================================================================
 // Query Hooks

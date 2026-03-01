@@ -1,4 +1,3 @@
-import type { FigmaOAuthTokenRequest, FigmaPATRequest } from '@moatless/types'
 import {
   type UseMutationOptions,
   useMutation,
@@ -7,6 +6,7 @@ import {
 } from '@tanstack/react-query'
 import type { ApiError } from '@/lib/api/client'
 import { queryKeys } from '@/lib/api/query-keys'
+import type { FigmaOAuthTokenRequest, FigmaPATRequest } from '@/lib/types/settings'
 import { figmaApi } from '../api/figma.api'
 
 /**

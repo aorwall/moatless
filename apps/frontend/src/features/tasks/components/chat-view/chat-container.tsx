@@ -1,6 +1,4 @@
-import type { CommandResponse, UiMessage } from '@moatless/api-client'
-import type { ClaudeModel, MessageContext, Question } from '@moatless/types'
-import { DEFAULT_CLAUDE_MODEL } from '@moatless/types/constants'
+import type { CommandResponse, MessageContextInput, UiMessage } from '@moatless/api-client'
 import { Loader2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
@@ -41,13 +39,15 @@ import { MessageHistory } from '@/lib/components/chat/message-history'
 import { QueuedMessages } from '@/lib/components/chat/queued-messages'
 import { Button } from '@/lib/components/ui/button'
 import { useFeatureFlag } from '@/lib/hooks/use-feature-flag'
+import { type ClaudeModel, DEFAULT_CLAUDE_MODEL } from '@/lib/types/claude-models'
+import type { Question } from '@/lib/types/user-input'
 import { getErrorMessage } from '@/lib/utils/error'
 import { CommandButtons } from './command-buttons'
 
 interface ChatContainerProps {
   className?: string
-  contextItems?: MessageContext[]
-  onContextItemsChange?: (contexts: MessageContext[]) => void
+  contextItems?: MessageContextInput[]
+  onContextItemsChange?: (contexts: MessageContextInput[]) => void
   onPreviewUrlClick?: (path: string) => void
   onCommandExecutorReady?: (executor: (commandName: string) => void) => void
 }
@@ -163,8 +163,7 @@ function ChatContainer({
     results:
       fileSearchMutation.data?.files.map((file) => ({
         path: file.path,
-        absolutePath: file.path, // Use path as absolutePath for file search
-        score: file.matches / 100, // Convert matches count to a score
+        name: file.path.split('/').pop() ?? file.path,
       })) || [],
     isLoading: fileSearchMutation.isPending,
     error: fileSearchMutation.error,

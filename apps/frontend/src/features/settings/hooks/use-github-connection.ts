@@ -1,4 +1,4 @@
-import type { GitHubOAuthTokenRequest, GitHubPATRequest } from '@moatless/types'
+import type { ExchangeTokenRequest, SavePatRequest } from '@moatless/api-client/sandbox/model'
 import {
   type UseMutationOptions,
   useMutation,
@@ -41,7 +41,7 @@ export function useExchangeGitHubToken(
   options?: UseMutationOptions<
     { success: boolean; message: string },
     ApiError,
-    GitHubOAuthTokenRequest
+    ExchangeTokenRequest
   >,
 ) {
   const queryClient = useQueryClient()
@@ -78,7 +78,7 @@ export function useDisconnectGitHub(
  * Save Personal Access Token
  */
 export function useSaveGitHubPAT(
-  options?: UseMutationOptions<{ success: boolean; message: string }, ApiError, GitHubPATRequest>,
+  options?: UseMutationOptions<{ success: boolean; message: string }, ApiError, SavePatRequest>,
 ) {
   const queryClient = useQueryClient()
 

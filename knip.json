@@ -62,8 +62,6 @@
 		"packages/preview-server/src/scripts/*.js"
 	],
 	"ignoreDependencies": [
-		"@moatless/types",
-		"@moatless/api-contract",
 		"@radix-ui/react-alert-dialog",
 		"@radix-ui/react-checkbox",
 		"@radix-ui/react-collapsible",

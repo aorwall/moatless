@@ -42,38 +42,28 @@ pub async fn build_content_blocks(
 
     // Context blocks (hidden from UI)
     for ctx in contexts {
-        match ctx.context_type.as_str() {
-            "figma" => {
-                if let Some(block) = build_figma_context_block(figma_imports, &ctx.reference_id).await {
+        match ctx {
+            MessageContextInput::Figma { reference_id, .. } => {
+                if let Some(block) = build_figma_context_block(figma_imports, reference_id).await {
                     blocks.push(block);
                 }
             }
-            "previewUrl" => {
-                let url = ctx
-                    .data
-                    .get("url")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or(&ctx.reference_id);
+            MessageContextInput::PreviewUrl { reference_id, data } => {
+                let url = data.url.as_deref().unwrap_or(reference_id);
                 blocks.push(ContentBlock {
                     block_type: "text".to_string(),
                     text: Some(format!("User is currently viewing: {url}")),
                     source: None,
                 });
             }
-            "element" => {
-                let element_text = serde_json::to_string_pretty(&ctx.data)
-                    .unwrap_or_else(|_| ctx.data.to_string());
+            MessageContextInput::Element { data, .. } => {
+                let element_text = serde_json::to_string_pretty(&data)
+                    .unwrap_or_default();
                 blocks.push(ContentBlock {
                     block_type: "text".to_string(),
                     text: Some(format!("Selected UI element context:\n{element_text}")),
                     source: None,
                 });
-            }
-            _ => {
-                tracing::debug!(
-                    context_type = %ctx.context_type,
-                    "Unknown context type, skipping"
-                );
             }
         }
     }

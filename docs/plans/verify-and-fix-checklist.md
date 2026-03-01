@@ -144,7 +144,7 @@ Pod watcher (leader-elected background task)
 - `backend/src/sandbox/models.rs` — `ContainerObservedStatus`, status mapping
 - `backend/src/sandbox/provider.rs` — `SandboxProvider` trait (K8s vs Docker)
 - `crates/events/src/lib.rs` — `ServerSubType`, `ServerEventPayload`
-- `packages/api-contract/src/preview.ts` — frontend API contract
+- `apps/frontend/src/features/preview/api/events.ts` — frontend preview API
 
 ### What to Verify
 
@@ -247,9 +247,111 @@ The system uses graceful degradation:
 
 ---
 
+## 5. Missing Backend API Endpoints (Frontend Placeholder Types)
+
+**Status:** Tracked — types are hardcoded because the backend doesn't implement the endpoints yet
+
+After removing `packages/types`, the frontend has ~30 manually-written types across 9 files in `apps/frontend/src/lib/types/`. Some are intentional (UI constants, type guards), but others exist because the backend doesn't have the corresponding API endpoints yet. If the backend adds these endpoints, the local types must be deleted and replaced with generated ones.
+
+### 5a. Settings providers (`apps/frontend/src/lib/types/settings.ts`)
+
+GitLab, Claude, and Figma configuration types are defined locally because the backend doesn't implement these providers yet:
+
+- **GitLab** — `GitLabConfig`, PAT types. Hooks in `use-gitlab-connection.ts`, API stubs return `Promise.resolve()`
+- **Claude** — settings, OAuth, PAT types. Hooks in `use-claude-connection.ts`, returns `{ connected: false }`
+- **Figma** — OAuth, PAT types. Hooks in `use-figma.ts`, all mocked
+
+**Action:** When implementing each provider in the Rust backend, add OpenAPI schemas → regenerate api-client → delete local types.
+
+### 5b. Plugin management (`apps/frontend/src/lib/types/plugins.ts`)
+
+- `PluginInfo`, `PluginMarketplace`, `AddMarketplaceRequest`, etc.
+- Hooks in `use-plugins.ts`, API in `plugins.api.ts` — all return empty mocks
+
+**Action:** When backend implements plugin management, add schemas → regenerate → delete.
+
+### 5c. User input responses (`apps/frontend/src/lib/types/user-input.ts`)
+
+- `AskUserQuestionResponse { answers: Record<string, string> }`
+- `ExitPlanModeResponse { approved: boolean; feedback?: string }`
+- `UserInputResponseRequest { toolName, response, toolUseId? }`
+- Used in `ask-user-question-card.tsx`, `plan-approval-card.tsx`, `use-tasks.ts`
+- The response is cast to `unknown` in `tasks.ts` API before sending
+
+**Action:** Add response schemas to `backend/src/message/schemas.rs` → register in OpenAPI → regenerate → replace local types.
+
+---
+
+## 6. Type Safety Gaps (Silent Drift Risk)
+
+**Status:** Tracked — types that compile fine but can silently break at runtime if the backend changes
+
+### 6a. Content type guards (`apps/frontend/src/lib/types/content-guards.ts`)
+
+The guards check `content.type === 'tool_use'` etc. manually. They derive from the generated `ContentBlock` via `Extract<>`, so **variant type aliases track the api-client**. But:
+
+- If backend **renames a field** (e.g. `tool_use_id` → `toolUseId`), the `Extract<>` alias updates but the runtime guard still checks the old field name → silent failure
+- If backend **adds a variant** (already happened: `thinking`, `server_tool_use`, `web_search_tool_result` exist but have no guards) → code using `hasTools()` won't find tools in new variants
+- If backend **removes a variant** → `Extract<>` becomes `never`, TypeScript catches this one
+
+**Risk:** Medium. The `Extract<>` aliases give some safety. The runtime checks are the weak link.
+
+**Fix:** Generate type guards from the OpenAPI spec, or add exhaustive switch tests that fail when a new variant appears.
+
+### 6b. Event payload access (multiple components)
+
+`StreamEvent.payload` is `unknown` in the api-client. Frontend extends it with `AgentEventPayload` in `events.ts`. Components then do:
+
+```typescript
+const agentEvent = event as AgentEvent  // unsafe cast
+payload?.type === 'assistant'           // accesses .type without validation
+payload.message?.content                // nested access without guard
+```
+
+Files with unsafe casts:
+- `task-card.tsx` (lines 57-65) — `payload?.type` access
+- `minified-event-item.tsx` (lines 134-147) — `event as AgentEvent` cast
+- `minified-last-events-display.tsx` (lines 25-30) — `payload?.type` access
+- `event-handlers.ts` (line 163) — `payload as { message?: ... }` cast
+
+**Risk:** High. If `AgentEventPayload` shape changes (field renames, nesting changes), these components get `undefined` at runtime with no compile error.
+
+**Fix:** Either:
+1. Make `StreamEvent` generic on payload type in the backend (best)
+2. Add runtime validation functions that check payload shape before accessing
+3. At minimum, add integration tests that assert payload field access works
+
+### 6c. Sandbox Zod schemas (`packages/sandbox-schemas/src/agent.schemas.ts`)
+
+These are **runtime validation schemas** used in the sandbox API contract (the HTTP API the Rust sandbox exposes on port 8001). The `AgentRunRequestSchema` validates what the backend sends to the sandbox when starting an agent:
+
+```
+Backend → POST /agent/execute → Sandbox (port 8001)
+  → Body validated by AgentRunRequestSchema (Zod)
+  → content: UserContentSchema[] (text | tool_result | image)
+```
+
+The `UserContentSchema` was inlined from the deleted `@moatless/types`. It mirrors `ContentBlock` from the Claude SDK but only the 3 user-facing variants (text, tool_result, image).
+
+**Risk:** Low — this validates the backend→sandbox direction, and the Rust sandbox already has its own typed deserialization via `claude-agent-sdk`. The Zod schema is a defense layer, not the primary type system. But if the SDK adds a new user content type, this schema would reject it.
+
+**Used by:** `packages/sandbox-schemas/src/agent.schemas.ts` (consumed by sandbox HTTP handler)
+
+### 6d. Slack channel mappings (`apps/frontend/src/lib/types/slack-channel-mappings.ts`)
+
+Legacy types for the old Node.js API (`/api/v1/channels/slack/mappings`). These are not in the Rust backend's OpenAPI spec. The Rust backend has `ChannelConfigResponse` which is a different shape entirely.
+
+**Risk:** Medium — live code, but the Node.js API is being phased out.
+
+**Fix:** Migrate the frontend to use the Rust backend's channel config API → use generated types.
+
+---
+
 ## Priority Order
 
 1. **File upload** — quick verification, likely works
 2. **Server logging** — debugging existing implementation
 3. **Slack channel** — end-to-end verification with real Slack workspace
 4. **Git push fallback** — needs design decision + implementation
+5. **Missing backend endpoints** — track as backend features are built (5a/5b/5c)
+6. **Type safety gaps** — address 6b (high risk) first, then 6a/6c/6d

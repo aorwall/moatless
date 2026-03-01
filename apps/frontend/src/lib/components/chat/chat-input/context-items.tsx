@@ -1,4 +1,4 @@
-import type { ElementContextData, MessageContext } from '@moatless/types'
+import type { ElementContextData, MessageContextInput } from '@moatless/api-client/sandbox/model'
 import { ExternalLink, Eye, Figma, Loader2, X } from 'lucide-react'
 import { useState } from 'react'
 import { FigmaImportViewer, figmaApi } from '@/features/figma'
@@ -7,7 +7,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/lib/components/ui/pop
 import { cn } from '@/lib/utils'
 
 interface ContextItemsProps {
-  contexts: MessageContext[]
+  contexts: MessageContextInput[]
   onRemove?: (index: number) => void
   onPreviewUrlClick?: (path: string) => void
   isLoading?: boolean

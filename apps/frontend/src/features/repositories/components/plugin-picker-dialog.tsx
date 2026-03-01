@@ -1,4 +1,3 @@
-import type { PluginInfo } from '@moatless/types'
 import { Check, Package, Search } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Badge } from '@/lib/components/ui/badge'
@@ -14,6 +13,7 @@ import {
 } from '@/lib/components/ui/dialog'
 import { Input } from '@/lib/components/ui/input'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'
+import type { PluginInfo } from '@/lib/types/plugins'
 import { cn } from '@/lib/utils'
 
 interface PluginPickerDialogProps {
