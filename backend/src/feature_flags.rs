@@ -1,28 +1,56 @@
 //! Feature flags endpoint — env-var based, no database.
 
 use axum::Json;
-use serde_json::{json, Value};
+use serde::Serialize;
+
+/// Slack workspace configuration.
+#[derive(Serialize)]
+#[derive(utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SlackConfig {
+    pub team_id: String,
+}
+
+/// Response shape for GET /api/v1/feature-flags.
+#[derive(Serialize)]
+#[derive(utoipa::ToSchema)]
+pub struct FeatureFlagsResponse {
+    pub netlify_publish: bool,
+    pub show_claude_settings: bool,
+    pub figma_clipboard_paste: bool,
+    pub show_model_selector: bool,
+    pub gitlab_enabled: bool,
+    pub slack_channel: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub slack: Option<SlackConfig>,
+}
 
 /// GET /api/v1/feature-flags
 ///
 /// Returns all feature flags and their current values.
 /// Flags are controlled by `FF_*` environment variables.
-pub async fn get_feature_flags() -> Json<Value> {
-    let mut flags = json!({
-        "netlify_publish": env_flag("FF_NETLIFY_PUBLISH", false),
-        "show_claude_settings": env_flag("FF_SHOW_CLAUDE_SETTINGS", true),
-        "figma_clipboard_paste": env_flag("FF_FIGMA_CLIPBOARD_PASTE", true),
-        "show_model_selector": env_flag("FF_SHOW_MODEL_SELECTOR", true),
-        "gitlab_enabled": env_flag("FF_GITLAB_ENABLED", false),
-        "slack_channel": env_flag("FF_SLACK_CHANNEL", false),
-    });
+#[utoipa::path(
+    get,
+    path = "/api/v1/feature-flags",
+    responses(
+        (status = 200, description = "Feature flags", body = FeatureFlagsResponse),
+    ),
+    tag = "feature-flags",
+)]
+pub async fn get_feature_flags() -> Json<FeatureFlagsResponse> {
+    let slack = std::env::var("SLACK_TEAM_ID")
+        .ok()
+        .map(|team_id| SlackConfig { team_id });
 
-    // Optional slack config
-    if let Ok(team_id) = std::env::var("SLACK_TEAM_ID") {
-        flags["slack"] = json!({ "teamId": team_id });
-    }
-
-    Json(flags)
+    Json(FeatureFlagsResponse {
+        netlify_publish: env_flag("FF_NETLIFY_PUBLISH", false),
+        show_claude_settings: env_flag("FF_SHOW_CLAUDE_SETTINGS", true),
+        figma_clipboard_paste: env_flag("FF_FIGMA_CLIPBOARD_PASTE", true),
+        show_model_selector: env_flag("FF_SHOW_MODEL_SELECTOR", true),
+        gitlab_enabled: env_flag("FF_GITLAB_ENABLED", false),
+        slack_channel: env_flag("FF_SLACK_CHANNEL", false),
+        slack,
+    })
 }
 
 /// Read a boolean feature flag from an environment variable.

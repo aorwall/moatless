@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Moatless Vibe Backend API",
-    "description": "Workspace orchestration and authentication for Moatless Vibe",
+    "description": "Sandbox orchestration and authentication for Moatless Vibe",
     "version": "0.1.0"
   },
   "paths": {
@@ -11,7 +11,7 @@
         "tags": [
           "sandbox"
         ],
-        "summary": "Clean up a workspace and all associated resources.",
+        "summary": "Clean up a sandbox and all associated resources.",
         "operationId": "cleanup_handler",
         "parameters": [
           {
@@ -26,7 +26,7 @@
         ],
         "responses": {
           "204": {
-            "description": "Workspace cleaned up"
+            "description": "Sandbox cleaned up"
           },
           "500": {
             "description": "Cleanup failed",
@@ -396,7 +396,7 @@
         "tags": [
           "sandbox"
         ],
-        "summary": "Provision a new sandbox workspace for a task.",
+        "summary": "Provision a new sandbox for a task.",
         "description": "Builds the provision request internally from DB state (task, repository,\ncredentials). No request body required.",
         "operationId": "provision_handler",
         "parameters": [
@@ -412,7 +412,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Workspace provisioned successfully",
+            "description": "Sandbox provisioned successfully",
             "content": {
               "application/json": {
                 "schema": {
@@ -439,7 +439,7 @@
         "tags": [
           "sandbox"
         ],
-        "summary": "Restart a workspace (stop + start).",
+        "summary": "Restart a sandbox (stop + start).",
         "operationId": "restart_handler",
         "parameters": [
           {
@@ -454,7 +454,7 @@
         ],
         "responses": {
           "204": {
-            "description": "Workspace restarted"
+            "description": "Sandbox restarted"
           },
           "500": {
             "description": "Restart failed",
@@ -626,7 +626,7 @@
         "tags": [
           "sandbox"
         ],
-        "summary": "Get full workspace status including servers and agent state.",
+        "summary": "Get full sandbox status including servers and agent state.",
         "operationId": "sandbox_status_handler",
         "parameters": [
           {
@@ -641,11 +641,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Full workspace status",
+            "description": "Full sandbox status",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/WorkspaceStatusFullResponse"
+                  "$ref": "#/components/schemas/SandboxStatusFullResponse"
                 }
               }
             }
@@ -661,7 +661,7 @@
             }
           },
           "503": {
-            "description": "Workspace not ready",
+            "description": "Sandbox not ready",
             "content": {
               "application/json": {
                 "schema": {
@@ -678,7 +678,7 @@
         "tags": [
           "sandbox"
         ],
-        "summary": "Stop a running workspace.",
+        "summary": "Stop a running sandbox.",
         "operationId": "stop_handler",
         "parameters": [
           {
@@ -693,7 +693,7 @@
         ],
         "responses": {
           "204": {
-            "description": "Workspace stopped"
+            "description": "Sandbox stopped"
           },
           "500": {
             "description": "Stop failed",
@@ -1453,6 +1453,28 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/feature-flags": {
+      "get": {
+        "tags": [
+          "feature-flags"
+        ],
+        "summary": "GET /api/v1/feature-flags",
+        "description": "Returns all feature flags and their current values.\nFlags are controlled by `FF_*` environment variables.",
+        "operationId": "get_feature_flags",
+        "responses": {
+          "200": {
+            "description": "Feature flags",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeatureFlagsResponse"
                 }
               }
             }
@@ -2386,47 +2408,6 @@
           },
           "404": {
             "description": "Repository not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/tasks/vibe": {
-      "post": {
-        "tags": [
-          "tasks"
-        ],
-        "summary": "Create a new vibe task from a template.",
-        "operationId": "create_vibe_task",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateVibeTaskRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Vibe task created",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CreateTaskResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Template not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -3798,29 +3779,6 @@
           }
         }
       },
-      "CreateVibeTaskRequest": {
-        "type": "object",
-        "required": [
-          "templateId"
-        ],
-        "properties": {
-          "message": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "name": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "templateId": {
-            "type": "string"
-          }
-        }
-      },
       "DeleteMessageResponse": {
         "type": "object",
         "description": "Response for DELETE /messages/{id}.",
@@ -3900,6 +3858,48 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "FeatureFlagsResponse": {
+        "type": "object",
+        "description": "Response shape for GET /api/v1/feature-flags.",
+        "required": [
+          "netlify_publish",
+          "show_claude_settings",
+          "figma_clipboard_paste",
+          "show_model_selector",
+          "gitlab_enabled",
+          "slack_channel"
+        ],
+        "properties": {
+          "figma_clipboard_paste": {
+            "type": "boolean"
+          },
+          "gitlab_enabled": {
+            "type": "boolean"
+          },
+          "netlify_publish": {
+            "type": "boolean"
+          },
+          "show_claude_settings": {
+            "type": "boolean"
+          },
+          "show_model_selector": {
+            "type": "boolean"
+          },
+          "slack": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SlackConfig"
+              }
+            ]
+          },
+          "slack_channel": {
+            "type": "boolean"
           }
         }
       },
@@ -4752,6 +4752,89 @@
           "thread_based"
         ]
       },
+      "SandboxEventPayload": {
+        "type": "object",
+        "description": "Sandbox event payload — typed payload for sandbox lifecycle events.\n\nUsed by the pod watcher and provider to publish structured events\ninstead of raw `serde_json::Value`.",
+        "properties": {
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Error detail when applicable."
+          },
+          "lifecycleEvent": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "K8s lifecycle event name (e.g. \"pod_ready\", \"container_oom_killed\")."
+          },
+          "message": {
+            "type": "string",
+            "description": "Human-readable description of the event."
+          }
+        }
+      },
+      "SandboxState": {
+        "type": "string",
+        "description": "Matches TS SandboxStateSchema: 'exists' | 'missing'",
+        "enum": [
+          "exists",
+          "missing"
+        ]
+      },
+      "SandboxStatusFullResponse": {
+        "type": "object",
+        "description": "Full sandbox status response to frontend (matches TS SandboxStatusFullResponse)",
+        "required": [
+          "sandboxState",
+          "environmentStatus",
+          "agentState",
+          "servers",
+          "sandboxReady",
+          "canExecute"
+        ],
+        "properties": {
+          "agentState": {
+            "$ref": "#/components/schemas/AgentState"
+          },
+          "canExecute": {
+            "type": "boolean"
+          },
+          "environmentError": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "environmentStatus": {
+            "$ref": "#/components/schemas/EnvironmentStatus"
+          },
+          "resources": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ResourceMetrics"
+              }
+            ]
+          },
+          "sandboxReady": {
+            "type": "boolean"
+          },
+          "sandboxState": {
+            "$ref": "#/components/schemas/SandboxState"
+          },
+          "servers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ServerEntry"
+            }
+          }
+        }
+      },
       "SandboxSubType": {
         "type": "string",
         "description": "Sandbox sub-types — valid status values for sandbox lifecycle events.\n\nThese match the frontend `EnvironmentStatusSchema` values.",
@@ -5249,6 +5332,18 @@
           }
         }
       },
+      "SlackConfig": {
+        "type": "object",
+        "description": "Slack workspace configuration.",
+        "required": [
+          "teamId"
+        ],
+        "properties": {
+          "teamId": {
+            "type": "string"
+          }
+        }
+      },
       "StreamEvent": {
         "type": "object",
         "description": "SSE event envelope — the shape of events streamed to the frontend.\n\nThis is the canonical wire format for all SSE events. The frontend\nreceives this shape and dispatches on `event_type` + `sub_type`.",
@@ -5262,6 +5357,12 @@
           "payload"
         ],
         "properties": {
+          "agentType": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "eventId": {
             "type": "string"
           },
@@ -5277,6 +5378,13 @@
           },
           "timestamp": {
             "type": "string"
+          },
+          "turnNumber": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
           },
           "type": {
             "$ref": "#/components/schemas/EventType"
@@ -6118,65 +6226,6 @@
           "private"
         ]
       },
-      "WorkspaceState": {
-        "type": "string",
-        "description": "Matches TS WorkspaceExistenceSchema: 'exists' | 'missing' | 'invalid'",
-        "enum": [
-          "exists",
-          "missing"
-        ]
-      },
-      "WorkspaceStatusFullResponse": {
-        "type": "object",
-        "description": "Full workspace status response to frontend (matches TS WorkspaceStatusResponse)",
-        "required": [
-          "workspaceState",
-          "environmentStatus",
-          "agentState",
-          "servers",
-          "workspaceReady",
-          "canExecute"
-        ],
-        "properties": {
-          "agentState": {
-            "$ref": "#/components/schemas/AgentState"
-          },
-          "canExecute": {
-            "type": "boolean"
-          },
-          "environmentError": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "environmentStatus": {
-            "$ref": "#/components/schemas/EnvironmentStatus"
-          },
-          "resources": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/ResourceMetrics"
-              }
-            ]
-          },
-          "servers": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ServerEntry"
-            }
-          },
-          "workspaceReady": {
-            "type": "boolean"
-          },
-          "workspaceState": {
-            "$ref": "#/components/schemas/WorkspaceState"
-          }
-        }
-      },
       "WriteFileRequestBody": {
         "type": "object",
         "description": "Request body for writing a file.",
@@ -6198,7 +6247,7 @@
   "tags": [
     {
       "name": "sandbox",
-      "description": "Sandbox workspace lifecycle management"
+      "description": "Sandbox lifecycle management"
     },
     {
       "name": "auth",

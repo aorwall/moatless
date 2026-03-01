@@ -348,6 +348,10 @@ pub struct StreamEvent {
     pub task_id: String,
     pub timestamp: String,
     pub is_error: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub turn_number: Option<i32>,
     pub payload: serde_json::Value,
 }
 

@@ -276,6 +276,7 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     use crate::auth::routes::AuthApiDoc;
     use crate::channel::routes::ChannelApiDoc;
     use crate::command::routes::CommandApiDoc;
+    use crate::feature_flags::{FeatureFlagsResponse, SlackConfig};
     use crate::figma::routes::FigmaApiDoc;
     use crate::file_storage::routes::FileStorageApiDoc;
     use crate::message::routes::MessageApiDoc;
@@ -296,10 +297,18 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
             moatless_events::TaskSubType,
             moatless_events::TaskTurnSubType,
             moatless_events::ServerEventPayload,
+            moatless_events::SandboxEventPayload,
             moatless_events::StreamEvent,
         ))
     )]
     struct EventsApiDoc;
+
+    #[derive(OpenApi)]
+    #[openapi(
+        paths(crate::feature_flags::get_feature_flags),
+        components(schemas(FeatureFlagsResponse, SlackConfig))
+    )]
+    struct FeatureFlagsApiDoc;
 
     let mut merged = SandboxApiDoc::openapi();
     merged.merge(AuthApiDoc::openapi());
@@ -313,6 +322,7 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     merged.merge(ProviderSettingsApiDoc::openapi());
     merged.merge(ChannelApiDoc::openapi());
     merged.merge(EventsApiDoc::openapi());
+    merged.merge(FeatureFlagsApiDoc::openapi());
 
     merged.info = utoipa::openapi::InfoBuilder::new()
         .title("Moatless Vibe Backend API")

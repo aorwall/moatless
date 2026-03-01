@@ -13,10 +13,9 @@
 use async_trait::async_trait;
 use moatless_events::{
     AgentSubType, EventType, SandboxEventPayload, SandboxSubType, ServerEventPayload,
-    ServerSubType, SubType, TaskSubType, TaskTurnSubType,
+    ServerSubType, StreamEvent, SubType, TaskSubType, TaskTurnSubType,
 };
 use redis::aio::ConnectionManager;
-use serde::Serialize;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
@@ -129,27 +128,6 @@ pub struct RedisEventPublisher {
     max_stream_length: usize,
 }
 
-/// Generic event payload matching the TS `Event` schema exactly.
-///
-/// Fields use camelCase to match the JSON the TS consumer expects
-/// when it does `JSON.parse(payload)`.
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct StreamEvent {
-    event_id: String,
-    #[serde(rename = "type")]
-    event_type: String,
-    sub_type: String,
-    task_id: String,
-    timestamp: String,
-    is_error: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    agent_type: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    turn_number: Option<i32>,
-    payload: serde_json::Value,
-}
-
 impl RedisEventPublisher {
     /// Connect to Redis. Returns `None` on failure (non-fatal).
     pub async fn connect(redis_url: &str, max_stream_length: usize) -> Option<Self> {
@@ -215,9 +193,17 @@ impl RedisEventPublisher {
         let timestamp = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
         let is_error = sub_type == "error" || sub_type == "failed";
 
+        let parsed_event_type = match EventType::try_from(event_type) {
+            Ok(et) => et,
+            Err(e) => {
+                warn!(task_id = %task_id, error = %e, "Unknown event type, skipping publish");
+                return;
+            }
+        };
+
         let event = StreamEvent {
             event_id: event_id.clone(),
-            event_type: event_type.to_string(),
+            event_type: parsed_event_type,
             sub_type: sub_type.to_string(),
             task_id: task_id.to_string(),
             timestamp,
