@@ -1,0 +1,9 @@
+FROM ubuntu:24.04
+# Create a fake /usr/local/bin/sandbox that exits with error immediately.
+# The container builder overrides CMD with "/usr/local/bin/sandbox", so we
+# must provide a script at that path. Docker's restart policy will keep
+# restarting it, incrementing restart_count until the backend detects the
+# crash loop.
+RUN printf '#!/bin/sh\necho "Deliberate crash for testing" >&2\nexit 1\n' > /usr/local/bin/sandbox \
+    && chmod +x /usr/local/bin/sandbox
+CMD ["/usr/local/bin/sandbox"]
