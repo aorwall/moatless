@@ -142,6 +142,84 @@ pub async fn slack_webhook(
 }
 
 // =========================================================================
+// Webhook inbound handler
+// =========================================================================
+
+/// Handle inbound webhook message.
+///
+/// Receives a JSON payload with `text`, optional `threadId`, `userId`, and `metadata`.
+/// Verifies HMAC signature if `webhook_secret` is configured in the channel config.
+#[utoipa::path(
+    post,
+    path = "/api/v1/channels/webhook/{config_id}",
+    tag = "channels",
+    params(
+        ("config_id" = String, Path, description = "Channel config ID")
+    ),
+    request_body = super::webhook::provider::WebhookPayload,
+    responses(
+        (status = 200, description = "Webhook message accepted"),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Invalid signature"),
+        (status = 404, description = "Config not found")
+    )
+)]
+pub async fn webhook_inbound(
+    State(state): State<AppState>,
+    Path(config_id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<axum::response::Response, ChannelError> {
+    use axum::response::IntoResponse;
+
+    info!(config_id = %config_id, "Webhook inbound received");
+
+    // Look up config by ID
+    let config = state
+        .channel_configs
+        .find_by_id(&config_id)
+        .await?
+        .ok_or_else(|| ChannelError::ConfigNotFound(config_id.clone()))?;
+
+    if !config.active {
+        info!(config_id = %config_id, "Webhook ignored: config is inactive");
+        return Ok(StatusCode::OK.into_response());
+    }
+
+    if config.provider != "webhook" {
+        return Err(ChannelError::BadRequest(format!(
+            "Config {} is not a webhook config (provider={})",
+            config_id, config.provider
+        )));
+    }
+
+    // Extract signature header
+    let signature = headers
+        .get("x-webhook-signature")
+        .and_then(|v| v.to_str().ok());
+
+    // Parse inbound message
+    let msg =
+        super::webhook::provider::WebhookProvider::parse_inbound(&config, &body, signature)?;
+
+    // Process in background
+    let providers = state
+        .channel_providers
+        .as_ref()
+        .ok_or_else(|| ChannelError::ProviderNotConfigured("webhook".into()))?
+        .clone();
+
+    let state_clone = state.clone();
+    tokio::spawn(async move {
+        if let Err(e) = inbound::process_inbound(&state_clone, &providers, msg).await {
+            warn!(error = %e, "Failed to process webhook inbound message");
+        }
+    });
+
+    Ok(StatusCode::OK.into_response())
+}
+
+// =========================================================================
 // Slack channel discovery
 // =========================================================================
 
@@ -241,6 +319,7 @@ pub async fn create_config(
         active: true,
         provider_config: req.provider_config,
         ongoing_task_id: None,
+        response_config_id: req.response_config_id,
         created_by: auth.user_id,
         created_at: now,
         updated_at: now,
@@ -343,6 +422,7 @@ pub async fn update_config(
         prompt_template: req.prompt_template,
         active: req.active,
         provider_config: req.provider_config,
+        response_config_id: req.response_config_id,
         ..Default::default()
     };
 

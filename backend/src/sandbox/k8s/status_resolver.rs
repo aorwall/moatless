@@ -13,7 +13,7 @@ use super::client::K8sClient;
 use super::deployment;
 use super::pod_reader;
 use super::naming::generate_service_name;
-use super::pod_status::{is_sandbox_container_ready, pick_best_pod};
+use super::pod_status::{check_sandbox_permanent_failure, is_sandbox_container_ready, pick_best_pod};
 use crate::config::Config;
 use crate::sandbox::client::SandboxClient;
 use crate::sandbox::models::*;
@@ -48,7 +48,7 @@ impl StatusResolver {
         task_id: &str,
         server_configs: &[ServerConfig],
     ) -> SandboxStatusFullResponse {
-        let phase = self.resolve_pod_phase(task_id).await;
+        let (phase, environment_error) = self.resolve_pod_phase_and_error(task_id).await;
         let environment_status = phase.to_environment_status();
         let is_running = phase == PodPhase::Running;
 
@@ -87,7 +87,7 @@ impl StatusResolver {
             return SandboxStatusFullResponse {
                 sandbox_state: SandboxState::Exists,
                 environment_status,
-                environment_error: None,
+                environment_error,
                 agent_state,
                 servers,
                 sandbox_ready: true,
@@ -159,7 +159,7 @@ impl StatusResolver {
         SandboxStatusFullResponse {
             sandbox_state,
             environment_status,
-            environment_error: None,
+            environment_error,
             agent_state: AgentState::None,
             servers,
             sandbox_ready: false,
@@ -199,11 +199,13 @@ impl StatusResolver {
         }
     }
 
-    /// Resolve the effective pod phase, checking Deployment replicas first.
+    /// Resolve the effective pod phase and any permanent error, checking
+    /// Deployment replicas first.
     ///
-    /// If a Deployment exists with replicas=0, returns `PodPhase::Stopped`.
-    /// Otherwise falls back to checking actual pod status.
-    async fn resolve_pod_phase(&self, task_id: &str) -> PodPhase {
+    /// If a Deployment exists with replicas=0, returns `(PodPhase::Stopped, None)`.
+    /// Otherwise falls back to checking actual pod status and probing for
+    /// permanent failures (CrashLoopBackOff, ImagePullBackOff, etc.).
+    async fn resolve_pod_phase_and_error(&self, task_id: &str) -> (PodPhase, Option<String>) {
         // Check Deployment replicas first
         if let Ok(Some(_dep)) = deployment::find_deployment(&self.k8s, task_id).await
         {
@@ -211,12 +213,12 @@ impl StatusResolver {
                 deployment::get_deployment_replicas(&self.k8s, task_id).await
             {
                 if desired == 0 {
-                    return PodPhase::Stopped;
+                    return (PodPhase::Stopped, None);
                 }
             }
         } else {
             // No Deployment found — sandbox doesn't exist
-            return PodPhase::NotFound;
+            return (PodPhase::NotFound, None);
         }
 
         // Deployment exists with replicas > 0, check actual pod status
@@ -235,7 +237,11 @@ impl StatusResolver {
                         .as_ref()
                         .and_then(|s| s.phase.as_deref())
                         .unwrap_or("Unknown");
-                    if is_terminating {
+
+                    // Check for permanent sandbox failures (CrashLoopBackOff, ImagePullBackOff, etc.)
+                    let error = check_sandbox_permanent_failure(pod);
+
+                    let phase = if is_terminating {
                         PodPhase::Terminating
                     } else if raw_phase == "Running"
                         && !is_sandbox_container_ready(pod)
@@ -243,15 +249,17 @@ impl StatusResolver {
                         PodPhase::Pending
                     } else {
                         PodPhase::from(raw_phase)
-                    }
+                    };
+
+                    (phase, error)
                 } else {
                     // Deployment exists but no pods yet (scaling up)
-                    PodPhase::Pending
+                    (PodPhase::Pending, None)
                 }
             }
             Err(e) => {
                 warn!(task_id = %task_id, error = %e, "Failed to get pod status");
-                PodPhase::Unknown
+                (PodPhase::Unknown, None)
             }
         }
     }

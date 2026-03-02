@@ -197,6 +197,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         } else {
             info!("Idle sandbox reaper disabled (Docker mode — K8s leader election not available)");
         }
+
+        // Cron scheduler (if channel providers are configured)
+        if let Some(ref providers) = app_state.channel_providers {
+            channel::cron::scheduler::spawn_cron_scheduler(
+                app_state.clone(),
+                providers.clone(),
+                cancel.clone(),
+            );
+        }
     } else {
         info!("Domain routes disabled (no database)");
     }

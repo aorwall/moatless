@@ -20,6 +20,7 @@ pub struct ChannelConfig {
     pub active: bool,
     pub provider_config: Option<serde_json::Value>,
     pub ongoing_task_id: Option<String>,
+    pub response_config_id: Option<String>,
     pub created_by: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,

@@ -17,6 +17,7 @@ pub struct CreateChannelConfigRequest {
     pub prompt_template: Option<String>,
     #[schema(value_type = Option<Object>)]
     pub provider_config: Option<serde_json::Value>,
+    pub response_config_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -28,6 +29,7 @@ pub struct UpdateChannelConfigRequest {
     pub active: Option<bool>,
     #[schema(value_type = Option<Object>)]
     pub provider_config: Option<serde_json::Value>,
+    pub response_config_id: Option<Option<String>>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -44,6 +46,7 @@ pub struct ChannelConfigResponse {
     #[schema(value_type = Option<Object>)]
     pub provider_config: Option<serde_json::Value>,
     pub ongoing_task_id: Option<String>,
+    pub response_config_id: Option<String>,
     pub created_by: String,
     pub created_at: String,
     pub updated_at: String,
@@ -79,6 +82,7 @@ impl ChannelConfigResponse {
             active: row.active,
             provider_config: row.provider_config.clone(),
             ongoing_task_id: row.ongoing_task_id.clone(),
+            response_config_id: row.response_config_id.clone(),
             created_by: row.created_by.clone(),
             created_at: row.created_at.to_rfc3339(),
             updated_at: row.updated_at.to_rfc3339(),

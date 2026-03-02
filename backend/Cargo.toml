@@ -94,6 +94,9 @@ aws-config = "1"
 # Multipart uploads
 axum-extra = { version = "0.10", features = ["multipart"] }
 
+# Cron scheduling
+cron = "0.13"
+
 # ID generation
 nanoid = "0.4"
 

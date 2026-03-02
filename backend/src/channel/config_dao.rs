@@ -14,6 +14,7 @@ pub struct ChannelConfigPatch {
     pub active: Option<bool>,
     pub provider_config: Option<serde_json::Value>,
     pub ongoing_task_id: Option<Option<String>>,
+    pub response_config_id: Option<Option<String>>,
 }
 
 /// Repository trait for channel config persistence.
@@ -39,7 +40,7 @@ impl ChannelConfigRepository for PgChannelConfigRepository {
         sqlx::query_as::<_, ChannelConfig>(
             r#"SELECT id, provider, source_id, source_name, repository_id, routing_mode,
                       prompt_template, active, provider_config, ongoing_task_id,
-                      created_by, created_at, updated_at
+                      response_config_id, created_by, created_at, updated_at
                FROM channel_configs WHERE id = $1"#,
         )
         .bind(id)
@@ -51,7 +52,7 @@ impl ChannelConfigRepository for PgChannelConfigRepository {
         sqlx::query_as::<_, ChannelConfig>(
             r#"SELECT id, provider, source_id, source_name, repository_id, routing_mode,
                       prompt_template, active, provider_config, ongoing_task_id,
-                      created_by, created_at, updated_at
+                      response_config_id, created_by, created_at, updated_at
                FROM channel_configs WHERE provider = $1 AND source_id = $2"#,
         )
         .bind(provider)
@@ -64,7 +65,7 @@ impl ChannelConfigRepository for PgChannelConfigRepository {
         let mut sql = String::from(
             r#"SELECT id, provider, source_id, source_name, repository_id, routing_mode,
                       prompt_template, active, provider_config, ongoing_task_id,
-                      created_by, created_at, updated_at
+                      response_config_id, created_by, created_at, updated_at
                FROM channel_configs WHERE 1=1"#,
         );
         let mut param_idx = 0u32;
@@ -99,8 +100,9 @@ impl ChannelConfigRepository for PgChannelConfigRepository {
         sqlx::query(
             r#"INSERT INTO channel_configs
                (id, provider, source_id, source_name, repository_id, routing_mode,
-                prompt_template, active, provider_config, ongoing_task_id, created_by)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"#,
+                prompt_template, active, provider_config, ongoing_task_id,
+                response_config_id, created_by)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)"#,
         )
         .bind(&row.id)
         .bind(&row.provider)
@@ -112,6 +114,7 @@ impl ChannelConfigRepository for PgChannelConfigRepository {
         .bind(row.active)
         .bind(&row.provider_config)
         .bind(&row.ongoing_task_id)
+        .bind(&row.response_config_id)
         .bind(&row.created_by)
         .execute(&self.0)
         .await?;
@@ -146,6 +149,10 @@ impl ChannelConfigRepository for PgChannelConfigRepository {
             param_idx += 1;
             sets.push(format!("ongoing_task_id = ${param_idx}"));
         }
+        if patch.response_config_id.is_some() {
+            param_idx += 1;
+            sets.push(format!("response_config_id = ${param_idx}"));
+        }
 
         if sets.is_empty() {
             return Ok(());
@@ -173,6 +180,9 @@ impl ChannelConfigRepository for PgChannelConfigRepository {
             query = query.bind(v);
         }
         if let Some(ref v) = patch.ongoing_task_id {
+            query = query.bind(v.as_deref());
+        }
+        if let Some(ref v) = patch.response_config_id {
             query = query.bind(v.as_deref());
         }
 

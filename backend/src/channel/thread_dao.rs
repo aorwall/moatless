@@ -21,6 +21,13 @@ pub trait ChannelThreadRepository: Send + Sync {
     /// Find threads by task_id.
     async fn find_by_task_id(&self, task_id: &str) -> Result<Vec<ChannelThread>, sqlx::Error>;
 
+    /// Find a thread by task_id and config_id.
+    async fn find_by_task_id_and_config(
+        &self,
+        task_id: &str,
+        config_id: &str,
+    ) -> Result<Option<ChannelThread>, sqlx::Error>;
+
     /// Insert a new channel thread, returning the created row.
     async fn insert(
         &self,
@@ -64,6 +71,22 @@ impl ChannelThreadRepository for PgChannelThreadRepository {
         )
         .bind(task_id)
         .fetch_all(&self.0)
+        .await
+    }
+
+    async fn find_by_task_id_and_config(
+        &self,
+        task_id: &str,
+        config_id: &str,
+    ) -> Result<Option<ChannelThread>, sqlx::Error> {
+        sqlx::query_as::<_, ChannelThread>(
+            r#"SELECT id, config_id, task_id, external_thread_id, properties,
+                      last_message_at, created_at
+               FROM channel_threads WHERE task_id = $1 AND config_id = $2"#,
+        )
+        .bind(task_id)
+        .bind(config_id)
+        .fetch_optional(&self.0)
         .await
     }
 

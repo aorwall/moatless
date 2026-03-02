@@ -19,6 +19,8 @@ use super::models::{MessageStatus, OutboundReply};
 pub enum ChannelType {
     Slack,
     Email,
+    Webhook,
+    Cron,
 }
 
 impl ChannelType {
@@ -26,6 +28,8 @@ impl ChannelType {
         match self {
             Self::Slack => "slack",
             Self::Email => "email",
+            Self::Webhook => "webhook",
+            Self::Cron => "cron",
         }
     }
 
@@ -33,6 +37,8 @@ impl ChannelType {
         match s {
             "slack" => Some(Self::Slack),
             "email" => Some(Self::Email),
+            "webhook" => Some(Self::Webhook),
+            "cron" => Some(Self::Cron),
             _ => None,
         }
     }
@@ -118,7 +124,6 @@ impl ChannelProviders {
     /// Returns `None` when no providers are configured.
     pub fn from_config(config: &crate::config::Config) -> Option<Self> {
         let mut providers = Self::new();
-        let mut has_any = false;
 
         if let (Some(ref token), Some(ref secret)) =
             (&config.slack.bot_token, &config.slack.signing_secret)
@@ -129,14 +134,18 @@ impl ChannelProviders {
                 config.slack.bot_user_id.clone(),
             );
             providers.register(Arc::new(slack));
-            has_any = true;
             tracing::info!("Slack channel provider configured");
         }
 
-        if has_any { Some(providers) } else {
-            tracing::info!("No channel providers configured");
-            None
-        }
+        // Webhook provider is always available (config is per-channel in provider_config JSONB)
+        providers.register(Arc::new(super::webhook::provider::WebhookProvider::new()));
+        tracing::info!("Webhook channel provider configured");
+
+        // Cron provider is always available (schedule config is per-channel in provider_config JSONB)
+        providers.register(Arc::new(super::cron::provider::CronProvider::new()));
+        tracing::info!("Cron channel provider configured");
+
+        Some(providers)
     }
 
     pub fn register(&mut self, provider: Arc<dyn ChannelProvider>) {

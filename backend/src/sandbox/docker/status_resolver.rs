@@ -34,7 +34,8 @@ impl DockerStatusResolver {
         server_configs: &[ServerConfig],
     ) -> SandboxStatusFullResponse {
         let container_name = generate_container_name(task_id);
-        let env_status = self.inspect_environment_status(&container_name).await;
+        let (env_status, environment_error) =
+            self.inspect_environment_status(&container_name).await;
         let is_running = env_status == EnvironmentStatus::Ready;
 
         if is_running {
@@ -44,7 +45,7 @@ impl DockerStatusResolver {
             return SandboxStatusFullResponse {
                 sandbox_state: SandboxState::Exists,
                 environment_status: env_status,
-                environment_error: None,
+                environment_error,
                 agent_state,
                 servers,
                 sandbox_ready: true,
@@ -64,7 +65,7 @@ impl DockerStatusResolver {
         SandboxStatusFullResponse {
             sandbox_state,
             environment_status: env_status,
-            environment_error: None,
+            environment_error,
             agent_state: AgentState::None,
             servers: vec![],
             sandbox_ready: false,
@@ -77,36 +78,56 @@ impl DockerStatusResolver {
     // Private helpers
     // =========================================================================
 
-    /// Inspect a Docker container and map its state to `EnvironmentStatus`.
-    async fn inspect_environment_status(&self, container_name: &str) -> EnvironmentStatus {
+    /// Inspect a Docker container and map its state to `EnvironmentStatus`,
+    /// along with an optional error message for crash loops or OOM.
+    async fn inspect_environment_status(
+        &self,
+        container_name: &str,
+    ) -> (EnvironmentStatus, Option<String>) {
         match self.client.docker.inspect_container(container_name, None).await {
             Ok(info) => {
                 let state = info.state.as_ref();
+                let restart_count = info.restart_count.unwrap_or(0);
+                let max_restarts = self.config.sandbox.max_crash_restart_count;
+
+                // Check for OOM first
+                if state.and_then(|s| s.oom_killed).unwrap_or(false) {
+                    return (
+                        EnvironmentStatus::Error,
+                        Some("Container OOM killed".into()),
+                    );
+                }
+
+                // Check crash loop via restart count
+                if max_restarts > 0 && restart_count as i32 >= max_restarts {
+                    return (
+                        EnvironmentStatus::Error,
+                        Some(format!("Crash loop detected (restarts: {restart_count})")),
+                    );
+                }
+
                 let status_str = state
                     .and_then(|s| s.status.as_ref())
                     .map(std::string::ToString::to_string)
                     .unwrap_or_default();
 
-                // Check for OOM first
-                if state.and_then(|s| s.oom_killed).unwrap_or(false) {
-                    return EnvironmentStatus::Error;
-                }
-
-                match status_str.as_str() {
+                let env_status = match status_str.as_str() {
                     "running" => EnvironmentStatus::Ready,
                     "created" | "restarting" => EnvironmentStatus::Initializing,
                     "paused" | "exited" => EnvironmentStatus::Stopped,
                     "dead" => EnvironmentStatus::Error,
                     "removing" => EnvironmentStatus::Removing,
                     _ => EnvironmentStatus::Error,
-                }
+                };
+
+                (env_status, None)
             }
             Err(bollard::errors::Error::DockerResponseServerError {
                 status_code: 404, ..
-            }) => EnvironmentStatus::NotCreated,
+            }) => (EnvironmentStatus::NotCreated, None),
             Err(e) => {
                 warn!(container = %container_name, error = %e, "Failed to inspect container");
-                EnvironmentStatus::Error
+                (EnvironmentStatus::Error, None)
             }
         }
     }

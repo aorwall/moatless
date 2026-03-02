@@ -1,8 +1,9 @@
-//! Channel module — external messaging integrations (Slack, Email, etc.).
+//! Channel module — external messaging integrations (Slack, Webhook, Cron, etc.).
 //!
 //! Routes inbound messages to tasks and sends outbound replies.
 
 pub mod config_dao;
+pub mod cron;
 pub mod error;
 pub mod handlers;
 pub mod inbound;
@@ -11,6 +12,7 @@ pub mod outbound;
 pub mod provider;
 pub mod router;
 pub mod routes;
+pub mod schemas;
 pub mod slack;
 pub mod thread_dao;
-pub mod schemas;
+pub mod webhook;
