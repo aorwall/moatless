@@ -8,6 +8,7 @@ use sha2::{Digest, Sha256};
 use tracing::{debug, info, warn};
 
 use super::api_keys::{ApiKey, ApiKeyRepository};
+use super::models::UserRole;
 use super::users::UserRepository;
 
 const KEY_PREFIX: &str = "mvk_";
@@ -17,6 +18,7 @@ const KEY_BYTES: usize = 32;
 pub struct ApiKeyPayload {
     pub user_id: String,
     pub user_name: Option<String>,
+    pub role: UserRole,
     pub group_id: Option<String>,
     pub expires_at: Option<DateTime<Utc>>,
 }
@@ -119,10 +121,15 @@ pub async fn validate_key(
 
     // Get user info
     let user = users.get_user(&row.user_id).await?;
+    let (user_name, role) = match user {
+        Some(u) => (Some(u.login), u.role),
+        None => (None, UserRole::User),
+    };
 
     Ok(Some(ApiKeyPayload {
         user_id: row.user_id,
-        user_name: user.map(|u| u.login),
+        user_name,
+        role,
         group_id: row.group_id,
         expires_at: row.expires_at,
     }))
@@ -170,7 +177,7 @@ pub async fn validate_key_cached(
     let verify = crate::auth::cache::VerifyPayload {
         user_id: payload.user_id,
         user_login: payload.user_name.unwrap_or_default(),
-        role: crate::auth::models::UserRole::User,
+        role: payload.role,
         provider: "api-key".to_string(),
         group_id: payload.group_id,
         expires_at,
@@ -220,31 +227,3 @@ pub fn hash_key(key: &str) -> String {
     hex::encode(hasher.finalize())
 }
 
-/// Constant-time comparison for static API key.
-/// Hashes both sides with SHA-256 to normalize length, then uses `subtle::ConstantTimeEq`.
-pub fn static_key_matches(provided: &str, expected: &str) -> bool {
-    use subtle::ConstantTimeEq;
-    let h1 = Sha256::digest(provided.as_bytes());
-    let h2 = Sha256::digest(expected.as_bytes());
-    h1.ct_eq(&h2).into()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn static_key_matches_identical_keys() {
-        assert!(static_key_matches("my-secret-key-1234", "my-secret-key-1234"));
-    }
-
-    #[test]
-    fn static_key_matches_different_keys() {
-        assert!(!static_key_matches("my-secret-key-1234", "wrong-key-5678"));
-    }
-
-    #[test]
-    fn static_key_matches_different_length_keys() {
-        assert!(!static_key_matches("short", "this-is-a-much-longer-key"));
-    }
-}

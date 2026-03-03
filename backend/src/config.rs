@@ -228,9 +228,10 @@ pub struct AuthConfig {
     pub is_production: bool,
     /// Auth cache TTL in seconds (default: 30).
     pub cache_ttl_secs: u64,
-    /// Pre-configured static API key for admin access without OAuth/database.
-    /// Must be at least 32 characters when set.
-    pub static_api_key: Option<String>,
+    /// Raw `mvk_`-prefixed API key for a test user auto-created on startup.
+    /// When set, upserts a dedicated `test-api-user` and inserts the API key.
+    /// No OAuth login required.
+    pub test_api_key: Option<String>,
 }
 
 #[allow(clippy::missing_fields_in_debug)]
@@ -249,7 +250,7 @@ impl fmt::Debug for AuthConfig {
             .field("frontend_url", &self.frontend_url)
             .field("cookie_domain", &self.cookie_domain)
             .field("is_production", &self.is_production)
-            .field("static_api_key", &self.static_api_key.as_ref().map(|_| "[REDACTED]"))
+            .field("test_api_key", &self.test_api_key.as_ref().map(|_| "[REDACTED]"))
             .finish()
     }
 }
@@ -463,7 +464,7 @@ impl Config {
                     .map(|v| v == "production")
                     .unwrap_or(false),
                 cache_ttl_secs: env_or("AUTH_CACHE_TTL_SECS", 30),
-                static_api_key: env_opt("STATIC_API_KEY").map(|s| s.trim().to_string()),
+                test_api_key: env_opt("TEST_API_KEY").map(|s| s.trim().to_string()),
             },
 
             s3: S3Config {
@@ -518,17 +519,17 @@ impl Config {
             }
         }
 
-        // Validate static API key length
-        if let Some(ref key) = self.auth.static_api_key {
-            if key.len() < 32 {
+        // Validate test API key format
+        if let Some(ref key) = self.auth.test_api_key {
+            if !key.starts_with("mvk_") {
                 return Err(ConfigError::Invalid(
-                    "STATIC_API_KEY must be at least 32 characters".into(),
+                    "TEST_API_KEY must start with 'mvk_' prefix".into(),
                 ));
             }
-            if key.starts_with("mvk_") {
-                tracing::warn!(
-                    "STATIC_API_KEY starts with 'mvk_' prefix — this may collide with DB-backed API keys"
-                );
+            if key.len() < 36 {
+                return Err(ConfigError::Invalid(
+                    "TEST_API_KEY must be at least 36 characters".into(),
+                ));
             }
         }
 
@@ -713,7 +714,7 @@ mod tests {
                 session_cookie_name: "test".into(),
                 is_production: false,
                 cache_ttl_secs: 0,
-                static_api_key: None,
+                test_api_key: None,
             },
             s3: S3Config { bucket_name: None, key_prefix: "test".into(), region: "us-east-1".into() },
             slack: SlackConfig { bot_token: None, signing_secret: None, bot_user_id: None },
@@ -789,18 +790,27 @@ mod tests {
     // =========================================================================
 
     #[test]
-    fn validate_static_api_key_too_short_fails() {
+    fn validate_test_api_key_missing_prefix_fails() {
         let mut config = minimal_config();
-        config.auth.static_api_key = Some("short-key".into());
+        config.auth.test_api_key = Some("a".repeat(36));
         let err = config.validate().unwrap_err();
-        assert!(err.to_string().contains("STATIC_API_KEY"));
-        assert!(err.to_string().contains("32 characters"));
+        assert!(err.to_string().contains("TEST_API_KEY"));
+        assert!(err.to_string().contains("mvk_"));
     }
 
     #[test]
-    fn validate_static_api_key_sufficient_length_passes() {
+    fn validate_test_api_key_too_short_fails() {
         let mut config = minimal_config();
-        config.auth.static_api_key = Some("a".repeat(32));
+        config.auth.test_api_key = Some("mvk_short".into());
+        let err = config.validate().unwrap_err();
+        assert!(err.to_string().contains("TEST_API_KEY"));
+        assert!(err.to_string().contains("36 characters"));
+    }
+
+    #[test]
+    fn validate_test_api_key_valid_passes() {
+        let mut config = minimal_config();
+        config.auth.test_api_key = Some(format!("mvk_{}", "a".repeat(32)));
         assert!(config.validate().is_ok());
     }
 
@@ -810,11 +820,11 @@ mod tests {
         let mut auth = config.auth;
         auth.github_client_secret = Some("super_secret_123".into());
         auth.auth0_client_secret = Some("another_secret".into());
-        auth.static_api_key = Some("static_secret_key_value_here_long".into());
+        auth.test_api_key = Some(format!("mvk_{}", "x".repeat(32)));
         let debug = format!("{auth:?}");
         assert!(!debug.contains("super_secret_123"));
         assert!(!debug.contains("another_secret"));
-        assert!(!debug.contains("static_secret_key_value_here_long"));
+        assert!(!debug.contains(&"x".repeat(32)));
         assert!(debug.contains("[REDACTED]"));
     }
 

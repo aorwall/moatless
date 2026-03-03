@@ -5,10 +5,14 @@ Complete workflows for creating tasks and verifying agent/preview execution in K
 ## Environment Setup
 
 ```bash
-export API_KEY="mvk_your_api_key"
+# Test API key — auto-creates test user on backend startup (see SKILL.md for setup)
+export API_KEY="$TEST_API_KEY"
 export BASE_URL="https://moatless.dev"
 export NAMESPACE="vibe"
 ```
+
+> `TEST_API_KEY` must be set in `vibe-secrets`. The backend auto-creates
+> a `test-api-user` on startup. No OAuth required.
 
 ---
 

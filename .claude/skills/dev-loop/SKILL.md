@@ -162,11 +162,16 @@ Verify the deployed change on moatless.dev using API calls with an auth token.
 ### API Verification
 
 ```bash
-export API_TOKEN="$MOATLESS_API_TOKEN"
+# Use the test API key (set up via kubernetes-testing skill)
+export API_TOKEN="$TEST_API_KEY"
 export BASE_URL="https://moatless.dev"
 
+# Verify auth works and returns admin role
+curl -s -D - -o /dev/null -H "Authorization: Bearer $API_TOKEN" \
+  "$BASE_URL/api/v1/auth/verify" 2>&1 | grep -i "x-user"
+
 # List repositories
-curl -s -H "Authorization: Bearer $API_TOKEN" "$BASE_URL/api/v1/repositories" | jq '.repositories[] | {id, name}'
+curl -s -H "Authorization: Bearer $API_TOKEN" "$BASE_URL/api/v1/repositories" | jq '.[] | {id, name}'
 
 # Create a test task
 TEMPLATE_ID="<id>"

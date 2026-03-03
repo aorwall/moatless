@@ -89,26 +89,6 @@ impl FromRequestParts<AppState> for AuthUser {
             });
         }
 
-        // Path 1.5: Static API key (direct access without Traefik)
-        if let Some(auth_header) = parts.headers.get(axum::http::header::AUTHORIZATION)
-            .and_then(|v| v.to_str().ok())
-        {
-            if let Some(bearer) = auth_header.strip_prefix("Bearer ") {
-                if let Some(static_key) = state.config.auth.static_api_key.as_deref() {
-                    if crate::auth::api_key::static_key_matches(bearer, static_key) {
-                        return Ok(AuthUser {
-                            user_id: "static-api-key".to_string(),
-                            login: "api-user".to_string(),
-                            role: Some("admin".to_string()),
-                            provider: Some("static-api-key".to_string()),
-                            group_id: None,
-                            task_id,
-                        });
-                    }
-                }
-            }
-        }
-
         // Path 2: Try X-User-Token header (sandbox→backend JWT auth)
         if let Some(token) = parts
             .headers

@@ -106,9 +106,14 @@ kubectl logs -n vibe deployment/moatless-vibe-backend --tail=500 | grep -i error
 ### Environment Setup
 
 ```bash
-export API_TOKEN="$MOATLESS_API_TOKEN"
+# Use the test API key (see setup below)
+export API_TOKEN="$TEST_API_KEY"
 export BASE_URL="https://moatless.dev"
 ```
+
+> **Test API Key Setup**: `TEST_API_KEY` must be set in `vibe-secrets`.
+> The backend auto-creates a test user on startup. No OAuth required.
+> See the `kubernetes-testing` skill for detailed setup steps.
 
 ### Smoke Test
 

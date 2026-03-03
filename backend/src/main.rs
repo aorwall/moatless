@@ -190,6 +190,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Seed default repositories
         repository::seed::seed_default_repositories(&*app_state.repositories).await;
 
+        // Ensure test API user + key (if configured)
+        if let Some(ref key) = config.auth.test_api_key {
+            let api_keys = moatless_vibe_backend::auth::api_keys::PgApiKeyRepository(
+                app_state.db.clone(),
+            );
+            auth::test_user::ensure_test_user(
+                app_state.users.as_ref(),
+                &api_keys,
+                key,
+            )
+            .await;
+        }
+
         // Background workers
         spawn_event_handler(&config, &app_state, cancel.clone()).await;
         if let Some(k8s) = reaper_k8s {

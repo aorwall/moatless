@@ -13,6 +13,7 @@ pub mod oauth;
 pub mod provider_token_dao;
 pub mod provider_tokens;
 pub mod routes;
+pub mod test_user;
 pub mod session;
 pub mod sessions;
 pub mod schemas;
