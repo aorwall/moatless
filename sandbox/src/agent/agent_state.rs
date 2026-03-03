@@ -21,6 +21,7 @@ struct AgentInner {
     last_error: Option<String>,
     cancel_token: Option<CancellationToken>,
     pending_prompt: Option<PendingPrompt>,
+    consecutive_errors: u32,
 }
 
 impl Default for AgentState {
@@ -38,6 +39,7 @@ impl AgentState {
                 last_error: None,
                 cancel_token: None,
                 pending_prompt: None,
+                consecutive_errors: 0,
             }),
         }
     }
@@ -81,6 +83,7 @@ impl AgentState {
         inner.status = AgentStatus::Idle;
         inner.cancel_token = None;
         inner.pending_prompt = None;
+        inner.consecutive_errors = 0;
     }
 
     pub async fn set_stopped(&self) {
@@ -96,6 +99,12 @@ impl AgentState {
         inner.last_error = Some(error);
         inner.cancel_token = None;
         inner.pending_prompt = None;
+        inner.consecutive_errors += 1;
+    }
+
+    /// Number of consecutive errors without a successful idle transition.
+    pub async fn consecutive_errors(&self) -> u32 {
+        self.inner.read().await.consecutive_errors
     }
 
     pub async fn set_session_id(&self, session_id: String) {

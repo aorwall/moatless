@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use claude_agent_sdk::SdkMessage;
-use moatless_events::AgentSubType;
+use moatless_events::{AgentSubType, TaskTurnSubType};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
@@ -32,13 +32,13 @@ pub fn spawn_agent_execution(state: SandboxState, request: AgentRunRequest) {
             .await;
         }
 
-        // Wake consumer to check for queued messages after agent finishes.
+        // Check for queued messages after agent finishes.
         // Delay 2s to avoid racing with session_init setting agent_session_id
         // on the messages that were just processed.
-        let notify = state.consumer_notify.clone();
+        let post_state = state.clone();
         tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-            notify.notify_one();
+            crate::agent::consumer::process_pending_messages(post_state).await;
         });
     });
 }
@@ -62,8 +62,16 @@ async fn execute_agent(
         "Starting agent execution"
     );
 
-    // Publish agent started event
+    // Publish agent started + taskTurn.active events
     publish_agent_event(state, AgentSubType::Started, serde_json::json!({})).await;
+    state
+        .events
+        .publish_task_turn_event(
+            &state.config.task_id,
+            TaskTurnSubType::Active,
+            serde_json::json!({}),
+        )
+        .await;
 
     // Re-fetch credentials before each agent run to pick up rotated tokens
     if let Err(e) = crate::init::credentials::fetch_and_apply_credentials(state).await {

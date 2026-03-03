@@ -2,7 +2,7 @@
 version: "3"
 
 dotenv:
-  - docker-compose/.env.docker-compose
+  - .env
 
 vars:
   NAMESPACE: '{{.NAMESPACE | default "vibe"}}'
@@ -171,6 +171,21 @@ tasks:
     cmds:
       - cargo test -p moatless-vibe-backend --features db-tests
 
+  test:api:
+    desc: Run API E2E tests (Playwright, no browser)
+    cmds:
+      - npx playwright test --config tests/api/playwright.config.ts {{.CLI_ARGS}}
+
+  test:api:single:
+    desc: Run a single API E2E test file (e.g. task -- task-crud)
+    cmds:
+      - npx playwright test --config tests/api/playwright.config.ts tests/api/chains/{{.CLI_ARGS}}.spec.ts
+
+  test:ui:
+    desc: Run UI E2E tests (Playwright, Chromium)
+    cmds:
+      - npx playwright test --config tests/ui/playwright.config.ts {{.CLI_ARGS}}
+
   # ── Docker Compose (local development) ──────────────────────────
 
   compose:up:
@@ -180,7 +195,6 @@ tasks:
       - >-
         DATA_DIR=${DATA_DIR:-${HOME}/.moatless/data}
         docker compose -f docker-compose/docker-compose.yml
-        --env-file docker-compose/.env.docker-compose
         up -d
 
   dev:
@@ -190,7 +204,6 @@ tasks:
       - >-
         DATA_DIR=${DATA_DIR:-${HOME}/.moatless/data}
         docker compose -f docker-compose/docker-compose.yml
-        --env-file docker-compose/.env.docker-compose
         up -d postgres redis backend
       - VITE_REMOTE_API=http://localhost:${BACKEND_PORT:-8080} bun run dev
 
@@ -201,7 +214,6 @@ tasks:
       - >-
         DATA_DIR=${DATA_DIR:-${HOME}/.moatless/data}
         docker compose -f docker-compose/docker-compose.yml
-        --env-file docker-compose/.env.docker-compose
         up -d --no-deps --force-recreate backend
 
   compose:restart:
@@ -210,7 +222,6 @@ tasks:
       - >-
         DATA_DIR=${DATA_DIR:-${HOME}/.moatless/data}
         docker compose -f docker-compose/docker-compose.yml
-        --env-file docker-compose/.env.docker-compose
         up -d --force-recreate
 
   compose:down:
@@ -243,7 +254,6 @@ tasks:
     cmds:
       - >-
         docker compose -f docker-compose/docker-compose.yml
-        --env-file docker-compose/.env.docker-compose
         ps
 
   # ── Cleanup ────────────────────────────────────────────────────

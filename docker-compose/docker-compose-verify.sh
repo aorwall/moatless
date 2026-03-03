@@ -21,9 +21,9 @@ fi
 COMPOSE_FILE="$SCRIPT_DIR/docker-compose.yml"
 
 # Load environment variables
-if [ -f .env.docker-compose ]; then
+if [ -f ../.env ]; then
     set -a
-    source .env.docker-compose
+    source ../.env
     set +a
 fi
 
@@ -32,7 +32,7 @@ FRONTEND_PORT=${FRONTEND_PORT:-3000}
 
 # Check if services are running
 echo "📋 Checking service status..."
-$DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file .env.docker-compose ps
+$DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file ../.env ps
 echo ""
 
 # Initialize counters
@@ -42,24 +42,24 @@ TOTAL_COUNT=0
 # Check PostgreSQL
 echo "🐘 PostgreSQL health..."
 TOTAL_COUNT=$((TOTAL_COUNT + 1))
-if $DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file .env.docker-compose exec -T postgres pg_isready -U moatless > /dev/null 2>&1; then
+if $DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file ../.env exec -T postgres pg_isready -U moatless > /dev/null 2>&1; then
     echo "   ✅ PostgreSQL is healthy"
     HEALTHY_COUNT=$((HEALTHY_COUNT + 1))
 else
     echo "   ❌ PostgreSQL is not responding"
-    echo "   Troubleshooting: $DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file .env.docker-compose logs postgres"
+    echo "   Troubleshooting: $DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file ../.env logs postgres"
 fi
 
 # Check Redis
 echo ""
 echo "🔴 Redis health..."
 TOTAL_COUNT=$((TOTAL_COUNT + 1))
-if $DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file .env.docker-compose exec -T redis redis-cli ping 2>/dev/null | grep -q PONG; then
+if $DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file ../.env exec -T redis redis-cli ping 2>/dev/null | grep -q PONG; then
     echo "   ✅ Redis is healthy"
     HEALTHY_COUNT=$((HEALTHY_COUNT + 1))
 else
     echo "   ❌ Redis is not responding"
-    echo "   Troubleshooting: $DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file .env.docker-compose logs redis"
+    echo "   Troubleshooting: $DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file ../.env logs redis"
 fi
 
 # Check Backend
@@ -73,7 +73,7 @@ if [ -n "$BACKEND_RESPONSE" ]; then
     HEALTHY_COUNT=$((HEALTHY_COUNT + 1))
 else
     echo "   ❌ Backend is not responding"
-    echo "   Troubleshooting: $DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file .env.docker-compose logs backend"
+    echo "   Troubleshooting: $DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file ../.env logs backend"
 fi
 
 # Check Frontend
@@ -85,14 +85,14 @@ if curl -s http://localhost:${FRONTEND_PORT} > /dev/null 2>&1; then
     HEALTHY_COUNT=$((HEALTHY_COUNT + 1))
 else
     echo "   ❌ Frontend is not responding"
-    echo "   Troubleshooting: $DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file .env.docker-compose logs frontend"
+    echo "   Troubleshooting: $DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file ../.env logs frontend"
 fi
 
 # Check Docker socket access
 echo ""
 echo "🐳 Docker socket access..."
 TOTAL_COUNT=$((TOTAL_COUNT + 1))
-if $DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file .env.docker-compose exec -T backend docker ps > /dev/null 2>&1; then
+if $DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file ../.env exec -T backend docker ps > /dev/null 2>&1; then
     echo "   ✅ Backend can access Docker socket"
     HEALTHY_COUNT=$((HEALTHY_COUNT + 1))
 else
@@ -105,12 +105,12 @@ fi
 echo ""
 echo "🗄️  Database connection..."
 TOTAL_COUNT=$((TOTAL_COUNT + 1))
-if $DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file .env.docker-compose exec -T postgres psql -U moatless -d moatless -c "SELECT 1" > /dev/null 2>&1; then
+if $DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file ../.env exec -T postgres psql -U moatless -d moatless -c "SELECT 1" > /dev/null 2>&1; then
     echo "   ✅ Database connection successful"
     HEALTHY_COUNT=$((HEALTHY_COUNT + 1))
 
     # Show table count
-    TABLE_COUNT=$($DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file .env.docker-compose exec -T postgres psql -U moatless -d moatless -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public'" 2>/dev/null | tr -d ' ')
+    TABLE_COUNT=$($DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file ../.env exec -T postgres psql -U moatless -d moatless -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public'" 2>/dev/null | tr -d ' ')
     echo "   Tables: $TABLE_COUNT (expected: 13 after migrations)"
 else
     echo "   ❌ Database connection failed"
@@ -119,7 +119,7 @@ fi
 # Check Redis streams
 echo ""
 echo "📊 Redis event streams..."
-STREAM_INFO=$($DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file .env.docker-compose exec -T redis redis-cli INFO keyspace 2>/dev/null || echo "")
+STREAM_INFO=$($DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file ../.env exec -T redis redis-cli INFO keyspace 2>/dev/null || echo "")
 if [ -n "$STREAM_INFO" ]; then
     echo "   ✅ Redis is configured for event streaming"
 else

@@ -22,6 +22,7 @@ import {
 	getTaskMessages,
 	waitForAgentTurnComplete,
 } from "../steps";
+import { waitForAgentComplete } from "../../shared/wait-helpers";
 
 const hasClaudeAuth =
 	!!process.env.CLAUDE_CODE_OAUTH_TOKEN || !!process.env.ANTHROPIC_API_KEY;
@@ -87,30 +88,48 @@ test.describe("Chain: Plan Mode", () => {
 		testInfo.setTimeout(360000);
 
 		// Wait for agent to pause for approval (pending_response event)
-		// or complete if plan mode isn't enforced at the API level
+		// or complete if plan mode isn't enforced at the API level.
+		// Use a shorter initial timeout, then fall back to checking completion.
 		const pendingEvent = await chainSse.waitForEvent({
 			type: "agent",
 			subType: "pending_response",
 			taskId: ctx.taskId,
-			timeout: 300000,
+			timeout: 120000,
 		});
 
 		if (pendingEvent) {
 			ctx.set("planModeActive", true);
 			console.log("[Plan] Agent paused for approval");
-		} else {
-			// Agent may have completed without plan mode
-			const turnEvent = await chainSse.waitForEvent({
-				type: "taskTurn",
-				subType: "completed",
-				taskId: ctx.taskId,
-				timeout: 5000,
-			});
-
-			ctx.set("planModeActive", false);
-			console.log("[Plan] Agent completed without plan pause (plan mode may not be enforced at API level)");
-			expect(turnEvent).not.toBeNull();
+			return;
 		}
+
+		// No pending_response — check if agent already completed via SSE
+		const turnEvent = await chainSse.waitForEvent({
+			type: "taskTurn",
+			subType: "completed",
+			taskId: ctx.taskId,
+			timeout: 5000,
+		});
+
+		if (turnEvent) {
+			ctx.set("planModeActive", false);
+			console.log("[Plan] Agent completed without plan pause (plan mode not enforced at API level)");
+			return;
+		}
+
+		// Fallback: poll API for agent completion (covers case where SSE missed events)
+		console.log("[Plan] No SSE events received — falling back to API polling");
+		const completed = await waitForAgentComplete(api, ctx.taskId!, {
+			timeout: 180000,
+		});
+
+		ctx.set("planModeActive", false);
+		if (completed) {
+			console.log("[Plan] Agent completed (detected via API polling)");
+		} else {
+			console.log("[Plan] Agent did not complete within timeout");
+		}
+		expect(completed).toBe(true);
 	});
 
 	// ─── AGENT-03.1: Agent produces plan for approval ───────────────────

@@ -105,7 +105,11 @@ impl SandboxProvider for DockerSandboxProvider {
             &self.config.docker.container_data_dir,
             task_id,
         );
-        for dir in [&container_workspace_path, &container_data_path] {
+        let container_claude_config_path = super::naming::generate_claude_config_host_path(
+            &self.config.docker.container_data_dir,
+            task_id,
+        );
+        for dir in [&container_workspace_path, &container_data_path, &container_claude_config_path] {
             if let Err(e) = tokio::fs::create_dir_all(dir).await {
                 warn!(
                     task_id = %task_id,
@@ -186,7 +190,7 @@ impl SandboxProvider for DockerSandboxProvider {
         // 7. Create and start server sidecar containers
         if let Some(ref servers) = plan.repo_config.servers {
             for server in servers {
-                if let Err(e) = self.create_and_start_server_container(task_id, server).await {
+                if let Err(e) = self.create_and_start_server_container(task_id, server, plan.repo_config.docker_image.as_deref()).await {
                     warn!(
                         task_id = %task_id,
                         server = %server.name,
@@ -394,6 +398,7 @@ impl DockerSandboxProvider {
         &self,
         task_id: &str,
         server: &ServerConfig,
+        sandbox_image: Option<&str>,
     ) -> Result<(), SandboxError> {
         let server_container_name = generate_server_container_name(task_id, &server.name);
 
@@ -419,6 +424,7 @@ impl DockerSandboxProvider {
             &self.config,
             task_id,
             server,
+            sandbox_image,
         );
 
         self.client

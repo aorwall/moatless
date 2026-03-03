@@ -60,7 +60,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config: Arc::new(config.clone()),
         events: event_publisher,
         agent: Arc::new(agent::agent_state::AgentState::new()),
-        consumer_notify: Arc::new(tokio::sync::Notify::new()),
         backend_client,
         init_phase: Arc::new(RwLock::new(InitPhase::Starting)),
         credentials: Arc::new(RwLock::new(std::collections::HashMap::new())),
@@ -85,15 +84,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // Spawn init task — handles credential fetching, git clone, workspace setup
+    // Spawn init task — handles credential fetching, git clone, workspace setup.
+    // After init completes, it triggers process_pending_messages() to pick up
+    // any messages that arrived during initialization.
     let init_state = state.clone();
     tokio::spawn(moatless_sandbox::init::run_init(init_state));
     info!("Init task spawned");
-
-    // Spawn message polling consumer (waits for InitPhase::Ready internally)
-    let consumer_state = state.clone();
-    tokio::spawn(agent::consumer::run_consumer(consumer_state));
-    info!("Message consumer spawned");
 
     // Build HTTP router with health probe that reflects init state
     let health_state = state.clone();

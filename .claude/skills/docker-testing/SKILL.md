@@ -16,25 +16,28 @@ Testing workflows for Moatless Vibe in Docker execution mode (local development)
 ```
 
 This script:
-1. Builds the application (`bun run build:package`)
-2. Builds the local sandbox base image (`moatless-vibe-sandbox:local`)
-3. Builds the local sandbox-js image (`moatless-vibe-sandbox-js:local`)
-4. Starts docker compose with dev overrides
+1. Builds sandbox images locally (`docker/build-sandbox.sh --local`)
+2. Builds backend Docker image (`docker build -f docker/Dockerfile.backend`)
+3. Starts docker compose services
+4. Streams formatted logs (optional)
 
 ### Architecture
 
 | Component | Container Name | Port | Description |
 |-----------|---------------|------|-------------|
-| Backend | `moatless-backend` | 8000 | API, orchestration |
-| Sandbox | `moatless-moatable-{taskId}` | dynamic | Claude Code execution |
+| Backend | `moatless-backend` | 8080 | API, orchestration |
+| Frontend | `moatless-frontend` | 3000 | Nginx SPA + API proxy |
+| Sandbox | `moatless-sandbox-{taskId}` | dynamic | Claude Code execution |
 | Redis | `moatless-redis` | 6379 | Event streaming |
 | PostgreSQL | `moatless-postgres` | 5432 | Persistent state |
+| Dozzle | `moatless-dozzle` | 9999 | Container log viewer |
 
 ### Key Environment Variables
 
 ```bash
-SANDBOX_HOST=host.docker.internal  # How backend reaches sandbox containers
-WORKSPACE_EXECUTION_MODE=docker    # Use Docker provisioner
+SANDBOX_PROVIDER=docker                      # Use Docker provisioner
+DOCKER_NETWORK=docker-compose_moatless       # Docker network for container communication
+DOCKER_BACKEND_HOSTNAME=moatless-backend     # Backend container name (for sandbox→backend gRPC)
 ```
 
 ## Vibe Task Creation
@@ -43,10 +46,10 @@ WORKSPACE_EXECUTION_MODE=docker    # Use Docker provisioner
 
 ```bash
 # Get template ID
-curl -s http://localhost:8000/api/v1/repositories | jq '.[0].id'
+curl -s http://localhost:8080/api/v1/repositories | jq '.[0].id'
 
 # Create task (replace TEMPLATE_ID)
-curl -s -X POST http://localhost:8000/api/v1/tasks/vibe \
+curl -s -X POST http://localhost:8080/api/v1/tasks/vibe \
   -H "Content-Type: application/json" \
   -d '{"agentType":"claude-code","templateId":"TEMPLATE_ID","message":"Create hello world","start":true}'
 ```
@@ -57,10 +60,10 @@ curl -s -X POST http://localhost:8000/api/v1/tasks/vibe \
 TASK_ID="your-task-id"
 
 # Task status
-curl -s "http://localhost:8000/api/v1/tasks/$TASK_ID" | jq '{status, numTurns}'
+curl -s "http://localhost:8080/api/v1/tasks/$TASK_ID" | jq '{status, numTurns}'
 
 # Workspace status
-curl -s "http://localhost:8000/api/v1/tasks/$TASK_ID/workspace-status"
+curl -s "http://localhost:8080/api/v1/tasks/$TASK_ID/workspace-status"
 ```
 
 ## Container Management
@@ -72,7 +75,7 @@ curl -s "http://localhost:8000/api/v1/tasks/$TASK_ID/workspace-status"
 docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep moatless
 
 # Sandbox containers only
-docker ps --format "{{.Names}}" | grep moatless-moatable
+docker ps --format "{{.Names}}" | grep moatless-sandbox
 ```
 
 ### View Logs
@@ -85,21 +88,17 @@ docker logs moatless-backend --tail 100
 docker logs -f moatless-backend
 
 # Filter for errors
-docker logs moatless-backend 2>&1 | grep '"level":50'
+docker logs moatless-backend 2>&1 | grep -i '"level":"error"'
 
 # Sandbox container logs (replace TASK_ID)
-docker logs moatless-moatable-${TASK_ID:0:8}
+docker logs moatless-sandbox-${TASK_ID}
 ```
 
 ### Restart Backend
 
 ```bash
 # After code changes, rebuild and restart
-bun run build:package
-docker compose -f docker-compose/docker-compose.yml \
-  -f docker-compose/docker-compose.dev.yml \
-  --env-file docker-compose/.env.docker-compose \
-  restart backend
+task compose:refresh-backend
 ```
 
 ## Preview Server Debugging
@@ -110,7 +109,7 @@ The preview server runs inside sandbox containers. When troubleshooting preview 
 
 ```bash
 # Find sandbox container port
-CONTAINER=$(docker ps --format "{{.Names}}" | grep moatless-moatable | head -1)
+CONTAINER=$(docker ps --format "{{.Names}}" | grep moatless-sandbox | head -1)
 PORT=$(docker port $CONTAINER 8001 | cut -d: -f2)
 
 # Get preview server logs (shows bun install, bun run dev output)
@@ -143,9 +142,9 @@ See `references/preview-troubleshooting.md` for:
 
 **Symptom**: Timeout errors when starting tasks
 
-**Cause**: Backend uses `localhost` but Docker containers use different network
+**Cause**: Sandbox container not on the same Docker network as backend
 
-**Fix**: Ensure `SANDBOX_HOST=host.docker.internal` in docker-compose.yml
+**Fix**: Ensure `DOCKER_NETWORK=docker-compose_moatless` is set and sandbox containers join the network
 
 ### Preview Server Timeout
 
@@ -175,16 +174,14 @@ docker pull aorwall/moatless-vibe-sandbox-js:latest
 docker inspect moatless-backend | jq '.[0].State'
 
 # Check docker compose logs
-docker compose -f docker-compose/docker-compose.yml \
-  -f docker-compose/docker-compose.dev.yml \
-  logs backend
+docker compose -f docker-compose/docker-compose.yml logs backend
 ```
 
 ## Health Checks
 
 ```bash
 # Backend health
-curl -s http://localhost:8000/health | jq .
+curl -s http://localhost:8080/health | jq .
 
 # Sandbox health (replace PORT)
 curl -s http://localhost:$PORT/health | jq .
@@ -194,13 +191,10 @@ curl -s http://localhost:$PORT/health | jq .
 
 ```bash
 # Stop all containers
-docker compose -f docker-compose/docker-compose.yml \
-  -f docker-compose/docker-compose.dev.yml \
-  --env-file docker-compose/.env.docker-compose \
-  down
+task compose:down
 
 # Remove sandbox containers
-docker rm -f $(docker ps -aq --filter "name=moatless-moatable")
+docker rm -f $(docker ps -aq --filter "name=moatless-sandbox")
 
 # Clean volumes (WARNING: deletes data)
 docker compose -f docker-compose/docker-compose.yml down -v

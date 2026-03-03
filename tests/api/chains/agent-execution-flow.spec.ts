@@ -28,6 +28,7 @@ import {
 	getTask,
 	findFileWithExpectedContent,
 } from "../steps";
+import { waitForCondition } from "../../shared/wait-helpers";
 
 const hasClaudeAuth =
 	!!process.env.CLAUDE_CODE_OAUTH_TOKEN || !!process.env.ANTHROPIC_API_KEY;
@@ -123,8 +124,20 @@ test.describe("Chain: Agent Execution & Multi-Turn", () => {
 	// ─── AGENT-01.1: Agent state transitions ────────────────────────────
 
 	test("AGENT-01.1: Agent state transitions", async ({ api }) => {
-		// After completion, agent should be idle
+		// After turn completes, agent state may still be transitioning.
+		// Poll briefly (up to 10s) for it to settle to idle/none.
+		const settled = await waitForCondition(
+			async () => {
+				const s = await api.getWorkspaceStatus(ctx.taskId!);
+				return s.agentState === "idle" || s.agentState === "none";
+			},
+			{ timeout: 10000, interval: 1000 },
+		);
+
 		const status = await api.getWorkspaceStatus(ctx.taskId!);
+		if (!settled) {
+			console.log(`[Agent] State did not settle: agentState=${status.agentState}`);
+		}
 		expect(["idle", "none"]).toContain(status.agentState);
 	});
 
@@ -173,12 +186,22 @@ test.describe("Chain: Agent Execution & Multi-Turn", () => {
 	// ─── AGENT-01.4: Task cost increases ────────────────────────────────
 
 	test("AGENT-01.4: Task cost increases", async ({ api }) => {
-		const task = await getTask(api, ctx.taskId!);
+		// The event handler may still be processing agent.completed — poll briefly
+		let cost = 0;
+		const deadline = Date.now() + 10000;
+		while (Date.now() < deadline) {
+			const task = await getTask(api, ctx.taskId!);
+			cost = task.totalCostUsd;
+			if (cost > 0) {
+				break;
+			}
+			await new Promise((r) => setTimeout(r, 1000));
+		}
 
-		expect(task.totalCostUsd).toBeGreaterThan(0);
+		expect(cost).toBeGreaterThan(0);
 
-		ctx.lastCostUsd = task.totalCostUsd;
-		console.log(`[Agent] Cost: $${task.totalCostUsd.toFixed(4)}`);
+		ctx.lastCostUsd = cost;
+		console.log(`[Agent] Cost: $${cost.toFixed(4)}`);
 	});
 
 	// ─── FILE-06: Files reflect agent changes ───────────────────────────
@@ -223,7 +246,15 @@ test.describe("Chain: Agent Execution & Multi-Turn", () => {
 	// ─── AGENT-02.1: Agent re-activates on follow-up ────────────────────
 
 	test("AGENT-02.1: Agent re-activates on follow-up", async ({ api }) => {
-		// After second turn, agent should be idle
+		// After second turn, agent state may still be transitioning.
+		await waitForCondition(
+			async () => {
+				const s = await api.getWorkspaceStatus(ctx.taskId!);
+				return s.agentState === "idle" || s.agentState === "none";
+			},
+			{ timeout: 10000, interval: 1000 },
+		);
+
 		const status = await api.getWorkspaceStatus(ctx.taskId!);
 		expect(["idle", "none"]).toContain(status.agentState);
 	});

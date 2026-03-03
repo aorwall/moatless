@@ -3,35 +3,30 @@
 ## Architecture Overview
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│ Docker Host                                                  │
-│                                                              │
-│  ┌──────────────────┐     ┌──────────────────────────────┐  │
-│  │ moatless-backend │     │ moatless-moatable-{taskId}   │  │
-│  │                  │     │                              │  │
-│  │ Port 8000        │────▶│ Port 8001 (mapped to host)   │  │
-│  │                  │     │                              │  │
-│  │ Uses:            │     │ ┌────────────────────────┐   │  │
-│  │ SANDBOX_HOST     │     │ │ Dev Server (Vite/etc)  │   │  │
-│  │ = host.docker    │     │ │ Port 3000 (internal)   │   │  │
-│  │   .internal      │     │ └────────────────────────┘   │  │
-│  └──────────────────┘     └──────────────────────────────┘  │
-│                                                              │
-│  ┌──────────────────┐     ┌──────────────────────────────┐  │
-│  │ moatless-redis   │     │ moatless-postgres            │  │
-│  │ Port 6379        │     │ Port 5432                    │  │
-│  └──────────────────┘     └──────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│ Docker Network (docker-compose_moatless)                       │
+│                                                               │
+│  ┌──────────────────┐     ┌──────────────────────────────┐   │
+│  │ moatless-backend │     │ moatless-sandbox-{taskId}    │   │
+│  │                  │     │                              │   │
+│  │ HTTP  8080       │◀───▶│ gRPC 50052                   │   │
+│  │ gRPC  50051      │     │ HTTP 8001                    │   │
+│  │ Metrics 9090     │     │ ┌────────────────────────┐   │   │
+│  │                  │     │ │ Dev Server (Vite/etc)  │   │   │
+│  │                  │     │ │ Port 3000 (internal)   │   │   │
+│  │                  │     │ └────────────────────────┘   │   │
+│  └──────────────────┘     └──────────────────────────────┘   │
+│                                                               │
+│  ┌──────────────────┐     ┌──────────────────────────────┐   │
+│  │ moatless-redis   │     │ moatless-postgres            │   │
+│  │ Port 6379        │     │ Port 5432                    │   │
+│  └──────────────────┘     └──────────────────────────────┘   │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-## SANDBOX_HOST Environment Variable
+## Container Communication
 
-Backend needs to reach dynamically created sandbox containers. The approach differs based on where backend runs:
-
-| Backend Location | SANDBOX_HOST Value | Why |
-|------------------|-------------------|-----|
-| Host machine | `localhost` (default) | Port mappings accessible on localhost |
-| Docker container | `host.docker.internal` | Must route through Docker host |
+Backend and sandbox containers communicate via the shared Docker network (`docker-compose_moatless`). The backend resolves sandbox containers by their deterministic container name.
 
 ### Configuration
 
@@ -39,28 +34,35 @@ Backend needs to reach dynamically created sandbox containers. The approach diff
 ```yaml
 backend:
   environment:
-    SANDBOX_HOST: host.docker.internal
+    SANDBOX_PROVIDER: docker
+    DOCKER_NETWORK: docker-compose_moatless
+    DOCKER_BACKEND_HOSTNAME: moatless-backend
 ```
 
-**Code** (`docker-workspace-provisioner.ts`):
-```typescript
-const SANDBOX_HOST = process.env['SANDBOX_HOST'] || 'localhost'
-// Used for health checks, agent status, worker URLs
+**Code** (`backend/src/sandbox/docker/provider.rs`):
+```rust
+// Backend reaches sandbox via container name on Docker network:
+// http://moatless-sandbox-{taskId}:{grpc_port}
 ```
 
 ## Container Communication Patterns
 
-### Backend → Sandbox
+### Backend → Sandbox (gRPC)
 ```
-Backend container
+Backend container (moatless-backend)
     │
-    ▼ http://${SANDBOX_HOST}:${hostPort}/health
+    ▼ http://moatless-sandbox-{taskId}:50052  (Docker network)
     │
-Docker host (host.docker.internal)
+Sandbox container gRPC port 50052
+```
+
+### Sandbox → Backend (gRPC)
+```
+Sandbox container
     │
-    ▼ Port mapping (e.g., 58164:8001)
+    ▼ http://moatless-backend:50051  (Docker network, via DOCKER_BACKEND_HOSTNAME)
     │
-Sandbox container port 8001
+Backend gRPC server port 50051
 ```
 
 ### Backend → Redis/Postgres
@@ -71,8 +73,8 @@ backend:
     - redis
     - postgres
   environment:
-    REDIS_HOST: redis
-    DB_HOST: postgres
+    REDIS_URL: redis://redis:6379
+    DATABASE_URL: postgresql://moatless:moatless@postgres:5432/moatless
 ```
 
 ## Port Mappings
@@ -80,7 +82,7 @@ backend:
 ### Static (docker-compose)
 | Service | Container Port | Host Port |
 |---------|---------------|-----------|
-| Backend | 8000 | 8000 |
+| Backend | 8080 | 8080 |
 | Redis | 6379 | 6379 |
 | Postgres | 5432 | 5432 |
 
@@ -88,7 +90,7 @@ backend:
 Sandbox containers get random host ports:
 ```bash
 # Find sandbox port
-docker port moatless-moatable-abc12345 8001
+docker port moatless-sandbox-abc12345 8001
 # Output: 0.0.0.0:58164
 ```
 
@@ -115,22 +117,21 @@ Already configured in `docker-compose.yml`.
 
 **Check**:
 ```bash
-# Verify SANDBOX_HOST is set
-docker exec moatless-backend printenv SANDBOX_HOST
-# Should output: host.docker.internal
+# Verify sandbox container is on the moatless network
+docker network inspect docker-compose_moatless --format '{{range .Containers}}{{.Name}} {{end}}' | tr ' ' '\n' | grep moatless-sandbox
 
 # Check sandbox container exists and has port mapping
-docker ps --format "table {{.Names}}\t{{.Ports}}" | grep moatable
+docker ps --format "table {{.Names}}\t{{.Ports}}" | grep moatless-sandbox
 ```
 
 ### Sandbox Container Not Accessible
 ```bash
-# Get the mapped port
-PORT=$(docker port moatless-moatable-{taskId} 8001 | cut -d: -f2)
+# Get the mapped port (for host-side debugging)
+PORT=$(docker port moatless-sandbox-{taskId} 8001 | cut -d: -f2)
 
-# Test from host
+# Test from host (via port mapping)
 curl http://localhost:$PORT/health
 
-# Test from backend container (simulates what backend does)
-docker exec moatless-backend curl http://host.docker.internal:$PORT/health
+# Test via Docker network (simulates what backend does)
+docker exec moatless-backend wget -qO- http://moatless-sandbox-{taskId}:8001/health
 ```

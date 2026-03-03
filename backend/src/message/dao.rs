@@ -218,8 +218,7 @@ impl MessageRepository for PgMessageRepository {
             FROM task_messages
             WHERE task_id = $1
               AND agent_session_id IS NULL
-              AND (message_type = 'user'
-                   OR message_type = 'error')
+              AND message_type = 'user'
             ORDER BY timestamp, id"#,
         )
         .bind(task_id)
@@ -308,7 +307,7 @@ impl MessageRepository for PgMessageRepository {
             r#"UPDATE task_messages
                SET session_id = $2, agent_session_id = $2, sent_at = NOW()
                WHERE task_id = $1
-                 AND message_type = 'user'
+                 AND (message_type = 'user' OR message_type = 'error')
                  AND agent_session_id IS NULL"#,
         )
         .bind(task_id)

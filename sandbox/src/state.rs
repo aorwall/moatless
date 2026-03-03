@@ -22,8 +22,6 @@ pub struct SandboxState {
     pub events: GrpcEventPublisher,
     /// Agent execution state (status, session, cancel token, pending prompts).
     pub agent: Arc<AgentState>,
-    /// Notification channel to wake the message polling consumer.
-    pub consumer_notify: Arc<tokio::sync::Notify>,
     /// gRPC client for backend communication (message polling).
     pub backend_client: BackendGrpcClient,
     /// Current initialization phase — tracked for health probes and consumer gating.

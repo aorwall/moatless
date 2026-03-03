@@ -122,6 +122,10 @@ proxy:
   # -- Create Traefik ForwardAuth Middleware CRD (requires Traefik CRDs installed)
   traefikMiddleware:
     enabled: false
+  # -- Create Traefik IngressRoute CRDs for app routing (requires Traefik CRDs installed)
+  # Set to false when using nginx or other non-Traefik ingress controllers
+  traefikIngressRoute:
+    enabled: false
   # -- Traefik entryPoint name for IngressRoutes ("web" when ALB terminates TLS, "websecure" for direct TLS)
   traefikEntryPoint: "websecure"
 

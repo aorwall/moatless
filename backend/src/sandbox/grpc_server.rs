@@ -178,27 +178,49 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             .await
             .unwrap_or(None);
 
+        // Check will_not_resume on the last result — if the previous session
+        // ended with an unrecoverable error, don't pass a resume session ID.
+        let resume_session_id = if resume_session_id.is_some() {
+            match messages.get_last_result(&req.task_id).await {
+                Ok(Some(last_result)) if last_result.will_not_resume == Some(true) => {
+                    debug!(
+                        task_id = %req.task_id,
+                        "Last result has will_not_resume=true, clearing resume_session_id"
+                    );
+                    None
+                }
+                _ => resume_session_id,
+            }
+        } else {
+            None
+        };
+
         // Convert DB rows to proto messages.
         // message_content is a JSON array: [{"type":"text","text":"..."}, ...]
-        // Error result messages are flagged with is_error so the sandbox
-        // consumer can prefix them before sending to the agent.
         let messages: Vec<sandbox_proto::PendingMessage> = pending
             .iter()
             .filter_map(|row| {
-                let is_error = row.message_type == crate::message::models::MessageType::Result;
                 let content = parse_content_blocks(&row.message_content);
                 if content.is_empty() {
                     warn!(task_id = %req.task_id, "Pending message has no parseable content blocks");
                     return None;
                 }
 
+                // When will_not_resume is set, also clear the per-message resume flag
+                // so the sandbox starts a fresh session.
+                let resume = if resume_session_id.is_none() {
+                    Some(false)
+                } else {
+                    Some(row.resume)
+                };
+
                 Some(sandbox_proto::PendingMessage {
                     content,
                     model: row.model.clone(),
                     system_prompt: None,
-                    resume: Some(row.resume),
+                    resume,
                     agent_type: row.agent_mode.as_ref().map(|m| m.0.clone()),
-                    is_error: if is_error { Some(true) } else { None },
+                    is_error: None,
                     resume_session_id: resume_session_id.clone(),
                 })
             })

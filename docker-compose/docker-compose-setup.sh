@@ -28,20 +28,20 @@ COMPOSE_FILE="$SCRIPT_DIR/docker-compose.yml"
 echo "✅ Docker and Docker Compose are installed"
 echo ""
 
-# Create .env.docker-compose if it doesn't exist
-if [ ! -f .env.docker-compose ]; then
-    echo "📝 Creating .env.docker-compose from template..."
-    cp .env.docker-compose.example .env.docker-compose
+# Create .env if it doesn't exist
+if [ ! -f ../.env ]; then
+    echo "📝 Creating .env from template..."
+    cp ../.env.example ../.env
 
     echo ""
-    echo "⚠️  IMPORTANT: You must edit .env.docker-compose and set the following required values:"
+    echo "⚠️  IMPORTANT: You must edit .env and set the following required values:"
     echo ""
     echo "   1. CLAUDE_CODE_OAUTH_TOKEN - Get from https://claude.ai/settings/code"
     echo "   2. TASK_TOKEN_SECRET - Generate with: openssl rand -hex 32"
     echo "   3. POSTGRES_PASSWORD - Change from default password"
     echo ""
-    read -p "Press Enter to open .env.docker-compose in your editor..."
-    ${EDITOR:-nano} .env.docker-compose
+    read -p "Press Enter to open .env in your editor..."
+    ${EDITOR:-nano} ../.env
     echo ""
 fi
 
@@ -49,9 +49,9 @@ fi
 echo "🔍 Validating configuration..."
 
 # Source the env file
-if [ -f .env.docker-compose ]; then
+if [ -f ../.env ]; then
     set -a
-    source .env.docker-compose
+    source ../.env
     set +a
 fi
 
@@ -69,7 +69,7 @@ fi
 
 if [ "$VALIDATION_FAILED" = true ]; then
     echo ""
-    echo "Please edit .env.docker-compose and set the required values, then run this script again."
+    echo "Please edit .env and set the required values, then run this script again."
     exit 1
 fi
 
@@ -86,18 +86,18 @@ echo ""
 
 # Pull images
 echo "📥 Pulling Docker images..."
-$DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file .env.docker-compose pull
+$DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file ../.env pull
 
 echo ""
 echo "🐳 Starting services with Docker Compose..."
-$DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file .env.docker-compose up -d
+$DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file ../.env up -d
 
 echo ""
 echo "⏳ Waiting for services to be healthy..."
 sleep 5
 
 # Show service status
-$DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file .env.docker-compose ps
+$DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file ../.env ps
 
 echo ""
 echo "✅ Setup complete!"
@@ -107,10 +107,10 @@ echo "   - Frontend: http://localhost:${FRONTEND_PORT:-3000}"
 echo "   - Backend:  http://localhost:${BACKEND_PORT:-8080}"
 echo ""
 echo "📊 Useful commands:"
-echo "   View logs:        $DOCKER_COMPOSE -f \"$COMPOSE_FILE\" --env-file .env.docker-compose logs -f"
-echo "   View backend:     $DOCKER_COMPOSE -f \"$COMPOSE_FILE\" --env-file .env.docker-compose logs -f backend"
-echo "   Stop services:    $DOCKER_COMPOSE -f \"$COMPOSE_FILE\" --env-file .env.docker-compose down"
-echo "   Restart services: $DOCKER_COMPOSE -f \"$COMPOSE_FILE\" --env-file .env.docker-compose restart"
+echo "   View logs:        $DOCKER_COMPOSE -f \"$COMPOSE_FILE\" --env-file ../.env logs -f"
+echo "   View backend:     $DOCKER_COMPOSE -f \"$COMPOSE_FILE\" --env-file ../.env logs -f backend"
+echo "   Stop services:    $DOCKER_COMPOSE -f \"$COMPOSE_FILE\" --env-file ../.env down"
+echo "   Restart services: $DOCKER_COMPOSE -f \"$COMPOSE_FILE\" --env-file ../.env restart"
 echo "   Health check:     $SCRIPT_DIR/docker-compose-verify.sh"
 echo ""
 echo "📖 For more information, see docs/docker-compose-guide.md"

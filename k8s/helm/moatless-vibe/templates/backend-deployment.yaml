@@ -94,6 +94,14 @@ spec:
             {{- end }}
             - name: K8S_POD_STARTUP_TIMEOUT_SECS
               value: {{ .Values.kubernetes.podStartupTimeout | default "120" | quote }}
+            {{- if .Values.kubernetes.sandboxTolerations }}
+            - name: K8S_SANDBOX_TOLERATIONS
+              value: {{ .Values.kubernetes.sandboxTolerations | toJson | quote }}
+            {{- end }}
+            {{- if .Values.kubernetes.sandboxNodeSelector }}
+            - name: K8S_SANDBOX_NODE_SELECTOR
+              value: {{ .Values.kubernetes.sandboxNodeSelector | toJson | quote }}
+            {{- end }}
             - name: TASK_TOKEN_SECRET
               valueFrom:
                 secretKeyRef:

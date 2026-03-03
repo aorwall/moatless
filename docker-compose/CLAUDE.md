@@ -2,8 +2,7 @@
 
 ## Start Everything
 ```bash
-docker compose -f docker-compose/docker-compose.yml \
-  --env-file docker-compose/.env.docker-compose up -d
+docker compose -f docker-compose/docker-compose.yml up -d
 ```
 - Frontend (nginx + SPA): http://localhost:3000
 - Backend API proxied via frontend at /api/
@@ -49,6 +48,6 @@ docker compose -f docker-compose/docker-compose.yml down
 ```
 
 ## Environment
-- Config: `.env.docker-compose` (copy from `.env.docker-compose.example`)
+- Config: `.env` (copy from `.env.example` in project root)
 - Required: `CLAUDE_CODE_OAUTH_TOKEN`, `TASK_TOKEN_SECRET`, `DATA_DIR`
 - Sandbox provider: `docker` (set automatically in compose)

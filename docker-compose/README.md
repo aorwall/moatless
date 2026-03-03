@@ -35,12 +35,12 @@ This guide covers deploying Moatless Vibe using Docker Compose with PostgreSQL, 
 
    The script will:
    - Check Docker prerequisites
-   - Create `.env.docker-compose` from template
+   - Create `.env` from template
    - Prompt you to configure required values
    - Pull Docker images
    - Start all services (including frontend)
 
-3. **Configure required values in `.env.docker-compose`**
+3. **Configure required values in `.env`**
    - `CLAUDE_CODE_OAUTH_TOKEN` - Get from https://claude.ai/settings/code
    - `TASK_TOKEN_SECRET` - Generate with: `openssl rand -hex 32`
    - `POSTGRES_PASSWORD` - Change from default
@@ -183,7 +183,7 @@ The sandbox provider is set to `docker` automatically in the compose file (`SAND
 
 ### Required Environment Variables
 
-Edit `.env.docker-compose` and set these required values:
+Edit `.env` and set these required values:
 
 #### 1. Claude Authentication (REQUIRED)
 ```bash
@@ -261,16 +261,14 @@ REDIS_PORT=6379
 
 ### Environment Variable Reference
 
-See `.env.docker-compose.example` for complete list with descriptions.
+See `.env.example` for complete list with descriptions.
 
 ## Common Operations
 
 ### Start Services
 
 ```bash
-docker compose -f docker-compose/docker-compose.yml \
-  --env-file docker-compose/.env.docker-compose \
-  up -d
+docker compose -f docker-compose/docker-compose.yml up -d
 ```
 
 For frontend development with hot-reload, also run `bun run dev` and use `http://localhost:5173` instead of `http://localhost:3000`. Vite proxies `/api/` to the backend automatically.
@@ -298,28 +296,20 @@ Or use Dozzle at http://localhost:9999.
 ### Stop Services
 
 ```bash
-docker compose -f docker-compose/docker-compose.yml \
-  --env-file docker-compose/.env.docker-compose \
- down
+docker compose -f docker-compose/docker-compose.yml down
 ```
 
 ### Update to Latest Version
 
 ```bash
-docker compose -f docker-compose/docker-compose.yml \
-  --env-file docker-compose/.env.docker-compose \
- pull
-docker compose -f docker-compose/docker-compose.yml \
-  --env-file docker-compose/.env.docker-compose \
- up -d
+docker compose -f docker-compose/docker-compose.yml pull
+docker compose -f docker-compose/docker-compose.yml up -d
 ```
 
 ### View Service Status
 
 ```bash
-docker compose -f docker-compose/docker-compose.yml \
-  --env-file docker-compose/.env.docker-compose \
- ps
+docker compose -f docker-compose/docker-compose.yml ps
 ```
 
 ### View Sandbox Containers
@@ -347,24 +337,20 @@ docker rm -f $(docker ps -aq --filter "label=created-by=moatless")
 
 ```bash
 docker compose -f docker-compose/docker-compose.yml \
-  --env-file docker-compose/.env.docker-compose down -v
-docker compose -f docker-compose/docker-compose.yml \
-  --env-file docker-compose/.env.docker-compose \
- up -d
+   down -v
+docker compose -f docker-compose/docker-compose.yml up -d
 ```
 
 ### Backup Database
 
 ```bash
 docker compose -f docker-compose/docker-compose.yml \
-  --env-file docker-compose/.env.docker-compose \
   exec postgres pg_dump -U moatless moatless > backup.sql
 ```
 
 Restore:
 ```bash
 cat backup.sql | docker compose -f docker-compose/docker-compose.yml \
-  --env-file docker-compose/.env.docker-compose \
   exec -T postgres psql -U moatless -d moatless
 ```
 
@@ -464,7 +450,7 @@ docker compose -f docker-compose/docker-compose.yml \
 
 **Symptom**: "bind: address already in use" error
 
-**Solution**: Change ports in `.env.docker-compose`:
+**Solution**: Change ports in `.env`:
 ```bash
 FRONTEND_PORT=3001
 BACKEND_PORT=8081
@@ -484,7 +470,7 @@ This checks PostgreSQL, Redis, backend API, frontend, Docker socket access, and 
 ### Security Considerations
 
 1. **Docker Socket Access** — Consider using [Docker Socket Proxy](https://github.com/Tecnativa/docker-socket-proxy)
-2. **Environment Variables** — Use Docker secrets or external secret management; never commit `.env.docker-compose`; rotate `TASK_TOKEN_SECRET` regularly
+2. **Environment Variables** — Use Docker secrets or external secret management; never commit `.env`; rotate `TASK_TOKEN_SECRET` regularly
 3. **Network Isolation** — Restrict database and Redis access to backend only
 4. **Resource Limits** — Add memory and CPU limits to prevent resource exhaustion
 5. **TLS/SSL** — Use reverse proxy for HTTPS with Let's Encrypt certificates

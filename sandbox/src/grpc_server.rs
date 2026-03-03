@@ -16,6 +16,8 @@ use sandbox_proto::{
     StopAgentRequest, StopAgentResponse, WriteFileRequest, WriteFileResponse,
 };
 
+use moatless_events::AgentSubType;
+
 use crate::agent::claude_code::spawn_agent_execution;
 use crate::agent::types::{content_blocks_from_proto, AgentRunRequest, AgentStatus, ResumeSession};
 use crate::files;
@@ -73,6 +75,16 @@ impl SandboxService for SandboxServiceImpl {
             .map_err(|e| Status::failed_precondition(e.to_string()))?;
         self.state.agent.set_stopped().await;
 
+        // Publish agent.stopped event so backend can emit taskTurn.stopped
+        self.state
+            .events
+            .publish_agent_event(
+                &self.state.config.task_id,
+                AgentSubType::Stopped,
+                serde_json::json!({}),
+            )
+            .await;
+
         info!("Agent stopped via gRPC");
         Ok(Response::new(StopAgentResponse {}))
     }
@@ -98,8 +110,11 @@ impl SandboxService for SandboxServiceImpl {
         &self,
         _request: Request<NotifyMessagesRequest>,
     ) -> Result<Response<NotifyMessagesResponse>, Status> {
-        self.state.consumer_notify.notify_one();
-        info!("Consumer notified via gRPC");
+        let state = self.state.clone();
+        tokio::spawn(async move {
+            crate::agent::consumer::process_pending_messages(state).await;
+        });
+        info!("Message processing triggered via gRPC");
         Ok(Response::new(NotifyMessagesResponse {}))
     }
 

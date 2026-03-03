@@ -146,7 +146,7 @@ impl RedisStreamConsumer {
             .arg("CREATE")
             .arg(stream)
             .arg(&self.consumer_group)
-            .arg("$") // Start from new messages only
+            .arg("0") // Start from stream beginning so early events aren't missed
             .arg("MKSTREAM")
             .query_async(&mut self.conn)
             .await;

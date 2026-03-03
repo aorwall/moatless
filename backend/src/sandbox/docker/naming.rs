@@ -77,6 +77,18 @@ pub fn generate_data_host_path(data_dir: &str, task_id: &str) -> String {
     path.to_string_lossy().to_string()
 }
 
+/// Generate the host volume path for a task's Claude config directory.
+///
+/// Persists Claude CLI session data (`CLAUDE_CONFIG_DIR`) across container
+/// stop/start and recreation cycles. Format: `{data_dir}/tasks/{task_id}/claude-config`
+pub fn generate_claude_config_host_path(data_dir: &str, task_id: &str) -> String {
+    let mut path = PathBuf::from(data_dir);
+    path.push("tasks");
+    path.push(task_id);
+    path.push("claude-config");
+    path.to_string_lossy().to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

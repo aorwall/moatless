@@ -502,6 +502,17 @@ pub async fn stop_task(
         tracing::warn!(task_id = %task_id, error = %e, "Failed to stop sandbox agent");
     }
 
+    // Publish agent.stopped + taskTurn.stopped events
+    // (In Docker mode the container is killed before the sandbox can publish these)
+    if let Some(ref events) = state.events {
+        events
+            .publish_agent_event(&task_id, moatless_events::AgentSubType::Stopped, None, serde_json::json!({}))
+            .await;
+        events
+            .publish_task_turn_event(&task_id, moatless_events::TaskTurnSubType::Stopped, None, None, serde_json::json!({}))
+            .await;
+    }
+
     // Update task status
     state.tasks.update_task(
         &task_id,

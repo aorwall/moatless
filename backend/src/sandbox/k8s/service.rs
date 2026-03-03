@@ -74,6 +74,7 @@ pub async fn create_sandbox_service(
             "type": "ClusterIP",
             "selector": selector,
             "ports": ports,
+            "publishNotReadyAddresses": true,
         }
     }))
     .map_err(kube::Error::SerdeError)?;

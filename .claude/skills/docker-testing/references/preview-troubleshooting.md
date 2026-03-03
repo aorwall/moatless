@@ -21,7 +21,7 @@
 **Diagnosis**:
 ```bash
 # Get sandbox container
-CONTAINER=$(docker ps --format "{{.Names}}" | grep moatless-moatable | head -1)
+CONTAINER=$(docker ps --format "{{.Names}}" | grep moatless-sandbox | head -1)
 PORT=$(docker port $CONTAINER 8001 | cut -d: -f2)
 
 # Check server logs - look for IPv6 address
@@ -38,7 +38,7 @@ docker exec $CONTAINER bun -e "fetch('http://[::1]:3000').then(r => console.log(
 **Fix**: Add `--host` flag to dev server command:
 ```bash
 # Update repository config
-curl -X PATCH "http://localhost:8000/api/v1/repositories/{repoId}" \
+curl -X PATCH "http://localhost:8080/api/v1/repositories/{repoId}" \
   -H "Content-Type: application/json" \
   -d '{"previewConfig": {"serverStartCommands": ["bun run dev -- --host"]}}'
 ```
@@ -50,12 +50,12 @@ curl -X PATCH "http://localhost:8000/api/v1/repositories/{repoId}" \
 **Diagnosis**:
 ```bash
 # Check current timeout
-curl -s "http://localhost:8000/api/v1/repositories/{repoId}" | jq '.previewConfig.startupTimeoutSeconds'
+curl -s "http://localhost:8080/api/v1/repositories/{repoId}" | jq '.previewConfig.startupTimeoutSeconds'
 ```
 
 **Fix**: Increase timeout if `bun install` takes too long:
 ```bash
-curl -X PATCH "http://localhost:8000/api/v1/repositories/{repoId}" \
+curl -X PATCH "http://localhost:8080/api/v1/repositories/{repoId}" \
   -H "Content-Type: application/json" \
   -d '{"previewConfig": {"startupTimeoutSeconds": 120}}'
 ```
@@ -64,7 +64,7 @@ curl -X PATCH "http://localhost:8000/api/v1/repositories/{repoId}" \
 
 ### Get Preview Server Logs
 ```bash
-CONTAINER=$(docker ps --format "{{.Names}}" | grep moatless-moatable | head -1)
+CONTAINER=$(docker ps --format "{{.Names}}" | grep moatless-sandbox | head -1)
 PORT=$(docker port $CONTAINER 8001 | cut -d: -f2)
 
 # Full logs (shows bun install output, server startup)

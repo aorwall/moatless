@@ -104,7 +104,6 @@ echo "=========================================="
 echo "Starting docker compose..."
 echo "=========================================="
 docker compose -f docker-compose/docker-compose.yml \
-  --env-file docker-compose/.env.docker-compose \
   up -d
 
 echo ""

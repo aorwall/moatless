@@ -32,7 +32,7 @@ src/
 │   ├── options.rs             # Build ClaudeOptions from config + request
 │   ├── permission_handler.rs  # InteractivePermissionHandler: AskUserQuestion/ExitPlanMode
 │   ├── prompt.rs              # Prompt types: PendingPrompt, PromptResponse, PromptToolName
-│   ├── consumer.rs            # MessageConsumer: fetches pending messages via gRPC
+│   ├── consumer.rs            # process_pending_messages(): one-shot fetch via gRPC
 │   └── types.rs               # Internal types (AgentRunRequest, AgentStatus, etc.)
 ├── server/
 │   ├── mod.rs
@@ -84,4 +84,4 @@ tests/
 - **Cancellation**: `CancellationToken` from tokio-util for graceful agent abort
 - **Interactive prompts**: `tokio::sync::oneshot` for AskUserQuestion/ExitPlanMode blocking
 - **Event publishing**: Fire-and-forget gRPC calls, failures logged but never propagated
-- **Message fetching**: Background task with Notify + timer, fetches via gRPC, batches into single agent call
+- **Message fetching**: Direct invocation via `process_pending_messages()` — called from init, gRPC notify, and post-agent completion

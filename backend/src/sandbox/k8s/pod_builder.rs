@@ -6,7 +6,7 @@
 use k8s_openapi::api::core::v1::{
     Capabilities, Container, ContainerPort, EmptyDirVolumeSource, EnvVar, HTTPGetAction, Pod,
     PodSpec, PersistentVolumeClaimVolumeSource, Probe, ResourceRequirements, SecurityContext,
-    TCPSocketAction, Volume, VolumeMount,
+    TCPSocketAction, Toleration, Volume, VolumeMount,
 };
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
@@ -114,12 +114,26 @@ pub fn build_pod(
             annotations: Some(annotations),
             ..Default::default()
         },
-        spec: Some(PodSpec {
-            containers: all_containers,
-            volumes: Some(volumes),
-            restart_policy: Some("Always".to_string()),
-            termination_grace_period_seconds: Some(30),
-            ..Default::default()
+        spec: Some({
+            let tolerations = config
+                .sandbox
+                .tolerations_json
+                .as_deref()
+                .and_then(|json| serde_json::from_str::<Vec<Toleration>>(json).ok());
+            let node_selector = config
+                .sandbox
+                .node_selector_json
+                .as_deref()
+                .and_then(|json| serde_json::from_str::<BTreeMap<String, String>>(json).ok());
+            PodSpec {
+                containers: all_containers,
+                volumes: Some(volumes),
+                restart_policy: Some("Always".to_string()),
+                termination_grace_period_seconds: Some(30),
+                tolerations,
+                node_selector,
+                ..Default::default()
+            }
         }),
         ..Default::default()
     };
@@ -286,10 +300,11 @@ fn build_server_containers(
         let container_name = format!("{}-server", server.name);
         let port = server.port;
 
-        // Image: per-server override → sandbox image fallback
+        // Image: per-server override → repo-level override → global fallback
         let image = server
             .docker_image
             .clone()
+            .or_else(|| plan.repo_config.docker_image.clone())
             .unwrap_or_else(|| config.sandbox.image.clone());
 
         // Standard env vars for all server containers

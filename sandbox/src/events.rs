@@ -58,8 +58,18 @@ impl GrpcEventPublisher {
             .await;
     }
 
+    /// Publish a sandbox lifecycle event (e.g. ready, error, fatal).
+    pub async fn publish_sandbox_event(
+        &self,
+        task_id: &str,
+        sub_type: moatless_events::SandboxSubType,
+        payload: serde_json::Value,
+    ) {
+        self.publish_event(task_id, EventType::Sandbox, sub_type.as_str(), payload)
+            .await;
+    }
+
     /// Publish a task turn event (e.g. turn active, completed, failed).
-    #[allow(dead_code)]
     pub async fn publish_task_turn_event(
         &self,
         task_id: &str,

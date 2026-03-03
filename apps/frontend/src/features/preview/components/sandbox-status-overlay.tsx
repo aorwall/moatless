@@ -56,11 +56,17 @@ function getSandboxStatusConfig(status: EnvironmentStatus, error?: string): Sand
 }
 
 function getMutationErrorMessage(error: Error): string {
+  // ApiError from apiClient
   if (error instanceof ApiError) {
     const data = error.data as { error?: unknown } | undefined
     if (typeof data?.error === 'string') {
       return data.error
     }
+  }
+  // ErrorType from generated api-client (custom-instance)
+  const dataError = (error as { data?: { error?: unknown } }).data
+  if (typeof dataError?.error === 'string') {
+    return dataError.error
   }
   return error.message
 }
@@ -88,31 +94,48 @@ export function SandboxStatusOverlay({
 
   const config = getSandboxStatusConfig(environmentStatus, environmentError)
 
+  const showProvisioningError = config.showRetry && retryError
+
   return (
     <div className="absolute inset-0 flex items-center justify-center z-10 bg-background/80 backdrop-blur-sm">
       <div className="flex flex-col items-center justify-center text-center space-y-4 p-8">
-        {config.icon}
-        <h3 className="text-lg font-semibold">{config.title}</h3>
-        <p className="text-sm text-muted-foreground max-w-md">{config.message}</p>
-        {environmentStatus === 'initializing' && sandboxEvents && sandboxEvents.length > 0 && (
-          <RecentEvents events={sandboxEvents} />
-        )}
-        {config.showRetry && (
+        {showProvisioningError ? (
           <>
+            <XCircle className="h-12 w-12 text-destructive" />
+            <h3 className="text-lg font-semibold">Provisioning Failed</h3>
+            <p className="text-sm text-destructive max-w-md">
+              {getMutationErrorMessage(retryError)}
+            </p>
             <Button variant="outline" size="sm" onClick={onRetry} disabled={isRetrying}>
               {isRetrying ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Starting...
+                  Retrying...
                 </>
               ) : (
-                'Start Sandbox'
+                'Retry'
               )}
             </Button>
-            {retryError && (
-              <p className="text-destructive text-xs max-w-md line-clamp-3">
-                {getMutationErrorMessage(retryError)}
-              </p>
+          </>
+        ) : (
+          <>
+            {config.icon}
+            <h3 className="text-lg font-semibold">{config.title}</h3>
+            <p className="text-sm text-muted-foreground max-w-md">{config.message}</p>
+            {environmentStatus === 'initializing' && sandboxEvents && sandboxEvents.length > 0 && (
+              <RecentEvents events={sandboxEvents} />
+            )}
+            {config.showRetry && (
+              <Button variant="outline" size="sm" onClick={onRetry} disabled={isRetrying}>
+                {isRetrying ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Starting...
+                  </>
+                ) : (
+                  'Start Sandbox'
+                )}
+              </Button>
             )}
           </>
         )}
