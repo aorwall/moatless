@@ -12,7 +12,7 @@ use bollard::models::{
 };
 use bollard::container::Config as ContainerConfig;
 
-use super::naming::{generate_container_name, generate_data_host_path, generate_server_container_name, generate_workspace_host_path};
+use super::naming::{generate_claude_config_host_path, generate_container_name, generate_data_host_path, generate_server_container_name, generate_workspace_host_path};
 use crate::config::Config;
 use crate::sandbox::models::{ProvisionPlan, ServerConfig};
 
@@ -128,6 +128,7 @@ pub fn build_container_config(
     // ── Bind mounts ───────────────────────────────────────────────
     let workspace_host_path = generate_workspace_host_path(&config.docker.data_dir, task_id);
     let data_host_path = generate_data_host_path(&config.docker.data_dir, task_id);
+    let claude_config_host_path = generate_claude_config_host_path(&config.docker.data_dir, task_id);
     let mut mounts = vec![
         Mount {
             target: Some("/opt/moatless/repo".to_string()),
@@ -139,6 +140,13 @@ pub fn build_container_config(
         Mount {
             target: Some("/opt/moatless/data".to_string()),
             source: Some(data_host_path),
+            typ: Some(MountTypeEnum::BIND),
+            read_only: Some(false),
+            ..Default::default()
+        },
+        Mount {
+            target: Some("/opt/moatless/.claude".to_string()),
+            source: Some(claude_config_host_path),
             typ: Some(MountTypeEnum::BIND),
             read_only: Some(false),
             ..Default::default()
@@ -249,13 +257,15 @@ pub fn build_server_container_config(
     config: &Config,
     task_id: &str,
     server: &ServerConfig,
+    sandbox_image: Option<&str>,
 ) -> ContainerConfig<String> {
     let container_name = generate_server_container_name(task_id, &server.name);
 
-    // ── Image ──────────────────────────────────────────────────────
+    // ── Image: per-server override → repo-level override → global fallback
     let image = server
         .docker_image
         .clone()
+        .or_else(|| sandbox_image.map(String::from))
         .unwrap_or_else(|| DEFAULT_SERVER_IMAGE.to_string());
 
     // ── Environment variables ─────────────────────────────────────
@@ -398,6 +408,8 @@ mod tests {
                 idle_timeout_minutes: 60,
                 idle_check_interval_secs: 300,
                 max_crash_restart_count: 5,
+                node_selector_json: None,
+                tolerations_json: None,
             },
             proxy: ProxyConfig {
                 domain: None,
@@ -438,6 +450,7 @@ mod tests {
                 session_cookie_name: "test".into(),
                 is_production: false,
                 cache_ttl_secs: 0,
+                static_api_key: None,
             },
             s3: S3Config { bucket_name: None, key_prefix: "test".into(), region: "us-east-1".into() },
             slack: SlackConfig { bot_token: None, signing_secret: None, bot_user_id: None },
@@ -526,11 +539,13 @@ mod tests {
         let cc = build_container_config(&config, "task-1", &plan, None);
         let host_config = cc.host_config.unwrap();
         let mounts = host_config.mounts.unwrap();
-        assert_eq!(mounts.len(), 2);
+        assert_eq!(mounts.len(), 3);
         assert_eq!(mounts[0].target.as_deref(), Some("/opt/moatless/repo"));
         assert_eq!(mounts[0].source.as_deref(), Some("/data/tasks/task-1/repo"));
         assert_eq!(mounts[1].target.as_deref(), Some("/opt/moatless/data"));
         assert_eq!(mounts[1].source.as_deref(), Some("/data/tasks/task-1/data"));
+        assert_eq!(mounts[2].target.as_deref(), Some("/opt/moatless/.claude"));
+        assert_eq!(mounts[2].source.as_deref(), Some("/data/tasks/task-1/claude-config"));
     }
 
     #[test]
@@ -560,7 +575,7 @@ mod tests {
     fn server_config_uses_default_image() {
         let config = test_config();
         let server = test_server_config();
-        let cc = build_server_container_config(&config, "task-1", &server);
+        let cc = build_server_container_config(&config, "task-1", &server, None);
         assert_eq!(cc.image.unwrap(), DEFAULT_SERVER_IMAGE);
     }
 
@@ -569,7 +584,34 @@ mod tests {
         let config = test_config();
         let mut server = test_server_config();
         server.docker_image = Some("custom-server:v1".into());
-        let cc = build_server_container_config(&config, "task-1", &server);
+        let cc = build_server_container_config(&config, "task-1", &server, None);
+        assert_eq!(cc.image.unwrap(), "custom-server:v1");
+    }
+
+    #[test]
+    fn server_config_uses_repo_level_image_fallback() {
+        let config = test_config();
+        let server = test_server_config();
+        let cc = build_server_container_config(
+            &config,
+            "task-1",
+            &server,
+            Some("aorwall/moatless-vibe-sandbox-js:latest"),
+        );
+        assert_eq!(cc.image.unwrap(), "aorwall/moatless-vibe-sandbox-js:latest");
+    }
+
+    #[test]
+    fn server_config_per_server_image_overrides_repo_level() {
+        let config = test_config();
+        let mut server = test_server_config();
+        server.docker_image = Some("custom-server:v1".into());
+        let cc = build_server_container_config(
+            &config,
+            "task-1",
+            &server,
+            Some("aorwall/moatless-vibe-sandbox-js:latest"),
+        );
         assert_eq!(cc.image.unwrap(), "custom-server:v1");
     }
 
@@ -577,7 +619,7 @@ mod tests {
     fn server_config_has_correct_labels() {
         let config = test_config();
         let server = test_server_config();
-        let cc = build_server_container_config(&config, "task-1", &server);
+        let cc = build_server_container_config(&config, "task-1", &server, None);
         let labels = cc.labels.unwrap();
         assert_eq!(labels.get("moatless.service").unwrap(), "server");
         assert_eq!(labels.get("moatless.io/task-id").unwrap(), "task-1");
@@ -588,7 +630,7 @@ mod tests {
     fn server_config_has_workspace_ready_wait() {
         let config = test_config();
         let server = test_server_config();
-        let cc = build_server_container_config(&config, "task-1", &server);
+        let cc = build_server_container_config(&config, "task-1", &server, None);
         let cmd = cc.cmd.unwrap();
         assert_eq!(cmd[0], "bash");
         assert_eq!(cmd[1], "-c");
@@ -600,7 +642,7 @@ mod tests {
     fn server_config_exposes_server_port() {
         let config = test_config();
         let server = test_server_config();
-        let cc = build_server_container_config(&config, "task-1", &server);
+        let cc = build_server_container_config(&config, "task-1", &server, None);
         let ports = cc.exposed_ports.unwrap();
         assert!(ports.contains_key("3000/tcp"));
     }
@@ -609,7 +651,7 @@ mod tests {
     fn server_config_has_bind_mounts() {
         let config = test_config();
         let server = test_server_config();
-        let cc = build_server_container_config(&config, "task-1", &server);
+        let cc = build_server_container_config(&config, "task-1", &server, None);
         let host_config = cc.host_config.unwrap();
         let mounts = host_config.mounts.unwrap();
         assert_eq!(mounts.len(), 2);
@@ -621,7 +663,7 @@ mod tests {
     fn server_config_env_vars() {
         let config = test_config();
         let server = test_server_config();
-        let cc = build_server_container_config(&config, "task-1", &server);
+        let cc = build_server_container_config(&config, "task-1", &server, None);
         let env = cc.env.unwrap();
         assert!(env.iter().any(|e| e == "PORT=3000"));
         assert!(env.iter().any(|e| e == "WORKSPACE_PATH=/opt/moatless/repo"));
@@ -636,7 +678,7 @@ mod tests {
         let plan = test_plan();
         let cc = build_container_config(&config, "task-1", &plan, None);
         let mounts = cc.host_config.unwrap().mounts.unwrap();
-        assert_eq!(mounts.len(), 2);
+        assert_eq!(mounts.len(), 3);
         assert!(!mounts.iter().any(|m| m.target.as_deref() == Some("/var/run/docker.sock")));
     }
 
@@ -647,7 +689,7 @@ mod tests {
         plan.repo_config.docker_access = Some(true);
         let cc = build_container_config(&config, "task-1", &plan, None);
         let mounts = cc.host_config.unwrap().mounts.unwrap();
-        assert_eq!(mounts.len(), 3);
+        assert_eq!(mounts.len(), 4);
         let socket_mount = mounts.iter().find(|m| m.target.as_deref() == Some("/var/run/docker.sock"));
         assert!(socket_mount.is_some());
         assert_eq!(socket_mount.unwrap().source.as_deref(), Some("/var/run/docker.sock"));
@@ -660,7 +702,7 @@ mod tests {
         let plan = test_plan();
         let cc = build_container_config(&config, "task-1", &plan, None);
         let mounts = cc.host_config.unwrap().mounts.unwrap();
-        assert_eq!(mounts.len(), 3);
+        assert_eq!(mounts.len(), 4);
         assert!(mounts.iter().any(|m| m.target.as_deref() == Some("/var/run/docker.sock")));
     }
 
@@ -672,7 +714,7 @@ mod tests {
         plan.repo_config.docker_access = Some(false);
         let cc = build_container_config(&config, "task-1", &plan, None);
         let mounts = cc.host_config.unwrap().mounts.unwrap();
-        assert_eq!(mounts.len(), 2);
+        assert_eq!(mounts.len(), 3);
         assert!(!mounts.iter().any(|m| m.target.as_deref() == Some("/var/run/docker.sock")));
     }
 

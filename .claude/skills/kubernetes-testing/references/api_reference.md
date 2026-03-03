@@ -6,7 +6,7 @@ Complete workflows for creating tasks and verifying agent/preview execution in K
 
 ```bash
 export API_KEY="mvk_your_api_key"
-export BASE_URL="https://moatless.xyz"
+export BASE_URL="https://moatless.dev"
 export NAMESPACE="vibe"
 ```
 
@@ -58,10 +58,10 @@ echo "Task ID: $TASK_ID"
 sleep 10
 
 # Check worker pod exists
-kubectl get pods -n $NAMESPACE | grep ${TASK_ID:0:8}
+kubectl get pods -n $NAMESPACE -l moatless.io/task-id=$TASK_ID
 
 # Get worker pod name
-WORKER_POD=$(kubectl get pods -n $NAMESPACE | grep ${TASK_ID:0:8} | awk '{print $1}')
+WORKER_POD=$(kubectl get pods -n $NAMESPACE -l moatless.io/task-id=$TASK_ID | awk '{print $1}')
 ```
 
 ### Step 4: Monitor Task Status
@@ -190,7 +190,7 @@ curl -s -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/tasks/$TASK_ID/wor
 
 ```bash
 # Get worker pod
-WORKER_POD=$(kubectl get pods -n $NAMESPACE | grep ${TASK_ID:0:8} | awk '{print $1}')
+WORKER_POD=$(kubectl get pods -n $NAMESPACE -l moatless.io/task-id=$TASK_ID | awk '{print $1}')
 
 # Check pod status
 kubectl get pod $WORKER_POD -n $NAMESPACE
@@ -202,7 +202,7 @@ kubectl logs $WORKER_POD -n $NAMESPACE --tail=100
 kubectl exec $WORKER_POD -n $NAMESPACE -- curl -s localhost:8001/agent-status
 
 # Main app logs for this task
-kubectl logs deployment/vibe-moatless-vibe -n $NAMESPACE --tail=200 | grep $TASK_ID
+kubectl logs deployment/moatless-vibe-backend -n $NAMESPACE --tail=200 | grep $TASK_ID
 ```
 
 ---
@@ -241,7 +241,7 @@ curl -s -X POST -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/tasks/$TAS
 ### Test via kubectl (K8s)
 
 ```bash
-WORKER_POD=$(kubectl get pods -n $NAMESPACE | grep ${TASK_ID:0:8} | awk '{print $1}')
+WORKER_POD=$(kubectl get pods -n $NAMESPACE -l moatless.io/task-id=$TASK_ID | awk '{print $1}')
 
 # Check worker's preview status
 kubectl exec $WORKER_POD -n $NAMESPACE -- curl -s localhost:8001/server/status
@@ -256,8 +256,8 @@ kubectl exec $WORKER_POD -n $NAMESPACE -- curl -s "localhost:8001/server/logs?li
 ### Access via Hostname Proxy
 
 ```bash
-# Preview accessible at: https://{TASK_ID}.proxy.moatless.xyz/
-curl -sk "https://${TASK_ID}.proxy.moatless.xyz/" -H "Authorization: Bearer $API_KEY" | head -20
+# Preview accessible at: https://{TASK_ID}.proxy.moatless.dev/
+curl -sk "https://${TASK_ID}.proxy.moatless.dev/" -H "Authorization: Bearer $API_KEY" | head -20
 ```
 
 ### Stream Server Logs (SSE)
@@ -275,7 +275,7 @@ curl -N -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/tasks/$TASK_ID/ser
 set -e
 
 API_KEY="${API_KEY:-mvk_your_api_key}"
-BASE_URL="${BASE_URL:-https://moatless.xyz}"
+BASE_URL="${BASE_URL:-https://moatless.dev}"
 NAMESPACE="${NAMESPACE:-vibe}"
 TEMPLATE_ID="${TEMPLATE_ID:-your-template-uuid}"
 
@@ -290,8 +290,8 @@ echo "Task: $TASK_ID"
 
 echo "=== 2. Wait for Worker Pod ==="
 sleep 15
-kubectl get pods -n $NAMESPACE | grep ${TASK_ID:0:8}
-WORKER_POD=$(kubectl get pods -n $NAMESPACE | grep ${TASK_ID:0:8} | awk '{print $1}')
+kubectl get pods -n $NAMESPACE -l moatless.io/task-id=$TASK_ID
+WORKER_POD=$(kubectl get pods -n $NAMESPACE -l moatless.io/task-id=$TASK_ID | awk '{print $1}')
 
 echo "=== 3. Check Agent Status ==="
 curl -s -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/tasks/$TASK_ID/workspace-status" | \

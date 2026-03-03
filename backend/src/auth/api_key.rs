@@ -219,3 +219,32 @@ pub fn hash_key(key: &str) -> String {
     hasher.update(key.as_bytes());
     hex::encode(hasher.finalize())
 }
+
+/// Constant-time comparison for static API key.
+/// Hashes both sides with SHA-256 to normalize length, then uses `subtle::ConstantTimeEq`.
+pub fn static_key_matches(provided: &str, expected: &str) -> bool {
+    use subtle::ConstantTimeEq;
+    let h1 = Sha256::digest(provided.as_bytes());
+    let h2 = Sha256::digest(expected.as_bytes());
+    h1.ct_eq(&h2).into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn static_key_matches_identical_keys() {
+        assert!(static_key_matches("my-secret-key-1234", "my-secret-key-1234"));
+    }
+
+    #[test]
+    fn static_key_matches_different_keys() {
+        assert!(!static_key_matches("my-secret-key-1234", "wrong-key-5678"));
+    }
+
+    #[test]
+    fn static_key_matches_different_length_keys() {
+        assert!(!static_key_matches("short", "this-is-a-much-longer-key"));
+    }
+}

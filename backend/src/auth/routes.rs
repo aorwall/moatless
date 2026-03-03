@@ -200,6 +200,20 @@ async fn verify_handler(
         .and_then(|v| v.to_str().ok())
         .unwrap_or("-");
 
+    // Try static API key (constant-time, no DB)
+    if let Some(auth_header) = headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()) {
+        if let Some(bearer) = auth_header.strip_prefix("Bearer ") {
+            if let Some(static_key) = state.config.auth.static_api_key.as_deref() {
+                if api_key::static_key_matches(bearer, static_key) {
+                    debug!("Auth verify: static API key valid");
+                    return Ok(verify_success_response(
+                        "static-api-key", "api-user", "admin", "static-api-key", None,
+                    ));
+                }
+            }
+        }
+    }
+
     // Try API key (Authorization: Bearer mvk_xxx)
     if let Some(auth_header) = headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()) {
         if auth_header.starts_with("Bearer mvk_") {

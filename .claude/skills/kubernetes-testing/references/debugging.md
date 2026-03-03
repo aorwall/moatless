@@ -17,16 +17,16 @@ Detailed debugging commands for K8s mode.
 
 ```bash
 # Errors only
-kubectl logs deployment/vibe-moatless-vibe -n $NAMESPACE --tail=200 | grep '"level":50'
+kubectl logs deployment/moatless-vibe-backend -n $NAMESPACE --tail=200 | grep '"level":"ERROR"'
 
 # Warnings and errors
-kubectl logs deployment/vibe-moatless-vibe -n $NAMESPACE --tail=200 | grep -E '"level":(40|50)'
+kubectl logs deployment/moatless-vibe-backend -n $NAMESPACE --tail=200 | grep -E '"level":"(WARN|ERROR)"'
 
 # Specific task
-kubectl logs deployment/vibe-moatless-vibe -n $NAMESPACE --tail=200 | grep $TASK_ID
+kubectl logs deployment/moatless-vibe-backend -n $NAMESPACE --tail=200 | grep $TASK_ID
 
 # Parse JSON with jq
-kubectl logs deployment/vibe-moatless-vibe -n $NAMESPACE --tail=50 | \
+kubectl logs deployment/moatless-vibe-backend -n $NAMESPACE --tail=50 | \
   jq -r 'select(.taskId == "your-task-id") | "\(.time) \(.msg)"'
 ```
 
@@ -47,11 +47,11 @@ kubectl get pvc -n $NAMESPACE
 
 ```bash
 # Main app
-kubectl exec deployment/vibe-moatless-vibe -n $NAMESPACE -- curl -s localhost:8000/health
+kubectl exec deployment/moatless-vibe-backend -n $NAMESPACE -- curl -s localhost:8080/health
 
 # Worker pod
 WORKER_IP=$(kubectl get pod $WORKER_POD -n $NAMESPACE -o jsonpath='{.status.podIP}')
-kubectl exec deployment/vibe-moatless-vibe -n $NAMESPACE -- curl -s http://$WORKER_IP:8000/health
+kubectl exec deployment/moatless-vibe-backend -n $NAMESPACE -- curl -s http://$WORKER_IP:8000/health
 ```
 
 ## Regular Task Creation
@@ -82,7 +82,7 @@ curl -s -X POST \
 
 ```bash
 # Get worker pod
-WORKER_POD=$(kubectl get pods -n $NAMESPACE | grep ${TASK_ID:0:8} | awk '{print $1}')
+WORKER_POD=$(kubectl get pods -n $NAMESPACE -l moatless.io/task-id=$TASK_ID -o jsonpath='{.items[0].metadata.name}')
 
 # Check preview server status
 kubectl exec -n $NAMESPACE $WORKER_POD -- curl -s localhost:8001/server/status
@@ -91,7 +91,7 @@ kubectl exec -n $NAMESPACE $WORKER_POD -- curl -s localhost:8001/server/status
 kubectl exec -n $NAMESPACE $WORKER_POD -- curl -s localhost:3000 | head -20
 
 # Via hostname routing
-curl -sk "https://${TASK_ID}.proxy.moatless.xyz/" -H "Authorization: Bearer $API_KEY"
+curl -sk "https://${TASK_ID}.proxy.moatless.dev/" -H "Authorization: Bearer $API_KEY"
 ```
 
 ## Troubleshooting Checklist

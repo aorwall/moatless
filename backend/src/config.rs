@@ -150,6 +150,10 @@ pub struct SandboxConfig {
     /// Maximum container restart count before auto-stopping a crash-looping sandbox (default: 5).
     /// Set to 0 to disable crash-loop auto-stop.
     pub max_crash_restart_count: i32,
+    /// JSON-encoded tolerations for sandbox pods (e.g., `[{"key":"kubernetes.azure.com/scalesetpriority","operator":"Equal","value":"spot","effect":"NoSchedule"}]`)
+    pub tolerations_json: Option<String>,
+    /// JSON-encoded node selector for sandbox pods (e.g., `{"karpenter.sh/capacity-type":"spot"}`)
+    pub node_selector_json: Option<String>,
 }
 
 /// Proxy / Traefik IngressRoute settings.
@@ -224,6 +228,9 @@ pub struct AuthConfig {
     pub is_production: bool,
     /// Auth cache TTL in seconds (default: 30).
     pub cache_ttl_secs: u64,
+    /// Pre-configured static API key for admin access without OAuth/database.
+    /// Must be at least 32 characters when set.
+    pub static_api_key: Option<String>,
 }
 
 #[allow(clippy::missing_fields_in_debug)]
@@ -242,6 +249,7 @@ impl fmt::Debug for AuthConfig {
             .field("frontend_url", &self.frontend_url)
             .field("cookie_domain", &self.cookie_domain)
             .field("is_production", &self.is_production)
+            .field("static_api_key", &self.static_api_key.as_ref().map(|_| "[REDACTED]"))
             .finish()
     }
 }
@@ -383,6 +391,8 @@ impl Config {
                 idle_timeout_minutes: env_or("SANDBOX_IDLE_TIMEOUT_MINUTES", 60),
                 idle_check_interval_secs: env_or("SANDBOX_IDLE_CHECK_INTERVAL_SECS", 300),
                 max_crash_restart_count: env_or("SANDBOX_MAX_CRASH_RESTART_COUNT", 5),
+                tolerations_json: env_opt("K8S_SANDBOX_TOLERATIONS"),
+                node_selector_json: env_opt("K8S_SANDBOX_NODE_SELECTOR"),
             },
 
             proxy: ProxyConfig {
@@ -453,6 +463,7 @@ impl Config {
                     .map(|v| v == "production")
                     .unwrap_or(false),
                 cache_ttl_secs: env_or("AUTH_CACHE_TTL_SECS", 30),
+                static_api_key: env_opt("STATIC_API_KEY").map(|s| s.trim().to_string()),
             },
 
             s3: S3Config {
@@ -504,6 +515,20 @@ impl Config {
                 return Err(ConfigError::Invalid(
                     "AUTH0_CLIENT_SECRET required when AUTH_PROVIDER=auth0".into(),
                 ));
+            }
+        }
+
+        // Validate static API key length
+        if let Some(ref key) = self.auth.static_api_key {
+            if key.len() < 32 {
+                return Err(ConfigError::Invalid(
+                    "STATIC_API_KEY must be at least 32 characters".into(),
+                ));
+            }
+            if key.starts_with("mvk_") {
+                tracing::warn!(
+                    "STATIC_API_KEY starts with 'mvk_' prefix — this may collide with DB-backed API keys"
+                );
             }
         }
 
@@ -646,6 +671,8 @@ mod tests {
                 idle_timeout_minutes: 60,
                 idle_check_interval_secs: 300,
                 max_crash_restart_count: 5,
+                node_selector_json: None,
+                tolerations_json: None,
             },
             proxy: ProxyConfig {
                 domain: None,
@@ -686,6 +713,7 @@ mod tests {
                 session_cookie_name: "test".into(),
                 is_production: false,
                 cache_ttl_secs: 0,
+                static_api_key: None,
             },
             s3: S3Config { bucket_name: None, key_prefix: "test".into(), region: "us-east-1".into() },
             slack: SlackConfig { bot_token: None, signing_secret: None, bot_user_id: None },
@@ -761,14 +789,32 @@ mod tests {
     // =========================================================================
 
     #[test]
+    fn validate_static_api_key_too_short_fails() {
+        let mut config = minimal_config();
+        config.auth.static_api_key = Some("short-key".into());
+        let err = config.validate().unwrap_err();
+        assert!(err.to_string().contains("STATIC_API_KEY"));
+        assert!(err.to_string().contains("32 characters"));
+    }
+
+    #[test]
+    fn validate_static_api_key_sufficient_length_passes() {
+        let mut config = minimal_config();
+        config.auth.static_api_key = Some("a".repeat(32));
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
     fn auth_config_debug_redacts_secrets() {
         let config = minimal_config();
         let mut auth = config.auth;
         auth.github_client_secret = Some("super_secret_123".into());
         auth.auth0_client_secret = Some("another_secret".into());
+        auth.static_api_key = Some("static_secret_key_value_here_long".into());
         let debug = format!("{auth:?}");
         assert!(!debug.contains("super_secret_123"));
         assert!(!debug.contains("another_secret"));
+        assert!(!debug.contains("static_secret_key_value_here_long"));
         assert!(debug.contains("[REDACTED]"));
     }
 

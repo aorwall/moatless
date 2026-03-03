@@ -6,15 +6,15 @@ Complete reference for Prometheus metrics available at `/metrics` endpoint (requ
 
 ```bash
 # Port-forward to access metrics
-kubectl port-forward deployment/vibe-moatless-vibe -n $NAMESPACE 8000:8000
+kubectl port-forward deployment/moatless-vibe-backend -n $NAMESPACE 9090:9090
 
 # Get all moatless metrics
-curl -s localhost:8000/metrics | grep moatless_
+curl -s localhost:9090/metrics | grep moatless_
 
 # Filter specific category
-curl -s localhost:8000/metrics | grep moatless_event
-curl -s localhost:8000/metrics | grep moatless_agent
-curl -s localhost:8000/metrics | grep moatless_kubernetes
+curl -s localhost:9090/metrics | grep moatless_event
+curl -s localhost:9090/metrics | grep moatless_agent
+curl -s localhost:9090/metrics | grep moatless_kubernetes
 ```
 
 ## Metrics by Category
@@ -115,40 +115,40 @@ curl -s localhost:8000/metrics | grep moatless_kubernetes
 
 ```bash
 # Before creating task
-curl -s localhost:8000/metrics | grep -E "(active_agents|active_workspaces)"
+curl -s localhost:9090/metrics | grep -E "(active_agents|active_workspaces)"
 
 # Create task, then check
-curl -s localhost:8000/metrics | grep moatless_task_created_total
-curl -s localhost:8000/metrics | grep moatless_kubernetes_pod_total
+curl -s localhost:9090/metrics | grep moatless_task_created_total
+curl -s localhost:9090/metrics | grep moatless_kubernetes_pod_total
 ```
 
 ### Debug Event Delivery
 
 ```bash
 # Check delivery modes
-curl -s localhost:8000/metrics | grep event_delivery_total
+curl -s localhost:9090/metrics | grep event_delivery_total
 # Expected: notify success >> poll success
 
 # Check latency
-curl -s localhost:8000/metrics | grep event_delivery_latency_seconds
+curl -s localhost:9090/metrics | grep event_delivery_latency_seconds
 ```
 
 ### Monitor Errors
 
 ```bash
 # Any errors during test
-curl -s localhost:8000/metrics | grep error_total
+curl -s localhost:9090/metrics | grep error_total
 
 # Database issues
-curl -s localhost:8000/metrics | grep 'database_operation_total.*error'
+curl -s localhost:9090/metrics | grep 'database_operation_total.*error'
 ```
 
 ### Performance Check
 
 ```bash
 # Pod startup time
-curl -s localhost:8000/metrics | grep kubernetes_pod_readiness
+curl -s localhost:9090/metrics | grep kubernetes_pod_readiness
 
 # Agent execution time
-curl -s localhost:8000/metrics | grep agent_execution_duration
+curl -s localhost:9090/metrics | grep agent_execution_duration
 ```
