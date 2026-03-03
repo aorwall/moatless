@@ -8,6 +8,7 @@ pub mod api_keys;
 pub mod cache;
 pub mod cookie;
 pub mod error;
+pub mod middleware;
 pub mod models;
 pub mod oauth;
 pub mod provider_token_dao;

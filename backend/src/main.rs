@@ -148,8 +148,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (mut router, mut api) = sandbox::routes::api_router(sandbox_state);
 
     // Auth routes (needs DB)
+    let mut auth_middleware_state: Option<auth::middleware::AuthMiddlewareState> = None;
     if let Some(ref pool) = db_pool {
         let auth_state = auth::routes::AuthState::new(pool.clone(), Arc::new(config.clone()));
+
+        // Build middleware state sharing the same repos and cache
+        auth_middleware_state = Some(auth::middleware::AuthMiddlewareState {
+            sessions: auth_state.sessions.clone(),
+            api_keys: auth_state.api_keys.clone(),
+            users: auth_state.users.clone(),
+            cache: auth_state.cache.clone(),
+            config: auth_state.config.clone(),
+        });
+
         let (auth_router, auth_api) = auth::routes::auth_router(auth_state);
         router = router.merge(auth_router);
         api.merge(auth_api);
@@ -236,6 +247,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "/openapi.json",
         axum::routing::get(move || async move { Json(openapi_json) }),
     );
+
+    // Apply auth middleware (outermost layer — runs first on every request)
+    let router = if let Some(mw_state) = auth_middleware_state {
+        info!("Auth middleware enabled");
+        router
+            .layer(axum::middleware::from_fn(
+                auth::middleware::auth_middleware,
+            ))
+            .layer(axum::Extension(mw_state))
+    } else {
+        info!("Auth middleware disabled (no database)");
+        router
+    };
 
     // ── Serve ───────────────────────────────────────────────────────────
     let addr = SocketAddr::from(([0, 0, 0, 0], config.server.port));
