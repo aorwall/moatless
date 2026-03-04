@@ -188,15 +188,75 @@ curl -s -H "Authorization: Bearer $API_TOKEN" "$BASE_URL/api/v1/tasks/$TASK_ID" 
 curl -s -X DELETE -H "Authorization: Bearer $API_TOKEN" "$BASE_URL/api/v1/tasks/$TASK_ID"
 ```
 
-### Frontend Verification
+### Browser Verification with playwright-cli
 
-For UI changes, use the `playwright-cli` skill to navigate moatless.dev directly in the browser — take screenshots, inspect accessibility snapshots, verify visual changes.
+For UI or preview changes, use `playwright-cli` with an authenticated session cookie.
+
+#### Step 1: Get the Test API Key
+
+```bash
+# From K8s secret
+export API_TOKEN=$(kubectl get secret -n vibe vibe-secrets -o jsonpath='{.data.TEST_API_KEY}' | base64 -d)
+```
+
+#### Step 2: Exchange API Key for Session Cookie
+
+```bash
+# Exchange API key for a session cookie (domain: .moatless.dev)
+SESSION_COOKIE=$(curl -sD - -X POST \
+  -H "Authorization: Bearer $API_TOKEN" \
+  "https://moatless.dev/api/v1/auth/api-key/session" \
+  | grep -i set-cookie | sed 's/.*moatless_session=//;s/;.*//')
+echo "Session cookie: $SESSION_COOKIE"
+```
+
+The backend creates a session and sets `moatless_session` cookie with `Domain=.moatless.dev` (covers `*.moatless.dev` subdomains including preview URLs).
+
+#### Step 3: Set Cookie in playwright-cli
+
+```bash
+# Open browser and set the session cookie
+playwright-cli open
+playwright-cli cookie-set moatless_session "$SESSION_COOKIE" \
+  --domain=.moatless.dev --httpOnly --secure --sameSite=Lax
+```
+
+#### Step 4: Navigate and Verify
+
+```bash
+# Navigate to dashboard
+playwright-cli goto https://moatless.dev/
+
+# Navigate to a specific task
+playwright-cli goto https://moatless.dev/tasks/$TASK_ID
+
+# Take screenshots for visual verification
+playwright-cli screenshot
+
+# Check accessibility snapshot for element inspection
+playwright-cli snapshot
+
+# Verify a preview URL directly (requires cookie from Step 3)
+playwright-cli goto https://${TASK_ID}--5173.moatless.dev/
+```
+
+#### Step 5: Save Session for Reuse (Optional)
+
+```bash
+# Save browser state (cookies + localStorage) for reuse across sessions
+playwright-cli state-save moatless-session
+
+# In a future session, restore saved state
+playwright-cli state-load moatless-session
+```
 
 ### Run E2E Tests Against Production
 
 ```bash
 BASE_URL=https://moatless.dev GITHUB_PAT=$GITHUB_PAT task test:api
 ```
+
+> **Note**: The `COOKIE_DOMAIN` is set to `.moatless.dev` in Helm values (`auth.cookieDomain`), ensuring session cookies are shared across `moatless.dev` and all `*.moatless.dev` preview subdomains.
 
 ## Component Quick Reference
 

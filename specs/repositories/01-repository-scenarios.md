@@ -1,4 +1,4 @@
-# Repository Management
+# Repository Scenarios
 
 This spec defines all testable scenarios for repository management: creation from a GitHub URL, retrieval, updates, listing, and deletion. These scenarios test repository management using real GitHub repos.
 
@@ -10,12 +10,9 @@ This spec defines all testable scenarios for repository management: creation fro
 
 ```
 ├── REPO-01: Create repository from GitHub URL
-│   ├── REPO-01.1: Repository appears in listing
 │   ├── REPO-02: Get repository by ID
 │   ├── REPO-03: Update repository metadata
-│   ├── REPO-04: List repositories
 │   └── REPO-05: Delete repository
-│       └── REPO-05.1: Repository removed from listing
 ```
 
 ### Standalone: Error Cases
@@ -47,19 +44,7 @@ Creating a repository from a real GitHub remote URL exercises the full clone pip
   * **And** the repository name matches the request
   * **And** the repository is a remote repository
   * **And** the repository URL matches the provided URL
-
----
-
-### REPO-01.1: Repository appears in listing
-
-A newly created repository is visible in the repository listing.
-
-* **Given** REPO-01 has completed
-
-* **When** the user lists all repositories
-
-* **Then** the response includes the created repository
-  * **And** the repository has the correct ID
+  * **And** the repository appears in the repository listing
 
 ---
 
@@ -89,40 +74,16 @@ Repository metadata (name, description) can be updated after creation.
 
 ---
 
-### REPO-04: List repositories
-
-The repository listing returns all repositories with correct counts.
-
-* **Given** REPO-01 has completed (at least one repository exists)
-
-* **When** the user lists all repositories
-
-* **Then** the response contains at least one repository
-  * **And** the created repository is present in the list
-
----
-
 ### REPO-05: Delete repository
 
-A repository can be deleted.
+A repository can be deleted and no longer appears in the listing.
 
 * **Given** REPO-01 has completed
 
 * **When** the user deletes the repository
 
 * **Then** the system confirms the deletion
-
----
-
-### REPO-05.1: Repository removed from listing
-
-A deleted repository no longer appears in the listing.
-
-* **Given** REPO-05 has completed
-
-* **When** the user lists all repositories
-
-* **Then** the deleted repository is not in the response
+  * **And** the deleted repository is not in the listing
 
 ---
 

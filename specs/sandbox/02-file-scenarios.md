@@ -1,6 +1,8 @@
-# File Operations
+# File Operation Scenarios
 
-This spec defines all testable scenarios for workspace file operations: listing, reading, searching, writing, and git status overlay. These scenarios test file operations independently of agent execution.
+This spec defines all testable scenarios for workspace file operations: listing, reading, searching, and writing. These scenarios test file operations independently of agent execution.
+
+> **Note:** FILE-06 (verifying files reflect agent changes) lives in [agent/01-agent-scenarios.md](../agent/01-agent-scenarios.md#file-06-files-reflect-agent-changes) because it tests agent execution outcomes.
 
 ---
 
@@ -9,10 +11,9 @@ This spec defines all testable scenarios for workspace file operations: listing,
 ### Chain: File Operations
 
 ```
-├── SANDBOX-01: Sandbox ready (from any task creation)
-│   ├── FILE-01: List workspace files
+├── SANDBOX-01: Sandbox ready (from sandbox/01-sandbox-scenarios.md)
+│   ├── FILE-01: List workspace files (with git status)
 │   ├── FILE-02: Read workspace file
-│   ├── FILE-03: File tree with git status overlay
 │   ├── FILE-04: Search files by name
 │   └── FILE-05: Write file to workspace
 ```
@@ -27,9 +28,9 @@ Each scenario below depends on a sandbox being ready.
 
 ---
 
-### FILE-01: List workspace files
+### FILE-01: List workspace files (with git status)
 
-The file listing returns the workspace directory structure.
+The file listing returns the workspace directory structure including git status information.
 
 * **Given** a sandbox is ready
 
@@ -38,6 +39,7 @@ The file listing returns the workspace directory structure.
 * **Then** the response contains a list of file entries
   * **And** each entry includes at minimum a file path
   * **And** known template files are present (e.g., package.json, index.html)
+  * **And** the response includes git status summary information
 
 ---
 
@@ -51,18 +53,6 @@ Individual files can be read from the workspace.
 
 * **Then** the response contains the file content as text
   * **And** the content is non-empty
-
----
-
-### FILE-03: File tree with git status overlay
-
-The file listing can include git status information for each file.
-
-* **Given** a sandbox is ready
-
-* **When** the user lists workspace files with git status enabled
-
-* **Then** file entries include git status indicators (unmodified, modified, added, etc.)
 
 ---
 

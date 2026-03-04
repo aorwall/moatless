@@ -6,6 +6,7 @@ use axum::Json;
 
 use tracing::{debug, info, warn};
 
+use super::config_reader::{config_to_patch, fetch_moatless_config};
 use super::dao::RepositoryPatch;
 use super::models::{Repository, RepositoryKind, RepositoryProvider};
 use crate::extractors::AuthUser;
@@ -49,6 +50,8 @@ pub async fn create_repository(
 
     let id = uuid::Uuid::new_v4().to_string();
     let now = chrono::Utc::now();
+    let has_servers = req.servers.is_some();
+    let user_id = auth.user_id;
 
     let row = Repository {
         id: id.clone(),
@@ -71,7 +74,7 @@ pub async fn create_repository(
         description: req.description,
         provider: req.provider,
         visibility: Some(req.visibility.unwrap_or(Visibility::Public)),
-        created_by: Some(auth.user_id),
+        created_by: Some(user_id.clone()),
         deleted: Some(false),
         created_at: Some(now),
         updated_at: Some(now),
@@ -79,7 +82,61 @@ pub async fn create_repository(
 
     state.repositories.insert(&row).await?;
 
-    let resp: RepositoryResponse = row.into();
+    // Auto-read .moatless/config.json if no servers were provided and repo has a remote URL
+    if !has_servers {
+        if let Some(ref remote_url) = row.remote_url {
+            let provider = row.provider.unwrap_or(RepositoryProvider::Github);
+            let provider_str = provider.as_str();
+
+            match state
+                .provider_tokens
+                .find_provider_token(&user_id, provider_str)
+                .await
+            {
+                Ok(Some(token)) => {
+                    let branch = row.default_branch.as_deref();
+                    match fetch_moatless_config(remote_url, branch, &token.access_token, provider)
+                        .await
+                    {
+                        Ok(Some(config)) => {
+                            info!(repository_id = %id, "Auto-applying .moatless/config.json");
+                            match config_to_patch(&config) {
+                                Ok(patch) => {
+                                    if let Err(e) = state.repositories.update(&id, &patch).await {
+                                        warn!(repository_id = %id, error = %e, "Failed to apply repo config");
+                                    }
+                                }
+                                Err(e) => {
+                                    warn!(repository_id = %id, error = %e, "Failed to convert repo config to patch");
+                                }
+                            }
+                        }
+                        Ok(None) => {
+                            debug!(repository_id = %id, "No .moatless/config.json found");
+                        }
+                        Err(e) => {
+                            warn!(repository_id = %id, error = %e, "Failed to fetch .moatless/config.json");
+                        }
+                    }
+                }
+                Ok(None) => {
+                    debug!(repository_id = %id, "No provider token for {provider_str}, skipping config auto-read");
+                }
+                Err(e) => {
+                    warn!(repository_id = %id, error = %e, "Failed to look up provider token");
+                }
+            }
+        }
+    }
+
+    // Re-fetch to include any config that was applied
+    let final_row = state
+        .repositories
+        .find_by_id(&id, &user_id)
+        .await?
+        .unwrap_or(row);
+
+    let resp: RepositoryResponse = final_row.into();
     Ok((StatusCode::CREATED, Json(resp)))
 }
 
@@ -376,7 +433,7 @@ struct BranchFetchResult {
 }
 
 /// Parse a GitHub remote URL into owner/repo.
-fn parse_github_owner_repo(remote_url: &str) -> Option<(String, String)> {
+pub(crate) fn parse_github_owner_repo(remote_url: &str) -> Option<(String, String)> {
     // Handles: https://github.com/owner/repo.git or https://github.com/owner/repo
     let url = remote_url
         .trim_end_matches('/')
@@ -690,6 +747,71 @@ async fn fetch_gitness_branches(
         branches: all_branches.into_iter().map(|b| b.name).collect(),
         default_branch,
     })
+}
+
+/// Sync `.moatless/config.json` from the remote repository into the DB.
+#[utoipa::path(
+    post,
+    path = "/api/v1/repositories/{repository_id}/sync-config",
+    tag = "repositories",
+    params(
+        ("repository_id" = String, Path, description = "Repository identifier")
+    ),
+    responses(
+        (status = 200, description = "Config synced", body = RepositoryResponse),
+        (status = 400, description = "Bad request", body = crate::sandbox::schemas::ErrorBody),
+        (status = 404, description = "Repository not found", body = crate::sandbox::schemas::ErrorBody)
+    )
+)]
+pub async fn sync_config(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(repository_id): Path<String>,
+) -> Result<Json<RepositoryResponse>, RepositoryError> {
+    let repo = state
+        .repositories
+        .find_by_id(&repository_id, &auth.user_id)
+        .await?
+        .ok_or_else(|| RepositoryError::NotFound(repository_id.clone()))?;
+
+    let remote_url = repo.remote_url.as_deref().ok_or_else(|| {
+        RepositoryError::BadRequest("Repository has no remote URL".to_string())
+    })?;
+
+    let provider = repo.provider.unwrap_or(RepositoryProvider::Github);
+    let provider_str = provider.as_str();
+
+    let token = state
+        .provider_tokens
+        .find_provider_token(&auth.user_id, provider_str)
+        .await
+        .map_err(RepositoryError::Db)?
+        .ok_or_else(|| {
+            RepositoryError::BadRequest(format!(
+                "No {provider_str} token configured. Please connect your {provider_str} account."
+            ))
+        })?;
+
+    let branch = repo.default_branch.as_deref();
+    let config =
+        fetch_moatless_config(remote_url, branch, &token.access_token, provider).await?;
+
+    let config = config.ok_or_else(|| {
+        RepositoryError::NotFound(
+            "No .moatless/config.json found in the repository".to_string(),
+        )
+    })?;
+
+    let patch = config_to_patch(&config)?;
+    state.repositories.update(&repository_id, &patch).await?;
+
+    let updated = state
+        .repositories
+        .find_by_id(&repository_id, &auth.user_id)
+        .await?
+        .ok_or_else(|| RepositoryError::NotFound(repository_id))?;
+
+    Ok(Json(updated.into()))
 }
 
 #[cfg(test)]

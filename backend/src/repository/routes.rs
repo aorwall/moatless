@@ -19,6 +19,7 @@ use crate::state::AppState;
         handlers::delete_repository,
         handlers::convert_to_template,
         handlers::get_branches,
+        handlers::sync_config,
     )
 )]
 pub struct RepositoryApiDoc;
@@ -30,6 +31,7 @@ pub fn repository_router(state: AppState) -> (axum::Router, utoipa::openapi::Ope
         .routes(routes!(handlers::get_repository, handlers::update_repository, handlers::delete_repository))
         .routes(routes!(handlers::convert_to_template))
         .routes(routes!(handlers::get_branches))
+        .routes(routes!(handlers::sync_config))
         .with_state(state)
         .split_for_parts();
 

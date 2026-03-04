@@ -6,7 +6,7 @@ dotenv:
 
 vars:
   NAMESPACE: '{{.NAMESPACE | default "vibe"}}'
-  RELEASE_NAME: '{{.RELEASE_NAME | default "vibe"}}'
+  RELEASE_NAME: '{{.RELEASE_NAME | default "moatless-vibe"}}'
   TAG: '{{.TAG | default "latest"}}'
   PLATFORM: '{{.PLATFORM | default "linux/amd64"}}'
   HELM_CHART: k8s/helm/moatless-vibe
@@ -84,8 +84,8 @@ tasks:
       - ./docker/build-servers.sh --tag {{.TAG}} --platform {{.PLATFORM}} --push
 
   push:
-    desc: Build and push frontend and sandbox images
-    deps: [push:frontend, push:sandbox]
+    desc: Build and push all images
+    deps: [push:frontend, push:backend, push:sandbox]
 
   # ── Deploy targets ─────────────────────────────────────────────
 
@@ -93,30 +93,42 @@ tasks:
     desc: Build, push, and deploy frontend only
     cmds:
       - task: push:frontend
-      - echo "==> Restarting app deployment..."
-      - kubectl rollout restart deployment/{{.RELEASE_NAME}}-moatless-vibe -n {{.NAMESPACE}}
-      - kubectl rollout status deployment/{{.RELEASE_NAME}}-moatless-vibe -n {{.NAMESPACE}} --timeout=300s
-      - echo "==> App deployed successfully!"
+      - echo "==> Restarting frontend deployment..."
+      - kubectl rollout restart deployment/{{.RELEASE_NAME}} -n {{.NAMESPACE}}
+      - kubectl rollout status deployment/{{.RELEASE_NAME}} -n {{.NAMESPACE}} --timeout=300s
+      - echo "==> Frontend deployed successfully!"
+
+  deploy:backend:
+    desc: Build, push, and deploy backend only
+    cmds:
+      - task: push:backend
+      - echo "==> Restarting backend deployment..."
+      - kubectl rollout restart deployment/{{.RELEASE_NAME}}-backend -n {{.NAMESPACE}}
+      - kubectl rollout status deployment/{{.RELEASE_NAME}}-backend -n {{.NAMESPACE}} --timeout=300s
+      - echo "==> Backend deployed successfully!"
 
   deploy:sandbox:
-    desc: Build and push sandbox (new pods use new image)
+    desc: Build and push sandbox image (new pods use updated image automatically)
     cmds:
       - task: push:sandbox
       - echo "==> Sandbox image pushed. New sandbox pods will use the updated image."
-      - echo "Note{{":"}} Existing sandbox pods will continue until task completion."
 
   deploy:
-    desc: Build, push both, and upgrade Helm release
+    desc: Build, push all images, and upgrade Helm release
     cmds:
-      - task: push
+      - task: push:frontend
+      - task: push:backend
+      - task: push:sandbox
       - echo "==> Upgrading Helm release..."
       - >-
         helm upgrade {{.RELEASE_NAME}} {{.HELM_CHART}}
         --namespace {{.NAMESPACE}}
+        -f k8s/helm/values-moatless.yaml
         --set image.tag={{.TAG}}
+        --set backend.image.tag={{.TAG}}
         --set sandboxImage.tag={{.TAG}}
-        --set externalSecrets.enabled=true
-      - kubectl rollout status deployment/{{.RELEASE_NAME}}-moatless-vibe -n {{.NAMESPACE}} --timeout=300s
+      - kubectl rollout status deployment/{{.RELEASE_NAME}} -n {{.NAMESPACE}} --timeout=300s
+      - kubectl rollout status deployment/{{.RELEASE_NAME}}-backend -n {{.NAMESPACE}} --timeout=300s
       - echo "==> Deployment complete!"
 
   # ── Kubernetes operations ──────────────────────────────────────
@@ -125,8 +137,8 @@ tasks:
     desc: Restart the app deployment (pull latest image)
     cmds:
       - echo "==> Restarting deployment..."
-      - kubectl rollout restart deployment/{{.RELEASE_NAME}}-moatless-vibe -n {{.NAMESPACE}}
-      - kubectl rollout status deployment/{{.RELEASE_NAME}}-moatless-vibe -n {{.NAMESPACE}} --timeout=300s
+      - kubectl rollout restart deployment/{{.RELEASE_NAME}} -n {{.NAMESPACE}}
+      - kubectl rollout status deployment/{{.RELEASE_NAME}} -n {{.NAMESPACE}} --timeout=300s
 
   status:
     desc: Show deployment status
@@ -143,7 +155,7 @@ tasks:
   logs:
     desc: Show app logs
     cmds:
-      - kubectl logs -n {{.NAMESPACE}} deployment/{{.RELEASE_NAME}}-moatless-vibe --tail=100 -f
+      - kubectl logs -n {{.NAMESPACE}} deployment/{{.RELEASE_NAME}} --tail=100 -f
 
   logs:worker:
     desc: Show logs for all worker pods

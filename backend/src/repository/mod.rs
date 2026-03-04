@@ -1,5 +1,6 @@
 //! Repository CRUD module.
 
+pub mod config_reader;
 pub mod dao;
 pub mod error;
 pub mod handlers;

@@ -73,3 +73,22 @@ storybook-static
 # Staged during Docker builds (copied from external repo)
 dev-browser/
 .direnv/
+
+# Claude Code worktrees
+.claude/worktrees/
+
+# Moatless local config
+.moatless/
+
+# Playwright CLI logs
+.playwright-cli/
+
+# Test reports (local)
+test-reports/
+
+# Issue notes (local)
+issues/
+
+# Screenshot references (local design artifacts)
+task-files-view.png
+task-preview-view.png

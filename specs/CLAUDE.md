@@ -106,15 +106,41 @@ Each spec file starts with an overview tree showing the chain structure and scen
 
 The tree must match the heading structure exactly — every ID in the tree has a corresponding `###` heading below.
 
-## File Naming
+## Directory Structure
 
-Spec files use descriptive names:
-- `core-lifecycle.md` — Cross-domain happy-path flow
-- `task-crud.md` — Task management
-- `sandbox-operations.md` — Sandbox provisioning and lifecycle
-- `agent-execution.md` — Agent modes, stop, error recovery
-- `file-operations.md` — Workspace file operations
-- `repository.md` — Repository management
+Specs are organized into per-domain directories. Each domain has a `00-design.md` (non-technical design overview) and numbered scenario files.
+
+```
+specs/
+├── CLAUDE.md                          # This authoring guide
+├── tasks/
+│   ├── 00-design.md                   # Tasks + tags
+│   └── 01-task-scenarios.md           # TASK-01 through TASK-11, plus TASK-02
+├── sandbox/
+│   ├── 00-design.md                   # Sandbox lifecycle, preview, files
+│   ├── 01-sandbox-scenarios.md        # SANDBOX-01 through SANDBOX-06
+│   └── 02-file-scenarios.md           # FILE-01 through FILE-05
+├── agent/
+│   ├── 00-design.md                   # Agent execution, messages, commands
+│   └── 01-agent-scenarios.md          # AGENT-01 through AGENT-06, FILE-06
+├── repositories/
+│   ├── 00-design.md                   # Repository management
+│   └── 01-repository-scenarios.md     # REPO-01 through REPO-07
+├── channels/
+│   ├── 00-design.md                   # Slack/webhook integrations
+│   └── 01-channel-scenarios.md        # CHAN-01 through CHAN-54
+├── auth/
+│   └── 00-design.md                   # Login, sessions, API keys, provider tokens
+├── figma/
+│   └── 00-design.md                   # Figma design import
+└── uploads/
+    └── 00-design.md                   # File uploads/attachments
+```
+
+### Cross-Domain References
+
+- **TASK-02** lives in `tasks/01-task-scenarios.md` and is referenced by `sandbox/01-sandbox-scenarios.md` as a chain prerequisite.
+- **FILE-06** lives in `agent/01-agent-scenarios.md` because it verifies agent execution outcomes. The sandbox design doc notes its location.
 
 ## Standalone Scenarios
 
