@@ -10,7 +10,7 @@
       "name": "dev",
       "label": "Dev Server",
       "port": 3000,
-      "startCommands": ["/opt/moatless/data/.bun/bin/bun run dev -- --host 0.0.0.0"],
+      "startCommands": ["/opt/moatless/data/.bun/bin/bun run dev -- --host 0.0.0.0 --allowedHosts all"],
       "startupTimeoutSeconds": 30,
       "autoReload": true,
       "enableInspector": true,
