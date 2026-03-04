@@ -1,13 +1,16 @@
 {
   "codeExecution": {
-    "setupCommands": ["bun install"]
+    "setupCommands": [
+      "curl -fsSL https://bun.sh/install | BUN_INSTALL=/opt/moatless/data/.bun bash",
+      "/opt/moatless/data/.bun/bin/bun install"
+    ]
   },
   "servers": [
     {
       "name": "dev",
       "label": "Dev Server",
       "port": 3000,
-      "startCommands": ["bun run dev"],
+      "startCommands": ["/opt/moatless/data/.bun/bin/bun run dev"],
       "startupTimeoutSeconds": 30,
       "autoReload": true,
       "enableInspector": true,
@@ -17,7 +20,7 @@
       "name": "storybook",
       "label": "Storybook",
       "port": 6006,
-      "startCommands": ["bun run storybook -- -p 6006"],
+      "startCommands": ["/opt/moatless/data/.bun/bin/bun run storybook -- -p 6006"],
       "startupTimeoutSeconds": 60,
       "autoReload": false,
       "enableInspector": false,
