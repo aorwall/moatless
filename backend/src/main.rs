@@ -154,7 +154,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Build middleware state sharing the same repos and cache
         auth_middleware_state = Some(auth::middleware::AuthMiddlewareState {
-            sessions: auth_state.sessions.clone(),
             api_keys: auth_state.api_keys.clone(),
             users: auth_state.users.clone(),
             cache: auth_state.cache.clone(),

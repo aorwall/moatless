@@ -8,12 +8,11 @@ use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::get;
 use axum::Json;
 use rand::Rng;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::config::{AuthProvider, Config};
-use super::sessions::Session;
 use super::sessions::SessionRepository;
 use super::api_keys::ApiKeyRepository;
 use super::users::UserRepository;
@@ -25,6 +24,7 @@ use super::api_key;
 use super::cache::AuthCache;
 use super::cookie;
 use super::error::AuthError;
+use super::jwt::{self, SessionClaims};
 use super::oauth::provider::OAuthProvider;
 use super::session;
 use super::schemas::{
@@ -153,19 +153,28 @@ pub fn auth_router(state: AuthState) -> (axum::Router, utoipa::openapi::OpenApi)
 }
 
 // ============================================================================
-// Helper: extract session from cookie or API key for auth-required endpoints
+// Helper: resolve JWT secret from config
 // ============================================================================
 
-/// Try to authenticate from session cookie, returning the session row.
-async fn authenticate_from_cookie(
-    state: &AuthState,
+/// Resolve the session JWT secret, returning an error if none is available.
+fn require_jwt_secret(config: &Config) -> Result<&str, AuthError> {
+    jwt::get_jwt_secret(config)
+        .ok_or_else(|| AuthError::Config("No session JWT secret configured".to_string()))
+}
+
+// ============================================================================
+// Helper: authenticate from session cookie (JWT)
+// ============================================================================
+
+/// Try to authenticate from session cookie, returning the JWT claims.
+fn authenticate_from_cookie(
+    config: &Config,
     headers: &HeaderMap,
-) -> Result<Session, AuthError> {
-    let session_id = cookie::get_cookie_value(headers, &state.config.auth.session_cookie_name)
+) -> Result<SessionClaims, AuthError> {
+    let secret = require_jwt_secret(config)?;
+    let token = cookie::get_cookie_value(headers, &config.auth.session_cookie_name)
         .ok_or(AuthError::Unauthorized)?;
-    session::validate_session(state.sessions.as_ref(), &session_id)
-        .await?
-        .ok_or(AuthError::SessionExpired)
+    jwt::verify_session_jwt(&token, secret).map_err(|_| AuthError::SessionExpired)
 }
 
 // ============================================================================
@@ -213,45 +222,41 @@ async fn verify_handler(
         }
     }
 
-    // Try session cookies — there may be duplicates when COOKIE_DOMAIN changed
-    let session_ids = cookie::get_all_cookie_values(&headers, &state.config.auth.session_cookie_name);
-    if session_ids.is_empty() {
+    // Try session cookies (JWT) — there may be duplicates when COOKIE_DOMAIN changed
+    let jwt_secret = require_jwt_secret(&state.config)?;
+    let tokens = cookie::get_all_cookie_values(&headers, &state.config.auth.session_cookie_name);
+    if tokens.is_empty() {
         warn!(method = fwd_method, uri = fwd_uri, "Auth verify: no session cookie found");
         return Err(AuthError::Unauthorized);
     }
 
-    for session_id in &session_ids {
-        match session::validate_session_cached(state.sessions.as_ref(), session_id, &state.cache).await {
-            Ok(Some(payload)) => {
-                if session_ids.len() > 1 {
+    for token in &tokens {
+        match jwt::verify_session_jwt(token, jwt_secret) {
+            Ok(claims) => {
+                if tokens.len() > 1 {
                     warn!(
-                        count = session_ids.len(),
+                        count = tokens.len(),
                         "Auth verify: multiple session cookies found, using valid one"
                     );
                 }
-                debug!(user_id = %payload.user_id, "Auth verify: session valid");
+                debug!(user_id = %claims.sub, "Auth verify: session JWT valid");
                 return Ok(verify_success_response(
-                    &payload.user_id,
-                    &payload.user_login,
-                    payload.role.as_str(),
-                    &payload.provider,
-                    payload.group_id.as_deref(),
+                    &claims.sub,
+                    &claims.login,
+                    &claims.role,
+                    &claims.provider,
+                    claims.group_id.as_deref(),
                 ));
             }
-            Ok(None) => {
+            Err(_) => {
                 // This cookie value is invalid/expired — try the next one
                 continue;
-            }
-            Err(e) => {
-                // Database error — propagate immediately
-                return Err(e);
             }
         }
     }
 
     warn!(
-        count = session_ids.len(),
-        session_prefix = &session_ids[0][..session_ids[0].len().min(8)],
+        count = tokens.len(),
         "Auth verify: all session cookies invalid/expired"
     );
     Err(AuthError::SessionExpired)
@@ -313,32 +318,29 @@ async fn me_handler(
         }));
     }
 
-    let session_id = cookie::get_cookie_value(&headers, &state.config.auth.session_cookie_name);
-    let Some(session_id) = session_id else {
-        return Err(AuthError::Unauthorized);
-    };
+    let claims = authenticate_from_cookie(&state.config, &headers)?;
 
-    let session = session::validate_session(state.sessions.as_ref(), &session_id).await?;
-    let Some(session) = session else {
+    // Fetch fresh user data from DB (email/name/avatar may have changed)
+    let user = state.users.get_user(&claims.sub).await?;
+    let Some(user) = user else {
         return Err(AuthError::SessionExpired);
     };
 
-    Ok(Json(session_to_response(&session)))
-}
+    let role = claims.user_role();
+    let expires_at = chrono::DateTime::from_timestamp(claims.exp as i64, 0);
 
-fn session_to_response(session: &Session) -> SessionResponse {
-    SessionResponse {
+    Ok(Json(SessionResponse {
         user: Some(UserInfo {
-            id: session.user_id.clone(),
-            login: session.user_login.clone(),
-            email: session.user_email.clone(),
-            name: session.user_name.clone(),
-            avatar_url: session.avatar_url.clone(),
-            provider: session.provider.clone(),
-            role: session.role,
+            id: user.id,
+            login: user.login,
+            email: user.email,
+            name: user.name,
+            avatar_url: user.avatar_url,
+            provider: claims.provider,
+            role,
         }),
-        expires_at: Some(format_datetime(session.expires_at)),
-    }
+        expires_at: expires_at.map(format_datetime),
+    }))
 }
 
 // ============================================================================
@@ -362,36 +364,35 @@ async fn update_me_handler(
     headers: HeaderMap,
     Json(body): Json<UpdateUserRequest>,
 ) -> Result<Json<SessionResponse>, AuthError> {
-    let session = authenticate_from_cookie(&state, &headers).await?;
+    let claims = authenticate_from_cookie(&state.config, &headers)?;
+
+    let role = claims.user_role();
 
     // Update the users table
-    let _user = state
+    let user = state
         .users
         .update_user_profile(
-            &session.user_id,
+            &claims.sub,
             body.name.clone(),
             body.email.clone(),
         )
         .await?
         .ok_or_else(|| AuthError::NotFound("User not found".to_string()))?;
 
-    // Update all active sessions so /auth/me returns fresh data
-    state
-        .sessions
-        .update_user_info(&session.user_id, body.name, body.email)
-        .await?;
+    let expires_at = chrono::DateTime::from_timestamp(claims.exp as i64, 0);
 
-    // Invalidate auth cache so verify picks up new info
-    state.cache.invalidate_session(&session.id).await;
-
-    // Re-fetch the current session to return updated data
-    let updated_session = state
-        .sessions
-        .get_session(&session.id)
-        .await?
-        .ok_or(AuthError::SessionExpired)?;
-
-    Ok(Json(session_to_response(&updated_session)))
+    Ok(Json(SessionResponse {
+        user: Some(UserInfo {
+            id: user.id,
+            login: user.login,
+            email: user.email,
+            name: user.name,
+            avatar_url: user.avatar_url,
+            provider: claims.provider,
+            role,
+        }),
+        expires_at: expires_at.map(format_datetime),
+    }))
 }
 
 // ============================================================================
@@ -469,9 +470,12 @@ async fn handle_oauth_callback(
     // Extract group (optional)
     let group_id = provider.extract_user_group(&tokens).await;
 
-    // Create session
+    // Resolve JWT secret
+    let jwt_secret = require_jwt_secret(&state.config)?;
+
+    // Create session (returns JWT)
     let provider_str = provider_id.to_string();
-    let session_id = session::create_session(
+    let jwt_token = session::create_session(
         state.users.as_ref(),
         state.sessions.as_ref(),
         state.provider_tokens.as_ref(),
@@ -480,12 +484,13 @@ async fn handle_oauth_callback(
         &user_info,
         group_id.as_deref(),
         state.config.auth.session_max_age_secs,
+        jwt_secret,
     )
     .await?;
 
     // Build response: set session cookie, clear state cookie, redirect to frontend
     let session_cookie =
-        cookie::build_session_cookie(&state.config, &session_id, state.config.auth.session_max_age_secs);
+        cookie::build_session_cookie(&state.config, &jwt_token, state.config.auth.session_max_age_secs);
     let clear_state_cookie = cookie::build_clear_oauth_state_cookie(&state.config);
 
     let mut resp_headers = HeaderMap::new();
@@ -549,20 +554,14 @@ async fn do_logout(state: &AuthState, headers: &HeaderMap) -> Result<Response, A
         .into_response());
     }
 
-    let session_id = cookie::get_cookie_value(headers, &state.config.auth.session_cookie_name);
-
-    // Determine provider before deleting session
+    // Decode JWT to determine provider (for Auth0 redirect)
     let mut session_provider: Option<AuthProvider> = None;
-    if let Some(ref sid) = session_id {
-        if let Ok(Some(session)) = session::validate_session(state.sessions.as_ref(), sid).await {
-            session_provider = session.provider.parse().ok();
+    if let Some(token) = cookie::get_cookie_value(headers, &state.config.auth.session_cookie_name) {
+        if let Some(secret) = jwt::get_jwt_secret(&state.config) {
+            if let Ok(claims) = jwt::verify_session_jwt(&token, secret) {
+                session_provider = claims.provider.parse().ok();
+            }
         }
-        // Delete session regardless
-        if let Err(e) = session::delete_session_by_id(state.sessions.as_ref(), sid).await {
-            error!(error = %e, "Failed to delete session during logout");
-        }
-        // Invalidate cache
-        state.cache.invalidate_session(sid).await;
     }
 
     let clear_cookie = cookie::build_clear_session_cookie(&state.config);
@@ -655,25 +654,36 @@ async fn exchange_api_key_handler(
         .await?
         .ok_or(AuthError::Unauthorized)?;
 
-    let session_id = session::create_session_from_user(
+    let jwt_secret = require_jwt_secret(&state.config)?;
+
+    let jwt_token = session::create_session_from_user(
         state.sessions.as_ref(),
         &user,
         payload.group_id.as_deref(),
         state.config.auth.session_max_age_secs,
+        jwt_secret,
     )
     .await?;
 
     let session_cookie = cookie::build_session_cookie(
         &state.config,
-        &session_id,
+        &jwt_token,
         state.config.auth.session_max_age_secs,
     );
 
-    let session_row = session::validate_session(state.sessions.as_ref(), &session_id)
-        .await?
-        .ok_or(AuthError::Unauthorized)?;
-
-    let body = session_to_response(&session_row);
+    // Build response from user data + claims
+    let body = SessionResponse {
+        user: Some(UserInfo {
+            id: user.id,
+            login: user.login,
+            email: user.email,
+            name: user.name,
+            avatar_url: user.avatar_url,
+            provider: "api-key".to_string(),
+            role: user.role,
+        }),
+        expires_at: None,
+    };
 
     let mut resp_headers = HeaderMap::new();
     if let Ok(v) = session_cookie.parse() {
@@ -703,7 +713,7 @@ async fn create_api_key_handler(
     headers: HeaderMap,
     Json(body): Json<CreateApiKeyRequest>,
 ) -> Result<(StatusCode, Json<ApiKeyCreateResponse>), AuthError> {
-    let session = authenticate_from_cookie(&state, &headers).await?;
+    let claims = authenticate_from_cookie(&state.config, &headers)?;
 
     let expires_at = body.expires_in_days.map(|days| {
         chrono::Utc::now() + chrono::Duration::days(days as i64)
@@ -711,11 +721,11 @@ async fn create_api_key_handler(
 
     let result = api_key::generate_key(
         state.api_keys.as_ref(),
-        &session.user_id,
+        &claims.sub,
         &body.name,
         body.scopes,
         expires_at,
-        session.group_id.as_deref(),
+        claims.group_id.as_deref(),
     )
     .await?;
 
@@ -747,8 +757,8 @@ async fn list_api_keys_handler(
     State(state): State<AuthState>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<ApiKeyListItem>>, AuthError> {
-    let session = authenticate_from_cookie(&state, &headers).await?;
-    let keys = api_key::list_keys(state.api_keys.as_ref(), &session.user_id).await?;
+    let claims = authenticate_from_cookie(&state.config, &headers)?;
+    let keys = api_key::list_keys(state.api_keys.as_ref(), &claims.sub).await?;
 
     let items: Vec<ApiKeyListItem> = keys
         .iter()
@@ -788,8 +798,8 @@ async fn revoke_api_key_handler(
     headers: HeaderMap,
     Path(key_id): Path<String>,
 ) -> Result<Json<MessageResponse>, AuthError> {
-    let session = authenticate_from_cookie(&state, &headers).await?;
-    let result = api_key::revoke_key(state.api_keys.as_ref(), &key_id, &session.user_id).await?;
+    let claims = authenticate_from_cookie(&state.config, &headers)?;
+    let result = api_key::revoke_key(state.api_keys.as_ref(), &key_id, &claims.sub).await?;
 
     match result {
         Some(key_hash) => {

@@ -1,6 +1,6 @@
 //! Application-level auth middleware.
 //!
-//! Validates session cookies and API keys directly, independent of any
+//! Validates session cookies (JWT) and API keys directly, independent of any
 //! ingress-layer ForwardAuth. Strips inbound `X-User-*` headers to prevent
 //! spoofing, then injects validated headers for downstream extractors.
 
@@ -15,10 +15,9 @@ use tracing::{debug, warn};
 
 use super::api_key::validate_key_cached;
 use super::api_keys::ApiKeyRepository;
-use super::cache::AuthCache;
+use super::cache::{AuthCache, VerifyPayload};
 use super::cookie::get_all_cookie_values;
-use super::session::validate_session_cached;
-use super::sessions::SessionRepository;
+use super::jwt;
 use super::users::UserRepository;
 use crate::config::Config;
 use crate::sandbox::schemas::ErrorBody;
@@ -26,7 +25,6 @@ use crate::sandbox::schemas::ErrorBody;
 /// Shared state for the auth middleware layer.
 #[derive(Clone)]
 pub struct AuthMiddlewareState {
-    pub sessions: Arc<dyn SessionRepository>,
     pub api_keys: Arc<dyn ApiKeyRepository>,
     pub users: Arc<dyn UserRepository>,
     pub cache: AuthCache,
@@ -130,36 +128,47 @@ pub async fn auth_middleware(mut req: Request<Body>, next: Next) -> Response {
         }
     }
 
-    // Try session cookies
-    let session_ids =
+    // Try session cookies (JWT)
+    let Some(jwt_secret) = jwt::get_jwt_secret(&state.config) else {
+        warn!(path = %path, "Auth middleware: no JWT secret configured");
+        return unauthorized_response();
+    };
+
+    let tokens =
         get_all_cookie_values(req.headers(), &state.config.auth.session_cookie_name);
 
-    for session_id in &session_ids {
-        match validate_session_cached(state.sessions.as_ref(), session_id, &state.cache).await {
-            Ok(Some(payload)) => {
-                debug!(user_id = %payload.user_id, path = %path, "Auth middleware: session valid");
+    for token in &tokens {
+        match jwt::verify_session_jwt(token, jwt_secret) {
+            Ok(claims) => {
+                debug!(user_id = %claims.sub, path = %path, "Auth middleware: session JWT valid");
+                let role = claims.user_role();
+                let payload = VerifyPayload {
+                    user_id: claims.sub,
+                    user_login: claims.login,
+                    role,
+                    provider: claims.provider,
+                    group_id: claims.group_id,
+                    // expires_at not needed for header injection, use a far-future sentinel
+                    expires_at: chrono::Utc::now() + chrono::Duration::hours(24),
+                };
                 inject_user_headers(&mut req, &payload);
                 return next.run(req).await;
             }
-            Ok(None) => continue,
-            Err(e) => {
-                warn!(error = %e, path = %path, "Auth middleware: session validation error");
-                return unauthorized_response();
-            }
+            Err(_) => continue,
         }
     }
 
     // No valid auth found
-    if session_ids.is_empty() {
+    if tokens.is_empty() {
         debug!(path = %path, "Auth middleware: no credentials provided");
     } else {
-        warn!(path = %path, count = session_ids.len(), "Auth middleware: all session cookies invalid/expired");
+        warn!(path = %path, count = tokens.len(), "Auth middleware: all session cookies invalid/expired");
     }
     unauthorized_response()
 }
 
 /// Inject validated user headers into the request for downstream extractors.
-fn inject_user_headers(req: &mut Request<Body>, payload: &super::cache::VerifyPayload) {
+fn inject_user_headers(req: &mut Request<Body>, payload: &VerifyPayload) {
     let headers = req.headers_mut();
     if let Ok(v) = HeaderValue::from_str(&payload.user_id) {
         headers.insert("x-user-id", v);

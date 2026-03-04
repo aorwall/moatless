@@ -450,6 +450,7 @@ mod tests {
                 session_cookie_name: "test".into(),
                 is_production: false,
                 cache_ttl_secs: 0,
+                session_jwt_secret: None,
                 test_api_key: None,
             },
             s3: S3Config { bucket_name: None, key_prefix: "test".into(), region: "us-east-1".into() },

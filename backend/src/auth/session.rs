@@ -4,6 +4,7 @@ use chrono::Utc;
 use rand::Rng;
 use tracing::{error, info, warn};
 
+use super::jwt;
 use super::models::{OAuthTokens, ProviderUserInfo, UserRole};
 use super::provider_tokens::{ProviderToken, ProviderTokenAuthRepository};
 use super::sessions::{Session, SessionRepository};
@@ -17,8 +18,8 @@ fn generate_session_id() -> String {
 
 /// Create a new session after OAuth login.
 ///
-/// Upserts the user, creates a session row, and optionally persists the
-/// provider token (for GitHub OAuth → provider_tokens cross-context access).
+/// Upserts the user, creates a session row (audit trail + provider token persistence),
+/// and returns a signed JWT for the session cookie.
 #[allow(clippy::too_many_arguments)]
 pub async fn create_session(
     users: &dyn UserRepository,
@@ -29,6 +30,7 @@ pub async fn create_session(
     user_info: &ProviderUserInfo,
     group_id: Option<&str>,
     session_max_age_secs: u64,
+    jwt_secret: &str,
 ) -> Result<String, crate::auth::error::AuthError> {
     let now = Utc::now();
     let expires_at = now + chrono::Duration::seconds(session_max_age_secs as i64);
@@ -66,7 +68,7 @@ pub async fn create_session(
         action,
     );
 
-    // Create session
+    // Create session row (audit trail)
     let session_id = generate_session_id();
     let session = Session {
         id: session_id.clone(),
@@ -117,6 +119,21 @@ pub async fn create_session(
         }
     }
 
+    // Generate JWT
+    let token = jwt::generate_session_jwt(
+        &user_info.id,
+        &user_info.login,
+        role,
+        provider_id,
+        group_id,
+        jwt_secret,
+        session_max_age_secs,
+    )
+    .map_err(|e| {
+        error!(error = %e, "Failed to generate session JWT");
+        crate::auth::error::AuthError::Config("Failed to generate session token".to_string())
+    })?;
+
     info!(
         user_login = %user_info.login,
         provider = %provider_id,
@@ -124,18 +141,20 @@ pub async fn create_session(
         "Created session"
     );
 
-    Ok(session_id)
+    Ok(token)
 }
 
 /// Create a new session from a user row (for API key → session exchange).
 ///
 /// Unlike `create_session`, this doesn't require OAuth tokens — it creates
 /// a session with `provider = "api-key"` and no token fields.
+/// Returns a signed JWT for the session cookie.
 pub async fn create_session_from_user(
     sessions: &dyn SessionRepository,
     user: &User,
     group_id: Option<&str>,
     session_max_age_secs: u64,
+    jwt_secret: &str,
 ) -> Result<String, crate::auth::error::AuthError> {
     let now = Utc::now();
     let expires_at = now + chrono::Duration::seconds(session_max_age_secs as i64);
@@ -160,13 +179,28 @@ pub async fn create_session_from_user(
     };
     sessions.insert_session(&session).await?;
 
+    // Generate JWT
+    let token = jwt::generate_session_jwt(
+        &user.id,
+        &user.login,
+        user.role,
+        "api-key",
+        group_id,
+        jwt_secret,
+        session_max_age_secs,
+    )
+    .map_err(|e| {
+        error!(error = %e, "Failed to generate session JWT");
+        crate::auth::error::AuthError::Config("Failed to generate session token".to_string())
+    })?;
+
     info!(
         user_login = %user.login,
         user_id = %user.id,
         "Created session from API key"
     );
 
-    Ok(session_id)
+    Ok(token)
 }
 
 /// Validate a session by ID. Returns None if expired or not found.
@@ -191,50 +225,6 @@ pub async fn validate_session(
     }
 
     Ok(Some(session))
-}
-
-/// Validate a session with cache-aside. Used by `verify_handler` only.
-///
-/// 1. Check cache → return if hit (re-check expiry on cached `expires_at`)
-/// 2. Miss → call `validate_session()` → build `VerifyPayload` → insert cache → return
-/// 3. If cached entry is expired → invalidate + fire-and-forget DB delete
-pub async fn validate_session_cached(
-    sessions: &dyn SessionRepository,
-    session_id: &str,
-    cache: &crate::auth::cache::AuthCache,
-) -> Result<Option<crate::auth::cache::VerifyPayload>, crate::auth::error::AuthError> {
-    // Check cache first
-    if let Some(cached) = cache.get_session(session_id).await {
-        let now = Utc::now();
-        if now > cached.expires_at {
-            // Cached entry is expired — evict and delete from DB
-            cache.invalidate_session(session_id).await;
-            if let Err(e) = sessions.delete_session(session_id).await {
-                error!(error = %e, "Failed to delete expired session (from cache)");
-            }
-            return Ok(None);
-        }
-        return Ok(Some(cached));
-    }
-
-    // Cache miss — go to DB
-    let session = validate_session(sessions, session_id).await?;
-    let Some(session) = session else {
-        return Ok(None);
-    };
-
-    let payload = crate::auth::cache::VerifyPayload {
-        user_id: session.user_id,
-        user_login: session.user_login,
-        role: session.role,
-        provider: session.provider,
-        group_id: session.group_id,
-        expires_at: session.expires_at,
-    };
-
-
-    cache.insert_session(session_id, payload.clone()).await;
-    Ok(Some(payload))
 }
 
 /// Delete a session by ID.

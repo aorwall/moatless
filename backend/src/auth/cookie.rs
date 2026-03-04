@@ -40,8 +40,8 @@ pub fn get_all_cookie_values(headers: &HeaderMap, name: &str) -> Vec<String> {
 }
 
 /// Build a Set-Cookie header value for the session cookie.
-pub fn build_session_cookie(config: &Config, session_id: &str, max_age_secs: u64) -> String {
-    let mut builder = Cookie::build((config.auth.session_cookie_name.clone(), session_id.to_string()))
+pub fn build_session_cookie(config: &Config, token: &str, max_age_secs: u64) -> String {
+    let mut builder = Cookie::build((config.auth.session_cookie_name.clone(), token.to_string()))
         .http_only(true)
         .path("/")
         .same_site(SameSite::Lax)

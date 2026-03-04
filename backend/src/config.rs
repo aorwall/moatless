@@ -228,6 +228,9 @@ pub struct AuthConfig {
     pub is_production: bool,
     /// Auth cache TTL in seconds (default: 30).
     pub cache_ttl_secs: u64,
+    /// Secret for signing session JWTs (env: SESSION_JWT_SECRET).
+    /// Falls back to `sandbox.task_token_secret` when not set.
+    pub session_jwt_secret: Option<String>,
     /// Raw `mvk_`-prefixed API key for a test user auto-created on startup.
     /// When set, upserts a dedicated `test-api-user` and inserts the API key.
     /// No OAuth login required.
@@ -250,6 +253,7 @@ impl fmt::Debug for AuthConfig {
             .field("frontend_url", &self.frontend_url)
             .field("cookie_domain", &self.cookie_domain)
             .field("is_production", &self.is_production)
+            .field("session_jwt_secret", &self.session_jwt_secret.as_ref().map(|_| "[REDACTED]"))
             .field("test_api_key", &self.test_api_key.as_ref().map(|_| "[REDACTED]"))
             .finish()
     }
@@ -464,6 +468,7 @@ impl Config {
                     .map(|v| v == "production")
                     .unwrap_or(false),
                 cache_ttl_secs: env_or("AUTH_CACHE_TTL_SECS", 30),
+                session_jwt_secret: env_opt("SESSION_JWT_SECRET"),
                 test_api_key: env_opt("TEST_API_KEY").map(|s| s.trim().to_string()),
             },
 
@@ -714,6 +719,7 @@ mod tests {
                 session_cookie_name: "test".into(),
                 is_production: false,
                 cache_ttl_secs: 0,
+                session_jwt_secret: None,
                 test_api_key: None,
             },
             s3: S3Config { bucket_name: None, key_prefix: "test".into(), region: "us-east-1".into() },
