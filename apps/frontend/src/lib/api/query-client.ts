@@ -1,8 +1,5 @@
 import { QueryCache, QueryClient } from '@tanstack/react-query'
 
-// API base URL for auth redirects
-const API_BASE_URL = import.meta.env.PROD ? '' : (import.meta.env.VITE_API_URL ?? '')
-
 const AUTH_REDIRECT_KEY = 'auth_redirect_ts'
 const AUTH_REDIRECT_COOLDOWN_MS = 30_000
 
@@ -12,7 +9,7 @@ const AUTH_REDIRECT_COOLDOWN_MS = 30_000
  * (e.g., when the login endpoint itself fails or cookies don't persist).
  */
 export function redirectToLogin() {
-  if (window.location.pathname.startsWith('/auth')) {
+  if (window.location.pathname === '/login' || window.location.pathname.startsWith('/auth')) {
     return
   }
 
@@ -22,7 +19,7 @@ export function redirectToLogin() {
   }
 
   sessionStorage.setItem(AUTH_REDIRECT_KEY, String(Date.now()))
-  window.location.href = `${API_BASE_URL}/api/v1/auth/login`
+  window.location.href = '/login'
 }
 
 /**

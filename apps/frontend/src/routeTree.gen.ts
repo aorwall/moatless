@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TasksRouteImport } from './routes/tasks'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as FigmaTestRouteImport } from './routes/figma-test'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as IndexRouteImport } from './routes/index'
@@ -22,6 +23,11 @@ import { Route as OauthFigmaCallbackRouteImport } from './routes/oauth/figma/cal
 const TasksRoute = TasksRouteImport.update({
   id: '/tasks',
   path: '/tasks',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
 const FigmaTestRoute = FigmaTestRouteImport.update({
@@ -69,6 +75,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRoute
   '/figma-test': typeof FigmaTestRoute
+  '/login': typeof LoginRoute
   '/tasks': typeof TasksRouteWithChildren
   '/auth/callback': typeof AuthCallbackRoute
   '/tasks/': typeof TasksIndexRoute
@@ -80,6 +87,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRoute
   '/figma-test': typeof FigmaTestRoute
+  '/login': typeof LoginRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/tasks': typeof TasksIndexRoute
   '/oauth/figma/callback': typeof OauthFigmaCallbackRoute
@@ -91,6 +99,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRoute
   '/figma-test': typeof FigmaTestRoute
+  '/login': typeof LoginRoute
   '/tasks': typeof TasksRouteWithChildren
   '/auth/callback': typeof AuthCallbackRoute
   '/tasks/': typeof TasksIndexRoute
@@ -104,6 +113,7 @@ export interface FileRouteTypes {
     | '/'
     | '/dashboard'
     | '/figma-test'
+    | '/login'
     | '/tasks'
     | '/auth/callback'
     | '/tasks/'
@@ -115,6 +125,7 @@ export interface FileRouteTypes {
     | '/'
     | '/dashboard'
     | '/figma-test'
+    | '/login'
     | '/auth/callback'
     | '/tasks'
     | '/oauth/figma/callback'
@@ -125,6 +136,7 @@ export interface FileRouteTypes {
     | '/'
     | '/dashboard'
     | '/figma-test'
+    | '/login'
     | '/tasks'
     | '/auth/callback'
     | '/tasks/'
@@ -137,6 +149,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   DashboardRoute: typeof DashboardRoute
   FigmaTestRoute: typeof FigmaTestRoute
+  LoginRoute: typeof LoginRoute
   TasksRoute: typeof TasksRouteWithChildren
   AuthCallbackRoute: typeof AuthCallbackRoute
   OauthFigmaCallbackRoute: typeof OauthFigmaCallbackRoute
@@ -150,6 +163,13 @@ declare module '@tanstack/react-router' {
       path: '/tasks'
       fullPath: '/tasks'
       preLoaderRoute: typeof TasksRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/figma-test': {
@@ -227,6 +247,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   DashboardRoute: DashboardRoute,
   FigmaTestRoute: FigmaTestRoute,
+  LoginRoute: LoginRoute,
   TasksRoute: TasksRouteWithChildren,
   AuthCallbackRoute: AuthCallbackRoute,
   OauthFigmaCallbackRoute: OauthFigmaCallbackRoute,

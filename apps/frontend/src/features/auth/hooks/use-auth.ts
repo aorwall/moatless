@@ -2,28 +2,19 @@ import type { SessionResponse } from '@moatless/api-client'
 import { unwrapResponse } from '@moatless/api-client/custom-instance'
 import { meHandler } from '@moatless/api-client/sandbox/auth/auth'
 import { useQuery } from '@tanstack/react-query'
-import { redirectToLogin } from '@/lib/api/query-client'
 
 const API_BASE_URL = import.meta.env.PROD ? '' : (import.meta.env.VITE_API_URL ?? '')
 
 /**
- * Hook to get the current authenticated user
- * Redirects to login on 401 response from /auth/me
+ * Hook to get the current authenticated user.
+ * The root-level AuthGate handles redirecting to /login on 401.
  */
 export function useAuth() {
   const { data: session, isLoading } = useQuery({
     queryKey: ['auth', 'session'],
     queryFn: () => unwrapResponse<SessionResponse>(meHandler()),
-    retry: false, // Don't retry on 401
-    staleTime: 5 * 60 * 1000, // Consider fresh for 5 minutes
-    throwOnError: (error) => {
-      const status = (error as Error & { status?: number }).status
-      if (status === 401) {
-        redirectToLogin()
-        return false // Don't throw the error
-      }
-      return true // Throw other errors
-    },
+    retry: false,
+    staleTime: 5 * 60 * 1000,
   })
 
   /**

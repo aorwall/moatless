@@ -1,5 +1,14 @@
-import { createRootRoute, HeadContent, Outlet } from '@tanstack/react-router'
+import {
+  createRootRoute,
+  HeadContent,
+  Navigate,
+  Outlet,
+  useRouterState,
+} from '@tanstack/react-router'
+import type { ReactNode } from 'react'
 
+import { useAuth } from '@/features/auth/hooks/use-auth'
+import { GlobalEventStreamProvider } from '@/features/events'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
 import { Layout } from '@/lib/layout'
 
@@ -103,14 +112,52 @@ export const Route = createRootRoute({
       },
     ],
   }),
-  component: () => (
+  component: RootComponent,
+})
+
+function RootComponent() {
+  const { pathname } = useRouterState({ select: (s) => s.location })
+  const isPublicRoute = pathname === '/login' || pathname.startsWith('/auth/')
+
+  if (isPublicRoute) {
+    return (
+      <>
+        <HeadContent />
+        <Outlet />
+      </>
+    )
+  }
+
+  return (
     <>
       <HeadContent />
-      <ErrorBoundary>
-        <Layout>
-          <Outlet />
-        </Layout>
-      </ErrorBoundary>
+      <AuthGate>
+        <ErrorBoundary>
+          <GlobalEventStreamProvider>
+            <Layout>
+              <Outlet />
+            </Layout>
+          </GlobalEventStreamProvider>
+        </ErrorBoundary>
+      </AuthGate>
     </>
-  ),
-})
+  )
+}
+
+function AuthGate({ children }: { children: ReactNode }) {
+  const { isAuthenticated, isLoading } = useAuth()
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="text-muted-foreground">Loading...</div>
+      </div>
+    )
+  }
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" />
+  }
+
+  return children
+}

@@ -9,7 +9,6 @@ import { routeTree } from './routeTree.gen'
 
 import '@/lib/styles/globals.css'
 
-import { GlobalEventStreamProvider } from '@/features/events'
 import { queryClient } from '@/lib/api/query-client'
 import { FeatureFlagsProvider } from '@/lib/contexts/feature-flags-context'
 import { Page404 } from '@/lib/pages/404'
@@ -45,10 +44,8 @@ if (rootElement && !rootElement.innerHTML) {
     <StrictMode>
       <FeatureFlagsProvider>
         <QueryClientProvider client={queryClient}>
-          <GlobalEventStreamProvider>
-            <RouterProvider router={router} />
-            <Toaster position="bottom-right" />
-          </GlobalEventStreamProvider>
+          <RouterProvider router={router} />
+          <Toaster position="bottom-right" />
         </QueryClientProvider>
       </FeatureFlagsProvider>
     </StrictMode>,
