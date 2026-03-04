@@ -1,6 +1,34 @@
+import type { ClipboardEvent } from 'react'
 import { useState } from 'react'
 import { Button } from '@/lib/components/ui/button'
 import { Input } from '@/lib/components/ui/input'
+
+function parseEnvContent(text: string): Record<string, string> {
+  const result: Record<string, string> = {}
+  for (const line of text.split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith('#')) {
+      continue
+    }
+    const eqIndex = trimmed.indexOf('=')
+    if (eqIndex === -1) {
+      continue
+    }
+    const key = trimmed.slice(0, eqIndex).trim()
+    if (!key) {
+      continue
+    }
+    let value = trimmed.slice(eqIndex + 1).trim()
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1)
+    }
+    result[key] = value
+  }
+  return result
+}
 
 interface EnvironmentVariablesListProps {
   variables: Record<string, string>
@@ -20,6 +48,24 @@ export function EnvironmentVariablesList({
   const hasPartialInput = (newKey !== '' || newValue !== '') && !(newKey !== '' && newValue !== '')
   const showKeyError = touched && newValue !== '' && newKey === ''
   const showValueError = touched && newKey !== '' && newValue === ''
+
+  const handlePaste = (e: ClipboardEvent<HTMLInputElement>) => {
+    const text = e.clipboardData.getData('text/plain')
+    const parsed = parseEnvContent(text)
+    const entries = Object.entries(parsed)
+    if (entries.length >= 2) {
+      e.preventDefault()
+      onChange({ ...variables, ...parsed })
+      setNewKey('')
+      setNewValue('')
+      setTouched(false)
+    } else if (entries.length === 1) {
+      const [key, value] = entries[0]
+      e.preventDefault()
+      setNewKey(key)
+      setNewValue(value)
+    }
+  }
 
   const commitNew = () => {
     if (newKey && newValue) {
@@ -81,6 +127,7 @@ export function EnvironmentVariablesList({
             placeholder="New variable name"
             value={newKey}
             onChange={(e) => setNewKey(e.target.value)}
+            onPaste={handlePaste}
             onBlur={commitNew}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
