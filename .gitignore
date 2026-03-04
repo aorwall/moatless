@@ -77,8 +77,9 @@ dev-browser/
 # Claude Code worktrees
 .claude/worktrees/
 
-# Moatless local config
+# Moatless local config (keep .moatless/config.json tracked)
 .moatless/
+!.moatless/config.json
 
 # Playwright CLI logs
 .playwright-cli/

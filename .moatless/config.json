@@ -1,0 +1,27 @@
+{
+  "codeExecution": {
+    "setupCommands": ["bun install"]
+  },
+  "servers": [
+    {
+      "name": "dev",
+      "label": "Dev Server",
+      "port": 3000,
+      "startCommands": ["bun run dev"],
+      "startupTimeoutSeconds": 30,
+      "autoReload": true,
+      "enableInspector": true,
+      "default": true
+    },
+    {
+      "name": "storybook",
+      "label": "Storybook",
+      "port": 6006,
+      "startCommands": ["bun run storybook -- -p 6006"],
+      "startupTimeoutSeconds": 60,
+      "autoReload": false,
+      "enableInspector": false,
+      "default": false
+    }
+  ]
+}
