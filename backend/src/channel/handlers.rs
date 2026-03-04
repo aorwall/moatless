@@ -202,21 +202,19 @@ pub async fn webhook_inbound(
     let msg =
         super::webhook::provider::WebhookProvider::parse_inbound(&config, &body, signature)?;
 
-    // Process in background
     let providers = state
         .channel_providers
         .as_ref()
         .ok_or_else(|| ChannelError::ProviderNotConfigured("webhook".into()))?
         .clone();
 
-    let state_clone = state.clone();
-    tokio::spawn(async move {
-        if let Err(e) = inbound::process_inbound(&state_clone, &providers, msg).await {
+    match inbound::process_inbound(&state, &providers, msg).await {
+        Ok(task_id) => Ok(Json(serde_json::json!({ "taskId": task_id })).into_response()),
+        Err(e) => {
             warn!(error = %e, "Failed to process webhook inbound message");
+            Err(e)
         }
-    });
-
-    Ok(StatusCode::OK.into_response())
+    }
 }
 
 // =========================================================================

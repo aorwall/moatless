@@ -497,9 +497,16 @@ pub async fn stop_task(
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
-    // Stop the sandbox agent process
-    if let Err(e) = state.sandbox.stop(&task_id).await {
-        tracing::warn!(task_id = %task_id, error = %e, "Failed to stop sandbox agent");
+    // Stop the agent process via gRPC (keeps sandbox pod running)
+    match state.sandbox.sandbox_client(&task_id).await {
+        Ok(client) => {
+            if let Err(e) = client.stop_agent().await {
+                tracing::warn!(task_id = %task_id, error = %e, "Failed to stop agent via gRPC");
+            }
+        }
+        Err(e) => {
+            tracing::warn!(task_id = %task_id, error = %e, "Failed to get sandbox client for agent stop");
+        }
     }
 
     // Publish agent.stopped + taskTurn.stopped events
