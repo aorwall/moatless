@@ -9,7 +9,9 @@ import type { ElementInfo, SandboxEvent, StartupEvent } from '@/features/preview
 import { useSandboxStatus } from '@/features/tasks'
 import { useSandboxRetry } from '@/features/tasks/hooks/use-sandbox-status'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
+import { FullPageError } from '@/lib/components/full-page-error'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
+import { SidebarTrigger } from '@/lib/components/ui/sidebar'
 import { Skeleton } from '@/lib/components/ui/skeleton'
 import type { Event } from '@/lib/types/events'
 import { useTaskId } from '../contexts/task-providers'
@@ -260,7 +262,14 @@ function TaskPageComponent() {
   )
 
   if (taskQuery.error) {
-    return <ErrorAlert error={taskQuery.error} />
+    return (
+      <div className="flex flex-col h-full">
+        <div className="h-[58px] px-4 py-2 border-b flex items-center">
+          <SidebarTrigger />
+        </div>
+        <FullPageError error={taskQuery.error} onRetry={() => taskQuery.refetch()} />
+      </div>
+    )
   }
 
   if (taskQuery.isLoading) {
