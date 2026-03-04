@@ -75,7 +75,7 @@ export default defineConfig(({ mode }) => {
 		],
 		server: {
 			port: process.env.PORT ? Number(process.env.PORT) : 3000,
-			allowedHosts: "all",
+			allowedHosts: true,
 			proxy: {
 				"/api": {
 					target,
