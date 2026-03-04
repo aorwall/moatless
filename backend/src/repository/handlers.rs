@@ -88,42 +88,40 @@ pub async fn create_repository(
             let provider = row.provider.unwrap_or(RepositoryProvider::Github);
             let provider_str = provider.as_str();
 
-            match state
+            // Try to get a provider token (optional for GitHub public repos)
+            let token = match state
                 .provider_tokens
                 .find_provider_token(&user_id, provider_str)
                 .await
             {
-                Ok(Some(token)) => {
-                    let branch = row.default_branch.as_deref();
-                    match fetch_moatless_config(remote_url, branch, &token.access_token, provider)
-                        .await
-                    {
-                        Ok(Some(config)) => {
-                            info!(repository_id = %id, "Auto-applying .moatless/config.json");
-                            match config_to_patch(&config) {
-                                Ok(patch) => {
-                                    if let Err(e) = state.repositories.update(&id, &patch).await {
-                                        warn!(repository_id = %id, error = %e, "Failed to apply repo config");
-                                    }
-                                }
-                                Err(e) => {
-                                    warn!(repository_id = %id, error = %e, "Failed to convert repo config to patch");
-                                }
+                Ok(t) => t,
+                Err(e) => {
+                    warn!(repository_id = %id, error = %e, "Failed to look up provider token");
+                    None
+                }
+            };
+
+            let token_str = token.as_ref().map(|t| t.access_token.as_str());
+            let branch = row.default_branch.as_deref();
+            match fetch_moatless_config(remote_url, branch, token_str, provider).await {
+                Ok(Some(config)) => {
+                    info!(repository_id = %id, "Auto-applying .moatless/config.json");
+                    match config_to_patch(&config) {
+                        Ok(patch) => {
+                            if let Err(e) = state.repositories.update(&id, &patch).await {
+                                warn!(repository_id = %id, error = %e, "Failed to apply repo config");
                             }
                         }
-                        Ok(None) => {
-                            debug!(repository_id = %id, "No .moatless/config.json found");
-                        }
                         Err(e) => {
-                            warn!(repository_id = %id, error = %e, "Failed to fetch .moatless/config.json");
+                            warn!(repository_id = %id, error = %e, "Failed to convert repo config to patch");
                         }
                     }
                 }
                 Ok(None) => {
-                    debug!(repository_id = %id, "No provider token for {provider_str}, skipping config auto-read");
+                    debug!(repository_id = %id, "No .moatless/config.json found");
                 }
                 Err(e) => {
-                    warn!(repository_id = %id, error = %e, "Failed to look up provider token");
+                    warn!(repository_id = %id, error = %e, "Failed to fetch .moatless/config.json");
                 }
             }
         }
@@ -785,16 +783,12 @@ pub async fn sync_config(
         .provider_tokens
         .find_provider_token(&auth.user_id, provider_str)
         .await
-        .map_err(RepositoryError::Db)?
-        .ok_or_else(|| {
-            RepositoryError::BadRequest(format!(
-                "No {provider_str} token configured. Please connect your {provider_str} account."
-            ))
-        })?;
+        .map_err(RepositoryError::Db)?;
 
+    let token_str = token.as_ref().map(|t| t.access_token.as_str());
     let branch = repo.default_branch.as_deref();
     let config =
-        fetch_moatless_config(remote_url, branch, &token.access_token, provider).await?;
+        fetch_moatless_config(remote_url, branch, token_str, provider).await?;
 
     let config = config.ok_or_else(|| {
         RepositoryError::NotFound(

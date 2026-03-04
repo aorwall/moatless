@@ -28,15 +28,23 @@ pub struct CodeExecution {
 /// Fetch `.moatless/config.json` from a remote repository.
 ///
 /// Returns `Ok(None)` when the file does not exist (HTTP 404).
+/// Token is optional — GitHub public repos can be fetched without auth.
 pub async fn fetch_moatless_config(
     remote_url: &str,
     branch: Option<&str>,
-    token: &str,
+    token: Option<&str>,
     provider: RepositoryProvider,
 ) -> Result<Option<MoatlessRepoConfig>, RepositoryError> {
     match provider {
         RepositoryProvider::Github => fetch_github_config(remote_url, branch, token).await,
-        RepositoryProvider::Gitlab => fetch_gitlab_config(remote_url, branch, token).await,
+        RepositoryProvider::Gitlab => {
+            let token = token.ok_or_else(|| {
+                RepositoryError::BadRequest(
+                    "GitLab requires an access token to fetch config".to_string(),
+                )
+            })?;
+            fetch_gitlab_config(remote_url, branch, token).await
+        }
         RepositoryProvider::Gitness => {
             // Gitness needs a base_url; skip for now – callers can pass it later.
             Ok(None)
@@ -48,7 +56,7 @@ pub async fn fetch_moatless_config(
 async fn fetch_github_config(
     remote_url: &str,
     branch: Option<&str>,
-    token: &str,
+    token: Option<&str>,
 ) -> Result<Option<MoatlessRepoConfig>, RepositoryError> {
     let (owner, repo) = parse_github_owner_repo(remote_url).ok_or_else(|| {
         RepositoryError::BadRequest(format!("Cannot parse GitHub URL: {remote_url}"))
@@ -63,11 +71,14 @@ async fn fetch_github_config(
     }
 
     let client = reqwest::Client::new();
-    let resp = client
+    let mut req = client
         .get(&url)
-        .header("Authorization", format!("Bearer {token}"))
         .header("User-Agent", "moatless-vibe-backend")
-        .header("Accept", "application/vnd.github.raw+json")
+        .header("Accept", "application/vnd.github.raw+json");
+    if let Some(token) = token {
+        req = req.header("Authorization", format!("Bearer {token}"));
+    }
+    let resp = req
         .send()
         .await
         .map_err(|e| RepositoryError::ProviderError(format!("GitHub API request failed: {e}")))?;
