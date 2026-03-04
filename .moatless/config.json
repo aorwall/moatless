@@ -20,7 +20,7 @@
       "name": "storybook",
       "label": "Storybook",
       "port": 6006,
-      "startCommands": ["/opt/moatless/data/.bun/bin/bun run storybook -- -p 6006"],
+      "startCommands": ["/opt/moatless/data/.bun/bin/bun run storybook -- -p 6006 --no-open"],
       "startupTimeoutSeconds": 60,
       "autoReload": false,
       "enableInspector": false,
