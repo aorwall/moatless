@@ -20,6 +20,6 @@ export const SandboxSubType = {
   ready: 'ready',
   stopped: 'stopped',
   removing: 'removing',
+  removed: 'removed',
   error: 'error',
-  fatal: 'fatal',
 } as const;

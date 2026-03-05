@@ -67,23 +67,17 @@ test.describe("Chain 2: Webhook per_message routing", () => {
 	// ─── CHAN-11: Send message via webhook — task created ──────────────
 
 	test("CHAN-11: Send message via webhook — task created", async ({ api }) => {
-		const response = await sendWebhookMessage(
+		const { response, taskId } = await sendWebhookMessage(
 			api,
 			ctx.get<string>("configId")!,
 			"First per_message webhook test",
 		);
 
 		expect(response.status).toBe(200);
+		expect(taskId).toBeTruthy();
 
-		await waitForProcessing();
-
-		// Find the created task
-		const tasks = await api.listTasks({ repositoryId: ctx.repositoryId });
-		expect(tasks.items.length).toBeGreaterThan(0);
-
-		const task = tasks.items[0];
-		ctx.set("firstTaskId", task.taskId);
-		ctx.set("taskIds", [...(ctx.get<string[]>("taskIds") ?? []), task.taskId]);
+		ctx.set("firstTaskId", taskId);
+		ctx.set("taskIds", [taskId!]);
 	});
 
 	// ─── CHAN-11.1: Task is in open state ──────────────────────────────
@@ -105,34 +99,26 @@ test.describe("Chain 2: Webhook per_message routing", () => {
 	// ─── CHAN-12: Send second message — new task created ───────────────
 
 	test("CHAN-12: Send second message — new task created", async ({ api }) => {
-		const response = await sendWebhookMessage(
+		const { response, taskId } = await sendWebhookMessage(
 			api,
 			ctx.get<string>("configId")!,
 			"Second per_message webhook test",
 		);
 
 		expect(response.status).toBe(200);
-
-		await waitForProcessing();
-
-		const tasks = await api.listTasks({ repositoryId: ctx.repositoryId });
-		const newTasks = tasks.items.filter(
-			(t) => t.taskId !== ctx.get<string>("firstTaskId"),
-		);
-		expect(newTasks.length).toBeGreaterThan(0);
+		expect(taskId).toBeTruthy();
+		expect(taskId).not.toBe(ctx.get<string>("firstTaskId"));
 
 		ctx.set("taskIds", [
 			...(ctx.get<string[]>("taskIds") ?? []),
-			newTasks[0].taskId,
+			taskId!,
 		]);
 	});
 
 	// ─── CHAN-13: Send message with thread_id — new task ──────────────
 
 	test("CHAN-13: Send message with thread_id — no existing thread, new task", async ({ api }) => {
-		const tasksBefore = await api.listTasks({ repositoryId: ctx.repositoryId });
-
-		const response = await sendWebhookMessage(
+		const { response, taskId } = await sendWebhookMessage(
 			api,
 			ctx.get<string>("configId")!,
 			"Message with new thread",
@@ -140,11 +126,13 @@ test.describe("Chain 2: Webhook per_message routing", () => {
 		);
 
 		expect(response.status).toBe(200);
+		expect(taskId).toBeTruthy();
+		expect(taskId).not.toBe(ctx.get<string>("firstTaskId"));
 
-		await waitForProcessing();
-
-		const tasksAfter = await api.listTasks({ repositoryId: ctx.repositoryId });
-		expect(tasksAfter.items.length).toBeGreaterThan(tasksBefore.items.length);
+		ctx.set("taskIds", [
+			...(ctx.get<string[]>("taskIds") ?? []),
+			taskId!,
+		]);
 	});
 });
 
@@ -193,30 +181,29 @@ test.describe("Chain 3: Webhook ongoing routing", () => {
 	// ─── CHAN-21: First message creates ongoing task ───────────────────
 
 	test("CHAN-21: First message creates ongoing task", async ({ api }) => {
-		const response = await sendWebhookMessage(
+		const { response, taskId } = await sendWebhookMessage(
 			api,
 			ctx.get<string>("configId")!,
 			"First ongoing message",
 		);
 
 		expect(response.status).toBe(200);
+		expect(taskId).toBeTruthy();
 
 		await waitForProcessing();
 
 		// Check that config now has ongoing_task_id
 		const config = await api.getChannelConfig(ctx.get<string>("configId")!);
-		expect(config.ongoingTaskId).toBeTruthy();
+		expect(config.ongoingTaskId).toBe(taskId);
 
-		ctx.set("ongoingTaskId", config.ongoingTaskId);
-		ctx.set("taskIds", [config.ongoingTaskId!]);
+		ctx.set("ongoingTaskId", taskId);
+		ctx.set("taskIds", [taskId!]);
 	});
 
 	// ─── CHAN-22: Second message routes to same task ───────────────────
 
 	test("CHAN-22: Second message routes to same task", async ({ api }) => {
-		const tasksBefore = await api.listTasks({ repositoryId: ctx.repositoryId });
-
-		const response = await sendWebhookMessage(
+		const { response, taskId } = await sendWebhookMessage(
 			api,
 			ctx.get<string>("configId")!,
 			"Second ongoing message",
@@ -224,15 +211,12 @@ test.describe("Chain 3: Webhook ongoing routing", () => {
 
 		expect(response.status).toBe(200);
 
-		await waitForProcessing();
+		// Webhook should return the same ongoing task ID
+		expect(taskId).toBe(ctx.get<string>("ongoingTaskId"));
 
 		// Config should still point to same task
 		const config = await api.getChannelConfig(ctx.get<string>("configId")!);
 		expect(config.ongoingTaskId).toBe(ctx.get<string>("ongoingTaskId"));
-
-		// No new task should be created
-		const tasksAfter = await api.listTasks({ repositoryId: ctx.repositoryId });
-		expect(tasksAfter.items.length).toBe(tasksBefore.items.length);
 	});
 
 	// ─── CHAN-23: After task closed, next message creates new task ─────
@@ -241,24 +225,25 @@ test.describe("Chain 3: Webhook ongoing routing", () => {
 		// Close the ongoing task
 		await api.closeTask(ctx.get<string>("ongoingTaskId")!);
 
-		const response = await sendWebhookMessage(
+		const { response, taskId } = await sendWebhookMessage(
 			api,
 			ctx.get<string>("configId")!,
 			"Message after close",
 		);
 
 		expect(response.status).toBe(200);
+		expect(taskId).toBeTruthy();
+		expect(taskId).not.toBe(ctx.get<string>("ongoingTaskId"));
 
 		await waitForProcessing();
 
-		// Config should now point to a new task
+		// Config should now point to the new task
 		const config = await api.getChannelConfig(ctx.get<string>("configId")!);
-		expect(config.ongoingTaskId).toBeTruthy();
-		expect(config.ongoingTaskId).not.toBe(ctx.get<string>("ongoingTaskId"));
+		expect(config.ongoingTaskId).toBe(taskId);
 
 		ctx.set("taskIds", [
 			...(ctx.get<string[]>("taskIds") ?? []),
-			config.ongoingTaskId!,
+			taskId!,
 		]);
 	});
 });
@@ -310,7 +295,7 @@ test.describe("Chain 4: Webhook thread_based routing", () => {
 	test("CHAN-31: New message creates task", async ({ api }) => {
 		const threadId = `thread-a-${Date.now()}`;
 
-		const response = await sendWebhookMessage(
+		const { response, taskId } = await sendWebhookMessage(
 			api,
 			ctx.get<string>("configId")!,
 			"First thread message",
@@ -318,23 +303,17 @@ test.describe("Chain 4: Webhook thread_based routing", () => {
 		);
 
 		expect(response.status).toBe(200);
-
-		await waitForProcessing();
-
-		const tasks = await api.listTasks({ repositoryId: ctx.repositoryId });
-		expect(tasks.items.length).toBeGreaterThan(0);
+		expect(taskId).toBeTruthy();
 
 		ctx.set("threadId", threadId);
-		ctx.set("firstTaskId", tasks.items[0].taskId);
-		ctx.set("taskIds", [tasks.items[0].taskId]);
+		ctx.set("firstTaskId", taskId);
+		ctx.set("taskIds", [taskId!]);
 	});
 
 	// ─── CHAN-32: Reply in same thread routes to same task ─────────────
 
 	test("CHAN-32: Reply in same thread routes to same task", async ({ api }) => {
-		const tasksBefore = await api.listTasks({ repositoryId: ctx.repositoryId });
-
-		const response = await sendWebhookMessage(
+		const { response, taskId } = await sendWebhookMessage(
 			api,
 			ctx.get<string>("configId")!,
 			"Reply in same thread",
@@ -343,11 +322,8 @@ test.describe("Chain 4: Webhook thread_based routing", () => {
 
 		expect(response.status).toBe(200);
 
-		await waitForProcessing();
-
-		// Should NOT create a new task
-		const tasksAfter = await api.listTasks({ repositoryId: ctx.repositoryId });
-		expect(tasksAfter.items.length).toBe(tasksBefore.items.length);
+		// Should route to the same task, not create a new one
+		expect(taskId).toBe(ctx.get<string>("firstTaskId"));
 	});
 
 	// ─── CHAN-33: New thread creates new task ──────────────────────────
@@ -355,7 +331,7 @@ test.describe("Chain 4: Webhook thread_based routing", () => {
 	test("CHAN-33: New thread creates new task", async ({ api }) => {
 		const newThreadId = `thread-b-${Date.now()}`;
 
-		const response = await sendWebhookMessage(
+		const { response, taskId } = await sendWebhookMessage(
 			api,
 			ctx.get<string>("configId")!,
 			"Message in new thread",
@@ -363,18 +339,12 @@ test.describe("Chain 4: Webhook thread_based routing", () => {
 		);
 
 		expect(response.status).toBe(200);
-
-		await waitForProcessing();
-
-		const tasks = await api.listTasks({ repositoryId: ctx.repositoryId });
-		const otherTasks = tasks.items.filter(
-			(t) => t.taskId !== ctx.get<string>("firstTaskId"),
-		);
-		expect(otherTasks.length).toBeGreaterThan(0);
+		expect(taskId).toBeTruthy();
+		expect(taskId).not.toBe(ctx.get<string>("firstTaskId"));
 
 		ctx.set("taskIds", [
 			...(ctx.get<string[]>("taskIds") ?? []),
-			otherTasks[0].taskId,
+			taskId!,
 		]);
 	});
 });

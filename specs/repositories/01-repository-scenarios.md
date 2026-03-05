@@ -10,15 +10,18 @@ This spec defines all testable scenarios for repository management: creation fro
 
 ```
 ├── REPO-01: Create repository from GitHub URL
+│   ├── REPO-01.1: Repository appears in listing
 │   ├── REPO-02: Get repository by ID
 │   ├── REPO-03: Update repository metadata
-│   └── REPO-05: Delete repository
+│   ├── REPO-04: List repositories
+│   ├── REPO-05: Delete repository
+│   │   └── REPO-05.1: Repository removed from listing
 ```
 
 ### Standalone: Error Cases
 
 ```
-├── REPO-06: Create repository with invalid URL
+├── REPO-06: Create repository with missing required fields
 └── REPO-07: Get non-existent repository
 ```
 
@@ -44,7 +47,18 @@ Creating a repository from a real GitHub remote URL exercises the full clone pip
   * **And** the repository name matches the request
   * **And** the repository is a remote repository
   * **And** the repository URL matches the provided URL
-  * **And** the repository appears in the repository listing
+
+---
+
+### REPO-01.1: Repository appears in listing
+
+A newly created repository is visible in the listing.
+
+* **Given** REPO-01 has completed
+
+* **When** the user retrieves the repository listing
+
+* **Then** the created repository appears in the listing
 
 ---
 
@@ -74,16 +88,40 @@ Repository metadata (name, description) can be updated after creation.
 
 ---
 
+### REPO-04: List repositories
+
+The repository listing returns all available repositories.
+
+* **Given** REPO-03 has completed
+
+* **When** the user lists all repositories
+
+* **Then** the listing contains at least one repository
+  * **And** the previously created repository is present with its updated name
+
+---
+
 ### REPO-05: Delete repository
 
-A repository can be deleted and no longer appears in the listing.
+A repository can be deleted.
 
 * **Given** REPO-01 has completed
 
 * **When** the user deletes the repository
 
 * **Then** the system confirms the deletion
-  * **And** the deleted repository is not in the listing
+
+---
+
+### REPO-05.1: Repository removed from listing
+
+A deleted repository no longer appears in the listing.
+
+* **Given** REPO-05 has completed
+
+* **When** the user retrieves the repository listing
+
+* **Then** the deleted repository is not in the listing
 
 ---
 
@@ -93,15 +131,15 @@ These scenarios are independent — each creates and tears down its own resource
 
 ---
 
-### REPO-06: Create repository with invalid URL
+### REPO-06: Create repository with missing required fields
 
-Creating a repository with an invalid remote URL returns a clear error.
+Creating a repository without the required fields returns a validation error.
 
 * **Given** no special preconditions
 
-* **When** the user creates a repository with an invalid URL
+* **When** the user creates a repository without the required fields
 
-* **Then** the system returns an error indicating the request is invalid
+* **Then** the system returns a validation error
   * **And** the response includes an error message
 
 ---

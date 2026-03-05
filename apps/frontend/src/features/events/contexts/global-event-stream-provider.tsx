@@ -92,6 +92,7 @@ export function GlobalEventStreamProvider({
             'ready',
             'stopped',
             'removing',
+            'removed',
             'error',
           ]
           if (validStatuses.includes(event.subType || '')) {
@@ -103,6 +104,7 @@ export function GlobalEventStreamProvider({
                 | 'ready'
                 | 'stopped'
                 | 'removing'
+                | 'removed'
                 | 'error',
               workspaceReady: event.subType === 'ready',
               canExecute: event.subType === 'ready' && current.agentState === 'idle',

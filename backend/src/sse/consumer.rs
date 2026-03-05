@@ -76,7 +76,7 @@ impl RedisStreamConsumer {
         if streams.is_empty() {
             // No streams yet — wait a bit before scanning again
             tokio::select! {
-                () = tokio::time::sleep(std::time::Duration::from_secs(5)) => {}
+                () = tokio::time::sleep(std::time::Duration::from_secs(1)) => {}
                 () = self.cancel.cancelled() => {}
             }
             return Ok(());
@@ -88,13 +88,13 @@ impl RedisStreamConsumer {
         }
 
         // Build XREADGROUP command
-        // XREADGROUP GROUP sse-consumers {id} BLOCK 5000 COUNT 50 STREAMS s1 s2 ... > > ...
+        // XREADGROUP GROUP sse-consumers {id} BLOCK 2000 COUNT 50 STREAMS s1 s2 ... > > ...
         let mut cmd = redis::cmd("XREADGROUP");
         cmd.arg("GROUP")
             .arg(&self.consumer_group)
             .arg(&self.consumer_id)
             .arg("BLOCK")
-            .arg(5000_u64)
+            .arg(2000_u64)
             .arg("COUNT")
             .arg(50_u64)
             .arg("STREAMS");

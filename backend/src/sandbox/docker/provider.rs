@@ -58,7 +58,7 @@ impl SandboxProvider for DockerSandboxProvider {
             ExistingContainerResult::Running => {
                 info!(task_id = %task_id, "Reusing existing running container");
                 return Ok(ProvisionResponse {
-                    status: EnvironmentStatus::Ready,
+                    status: SandboxStatus::Ready,
                 });
             }
             ExistingContainerResult::Exists => {
@@ -74,7 +74,7 @@ impl SandboxProvider for DockerSandboxProvider {
                 self.publish_ready(task_id).await;
 
                 return Ok(ProvisionResponse {
-                    status: EnvironmentStatus::Ready,
+                    status: SandboxStatus::Ready,
                 });
             }
             ExistingContainerResult::NotFound => {} // Continue provisioning
@@ -204,7 +204,7 @@ impl SandboxProvider for DockerSandboxProvider {
         self.publish_ready(task_id).await;
 
         Ok(ProvisionResponse {
-            status: EnvironmentStatus::Ready,
+            status: SandboxStatus::Ready,
         })
     }
 
@@ -239,7 +239,7 @@ impl SandboxProvider for DockerSandboxProvider {
             publisher
                 .publish_sandbox_event(
                     task_id,
-                    moatless_events::SandboxSubType::Stopped,
+                    moatless_events::SandboxStatus::Stopped,
                     "Stopped",
                 )
                 .await;
@@ -281,6 +281,16 @@ impl SandboxProvider for DockerSandboxProvider {
 
         // Force remove sandbox container (stops it if running)
         self.force_remove_container(&container_name, task_id).await;
+
+        if let Some(ref publisher) = self.event_publisher {
+            publisher
+                .publish_sandbox_event(
+                    task_id,
+                    moatless_events::SandboxStatus::Removed,
+                    "Container removed",
+                )
+                .await;
+        }
 
         Ok(())
     }
@@ -373,7 +383,7 @@ impl DockerSandboxProvider {
             publisher
                 .publish_sandbox_event(
                     task_id,
-                    moatless_events::SandboxSubType::Initializing,
+                    moatless_events::SandboxStatus::Initializing,
                     "Starting",
                 )
                 .await;
@@ -386,7 +396,7 @@ impl DockerSandboxProvider {
             publisher
                 .publish_sandbox_event(
                     task_id,
-                    moatless_events::SandboxSubType::Ready,
+                    moatless_events::SandboxStatus::Ready,
                     "Running",
                 )
                 .await;

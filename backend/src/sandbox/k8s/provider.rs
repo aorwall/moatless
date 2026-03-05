@@ -56,13 +56,13 @@ impl SandboxProvider for K8sSandboxProvider {
             ExistingPodResult::Ready => {
                 info!(task_id = %task_id, "Reusing existing healthy pod");
                 return Ok(ProvisionResponse {
-                    status: EnvironmentStatus::Ready,
+                    status: SandboxStatus::Ready,
                 });
             }
             ExistingPodResult::Initializing => {
                 info!(task_id = %task_id, "Pod exists but not ready yet, returning Initializing");
                 return Ok(ProvisionResponse {
-                    status: EnvironmentStatus::Initializing,
+                    status: SandboxStatus::Initializing,
                 });
             }
             ExistingPodResult::NotFound => {} // Continue provisioning
@@ -136,7 +136,7 @@ impl SandboxProvider for K8sSandboxProvider {
         self.publish_initializing(task_id).await;
 
         Ok(ProvisionResponse {
-            status: EnvironmentStatus::Initializing,
+            status: SandboxStatus::Initializing,
         })
     }
 
@@ -170,7 +170,7 @@ impl SandboxProvider for K8sSandboxProvider {
             publisher
                 .publish_sandbox_event(
                     task_id,
-                    moatless_events::SandboxSubType::Stopped,
+                    moatless_events::SandboxStatus::Stopped,
                     "Stopped",
                 )
                 .await;
@@ -217,6 +217,16 @@ impl SandboxProvider for K8sSandboxProvider {
         }
         if let Err(e) = pvc::delete_task_pvc(&self.k8s, task_id).await {
             warn!(task_id = %task_id, error = %e, "Failed to delete PVC");
+        }
+
+        if let Some(ref publisher) = self.event_publisher {
+            publisher
+                .publish_sandbox_event(
+                    task_id,
+                    moatless_events::SandboxStatus::Removed,
+                    "Resources removed",
+                )
+                .await;
         }
 
         Ok(())
@@ -304,7 +314,7 @@ impl K8sSandboxProvider {
             publisher
                 .publish_sandbox_event(
                     task_id,
-                    moatless_events::SandboxSubType::Initializing,
+                    moatless_events::SandboxStatus::Initializing,
                     "Starting",
                 )
                 .await;

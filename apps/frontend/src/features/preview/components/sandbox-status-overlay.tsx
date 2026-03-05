@@ -4,7 +4,14 @@ import { Button } from '@/lib/components/ui/button'
 import type { SandboxEvent } from '../types'
 import { RecentEvents } from './recent-events'
 
-type EnvironmentStatus = 'not_created' | 'initializing' | 'ready' | 'stopped' | 'removing' | 'error'
+type EnvironmentStatus =
+  | 'not_created'
+  | 'initializing'
+  | 'ready'
+  | 'stopped'
+  | 'removing'
+  | 'removed'
+  | 'error'
 
 interface SandboxStatusConfig {
   icon: React.ReactNode
@@ -43,6 +50,12 @@ function getSandboxStatusConfig(status: EnvironmentStatus, error?: string): Sand
       icon: <Loader2 className="h-12 w-12 text-muted-foreground animate-spin" />,
       title: 'Removing Sandbox',
       message: 'Please wait while the sandbox is being removed...',
+      showRetry: false,
+    },
+    removed: {
+      icon: <AlertCircle className="h-12 w-12 text-muted-foreground" />,
+      title: 'Sandbox Removed',
+      message: 'The sandbox environment has been removed',
       showRetry: false,
     },
     ready: {

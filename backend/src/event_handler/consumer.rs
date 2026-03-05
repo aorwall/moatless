@@ -76,7 +76,7 @@ impl EventHandlerConsumer {
 
         if streams.is_empty() {
             tokio::select! {
-                () = tokio::time::sleep(std::time::Duration::from_secs(5)) => {}
+                () = tokio::time::sleep(std::time::Duration::from_secs(1)) => {}
                 () = self.cancel.cancelled() => {}
             }
             return Ok(());
@@ -92,7 +92,7 @@ impl EventHandlerConsumer {
             .arg(CONSUMER_GROUP)
             .arg(&self.consumer_id)
             .arg("BLOCK")
-            .arg(5000_u64)
+            .arg(2000_u64)
             .arg("COUNT")
             .arg(50_u64)
             .arg("STREAMS");
@@ -255,8 +255,8 @@ impl EventHandlerConsumer {
             EventKey::Task(TaskSubType::MetadataUpdated) => {
                 agent_handlers::handle_task_metadata_updated(&self.state, event).await;
             }
-            // Sandbox fatal — pod watcher detected a fatal crash (OOM, crash loop, etc.)
-            EventKey::Sandbox(SandboxSubType::Fatal) => {
+            // Sandbox error — pod watcher detected a fatal crash (OOM, crash loop, etc.)
+            EventKey::Sandbox(SandboxSubType::Error) => {
                 agent_handlers::handle_sandbox_fatal(&self.state, event).await;
             }
             // Known SSE-only event types — forwarded to frontend but not processed here

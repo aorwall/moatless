@@ -86,23 +86,17 @@ test.describe("Chain 6: Webhook Outbound Callback", () => {
 	// ─── CHAN-61: Send inbound message — agent starts ────────────────────
 
 	test("CHAN-61: Send inbound message — agent starts", async ({ api }) => {
-		const response = await sendWebhookMessage(
+		const { response, taskId } = await sendWebhookMessage(
 			api,
 			ctx.get<string>("configId")!,
 			"Say hello world. Keep it brief.",
 		);
 
 		expect(response.status).toBe(200);
+		expect(taskId).toBeTruthy();
 
-		// Wait for task to be created
-		await waitForProcessing();
-
-		const tasks = await api.listTasks({ repositoryId: ctx.repositoryId });
-		expect(tasks.items.length).toBeGreaterThan(0);
-
-		const task = tasks.items[0];
-		ctx.set("taskId", task.taskId);
-		ctx.set("taskIds", [task.taskId]);
+		ctx.set("taskId", taskId);
+		ctx.set("taskIds", [taskId!]);
 	});
 
 	// ─── CHAN-62: Wait for agent completion ──────────────────────────────

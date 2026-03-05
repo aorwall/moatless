@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use super::models::{
-    AgentState, EnvironmentStatus, ResourceMetrics, SandboxState, ServerCapabilities,
+    AgentState, ResourceMetrics, SandboxState, SandboxStatus, ServerCapabilities,
     ServerSnapshot, ServerStatus,
 };
 
@@ -18,7 +18,7 @@ pub struct ErrorBody {
 #[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ProvisionResponse {
-    pub status: EnvironmentStatus,
+    pub status: SandboxStatus,
 }
 
 /// Single server entry in the workspace status response
@@ -43,7 +43,7 @@ pub struct ServerEntry {
 #[serde(rename_all = "camelCase")]
 pub struct SandboxStatusFullResponse {
     pub sandbox_state: SandboxState,
-    pub environment_status: EnvironmentStatus,
+    pub environment_status: SandboxStatus,
     pub environment_error: Option<String>,
     pub agent_state: AgentState,
     pub servers: Vec<ServerEntry>,
@@ -312,7 +312,7 @@ mod tests {
     #[test]
     fn provision_response_serializes_camel_case() {
         let resp = ProvisionResponse {
-            status: EnvironmentStatus::Initializing,
+            status: SandboxStatus::Initializing,
         };
         let json = serde_json::to_value(&resp).unwrap();
         assert_eq!(json["status"], "initializing");

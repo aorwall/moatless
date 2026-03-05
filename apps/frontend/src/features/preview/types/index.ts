@@ -43,7 +43,14 @@ export interface SandboxEvent {
 
 export interface PreviewProps {
   taskId: string
-  environmentStatus?: 'not_created' | 'initializing' | 'ready' | 'stopped' | 'removing' | 'error'
+  environmentStatus?:
+    | 'not_created'
+    | 'initializing'
+    | 'ready'
+    | 'stopped'
+    | 'removing'
+    | 'removed'
+    | 'error'
   /** Error message when environment is in error state */
   environmentError?: string
   /** K8s startup events to display during initializing state */

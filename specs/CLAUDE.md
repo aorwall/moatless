@@ -118,7 +118,7 @@ specs/
 │   └── 01-task-scenarios.md           # TASK-01 through TASK-11, plus TASK-02
 ├── sandbox/
 │   ├── 00-design.md                   # Sandbox lifecycle, preview, files
-│   ├── 01-sandbox-scenarios.md        # SANDBOX-01 through SANDBOX-06
+│   ├── 01-sandbox-scenarios.md        # SANDBOX-01 through SANDBOX-07
 │   └── 02-file-scenarios.md           # FILE-01 through FILE-05
 ├── agent/
 │   ├── 00-design.md                   # Agent execution, messages, commands
@@ -128,7 +128,7 @@ specs/
 │   └── 01-repository-scenarios.md     # REPO-01 through REPO-07
 ├── channels/
 │   ├── 00-design.md                   # Slack/webhook integrations
-│   └── 01-channel-scenarios.md        # CHAN-01 through CHAN-54
+│   └── 01-channel-scenarios.md        # CHAN-01 through CHAN-63
 ├── auth/
 │   └── 00-design.md                   # Login, sessions, API keys, provider tokens
 ├── figma/

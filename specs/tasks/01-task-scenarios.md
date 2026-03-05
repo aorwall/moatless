@@ -1,6 +1,6 @@
 # Task Scenarios
 
-This spec defines all testable scenarios for task management: creation, retrieval, updates, tagging, closing, and deletion. These scenarios test task management independently of agent execution.
+This spec defines all testable scenarios for task management: creation, retrieval, updates, tagging, visibility, closing, and deletion. These scenarios test task management independently of agent execution.
 
 ---
 
@@ -10,11 +10,18 @@ This spec defines all testable scenarios for task management: creation, retrieva
 
 ```
 ├── TASK-01: Create task with message
+│   ├── TASK-01.1: Task appears in listing
+│   ├── TASK-01.2: Task creation event emitted
 │   ├── TASK-03: Get task by ID
 │   ├── TASK-04: Update task metadata
-│   ├── TASK-05: Set and clear task tags
+│   ├── TASK-05: Set task tags
+│   │   └── TASK-05.1: Clear tags
+│   ├── TASK-06: Update task visibility
+│   ├── TASK-07: List tasks with filters
 │   ├── TASK-08: Close task
+│   │   └── TASK-08.1: Task closed event emitted
 │   └── TASK-09: Delete task
+│       └── TASK-09.1: Task removed from listing
 ```
 
 ### Chain 2: Task Without Message
@@ -50,7 +57,30 @@ Creating a task with an initial message.
 
 * **Then** the task is created in an open state
   * **And** the task has a unique identifier
-  * **And** the task appears in the task listing
+
+---
+
+### TASK-01.1: Task appears in listing
+
+A newly created task is visible in the task listing.
+
+* **Given** TASK-01 has completed
+
+* **When** the user retrieves the task listing
+
+* **Then** the created task appears in the listing
+
+---
+
+### TASK-01.2: Task creation event emitted
+
+A real-time event is emitted when a task is created.
+
+* **Given** TASK-01 has completed
+
+* **When** listening for real-time events
+
+* **Then** a task creation event has been emitted for the new task
 
 ---
 
@@ -80,9 +110,9 @@ Task metadata (title, description) can be updated after creation.
 
 ---
 
-### TASK-05: Set and clear task tags
+### TASK-05: Set task tags
 
-Tags can be added to and removed from a task.
+Tags can be added to a task.
 
 * **Given** TASK-01 has completed
 
@@ -90,9 +120,43 @@ Tags can be added to and removed from a task.
 
 * **Then** retrieving the task includes the assigned tags
 
+---
+
+### TASK-05.1: Clear tags
+
+Tags can be removed from a task.
+
+* **Given** TASK-05 has completed
+
 * **When** the user clears all tags from the task
 
 * **Then** retrieving the task shows no tags
+
+---
+
+### TASK-06: Update task visibility
+
+A task's visibility can be changed.
+
+* **Given** TASK-01 has completed
+
+* **When** the user updates the task visibility
+
+* **Then** the response reflects the new visibility setting
+  * **And** retrieving the task confirms the change
+
+---
+
+### TASK-07: List tasks with filters
+
+The task listing supports filtering by status.
+
+* **Given** TASK-01 has completed (task is open)
+
+* **When** the user lists tasks filtered by open status
+
+* **Then** all returned tasks have open status
+  * **And** the result includes at least one task
 
 ---
 
@@ -108,6 +172,18 @@ A task can be explicitly closed, ending its lifecycle.
 
 ---
 
+### TASK-08.1: Task closed event emitted
+
+A real-time event is emitted when a task is closed.
+
+* **Given** TASK-08 has completed
+
+* **When** listening for real-time events
+
+* **Then** a task closed event has been emitted for the task
+
+---
+
 ### TASK-09: Delete task
 
 A task can be permanently deleted.
@@ -117,7 +193,18 @@ A task can be permanently deleted.
 * **When** the user deletes the task
 
 * **Then** the system confirms the deletion
-  * **And** the deleted task no longer appears in the listing
+
+---
+
+### TASK-09.1: Task removed from listing
+
+A deleted task no longer appears in the listing.
+
+* **Given** TASK-09 has completed
+
+* **When** the user retrieves the task listing
+
+* **Then** the deleted task no longer appears in the listing
 
 ---
 
@@ -161,11 +248,11 @@ Creating a task with a non-existent repository returns a clear error.
 
 ### TASK-11: Send message to closed task
 
-A closed task cannot receive new messages — it must be re-opened or a new task created.
+Sending a message to a closed task causes the system to accept it and reopen the task.
 
 * **Given** a task exists in a closed state
 
 * **When** the user sends a message to the closed task
 
-* **Then** the system returns an error indicating the operation is not allowed
-  * **And** the response includes an error message explaining the task is closed
+* **Then** the system accepts the message
+  * **And** the task is reopened to process the new message

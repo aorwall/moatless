@@ -139,7 +139,7 @@ async fn handle_docker_event(
             event_publisher
                 .publish_sandbox_event(
                     task_id,
-                    moatless_events::SandboxSubType::Ready,
+                    moatless_events::SandboxStatus::Ready,
                     "Running",
                 )
                 .await;
@@ -158,7 +158,7 @@ async fn handle_docker_event(
                         event_publisher
                             .publish_sandbox_event(
                                 task_id,
-                                moatless_events::SandboxSubType::Error,
+                                moatless_events::SandboxStatus::Error,
                                 &format!("Crash loop detected (restarts: {restart_count})"),
                             )
                             .await;
@@ -170,7 +170,7 @@ async fn handle_docker_event(
             event_publisher
                 .publish_sandbox_event(
                     task_id,
-                    moatless_events::SandboxSubType::Stopped,
+                    moatless_events::SandboxStatus::Stopped,
                     "Stopped",
                 )
                 .await;
@@ -179,13 +179,19 @@ async fn handle_docker_event(
             event_publisher
                 .publish_sandbox_event(
                     task_id,
-                    moatless_events::SandboxSubType::Fatal,
+                    moatless_events::SandboxStatus::Error,
                     "OOM killed",
                 )
                 .await;
         }
         "destroy" => {
-            debug!(task_id, "Container destroyed");
+            event_publisher
+                .publish_sandbox_event(
+                    task_id,
+                    moatless_events::SandboxStatus::Removed,
+                    "Container removed",
+                )
+                .await;
         }
         _ => {
             debug!(task_id, action, "Unhandled Docker event action");

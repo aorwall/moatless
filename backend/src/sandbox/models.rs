@@ -102,30 +102,12 @@ pub enum SandboxState {
     Missing,
 }
 
-/// Matches TS EnvironmentStatusSchema
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum EnvironmentStatus {
-    NotCreated,
-    Initializing,
-    Ready,
-    Stopped,
-    Removing,
-    Error,
-}
+/// Re-export `SandboxStatus` from the events crate as the canonical environment status type.
+/// This replaces the previous `EnvironmentStatus` enum.
+pub use moatless_events::SandboxStatus;
 
-impl std::fmt::Display for EnvironmentStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::NotCreated => write!(f, "not_created"),
-            Self::Initializing => write!(f, "initializing"),
-            Self::Ready => write!(f, "ready"),
-            Self::Stopped => write!(f, "stopped"),
-            Self::Removing => write!(f, "removing"),
-            Self::Error => write!(f, "error"),
-        }
-    }
-}
+/// Backwards-compatible type alias.
+pub type EnvironmentStatus = SandboxStatus;
 
 /// Matches TS AgentStateSchema: 'idle' | 'running' | 'none'
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -210,16 +192,21 @@ impl PodPhase {
         }
     }
 
-    /// Map to unified environment status
-    pub fn to_environment_status(&self) -> EnvironmentStatus {
+    /// Map to unified sandbox status
+    pub fn to_sandbox_status(&self) -> SandboxStatus {
         match self {
-            PodPhase::Pending => EnvironmentStatus::Initializing,
-            PodPhase::Running => EnvironmentStatus::Ready,
-            PodPhase::Succeeded | PodPhase::Stopped => EnvironmentStatus::Stopped,
-            PodPhase::Terminating => EnvironmentStatus::Removing,
-            PodPhase::NotFound => EnvironmentStatus::NotCreated,
-            PodPhase::Failed | PodPhase::Unknown => EnvironmentStatus::Error,
+            PodPhase::Pending => SandboxStatus::Initializing,
+            PodPhase::Running => SandboxStatus::Ready,
+            PodPhase::Succeeded | PodPhase::Stopped => SandboxStatus::Stopped,
+            PodPhase::Terminating => SandboxStatus::Removing,
+            PodPhase::NotFound => SandboxStatus::NotCreated,
+            PodPhase::Failed | PodPhase::Unknown => SandboxStatus::Error,
         }
+    }
+
+    /// Backwards-compatible alias.
+    pub fn to_environment_status(&self) -> SandboxStatus {
+        self.to_sandbox_status()
     }
 }
 

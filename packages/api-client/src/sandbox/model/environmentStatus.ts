@@ -18,5 +18,6 @@ export const EnvironmentStatus = {
   ready: 'ready',
   stopped: 'stopped',
   removing: 'removing',
+  removed: 'removed',
   error: 'error',
 } as const;

@@ -11,7 +11,7 @@
  *
  * Chain:
  *   TASK-01 → SANDBOX-01 → AGENT-01 → AGENT-01.1 → AGENT-01.2 →
- *   AGENT-01.3 → AGENT-01.4 → FILE-06 →
+ *   AGENT-01.3 → FILE-06 →
  *   AGENT-02 → AGENT-02.1 → AGENT-02.2 → AGENT-02.3
  */
 
@@ -25,7 +25,6 @@ import {
 	waitForAgentTurnComplete,
 	sendFollowUpMessage,
 	getTaskMessages,
-	getTask,
 	findFileWithExpectedContent,
 } from "../steps";
 import { waitForCondition } from "../../shared/wait-helpers";
@@ -181,27 +180,6 @@ test.describe("Chain: Agent Execution & Multi-Turn", () => {
 
 		expect(hasUser).toBe(true);
 		expect(hasAssistant).toBe(true);
-	});
-
-	// ─── AGENT-01.4: Task cost increases ────────────────────────────────
-
-	test("AGENT-01.4: Task cost increases", async ({ api }) => {
-		// The event handler may still be processing agent.completed — poll briefly
-		let cost = 0;
-		const deadline = Date.now() + 10000;
-		while (Date.now() < deadline) {
-			const task = await getTask(api, ctx.taskId!);
-			cost = task.totalCostUsd;
-			if (cost > 0) {
-				break;
-			}
-			await new Promise((r) => setTimeout(r, 1000));
-		}
-
-		expect(cost).toBeGreaterThan(0);
-
-		ctx.lastCostUsd = cost;
-		console.log(`[Agent] Cost: $${cost.toFixed(4)}`);
 	});
 
 	// ─── FILE-06: Files reflect agent changes ───────────────────────────

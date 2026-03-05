@@ -72,13 +72,21 @@ export async function sendWebhookMessage(
 		userId?: string;
 		metadata?: Record<string, unknown>;
 	},
-): Promise<Response> {
-	return api.sendWebhookMessage(configId, {
+): Promise<{ response: Response; taskId: string | null }> {
+	const response = await api.sendWebhookMessage(configId, {
 		text,
 		threadId: options?.threadId,
 		userId: options?.userId,
 		metadata: options?.metadata,
 	});
+
+	let taskId: string | null = null;
+	if (response.ok) {
+		const body = await response.json();
+		taskId = body.taskId ?? null;
+	}
+
+	return { response, taskId };
 }
 
 // =============================================================================

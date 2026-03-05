@@ -21,7 +21,7 @@ use k8s_openapi::api::core::v1::Pod;
 use kube::api::{Api, LogParams};
 use kube::runtime::watcher::{self, Config as WatcherConfig};
 use moatless_events::{
-    SandboxEventPayload, SandboxSubType, ServerEventPayload, ServerSubType,
+    SandboxEventPayload, SandboxStatus, ServerEventPayload, ServerSubType,
 };
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -32,7 +32,6 @@ use super::deployment;
 use super::leader_election::LeaderElection;
 use super::pod_status::extract_container_observed_statuses;
 use crate::events::EventPublisher;
-use crate::sandbox::models::EnvironmentStatus;
 
 /// Observed state of a server container, used for transition detection.
 #[derive(Debug, Clone, PartialEq)]
@@ -250,7 +249,7 @@ async fn process_watcher_event(
                     event_publisher
                         .publish_sandbox_event_with_payload(
                             &task_id,
-                            SandboxSubType::Initializing,
+                            SandboxStatus::Initializing,
                             &SandboxEventPayload {
                                 message: "Recovering from a failed pod".to_string(),
                                 lifecycle_event: Some("pod_recovering".to_string()),
@@ -303,8 +302,8 @@ async fn process_watcher_event(
             // misinterpreted as a crash.
             let has_error_transition = transitions.iter().any(|(sub_type, _)| {
                 matches!(
-                    lifecycle_sub_type_to_env_status(sub_type),
-                    EnvironmentStatus::Error
+                    lifecycle_sub_type_to_sandbox_status(sub_type),
+                    SandboxStatus::Error
                 )
             });
 
@@ -357,24 +356,22 @@ async fn process_watcher_event(
 
             for (sub_type, error_msg) in &transitions {
                 // For intentional stops, downgrade error-level transitions to Stopped
-                let (env_status, sandbox_sub) = if is_intentional_stop
+                let sandbox_status = if is_intentional_stop
                     && matches!(
-                        lifecycle_sub_type_to_env_status(sub_type),
-                        EnvironmentStatus::Error
+                        lifecycle_sub_type_to_sandbox_status(sub_type),
+                        SandboxStatus::Error
                     )
                 {
-                    (EnvironmentStatus::Stopped, SandboxSubType::Stopped)
+                    SandboxStatus::Stopped
                 } else {
-                    let env_status = lifecycle_sub_type_to_env_status(sub_type);
-                    let sandbox_sub = env_status_to_sandbox_sub_type(&env_status);
-                    (env_status, sandbox_sub)
+                    lifecycle_sub_type_to_sandbox_status(sub_type)
                 };
 
                 info!(
                     task_id = %task_id,
                     pod_name = %pod_name,
                     lifecycle_event = %sub_type,
-                    env_status = %env_status,
+                    sandbox_status = %sandbox_status,
                     error = ?error_msg,
                     exit_code = ?new_state.exit_code,
                     failure_detail = ?new_state.failure_detail,
@@ -385,7 +382,7 @@ async fn process_watcher_event(
                 event_publisher
                     .publish_sandbox_event_with_payload(
                         &task_id,
-                        sandbox_sub,
+                        sandbox_status,
                         &SandboxEventPayload {
                             message: format_sandbox_lifecycle_message(sub_type, error_msg.as_deref()),
                             lifecycle_event: Some(sub_type.clone()),
@@ -421,7 +418,7 @@ async fn process_watcher_event(
                 event_publisher
                     .publish_sandbox_event_with_payload(
                         &task_id,
-                        SandboxSubType::Fatal,
+                        SandboxStatus::Error,
                         &SandboxEventPayload {
                             message: format!("Sandbox terminated: {error_msg}"),
                             lifecycle_event: Some("fatal".to_string()),
@@ -473,7 +470,7 @@ async fn process_watcher_event(
                     event_publisher
                         .publish_sandbox_event_with_payload(
                             &task_id,
-                            SandboxSubType::Fatal,
+                            SandboxStatus::Error,
                             &SandboxEventPayload {
                                 message: detailed_error.clone(),
                                 lifecycle_event: Some("auto_stopped".to_string()),
@@ -538,8 +535,8 @@ async fn process_watcher_event(
             let siblings = sibling_pods_for_task(pod_states, &task_id, pod_name);
 
             if siblings.is_empty() {
-                // Distinguish Stopped vs NotCreated by checking if Deployment still exists
-                let (env_status, sandbox_sub) = match deployment::find_deployment(k8s, &task_id).await {
+                // Distinguish Stopped vs Removed by checking if Deployment still exists
+                let sandbox_status = match deployment::find_deployment(k8s, &task_id).await {
                     Ok(Some(_)) => {
                         // Deployment still exists (replicas=0 after stop) → Stopped
                         info!(
@@ -547,29 +544,29 @@ async fn process_watcher_event(
                             pod_name = %pod_name,
                             "Pod deleted (Deployment exists) — publishing stopped"
                         );
-                        (EnvironmentStatus::Stopped, SandboxSubType::Stopped)
+                        SandboxStatus::Stopped
                     }
                     Ok(None) => {
                         // No Deployment → fully cleaned up
                         info!(
                             task_id = %task_id,
                             pod_name = %pod_name,
-                            "Pod deleted (no Deployment) — publishing pod_deleted"
+                            "Pod deleted (no Deployment) — publishing removed"
                         );
-                        (EnvironmentStatus::NotCreated, SandboxSubType::NotCreated)
+                        SandboxStatus::Removed
                     }
                     Err(e) => {
                         warn!(
                             task_id = %task_id,
                             error = %e,
-                            "Failed to check Deployment on pod delete, defaulting to NotCreated"
+                            "Failed to check Deployment on pod delete, defaulting to Removed"
                         );
-                        (EnvironmentStatus::NotCreated, SandboxSubType::NotCreated)
+                        SandboxStatus::Removed
                     }
                 };
 
                 // Publish server events for each server in the deleted pod
-                let server_sub = if env_status == EnvironmentStatus::NotCreated {
+                let server_sub = if sandbox_status == SandboxStatus::Removed {
                     ServerSubType::Failed // Unexpected deletion
                 } else {
                     ServerSubType::Stopped // Intentional stop
@@ -591,7 +588,7 @@ async fn process_watcher_event(
                             &ServerEventPayload {
                                 server_name: server_name.to_string(),
                                 status: server_sub,
-                                message: if env_status == EnvironmentStatus::NotCreated {
+                                message: if sandbox_status == SandboxStatus::Removed {
                                     "Pod deleted".to_string()
                                 } else {
                                     String::new()
@@ -601,7 +598,7 @@ async fn process_watcher_event(
                         .await;
                 }
 
-                let delete_message = if sandbox_sub == SandboxSubType::Stopped {
+                let delete_message = if sandbox_status == SandboxStatus::Stopped {
                     "Stopped"
                 } else {
                     "Removed"
@@ -609,7 +606,7 @@ async fn process_watcher_event(
                 event_publisher
                     .publish_sandbox_event_with_payload(
                         &task_id,
-                        sandbox_sub,
+                        sandbox_status,
                         &SandboxEventPayload {
                             message: delete_message.to_string(),
                             lifecycle_event: Some("pod_deleted".to_string()),
@@ -941,32 +938,20 @@ async fn fetch_sandbox_logs(k8s: &K8sClient, pod_name: &str, tail_lines: i64) ->
     }
 }
 
-/// Map a lifecycle event sub_type to the corresponding EnvironmentStatus.
-fn lifecycle_sub_type_to_env_status(sub_type: &str) -> EnvironmentStatus {
+/// Map a lifecycle event sub_type to the corresponding SandboxStatus.
+fn lifecycle_sub_type_to_sandbox_status(sub_type: &str) -> SandboxStatus {
     match sub_type {
-        "pod_deleted" => EnvironmentStatus::NotCreated,
-        "pod_evicted" | "pod_failed" => EnvironmentStatus::Error,
+        "pod_deleted" => SandboxStatus::NotCreated,
+        "pod_evicted" | "pod_failed" => SandboxStatus::Error,
         // Container-level crashes stay Initializing — K8s will restart them.
         // Only pod-level failures (evicted, failed) are truly dead.
         "container_oom_killed" | "container_terminated" | "container_crash_loop" => {
-            EnvironmentStatus::Initializing
+            SandboxStatus::Initializing
         }
-        "pod_ready" => EnvironmentStatus::Ready,
-        "pod_succeeded" | "sandbox_completed" => EnvironmentStatus::Stopped,
-        "container_restarted" | "pod_recovering" => EnvironmentStatus::Initializing,
-        _ => EnvironmentStatus::Error,
-    }
-}
-
-/// Convert EnvironmentStatus to the corresponding SandboxSubType.
-fn env_status_to_sandbox_sub_type(env_status: &EnvironmentStatus) -> SandboxSubType {
-    match env_status {
-        EnvironmentStatus::NotCreated => SandboxSubType::NotCreated,
-        EnvironmentStatus::Initializing => SandboxSubType::Initializing,
-        EnvironmentStatus::Ready => SandboxSubType::Ready,
-        EnvironmentStatus::Stopped => SandboxSubType::Stopped,
-        EnvironmentStatus::Removing => SandboxSubType::Removing,
-        EnvironmentStatus::Error => SandboxSubType::Error,
+        "pod_ready" => SandboxStatus::Ready,
+        "pod_succeeded" | "sandbox_completed" => SandboxStatus::Stopped,
+        "container_restarted" | "pod_recovering" => SandboxStatus::Initializing,
+        _ => SandboxStatus::Error,
     }
 }
 

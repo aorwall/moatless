@@ -1,6 +1,6 @@
 //! Read-only domain service for resolving sandbox status from Docker.
 //!
-//! Maps Docker container states to `EnvironmentStatus` and resolves
+//! Maps Docker container states to `SandboxStatus` and resolves
 //! server sidecar container statuses via the Docker API.
 
 use std::sync::Arc;
@@ -36,7 +36,7 @@ impl DockerStatusResolver {
         let container_name = generate_container_name(task_id);
         let (env_status, environment_error) =
             self.inspect_environment_status(&container_name).await;
-        let is_running = env_status == EnvironmentStatus::Ready;
+        let is_running = env_status == SandboxStatus::Ready;
 
         if is_running {
             let agent_state = self.fetch_agent_state(task_id).await;
@@ -56,11 +56,11 @@ impl DockerStatusResolver {
 
         // Container is not running
         let sandbox_state = match env_status {
-            EnvironmentStatus::NotCreated => SandboxState::Missing,
+            SandboxStatus::NotCreated => SandboxState::Missing,
             _ => SandboxState::Exists,
         };
 
-        let can_execute = env_status == EnvironmentStatus::Stopped;
+        let can_execute = env_status == SandboxStatus::Stopped;
 
         SandboxStatusFullResponse {
             sandbox_state,
@@ -78,12 +78,12 @@ impl DockerStatusResolver {
     // Private helpers
     // =========================================================================
 
-    /// Inspect a Docker container and map its state to `EnvironmentStatus`,
+    /// Inspect a Docker container and map its state to `SandboxStatus`,
     /// along with an optional error message for crash loops or OOM.
     async fn inspect_environment_status(
         &self,
         container_name: &str,
-    ) -> (EnvironmentStatus, Option<String>) {
+    ) -> (SandboxStatus, Option<String>) {
         match self.client.docker.inspect_container(container_name, None).await {
             Ok(info) => {
                 let state = info.state.as_ref();
@@ -93,7 +93,7 @@ impl DockerStatusResolver {
                 // Check for OOM first
                 if state.and_then(|s| s.oom_killed).unwrap_or(false) {
                     return (
-                        EnvironmentStatus::Error,
+                        SandboxStatus::Error,
                         Some("Container OOM killed".into()),
                     );
                 }
@@ -101,7 +101,7 @@ impl DockerStatusResolver {
                 // Check crash loop via restart count
                 if max_restarts > 0 && restart_count as i32 >= max_restarts {
                     return (
-                        EnvironmentStatus::Error,
+                        SandboxStatus::Error,
                         Some(format!("Crash loop detected (restarts: {restart_count})")),
                     );
                 }
@@ -112,22 +112,22 @@ impl DockerStatusResolver {
                     .unwrap_or_default();
 
                 let env_status = match status_str.as_str() {
-                    "running" => EnvironmentStatus::Ready,
-                    "created" | "restarting" => EnvironmentStatus::Initializing,
-                    "paused" | "exited" => EnvironmentStatus::Stopped,
-                    "dead" => EnvironmentStatus::Error,
-                    "removing" => EnvironmentStatus::Removing,
-                    _ => EnvironmentStatus::Error,
+                    "running" => SandboxStatus::Ready,
+                    "created" | "restarting" => SandboxStatus::Initializing,
+                    "paused" | "exited" => SandboxStatus::Stopped,
+                    "dead" => SandboxStatus::Error,
+                    "removing" => SandboxStatus::Removing,
+                    _ => SandboxStatus::Error,
                 };
 
                 (env_status, None)
             }
             Err(bollard::errors::Error::DockerResponseServerError {
                 status_code: 404, ..
-            }) => (EnvironmentStatus::NotCreated, None),
+            }) => (SandboxStatus::NotCreated, None),
             Err(e) => {
                 warn!(container = %container_name, error = %e, "Failed to inspect container");
-                (EnvironmentStatus::Error, None)
+                (SandboxStatus::Error, None)
             }
         }
     }

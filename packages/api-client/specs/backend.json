@@ -4170,6 +4170,7 @@
           "ready",
           "stopped",
           "removing",
+          "removed",
           "error"
         ]
       },
@@ -5645,8 +5646,8 @@
           "ready",
           "stopped",
           "removing",
-          "error",
-          "fatal"
+          "removed",
+          "error"
         ]
       },
       "SaveGitnessPATRequest": {

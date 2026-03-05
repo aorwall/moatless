@@ -225,6 +225,7 @@ pub fn env_status_to_pod_phase(status: &EnvironmentStatus) -> PodPhase {
         EnvironmentStatus::Ready => PodPhase::Running,
         EnvironmentStatus::Stopped => PodPhase::Stopped,
         EnvironmentStatus::Removing => PodPhase::Terminating,
+        EnvironmentStatus::Removed => PodPhase::NotFound,
         EnvironmentStatus::Error => PodPhase::Failed,
     }
 }

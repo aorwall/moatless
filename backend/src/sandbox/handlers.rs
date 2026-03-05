@@ -79,7 +79,19 @@ pub async fn sandbox_status_handler(
     let server_configs = resolve_server_configs(&state, &task_id).await;
 
     match state.provider.sandbox_status(&task_id, &server_configs).await {
-        Ok(resp) => Json(resp).into_response(),
+        Ok(mut resp) => {
+            // If sandbox doesn't exist and the task is closed, report as Removed
+            if resp.environment_status == SandboxStatus::NotCreated {
+                if let Some(ref tasks) = state.tasks {
+                    if let Ok(Some(task)) = tasks.find_by_id_internal(&task_id).await {
+                        if task.status == crate::task::models::TaskStatus::Closed {
+                            resp.environment_status = SandboxStatus::Removed;
+                        }
+                    }
+                }
+            }
+            Json(resp).into_response()
+        }
         Err(e) => {
             error!(task_id = %task_id, error = %e, "sandbox status failed");
             e.into_response()

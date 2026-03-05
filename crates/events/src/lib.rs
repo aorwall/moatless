@@ -58,23 +58,26 @@ impl TryFrom<&str> for EventType {
     }
 }
 
-/// Sandbox sub-types — valid status values for sandbox lifecycle events.
+/// Sandbox status — valid status values for sandbox lifecycle events.
 ///
 /// These match the frontend `EnvironmentStatusSchema` values.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
-pub enum SandboxSubType {
+pub enum SandboxStatus {
     NotCreated,
     Initializing,
     Ready,
     Stopped,
     Removing,
+    Removed,
     Error,
-    Fatal,
 }
 
-impl SandboxSubType {
+/// Backwards-compatible type alias.
+pub type SandboxSubType = SandboxStatus;
+
+impl SandboxStatus {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::NotCreated => "not_created",
@@ -82,19 +85,19 @@ impl SandboxSubType {
             Self::Ready => "ready",
             Self::Stopped => "stopped",
             Self::Removing => "removing",
+            Self::Removed => "removed",
             Self::Error => "error",
-            Self::Fatal => "fatal",
         }
     }
 }
 
-impl std::fmt::Display for SandboxSubType {
+impl std::fmt::Display for SandboxStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.as_str())
     }
 }
 
-impl TryFrom<&str> for SandboxSubType {
+impl TryFrom<&str> for SandboxStatus {
     type Error = String;
     fn try_from(s: &str) -> Result<Self, String> {
         match s {
@@ -103,9 +106,11 @@ impl TryFrom<&str> for SandboxSubType {
             "ready" => Ok(Self::Ready),
             "stopped" => Ok(Self::Stopped),
             "removing" => Ok(Self::Removing),
+            "removed" => Ok(Self::Removed),
             "error" => Ok(Self::Error),
-            "fatal" => Ok(Self::Fatal),
-            other => Err(format!("unknown SandboxSubType: {other}")),
+            // Accept legacy "fatal" as Error for backwards compatibility
+            "fatal" => Ok(Self::Error),
+            other => Err(format!("unknown SandboxStatus: {other}")),
         }
     }
 }
@@ -425,7 +430,7 @@ pub struct StreamEvent {
 /// Used by the publisher to accept any sub-type and serialize it correctly.
 #[derive(Clone, Debug)]
 pub enum SubType {
-    Sandbox(SandboxSubType),
+    Sandbox(SandboxStatus),
     Server(ServerSubType),
     Agent(AgentSubType),
     Task(TaskSubType),
@@ -448,7 +453,7 @@ impl SubType {
 
     pub fn is_error(&self) -> bool {
         match self {
-            Self::Sandbox(SandboxSubType::Error | SandboxSubType::Fatal) => true,
+            Self::Sandbox(SandboxStatus::Error) => true,
             Self::Server(ServerSubType::Failed) => true,
             Self::Agent(s) => s.is_error(),
             Self::TaskTurn(s) => s.is_error(),
@@ -464,8 +469,8 @@ impl std::fmt::Display for SubType {
 }
 
 // Convenience From impls
-impl From<SandboxSubType> for SubType {
-    fn from(s: SandboxSubType) -> Self {
+impl From<SandboxStatus> for SubType {
+    fn from(s: SandboxStatus) -> Self {
         Self::Sandbox(s)
     }
 }
@@ -511,14 +516,18 @@ mod tests {
     }
 
     #[test]
-    fn sandbox_sub_type_serializes_to_snake_case() {
+    fn sandbox_status_serializes_to_snake_case() {
         assert_eq!(
-            serde_json::to_string(&SandboxSubType::NotCreated).unwrap(),
+            serde_json::to_string(&SandboxStatus::NotCreated).unwrap(),
             "\"not_created\""
         );
         assert_eq!(
-            serde_json::to_string(&SandboxSubType::Initializing).unwrap(),
+            serde_json::to_string(&SandboxStatus::Initializing).unwrap(),
             "\"initializing\""
+        );
+        assert_eq!(
+            serde_json::to_string(&SandboxStatus::Removed).unwrap(),
+            "\"removed\""
         );
     }
 
@@ -586,11 +595,11 @@ mod tests {
 
     #[test]
     fn sub_type_is_error() {
-        assert!(SubType::from(SandboxSubType::Error).is_error());
+        assert!(SubType::from(SandboxStatus::Error).is_error());
         assert!(SubType::from(ServerSubType::Failed).is_error());
         assert!(SubType::from(AgentSubType::Error).is_error());
         assert!(!SubType::from(AgentSubType::Completed).is_error());
-        assert!(!SubType::from(SandboxSubType::Ready).is_error());
+        assert!(!SubType::from(SandboxStatus::Ready).is_error());
     }
 
     #[test]
@@ -645,12 +654,21 @@ mod tests {
     }
 
     #[test]
-    fn sandbox_sub_type_try_from() {
+    fn sandbox_status_try_from() {
         assert_eq!(
-            SandboxSubType::try_from("not_created"),
-            Ok(SandboxSubType::NotCreated)
+            SandboxStatus::try_from("not_created"),
+            Ok(SandboxStatus::NotCreated)
         );
-        assert!(SandboxSubType::try_from("bad").is_err());
+        assert_eq!(
+            SandboxStatus::try_from("removed"),
+            Ok(SandboxStatus::Removed)
+        );
+        // Legacy "fatal" maps to Error
+        assert_eq!(
+            SandboxStatus::try_from("fatal"),
+            Ok(SandboxStatus::Error)
+        );
+        assert!(SandboxStatus::try_from("bad").is_err());
     }
 
     #[test]

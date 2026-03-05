@@ -1,5 +1,5 @@
 /**
- * Chain 1: Plan Mode (agent-execution.md)
+ * Chain 3: Plan Mode (agent-execution.md)
  *
  * Agent execution in plan mode: the agent produces a plan for user approval
  * before making changes.
@@ -22,7 +22,6 @@ import {
 	getTaskMessages,
 	waitForAgentTurnComplete,
 } from "../steps";
-import { waitForAgentComplete } from "../../shared/wait-helpers";
 
 const hasClaudeAuth =
 	!!process.env.CLAUDE_CODE_OAUTH_TOKEN || !!process.env.ANTHROPIC_API_KEY;
@@ -56,11 +55,10 @@ test.describe("Chain: Plan Mode", () => {
 	// ─── TASK-01: Create task in plan mode ──────────────────────────────
 
 	test("TASK-01: Create task in plan mode", async ({ api }) => {
-		// Create task with a message that should trigger plan mode
 		const { taskId, task } = await createTaskWithMessage(
 			api,
 			ctx.repositoryId!,
-			"Add a contact form with name, email, and message fields to the main page. Plan first before making changes.",
+			"Add a heading that says 'Plan Mode Test' to the main page.",
 		);
 
 		expect(task.status).toBe("open");
@@ -85,51 +83,28 @@ test.describe("Chain: Plan Mode", () => {
 	// ─── AGENT-03: Plan mode flow ───────────────────────────────────────
 
 	test("AGENT-03: Plan mode flow", async ({ api }, testInfo) => {
-		testInfo.setTimeout(360000);
+		testInfo.setTimeout(180000);
 
-		// Wait for agent to pause for approval (pending_response event)
-		// or complete if plan mode isn't enforced at the API level.
-		// Use a shorter initial timeout, then fall back to checking completion.
-		const pendingEvent = await chainSse.waitForEvent({
-			type: "agent",
-			subType: "pending_response",
-			taskId: ctx.taskId,
-			timeout: 120000,
-		});
+		// Race: agent either pauses for plan approval or completes its turn
+		const result = await Promise.race([
+			chainSse.waitForEvent({
+				type: "agent",
+				subType: "pending_response",
+				taskId: ctx.taskId,
+				timeout: 120000,
+			}).then((e) => (e ? ("pending" as const) : null)),
+			waitForAgentTurnComplete(chainSse, api, ctx.taskId!, 1, 120000)
+				.then(({ completed }) => (completed ? ("completed" as const) : null)),
+		]);
 
-		if (pendingEvent) {
+		if (result === "pending") {
 			ctx.set("planModeActive", true);
 			console.log("[Plan] Agent paused for approval");
-			return;
-		}
-
-		// No pending_response — check if agent already completed via SSE
-		const turnEvent = await chainSse.waitForEvent({
-			type: "taskTurn",
-			subType: "completed",
-			taskId: ctx.taskId,
-			timeout: 5000,
-		});
-
-		if (turnEvent) {
-			ctx.set("planModeActive", false);
-			console.log("[Plan] Agent completed without plan pause (plan mode not enforced at API level)");
-			return;
-		}
-
-		// Fallback: poll API for agent completion (covers case where SSE missed events)
-		console.log("[Plan] No SSE events received — falling back to API polling");
-		const completed = await waitForAgentComplete(api, ctx.taskId!, {
-			timeout: 180000,
-		});
-
-		ctx.set("planModeActive", false);
-		if (completed) {
-			console.log("[Plan] Agent completed (detected via API polling)");
 		} else {
-			console.log("[Plan] Agent did not complete within timeout");
+			ctx.set("planModeActive", false);
+			expect(result).toBe("completed");
+			console.log("[Plan] Agent completed without plan pause");
 		}
-		expect(completed).toBe(true);
 	});
 
 	// ─── AGENT-03.1: Agent produces plan for approval ───────────────────
@@ -139,7 +114,6 @@ test.describe("Chain: Plan Mode", () => {
 
 		expect(messages.length).toBeGreaterThanOrEqual(2);
 
-		// Should have assistant content
 		const hasAssistant = messages.some((m) => m.role === "assistant");
 		expect(hasAssistant).toBe(true);
 
@@ -154,17 +128,15 @@ test.describe("Chain: Plan Mode", () => {
 	// ─── AGENT-03.2: User approves, agent executes ──────────────────────
 
 	test("AGENT-03.2: User approves, agent executes", async ({ api }, testInfo) => {
-		testInfo.setTimeout(360000);
+		testInfo.setTimeout(180000);
 
 		if (ctx.get("planModeActive")) {
-			// Send approval message
-			await sendFollowUpMessage(api, ctx.taskId!, "Looks good, please proceed with the implementation.");
+			await sendFollowUpMessage(api, ctx.taskId!, "Looks good, proceed.");
 
-			const { completed } = await waitForAgentTurnComplete(chainSse, api, ctx.taskId!, 1, 300000);
+			const { completed } = await waitForAgentTurnComplete(chainSse, api, ctx.taskId!, 1, 120000);
 			expect(completed).toBe(true);
 		}
 
-		// Verify task turn completed (either from plan approval or initial execution)
 		const turnCount = chainSse.countEvents("taskTurn", "completed", ctx.taskId!);
 		expect(turnCount).toBeGreaterThanOrEqual(1);
 

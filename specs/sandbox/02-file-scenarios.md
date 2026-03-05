@@ -1,6 +1,6 @@
 # File Operation Scenarios
 
-This spec defines all testable scenarios for workspace file operations: listing, reading, searching, and writing. These scenarios test file operations independently of agent execution.
+This spec defines all testable scenarios for workspace file operations: listing, reading, file tree, searching, and writing. These scenarios test file operations independently of agent execution.
 
 > **Note:** FILE-06 (verifying files reflect agent changes) lives in [agent/01-agent-scenarios.md](../agent/01-agent-scenarios.md#file-06-files-reflect-agent-changes) because it tests agent execution outcomes.
 
@@ -12,8 +12,9 @@ This spec defines all testable scenarios for workspace file operations: listing,
 
 ```
 ├── SANDBOX-01: Sandbox ready (from sandbox/01-sandbox-scenarios.md)
-│   ├── FILE-01: List workspace files (with git status)
+│   ├── FILE-01: List workspace files
 │   ├── FILE-02: Read workspace file
+│   ├── FILE-03: File tree with git status
 │   ├── FILE-04: Search files by name
 │   └── FILE-05: Write file to workspace
 ```
@@ -28,9 +29,9 @@ Each scenario below depends on a sandbox being ready.
 
 ---
 
-### FILE-01: List workspace files (with git status)
+### FILE-01: List workspace files
 
-The file listing returns the workspace directory structure including git status information.
+The file listing returns the workspace directory structure.
 
 * **Given** a sandbox is ready
 
@@ -38,8 +39,7 @@ The file listing returns the workspace directory structure including git status 
 
 * **Then** the response contains a list of file entries
   * **And** each entry includes at minimum a file path
-  * **And** known template files are present (e.g., package.json, index.html)
-  * **And** the response includes git status summary information
+  * **And** known template files are present (e.g., package.json)
 
 ---
 
@@ -53,6 +53,19 @@ Individual files can be read from the workspace.
 
 * **Then** the response contains the file content as text
   * **And** the content is non-empty
+
+---
+
+### FILE-03: File tree with git status
+
+The file tree endpoint returns the workspace directory hierarchy with git status information.
+
+* **Given** a sandbox is ready
+
+* **When** the user requests the file tree
+
+* **Then** the response contains a tree structure
+  * **And** the tree has at least one root entry
 
 ---
 

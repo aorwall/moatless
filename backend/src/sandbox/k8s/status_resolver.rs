@@ -49,7 +49,7 @@ impl StatusResolver {
         server_configs: &[ServerConfig],
     ) -> SandboxStatusFullResponse {
         let (phase, environment_error) = self.resolve_pod_phase_and_error(task_id).await;
-        let environment_status = phase.to_environment_status();
+        let environment_status = phase.to_sandbox_status();
         let is_running = phase == PodPhase::Running;
 
         if is_running {

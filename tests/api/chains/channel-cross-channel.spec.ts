@@ -83,22 +83,16 @@ test.describe("Chain 5: Cross-Channel Response Routing", () => {
 	// ─── CHAN-42: Inbound on trigger creates task ──────────────────────
 
 	test("CHAN-42: Inbound on trigger creates task with cross-channel routing", async ({ api }) => {
-		const response = await sendWebhookMessage(
+		const { response, taskId } = await sendWebhookMessage(
 			api,
 			ctx.get<string>("triggerConfigId")!,
 			"Cross-channel test message",
 		);
 
 		expect(response.status).toBe(200);
+		expect(taskId).toBeTruthy();
 
-		await waitForProcessing();
-
-		// Verify task was created
-		const tasks = await api.listTasks({ repositoryId: ctx.repositoryId });
-		expect(tasks.items.length).toBeGreaterThan(0);
-
-		const task = tasks.items[0];
-		ctx.set("taskIds", [task.taskId]);
+		ctx.set("taskIds", [taskId!]);
 
 		// Verify the trigger config still has response_config_id
 		const triggerConfig = await api.getChannelConfig(ctx.get<string>("triggerConfigId")!);

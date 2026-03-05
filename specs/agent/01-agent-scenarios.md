@@ -1,6 +1,6 @@
 # Agent Execution Scenarios
 
-This spec defines all testable scenarios for agent execution: happy-path execution and multi-turn conversation, stopping an agent mid-execution, and resuming after a sandbox restart.
+This spec defines all testable scenarios for agent execution: happy-path execution and multi-turn conversation, plan mode, stopping an agent mid-execution, resuming after a sandbox restart, and error recovery.
 
 For related scenarios, see:
 - [Task scenarios](../tasks/01-task-scenarios.md) — task management
@@ -15,10 +15,13 @@ For related scenarios, see:
 
 ```
 ├── AGENT-01: Agent executes initial message
+│   ├── AGENT-01.1: Agent state transitions
+│   ├── AGENT-01.2: Agent lifecycle events emitted
 │   ├── AGENT-01.3: Conversation history available
-│   ├── AGENT-01.4: Task cost increases
 │   ├── FILE-06: Files reflect agent changes
 │   └── AGENT-02: Multi-turn conversation
+│       ├── AGENT-02.1: Agent re-activates on follow-up
+│       ├── AGENT-02.2: Second turn completion event
 │       └── AGENT-02.3: Files reflect second-turn changes
 ```
 
@@ -26,7 +29,25 @@ For related scenarios, see:
 
 ```
 ├── AGENT-04: Stop agent mid-execution
-└── AGENT-06: Resume after sandbox restart
+│   ├── AGENT-04.1: Sandbox remains ready after agent stop
+│   └── AGENT-04.2: Agent stopped event emitted
+├── AGENT-06: Resume after sandbox restart
+│   ├── AGENT-06.1: Sandbox stops
+│   ├── AGENT-06.2: Sandbox restarts with files intact
+│   ├── AGENT-06.3: Agent resumes with follow-up message
+│   ├── AGENT-06.4: Agent retains conversation history
+│   └── AGENT-06.5: Files reflect resumed-session changes
+├── AGENT-05: Agent error handling (skipped)
+│   ├── AGENT-05.1: Error visible in chat
+│   └── AGENT-05.2: Recovery via new message
+```
+
+### Chain 3: Plan Mode
+
+```
+├── AGENT-03: Plan mode flow
+│   ├── AGENT-03.1: Agent produces plan for approval
+│   └── AGENT-03.2: User approves, agent executes
 ```
 
 ---
@@ -53,6 +74,31 @@ The agent processes the task's initial message, performing code changes in the w
 
 ---
 
+### AGENT-01.1: Agent state transitions
+
+After completing a turn, the agent transitions to an idle state.
+
+* **Given** AGENT-01 has completed
+
+* **When** checking the agent's state
+
+* **Then** the agent state has settled to idle
+
+---
+
+### AGENT-01.2: Agent lifecycle events emitted
+
+Real-time events are emitted during agent execution.
+
+* **Given** AGENT-01 has completed
+
+* **When** reviewing the real-time events for the task
+
+* **Then** agent started, message, and completed events were emitted
+  * **And** turn active and turn completed events were emitted
+
+---
+
 ### AGENT-01.3: Conversation history available
 
 The conversation history reflects the messages after agent execution.
@@ -63,18 +109,6 @@ The conversation history reflects the messages after agent execution.
 
 * **Then** the response contains at least the initial user message
   * **And** the response contains at least one assistant message
-
----
-
-### AGENT-01.4: Task cost increases
-
-Agent execution consumes API tokens, reflected in the task's cost tracking.
-
-* **Given** AGENT-01 has completed
-
-* **When** retrieving the task details
-
-* **Then** the total cost is greater than zero
 
 ---
 
@@ -104,6 +138,31 @@ A follow-up message triggers a second agent turn, demonstrating session continui
 
 ---
 
+### AGENT-02.1: Agent re-activates on follow-up
+
+After the second turn, the agent returns to an idle state.
+
+* **Given** AGENT-02 has completed
+
+* **When** checking the agent's state
+
+* **Then** the agent state has settled to idle
+
+---
+
+### AGENT-02.2: Second turn completion event
+
+A second set of completion events is emitted for the follow-up turn.
+
+* **Given** AGENT-02 has completed
+
+* **When** reviewing the real-time events for the task
+
+* **Then** at least two agent completed events have been emitted
+  * **And** at least two turn completed events have been emitted
+
+---
+
 ### AGENT-02.3: Files reflect second-turn changes
 
 The workspace reflects modifications from the second agent turn.
@@ -118,7 +177,7 @@ The workspace reflects modifications from the second agent turn.
 
 ## Chain 2: Agent Stop & Resume
 
-Stopping an agent mid-execution and resuming after a sandbox restart.
+Stopping an agent mid-execution, resuming after a sandbox restart, and recovering from errors.
 
 Each scenario below depends on its parent as a precondition. A task with an initial message is created first, and the agent starts executing.
 
@@ -133,6 +192,31 @@ A running agent can be stopped by the user before it completes.
 * **When** the user stops the task
 
 * **Then** the agent stops executing
+  * **And** the agent becomes idle
+
+---
+
+### AGENT-04.1: Sandbox remains ready after agent stop
+
+The sandbox environment persists after the agent is stopped.
+
+* **Given** AGENT-04 has completed
+
+* **When** checking the sandbox status
+
+* **Then** the sandbox is still in a ready or stopped state
+
+---
+
+### AGENT-04.2: Agent stopped event emitted
+
+A real-time event is emitted when the agent is stopped.
+
+* **Given** AGENT-04 has completed
+
+* **When** reviewing the real-time events for the task
+
+* **Then** an agent stopped or turn stopped event has been emitted
 
 ---
 
@@ -140,10 +224,146 @@ A running agent can be stopped by the user before it completes.
 
 After stopping, the sandbox can be restarted and the agent resumes with full conversation continuity.
 
+---
+
+### AGENT-06.1: Sandbox stops
+
+The sandbox is stopped as part of the restart cycle.
+
 * **Given** AGENT-04 has completed (agent stopped)
 
-* **When** the sandbox is stopped, restarted, and a follow-up message is sent
+* **When** the user stops the sandbox
+
+* **Then** the sandbox transitions to stopped
+
+---
+
+### AGENT-06.2: Sandbox restarts with files intact
+
+The sandbox restarts with workspace files preserved.
+
+* **Given** AGENT-06.1 has completed
+
+* **When** the user starts the sandbox
+
+* **Then** the sandbox becomes ready
+  * **And** workspace files from before the restart are still present
+
+---
+
+### AGENT-06.3: Agent resumes with follow-up message
+
+A follow-up message triggers a new agent turn after restart.
+
+* **Given** AGENT-06.2 has completed (sandbox is ready)
+
+* **When** the user sends a follow-up message
 
 * **Then** the agent completes a new turn
-  * **And** the conversation history includes messages from before and after the restart
+
+---
+
+### AGENT-06.4: Agent retains conversation history
+
+The conversation history spans the entire session, including messages from before and after the restart.
+
+* **Given** AGENT-06.3 has completed
+
+* **When** retrieving the task's messages
+
+* **Then** the conversation history includes messages from before and after the restart
   * **And** there are at least two user messages in the history
+
+---
+
+### AGENT-06.5: Files reflect resumed-session changes
+
+The workspace files show changes made during the resumed session.
+
+* **Given** AGENT-06.3 has completed
+
+* **When** searching workspace files for the content requested in the follow-up message
+
+* **Then** at least one file contains the expected content
+
+---
+
+### AGENT-05: Agent error handling (skipped)
+
+When the agent encounters an error, the task reflects the error state.
+
+> **Note:** This scenario is currently skipped — it requires the ability to inject an error-causing message.
+
+* **Given** the agent is running
+
+* **When** the agent encounters an error during execution
+
+* **Then** the agent reports the error and returns to idle
+
+---
+
+### AGENT-05.1: Error visible in chat
+
+The error from agent execution is visible in the conversation history.
+
+* **Given** AGENT-05 has completed
+
+* **When** retrieving the task's messages
+
+* **Then** the conversation includes an error message
+
+---
+
+### AGENT-05.2: Recovery via new message
+
+After an error, the agent can recover by processing a new message.
+
+* **Given** AGENT-05 has completed
+
+* **When** the user sends a new message
+
+* **Then** the agent activates for a new turn
+  * **And** the agent can successfully execute
+
+---
+
+## Chain 3: Plan Mode
+
+Agent execution in plan mode: the agent produces a plan for user approval before making changes.
+
+---
+
+### AGENT-03: Plan mode flow
+
+The agent pauses to present a plan before making changes.
+
+* **Given** a task has been created with a message requesting a plan and the sandbox is ready
+
+* **When** waiting for the agent to process the message
+
+* **Then** the agent pauses for approval or completes if plan mode is not enforced
+
+---
+
+### AGENT-03.1: Agent produces plan for approval
+
+The agent produces plan content for the user to review.
+
+* **Given** AGENT-03 has completed
+
+* **When** retrieving the task's messages
+
+* **Then** the conversation includes assistant content
+  * **And** if plan mode is active, a pending response event has been emitted
+
+---
+
+### AGENT-03.2: User approves, agent executes
+
+After approval, the agent proceeds to implement the plan.
+
+* **Given** AGENT-03.1 has completed
+
+* **When** the user approves the plan (or the agent has already completed)
+
+* **Then** at least one turn completion event has been emitted

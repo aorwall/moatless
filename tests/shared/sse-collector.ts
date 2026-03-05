@@ -57,7 +57,7 @@ export class SSEEventCollector {
 		this.streamPromise = this.streamEvents(url);
 
 		// Wait a moment for connection to establish
-		await new Promise((resolve) => setTimeout(resolve, 500));
+		await new Promise((resolve) => setTimeout(resolve, 1000));
 
 		if (this.error) {
 			throw this.error;
