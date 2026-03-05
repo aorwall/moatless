@@ -115,7 +115,7 @@ async fn process_pending_messages_inner(state: SandboxState) {
         );
         state.events.publish_sandbox_event(
             task_id,
-            moatless_events::SandboxSubType::Fatal,
+            moatless_events::SandboxSubType::Error,
             serde_json::json!({
                 "error": format!(
                     "Agent failed {consecutive} consecutive times. Last error: {}",

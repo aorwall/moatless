@@ -98,6 +98,10 @@ export function TaskStatusIcon({
     icon = <XCircle className="h-3.5 w-3.5" />
     color = 'text-red-500'
     displayText = 'env error'
+  } else if (environmentStatus === 'removed') {
+    icon = <AlertCircle className="h-3.5 w-3.5" />
+    color = 'text-muted-foreground'
+    displayText = 'removed'
   } else if (environmentStatus === 'not_created') {
     icon = <AlertCircle className="h-3.5 w-3.5" />
     color = 'text-orange-500'

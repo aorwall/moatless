@@ -53,7 +53,9 @@ function isStartupSubType(subType: string | undefined): boolean {
 
 /** Check if a sandbox event subType signals the end of the startup phase. */
 function isStartupEndSubType(subType: string | undefined): boolean {
-  return subType === 'ready' || subType === 'error' || subType === 'stopped'
+  return (
+    subType === 'ready' || subType === 'error' || subType === 'stopped' || subType === 'removed'
+  )
 }
 
 function TaskPageComponent() {
