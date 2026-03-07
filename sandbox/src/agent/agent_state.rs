@@ -22,6 +22,7 @@ struct AgentInner {
     cancel_token: Option<CancellationToken>,
     pending_prompt: Option<PendingPrompt>,
     consecutive_errors: u32,
+    messages_pending: bool,
 }
 
 impl Default for AgentState {
@@ -40,6 +41,7 @@ impl AgentState {
                 cancel_token: None,
                 pending_prompt: None,
                 consecutive_errors: 0,
+                messages_pending: false,
             }),
         }
     }
@@ -118,6 +120,19 @@ impl AgentState {
     /// Take the pending prompt (removes it from state).
     pub async fn take_pending_prompt(&self) -> Option<PendingPrompt> {
         self.inner.write().await.pending_prompt.take()
+    }
+
+    /// Flag that messages arrived while the agent was busy.
+    pub async fn set_messages_pending(&self) {
+        self.inner.write().await.messages_pending = true;
+    }
+
+    /// Returns whether messages were pending and resets the flag.
+    pub async fn take_messages_pending(&self) -> bool {
+        let mut inner = self.inner.write().await;
+        let pending = inner.messages_pending;
+        inner.messages_pending = false;
+        pending
     }
 
     /// Stop the running agent by cancelling its token.
@@ -249,6 +264,26 @@ mod tests {
         let state = AgentState::new();
         let result = state.stop().await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn messages_pending_lifecycle() {
+        let state = AgentState::new();
+        // Initially no messages pending
+        assert!(!state.take_messages_pending().await);
+
+        // Set flag and take it
+        state.set_messages_pending().await;
+        assert!(state.take_messages_pending().await);
+
+        // Flag is reset after take
+        assert!(!state.take_messages_pending().await);
+
+        // Multiple sets before take still returns true once
+        state.set_messages_pending().await;
+        state.set_messages_pending().await;
+        assert!(state.take_messages_pending().await);
+        assert!(!state.take_messages_pending().await);
     }
 
     #[tokio::test]

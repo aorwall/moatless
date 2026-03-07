@@ -32,13 +32,16 @@ pub fn spawn_agent_execution(state: SandboxState, request: AgentRunRequest) {
             .await;
         }
 
-        // Check for queued messages after agent finishes.
-        // Delay 2s to avoid racing with session_init setting agent_session_id
-        // on the messages that were just processed.
+        // Check for deferred messages after agent finishes.
+        // Only fetch if messages arrived during the run (flagged by consumer guard).
         let post_state = state.clone();
         tokio::spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-            crate::agent::consumer::process_pending_messages(post_state).await;
+            // Short delay to let session_init propagate to backend
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            if post_state.agent.take_messages_pending().await {
+                info!("Processing deferred messages after agent completion");
+                crate::agent::consumer::process_pending_messages(post_state).await;
+            }
         });
     });
 }

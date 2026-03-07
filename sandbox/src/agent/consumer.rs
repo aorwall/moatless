@@ -35,6 +35,7 @@ async fn process_pending_messages_inner(state: SandboxState) {
     let status = state.agent.status().await;
     if status == AgentStatus::Running && !state.agent.has_pending_prompt().await {
         debug!("Agent is running, deferring message fetch");
+        state.agent.set_messages_pending().await;
         return;
     }
 
