@@ -21,6 +21,7 @@ use crate::repository::dao::{PgRepoRepository, RepoRepository};
 use crate::sandbox::provider::SandboxProvider;
 use crate::tag::dao::{PgTagRepository, TagRepository};
 use crate::task::dao::{PgTaskRepository, TaskRepository};
+use crate::team::dao::{PgTeamRepository, TeamRepository};
 
 /// Shared application state for task/message/agent/command/file routes.
 ///
@@ -56,6 +57,7 @@ pub struct AppState {
     pub channel_threads: Arc<dyn ChannelThreadRepository>,
     pub users: Arc<dyn UserRepository>,
     pub provider_tokens: Arc<dyn ProviderTokenRepository>,
+    pub teams: Arc<dyn TeamRepository>,
 }
 
 impl AppState {
@@ -83,6 +85,7 @@ impl AppState {
             channel_threads: Arc::new(PgChannelThreadRepository(pool.clone())),
             users: Arc::new(PgUserRepository(pool.clone())),
             provider_tokens: Arc::new(PgProviderTokenRepository(pool.clone())),
+            teams: Arc::new(PgTeamRepository(pool.clone())),
             db: pool,
             config,
             sandbox,

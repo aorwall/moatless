@@ -17,6 +17,7 @@ Every scenario has a permanent ID in the format `{DOMAIN}-{NUMBER}` or `{DOMAIN}
 | `FILE`    | File and workspace operations   |
 | `REPO`    | Repository management           |
 | `CHAN`    | Channel integrations            |
+| `AUTH`    | Authentication and access control |
 
 ### ID Rules
 
@@ -130,7 +131,9 @@ specs/
 │   ├── 00-design.md                   # Slack/webhook integrations
 │   └── 01-channel-scenarios.md        # CHAN-01 through CHAN-63
 ├── auth/
-│   └── 00-design.md                   # Login, sessions, API keys, provider tokens
+│   ├── 00-design.md                   # Login, sessions, API keys, teams, access control
+│   ├── 01-team-scenarios.md           # AUTH-01 through AUTH-08: Team management
+│   └── 02-access-control-scenarios.md # AUTH-10 through AUTH-30: Scope-based access control
 ├── figma/
 │   └── 00-design.md                   # Figma design import
 └── uploads/

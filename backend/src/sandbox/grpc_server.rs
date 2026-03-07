@@ -19,6 +19,7 @@ use sandbox_proto::{
 
 use crate::auth::provider_token_dao::ProviderTokenRepository;
 use crate::message::dao::MessageRepository;
+use crate::task::dao::TaskRepository;
 use crate::events::EventPublisher;
 use crate::sandbox::jwt;
 
@@ -40,6 +41,7 @@ pub struct BackendSandboxServiceImpl {
     pub events: Option<Arc<dyn EventPublisher>>,
     pub messages: Option<Arc<dyn MessageRepository>>,
     pub provider_tokens: Option<Arc<dyn ProviderTokenRepository>>,
+    pub tasks: Option<Arc<dyn TaskRepository>>,
     /// JWT signing key for verifying sandbox auth tokens.
     pub task_token_secret: Option<String>,
 }
@@ -72,6 +74,22 @@ impl BackendSandboxServiceImpl {
 
         jwt::verify_user_auth_token(token, secret)
             .map_err(|e| Status::unauthenticated(format!("Invalid token: {e}")))
+    }
+
+    /// Look up the team_id for a task. Returns None on any failure.
+    async fn resolve_task_team_id(&self, task_id: &str) -> Option<String> {
+        let tasks = self.tasks.as_ref()?;
+        match tasks.find_by_id_internal(task_id).await {
+            Ok(Some(task)) => task.team_id,
+            Ok(None) => {
+                warn!(task_id, "resolve_task_team_id: task not found");
+                None
+            }
+            Err(e) => {
+                warn!(task_id, error = %e, "resolve_task_team_id: DB error");
+                None
+            }
+        }
     }
 }
 
@@ -233,7 +251,8 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
     ///
     /// Resolution chain:
     /// 1. Environment variables (from moatless-secrets) — admin-configured, take priority
-    /// 2. Fill gaps from `provider_tokens` DB table (user-linked OAuth tokens)
+    /// 2. Team-level provider_tokens (if task belongs to a team)
+    /// 3. User-level provider_tokens (user-linked OAuth tokens)
     async fn get_credentials(
         &self,
         request: Request<GetCredentialsRequest>,
@@ -250,7 +269,6 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         let mut credentials: HashMap<String, String> = HashMap::new();
 
         // Step 1: Environment variables (from moatless-secrets) take priority
-        // Git provider tokens (one per provider)
         if let Ok(token) = env::var("GITHUB_PAT") {
             credentials.insert(CredentialKey::GITHUB_TOKEN.to_string(), token);
         }
@@ -270,9 +288,47 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             );
         }
 
-        // Step 2: Fill remaining gaps from provider_tokens DB table
+        // Step 2: Team-level provider_tokens (if task belongs to a team)
+        let team_id = self.resolve_task_team_id(&req.task_id).await;
+        if let (Some(ref team_id), Some(ref provider_tokens)) = (&team_id, &self.provider_tokens) {
+            for (provider, cred_key) in [
+                ("github", CredentialKey::GITHUB_TOKEN),
+                ("gitlab", CredentialKey::GITLAB_TOKEN),
+                ("gitness", CredentialKey::GITNESS_TOKEN),
+            ] {
+                if !credentials.contains_key(cred_key) {
+                    match provider_tokens.find_team_token(team_id, provider).await {
+                        Ok(Some(row)) => {
+                            credentials.insert(cred_key.to_string(), row.access_token);
+                        }
+                        Ok(None) => {}
+                        Err(e) => {
+                            warn!(error = %e, team_id, provider, "Failed to query team provider_token");
+                        }
+                    }
+                }
+            }
+
+            if !credentials.contains_key(CredentialKey::CLAUDE_CODE_OAUTH_TOKEN)
+                && !credentials.contains_key(CredentialKey::ANTHROPIC_API_KEY)
+            {
+                match provider_tokens.find_team_token(team_id, "claude").await {
+                    Ok(Some(row)) => {
+                        credentials.insert(
+                            CredentialKey::CLAUDE_CODE_OAUTH_TOKEN.to_string(),
+                            row.access_token,
+                        );
+                    }
+                    Ok(None) => {}
+                    Err(e) => {
+                        warn!(error = %e, team_id, "Failed to query team claude provider_token");
+                    }
+                }
+            }
+        }
+
+        // Step 3: User-level provider_tokens (fills remaining gaps)
         if let Some(ref provider_tokens) = self.provider_tokens {
-            // Git provider tokens (per-provider lookup)
             for (provider, cred_key) in [
                 ("github", CredentialKey::GITHUB_TOKEN),
                 ("gitlab", CredentialKey::GITLAB_TOKEN),
@@ -291,7 +347,6 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
                 }
             }
 
-            // Claude OAuth token (from user's OAuth connection)
             if !credentials.contains_key(CredentialKey::CLAUDE_CODE_OAUTH_TOKEN)
                 && !credentials.contains_key(CredentialKey::ANTHROPIC_API_KEY)
             {

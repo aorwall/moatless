@@ -444,6 +444,7 @@ mod tests {
                 auth0_callback_url: None,
                 auth0_audience: None,
                 auth0_groups_claim: "".into(),
+                default_team_slug: None,
                 session_max_age_secs: 3600,
                 frontend_url: "http://localhost:3000".into(),
                 cookie_domain: None,

@@ -1,6 +1,6 @@
 # Authentication & Authorization
 
-Auth controls who can access Moatless Vibe and what they can do. It supports OAuth login, session management, API keys for programmatic access, and secure storage of provider tokens.
+Auth controls who can access Moatless Vibe and what they can do. It supports OAuth login, session management, API keys for programmatic access, secure storage of provider tokens, and team-based access control.
 
 ## What Users Can Do
 
@@ -8,6 +8,8 @@ Auth controls who can access Moatless Vibe and what they can do. It supports OAu
 - **Manage sessions** — sessions are cookie-based JWTs; they expire after a configurable period.
 - **Use API keys** — create long-lived keys for CI/CD or programmatic access.
 - **Store provider tokens** — securely save third-party tokens (e.g., GitHub PATs) for use by the agent in sandboxes.
+- **Create and manage teams** — organize users into teams for shared access to resources.
+- **Store team credentials** — save provider tokens at the team level so all team members' sandboxes can use them.
 
 ## How It Works
 
@@ -16,6 +18,35 @@ Auth controls who can access Moatless Vibe and what they can do. It supports OAu
 3. API keys authenticate via a header and map to a user with a specific role.
 4. Provider tokens are encrypted at rest and delivered to sandbox pods via gRPC when the agent needs them (e.g., for git push).
 5. An admin role exists for system-level operations; regular users can only access their own resources.
+
+## Access Control Model
+
+Resources (repositories, tasks, channel configs) have a **scope** that controls who can see them:
+
+- **Global** — visible to all authenticated users.
+- **Team** — visible only to members of the owning team (and admins).
+- **User** — visible only to the user who created the resource (and admins).
+
+Admins bypass all scope restrictions and can see every resource.
+
+### Teams
+
+Users belong to one or more teams. Teams are created manually or auto-provisioned from Auth0 group claims on login. Each team can have its own credentials (provider tokens) that are shared across all team members' sandboxes.
+
+### Credential Resolution
+
+When a sandbox needs credentials (e.g., a GitHub token for git operations), the system resolves them using a priority chain:
+
+1. **Environment variables** — admin-configured, highest priority.
+2. **Team credentials** — shared tokens set at the team level.
+3. **User credentials** — personal tokens linked to the individual user.
+
+The first match wins for each credential type.
+
+### Scope Inheritance
+
+- Tasks inherit scope and team from their parent repository.
+- Tasks created via channel messages inherit scope and team from the channel config.
 
 ## Key Concepts
 
@@ -26,3 +57,6 @@ Auth controls who can access Moatless Vibe and what they can do. It supports OAu
 | API key | A long-lived token for programmatic access |
 | Provider token | A third-party credential (e.g., GitHub PAT) stored for sandbox use |
 | Role | User permission level: regular user or admin |
+| Team | A group of users who share access to team-scoped resources |
+| Scope | Access level of a resource: global, team, or user |
+| Team credential | A provider token stored at the team level, shared by all members |

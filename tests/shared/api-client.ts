@@ -101,61 +101,30 @@ export type {
 };
 
 // =============================================================================
-// Fetch helpers
+// Team Types
 // =============================================================================
 
-async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
-	const response = await fetch(url, {
-		...options,
-		headers: {
-			"Content-Type": "application/json",
-			Accept: "application/json",
-			...options?.headers,
-		},
-	});
-	if (!response.ok) {
-		const text = await response.text();
-		throw new Error(`HTTP ${response.status}: ${text}`);
-	}
-	return response.json();
+export interface TeamResponse {
+	id: string;
+	name: string;
+	slug: string;
+	description?: string;
+	isDefault: boolean;
+	createdAt: string;
+	updatedAt: string;
 }
 
-async function fetchOptionalJson<T>(url: string): Promise<T | null> {
-	try {
-		const response = await fetch(url, {
-			headers: { Accept: "application/json" },
-		});
-		if (!response.ok) {
-			return null;
-		}
-		return response.json();
-	} catch {
-		return null;
-	}
+export interface TeamMemberResponse {
+	teamId: string;
+	userId: string;
+	role: string;
+	createdAt: string;
 }
 
-/**
- * Fetch that returns the raw Response, throwing on non-OK status only
- * when throwOnError is true (default: false).
- */
-async function fetchRaw(
-	url: string,
-	options?: RequestInit & { throwOnError?: boolean },
-): Promise<Response> {
-	const { throwOnError, ...fetchOptions } = options ?? {};
-	const response = await fetch(url, {
-		...fetchOptions,
-		headers: {
-			"Content-Type": "application/json",
-			Accept: "application/json",
-			...fetchOptions?.headers,
-		},
-	});
-	if (throwOnError && !response.ok) {
-		const text = await response.text();
-		throw new Error(`HTTP ${response.status}: ${text}`);
-	}
-	return response;
+export interface TeamCredentialResponse {
+	provider: string;
+	tokenType?: string;
+	hasRefreshToken: boolean;
 }
 
 // =============================================================================
@@ -163,35 +132,116 @@ async function fetchRaw(
 // =============================================================================
 
 export class ApiClient {
-	constructor(private baseURL: string) {}
+	constructor(
+		private baseURL: string,
+		private defaultHeaders: Record<string, string> = {},
+	) {}
+
+	/**
+	 * Create a new ApiClient that sends ForwardAuth headers to simulate a specific user.
+	 */
+	asUser(identity: {
+		userId: string;
+		login?: string;
+		role?: string;
+		teamIds?: string[];
+	}): ApiClient {
+		const headers: Record<string, string> = {
+			"X-User-Id": identity.userId,
+			"X-User-Login": identity.login ?? identity.userId,
+		};
+		if (identity.role) {
+			headers["X-User-Role"] = identity.role;
+		}
+		if (identity.teamIds?.length) {
+			headers["X-Team-Ids"] = identity.teamIds.join(",");
+		}
+		return new ApiClient(this.baseURL, headers);
+	}
+
+	// =========================================================================
+	// Private Fetch Helpers
+	// =========================================================================
+
+	private async fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
+		const response = await fetch(url, {
+			...options,
+			headers: {
+				"Content-Type": "application/json",
+				Accept: "application/json",
+				...this.defaultHeaders,
+				...options?.headers,
+			},
+		});
+		if (!response.ok) {
+			const text = await response.text();
+			throw new Error(`HTTP ${response.status}: ${text}`);
+		}
+		return response.json();
+	}
+
+	private async fetchOptionalJson<T>(url: string): Promise<T | null> {
+		try {
+			const response = await fetch(url, {
+				headers: { Accept: "application/json", ...this.defaultHeaders },
+			});
+			if (!response.ok) {
+				return null;
+			}
+			return response.json();
+		} catch {
+			return null;
+		}
+	}
+
+	private async fetchRaw(
+		url: string,
+		options?: RequestInit & { throwOnError?: boolean },
+	): Promise<Response> {
+		const { throwOnError, ...fetchOptions } = options ?? {};
+		const response = await fetch(url, {
+			...fetchOptions,
+			headers: {
+				"Content-Type": "application/json",
+				Accept: "application/json",
+				...this.defaultHeaders,
+				...fetchOptions?.headers,
+			},
+		});
+		if (throwOnError && !response.ok) {
+			const text = await response.text();
+			throw new Error(`HTTP ${response.status}: ${text}`);
+		}
+		return response;
+	}
 
 	// =========================================================================
 	// Repository Operations
 	// =========================================================================
 
 	async createRepository(config: CreateRepositoryRequest): Promise<RepositoryResponse> {
-		return fetchJson<RepositoryResponse>(`${this.baseURL}/api/v1/repositories`, {
+		return this.fetchJson<RepositoryResponse>(`${this.baseURL}/api/v1/repositories`, {
 			method: "POST",
 			body: JSON.stringify(config),
 		});
 	}
 
 	async getRepository(id: string): Promise<RepositoryResponse> {
-		return fetchJson<RepositoryResponse>(`${this.baseURL}/api/v1/repositories/${id}`);
+		return this.fetchJson<RepositoryResponse>(`${this.baseURL}/api/v1/repositories/${id}`);
 	}
 
 	/**
 	 * Get repository and return the raw Response for error assertions.
 	 */
 	async getRepositoryRaw(id: string): Promise<Response> {
-		return fetchRaw(`${this.baseURL}/api/v1/repositories/${id}`);
+		return this.fetchRaw(`${this.baseURL}/api/v1/repositories/${id}`);
 	}
 
 	async updateRepository(
 		id: string,
 		data: UpdateRepositoryRequest,
 	): Promise<RepositoryResponse> {
-		return fetchJson<RepositoryResponse>(`${this.baseURL}/api/v1/repositories/${id}`, {
+		return this.fetchJson<RepositoryResponse>(`${this.baseURL}/api/v1/repositories/${id}`, {
 			method: "PUT",
 			body: JSON.stringify(data),
 		});
@@ -199,7 +249,7 @@ export class ApiClient {
 
 	async deleteRepository(id: string): Promise<void> {
 		try {
-			await fetch(`${this.baseURL}/api/v1/repositories/${id}`, { method: "DELETE" });
+			await this.fetchRaw(`${this.baseURL}/api/v1/repositories/${id}`, { method: "DELETE" });
 		} catch {
 			// Ignore
 		}
@@ -209,17 +259,38 @@ export class ApiClient {
 	 * Delete repository and return the raw Response for status code assertions.
 	 */
 	async deleteRepositoryRaw(id: string): Promise<Response> {
-		return fetchRaw(`${this.baseURL}/api/v1/repositories/${id}`, { method: "DELETE" });
+		return this.fetchRaw(`${this.baseURL}/api/v1/repositories/${id}`, { method: "DELETE" });
 	}
 
 	/**
 	 * Create repository and return the raw Response for error assertions.
 	 */
 	async createRepositoryRaw(config: CreateRepositoryRequest): Promise<Response> {
-		return fetchRaw(`${this.baseURL}/api/v1/repositories`, {
+		return this.fetchRaw(`${this.baseURL}/api/v1/repositories`, {
 			method: "POST",
 			body: JSON.stringify(config),
 		});
+	}
+
+	/**
+	 * Create repository with scope fields (not in generated types).
+	 * Returns the full response body.
+	 */
+	async createRepositoryWithScope(config: {
+		name: string;
+		kind: string;
+		scope: string;
+		teamId?: string;
+		remoteUrl?: string;
+		description?: string;
+	}): Promise<Record<string, unknown>> {
+		return this.fetchJson<Record<string, unknown>>(
+			`${this.baseURL}/api/v1/repositories`,
+			{
+				method: "POST",
+				body: JSON.stringify(config),
+			},
+		);
 	}
 
 	/**
@@ -227,7 +298,7 @@ export class ApiClient {
 	 * NOTE: GET /api/v1/repositories returns RepositoryResponse[] (plain array).
 	 */
 	async listRepositories(): Promise<RepositoryResponse[]> {
-		return fetchJson<RepositoryResponse[]>(`${this.baseURL}/api/v1/repositories`);
+		return this.fetchJson<RepositoryResponse[]>(`${this.baseURL}/api/v1/repositories`);
 	}
 
 	async getTemplateRepository(): Promise<RepositoryResponse | null> {
@@ -246,7 +317,7 @@ export class ApiClient {
 	 * and calls POST /api/v1/tasks (the actual backend endpoint).
 	 */
 	async createVibeTask(config: CreateVibeTaskRequest): Promise<TaskResponse> {
-		const result = await fetchJson<{ taskId: string; status: string; task: TaskResponse }>(
+		const result = await this.fetchJson<{ taskId: string; status: string; task: TaskResponse }>(
 			`${this.baseURL}/api/v1/tasks`,
 			{
 				method: "POST",
@@ -261,12 +332,12 @@ export class ApiClient {
 	}
 
 	async getTask(taskId: string): Promise<TaskResponse> {
-		return fetchJson<TaskResponse>(`${this.baseURL}/api/v1/tasks/${taskId}`);
+		return this.fetchJson<TaskResponse>(`${this.baseURL}/api/v1/tasks/${taskId}`);
 	}
 
 	async deleteTask(taskId: string): Promise<void> {
 		try {
-			await fetch(`${this.baseURL}/api/v1/tasks/${taskId}`, { method: "DELETE" });
+			await this.fetchRaw(`${this.baseURL}/api/v1/tasks/${taskId}`, { method: "DELETE" });
 		} catch {
 			// Ignore
 		}
@@ -276,12 +347,12 @@ export class ApiClient {
 	 * Delete task and return the raw Response for status code assertions.
 	 */
 	async deleteTaskRaw(taskId: string): Promise<Response> {
-		return fetchRaw(`${this.baseURL}/api/v1/tasks/${taskId}`, { method: "DELETE" });
+		return this.fetchRaw(`${this.baseURL}/api/v1/tasks/${taskId}`, { method: "DELETE" });
 	}
 
 	async stopTask(taskId: string): Promise<void> {
 		try {
-			await fetch(`${this.baseURL}/api/v1/tasks/${taskId}/stop`, { method: "POST" });
+			await this.fetchRaw(`${this.baseURL}/api/v1/tasks/${taskId}/stop`, { method: "POST" });
 		} catch {
 			// Ignore - task might not be running
 		}
@@ -295,7 +366,7 @@ export class ApiClient {
 			model?: string;
 		},
 	): Promise<void> {
-		await fetchJson(`${this.baseURL}/api/v1/tasks/${taskId}/messages`, {
+		await this.fetchJson(`${this.baseURL}/api/v1/tasks/${taskId}/messages`, {
 			method: "POST",
 			body: JSON.stringify({
 				message,
@@ -313,7 +384,7 @@ export class ApiClient {
 		message: string,
 		options?: { resume?: boolean },
 	): Promise<Response> {
-		return fetchRaw(`${this.baseURL}/api/v1/tasks/${taskId}/messages`, {
+		return this.fetchRaw(`${this.baseURL}/api/v1/tasks/${taskId}/messages`, {
 			method: "POST",
 			body: JSON.stringify({
 				message,
@@ -335,7 +406,7 @@ export class ApiClient {
 
 		const qs = params.toString();
 		const url = `${this.baseURL}/api/v1/tasks${qs ? `?${qs}` : ""}`;
-		return fetchJson<ListTasksResponse>(url);
+		return this.fetchJson<ListTasksResponse>(url);
 	}
 
 	/**
@@ -345,7 +416,7 @@ export class ApiClient {
 		taskId: string,
 		data: { name?: string; description?: string },
 	): Promise<TaskResponse> {
-		return fetchJson<TaskResponse>(`${this.baseURL}/api/v1/tasks/${taskId}`, {
+		return this.fetchJson<TaskResponse>(`${this.baseURL}/api/v1/tasks/${taskId}`, {
 			method: "PATCH",
 			body: JSON.stringify(data),
 		});
@@ -355,7 +426,7 @@ export class ApiClient {
 	 * TASK-08: Close a task.
 	 */
 	async closeTask(taskId: string): Promise<TaskResponse> {
-		return fetchJson<TaskResponse>(`${this.baseURL}/api/v1/tasks/${taskId}/close`, {
+		return this.fetchJson<TaskResponse>(`${this.baseURL}/api/v1/tasks/${taskId}/close`, {
 			method: "POST",
 		});
 	}
@@ -364,7 +435,7 @@ export class ApiClient {
 	 * Start a task (provisions sandbox).
 	 */
 	async startTask(taskId: string): Promise<void> {
-		await fetchRaw(`${this.baseURL}/api/v1/tasks/${taskId}/start`, {
+		await this.fetchRaw(`${this.baseURL}/api/v1/tasks/${taskId}/start`, {
 			method: "POST",
 			throwOnError: true,
 		});
@@ -374,7 +445,7 @@ export class ApiClient {
 	 * TASK-05: Set tags on a task.
 	 */
 	async setTaskTags(taskId: string, tags: string[]): Promise<unknown> {
-		return fetchJson(`${this.baseURL}/api/v1/tasks/${taskId}/tags`, {
+		return this.fetchJson(`${this.baseURL}/api/v1/tasks/${taskId}/tags`, {
 			method: "PUT",
 			body: JSON.stringify({ tags }),
 		});
@@ -384,7 +455,7 @@ export class ApiClient {
 	 * TASK-06: Update task visibility.
 	 */
 	async updateVisibility(taskId: string, visibility: "private" | "public"): Promise<TaskResponse> {
-		return fetchJson<TaskResponse>(`${this.baseURL}/api/v1/tasks/${taskId}/visibility`, {
+		return this.fetchJson<TaskResponse>(`${this.baseURL}/api/v1/tasks/${taskId}/visibility`, {
 			method: "PUT",
 			body: JSON.stringify({ visibility }),
 		});
@@ -397,7 +468,7 @@ export class ApiClient {
 		repositoryId: string;
 		message?: string;
 	}): Promise<Response> {
-		return fetchRaw(`${this.baseURL}/api/v1/tasks`, {
+		return this.fetchRaw(`${this.baseURL}/api/v1/tasks`, {
 			method: "POST",
 			body: JSON.stringify(config),
 		});
@@ -408,13 +479,13 @@ export class ApiClient {
 	// =========================================================================
 
 	async getWorkspaceStatus(taskId: string): Promise<WorkspaceStatusFullResponse> {
-		return fetchJson<WorkspaceStatusFullResponse>(
+		return this.fetchJson<WorkspaceStatusFullResponse>(
 			`${this.baseURL}/api/sandbox/v1/tasks/${taskId}/status`,
 		);
 	}
 
 	async getGitDiff(taskId: string): Promise<GitDiffResponse> {
-		return fetchJson<GitDiffResponse>(`${this.baseURL}/api/v1/tasks/${taskId}/git-diff`);
+		return this.fetchJson<GitDiffResponse>(`${this.baseURL}/api/v1/tasks/${taskId}/git-diff`);
 	}
 
 	// =========================================================================
@@ -425,7 +496,7 @@ export class ApiClient {
 	 * SANDBOX-02: Provision sandbox (idempotent).
 	 */
 	async provisionSandbox(taskId: string): Promise<unknown> {
-		return fetchJson(`${this.baseURL}/api/sandbox/v1/tasks/${taskId}/provision`, {
+		return this.fetchJson(`${this.baseURL}/api/sandbox/v1/tasks/${taskId}/provision`, {
 			method: "POST",
 		});
 	}
@@ -434,7 +505,7 @@ export class ApiClient {
 	 * SANDBOX-03: Stop sandbox (scale to 0).
 	 */
 	async stopSandbox(taskId: string): Promise<void> {
-		await fetchRaw(`${this.baseURL}/api/sandbox/v1/tasks/${taskId}/stop`, {
+		await this.fetchRaw(`${this.baseURL}/api/sandbox/v1/tasks/${taskId}/stop`, {
 			method: "POST",
 			throwOnError: true,
 		});
@@ -451,7 +522,7 @@ export class ApiClient {
 	 * SANDBOX-04: Restart sandbox (pod recreated, files persist).
 	 */
 	async restartSandbox(taskId: string): Promise<void> {
-		await fetchRaw(`${this.baseURL}/api/sandbox/v1/tasks/${taskId}/restart`, {
+		await this.fetchRaw(`${this.baseURL}/api/sandbox/v1/tasks/${taskId}/restart`, {
 			method: "POST",
 			throwOnError: true,
 		});
@@ -461,7 +532,7 @@ export class ApiClient {
 	 * SANDBOX-05: Cleanup sandbox (all resources removed).
 	 */
 	async cleanupSandbox(taskId: string): Promise<void> {
-		await fetchRaw(`${this.baseURL}/api/sandbox/v1/tasks/${taskId}/cleanup`, {
+		await this.fetchRaw(`${this.baseURL}/api/sandbox/v1/tasks/${taskId}/cleanup`, {
 			method: "POST",
 			throwOnError: true,
 		});
@@ -472,17 +543,17 @@ export class ApiClient {
 	// =========================================================================
 
 	async getServerStatus(taskId: string): Promise<ServerStatusResponse> {
-		return fetchJson<ServerStatusResponse>(
+		return this.fetchJson<ServerStatusResponse>(
 			`${this.baseURL}/api/sandbox/v1/tasks/${taskId}/server/status`,
 		);
 	}
 
 	async startPreview(taskId: string): Promise<void> {
-		await fetch(`${this.baseURL}/api/sandbox/v1/tasks/${taskId}/start`, { method: "POST" });
+		await this.fetchRaw(`${this.baseURL}/api/sandbox/v1/tasks/${taskId}/start`, { method: "POST" });
 	}
 
 	async stopPreview(taskId: string): Promise<void> {
-		await fetch(`${this.baseURL}/api/sandbox/v1/tasks/${taskId}/stop`, { method: "POST" });
+		await this.fetchRaw(`${this.baseURL}/api/sandbox/v1/tasks/${taskId}/stop`, { method: "POST" });
 	}
 
 	// =========================================================================
@@ -491,7 +562,7 @@ export class ApiClient {
 
 	async readWorkspaceFile(taskId: string, filePath: string): Promise<string | null> {
 		const params = new URLSearchParams({ path: filePath });
-		const data = await fetchOptionalJson<{ content: string }>(
+		const data = await this.fetchOptionalJson<{ content: string }>(
 			`${this.baseURL}/api/sandbox/v1/tasks/${taskId}/files/read?${params}`,
 		);
 		return data?.content ?? null;
@@ -506,7 +577,7 @@ export class ApiClient {
 			path: dirPath,
 			recursive: String(recursive),
 		});
-		const data = await fetchOptionalJson<{ files: string[] }>(
+		const data = await this.fetchOptionalJson<{ files: string[] }>(
 			`${this.baseURL}/api/sandbox/v1/tasks/${taskId}/files/list?${params}`,
 		);
 		return data?.files ?? [];
@@ -521,14 +592,14 @@ export class ApiClient {
 
 		const qs = params.toString();
 		const url = `${this.baseURL}/api/sandbox/v1/tasks/${taskId}/files/tree${qs ? `?${qs}` : ""}`;
-		return fetchJson<FileTreeResponse>(url);
+		return this.fetchJson<FileTreeResponse>(url);
 	}
 
 	/**
 	 * FILE-05: Write a file to the workspace.
 	 */
 	async writeFile(taskId: string, path: string, content: string): Promise<void> {
-		await fetchRaw(`${this.baseURL}/api/sandbox/v1/tasks/${taskId}/files/write`, {
+		await this.fetchRaw(`${this.baseURL}/api/sandbox/v1/tasks/${taskId}/files/write`, {
 			method: "POST",
 			body: JSON.stringify({ path, content }),
 			throwOnError: true,
@@ -539,7 +610,7 @@ export class ApiClient {
 	 * FILE-04: Search files by name pattern.
 	 */
 	async searchFilesByName(taskId: string, query: string): Promise<SearchByNameResult> {
-		return fetchJson<SearchByNameResult>(
+		return this.fetchJson<SearchByNameResult>(
 			`${this.baseURL}/api/sandbox/v1/tasks/${taskId}/files/search-by-name`,
 			{
 				method: "POST",
@@ -553,7 +624,7 @@ export class ApiClient {
 	// =========================================================================
 
 	async getTaskMessages(taskId: string): Promise<GetMessagesResponse> {
-		return fetchJson<GetMessagesResponse>(
+		return this.fetchJson<GetMessagesResponse>(
 			`${this.baseURL}/api/v1/tasks/${taskId}/messages`,
 		);
 	}
@@ -594,14 +665,14 @@ export class ApiClient {
 		providerConfig?: Record<string, unknown>;
 		responseConfigId?: string;
 	}): Promise<ChannelConfigResponse> {
-		return fetchJson<ChannelConfigResponse>(`${this.baseURL}/api/v1/channels/configs`, {
+		return this.fetchJson<ChannelConfigResponse>(`${this.baseURL}/api/v1/channels/configs`, {
 			method: "POST",
 			body: JSON.stringify(config),
 		});
 	}
 
 	async getChannelConfig(id: string): Promise<ChannelConfigResponse> {
-		return fetchJson<ChannelConfigResponse>(`${this.baseURL}/api/v1/channels/configs/${id}`);
+		return this.fetchJson<ChannelConfigResponse>(`${this.baseURL}/api/v1/channels/configs/${id}`);
 	}
 
 	async updateChannelConfig(
@@ -615,21 +686,21 @@ export class ApiClient {
 			responseConfigId?: string | null;
 		},
 	): Promise<ChannelConfigResponse> {
-		return fetchJson<ChannelConfigResponse>(`${this.baseURL}/api/v1/channels/configs/${id}`, {
+		return this.fetchJson<ChannelConfigResponse>(`${this.baseURL}/api/v1/channels/configs/${id}`, {
 			method: "PUT",
 			body: JSON.stringify(data),
 		});
 	}
 
 	async deleteChannelConfig(id: string): Promise<void> {
-		await fetchRaw(`${this.baseURL}/api/v1/channels/configs/${id}`, {
+		await this.fetchRaw(`${this.baseURL}/api/v1/channels/configs/${id}`, {
 			method: "DELETE",
 			throwOnError: true,
 		});
 	}
 
 	async deleteChannelConfigRaw(id: string): Promise<Response> {
-		return fetchRaw(`${this.baseURL}/api/v1/channels/configs/${id}`, {
+		return this.fetchRaw(`${this.baseURL}/api/v1/channels/configs/${id}`, {
 			method: "DELETE",
 		});
 	}
@@ -644,7 +715,7 @@ export class ApiClient {
 
 		const qs = params.toString();
 		const url = `${this.baseURL}/api/v1/channels/configs${qs ? `?${qs}` : ""}`;
-		return fetchJson<ChannelConfigResponse[]>(url);
+		return this.fetchJson<ChannelConfigResponse[]>(url);
 	}
 
 	/**
@@ -654,7 +725,7 @@ export class ApiClient {
 		configId: string,
 		payload: { text: string; threadId?: string; userId?: string; metadata?: Record<string, unknown> },
 	): Promise<Response> {
-		return fetchRaw(`${this.baseURL}/api/v1/channels/webhook/${configId}`, {
+		return this.fetchRaw(`${this.baseURL}/api/v1/channels/webhook/${configId}`, {
 			method: "POST",
 			body: JSON.stringify(payload),
 		});
@@ -668,11 +739,153 @@ export class ApiClient {
 		payload: unknown,
 		headers?: Record<string, string>,
 	): Promise<Response> {
-		return fetchRaw(`${this.baseURL}/api/v1/channels/webhook/${configId}`, {
+		return this.fetchRaw(`${this.baseURL}/api/v1/channels/webhook/${configId}`, {
 			method: "POST",
 			body: JSON.stringify(payload),
 			headers,
 		});
+	}
+
+	// =========================================================================
+	// Team Operations
+	// =========================================================================
+
+	async createTeam(req: {
+		name: string;
+		slug: string;
+		description?: string;
+	}): Promise<TeamResponse> {
+		const response = await this.fetchRaw(`${this.baseURL}/api/v1/teams`, {
+			method: "POST",
+			body: JSON.stringify(req),
+			throwOnError: true,
+		});
+		return response.json();
+	}
+
+	async createTeamRaw(req: {
+		name: string;
+		slug: string;
+		description?: string;
+	}): Promise<Response> {
+		return this.fetchRaw(`${this.baseURL}/api/v1/teams`, {
+			method: "POST",
+			body: JSON.stringify(req),
+		});
+	}
+
+	async getTeam(id: string): Promise<TeamResponse> {
+		return this.fetchJson<TeamResponse>(`${this.baseURL}/api/v1/teams/${id}`);
+	}
+
+	async updateTeam(
+		id: string,
+		req: { name: string; description?: string },
+	): Promise<TeamResponse> {
+		return this.fetchJson<TeamResponse>(`${this.baseURL}/api/v1/teams/${id}`, {
+			method: "PUT",
+			body: JSON.stringify(req),
+		});
+	}
+
+	async deleteTeam(id: string): Promise<void> {
+		await this.fetchRaw(`${this.baseURL}/api/v1/teams/${id}`, {
+			method: "DELETE",
+			throwOnError: true,
+		});
+	}
+
+	async deleteTeamRaw(id: string): Promise<Response> {
+		return this.fetchRaw(`${this.baseURL}/api/v1/teams/${id}`, {
+			method: "DELETE",
+		});
+	}
+
+	async listTeams(): Promise<TeamResponse[]> {
+		return this.fetchJson<TeamResponse[]>(`${this.baseURL}/api/v1/teams`);
+	}
+
+	async addTeamMember(
+		teamId: string,
+		userId: string,
+		role?: string,
+	): Promise<void> {
+		await this.fetchRaw(
+			`${this.baseURL}/api/v1/teams/${teamId}/members`,
+			{
+				method: "POST",
+				body: JSON.stringify({ userId, role }),
+				throwOnError: true,
+			},
+		);
+	}
+
+	async removeTeamMember(teamId: string, userId: string): Promise<void> {
+		await this.fetchRaw(
+			`${this.baseURL}/api/v1/teams/${teamId}/members/${userId}`,
+			{ method: "DELETE", throwOnError: true },
+		);
+	}
+
+	async listTeamMembers(teamId: string): Promise<TeamMemberResponse[]> {
+		return this.fetchJson<TeamMemberResponse[]>(
+			`${this.baseURL}/api/v1/teams/${teamId}/members`,
+		);
+	}
+
+	async upsertTeamCredential(
+		teamId: string,
+		provider: string,
+		req: {
+			accessToken: string;
+			refreshToken?: string;
+			tokenType?: string;
+		},
+	): Promise<void> {
+		await this.fetchRaw(
+			`${this.baseURL}/api/v1/teams/${teamId}/credentials/${provider}`,
+			{
+				method: "PUT",
+				body: JSON.stringify(req),
+				throwOnError: true,
+			},
+		);
+	}
+
+	async upsertTeamCredentialRaw(
+		teamId: string,
+		provider: string,
+		req: {
+			accessToken: string;
+			refreshToken?: string;
+			tokenType?: string;
+		},
+	): Promise<Response> {
+		return this.fetchRaw(
+			`${this.baseURL}/api/v1/teams/${teamId}/credentials/${provider}`,
+			{
+				method: "PUT",
+				body: JSON.stringify(req),
+			},
+		);
+	}
+
+	async deleteTeamCredential(
+		teamId: string,
+		provider: string,
+	): Promise<void> {
+		await this.fetchRaw(
+			`${this.baseURL}/api/v1/teams/${teamId}/credentials/${provider}`,
+			{ method: "DELETE", throwOnError: true },
+		);
+	}
+
+	async listTeamCredentials(
+		teamId: string,
+	): Promise<TeamCredentialResponse[]> {
+		return this.fetchJson<TeamCredentialResponse[]>(
+			`${this.baseURL}/api/v1/teams/${teamId}/credentials`,
+		);
 	}
 
 	// =========================================================================

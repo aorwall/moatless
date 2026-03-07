@@ -64,7 +64,7 @@ fn is_exempt(path: &str) -> bool {
     )
 }
 
-/// Strip all inbound `X-User-*` and `X-Group-Id` headers to prevent spoofing.
+/// Strip all inbound `X-User-*`, `X-Group-Id`, and `X-Team-Ids` headers to prevent spoofing.
 fn strip_user_headers(req: &mut Request<Body>) {
     let headers = req.headers_mut();
     headers.remove("x-user-id");
@@ -72,6 +72,7 @@ fn strip_user_headers(req: &mut Request<Body>) {
     headers.remove("x-user-role");
     headers.remove("x-user-provider");
     headers.remove("x-group-id");
+    headers.remove("x-team-ids");
 }
 
 /// Axum middleware function that validates auth and injects user headers.
@@ -154,6 +155,7 @@ pub async fn auth_middleware(mut req: Request<Body>, next: Next) -> Response {
                     role,
                     provider: claims.provider,
                     group_id: claims.group_id,
+                    team_ids: claims.team_ids,
                     // expires_at not needed for header injection, use a far-future sentinel
                     expires_at: chrono::Utc::now() + chrono::Duration::hours(24),
                 };
@@ -191,6 +193,12 @@ fn inject_user_headers(req: &mut Request<Body>, payload: &VerifyPayload) {
     if let Some(ref gid) = payload.group_id {
         if let Ok(v) = HeaderValue::from_str(gid) {
             headers.insert("x-group-id", v);
+        }
+    }
+    if !payload.team_ids.is_empty() {
+        let team_ids_str = payload.team_ids.join(",");
+        if let Ok(v) = HeaderValue::from_str(&team_ids_str) {
+            headers.insert("x-team-ids", v);
         }
     }
 }

@@ -4,6 +4,11 @@ use async_trait::async_trait;
 
 use super::models::{ChannelConfig, RoutingMode};
 use crate::db::DbPool;
+use crate::scope::ScopeContext;
+
+const CHANNEL_CONFIG_COLUMNS: &str = r#"id, provider, source_id, source_name, repository_id, routing_mode,
+                      prompt_template, active, provider_config, ongoing_task_id,
+                      response_config_id, scope, team_id, created_by, created_at, updated_at"#;
 
 /// Updateable fields for a channel config.
 #[derive(Default)]
@@ -25,8 +30,10 @@ pub struct ChannelConfigPatch {
 #[async_trait]
 pub trait ChannelConfigRepository: Send + Sync {
     async fn find_by_id(&self, id: &str) -> Result<Option<ChannelConfig>, sqlx::Error>;
+    async fn find_by_id_scoped(&self, id: &str, ctx: &ScopeContext) -> Result<Option<ChannelConfig>, sqlx::Error>;
     async fn find_by_provider_source(&self, provider: &str, source_id: &str) -> Result<Option<ChannelConfig>, sqlx::Error>;
     async fn list(&self, provider: Option<&str>, repository_id: Option<&str>, active_only: bool) -> Result<Vec<ChannelConfig>, sqlx::Error>;
+    async fn list_scoped(&self, provider: Option<&str>, repository_id: Option<&str>, active_only: bool, ctx: &ScopeContext) -> Result<Vec<ChannelConfig>, sqlx::Error>;
     async fn insert(&self, row: &ChannelConfig) -> Result<(), sqlx::Error>;
     async fn update(&self, id: &str, patch: &ChannelConfigPatch) -> Result<(), sqlx::Error>;
     async fn delete(&self, id: &str) -> Result<(), sqlx::Error>;
@@ -38,36 +45,44 @@ pub struct PgChannelConfigRepository(pub DbPool);
 #[async_trait]
 impl ChannelConfigRepository for PgChannelConfigRepository {
     async fn find_by_id(&self, id: &str) -> Result<Option<ChannelConfig>, sqlx::Error> {
-        sqlx::query_as::<_, ChannelConfig>(
-            r#"SELECT id, provider, source_id, source_name, repository_id, routing_mode,
-                      prompt_template, active, provider_config, ongoing_task_id,
-                      response_config_id, created_by, created_at, updated_at
-               FROM channel_configs WHERE id = $1"#,
-        )
-        .bind(id)
-        .fetch_optional(&self.0)
-        .await
+        let sql = format!("SELECT {CHANNEL_CONFIG_COLUMNS} FROM channel_configs WHERE id = $1");
+        sqlx::query_as::<_, ChannelConfig>(&sql)
+            .bind(id)
+            .fetch_optional(&self.0)
+            .await
+    }
+
+    async fn find_by_id_scoped(&self, id: &str, ctx: &ScopeContext) -> Result<Option<ChannelConfig>, sqlx::Error> {
+        let sql = format!(
+            "SELECT {CHANNEL_CONFIG_COLUMNS} FROM channel_configs \
+             WHERE id = $1 \
+             AND ($2 OR scope = 'global' \
+                  OR (scope = 'team' AND team_id = ANY($3)) \
+                  OR (scope = 'user' AND created_by = $4))"
+        );
+        sqlx::query_as::<_, ChannelConfig>(&sql)
+            .bind(id)
+            .bind(ctx.is_admin)
+            .bind(&ctx.team_ids)
+            .bind(&ctx.user_id)
+            .fetch_optional(&self.0)
+            .await
     }
 
     async fn find_by_provider_source(&self, provider: &str, source_id: &str) -> Result<Option<ChannelConfig>, sqlx::Error> {
-        sqlx::query_as::<_, ChannelConfig>(
-            r#"SELECT id, provider, source_id, source_name, repository_id, routing_mode,
-                      prompt_template, active, provider_config, ongoing_task_id,
-                      response_config_id, created_by, created_at, updated_at
-               FROM channel_configs WHERE provider = $1 AND source_id = $2"#,
-        )
-        .bind(provider)
-        .bind(source_id)
-        .fetch_optional(&self.0)
-        .await
+        let sql = format!(
+            "SELECT {CHANNEL_CONFIG_COLUMNS} FROM channel_configs WHERE provider = $1 AND source_id = $2"
+        );
+        sqlx::query_as::<_, ChannelConfig>(&sql)
+            .bind(provider)
+            .bind(source_id)
+            .fetch_optional(&self.0)
+            .await
     }
 
     async fn list(&self, provider: Option<&str>, repository_id: Option<&str>, active_only: bool) -> Result<Vec<ChannelConfig>, sqlx::Error> {
-        let mut sql = String::from(
-            r#"SELECT id, provider, source_id, source_name, repository_id, routing_mode,
-                      prompt_template, active, provider_config, ongoing_task_id,
-                      response_config_id, created_by, created_at, updated_at
-               FROM channel_configs WHERE 1=1"#,
+        let mut sql = format!(
+            "SELECT {CHANNEL_CONFIG_COLUMNS} FROM channel_configs WHERE 1=1"
         );
         let mut param_idx = 0u32;
         let mut binds: Vec<String> = Vec::new();
@@ -97,13 +112,51 @@ impl ChannelConfigRepository for PgChannelConfigRepository {
         query.fetch_all(&self.0).await
     }
 
+    async fn list_scoped(&self, provider: Option<&str>, repository_id: Option<&str>, active_only: bool, ctx: &ScopeContext) -> Result<Vec<ChannelConfig>, sqlx::Error> {
+        let mut sql = format!(
+            "SELECT {CHANNEL_CONFIG_COLUMNS} FROM channel_configs \
+             WHERE ($1 OR scope = 'global' \
+                    OR (scope = 'team' AND team_id = ANY($2)) \
+                    OR (scope = 'user' AND created_by = $3))"
+        );
+        let mut param_idx = 3u32;
+        let mut binds: Vec<String> = Vec::new();
+
+        if let Some(p) = provider {
+            param_idx += 1;
+            use std::fmt::Write;
+            let _ = write!(sql, " AND provider = ${param_idx}");
+            binds.push(p.to_string());
+        }
+        if let Some(r) = repository_id {
+            param_idx += 1;
+            use std::fmt::Write;
+            let _ = write!(sql, " AND repository_id = ${param_idx}");
+            binds.push(r.to_string());
+        }
+        if active_only {
+            sql.push_str(" AND active = true");
+        }
+
+        sql.push_str(" ORDER BY created_at DESC");
+
+        let mut query = sqlx::query_as::<_, ChannelConfig>(&sql)
+            .bind(ctx.is_admin)
+            .bind(&ctx.team_ids)
+            .bind(&ctx.user_id);
+        for b in &binds {
+            query = query.bind(b);
+        }
+        query.fetch_all(&self.0).await
+    }
+
     async fn insert(&self, row: &ChannelConfig) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"INSERT INTO channel_configs
                (id, provider, source_id, source_name, repository_id, routing_mode,
                 prompt_template, active, provider_config, ongoing_task_id,
-                response_config_id, created_by)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)"#,
+                response_config_id, scope, team_id, created_by)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)"#,
         )
         .bind(&row.id)
         .bind(&row.provider)
@@ -116,6 +169,8 @@ impl ChannelConfigRepository for PgChannelConfigRepository {
         .bind(&row.provider_config)
         .bind(&row.ongoing_task_id)
         .bind(&row.response_config_id)
+        .bind(row.scope)
+        .bind(&row.team_id)
         .bind(&row.created_by)
         .execute(&self.0)
         .await?;

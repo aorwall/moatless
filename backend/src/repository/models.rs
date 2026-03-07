@@ -3,6 +3,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::scope::Scope;
 use crate::task::models::Visibility;
 
 // =============================================================================
@@ -162,6 +163,8 @@ pub struct Repository {
     pub description: Option<String>,
     pub provider: Option<RepositoryProvider>,
     pub visibility: Option<Visibility>,
+    pub scope: Scope,
+    pub team_id: Option<String>,
     pub created_by: Option<String>,
     pub deleted: Option<bool>,
     pub created_at: Option<DateTime<Utc>>,

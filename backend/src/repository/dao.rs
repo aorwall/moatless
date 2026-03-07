@@ -4,6 +4,7 @@ use async_trait::async_trait;
 
 use super::models::{Repository, RepositoryKind, RepositoryProvider};
 use crate::db::DbPool;
+use crate::scope::ScopeContext;
 use crate::task::models::Visibility;
 
 /// Columns selected for repository queries.
@@ -14,7 +15,7 @@ const REPO_COLUMNS: &str = r#"
     server_start_commands, startup_timeout_seconds,
     build_command, build_output_directory,
     enable_inspector, auto_reload,
-    description, provider, visibility, created_by,
+    description, provider, visibility, scope, team_id, created_by,
     deleted, created_at, updated_at
 "#;
 
@@ -48,9 +49,9 @@ pub struct RepositoryPatch {
 pub trait RepoRepository: Send + Sync {
     /// Find by id (internal, no access control).
     async fn find_repository_by_id(&self, id: &str) -> Result<Option<Repository>, sqlx::Error>;
-    /// Find by id, scoped to visibility.
-    async fn find_by_id(&self, id: &str, user_id: &str) -> Result<Option<Repository>, sqlx::Error>;
-    async fn list_all(&self, user_id: &str) -> Result<Vec<Repository>, sqlx::Error>;
+    /// Find by id, scoped to access control.
+    async fn find_by_id(&self, id: &str, ctx: &ScopeContext) -> Result<Option<Repository>, sqlx::Error>;
+    async fn list_all(&self, ctx: &ScopeContext) -> Result<Vec<Repository>, sqlx::Error>;
     async fn insert(&self, row: &Repository) -> Result<(), sqlx::Error>;
     async fn update(&self, id: &str, patch: &RepositoryPatch) -> Result<bool, sqlx::Error>;
     async fn soft_delete(&self, id: &str) -> Result<bool, sqlx::Error>;
@@ -75,29 +76,37 @@ impl RepoRepository for PgRepoRepository {
             .await
     }
 
-    async fn find_by_id(&self, id: &str, user_id: &str) -> Result<Option<Repository>, sqlx::Error> {
+    async fn find_by_id(&self, id: &str, ctx: &ScopeContext) -> Result<Option<Repository>, sqlx::Error> {
         let query = format!(
             "SELECT {REPO_COLUMNS} FROM repositories \
              WHERE id = $1 \
              AND (deleted IS NULL OR deleted = false) \
-             AND (visibility = 'public' OR created_by = $2)"
+             AND ($2 OR scope = 'global' \
+                  OR (scope = 'team' AND team_id = ANY($3)) \
+                  OR (scope = 'user' AND created_by = $4))"
         );
         sqlx::query_as::<_, Repository>(&query)
             .bind(id)
-            .bind(user_id)
+            .bind(ctx.is_admin)
+            .bind(&ctx.team_ids)
+            .bind(&ctx.user_id)
             .fetch_optional(&self.0)
             .await
     }
 
-    async fn list_all(&self, user_id: &str) -> Result<Vec<Repository>, sqlx::Error> {
+    async fn list_all(&self, ctx: &ScopeContext) -> Result<Vec<Repository>, sqlx::Error> {
         let query = format!(
             "SELECT {REPO_COLUMNS} FROM repositories \
              WHERE (deleted IS NULL OR deleted = false) \
-             AND (visibility = 'public' OR created_by = $1) \
+             AND ($1 OR scope = 'global' \
+                  OR (scope = 'team' AND team_id = ANY($2)) \
+                  OR (scope = 'user' AND created_by = $3)) \
              ORDER BY name ASC"
         );
         sqlx::query_as::<_, Repository>(&query)
-            .bind(user_id)
+            .bind(ctx.is_admin)
+            .bind(&ctx.team_ids)
+            .bind(&ctx.user_id)
             .fetch_all(&self.0)
             .await
     }
@@ -111,7 +120,7 @@ impl RepoRepository for PgRepoRepository {
                 server_start_commands, startup_timeout_seconds,
                 build_command, build_output_directory,
                 enable_inspector, auto_reload,
-                description, provider, visibility, created_by,
+                description, provider, visibility, scope, team_id, created_by,
                 deleted, created_at, updated_at
             ) VALUES (
                 $1, $2, $3, $4, $5,
@@ -120,8 +129,8 @@ impl RepoRepository for PgRepoRepository {
                 $12, $13,
                 $14, $15,
                 $16, $17,
-                $18, $19, $20, $21,
-                $22, $23, $24
+                $18, $19, $20, $21, $22, $23,
+                $24, $25, $26
             )"#,
         )
         .bind(&row.id)
@@ -144,6 +153,8 @@ impl RepoRepository for PgRepoRepository {
         .bind(&row.description)
         .bind(row.provider)
         .bind(row.visibility)
+        .bind(row.scope)
+        .bind(&row.team_id)
         .bind(&row.created_by)
         .bind(row.deleted)
         .bind(row.created_at)
@@ -292,14 +303,14 @@ pub async fn insert(pool: &DbPool, row: &Repository) -> Result<(), sqlx::Error> 
     PgRepoRepository(pool.clone()).insert(row).await
 }
 
-/// Find by id scoped to visibility (convenience wrapper).
-pub async fn find_by_id(pool: &DbPool, id: &str, user_id: &str) -> Result<Option<Repository>, sqlx::Error> {
-    PgRepoRepository(pool.clone()).find_by_id(id, user_id).await
+/// Find by id scoped to access control (convenience wrapper).
+pub async fn find_by_id(pool: &DbPool, id: &str, ctx: &ScopeContext) -> Result<Option<Repository>, sqlx::Error> {
+    PgRepoRepository(pool.clone()).find_by_id(id, ctx).await
 }
 
 /// List all repositories visible to user (convenience wrapper).
-pub async fn list_all(pool: &DbPool, user_id: &str) -> Result<Vec<Repository>, sqlx::Error> {
-    PgRepoRepository(pool.clone()).list_all(user_id).await
+pub async fn list_all(pool: &DbPool, ctx: &ScopeContext) -> Result<Vec<Repository>, sqlx::Error> {
+    PgRepoRepository(pool.clone()).list_all(ctx).await
 }
 
 /// Update repository fields (convenience wrapper).

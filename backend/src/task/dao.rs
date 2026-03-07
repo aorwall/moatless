@@ -7,12 +7,15 @@ use chrono::{DateTime, Utc};
 
 use super::models::{Task, TaskStatus, Visibility};
 use crate::db::DbPool;
+use crate::scope::{Scope, ScopeContext};
 use crate::shared_models::AgentType;
 
 /// Filter struct for task listing queries.
 #[derive(Default)]
 pub struct TaskFilter {
     pub user_id: String,
+    pub team_ids: Vec<String>,
+    pub is_admin: bool,
     pub limit: i64,
     pub offset: i64,
     pub status: Option<TaskStatus>,
@@ -27,8 +30,8 @@ pub struct TaskFilter {
 pub trait TaskRepository: Send + Sync {
     /// Find by task_id (no access control — internal/system use).
     async fn find_by_id_internal(&self, task_id: &str) -> Result<Option<Task>, sqlx::Error>;
-    /// Find by task_id, scoped to user visibility.
-    async fn find_by_id(&self, task_id: &str, user_id: &str) -> Result<Option<Task>, sqlx::Error>;
+    /// Find by task_id, scoped to access control.
+    async fn find_by_id(&self, task_id: &str, ctx: &ScopeContext) -> Result<Option<Task>, sqlx::Error>;
     async fn insert_task(&self, row: &Task) -> Result<(), sqlx::Error>;
     async fn list_tasks(
         &self,
@@ -51,7 +54,7 @@ impl TaskRepository for PgTaskRepository {
                 task_id, short_id, created_at, last_message_at, agent_type,
                 repository_id, status, total_cost_usd, site_url, template_id,
                 vibe, name, description, site_id, site_provider, branch,
-                created_by, visibility, created_at_db
+                created_by, visibility, scope, team_id, created_at_db
             FROM tasks WHERE task_id = $1"#,
         )
         .bind(task_id)
@@ -59,19 +62,23 @@ impl TaskRepository for PgTaskRepository {
         .await
     }
 
-    async fn find_by_id(&self, task_id: &str, user_id: &str) -> Result<Option<Task>, sqlx::Error> {
+    async fn find_by_id(&self, task_id: &str, ctx: &ScopeContext) -> Result<Option<Task>, sqlx::Error> {
         sqlx::query_as::<_, Task>(
             r#"SELECT
                 task_id, short_id, created_at, last_message_at, agent_type,
                 repository_id, status, total_cost_usd, site_url, template_id,
                 vibe, name, description, site_id, site_provider, branch,
-                created_by, visibility, created_at_db
+                created_by, visibility, scope, team_id, created_at_db
             FROM tasks
             WHERE task_id = $1
-              AND (visibility = 'public' OR created_by = $2)"#,
+              AND ($2 OR scope = 'global'
+                   OR (scope = 'team' AND team_id = ANY($3))
+                   OR (scope = 'user' AND created_by = $4))"#,
         )
         .bind(task_id)
-        .bind(user_id)
+        .bind(ctx.is_admin)
+        .bind(&ctx.team_ids)
+        .bind(&ctx.user_id)
         .fetch_optional(&self.0)
         .await
     }
@@ -82,10 +89,10 @@ impl TaskRepository for PgTaskRepository {
                 task_id, short_id, created_at, last_message_at, agent_type,
                 repository_id, status, total_cost_usd, site_url, template_id,
                 vibe, name, description, site_id, site_provider, branch,
-                created_by, visibility
+                created_by, visibility, scope, team_id
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-                $11, $12, $13, $14, $15, $16, $17, $18
+                $11, $12, $13, $14, $15, $16, $17, $18, $19, $20
             )"#,
         )
         .bind(&row.task_id)
@@ -106,6 +113,8 @@ impl TaskRepository for PgTaskRepository {
         .bind(&row.branch)
         .bind(&row.created_by)
         .bind(row.visibility)
+        .bind(row.scope)
+        .bind(&row.team_id)
         .execute(&self.0)
         .await?;
         Ok(())
@@ -136,6 +145,8 @@ impl TaskRepository for PgTaskRepository {
             branch: Option<String>,
             created_by: Option<String>,
             visibility: Visibility,
+            scope: Scope,
+            team_id: Option<String>,
             created_at_db: Option<DateTime<Utc>>,
             total_count: i64,
         }
@@ -145,19 +156,23 @@ impl TaskRepository for PgTaskRepository {
                 t.task_id, t.short_id, t.created_at, t.last_message_at, t.agent_type,
                 t.repository_id, t.status, t.total_cost_usd, t.site_url, t.template_id,
                 t.vibe, t.name, t.description, t.site_id, t.site_provider, t.branch,
-                t.created_by, t.visibility, t.created_at_db,
+                t.created_by, t.visibility, t.scope, t.team_id, t.created_at_db,
                 COUNT(*) OVER() AS total_count
             FROM tasks t
             LEFT JOIN task_tags tt ON t.task_id = tt.task_id
             LEFT JOIN tags tg ON tt.tag_id = tg.tag_id
-            WHERE (t.visibility = 'public' OR t.created_by = $1)
-              AND ($2::text IS NULL OR t.status = $2)
-              AND ($3::text IS NULL OR t.repository_id = $3)
-              AND ($4::text IS NULL OR t.created_by = $4)
-              AND ($5::text IS NULL OR tg.name = $5)
+            WHERE ($1 OR t.scope = 'global'
+                   OR (t.scope = 'team' AND t.team_id = ANY($2))
+                   OR (t.scope = 'user' AND t.created_by = $3))
+              AND ($4::text IS NULL OR t.status = $4)
+              AND ($5::text IS NULL OR t.repository_id = $5)
+              AND ($6::text IS NULL OR t.created_by = $6)
+              AND ($7::text IS NULL OR tg.name = $7)
             ORDER BY t.last_message_at DESC
-            LIMIT $6 OFFSET $7"#,
+            LIMIT $8 OFFSET $9"#,
         )
+        .bind(filter.is_admin)
+        .bind(&filter.team_ids)
         .bind(&filter.user_id)
         .bind(filter.status)
         .bind(&filter.repository_id)
@@ -191,6 +206,8 @@ impl TaskRepository for PgTaskRepository {
                 branch: r.branch,
                 created_by: r.created_by,
                 visibility: r.visibility,
+                scope: r.scope,
+                team_id: r.team_id,
                 created_at_db: r.created_at_db,
             })
             .collect();
@@ -327,9 +344,9 @@ pub async fn insert_task(pool: &DbPool, row: &Task) -> Result<(), sqlx::Error> {
     PgTaskRepository(pool.clone()).insert_task(row).await
 }
 
-/// Find by task_id scoped to user visibility (convenience wrapper).
-pub async fn find_by_id(pool: &DbPool, task_id: &str, user_id: &str) -> Result<Option<Task>, sqlx::Error> {
-    PgTaskRepository(pool.clone()).find_by_id(task_id, user_id).await
+/// Find by task_id scoped to access control (convenience wrapper).
+pub async fn find_by_id(pool: &DbPool, task_id: &str, ctx: &ScopeContext) -> Result<Option<Task>, sqlx::Error> {
+    PgTaskRepository(pool.clone()).find_by_id(task_id, ctx).await
 }
 
 /// Find by task_id without access control (convenience wrapper).
@@ -341,7 +358,7 @@ pub async fn find_by_id_internal(pool: &DbPool, task_id: &str) -> Result<Option<
 #[allow(clippy::too_many_arguments)]
 pub async fn list_tasks(
     pool: &DbPool,
-    user_id: &str,
+    ctx: &ScopeContext,
     limit: i64,
     offset: i64,
     status: Option<TaskStatus>,
@@ -350,7 +367,9 @@ pub async fn list_tasks(
     tag: Option<&str>,
 ) -> Result<(Vec<Task>, i64), sqlx::Error> {
     let filter = TaskFilter {
-        user_id: user_id.to_string(),
+        user_id: ctx.user_id.clone(),
+        team_ids: ctx.team_ids.clone(),
+        is_admin: ctx.is_admin,
         limit,
         offset,
         status,

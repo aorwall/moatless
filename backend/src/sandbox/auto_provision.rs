@@ -65,7 +65,7 @@ pub async fn build_provision_request(
     // 3. Resolve credentials
     let git_provider = repo.provider.unwrap_or(RepositoryProvider::Github);
     let (git_provider_token, anthropic_api_key, claude_oauth_token) =
-        resolve_credentials(task_id, provider_tokens, task.created_by.as_deref(), git_provider).await;
+        resolve_credentials(task_id, provider_tokens, task.created_by.as_deref(), task.team_id.as_deref(), git_provider).await;
 
     // Ensure we have at least some auth
     if anthropic_api_key.is_none() && claude_oauth_token.is_none() {
@@ -99,12 +99,14 @@ pub async fn build_provision_request(
 }
 
 /// Resolve credentials with fallback chain:
-/// 1. Query `provider_tokens` table (user-linked tokens)
-/// 2. Fall back to environment variables
+/// 1. Query user-level `provider_tokens`
+/// 2. Query team-level `provider_tokens` (if task has team_id)
+/// 3. Fall back to environment variables
 async fn resolve_credentials(
     task_id: &str,
     provider_tokens: &dyn ProviderTokenRepository,
     user_id: Option<&str>,
+    team_id: Option<&str>,
     git_provider: RepositoryProvider,
 ) -> (Option<String>, Option<String>, Option<String>) {
     let mut git_token: Option<String> = None;
@@ -113,32 +115,61 @@ async fn resolve_credentials(
 
     let provider_str = git_provider.as_str();
 
-    // Step 1: Fill from provider_tokens table
+    // Step 1: Fill from user provider_tokens table
     if let Some(uid) = user_id {
         match provider_tokens.find_provider_token(uid, provider_str).await {
             Ok(Some(row)) => {
-                info!(task_id = %task_id, provider = %provider_str, "Auto-provision: git token resolved from provider_tokens");
+                info!(task_id = %task_id, provider = %provider_str, "Auto-provision: git token resolved from user provider_tokens");
                 git_token = Some(row.access_token);
             }
             Ok(None) => {}
             Err(e) => {
-                warn!(task_id = %task_id, provider = %provider_str, error = %e, "Auto-provision: failed to query provider_tokens for git provider");
+                warn!(task_id = %task_id, provider = %provider_str, error = %e, "Auto-provision: failed to query user provider_tokens for git provider");
             }
         }
 
         match provider_tokens.find_provider_token(uid, "claude").await {
             Ok(Some(row)) => {
-                info!(task_id = %task_id, "Auto-provision: Claude token resolved from provider_tokens");
+                info!(task_id = %task_id, "Auto-provision: Claude token resolved from user provider_tokens");
                 claude = Some(row.access_token);
             }
             Ok(None) => {}
             Err(e) => {
-                warn!(task_id = %task_id, error = %e, "Auto-provision: failed to query provider_tokens for claude");
+                warn!(task_id = %task_id, error = %e, "Auto-provision: failed to query user provider_tokens for claude");
             }
         }
     }
 
-    // Step 2: Fill remaining gaps from environment variables (per-provider fallback)
+    // Step 2: Fill gaps from team provider_tokens
+    if let Some(tid) = team_id {
+        if git_token.is_none() {
+            match provider_tokens.find_team_token(tid, provider_str).await {
+                Ok(Some(row)) => {
+                    info!(task_id = %task_id, provider = %provider_str, "Auto-provision: git token resolved from team provider_tokens");
+                    git_token = Some(row.access_token);
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    warn!(task_id = %task_id, provider = %provider_str, error = %e, "Auto-provision: failed to query team provider_tokens for git provider");
+                }
+            }
+        }
+
+        if claude.is_none() {
+            match provider_tokens.find_team_token(tid, "claude").await {
+                Ok(Some(row)) => {
+                    info!(task_id = %task_id, "Auto-provision: Claude token resolved from team provider_tokens");
+                    claude = Some(row.access_token);
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    warn!(task_id = %task_id, error = %e, "Auto-provision: failed to query team provider_tokens for claude");
+                }
+            }
+        }
+    }
+
+    // Step 3: Fill remaining gaps from environment variables (per-provider fallback)
     if git_token.is_none() {
         git_token = match git_provider {
             RepositoryProvider::Github => env::var("GITHUB_PAT").ok(),

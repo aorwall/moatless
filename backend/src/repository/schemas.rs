@@ -7,6 +7,7 @@ use utoipa::ToSchema;
 
 use super::models::{Repository, RepositoryKind, RepositoryProvider};
 use crate::sandbox::models::ServerConfig;
+use crate::scope::Scope;
 use crate::task::models::Visibility;
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -21,6 +22,8 @@ pub struct CreateRepositoryRequest {
     pub description: Option<String>,
     pub provider: Option<RepositoryProvider>,
     pub visibility: Option<Visibility>,
+    pub scope: Option<Scope>,
+    pub team_id: Option<String>,
     pub servers: Option<Vec<ServerConfig>>,
     pub plugins: Option<Vec<String>>,
     pub env_vars: Option<HashMap<String, String>>,
@@ -68,6 +71,8 @@ pub struct RepositoryResponse {
     pub description: Option<String>,
     pub provider: Option<RepositoryProvider>,
     pub visibility: Visibility,
+    pub scope: Scope,
+    pub team_id: Option<String>,
     pub servers: Option<Vec<ServerConfig>>,
     pub plugins: Option<Vec<String>>,
     pub env_vars: Option<HashMap<String, String>>,
@@ -99,6 +104,11 @@ pub struct BranchEntry {
 
 impl From<Repository> for RepositoryResponse {
     fn from(r: Repository) -> Self {
+        // Compute visibility from scope for backwards compat
+        let visibility = match r.scope {
+            Scope::Global => Visibility::Public,
+            _ => r.visibility.unwrap_or(Visibility::Private),
+        };
         Self {
             id: r.id,
             name: r.name,
@@ -109,7 +119,9 @@ impl From<Repository> for RepositoryResponse {
             system_prompt: r.system_prompt,
             description: r.description,
             provider: r.provider,
-            visibility: r.visibility.unwrap_or(Visibility::Public),
+            visibility,
+            scope: r.scope,
+            team_id: r.team_id,
             servers: r.servers.and_then(|v| serde_json::from_value(v).ok()),
             plugins: r.plugins.and_then(|v| serde_json::from_value(v).ok()),
             env_vars: r.env_vars.and_then(|v| serde_json::from_value(v).ok()),

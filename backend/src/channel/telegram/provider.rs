@@ -542,6 +542,8 @@ mod tests {
             provider_config: None,
             ongoing_task_id: None,
             response_config_id: None,
+            scope: crate::scope::Scope::User,
+            team_id: None,
             created_by: "system".into(),
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),

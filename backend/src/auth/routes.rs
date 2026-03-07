@@ -76,6 +76,7 @@ pub struct AuthState {
     pub api_keys: Arc<dyn ApiKeyRepository>,
     pub users: Arc<dyn UserRepository>,
     pub provider_tokens: Arc<dyn ProviderTokenAuthRepository>,
+    pub teams: Option<Arc<dyn crate::team::dao::TeamRepository>>,
 }
 
 impl AuthState {
@@ -88,6 +89,8 @@ impl AuthState {
 
         let providers = OAuthProviders::from_config(&config);
         let cache = AuthCache::new(config.auth.cache_ttl_secs);
+        let teams: Option<Arc<dyn crate::team::dao::TeamRepository>> =
+            Some(Arc::new(crate::team::dao::PgTeamRepository(pool.clone())));
         Self {
             sessions: Arc::new(PgSessionRepository(pool.clone())),
             api_keys: Arc::new(PgApiKeyRepository(pool.clone())),
@@ -95,6 +98,7 @@ impl AuthState {
             provider_tokens: Arc::new(PgProviderTokenAuthRepository(pool.clone())),
             providers: Arc::new(providers),
             cache,
+            teams,
             db: pool,
             config,
         }
@@ -473,6 +477,19 @@ async fn handle_oauth_callback(
     // Resolve JWT secret
     let jwt_secret = require_jwt_secret(&state.config)?;
 
+    // Resolve team memberships
+    let team_ids = if let Some(ref teams_repo) = state.teams {
+        resolve_team_ids_on_login(
+            teams_repo.as_ref(),
+            &user_info.id,
+            group_id.as_deref(),
+            &state.config,
+        )
+        .await
+    } else {
+        vec![]
+    };
+
     // Create session (returns JWT)
     let provider_str = provider_id.to_string();
     let jwt_token = session::create_session(
@@ -483,6 +500,7 @@ async fn handle_oauth_callback(
         &tokens,
         &user_info,
         group_id.as_deref(),
+        &team_ids,
         state.config.auth.session_max_age_secs,
         jwt_secret,
     )
@@ -656,10 +674,17 @@ async fn exchange_api_key_handler(
 
     let jwt_secret = require_jwt_secret(&state.config)?;
 
+    let team_ids = if let Some(ref teams_repo) = state.teams {
+        teams_repo.find_team_ids_for_user(&user.id).await.unwrap_or_default()
+    } else {
+        vec![]
+    };
+
     let jwt_token = session::create_session_from_user(
         state.sessions.as_ref(),
         &user,
         payload.group_id.as_deref(),
+        &team_ids,
         state.config.auth.session_max_age_secs,
         jwt_secret,
     )
@@ -844,4 +869,52 @@ async fn list_users_handler(
         .collect();
 
     Ok(Json(UserListResponse { users: items }))
+}
+
+// ============================================================================
+// Team resolution helpers
+// ============================================================================
+
+/// Resolve team IDs for a user on login.
+///
+/// For Auth0 users with a group claim, upserts the group as a team and adds membership.
+/// For all users, checks for default team assignment if the user has no teams.
+async fn resolve_team_ids_on_login(
+    teams: &dyn crate::team::dao::TeamRepository,
+    user_id: &str,
+    group_id: Option<&str>,
+    config: &Config,
+) -> Vec<String> {
+    // If Auth0 group claim is present, upsert team and add membership
+    if let Some(group) = group_id {
+        let slug = group.to_lowercase().replace(' ', "-");
+        match teams.upsert_by_external(group, "auth0", group, &slug).await {
+            Ok(team) => {
+                if let Err(e) = teams.add_member(&team.id, user_id, "member").await {
+                    warn!(error = %e, user_id, team_id = %team.id, "Failed to add user to Auth0 team");
+                }
+            }
+            Err(e) => {
+                warn!(error = %e, user_id, group = group, "Failed to upsert Auth0 team");
+            }
+        }
+    }
+
+    // Fetch current team memberships
+    let mut team_ids = teams.find_team_ids_for_user(user_id).await.unwrap_or_default();
+
+    // If no teams and a default team is configured, add user to it
+    if team_ids.is_empty() {
+        if let Some(ref slug) = config.auth.default_team_slug {
+            if let Ok(Some(default_team)) = teams.find_by_slug(slug).await {
+                if let Err(e) = teams.add_member(&default_team.id, user_id, "member").await {
+                    warn!(error = %e, user_id, "Failed to add user to default team");
+                } else {
+                    team_ids.push(default_team.id);
+                }
+            }
+        }
+    }
+
+    team_ids
 }

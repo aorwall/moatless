@@ -210,6 +210,8 @@ async fn create_task_for_channel(
         branch: None, // Will use repo default
         created_by: Some(msg.user_id.clone()),
         visibility: Visibility::Private,
+        scope: config.scope,
+        team_id: config.team_id.clone(),
         created_at_db: None,
     };
 
@@ -285,6 +287,8 @@ mod tests {
             provider_config: None,
             ongoing_task_id: None,
             response_config_id: None,
+            scope: crate::scope::Scope::User,
+            team_id: None,
             created_by: "u1".into(),
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
@@ -307,6 +311,8 @@ mod tests {
             provider_config: None,
             ongoing_task_id: None,
             response_config_id: None,
+            scope: crate::scope::Scope::User,
+            team_id: None,
             created_by: "u1".into(),
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),

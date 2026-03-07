@@ -3,6 +3,8 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::scope::Scope;
+
 // =============================================================================
 // ChannelConfig (DB)
 // =============================================================================
@@ -21,6 +23,8 @@ pub struct ChannelConfig {
     pub provider_config: Option<serde_json::Value>,
     pub ongoing_task_id: Option<String>,
     pub response_config_id: Option<String>,
+    pub scope: Scope,
+    pub team_id: Option<String>,
     pub created_by: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,

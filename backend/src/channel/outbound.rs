@@ -37,6 +37,15 @@ pub async fn handle_channel_notification(
 
     let key = event.event_key();
 
+    // Only include the task URL on the first completion (new task).
+    let is_first_reply = state
+        .messages
+        .get_last_result(&event.task_id)
+        .await
+        .ok()
+        .flatten()
+        .is_none();
+
     for thread in &threads {
         // Load config for this thread
         let config = match state.channel_configs.find_by_id(&thread.config_id).await {
@@ -65,7 +74,7 @@ pub async fn handle_channel_notification(
 
                 let reply = OutboundReply {
                     text: truncate_text(result_text, 2000),
-                    task_url: Some(task_url),
+                    task_url: if is_first_reply { Some(task_url) } else { None },
                     is_error: false,
                 };
 
@@ -90,7 +99,7 @@ pub async fn handle_channel_notification(
 
                 let reply = OutboundReply {
                     text: format!("Error: {}", truncate_text(error_msg, 1900)),
-                    task_url: Some(task_url),
+                    task_url: if is_first_reply { Some(task_url) } else { None },
                     is_error: true,
                 };
 

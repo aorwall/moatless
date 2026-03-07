@@ -441,6 +441,8 @@ pub async fn create_config(
     let id = nanoid::nanoid!(21);
     let now = chrono::Utc::now();
 
+    let scope = req.scope.unwrap_or(crate::scope::Scope::User);
+
     let row = super::models::ChannelConfig {
         id: id.clone(),
         provider: req.provider.as_str().to_string(),
@@ -453,6 +455,8 @@ pub async fn create_config(
         provider_config: req.provider_config,
         ongoing_task_id: None,
         response_config_id: req.response_config_id,
+        scope,
+        team_id: req.team_id,
         created_by: auth.user_id,
         created_at: now,
         updated_at: now,
@@ -479,15 +483,16 @@ pub async fn create_config(
 )]
 pub async fn list_configs(
     State(state): State<AppState>,
-    _auth: AuthUser,
+    auth: AuthUser,
     Query(query): Query<ListChannelConfigsQuery>,
 ) -> Result<Json<Vec<ChannelConfigResponse>>, ChannelError> {
     info!(provider = ?query.provider, repository_id = ?query.repository_id, "Listing channel configs");
 
-    let rows = state.channel_configs.list(
+    let rows = state.channel_configs.list_scoped(
         query.provider.as_deref(),
         query.repository_id.as_deref(),
         false, // show all, not just active
+        &auth.scope_context(),
     )
     .await?;
 
@@ -510,12 +515,12 @@ pub async fn list_configs(
 )]
 pub async fn get_config(
     State(state): State<AppState>,
-    _auth: AuthUser,
+    auth: AuthUser,
     Path(id): Path<String>,
 ) -> Result<Json<ChannelConfigResponse>, ChannelError> {
     info!(config_id = %id, "Getting channel config");
 
-    let row = state.channel_configs.find_by_id(&id)
+    let row = state.channel_configs.find_by_id_scoped(&id, &auth.scope_context())
         .await?
         .ok_or_else(|| ChannelError::ConfigNotFound(id))?;
 
@@ -538,14 +543,14 @@ pub async fn get_config(
 )]
 pub async fn update_config(
     State(state): State<AppState>,
-    _auth: AuthUser,
+    auth: AuthUser,
     Path(id): Path<String>,
     Json(req): Json<UpdateChannelConfigRequest>,
 ) -> Result<Json<ChannelConfigResponse>, ChannelError> {
     info!(config_id = %id, "Updating channel config");
 
-    // Verify exists
-    state.channel_configs.find_by_id(&id)
+    // Verify exists and accessible
+    state.channel_configs.find_by_id_scoped(&id, &auth.scope_context())
         .await?
         .ok_or_else(|| ChannelError::ConfigNotFound(id.clone()))?;
 
@@ -584,12 +589,12 @@ pub async fn update_config(
 )]
 pub async fn delete_config(
     State(state): State<AppState>,
-    _auth: AuthUser,
+    auth: AuthUser,
     Path(id): Path<String>,
 ) -> Result<StatusCode, ChannelError> {
     info!(config_id = %id, "Deleting channel config");
 
-    state.channel_configs.find_by_id(&id)
+    state.channel_configs.find_by_id_scoped(&id, &auth.scope_context())
         .await?
         .ok_or_else(|| ChannelError::ConfigNotFound(id.clone()))?;
 

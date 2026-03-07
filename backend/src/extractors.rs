@@ -7,6 +7,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
 use crate::sandbox::jwt;
+use crate::scope::ScopeContext;
 use crate::state::AppState;
 
 /// Authenticated user extracted from ForwardAuth headers or user auth token.
@@ -22,8 +23,22 @@ pub struct AuthUser {
     pub login: String,
     pub role: Option<String>,
     pub provider: Option<String>,
+    /// Deprecated: use `team_ids` instead. Kept for backwards compatibility.
     pub group_id: Option<String>,
+    /// Team IDs the user belongs to (populated from X-Team-Ids header).
+    pub team_ids: Vec<String>,
     pub task_id: Option<String>,
+}
+
+impl AuthUser {
+    /// Build a `ScopeContext` from this authenticated user.
+    pub fn scope_context(&self) -> ScopeContext {
+        ScopeContext {
+            user_id: self.user_id.clone(),
+            team_ids: self.team_ids.clone(),
+            is_admin: self.role.as_deref() == Some("admin"),
+        }
+    }
 }
 
 /// Error returned when auth headers are missing.
@@ -79,12 +94,20 @@ impl FromRequestParts<AppState> for AuthUser {
                 .and_then(|v| v.to_str().ok())
                 .map(std::string::ToString::to_string);
 
+            let team_ids = parts
+                .headers
+                .get("x-team-ids")
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.split(',').map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect())
+                .unwrap_or_default();
+
             return Ok(AuthUser {
                 user_id,
                 login,
                 role,
                 provider,
                 group_id,
+                team_ids,
                 task_id,
             });
         }
@@ -110,6 +133,7 @@ impl FromRequestParts<AppState> for AuthUser {
                 role: None,
                 provider: Some("user-token".to_string()),
                 group_id: None,
+                team_ids: vec![],
                 task_id,
             });
         }
@@ -122,6 +146,7 @@ impl FromRequestParts<AppState> for AuthUser {
                 role: Some("admin".to_string()),
                 provider: Some("none".to_string()),
                 group_id: None,
+                team_ids: vec![],
                 task_id,
             });
         }
@@ -148,5 +173,18 @@ impl FromRequestParts<AppState> for MaybeAuthUser {
             Ok(user) => Ok(MaybeAuthUser(Some(user))),
             Err(_) => Ok(MaybeAuthUser(None)),
         }
+    }
+}
+
+/// Extractor that builds a `ScopeContext` from the authenticated user.
+impl FromRequestParts<AppState> for ScopeContext {
+    type Rejection = AuthError;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        let auth = AuthUser::from_request_parts(parts, state).await?;
+        Ok(auth.scope_context())
     }
 }

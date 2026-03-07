@@ -29,6 +29,7 @@ pub async fn create_session(
     tokens: &OAuthTokens,
     user_info: &ProviderUserInfo,
     group_id: Option<&str>,
+    team_ids: &[String],
     session_max_age_secs: u64,
     jwt_secret: &str,
 ) -> Result<String, crate::auth::error::AuthError> {
@@ -126,6 +127,7 @@ pub async fn create_session(
         role,
         provider_id,
         group_id,
+        team_ids,
         jwt_secret,
         session_max_age_secs,
     )
@@ -138,6 +140,7 @@ pub async fn create_session(
         user_login = %user_info.login,
         provider = %provider_id,
         group_id = ?group_id,
+        team_count = team_ids.len(),
         "Created session"
     );
 
@@ -153,6 +156,7 @@ pub async fn create_session_from_user(
     sessions: &dyn SessionRepository,
     user: &User,
     group_id: Option<&str>,
+    team_ids: &[String],
     session_max_age_secs: u64,
     jwt_secret: &str,
 ) -> Result<String, crate::auth::error::AuthError> {
@@ -186,6 +190,7 @@ pub async fn create_session_from_user(
         user.role,
         "api-key",
         group_id,
+        team_ids,
         jwt_secret,
         session_max_age_secs,
     )

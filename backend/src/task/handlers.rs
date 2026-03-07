@@ -69,6 +69,8 @@ pub async fn create_task(
         branch: req.branch.clone().or(repo.default_branch.clone()),
         created_by: Some(auth.user_id.clone()),
         visibility: Visibility::Private,
+        scope: repo.scope,
+        team_id: repo.team_id.clone(),
         created_at_db: None,
     };
 
@@ -197,8 +199,11 @@ pub async fn list_tasks(
     let limit = query.limit.unwrap_or(50).min(200);
     let offset = query.offset.unwrap_or(0);
 
+    let scope_ctx = auth.scope_context();
     let filter = TaskFilter {
-        user_id: auth.user_id.clone(),
+        user_id: scope_ctx.user_id.clone(),
+        team_ids: scope_ctx.team_ids.clone(),
+        is_admin: scope_ctx.is_admin,
         limit,
         offset,
         status: query.status,
@@ -283,7 +288,7 @@ pub async fn get_task(
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<Json<TaskResponse>, TaskError> {
-    let row = state.tasks.find_by_id(&task_id, &auth.user_id)
+    let row = state.tasks.find_by_id(&task_id, &auth.scope_context())
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
@@ -315,7 +320,7 @@ pub async fn update_task_metadata(
         validate_task_name(name)?;
     }
 
-    let _existing = state.tasks.find_by_id(&task_id, &auth.user_id)
+    let _existing = state.tasks.find_by_id(&task_id, &auth.scope_context())
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
@@ -330,7 +335,7 @@ pub async fn update_task_metadata(
     .await?;
     tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Task metadata updated");
 
-    let row = state.tasks.find_by_id(&task_id, &auth.user_id)
+    let row = state.tasks.find_by_id(&task_id, &auth.scope_context())
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
@@ -356,7 +361,7 @@ pub async fn delete_task(
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<axum::http::StatusCode, TaskError> {
-    let _existing = state.tasks.find_by_id(&task_id, &auth.user_id)
+    let _existing = state.tasks.find_by_id(&task_id, &auth.scope_context())
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
@@ -389,7 +394,7 @@ pub async fn close_task(
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<Json<TaskResponse>, TaskError> {
-    let row = state.tasks.find_by_id(&task_id, &auth.user_id)
+    let row = state.tasks.find_by_id(&task_id, &auth.scope_context())
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
@@ -419,7 +424,7 @@ pub async fn close_task(
             .await;
     }
 
-    let updated = state.tasks.find_by_id(&task_id, &auth.user_id)
+    let updated = state.tasks.find_by_id(&task_id, &auth.scope_context())
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
@@ -446,7 +451,7 @@ pub async fn start_task(
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<axum::http::StatusCode, TaskError> {
-    let row = state.tasks.find_by_id(&task_id, &auth.user_id)
+    let row = state.tasks.find_by_id(&task_id, &auth.scope_context())
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
@@ -493,7 +498,7 @@ pub async fn stop_task(
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<axum::http::StatusCode, TaskError> {
-    let _task = state.tasks.find_by_id(&task_id, &auth.user_id)
+    let _task = state.tasks.find_by_id(&task_id, &auth.scope_context())
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
@@ -555,7 +560,7 @@ pub async fn set_task_tags(
     Path(task_id): Path<String>,
     Json(req): Json<SetTagsRequest>,
 ) -> Result<Json<Vec<TagResponse>>, TaskError> {
-    let _existing = state.tasks.find_by_id(&task_id, &auth.user_id)
+    let _existing = state.tasks.find_by_id(&task_id, &auth.scope_context())
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
@@ -596,7 +601,7 @@ pub async fn update_visibility(
     Path(task_id): Path<String>,
     Json(req): Json<UpdateVisibilityRequest>,
 ) -> Result<Json<TaskResponse>, TaskError> {
-    let _existing = state.tasks.find_by_id(&task_id, &auth.user_id)
+    let _existing = state.tasks.find_by_id(&task_id, &auth.scope_context())
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
@@ -610,7 +615,7 @@ pub async fn update_visibility(
     .await?;
     tracing::info!(task_id = %task_id, user_id = %auth.user_id, visibility = %req.visibility, "Task visibility updated");
 
-    let row = state.tasks.find_by_id(&task_id, &auth.user_id)
+    let row = state.tasks.find_by_id(&task_id, &auth.scope_context())
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
@@ -679,6 +684,8 @@ fn build_task_response(
         created_by: row.created_by.clone(),
         created_by_display_name: display_name,
         visibility: row.visibility,
+        scope: row.scope,
+        team_id: row.team_id.clone(),
         tags,
         environment_status: None,
         agent_state: None,

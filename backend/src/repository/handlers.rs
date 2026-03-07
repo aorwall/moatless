@@ -10,6 +10,7 @@ use super::config_reader::{config_to_patch, fetch_moatless_config};
 use super::dao::RepositoryPatch;
 use super::models::{Repository, RepositoryKind, RepositoryProvider};
 use crate::extractors::AuthUser;
+use crate::scope::Scope;
 use crate::state::AppState;
 use crate::task::models::Visibility;
 
@@ -51,7 +52,14 @@ pub async fn create_repository(
     let id = uuid::Uuid::new_v4().to_string();
     let now = chrono::Utc::now();
     let has_servers = req.servers.is_some();
+    let scope_ctx = auth.scope_context();
     let user_id = auth.user_id;
+
+    // Determine scope: use explicit scope from request, or derive from visibility for backwards compat
+    let scope = req.scope.unwrap_or(match req.visibility {
+        Some(Visibility::Public) => Scope::Global,
+        _ => Scope::User,
+    });
 
     let row = Repository {
         id: id.clone(),
@@ -74,6 +82,8 @@ pub async fn create_repository(
         description: req.description,
         provider: req.provider,
         visibility: Some(req.visibility.unwrap_or(Visibility::Public)),
+        scope,
+        team_id: req.team_id,
         created_by: Some(user_id.clone()),
         deleted: Some(false),
         created_at: Some(now),
@@ -130,7 +140,7 @@ pub async fn create_repository(
     // Re-fetch to include any config that was applied
     let final_row = state
         .repositories
-        .find_by_id(&id, &user_id)
+        .find_by_id(&id, &scope_ctx)
         .await?
         .unwrap_or(row);
 
@@ -151,7 +161,7 @@ pub async fn list_repositories(
     State(state): State<AppState>,
     auth: AuthUser,
 ) -> Result<Json<Vec<RepositoryResponse>>, RepositoryError> {
-    let rows = state.repositories.list_all(&auth.user_id).await?;
+    let rows = state.repositories.list_all(&auth.scope_context()).await?;
     let repos: Vec<RepositoryResponse> = rows.into_iter().map(Into::into).collect();
     Ok(Json(repos))
 }
@@ -174,7 +184,7 @@ pub async fn get_repository(
     auth: AuthUser,
     Path(repository_id): Path<String>,
 ) -> Result<Json<RepositoryResponse>, RepositoryError> {
-    let row = state.repositories.find_by_id(&repository_id, &auth.user_id)
+    let row = state.repositories.find_by_id(&repository_id, &auth.scope_context())
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id))?;
 
@@ -202,7 +212,7 @@ pub async fn update_repository(
     Json(req): Json<UpdateRepositoryRequest>,
 ) -> Result<Json<RepositoryResponse>, RepositoryError> {
     // Verify ownership
-    let _existing = state.repositories.find_by_id(&repository_id, &auth.user_id)
+    let _existing = state.repositories.find_by_id(&repository_id, &auth.scope_context())
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id.clone()))?;
 
@@ -230,7 +240,7 @@ pub async fn update_repository(
     state.repositories.update(&repository_id, &patch).await?;
 
     // Re-fetch updated row
-    let updated = state.repositories.find_by_id(&repository_id, &auth.user_id)
+    let updated = state.repositories.find_by_id(&repository_id, &auth.scope_context())
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id))?;
 
@@ -256,7 +266,7 @@ pub async fn delete_repository(
     Path(repository_id): Path<String>,
 ) -> Result<StatusCode, RepositoryError> {
     // Verify ownership
-    let _existing = state.repositories.find_by_id(&repository_id, &auth.user_id)
+    let _existing = state.repositories.find_by_id(&repository_id, &auth.scope_context())
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id.clone()))?;
 
@@ -284,7 +294,7 @@ pub async fn convert_to_template(
     auth: AuthUser,
     Path(repository_id): Path<String>,
 ) -> Result<Json<RepositoryResponse>, RepositoryError> {
-    let existing = state.repositories.find_by_id(&repository_id, &auth.user_id)
+    let existing = state.repositories.find_by_id(&repository_id, &auth.scope_context())
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id.clone()))?;
 
@@ -302,7 +312,7 @@ pub async fn convert_to_template(
 
     state.repositories.update(&repository_id, &patch).await?;
 
-    let updated = state.repositories.find_by_id(&repository_id, &auth.user_id)
+    let updated = state.repositories.find_by_id(&repository_id, &auth.scope_context())
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id))?;
 
@@ -328,7 +338,7 @@ pub async fn get_branches(
     auth: AuthUser,
     Path(repository_id): Path<String>,
 ) -> Result<Json<BranchListResponse>, RepositoryError> {
-    let repo = state.repositories.find_by_id(&repository_id, &auth.user_id)
+    let repo = state.repositories.find_by_id(&repository_id, &auth.scope_context())
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id.clone()))?;
 
@@ -766,9 +776,10 @@ pub async fn sync_config(
     auth: AuthUser,
     Path(repository_id): Path<String>,
 ) -> Result<Json<RepositoryResponse>, RepositoryError> {
+    let scope_ctx = auth.scope_context();
     let repo = state
         .repositories
-        .find_by_id(&repository_id, &auth.user_id)
+        .find_by_id(&repository_id, &scope_ctx)
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id.clone()))?;
 
@@ -801,7 +812,7 @@ pub async fn sync_config(
 
     let updated = state
         .repositories
-        .find_by_id(&repository_id, &auth.user_id)
+        .find_by_id(&repository_id, &scope_ctx)
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id))?;
 

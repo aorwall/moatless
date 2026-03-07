@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
 use super::models::{TaskStatus, Visibility};
+use crate::scope::Scope;
 use crate::shared_models::{AgentMode, AgentType};
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -128,6 +129,8 @@ pub struct TaskResponse {
     pub created_by: Option<String>,
     pub created_by_display_name: Option<String>,
     pub visibility: Visibility,
+    pub scope: Scope,
+    pub team_id: Option<String>,
     pub tags: Vec<TagResponse>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub environment_status: Option<String>,

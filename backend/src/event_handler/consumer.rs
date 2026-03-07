@@ -232,9 +232,12 @@ impl EventHandlerConsumer {
     /// Dispatch a parsed event to the appropriate handler.
     async fn dispatch_event(&self, event: &AgentEvent) {
         match event.event_key() {
-            EventKey::TaskTurn(TaskTurnSubType::Completed)
-            | EventKey::Agent(AgentSubType::Completed) => {
+            EventKey::Agent(AgentSubType::Completed) => {
+                // handle_agent_completed publishes task_turn.completed,
+                // which triggers notify_channels below — so we don't notify here.
                 agent_handlers::handle_agent_completed(&self.state, event).await;
+            }
+            EventKey::TaskTurn(TaskTurnSubType::Completed) => {
                 self.notify_channels(event).await;
             }
             EventKey::Agent(AgentSubType::Message) => {
@@ -247,9 +250,12 @@ impl EventHandlerConsumer {
             | EventKey::TaskTurn(TaskTurnSubType::Stopped) => {
                 agent_handlers::handle_agent_stopped(&self.state, event).await;
             }
-            EventKey::Agent(AgentSubType::Error)
-            | EventKey::TaskTurn(TaskTurnSubType::Error) => {
+            EventKey::Agent(AgentSubType::Error) => {
+                // handle_agent_error publishes task_turn.error,
+                // which triggers notify_channels below — so we don't notify here.
                 agent_handlers::handle_agent_error(&self.state, event).await;
+            }
+            EventKey::TaskTurn(TaskTurnSubType::Error) => {
                 self.notify_channels(event).await;
             }
             EventKey::Task(TaskSubType::MetadataUpdated) => {

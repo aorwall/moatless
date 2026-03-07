@@ -235,6 +235,8 @@ pub struct AuthConfig {
     /// When set, upserts a dedicated `test-api-user` and inserts the API key.
     /// No OAuth login required.
     pub test_api_key: Option<String>,
+    /// Default team slug. On login, if a user has no teams and a default team exists, they are added to it.
+    pub default_team_slug: Option<String>,
 }
 
 #[allow(clippy::missing_fields_in_debug)]
@@ -492,6 +494,7 @@ impl Config {
                 cache_ttl_secs: env_or("AUTH_CACHE_TTL_SECS", 30),
                 session_jwt_secret: env_opt("SESSION_JWT_SECRET"),
                 test_api_key: env_opt("TEST_API_KEY").map(|s| s.trim().to_string()),
+                default_team_slug: env_opt("DEFAULT_TEAM_SLUG"),
             },
 
             s3: S3Config {
@@ -748,6 +751,7 @@ mod tests {
                 cache_ttl_secs: 0,
                 session_jwt_secret: None,
                 test_api_key: None,
+                default_team_slug: None,
             },
             s3: S3Config { bucket_name: None, key_prefix: "test".into(), region: "us-east-1".into() },
             slack: SlackConfig { bot_token: None, signing_secret: None, bot_user_id: None },

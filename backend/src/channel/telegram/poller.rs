@@ -28,23 +28,17 @@ pub fn spawn_telegram_poller(
     tokio::spawn(async move {
         info!("Telegram poller started");
 
-        let telegram = match providers.get(ChannelType::Telegram) {
-            Some(p) => p,
-            None => {
-                error!("Telegram poller: provider not registered");
-                return;
-            }
+        let Some(telegram) = providers.get(ChannelType::Telegram) else {
+            error!("Telegram poller: provider not registered");
+            return;
         };
 
-        let telegram_provider = match telegram
+        let Some(telegram_provider) = telegram
             .as_any()
             .downcast_ref::<TelegramProvider>()
-        {
-            Some(p) => p,
-            None => {
-                error!("Telegram poller: provider type mismatch");
-                return;
-            }
+        else {
+            error!("Telegram poller: provider type mismatch");
+            return;
         };
 
         let api = telegram_provider.api();
@@ -73,7 +67,7 @@ pub fn spawn_telegram_poller(
 
                     for update in &updates {
                         // Advance offset so Telegram discards this update
-                        if let Some(uid) = update.get("update_id").and_then(|v| v.as_i64()) {
+                        if let Some(uid) = update.get("update_id").and_then(serde_json::Value::as_i64) {
                             offset = Some(uid + 1);
                         }
 

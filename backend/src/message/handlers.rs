@@ -34,7 +34,7 @@ pub async fn send_message(
     Json(req): Json<SendMessageRequest>,
 ) -> Result<Json<SendMessageResponse>, MessageError> {
     // Verify task exists and user has access
-    let _task = state.tasks.find_by_id(&task_id, &auth.user_id)
+    let _task = state.tasks.find_by_id(&task_id, &auth.scope_context())
         .await?
         .ok_or_else(|| MessageError::NotFound(task_id.clone()))?;
 

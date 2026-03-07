@@ -21,6 +21,8 @@ const APP_TABLES = [
 	"repositories",
 	"channel_configs",
 	"channel_threads",
+	"team_members",
+	"teams",
 	"sessions",
 	"api_keys",
 	"provider_tokens",

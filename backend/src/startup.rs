@@ -18,6 +18,7 @@ use crate::config::Config;
 use crate::db::{self, DbPool};
 use crate::events::{EventPublisher, RedisEventPublisher};
 use crate::message::dao::{MessageRepository, PgMessageRepository};
+use crate::task::dao::{PgTaskRepository, TaskRepository};
 use crate::metrics;
 use crate::sandbox::k8s::client::K8sClient;
 use crate::sandbox::grpc_server::BackendSandboxServiceImpl;
@@ -172,6 +173,8 @@ pub fn spawn_grpc_server(
         db_pool.map(|pool| Arc::new(PgMessageRepository(pool.clone())) as _);
     let provider_tokens: Option<Arc<dyn ProviderTokenRepository>> =
         db_pool.map(|pool| Arc::new(PgProviderTokenRepository(pool.clone())) as _);
+    let tasks: Option<Arc<dyn TaskRepository>> =
+        db_pool.map(|pool| Arc::new(PgTaskRepository(pool.clone())) as _);
     let port = config.server.grpc_port;
     let token_secret = config.sandbox.task_token_secret.clone();
 
@@ -180,6 +183,7 @@ pub fn spawn_grpc_server(
             events: event_publisher,
             messages,
             provider_tokens,
+            tasks,
             task_token_secret: token_secret,
         };
         let addr = SocketAddr::from(([0, 0, 0, 0], port));

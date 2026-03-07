@@ -5,6 +5,7 @@ use tracing::info;
 
 use super::dao::RepoRepository;
 use super::models::{Repository, RepositoryKind, RepositoryProvider};
+use crate::scope::Scope;
 use crate::task::models::Visibility;
 
 /// Insert default template repositories if they don't already exist.
@@ -54,6 +55,8 @@ async fn seed_moatable(repos: &dyn RepoRepository) -> Result<(), sqlx::Error> {
         description: Some("React + TypeScript + Vite + Tailwind CSS starter template".to_string()),
         provider: Some(RepositoryProvider::Github),
         visibility: Some(Visibility::Public),
+        scope: Scope::Global,
+        team_id: None,
         created_by: Some("system".to_string()),
         deleted: Some(false),
         created_at: Some(now),

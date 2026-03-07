@@ -5,6 +5,7 @@ use utoipa::ToSchema;
 
 use super::models::RoutingMode;
 use super::provider::ChannelType;
+use crate::scope::Scope;
 
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -18,6 +19,8 @@ pub struct CreateChannelConfigRequest {
     #[schema(value_type = Option<Object>)]
     pub provider_config: Option<serde_json::Value>,
     pub response_config_id: Option<String>,
+    pub scope: Option<Scope>,
+    pub team_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -48,6 +51,8 @@ pub struct ChannelConfigResponse {
     pub provider_config: Option<serde_json::Value>,
     pub ongoing_task_id: Option<String>,
     pub response_config_id: Option<String>,
+    pub scope: Scope,
+    pub team_id: Option<String>,
     pub created_by: String,
     pub created_at: String,
     pub updated_at: String,
@@ -84,6 +89,8 @@ impl ChannelConfigResponse {
             provider_config: row.provider_config.clone(),
             ongoing_task_id: row.ongoing_task_id.clone(),
             response_config_id: row.response_config_id.clone(),
+            scope: row.scope,
+            team_id: row.team_id.clone(),
             created_by: row.created_by.clone(),
             created_at: row.created_at.to_rfc3339(),
             updated_at: row.updated_at.to_rfc3339(),

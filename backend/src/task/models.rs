@@ -3,6 +3,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::scope::Scope;
 use crate::shared_models::AgentType;
 
 // =============================================================================
@@ -157,6 +158,8 @@ pub struct Task {
     pub branch: Option<String>,
     pub created_by: Option<String>,
     pub visibility: Visibility,
+    pub scope: Scope,
+    pub team_id: Option<String>,
     pub created_at_db: Option<DateTime<Utc>>,
 }
 
