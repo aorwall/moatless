@@ -20,7 +20,6 @@ pub struct FeatureFlagsResponse {
     pub figma_clipboard_paste: bool,
     pub show_model_selector: bool,
     pub gitlab_enabled: bool,
-    pub slack_channel: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub slack: Option<SlackConfig>,
 }
@@ -48,7 +47,6 @@ pub async fn get_feature_flags() -> Json<FeatureFlagsResponse> {
         figma_clipboard_paste: env_flag("FF_FIGMA_CLIPBOARD_PASTE", true),
         show_model_selector: env_flag("FF_SHOW_MODEL_SELECTOR", true),
         gitlab_enabled: env_flag("FF_GITLAB_ENABLED", false),
-        slack_channel: env_flag("FF_SLACK_CHANNEL", false),
         slack,
     })
 }

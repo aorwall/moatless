@@ -23,6 +23,7 @@ import {
   MarketplaceConfigurationSection,
   ProfileConfigurationSection,
 } from '@/features/settings'
+import { useChannelProviders } from '@/features/settings/hooks/use-channels'
 import { SidebarDialog } from '@/lib/components/ui/sidebar-dialog'
 import { useFeatureFlag } from '@/lib/hooks/use-feature-flag'
 
@@ -41,7 +42,8 @@ export function SettingsDialog({
   const showClaudeSettings = useFeatureFlag('SHOW_CLAUDE_SETTINGS')
   const isGitLabEnabled = useFeatureFlag('GITLAB_ENABLED')
   const isGitnessEnabled = useFeatureFlag('GITNESS_ENABLED')
-  const isSlackEnabled = useFeatureFlag('SLACK_CHANNEL')
+  const { data: channelProviders } = useChannelProviders()
+  const hasChannelProviders = (channelProviders?.length ?? 0) > 0
 
   const sections = useMemo(() => {
     const allSections = []
@@ -105,8 +107,8 @@ export function SettingsDialog({
       },
     )
 
-    // Channels - controlled by SLACK_CHANNEL flag
-    if (isSlackEnabled) {
+    // Channels - shown when at least one provider is configured
+    if (hasChannelProviders) {
       allSections.push({
         id: 'channels',
         label: 'Channels',
@@ -122,7 +124,7 @@ export function SettingsDialog({
     })
 
     return allSections
-  }, [showClaudeSettings, isGitLabEnabled, isGitnessEnabled, isSlackEnabled])
+  }, [showClaudeSettings, isGitLabEnabled, isGitnessEnabled, hasChannelProviders])
 
   return (
     <SidebarDialog open={open} onOpenChange={onOpenChange}>

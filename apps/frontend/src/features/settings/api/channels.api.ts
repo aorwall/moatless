@@ -71,4 +71,8 @@ export const channelsApi = {
   async listSlackChannels(): Promise<SlackChannelInfo[]> {
     return await apiClient.get<SlackChannelInfo[]>('/api/v1/channels/slack/channels')
   },
+
+  async listProviders(): Promise<string[]> {
+    return await apiClient.get<string[]>('/api/v1/channels/providers')
+  },
 }

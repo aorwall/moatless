@@ -6,6 +6,7 @@ import {
   useDeleteSlackChannelMapping,
   useSlackChannelMappingsForRepository,
 } from '@/features/repositories/hooks/use-slack-channel-mappings'
+import { useChannelProviders } from '@/features/settings/hooks/use-channels'
 import { ConfigurationGroup, ConfigurationItem } from '@/lib/components/configuration'
 import {
   AlertDialog,
@@ -29,7 +30,6 @@ import {
 import { Input } from '@/lib/components/ui/input'
 import { Label } from '@/lib/components/ui/label'
 import { useFeatureFlagsContext } from '@/lib/contexts/feature-flags-context'
-import { useFeatureFlag } from '@/lib/hooks/use-feature-flag'
 import { getErrorMessage } from '@/lib/utils/error'
 
 // TODO: Migrate to new channel config API shape from backend
@@ -43,7 +43,8 @@ interface ChannelsGroupProps {
 }
 
 export function ChannelsGroup({ channels, repositoryId }: ChannelsGroupProps) {
-  const isSlackEnabled = useFeatureFlag('SLACK_CHANNEL')
+  const { data: channelProviders } = useChannelProviders()
+  const isSlackEnabled = channelProviders?.includes('slack') ?? false
   const { getSlackConfig } = useFeatureFlagsContext()
   const slackConfig = getSlackConfig()
   const [showAddSlackDialog, setShowAddSlackDialog] = useState(false)

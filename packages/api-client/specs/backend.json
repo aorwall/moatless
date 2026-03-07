@@ -4261,8 +4261,7 @@
           "show_claude_settings",
           "figma_clipboard_paste",
           "show_model_selector",
-          "gitlab_enabled",
-          "slack_channel"
+          "gitlab_enabled"
         ],
         "properties": {
           "figma_clipboard_paste": {
@@ -4290,9 +4289,6 @@
               }
             ]
           },
-          "slack_channel": {
-            "type": "boolean"
-          }
         }
       },
       "FigmaContextData": {

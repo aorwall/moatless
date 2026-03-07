@@ -41,7 +41,6 @@ export function FeatureFlagsProvider({ children }: FeatureFlagsProviderProps) {
           gitlab_enabled: false,
           show_claude_settings: false,
           show_model_selector: true,
-          slack_channel: false,
         })
       } finally {
         setIsLoading(false)

@@ -6,6 +6,7 @@ import type { ChannelConfigResponse } from '@/features/settings/api/channels.api
 import { ChannelConfigFormDialog } from '@/features/settings/components/channel-config-form-dialog'
 import {
   useChannelConfigs,
+  useChannelProviders,
   useDeleteChannelConfig,
   useUpdateChannelConfig,
 } from '@/features/settings/hooks/use-channels'
@@ -43,6 +44,7 @@ function getChannelDisplayName(config: ChannelConfigResponse): string {
 export function ChannelConfigurationSection() {
   const { data: configs, isLoading, error } = useChannelConfigs()
   const { data: repos } = useRepositoriesList()
+  const { data: enabledProviders } = useChannelProviders()
   const deleteConfig = useDeleteChannelConfig()
   const updateConfig = useUpdateChannelConfig()
 
@@ -118,8 +120,8 @@ export function ChannelConfigurationSection() {
     <ConfigurationSectionWrapper>
       <ConfigurationGroup title="Channel Routing" showSeparator={false}>
         <p className="text-sm text-muted-foreground mb-4">
-          Route messages from external channels (Slack) to repositories. Each config maps a channel
-          to a repository with a routing strategy.
+          Route messages from external channels to repositories. Each config maps a channel to a
+          repository with a routing strategy.
         </p>
 
         {/* Add Button */}
@@ -194,6 +196,7 @@ export function ChannelConfigurationSection() {
         open={isFormOpen}
         onOpenChange={setIsFormOpen}
         editConfig={editingConfig}
+        enabledProviders={enabledProviders ?? []}
       />
 
       {/* Delete Confirmation */}

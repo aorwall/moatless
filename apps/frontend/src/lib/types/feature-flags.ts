@@ -5,7 +5,6 @@ export const FEATURE_FLAGS = {
   SHOW_MODEL_SELECTOR: 'SHOW_MODEL_SELECTOR',
   GITLAB_ENABLED: 'GITLAB_ENABLED',
   GITNESS_ENABLED: 'GITNESS_ENABLED',
-  SLACK_CHANNEL: 'SLACK_CHANNEL',
 } as const
 
 export type FeatureFlagKey = keyof typeof FEATURE_FLAGS
@@ -17,5 +16,4 @@ export const FEATURE_FLAG_DEFAULTS: Record<FeatureFlagKey, boolean> = {
   SHOW_MODEL_SELECTOR: true,
   GITLAB_ENABLED: false,
   GITNESS_ENABLED: false,
-  SLACK_CHANNEL: false,
 }

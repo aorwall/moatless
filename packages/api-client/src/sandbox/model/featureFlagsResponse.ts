@@ -17,5 +17,4 @@ export interface FeatureFlagsResponse {
   show_claude_settings: boolean;
   show_model_selector: boolean;
   slack?: null | SlackConfig;
-  slack_channel: boolean;
 }

@@ -67,6 +67,7 @@ export const queryKeys = {
     configsList: (params?: { provider?: string; repositoryId?: string }) =>
       [...queryKeys.channels.configs(), 'list', params] as const,
     slackChannels: () => [...queryKeys.channels.all(), 'slack-channels'] as const,
+    providers: () => [...queryKeys.channels.all(), 'providers'] as const,
   },
 
   settings: {

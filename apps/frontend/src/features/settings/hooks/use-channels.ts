@@ -12,6 +12,18 @@ import { queryKeys } from '@/lib/api/query-keys'
 export type { ChannelConfigResponse, CreateChannelConfigRequest, SlackChannelInfo }
 
 /**
+ * List configured channel providers (e.g. ['slack', 'telegram']).
+ * Long staleTime since providers don't change at runtime.
+ */
+export function useChannelProviders() {
+  return useQuery({
+    queryKey: queryKeys.channels.providers(),
+    queryFn: () => channelsApi.listProviders(),
+    staleTime: 5 * 60_000,
+  })
+}
+
+/**
  * List all channel configs.
  */
 export function useChannelConfigs() {
