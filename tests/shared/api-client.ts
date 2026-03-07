@@ -889,6 +889,20 @@ export class ApiClient {
 	}
 
 	// =========================================================================
+	// Auth Verify
+	// =========================================================================
+
+	/**
+	 * Call the ForwardAuth verify endpoint and return the raw Response.
+	 * Optionally pass extra headers (e.g. X-Forwarded-Host for preview access).
+	 */
+	async verifyAuth(extraHeaders?: Record<string, string>): Promise<Response> {
+		return this.fetchRaw(`${this.baseURL}/api/v1/auth/verify`, {
+			headers: extraHeaders,
+		});
+	}
+
+	// =========================================================================
 	// Health Check
 	// =========================================================================
 
