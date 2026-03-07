@@ -43,9 +43,11 @@ fn is_exempt(path: &str) -> bool {
         return true;
     }
 
-    // Webhook endpoints use HMAC verification
+    // Webhook endpoints use provider-specific verification (HMAC, secret token, etc.)
     if path == "/api/v1/channels/slack/webhook"
         || path.starts_with("/api/v1/channels/slack/webhook/")
+        || path == "/api/v1/channels/telegram/webhook"
+        || path.starts_with("/api/v1/channels/telegram/webhook/")
         || path.starts_with("/api/v1/channels/webhook/")
     {
         return true;
@@ -54,7 +56,11 @@ fn is_exempt(path: &str) -> bool {
     // Public endpoints
     matches!(
         path,
-        "/api/v1/feature-flags" | "/health" | "/healthz" | "/openapi.json"
+        "/api/v1/feature-flags"
+            | "/api/v1/channels/providers"
+            | "/health"
+            | "/healthz"
+            | "/openapi.json"
     )
 }
 

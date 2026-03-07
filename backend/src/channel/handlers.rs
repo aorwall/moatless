@@ -206,111 +206,74 @@ pub async fn telegram_webhook(
         .downcast_ref::<super::telegram::provider::TelegramProvider>()
         .ok_or_else(|| ChannelError::Internal("Provider type mismatch".into()))?;
 
-    // Parse body to extract chat.id for config lookup
+    info!("Telegram webhook received");
+
+    // Webhook-specific: verify secret token header before processing.
+    // Parse payload to find the matching config so we can check its secret.
     let payload: serde_json::Value = serde_json::from_slice(&body)
         .map_err(|e| ChannelError::BadRequest(format!("Invalid JSON: {e}")))?;
 
-    info!("Telegram webhook received");
-
-    // Extract chat_id from message or channel_post
     let message = payload.get("message").or_else(|| payload.get("channel_post"));
-    let chat_id = message
+    if let Some(chat_id) = message
         .and_then(|m| m.pointer("/chat/id"))
-        .and_then(serde_json::Value::as_i64);
+        .and_then(serde_json::Value::as_i64)
+    {
+        let source_id = chat_id.to_string();
+        let chat_type = message
+            .and_then(|m| m.pointer("/chat/type"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        let is_private_chat = chat_type == "private";
 
-    let Some(chat_id) = chat_id else {
-        // Non-message update (e.g., inline query, callback) — ignore
-        return Ok(StatusCode::OK.into_response());
-    };
+        let config = state
+            .channel_configs
+            .find_by_provider_source("telegram", &source_id)
+            .await?;
+        let config = match config {
+            Some(c) if c.active => Some(c),
+            None if is_private_chat => {
+                state
+                    .channel_configs
+                    .find_by_provider_source("telegram", "*")
+                    .await?
+                    .filter(|c| c.active)
+            }
+            _ => None,
+        };
 
-    let source_id = chat_id.to_string();
+        if let Some(ref cfg) = config {
+            let expected_secret = cfg
+                .provider_config
+                .as_ref()
+                .and_then(|c| c.get("secret_token"))
+                .and_then(|v| v.as_str());
 
-    // Detect private (DM) chats for wildcard fallback
-    let chat_type = message
-        .and_then(|m| m.pointer("/chat/type"))
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("");
-    let is_private_chat = chat_type == "private";
+            if let Some(expected) = expected_secret {
+                let provided = headers
+                    .get("x-telegram-bot-api-secret-token")
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or("");
 
-    // Look up config — exact match first, then wildcard for DMs
-    let config = state
-        .channel_configs
-        .find_by_provider_source("telegram", &source_id)
-        .await?;
-
-    let config = match config {
-        Some(c) if c.active => c,
-        Some(_) => {
-            info!(source_id, "Telegram message ignored: channel config inactive");
-            return Ok(StatusCode::OK.into_response());
-        }
-        None if is_private_chat => {
-            // Fallback: wildcard config for all DMs
-            match state
-                .channel_configs
-                .find_by_provider_source("telegram", "*")
-                .await?
-            {
-                Some(c) if c.active => {
-                    info!(source_id, "Telegram DM matched wildcard config");
-                    c
-                }
-                Some(_) => {
-                    info!(source_id, "Telegram DM ignored: wildcard config inactive");
-                    return Ok(StatusCode::OK.into_response());
-                }
-                None => {
-                    info!(source_id, "Telegram DM ignored: no wildcard config");
-                    return Ok(StatusCode::OK.into_response());
+                if provided != expected {
+                    return Err(ChannelError::SignatureInvalid);
                 }
             }
         }
-        None => {
-            info!(source_id, "Telegram message ignored: no channel config");
-            return Ok(StatusCode::OK.into_response());
-        }
-    };
-
-    // Verify secret token if configured
-    let expected_secret = config
-        .provider_config
-        .as_ref()
-        .and_then(|c| c.get("secret_token"))
-        .and_then(|v| v.as_str());
-
-    if let Some(expected) = expected_secret {
-        let provided = headers
-            .get("x-telegram-bot-api-secret-token")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("");
-
-        if provided != expected {
-            return Err(ChannelError::SignatureInvalid);
-        }
     }
 
-    // Parse update
-    let result = telegram_provider
-        .parse_update(&body, &config, is_private_chat, &state.db)
-        .await?;
-
-    match result {
-        super::telegram::provider::TelegramWebhookResult::Message(msg) => {
-            let state_clone = state.clone();
-            let providers_clone = providers.clone();
-            tokio::spawn(async move {
-                if let Err(e) =
-                    inbound::process_inbound(&state_clone, &providers_clone, *msg).await
-                {
-                    warn!(error = %e, "Failed to process Telegram inbound message");
-                }
-            });
-            Ok(StatusCode::OK.into_response())
-        }
-        super::telegram::provider::TelegramWebhookResult::Ignore => {
-            Ok(StatusCode::OK.into_response())
-        }
+    // Delegate config resolution + parsing + routing to shared helper
+    if let Err(e) = super::telegram::provider::resolve_and_process_telegram_update(
+        &state,
+        providers,
+        telegram_provider,
+        &body,
+    )
+    .await
+    {
+        warn!(error = %e, "Telegram webhook processing error");
     }
+
+    Ok(StatusCode::OK.into_response())
 }
 
 // =========================================================================
@@ -588,6 +551,7 @@ pub async fn update_config(
 
     let patch = ChannelConfigPatch {
         source_name: req.source_name,
+        repository_id: req.repository_id,
         routing_mode: req.routing_mode,
         prompt_template: req.prompt_template,
         active: req.active,

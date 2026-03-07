@@ -294,6 +294,27 @@ impl fmt::Debug for SlackConfig {
     }
 }
 
+/// Telegram Bot API integration settings.
+///
+/// Implements a custom `Debug` to redact the bot token.
+#[derive(Clone)]
+pub struct TelegramConfig {
+    /// Telegram bot token from BotFather.
+    pub bot_token: Option<String>,
+    /// Ingress mode: "webhook" (default) or "polling".
+    pub mode: String,
+}
+
+#[allow(clippy::missing_fields_in_debug)]
+impl fmt::Debug for TelegramConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TelegramConfig")
+            .field("bot_token", &self.bot_token.as_ref().map(|_| "[REDACTED]"))
+            .field("mode", &self.mode)
+            .finish()
+    }
+}
+
 /// Docker-specific sandbox configuration.
 #[derive(Debug, Clone)]
 pub struct DockerConfig {
@@ -346,6 +367,7 @@ pub struct Config {
     pub auth: AuthConfig,
     pub s3: S3Config,
     pub slack: SlackConfig,
+    pub telegram: TelegramConfig,
 }
 
 /// Configuration validation errors.
@@ -482,6 +504,11 @@ impl Config {
                 bot_token: env_opt("SLACK_BOT_TOKEN"),
                 signing_secret: env_opt("SLACK_SIGNING_SECRET"),
                 bot_user_id: env_opt("SLACK_BOT_USER_ID"),
+            },
+
+            telegram: TelegramConfig {
+                bot_token: env_opt("TELEGRAM_BOT_TOKEN"),
+                mode: env_opt("TELEGRAM_MODE").unwrap_or_else(|| "webhook".into()),
             },
         };
 
@@ -724,6 +751,7 @@ mod tests {
             },
             s3: S3Config { bucket_name: None, key_prefix: "test".into(), region: "us-east-1".into() },
             slack: SlackConfig { bot_token: None, signing_secret: None, bot_user_id: None },
+            telegram: TelegramConfig { bot_token: None, mode: "webhook".into() },
         }
     }
 

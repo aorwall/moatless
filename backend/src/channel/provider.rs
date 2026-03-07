@@ -21,6 +21,7 @@ pub enum ChannelType {
     Email,
     Webhook,
     Cron,
+    Telegram,
 }
 
 impl ChannelType {
@@ -30,6 +31,7 @@ impl ChannelType {
             Self::Email => "email",
             Self::Webhook => "webhook",
             Self::Cron => "cron",
+            Self::Telegram => "telegram",
         }
     }
 
@@ -39,6 +41,7 @@ impl ChannelType {
             "email" => Some(Self::Email),
             "webhook" => Some(Self::Webhook),
             "cron" => Some(Self::Cron),
+            "telegram" => Some(Self::Telegram),
             _ => None,
         }
     }
@@ -145,6 +148,12 @@ impl ChannelProviders {
         providers.register(Arc::new(super::cron::provider::CronProvider::new()));
         tracing::info!("Cron channel provider configured");
 
+        if let Some(ref token) = config.telegram.bot_token {
+            let telegram = super::telegram::provider::TelegramProvider::new(token);
+            providers.register(Arc::new(telegram));
+            tracing::info!("Telegram channel provider configured");
+        }
+
         Some(providers)
     }
 
@@ -158,5 +167,14 @@ impl ChannelProviders {
 
     pub fn get_by_name(&self, name: &str) -> Option<&Arc<dyn ChannelProvider>> {
         ChannelType::parse(name).and_then(|ct| self.providers.get(&ct))
+    }
+
+    /// Returns user-facing provider types (excludes internal-only providers like Webhook and Cron).
+    pub fn registered_types(&self) -> Vec<ChannelType> {
+        self.providers
+            .keys()
+            .filter(|ct| !matches!(ct, ChannelType::Webhook | ChannelType::Cron))
+            .copied()
+            .collect()
     }
 }

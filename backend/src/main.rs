@@ -228,6 +228,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 providers.clone(),
                 cancel.clone(),
             );
+
+            // Telegram long-polling (when webhook mode is not available)
+            if config.telegram.bot_token.is_some() && config.telegram.mode == "polling" {
+                channel::telegram::poller::spawn_telegram_poller(
+                    app_state.clone(),
+                    providers.clone(),
+                    cancel.clone(),
+                );
+            }
         }
     } else {
         info!("Domain routes disabled (no database)");

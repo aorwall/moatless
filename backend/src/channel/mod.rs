@@ -14,5 +14,6 @@ pub mod router;
 pub mod routes;
 pub mod schemas;
 pub mod slack;
+pub mod telegram;
 pub mod thread_dao;
 pub mod webhook;

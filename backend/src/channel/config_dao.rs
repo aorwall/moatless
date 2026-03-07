@@ -9,6 +9,7 @@ use crate::db::DbPool;
 #[derive(Default)]
 pub struct ChannelConfigPatch {
     pub source_name: Option<String>,
+    pub repository_id: Option<String>,
     pub routing_mode: Option<RoutingMode>,
     pub prompt_template: Option<Option<String>>,
     pub active: Option<bool>,
@@ -129,6 +130,10 @@ impl ChannelConfigRepository for PgChannelConfigRepository {
             param_idx += 1;
             sets.push(format!("source_name = ${param_idx}"));
         }
+        if patch.repository_id.is_some() {
+            param_idx += 1;
+            sets.push(format!("repository_id = ${param_idx}"));
+        }
         if patch.routing_mode.is_some() {
             param_idx += 1;
             sets.push(format!("routing_mode = ${param_idx}"));
@@ -165,6 +170,9 @@ impl ChannelConfigRepository for PgChannelConfigRepository {
         let mut query = sqlx::query(&sql).bind(id);
 
         if let Some(ref v) = patch.source_name {
+            query = query.bind(v);
+        }
+        if let Some(ref v) = patch.repository_id {
             query = query.bind(v);
         }
         if let Some(v) = patch.routing_mode {

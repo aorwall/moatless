@@ -24,6 +24,7 @@ pub struct CreateChannelConfigRequest {
 #[serde(rename_all = "camelCase")]
 pub struct UpdateChannelConfigRequest {
     pub source_name: Option<String>,
+    pub repository_id: Option<String>,
     pub routing_mode: Option<RoutingMode>,
     pub prompt_template: Option<Option<String>>,
     pub active: Option<bool>,

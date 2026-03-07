@@ -37,6 +37,11 @@ impl TelegramProvider {
         }
     }
 
+    /// Access the underlying Telegram API client (used by the poller).
+    pub fn api(&self) -> &TelegramApi {
+        &self.api
+    }
+
     /// Parse a Telegram Bot API Update into an InboundMessage.
     ///
     /// Handles: deduplication, message extraction (message or channel_post),
@@ -120,15 +125,18 @@ impl TelegramProvider {
             return Ok(TelegramWebhookResult::Ignore);
         }
 
-        // 8. Resolve Telegram user → system user
+        // 8. Resolve Telegram user → system user (fall back to config owner for unmapped users)
         let from_id_str = from_id.to_string();
-        let Some(user_id) = self.resolve_user(&from_id_str, db).await? else {
-            warn!(
+        let user_id = if let Some(uid) = self.resolve_user(&from_id_str, db).await? {
+            uid
+        } else {
+            info!(
                 telegram_user_id = from_id,
                 chat_id,
-                "Cannot process message: Telegram user not mapped to system user"
+                fallback_user = %config.created_by,
+                "Telegram user not mapped, using config owner as fallback"
             );
-            return Ok(TelegramWebhookResult::Ignore);
+            config.created_by.clone()
         };
 
         // 9. Build thread properties
@@ -247,6 +255,102 @@ impl ChannelProvider for TelegramProvider {
 
     // set_status: default no-op (no Telegram equivalent to Slack reactions)
     // fetch_context: default no-op (Bot API doesn't support fetching chat history)
+}
+
+/// Resolve the channel config for a raw Telegram update and route it through
+/// `parse_update` → `process_inbound`. Shared by the webhook handler and the
+/// polling loop so the config-lookup + routing logic is not duplicated.
+pub async fn resolve_and_process_telegram_update(
+    state: &crate::state::AppState,
+    providers: &std::sync::Arc<crate::channel::provider::ChannelProviders>,
+    telegram_provider: &TelegramProvider,
+    body: &[u8],
+) -> Result<(), ChannelError> {
+    let payload: serde_json::Value = serde_json::from_slice(body)
+        .map_err(|e| ChannelError::BadRequest(format!("Invalid JSON: {e}")))?;
+
+    // Extract chat_id from message or channel_post
+    let message = payload.get("message").or_else(|| payload.get("channel_post"));
+    let chat_id = message
+        .and_then(|m| m.pointer("/chat/id"))
+        .and_then(serde_json::Value::as_i64);
+
+    let Some(chat_id) = chat_id else {
+        debug!("Telegram update has no chat.id, ignoring");
+        return Ok(());
+    };
+
+    let source_id = chat_id.to_string();
+
+    let chat_type = message
+        .and_then(|m| m.pointer("/chat/type"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("");
+    let is_private_chat = chat_type == "private";
+
+    // Look up config — exact match first, then wildcard for DMs
+    let config = state
+        .channel_configs
+        .find_by_provider_source("telegram", &source_id)
+        .await?;
+
+    let config = match config {
+        Some(c) if c.active => c,
+        Some(_) => {
+            info!(source_id, "Telegram message ignored: channel config inactive");
+            return Ok(());
+        }
+        None if is_private_chat => {
+            match state
+                .channel_configs
+                .find_by_provider_source("telegram", "*")
+                .await?
+            {
+                Some(c) if c.active => {
+                    info!(source_id, "Telegram DM matched wildcard config");
+                    c
+                }
+                _ => {
+                    info!(source_id, "Telegram DM ignored: no active wildcard config");
+                    return Ok(());
+                }
+            }
+        }
+        None => {
+            info!(source_id, "Telegram message ignored: no channel config");
+            return Ok(());
+        }
+    };
+
+    let result = telegram_provider
+        .parse_update(body, &config, is_private_chat, &state.db)
+        .await?;
+
+    match result {
+        TelegramWebhookResult::Message(msg) => {
+            info!(
+                source_id = %msg.source_id,
+                thread_id = ?msg.thread_id,
+                user_id = %msg.user_id,
+                "Telegram message routed for processing"
+            );
+            let state_clone = state.clone();
+            let providers_clone = providers.clone();
+            tokio::spawn(async move {
+                if let Err(e) =
+                    crate::channel::inbound::process_inbound(&state_clone, &providers_clone, *msg)
+                        .await
+                {
+                    warn!(error = %e, "Failed to process Telegram inbound message");
+                }
+            });
+        }
+        TelegramWebhookResult::Ignore => {
+            debug!("Telegram update ignored by provider");
+        }
+    }
+
+    Ok(())
 }
 
 /// Strip bot mention from message text (e.g., "@mybot fix the bug" → "fix the bug").
