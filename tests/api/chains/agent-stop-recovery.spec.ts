@@ -264,49 +264,4 @@ test.describe("Chain: Agent Stop, Resume & Recovery", () => {
 		expect(match).not.toBeNull();
 		console.log(`[Stop] Content "Resumed Session Works" found in: ${match!.path}`);
 	});
-
-	// ─── AGENT-05: Agent error sets task to error (skipped) ─────────────
-
-	test.skip("AGENT-05: Agent error sets task to error", async ({ api }, testInfo) => {
-		testInfo.setTimeout(120000);
-
-		// This test requires a way to trigger an agent error.
-		// Currently skipped — requires the ability to inject an error-causing message.
-		//
-		// When implemented:
-		// 1. Send a message that triggers an agent error
-		// 2. Wait for agent.error and taskTurn.error SSE events
-		// 3. Verify agentState returns to idle
-
-		expect(true).toBe(true);
-	});
-
-	// ─── AGENT-05.1: Error visible in chat (skipped) ────────────────────
-
-	test.skip("AGENT-05.1: Error visible in chat", async ({ api }) => {
-		// Depends on AGENT-05
-		const { messages } = await getTaskMessages(api, ctx.taskId!);
-		expect(messages.length).toBeGreaterThan(0);
-	});
-
-	// ─── AGENT-05.2: Recovery via new message (skipped) ─────────────────
-
-	test.skip("AGENT-05.2: Recovery via new message", async ({ api }, testInfo) => {
-		testInfo.setTimeout(120000);
-
-		// Depends on AGENT-05 which is skipped
-		await sendFollowUpMessage(api, ctx.taskId!, "Just add a simple heading to the home page");
-
-		const turnActive = await chainSse.waitForEvent({
-			type: "taskTurn",
-			subType: "active",
-			taskId: ctx.taskId,
-			timeout: 60000,
-		});
-
-		expect(turnActive).not.toBeNull();
-
-		const status = await api.getWorkspaceStatus(ctx.taskId!);
-		expect(["running", "idle"]).toContain(status.agentState);
-	});
 });

@@ -31,10 +31,11 @@ export {
 	waitForSandboxReady,
 } from "./sandbox.steps";
 
-// Server steps (SERVER-01 through SERVER-01.2)
+// Server steps (SERVER-01 through SERVER-02)
 export {
 	fetchServerUrl,
 	waitForPreviewServer,
+	waitForServerFailed,
 } from "./server.steps";
 
 // Agent steps (AGENT-01 through AGENT-05)

@@ -6,11 +6,12 @@
  * Scenarios:
  *   SANDBOX-06: Sandbox provision failure (invalid image)
  *   SANDBOX-07: Sandbox crash loop detected early
+ *   SERVER-02: Server readiness timeout detected as failure
  */
 
 import { execSync } from "node:child_process";
 import { test, expect } from "../fixtures/api-fixtures";
-import { waitForSandboxReady } from "../steps";
+import { waitForSandboxReady, waitForServerFailed } from "../steps";
 
 // ─── SANDBOX-06: Sandbox provision failure (invalid image) ──────────────
 
@@ -95,6 +96,60 @@ test("SANDBOX-07: Sandbox crash loop detected early", async ({ api }, testInfo) 
 		expect(elapsed).toBeLessThan(120_000);
 
 		console.log(`[SANDBOX-07] Error: ${status.environmentError} (detected in ${elapsed}ms)`);
+	} finally {
+		if (taskId) {
+			await api.stopTask(taskId).catch(() => {});
+			await api.deleteTask(taskId).catch(() => {});
+		}
+		await api.deleteRepository(repo.id).catch(() => {});
+	}
+});
+
+// ─── SERVER-02: Server readiness timeout detected as failure ─────────
+
+test("SERVER-02: Server readiness timeout detected as failure", async ({ api }, testInfo) => {
+	testInfo.setTimeout(240_000);
+
+	// Create a repository with a server that intentionally doesn't bind the
+	// expected port. The start command runs a process that stays alive but
+	// never listens, so the K8s readiness probe stays unhealthy.
+	const repo = await api.createRepository({
+		name: `server-timeout-test-${Date.now()}`,
+		kind: "template",
+		remoteUrl: "https://github.com/aorwall/hello-world-ui.git",
+		servers: [
+			{
+				name: "preview",
+				label: "Preview",
+				port: 5173,
+				dockerImage: "aorwall/moatless-vibe-sandbox:latest",
+				startCommands: ["sleep 300"], // alive but never binds port
+				startupTimeoutSeconds: 30, // short timeout for faster test
+				default: true,
+			},
+		],
+	});
+
+	let taskId: string | undefined;
+	try {
+		const task = await api.createVibeTask({ templateId: repo.id });
+		taskId = task.taskId;
+
+		// Wait for sandbox environment to be ready first
+		const { ready } = await waitForSandboxReady(api, taskId, 180_000);
+		expect(ready).toBe(true);
+
+		// Now wait for the server — it should eventually report "failed"
+		// after the 30s startup timeout elapses
+		const server = await waitForServerFailed(api, taskId, 120_000);
+
+		expect(server).not.toBeNull();
+		expect(server!.status).toBe("failed");
+		expect(server!.error).toBeTruthy();
+
+		console.log(
+			`[SERVER-02] Server status: ${server!.status}, error: ${server!.error}`,
+		);
 	} finally {
 		if (taskId) {
 			await api.stopTask(taskId).catch(() => {});

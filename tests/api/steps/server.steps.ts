@@ -1,5 +1,5 @@
 /**
- * Server step functions (SERVER-01 through SERVER-01.2).
+ * Server step functions (SERVER-01 through SERVER-02).
  *
  * Each function performs an action and returns a result.
  * Tests add assertions; preconditions skip them.
@@ -14,6 +14,18 @@ import { waitForPreviewReady } from "../../shared/wait-helpers";
 // =============================================================================
 
 export async function waitForPreviewServer(
+	api: ApiClient,
+	taskId: string,
+	timeoutMs = 120000,
+): Promise<ServerEntry | null> {
+	return waitForPreviewReady(api, taskId, { timeout: timeoutMs });
+}
+
+// =============================================================================
+// SERVER-02: Wait for server readiness timeout failure
+// =============================================================================
+
+export async function waitForServerFailed(
 	api: ApiClient,
 	taskId: string,
 	timeoutMs = 120000,

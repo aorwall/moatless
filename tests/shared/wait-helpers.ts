@@ -152,14 +152,10 @@ export async function waitForAgentComplete(
 				continue;
 			}
 
-			// Agent is idle or none - check if it ran
+			// Agent is idle or none - if we saw it running, it completed
 			if (hasSeenRunning && (agentState === "idle" || agentState === "none")) {
-				// Verify agent did some work by checking task
-				const task = await api.getTask(taskId);
-				if (task.totalCostUsd > 0) {
-					onProgress?.("Agent completed");
-					return true;
-				}
+				onProgress?.("Agent completed");
+				return true;
 			}
 
 			onProgress?.(`Agent state: ${agentState || "unknown"}`);

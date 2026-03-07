@@ -27,7 +27,8 @@ This spec defines all testable scenarios for sandbox lifecycle management: provi
 
 ```
 ├── SANDBOX-06: Sandbox provision failure (invalid image)
-└── SANDBOX-07: Sandbox crash loop detected early
+├── SANDBOX-07: Sandbox crash loop detected early
+└── SERVER-02: Server readiness timeout detected as failure
 ```
 
 ---
@@ -181,3 +182,16 @@ When a sandbox container crashes repeatedly, the system detects the crash loop a
 * **Then** the sandbox does not become ready
   * **And** the system reports a crash loop error
   * **And** the error is detected well before the full timeout
+
+---
+
+### SERVER-02: Server readiness timeout detected as failure
+
+When a server process fails to bind its port, the readiness probe stays unhealthy. After the configured startup timeout, the system marks the server as failed.
+
+* **Given** a repository with a preview server configured with a short startup timeout and a start command that does not bind the expected port
+
+* **When** creating a task and waiting for the server status
+
+* **Then** the server transitions to failed
+  * **And** the system reports an error indicating the server failed to become ready within the timeout
