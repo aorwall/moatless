@@ -18,7 +18,17 @@ function StatusDot({ status }: { status: ServerEntry['status'] }) {
     stopped: 'bg-muted-foreground/40',
   }[status]
 
-  return <span className={cn('inline-block h-1.5 w-1.5 rounded-full', colorClass)} />
+  const isLoading = status === 'starting' || status === 'installing'
+
+  return (
+    <span
+      className={cn(
+        'inline-block h-1.5 w-1.5 rounded-full',
+        colorClass,
+        isLoading && 'animate-pulse',
+      )}
+    />
+  )
 }
 
 /**

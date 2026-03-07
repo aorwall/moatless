@@ -51,7 +51,11 @@ export function useTaskView({ servers }: UseTaskViewOptions = {}): UseTaskViewRe
     // Use default server name from the servers array when available
     if (servers && servers.length > 0) {
       const defaultServer = servers.find((s) => s.default) ?? servers[0]
-      return defaultServer.name
+      // Show files while server is still starting
+      if (defaultServer.status === 'started') {
+        return defaultServer.name
+      }
+      return 'files'
     }
 
     // Fallback (servers not loaded yet)
