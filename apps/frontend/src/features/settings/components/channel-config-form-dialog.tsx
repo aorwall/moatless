@@ -34,6 +34,7 @@ interface ChannelConfigFormDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   editConfig?: ChannelConfigResponse | null
+  enabledProviders?: string[]
 }
 
 interface FormState {
@@ -45,17 +46,30 @@ interface FormState {
   triggerMode: string
   promptTemplate: string
   active: boolean
+  secretToken: string
+  botUsername: string
+  chatMode: 'dm_wildcard' | 'specific'
 }
 
-const INITIAL_FORM: FormState = {
-  provider: 'slack',
-  sourceId: '',
-  sourceName: '',
-  repositoryId: '',
-  routingMode: 'thread_based',
-  triggerMode: 'mention_only',
-  promptTemplate: '',
-  active: true,
+const PROVIDER_LABELS: Record<string, string> = {
+  slack: 'Slack',
+  telegram: 'Telegram',
+}
+
+function makeInitialForm(defaultProvider: string): FormState {
+  return {
+    provider: defaultProvider,
+    sourceId: '',
+    sourceName: '',
+    repositoryId: '',
+    routingMode: 'thread_based',
+    triggerMode: 'mention_only',
+    promptTemplate: '',
+    active: true,
+    secretToken: '',
+    botUsername: '',
+    chatMode: 'specific',
+  }
 }
 
 const ROUTING_MODE_DESCRIPTIONS: Record<string, string> = {
@@ -75,6 +89,9 @@ function formStateFromConfig(config: ChannelConfigResponse): FormState {
     triggerMode: (providerConfig?.trigger as string) ?? 'mention_only',
     promptTemplate: config.promptTemplate ?? '',
     active: config.active,
+    secretToken: (providerConfig?.secret_token as string) ?? '',
+    botUsername: (providerConfig?.bot_username as string) ?? '',
+    chatMode: config.sourceId === '*' ? 'dm_wildcard' : 'specific',
   }
 }
 
@@ -136,12 +153,137 @@ function SlackChannelField({
   )
 }
 
+function buildProviderPayload(
+  form: FormState,
+  slackChannels: Array<{ id: string; name: string }> | undefined,
+): { sourceName: string; providerConfig: Record<string, unknown> } {
+  if (form.provider === 'slack') {
+    const selectedChannel = slackChannels?.find((ch) => ch.id === form.sourceId)
+    return {
+      sourceName: selectedChannel ? `#${selectedChannel.name}` : form.sourceName || form.sourceId,
+      providerConfig: { trigger: form.triggerMode },
+    }
+  }
+  if (form.provider === 'telegram') {
+    const providerConfig: Record<string, unknown> = {}
+    if (form.secretToken) {
+      providerConfig.secret_token = form.secretToken
+    }
+    if (form.botUsername) {
+      providerConfig.bot_username = form.botUsername
+    }
+    const sourceName =
+      form.chatMode === 'dm_wildcard' ? 'All Direct Messages' : form.sourceName || form.sourceId
+    return { sourceName, providerConfig }
+  }
+  return { sourceName: form.sourceName || form.sourceId, providerConfig: {} }
+}
+
+interface TelegramFieldsProps {
+  sourceId: string
+  secretToken: string
+  botUsername: string
+  chatMode: 'dm_wildcard' | 'specific'
+  onSourceIdChange: (value: string) => void
+  onSecretTokenChange: (value: string) => void
+  onBotUsernameChange: (value: string) => void
+  onChatModeChange: (value: 'dm_wildcard' | 'specific') => void
+  disabled: boolean
+}
+
+function TelegramFields({
+  sourceId,
+  secretToken,
+  botUsername,
+  chatMode,
+  onSourceIdChange,
+  onSecretTokenChange,
+  onBotUsernameChange,
+  onChatModeChange,
+  disabled,
+}: TelegramFieldsProps) {
+  return (
+    <>
+      <div className="space-y-2">
+        <Label>Chat Type</Label>
+        <Select
+          value={chatMode}
+          onValueChange={(v) => {
+            const mode = v as 'dm_wildcard' | 'specific'
+            onChatModeChange(mode)
+            if (mode === 'dm_wildcard') {
+              onSourceIdChange('*')
+            } else {
+              onSourceIdChange('')
+            }
+          }}
+          disabled={disabled}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="dm_wildcard">All Direct Messages</SelectItem>
+            <SelectItem value="specific">Specific Chat</SelectItem>
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground">
+          {chatMode === 'dm_wildcard'
+            ? 'Each user who DMs the bot gets their own persistent thread and task.'
+            : 'Route messages from a specific group or channel.'}
+        </p>
+      </div>
+      {chatMode === 'specific' && (
+        <div className="space-y-2">
+          <Label>Chat ID</Label>
+          <Input
+            value={sourceId}
+            onChange={(e) => onSourceIdChange(e.target.value)}
+            placeholder="-1001234567890 or @username"
+            disabled={disabled}
+          />
+          <p className="text-xs text-muted-foreground">
+            The Telegram chat ID. For groups, use the numeric ID (starts with -100). For public
+            channels/groups, you can use @username.
+          </p>
+        </div>
+      )}
+      <div className="space-y-2">
+        <Label>
+          Secret Token <span className="text-muted-foreground">(optional)</span>
+        </Label>
+        <Input
+          value={secretToken}
+          onChange={(e) => onSecretTokenChange(e.target.value)}
+          placeholder="Webhook secret token"
+        />
+        <p className="text-xs text-muted-foreground">
+          If set, Telegram will send this token in the X-Telegram-Bot-Api-Secret-Token header for
+          webhook verification.
+        </p>
+      </div>
+      <div className="space-y-2">
+        <Label>
+          Bot Username <span className="text-muted-foreground">(optional)</span>
+        </Label>
+        <Input
+          value={botUsername}
+          onChange={(e) => onBotUsernameChange(e.target.value)}
+          placeholder="@mybot"
+        />
+      </div>
+    </>
+  )
+}
+
 export function ChannelConfigFormDialog({
   open,
   onOpenChange,
   editConfig,
+  enabledProviders = ['slack'],
 }: ChannelConfigFormDialogProps) {
-  const [form, setForm] = useState<FormState>(INITIAL_FORM)
+  const defaultProvider = enabledProviders[0] ?? 'slack'
+  const [form, setForm] = useState<FormState>(() => makeInitialForm(defaultProvider))
 
   const isEditing = !!editConfig
   const createConfig = useCreateChannelConfig()
@@ -168,9 +310,9 @@ export function ChannelConfigFormDialog({
     if (editConfig) {
       setForm(formStateFromConfig(editConfig))
     } else {
-      setForm(INITIAL_FORM)
+      setForm(makeInitialForm(defaultProvider))
     }
-  }, [editConfig])
+  }, [editConfig, defaultProvider])
 
   const handleSubmit = () => {
     if (!form.sourceId) {
@@ -182,15 +324,7 @@ export function ChannelConfigFormDialog({
       return
     }
 
-    // Find channel name for sourceName (falls back to ID when using manual input)
-    const selectedChannel = slackChannels?.find((ch) => ch.id === form.sourceId)
-    const sourceName = selectedChannel
-      ? `#${selectedChannel.name}`
-      : form.sourceName || form.sourceId
-
-    const providerConfig: Record<string, unknown> = {
-      trigger: form.triggerMode,
-    }
+    const { sourceName, providerConfig } = buildProviderPayload(form, slackChannels)
 
     if (isEditing && editConfig) {
       updateConfig.mutate(
@@ -260,19 +394,31 @@ export function ChannelConfigFormDialog({
             <Label>Provider</Label>
             <Select
               value={form.provider}
-              onValueChange={(v) => setForm((prev) => ({ ...prev, provider: v, sourceId: '' }))}
+              onValueChange={(v) =>
+                setForm((prev) => ({
+                  ...prev,
+                  provider: v,
+                  sourceId: '',
+                  secretToken: '',
+                  botUsername: '',
+                }))
+              }
               disabled={isEditing}
             >
               <SelectTrigger>
                 <SelectValue placeholder="Select provider" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="slack">Slack</SelectItem>
+                {enabledProviders.map((p) => (
+                  <SelectItem key={p} value={p}>
+                    {PROVIDER_LABELS[p] ?? p}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
 
-          {/* Slack Channel — dropdown if available, text input fallback */}
+          {/* Provider-specific fields */}
           {form.provider === 'slack' && (
             <SlackChannelField
               sourceId={form.sourceId}
@@ -281,6 +427,19 @@ export function ChannelConfigFormDialog({
               slackChannels={slackChannels}
               slackLoading={slackLoading}
               slackError={!!slackError}
+            />
+          )}
+          {form.provider === 'telegram' && (
+            <TelegramFields
+              sourceId={form.sourceId}
+              secretToken={form.secretToken}
+              botUsername={form.botUsername}
+              chatMode={form.chatMode}
+              onSourceIdChange={(v) => setForm((prev) => ({ ...prev, sourceId: v }))}
+              onSecretTokenChange={(v) => setForm((prev) => ({ ...prev, secretToken: v }))}
+              onBotUsernameChange={(v) => setForm((prev) => ({ ...prev, botUsername: v }))}
+              onChatModeChange={(v) => setForm((prev) => ({ ...prev, chatMode: v }))}
+              disabled={isEditing}
             />
           )}
 
