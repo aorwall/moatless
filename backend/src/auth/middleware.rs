@@ -7,7 +7,7 @@
 use std::sync::Arc;
 
 use axum::body::Body;
-use axum::http::{header, HeaderValue, Request, StatusCode};
+use axum::http::{header, Request, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
@@ -15,8 +15,9 @@ use tracing::{debug, warn};
 
 use super::api_key::validate_key_cached;
 use super::api_keys::ApiKeyRepository;
-use super::cache::{AuthCache, VerifyPayload};
+use super::cache::AuthCache;
 use super::cookie::get_all_cookie_values;
+use super::identity::AuthIdentity;
 use super::jwt;
 use super::users::UserRepository;
 use crate::config::Config;
@@ -120,7 +121,14 @@ pub async fn auth_middleware(mut req: Request<Body>, next: Next) -> Response {
             {
                 Ok(Some(payload)) => {
                     debug!(user_id = %payload.user_id, path = %path, "Auth middleware: API key valid");
-                    inject_user_headers(&mut req, &payload);
+                    req.extensions_mut().insert(AuthIdentity {
+                        user_id: payload.user_id,
+                        login: payload.user_login,
+                        role: payload.role,
+                        provider: payload.provider,
+                        group_id: payload.group_id,
+                        team_ids: payload.team_ids,
+                    });
                     return next.run(req).await;
                 }
                 Ok(None) => {
@@ -149,17 +157,14 @@ pub async fn auth_middleware(mut req: Request<Body>, next: Next) -> Response {
             Ok(claims) => {
                 debug!(user_id = %claims.sub, path = %path, "Auth middleware: session JWT valid");
                 let role = claims.user_role();
-                let payload = VerifyPayload {
+                req.extensions_mut().insert(AuthIdentity {
                     user_id: claims.sub,
-                    user_login: claims.login,
+                    login: claims.login,
                     role,
                     provider: claims.provider,
                     group_id: claims.group_id,
                     team_ids: claims.team_ids,
-                    // expires_at not needed for header injection, use a far-future sentinel
-                    expires_at: chrono::Utc::now() + chrono::Duration::hours(24),
-                };
-                inject_user_headers(&mut req, &payload);
+                });
                 return next.run(req).await;
             }
             Err(_) => continue,
@@ -173,34 +178,6 @@ pub async fn auth_middleware(mut req: Request<Body>, next: Next) -> Response {
         warn!(path = %path, count = tokens.len(), "Auth middleware: all session cookies invalid/expired");
     }
     unauthorized_response()
-}
-
-/// Inject validated user headers into the request for downstream extractors.
-fn inject_user_headers(req: &mut Request<Body>, payload: &VerifyPayload) {
-    let headers = req.headers_mut();
-    if let Ok(v) = HeaderValue::from_str(&payload.user_id) {
-        headers.insert("x-user-id", v);
-    }
-    if let Ok(v) = HeaderValue::from_str(&payload.user_login) {
-        headers.insert("x-user-login", v);
-    }
-    if let Ok(v) = HeaderValue::from_str(payload.role.as_str()) {
-        headers.insert("x-user-role", v);
-    }
-    if let Ok(v) = HeaderValue::from_str(&payload.provider) {
-        headers.insert("x-user-provider", v);
-    }
-    if let Some(ref gid) = payload.group_id {
-        if let Ok(v) = HeaderValue::from_str(gid) {
-            headers.insert("x-group-id", v);
-        }
-    }
-    if !payload.team_ids.is_empty() {
-        let team_ids_str = payload.team_ids.join(",");
-        if let Ok(v) = HeaderValue::from_str(&team_ids_str) {
-            headers.insert("x-team-ids", v);
-        }
-    }
 }
 
 /// Build a 401 JSON response.

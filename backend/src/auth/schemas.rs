@@ -101,6 +101,15 @@ pub struct UserListResponse {
     pub users: Vec<UserListItem>,
 }
 
+/// POST /api/v1/auth/token/session response.
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TokenSessionResponse {
+    pub token: String,
+    pub user: UserInfo,
+    pub expires_at: String,
+}
+
 /// Generic message response (logout, revoke, etc.).
 #[derive(Serialize, ToSchema)]
 pub struct MessageResponse {

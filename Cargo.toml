@@ -6,6 +6,7 @@ members = [
     "crates/figma-clipboard",
     "crates/claude-agent-sdk",
     "crates/sandbox-proto",
+    "crates/cli",
 ]
 resolver = "2"
 

@@ -8,7 +8,7 @@ use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::get;
 use axum::Json;
 use rand::Rng;
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
@@ -19,18 +19,21 @@ use super::users::UserRepository;
 use super::provider_tokens::ProviderTokenAuthRepository;
 use crate::db::DbPool;
 use crate::sandbox::schemas::ErrorBody;
+use crate::scope::ScopeContext;
 
 use super::api_key;
 use super::cache::AuthCache;
 use super::cookie;
 use super::error::AuthError;
+use super::identity::AuthIdentity;
 use super::jwt::{self, SessionClaims};
+use super::models::UserRole;
 use super::oauth::provider::OAuthProvider;
 use super::session;
 use super::schemas::{
     ApiKeyCreateResponse, ApiKeyListItem, CreateApiKeyRequest, MessageResponse,
-    OAuthCallbackQuery, SessionResponse, UpdateUserRequest, UserInfo, UserListItem,
-    UserListResponse, format_datetime, format_datetime_opt,
+    OAuthCallbackQuery, SessionResponse, TokenSessionResponse, UpdateUserRequest,
+    UserInfo, UserListItem, UserListResponse, format_datetime, format_datetime_opt,
 };
 
 /// Type-safe container for configured OAuth providers.
@@ -77,6 +80,7 @@ pub struct AuthState {
     pub users: Arc<dyn UserRepository>,
     pub provider_tokens: Arc<dyn ProviderTokenAuthRepository>,
     pub teams: Option<Arc<dyn crate::team::dao::TeamRepository>>,
+    pub tasks: Option<Arc<dyn crate::task::dao::TaskRepository>>,
 }
 
 impl AuthState {
@@ -91,6 +95,8 @@ impl AuthState {
         let cache = AuthCache::new(config.auth.cache_ttl_secs);
         let teams: Option<Arc<dyn crate::team::dao::TeamRepository>> =
             Some(Arc::new(crate::team::dao::PgTeamRepository(pool.clone())));
+        let tasks: Option<Arc<dyn crate::task::dao::TaskRepository>> =
+            Some(Arc::new(crate::task::dao::PgTaskRepository(pool.clone())));
         Self {
             sessions: Arc::new(PgSessionRepository(pool.clone())),
             api_keys: Arc::new(PgApiKeyRepository(pool.clone())),
@@ -99,6 +105,7 @@ impl AuthState {
             providers: Arc::new(providers),
             cache,
             teams,
+            tasks,
             db: pool,
             config,
         }
@@ -118,6 +125,7 @@ impl AuthState {
         update_me_handler,
         logout_handler,
         exchange_api_key_handler,
+        exchange_token_handler,
         create_api_key_handler,
         list_api_keys_handler,
         revoke_api_key_handler,
@@ -134,6 +142,7 @@ pub fn auth_router(state: AuthState) -> (axum::Router, utoipa::openapi::OpenApi)
         .routes(routes!(me_handler, update_me_handler))
         .routes(routes!(logout_handler))
         .routes(routes!(exchange_api_key_handler))
+        .routes(routes!(exchange_token_handler))
         .routes(routes!(create_api_key_handler, list_api_keys_handler))
         .routes(routes!(revoke_api_key_handler))
         .routes(routes!(list_users_handler))
@@ -182,17 +191,79 @@ fn authenticate_from_cookie(
 }
 
 // ============================================================================
+// Shared auth helper
+// ============================================================================
+
+/// Authenticate from session cookie or API key.
+///
+/// Used by both `verify_handler` (ForwardAuth) and internal callers.
+async fn authenticate_request(
+    state: &AuthState,
+    headers: &HeaderMap,
+) -> Result<AuthIdentity, AuthError> {
+    // Try API key (Authorization: Bearer mvk_xxx)
+    if let Some(auth_header) = headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()) {
+        if auth_header.starts_with("Bearer mvk_") {
+            let key = &auth_header[7..]; // strip "Bearer "
+            if let Some(payload) = api_key::validate_key_cached(
+                state.api_keys.clone(),
+                state.users.as_ref(),
+                key,
+                &state.cache,
+            ).await? {
+                return Ok(AuthIdentity {
+                    user_id: payload.user_id,
+                    login: payload.user_login,
+                    role: payload.role,
+                    provider: payload.provider,
+                    group_id: payload.group_id,
+                    team_ids: payload.team_ids,
+                });
+            }
+            return Err(AuthError::InvalidApiKey);
+        }
+    }
+
+    // Try session cookies (JWT)
+    let jwt_secret = require_jwt_secret(&state.config)?;
+    let tokens = cookie::get_all_cookie_values(headers, &state.config.auth.session_cookie_name);
+    if tokens.is_empty() {
+        return Err(AuthError::Unauthorized);
+    }
+
+    for token in &tokens {
+        if let Ok(claims) = jwt::verify_session_jwt(token, jwt_secret) {
+            let role = claims.user_role();
+            return Ok(AuthIdentity {
+                user_id: claims.sub,
+                login: claims.login,
+                role,
+                provider: claims.provider,
+                group_id: claims.group_id,
+                team_ids: claims.team_ids,
+            });
+        }
+    }
+
+    Err(AuthError::SessionExpired)
+}
+
+// ============================================================================
 // GET /api/v1/auth/verify — Traefik ForwardAuth endpoint
 // ============================================================================
 
 /// Verify authentication via session cookie or API key (Traefik ForwardAuth).
+///
+/// Returns 200/401 only — no response headers.
+/// For preview URLs (hostname contains `--`), also checks task-based access.
 #[utoipa::path(
     get,
     path = "/api/v1/auth/verify",
     tag = "auth",
     responses(
         (status = 200, description = "Authentication valid"),
-        (status = 401, description = "Authentication required", body = ErrorBody)
+        (status = 401, description = "Authentication required", body = ErrorBody),
+        (status = 403, description = "Access denied", body = ErrorBody)
     )
 )]
 async fn verify_handler(
@@ -204,96 +275,37 @@ async fn verify_handler(
         return Ok((StatusCode::OK, "OK").into_response());
     }
 
-    let fwd_method = headers
-        .get("x-forwarded-method")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("-");
-    let fwd_uri = headers
-        .get("x-forwarded-uri")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("-");
+    let identity = authenticate_request(&state, &headers).await?;
 
-    // Try API key (Authorization: Bearer mvk_xxx)
-    if let Some(auth_header) = headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()) {
-        if auth_header.starts_with("Bearer mvk_") {
-            let key = &auth_header[7..]; // strip "Bearer "
-            if let Some(payload) = api_key::validate_key_cached(state.api_keys.clone(), state.users.as_ref(), key, &state.cache).await? {
-                debug!(user_id = %payload.user_id, "Auth verify: API key valid");
-                return Ok(verify_success_response(&payload.user_id, &payload.user_login, payload.role.as_str(), &payload.provider, payload.group_id.as_deref()));
-            }
-            warn!(method = fwd_method, uri = fwd_uri, "Auth verify: invalid API key");
-            return Err(AuthError::InvalidApiKey);
-        }
-    }
-
-    // Try session cookies (JWT) — there may be duplicates when COOKIE_DOMAIN changed
-    let jwt_secret = require_jwt_secret(&state.config)?;
-    let tokens = cookie::get_all_cookie_values(&headers, &state.config.auth.session_cookie_name);
-    if tokens.is_empty() {
-        warn!(method = fwd_method, uri = fwd_uri, "Auth verify: no session cookie found");
-        return Err(AuthError::Unauthorized);
-    }
-
-    for token in &tokens {
-        match jwt::verify_session_jwt(token, jwt_secret) {
-            Ok(claims) => {
-                if tokens.len() > 1 {
-                    warn!(
-                        count = tokens.len(),
-                        "Auth verify: multiple session cookies found, using valid one"
-                    );
+    // For preview URLs, check task-based access control
+    let forwarded_host = headers.get("x-forwarded-host").and_then(|v| v.to_str().ok());
+    if let Some(host) = forwarded_host {
+        if let Some(task_id) = extract_task_id_from_hostname(host) {
+            if let Some(ref tasks) = state.tasks {
+                let scope_ctx = ScopeContext {
+                    user_id: identity.user_id.clone(),
+                    team_ids: identity.team_ids.clone(),
+                    is_admin: identity.role == UserRole::Admin,
+                };
+                let task = tasks.find_by_id(task_id, &scope_ctx).await
+                    .map_err(|_| AuthError::Forbidden)?;
+                if task.is_none() {
+                    return Err(AuthError::Forbidden);
                 }
-                debug!(user_id = %claims.sub, "Auth verify: session JWT valid");
-                return Ok(verify_success_response(
-                    &claims.sub,
-                    &claims.login,
-                    &claims.role,
-                    &claims.provider,
-                    claims.group_id.as_deref(),
-                ));
-            }
-            Err(_) => {
-                // This cookie value is invalid/expired — try the next one
-                continue;
             }
         }
     }
 
-    warn!(
-        count = tokens.len(),
-        "Auth verify: all session cookies invalid/expired"
-    );
-    Err(AuthError::SessionExpired)
+    Ok((StatusCode::OK, "OK").into_response())
 }
 
-/// Build a 200 response with user info headers for ForwardAuth.
-fn verify_success_response(
-    user_id: &str,
-    user_login: &str,
-    role: &str,
-    provider: &str,
-    group_id: Option<&str>,
-) -> Response {
-    let mut headers = HeaderMap::new();
-    // These headers will be forwarded by Traefik to the backend
-    if let Ok(v) = user_id.parse() {
-        headers.insert("X-User-Id", v);
-    }
-    if let Ok(v) = user_login.parse() {
-        headers.insert("X-User-Login", v);
-    }
-    if let Ok(v) = role.parse() {
-        headers.insert("X-User-Role", v);
-    }
-    if let Ok(v) = provider.parse() {
-        headers.insert("X-User-Provider", v);
-    }
-    if let Some(gid) = group_id {
-        if let Ok(v) = gid.parse() {
-            headers.insert("X-Group-Id", v);
-        }
-    }
-    (StatusCode::OK, headers, "OK").into_response()
+/// Extract task ID from a preview hostname.
+///
+/// Format: `{task_id}--{port}.{proxy_domain}`
+fn extract_task_id_from_hostname(host: &str) -> Option<&str> {
+    let first_segment = host.split('.').next()?;
+    let task_id = first_segment.split("--").next()?;
+    if task_id.is_empty() { None } else { Some(task_id) }
 }
 
 // ============================================================================
@@ -708,6 +720,101 @@ async fn exchange_api_key_handler(
             role: user.role,
         }),
         expires_at: None,
+    };
+
+    let mut resp_headers = HeaderMap::new();
+    if let Ok(v) = session_cookie.parse() {
+        resp_headers.insert(header::SET_COOKIE, v);
+    }
+
+    Ok((resp_headers, Json(body)).into_response())
+}
+
+// ============================================================================
+// POST /api/v1/auth/token/session — exchange sandbox user token for session
+// ============================================================================
+
+/// Exchange a sandbox user auth token (JWT) for a session cookie.
+///
+/// Sandbox pods carry a `USER_AUTH_TOKEN` JWT signed with `TASK_TOKEN_SECRET`.
+/// This endpoint verifies that token and creates a session, allowing the CLI
+/// to call authenticated `/api/v1/*` endpoints.
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/token/session",
+    tag = "auth",
+    responses(
+        (status = 200, description = "Session created", body = TokenSessionResponse),
+        (status = 401, description = "Invalid or missing token", body = ErrorBody)
+    )
+)]
+async fn exchange_token_handler(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+) -> Result<Response, AuthError> {
+    let token = headers
+        .get("X-User-Token")
+        .and_then(|v| v.to_str().ok())
+        .ok_or(AuthError::Unauthorized)?;
+
+    let secret = state
+        .config
+        .sandbox
+        .task_token_secret
+        .as_deref()
+        .ok_or_else(|| AuthError::Config("TASK_TOKEN_SECRET not configured".to_string()))?;
+
+    let claims = crate::sandbox::jwt::verify_user_auth_token(token, secret)
+        .map_err(|_| AuthError::Unauthorized)?;
+
+    let user = state
+        .users
+        .get_user(&claims.user_id)
+        .await?
+        .ok_or(AuthError::Unauthorized)?;
+
+    let jwt_secret = require_jwt_secret(&state.config)?;
+
+    let team_ids = if let Some(ref teams_repo) = state.teams {
+        teams_repo
+            .find_team_ids_for_user(&user.id)
+            .await
+            .unwrap_or_default()
+    } else {
+        vec![]
+    };
+
+    let jwt_token = session::create_session_from_user(
+        state.sessions.as_ref(),
+        &user,
+        None, // sandbox tokens don't carry group_id
+        &team_ids,
+        state.config.auth.session_max_age_secs,
+        jwt_secret,
+    )
+    .await?;
+
+    let session_cookie = cookie::build_session_cookie(
+        &state.config,
+        &jwt_token,
+        state.config.auth.session_max_age_secs,
+    );
+
+    let expires_at = chrono::Utc::now()
+        + chrono::Duration::seconds(state.config.auth.session_max_age_secs as i64);
+
+    let body = TokenSessionResponse {
+        token: jwt_token,
+        user: UserInfo {
+            id: user.id,
+            login: user.login,
+            email: user.email,
+            name: user.name,
+            avatar_url: user.avatar_url,
+            provider: "token".to_string(),
+            role: user.role,
+        },
+        expires_at: format_datetime(expires_at),
     };
 
     let mut resp_headers = HeaderMap::new();

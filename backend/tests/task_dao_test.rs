@@ -94,7 +94,7 @@ async fn list_tasks_pagination(pool: PgPool) {
         task_dao::insert_task(&pool, &row).await.unwrap();
     }
 
-    let (rows, total) = task_dao::list_tasks(&pool, user, 2, 0, None, None, None, None)
+    let (rows, total) = task_dao::list_tasks(&pool, user, 2, 0, None, None, None, None, None)
         .await
         .unwrap();
 
@@ -115,7 +115,7 @@ async fn list_tasks_status_filter(pool: PgPool) {
     task_dao::insert_task(&pool, &closed_task).await.unwrap();
 
     let (rows, total) =
-        task_dao::list_tasks(&pool, user, 50, 0, Some(TaskStatus::Open), None, None, None)
+        task_dao::list_tasks(&pool, user, 50, 0, Some(TaskStatus::Open), None, None, None, None)
             .await
             .unwrap();
 
@@ -147,7 +147,7 @@ async fn list_tasks_tag_filter(pool: PgPool) {
         .unwrap();
 
     let (rows, total) =
-        task_dao::list_tasks(&pool, user, 50, 0, None, None, None, Some("bug"))
+        task_dao::list_tasks(&pool, user, 50, 0, None, None, None, Some("bug"), None)
             .await
             .unwrap();
 

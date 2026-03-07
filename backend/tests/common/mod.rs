@@ -225,7 +225,10 @@ pub fn make_task_row(task_id: &str, user_id: &str) -> Task {
         branch: Some("main".to_string()),
         created_by: Some(user_id.to_string()),
         visibility: Visibility::Private,
+        scope: moatless_vibe_backend::scope::Scope::User,
+        team_id: None,
         created_at_db: None,
+        parent_task_id: None,
     }
 }
 
@@ -324,20 +327,27 @@ pub fn make_command_row(name: &str) -> Command {
 // HTTP test helpers
 // =========================================================================
 
-/// Build an HTTP request with auth headers.
+/// Build an HTTP request with auth identity extension.
 #[allow(dead_code)]
 pub fn authed_request(method: &str, uri: &str, user_id: &str) -> axum::http::Request<axum::body::Body> {
-    axum::http::Request::builder()
+    let mut req = axum::http::Request::builder()
         .method(method)
         .uri(uri)
-        .header("x-user-id", user_id)
-        .header("x-user-login", user_id)
         .header("content-type", "application/json")
         .body(axum::body::Body::empty())
-        .unwrap()
+        .unwrap();
+    req.extensions_mut().insert(moatless_vibe_backend::auth::identity::AuthIdentity {
+        user_id: user_id.to_string(),
+        login: user_id.to_string(),
+        role: moatless_vibe_backend::auth::models::UserRole::User,
+        provider: "test".to_string(),
+        group_id: None,
+        team_ids: vec![],
+    });
+    req
 }
 
-/// Build an HTTP request with auth headers and a JSON body.
+/// Build an HTTP request with auth identity extension and a JSON body.
 #[allow(dead_code)]
 pub fn authed_json_request(
     method: &str,
@@ -345,14 +355,21 @@ pub fn authed_json_request(
     user_id: &str,
     body: serde_json::Value,
 ) -> axum::http::Request<axum::body::Body> {
-    axum::http::Request::builder()
+    let mut req = axum::http::Request::builder()
         .method(method)
         .uri(uri)
-        .header("x-user-id", user_id)
-        .header("x-user-login", user_id)
         .header("content-type", "application/json")
         .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
-        .unwrap()
+        .unwrap();
+    req.extensions_mut().insert(moatless_vibe_backend::auth::identity::AuthIdentity {
+        user_id: user_id.to_string(),
+        login: user_id.to_string(),
+        role: moatless_vibe_backend::auth::models::UserRole::User,
+        provider: "test".to_string(),
+        group_id: None,
+        team_ids: vec![],
+    });
+    req
 }
 
 /// Extract response body as JSON value.

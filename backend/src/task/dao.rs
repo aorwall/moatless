@@ -22,6 +22,7 @@ pub struct TaskFilter {
     pub repository_id: Option<String>,
     pub created_by: Option<String>,
     pub tag: Option<String>,
+    pub parent_task_id: Option<String>,
 }
 
 /// Repository trait for task persistence.
@@ -54,7 +55,8 @@ impl TaskRepository for PgTaskRepository {
                 task_id, short_id, created_at, last_message_at, agent_type,
                 repository_id, status, total_cost_usd, site_url, template_id,
                 vibe, name, description, site_id, site_provider, branch,
-                created_by, visibility, scope, team_id, created_at_db
+                created_by, visibility, scope, team_id, created_at_db,
+                parent_task_id
             FROM tasks WHERE task_id = $1"#,
         )
         .bind(task_id)
@@ -68,7 +70,8 @@ impl TaskRepository for PgTaskRepository {
                 task_id, short_id, created_at, last_message_at, agent_type,
                 repository_id, status, total_cost_usd, site_url, template_id,
                 vibe, name, description, site_id, site_provider, branch,
-                created_by, visibility, scope, team_id, created_at_db
+                created_by, visibility, scope, team_id, created_at_db,
+                parent_task_id
             FROM tasks
             WHERE task_id = $1
               AND ($2 OR scope = 'global'
@@ -89,10 +92,10 @@ impl TaskRepository for PgTaskRepository {
                 task_id, short_id, created_at, last_message_at, agent_type,
                 repository_id, status, total_cost_usd, site_url, template_id,
                 vibe, name, description, site_id, site_provider, branch,
-                created_by, visibility, scope, team_id
+                created_by, visibility, scope, team_id, parent_task_id
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-                $11, $12, $13, $14, $15, $16, $17, $18, $19, $20
+                $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21
             )"#,
         )
         .bind(&row.task_id)
@@ -115,6 +118,7 @@ impl TaskRepository for PgTaskRepository {
         .bind(row.visibility)
         .bind(row.scope)
         .bind(&row.team_id)
+        .bind(&row.parent_task_id)
         .execute(&self.0)
         .await?;
         Ok(())
@@ -148,6 +152,7 @@ impl TaskRepository for PgTaskRepository {
             scope: Scope,
             team_id: Option<String>,
             created_at_db: Option<DateTime<Utc>>,
+            parent_task_id: Option<String>,
             total_count: i64,
         }
 
@@ -157,6 +162,7 @@ impl TaskRepository for PgTaskRepository {
                 t.repository_id, t.status, t.total_cost_usd, t.site_url, t.template_id,
                 t.vibe, t.name, t.description, t.site_id, t.site_provider, t.branch,
                 t.created_by, t.visibility, t.scope, t.team_id, t.created_at_db,
+                t.parent_task_id,
                 COUNT(*) OVER() AS total_count
             FROM tasks t
             LEFT JOIN task_tags tt ON t.task_id = tt.task_id
@@ -168,8 +174,9 @@ impl TaskRepository for PgTaskRepository {
               AND ($5::text IS NULL OR t.repository_id = $5)
               AND ($6::text IS NULL OR t.created_by = $6)
               AND ($7::text IS NULL OR tg.name = $7)
+              AND ($8::text IS NULL OR t.parent_task_id = $8)
             ORDER BY t.last_message_at DESC
-            LIMIT $8 OFFSET $9"#,
+            LIMIT $9 OFFSET $10"#,
         )
         .bind(filter.is_admin)
         .bind(&filter.team_ids)
@@ -178,6 +185,7 @@ impl TaskRepository for PgTaskRepository {
         .bind(&filter.repository_id)
         .bind(&filter.created_by)
         .bind(&filter.tag)
+        .bind(&filter.parent_task_id)
         .bind(filter.limit)
         .bind(filter.offset)
         .fetch_all(&self.0)
@@ -209,6 +217,7 @@ impl TaskRepository for PgTaskRepository {
                 scope: r.scope,
                 team_id: r.team_id,
                 created_at_db: r.created_at_db,
+                parent_task_id: r.parent_task_id,
             })
             .collect();
 
@@ -365,6 +374,7 @@ pub async fn list_tasks(
     repository_id: Option<&str>,
     created_by: Option<&str>,
     tag: Option<&str>,
+    parent_task_id: Option<&str>,
 ) -> Result<(Vec<Task>, i64), sqlx::Error> {
     let filter = TaskFilter {
         user_id: ctx.user_id.clone(),
@@ -376,6 +386,7 @@ pub async fn list_tasks(
         repository_id: repository_id.map(String::from),
         created_by: created_by.map(String::from),
         tag: tag.map(String::from),
+        parent_task_id: parent_task_id.map(String::from),
     };
     PgTaskRepository(pool.clone()).list_tasks(&filter).await
 }

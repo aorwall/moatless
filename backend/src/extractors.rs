@@ -1,22 +1,24 @@
-//! Request extractors for authentication via Traefik ForwardAuth headers
-//! or user auth tokens (for sandbox-to-backend calls).
+//! Request extractors for authentication.
+//!
+//! Three auth paths (tried in order):
+//! 1. **AuthIdentity extension** (production): set by auth middleware after validating
+//!    session cookie or API key.
+//! 2. **X-User-Token header** (sandbox→backend): JWT-based, for requests that bypass
+//!    the auth middleware.
+//! 3. **Dev-mode headers / fallback** (no auth provider): reads `X-User-*` headers for
+//!    testing, or defaults to `local-user`.
 
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
+use crate::auth::identity::AuthIdentity;
 use crate::sandbox::jwt;
 use crate::scope::ScopeContext;
 use crate::state::AppState;
 
-/// Authenticated user extracted from ForwardAuth headers or user auth token.
-///
-/// Two auth paths:
-/// 1. **ForwardAuth** (via Traefik): reads `X-User-Id`, `X-User-Login`, etc.
-/// 2. **User token** (sandbox→backend): reads `X-User-Token` header, verifies JWT
-///
-/// The `task_id` field is populated from the `X-Task-Id` header when present.
+/// Authenticated user extracted from request extensions, user token, or dev-mode headers.
 #[derive(Debug, Clone)]
 pub struct AuthUser {
     pub user_id: String,
@@ -57,62 +59,27 @@ impl FromRequestParts<AppState> for AuthUser {
         parts: &mut Parts,
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
-        // Read X-Task-Id header (used by both auth paths)
+        // Read X-Task-Id header (used by all auth paths)
         let task_id = parts
             .headers
             .get("x-task-id")
             .and_then(|v| v.to_str().ok())
             .map(std::string::ToString::to_string);
 
-        // Path 1: Try ForwardAuth headers first (X-User-Id present)
-        if let Some(user_id) = parts
-            .headers
-            .get("x-user-id")
-            .and_then(|v| v.to_str().ok())
-            .map(std::string::ToString::to_string)
-        {
-            let login = parts
-                .headers
-                .get("x-user-login")
-                .and_then(|v| v.to_str().ok()).map_or_else(|| user_id.clone(), std::string::ToString::to_string);
-
-            let role = parts
-                .headers
-                .get("x-user-role")
-                .and_then(|v| v.to_str().ok())
-                .map(std::string::ToString::to_string);
-
-            let provider = parts
-                .headers
-                .get("x-user-provider")
-                .and_then(|v| v.to_str().ok())
-                .map(std::string::ToString::to_string);
-
-            let group_id = parts
-                .headers
-                .get("x-group-id")
-                .and_then(|v| v.to_str().ok())
-                .map(std::string::ToString::to_string);
-
-            let team_ids = parts
-                .headers
-                .get("x-team-ids")
-                .and_then(|v| v.to_str().ok())
-                .map(|s| s.split(',').map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect())
-                .unwrap_or_default();
-
+        // Path 1: AuthIdentity from middleware (production — auth provider configured)
+        if let Some(identity) = parts.extensions.get::<AuthIdentity>() {
             return Ok(AuthUser {
-                user_id,
-                login,
-                role,
-                provider,
-                group_id,
-                team_ids,
+                user_id: identity.user_id.clone(),
+                login: identity.login.clone(),
+                role: Some(identity.role.as_str().to_string()),
+                provider: Some(identity.provider.clone()),
+                group_id: identity.group_id.clone(),
+                team_ids: identity.team_ids.clone(),
                 task_id,
             });
         }
 
-        // Path 2: Try X-User-Token header (sandbox→backend JWT auth)
+        // Path 2: X-User-Token header (sandbox→backend JWT auth — bypasses middleware)
         if let Some(token) = parts
             .headers
             .get("x-user-token")
@@ -138,8 +105,58 @@ impl FromRequestParts<AppState> for AuthUser {
             });
         }
 
-        // Path 3: No auth provider configured — use default user (Docker Compose / local dev)
+        // Path 3: Dev mode (no auth provider — Docker Compose / local dev)
+        // In dev mode, middleware doesn't run, so allow X-User-* headers for testing.
         if state.config.auth.provider.is_none() {
+            if let Some(user_id) = parts
+                .headers
+                .get("x-user-id")
+                .and_then(|v| v.to_str().ok())
+                .map(std::string::ToString::to_string)
+            {
+                let login = parts
+                    .headers
+                    .get("x-user-login")
+                    .and_then(|v| v.to_str().ok())
+                    .map_or_else(|| user_id.clone(), std::string::ToString::to_string);
+
+                let role = parts
+                    .headers
+                    .get("x-user-role")
+                    .and_then(|v| v.to_str().ok())
+                    .map(std::string::ToString::to_string);
+
+                let provider = parts
+                    .headers
+                    .get("x-user-provider")
+                    .and_then(|v| v.to_str().ok())
+                    .map(std::string::ToString::to_string);
+
+                let group_id = parts
+                    .headers
+                    .get("x-group-id")
+                    .and_then(|v| v.to_str().ok())
+                    .map(std::string::ToString::to_string);
+
+                let team_ids = parts
+                    .headers
+                    .get("x-team-ids")
+                    .and_then(|v| v.to_str().ok())
+                    .map(|s| s.split(',').map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect())
+                    .unwrap_or_default();
+
+                return Ok(AuthUser {
+                    user_id,
+                    login,
+                    role,
+                    provider,
+                    group_id,
+                    team_ids,
+                    task_id,
+                });
+            }
+
+            // No headers provided — default local-user
             return Ok(AuthUser {
                 user_id: "local-user".to_string(),
                 login: "local-user".to_string(),
@@ -151,8 +168,8 @@ impl FromRequestParts<AppState> for AuthUser {
             });
         }
 
-        // Neither auth path succeeded
-        Err(AuthError("Missing X-User-Id or X-User-Token header".to_string()))
+        // No valid auth found
+        Err(AuthError("Authentication required".to_string()))
     }
 }
 

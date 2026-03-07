@@ -12,10 +12,5 @@ spec:
     authRequestHeaders:
       - Cookie
       - Authorization
-    authResponseHeaders:
-      - X-User-Id
-      - X-User-Login
-      - X-User-Role
-      - X-User-Provider
-      - X-Group-Id
+      - X-Forwarded-Host
 {{- end }}

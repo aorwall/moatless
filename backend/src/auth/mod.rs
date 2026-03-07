@@ -8,6 +8,7 @@ pub mod api_keys;
 pub mod cache;
 pub mod cookie;
 pub mod error;
+pub mod identity;
 pub mod jwt;
 pub mod middleware;
 pub mod models;

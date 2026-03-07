@@ -176,10 +176,10 @@ if [ "$BUILD_BASE" = true ]; then
   mkdir -p "$BINARIES_DIR/amd64" "$BINARIES_DIR/arm64"
 
   for TARGET in "${TARGETS[@]}"; do
-    echo -e "${YELLOW}Cross-compiling sandbox for ${TARGET}...${NC}"
-    cargo zigbuild -p moatless-sandbox --release --target "$TARGET"
+    echo -e "${YELLOW}Cross-compiling sandbox + moat CLI for ${TARGET}...${NC}"
+    cargo zigbuild -p moatless-sandbox -p moatless-cli --release --target "$TARGET"
     if [ $? -ne 0 ]; then
-      echo -e "${RED}✗ Rust sandbox build failed for ${TARGET}!${NC}"
+      echo -e "${RED}✗ Rust build failed for ${TARGET}!${NC}"
       exit 1
     fi
 
@@ -189,7 +189,8 @@ if [ "$BUILD_BASE" = true ]; then
       aarch64-*) ARCH_DIR="arm64" ;;
     esac
     cp "${TARGET_DIR}/${TARGET}/release/sandbox" "$BINARIES_DIR/$ARCH_DIR/sandbox"
-    echo -e "${GREEN}✓ sandbox binary staged for ${ARCH_DIR}${NC}"
+    cp "${TARGET_DIR}/${TARGET}/release/moat" "$BINARIES_DIR/$ARCH_DIR/moat"
+    echo -e "${GREEN}✓ sandbox + moat binaries staged for ${ARCH_DIR}${NC}"
   done
   echo ""
 fi

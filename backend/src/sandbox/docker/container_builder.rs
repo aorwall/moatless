@@ -46,6 +46,10 @@ pub fn build_container_config(
             "BACKEND_GRPC_URL=http://{}:{}",
             config.docker.backend_hostname, config.server.grpc_port
         ),
+        format!(
+            "BACKEND_API_URL=http://{}:{}",
+            config.docker.backend_hostname, config.server.port
+        ),
     ];
 
     env.push(format!("GIT_PROVIDER={}", plan.git_provider));

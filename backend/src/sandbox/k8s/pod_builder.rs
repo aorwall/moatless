@@ -177,6 +177,10 @@ fn build_sandbox_container(
             "http://moatless-vibe-backend.{}.svc.cluster.local:{}",
             config.sandbox.namespace, config.server.grpc_port
         )),
+        env_var("BACKEND_API_URL", &format!(
+            "http://moatless-vibe-backend.{}.svc.cluster.local:{}",
+            config.sandbox.namespace, config.server.port
+        )),
     ];
 
     if let Some(ref branch) = plan.git_branch {

@@ -72,6 +72,7 @@ pub async fn create_task(
         scope: repo.scope,
         team_id: repo.team_id.clone(),
         created_at_db: None,
+        parent_task_id: req.parent_task_id.clone(),
     };
 
     insert_and_provision_task(
@@ -210,6 +211,7 @@ pub async fn list_tasks(
         repository_id: query.repository_id.clone(),
         created_by: query.created_by.clone(),
         tag: query.tag.clone(),
+        parent_task_id: query.parent_task_id.clone(),
     };
 
     let (rows, total) = state.tasks.list_tasks(&filter).await?;
@@ -686,6 +688,7 @@ fn build_task_response(
         visibility: row.visibility,
         scope: row.scope,
         team_id: row.team_id.clone(),
+        parent_task_id: row.parent_task_id.clone(),
         tags,
         environment_status: None,
         agent_state: None,

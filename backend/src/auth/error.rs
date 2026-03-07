@@ -25,6 +25,9 @@ pub enum AuthError {
     #[error("Configuration error: {0}")]
     Config(String),
 
+    #[error("Access denied")]
+    Forbidden,
+
     #[error("Not found: {0}")]
     NotFound(String),
 
@@ -39,6 +42,7 @@ impl IntoResponse for AuthError {
             Self::Unauthorized | Self::InvalidApiKey | Self::SessionExpired => {
                 (StatusCode::UNAUTHORIZED, self.to_string())
             }
+            Self::Forbidden => (StatusCode::FORBIDDEN, self.to_string()),
             Self::InvalidState => (StatusCode::BAD_REQUEST, self.to_string()),
             Self::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone()),
             Self::OAuth(_) | Self::Config(_) | Self::Database(_) => {

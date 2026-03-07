@@ -22,6 +22,7 @@ pub struct CreateTaskRequest {
     pub contexts: Vec<MessageContextInput>,
     #[serde(default)]
     pub file_ids: Vec<String>,
+    pub parent_task_id: Option<String>,
 }
 
 /// Data for an element context (selected UI component).
@@ -105,6 +106,7 @@ pub struct ListTasksQuery {
     pub repository_id: Option<String>,
     pub created_by: Option<String>,
     pub tag: Option<String>,
+    pub parent_task_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -131,6 +133,7 @@ pub struct TaskResponse {
     pub visibility: Visibility,
     pub scope: Scope,
     pub team_id: Option<String>,
+    pub parent_task_id: Option<String>,
     pub tags: Vec<TagResponse>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub environment_status: Option<String>,

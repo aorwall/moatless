@@ -213,6 +213,7 @@ async fn create_task_for_channel(
         scope: config.scope,
         team_id: config.team_id.clone(),
         created_at_db: None,
+        parent_task_id: None,
     };
 
     state.tasks.insert_task(&row)
