@@ -30,8 +30,11 @@ use tracing::{debug, info, warn};
 use super::client::K8sClient;
 use super::deployment;
 use super::leader_election::LeaderElection;
-use super::pod_status::extract_container_observed_statuses;
+use super::pod_status::{extract_container_observed_statuses, DEFAULT_SERVER_READINESS_TIMEOUT_SECS};
 use crate::events::EventPublisher;
+
+/// Exit code used by the sandbox to signal a permanent init failure (sysexits EX_CONFIG).
+const PERMANENT_FAILURE_EXIT_CODE: i32 = 78;
 
 /// Observed state of a server container, used for transition detection.
 #[derive(Debug, Clone, PartialEq)]
@@ -43,6 +46,7 @@ struct ServerContainerState {
     terminated_reason: Option<String>,
     exit_code: Option<i32>,
     memory_limit: Option<String>,
+    running_since: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 /// Observed state for a single pod, used for transition detection.
@@ -430,6 +434,50 @@ async fn process_watcher_event(
                 new_state.fatal_published = true;
             }
 
+            // Immediate fail for permanent init errors.
+            // Exit code 78 signals the sandbox detected an unrecoverable failure
+            // (repo not found, auth error, etc.) — no point retrying.
+            let has_terminated = transitions.iter().any(|(sub, _)| sub == "container_terminated");
+            if has_terminated
+                && !is_intentional_stop
+                && new_state.exit_code == Some(PERMANENT_FAILURE_EXIT_CODE)
+            {
+                warn!(
+                    task_id = %task_id,
+                    pod_name = %pod_name,
+                    exit_code = ?new_state.exit_code,
+                    failure_detail = ?new_state.failure_detail,
+                    "Permanent init failure (exit 78), auto-stopping immediately"
+                );
+
+                let logs = fetch_sandbox_logs(k8s, &pod_name, 50).await;
+
+                let mut error_parts = vec!["Sandbox stopped: permanent init failure.".to_string()];
+                if let Some(ref detail) = new_state.failure_detail {
+                    error_parts.push(format!("Error: `{detail}`"));
+                }
+                if let Some(ref logs) = logs {
+                    error_parts.push(format!("Container logs:\n```\n{logs}\n```"));
+                }
+                let detailed_error = error_parts.join("\n");
+
+                event_publisher
+                    .publish_sandbox_event_with_payload(
+                        &task_id,
+                        SandboxStatus::Error,
+                        &SandboxEventPayload {
+                            message: detailed_error.clone(),
+                            lifecycle_event: Some("auto_stopped".to_string()),
+                            error: Some(detailed_error),
+                        },
+                    )
+                    .await;
+
+                if let Err(e) = deployment::scale_deployment(k8s, &task_id, 0).await {
+                    warn!(task_id = %task_id, error = %e, "Failed to auto-stop permanently failing sandbox");
+                }
+            }
+
             // Auto-stop sandbox if restart count exceeds threshold
             if max_crash_restart_count > 0
                 && new_state.restart_count >= max_crash_restart_count
@@ -740,12 +788,13 @@ fn extract_pod_observed_state(pod: &Pod, pod_name: &str, task_id: &str) -> PodOb
             let memory_limit = memory_limits.get(&cs.name).cloned();
             ServerContainerState {
                 name: cs.name.clone(),
-                status: cs.to_server_status().to_string(),
-                error: cs.error_reason(),
+                status: cs.to_server_status_with_timeout(DEFAULT_SERVER_READINESS_TIMEOUT_SECS).to_string(),
+                error: cs.error_reason_with_timeout(DEFAULT_SERVER_READINESS_TIMEOUT_SECS),
                 detail: cs.detail_reason(),
                 terminated_reason: cs.terminated_reason.clone(),
                 exit_code: cs.exit_code,
                 memory_limit,
+                running_since: cs.running_since,
             }
         })
         .collect();

@@ -455,6 +455,7 @@ mod tests {
             },
             s3: S3Config { bucket_name: None, key_prefix: "test".into(), region: "us-east-1".into() },
             slack: SlackConfig { bot_token: None, signing_secret: None, bot_user_id: None },
+            telegram: TelegramConfig { bot_token: None, mode: "webhook".into() },
         }
     }
 

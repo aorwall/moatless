@@ -13,7 +13,7 @@ use super::client::K8sClient;
 use super::deployment;
 use super::pod_reader;
 use super::naming::generate_service_name;
-use super::pod_status::{check_sandbox_permanent_failure, is_sandbox_container_ready, pick_best_pod};
+use super::pod_status::{check_sandbox_permanent_failure, is_sandbox_container_ready, pick_best_pod, DEFAULT_SERVER_READINESS_TIMEOUT_SECS};
 use crate::config::Config;
 use crate::sandbox::client::SandboxClient;
 use crate::sandbox::models::*;
@@ -64,8 +64,9 @@ impl StatusResolver {
                         let name = cs.name.strip_suffix("-server").unwrap_or(&cs.name);
                         name == config.name
                     });
+                    let timeout = config.startup_timeout_seconds.unwrap_or(DEFAULT_SERVER_READINESS_TIMEOUT_SECS);
                     let status = container
-                        .map_or(ServerStatus::Starting, ContainerObservedStatus::to_server_status);
+                        .map_or(ServerStatus::Starting, |cs| cs.to_server_status_with_timeout(timeout));
                     let url = self.build_proxy_url(task_id, config.port);
                     ServerEntry {
                         name: config.name.clone(),
@@ -73,7 +74,7 @@ impl StatusResolver {
                         port: config.port,
                         status,
                         url,
-                        error: container.and_then(super::super::models::ContainerObservedStatus::error_reason),
+                        error: container.and_then(|cs| cs.error_reason_with_timeout(timeout)),
                         detail: container.and_then(super::super::models::ContainerObservedStatus::detail_reason),
                         default: config.default,
                         capabilities: server_capabilities_from_config(config),
@@ -119,8 +120,9 @@ impl StatusResolver {
                         let name = cs.name.strip_suffix("-server").unwrap_or(&cs.name);
                         name == config.name
                     });
+                    let timeout = config.startup_timeout_seconds.unwrap_or(DEFAULT_SERVER_READINESS_TIMEOUT_SECS);
                     let status = container
-                        .map_or(ServerStatus::Starting, ContainerObservedStatus::to_server_status);
+                        .map_or(ServerStatus::Starting, |cs| cs.to_server_status_with_timeout(timeout));
                     let url = self.build_proxy_url(task_id, config.port);
                     ServerEntry {
                         name: config.name.clone(),
@@ -128,7 +130,7 @@ impl StatusResolver {
                         port: config.port,
                         status,
                         url,
-                        error: container.and_then(super::super::models::ContainerObservedStatus::error_reason),
+                        error: container.and_then(|cs| cs.error_reason_with_timeout(timeout)),
                         detail: container.and_then(super::super::models::ContainerObservedStatus::detail_reason),
                         default: config.default,
                         capabilities: server_capabilities_from_config(config),

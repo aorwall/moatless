@@ -10,6 +10,7 @@ use super::client::DockerClient;
 use super::naming::{generate_container_name, generate_server_container_name};
 use crate::config::Config;
 use crate::sandbox::client::SandboxClient;
+use crate::sandbox::k8s::pod_status::DEFAULT_SERVER_READINESS_TIMEOUT_SECS;
 use crate::sandbox::models::*;
 use crate::sandbox::schemas::*;
 
@@ -169,7 +170,10 @@ impl DockerStatusResolver {
 
         for sc in server_configs {
             let container_name = generate_server_container_name(task_id, &sc.name);
-            let (status, url) = self.inspect_server_container(&container_name, sc.port).await;
+            let timeout = sc.startup_timeout_seconds.unwrap_or(DEFAULT_SERVER_READINESS_TIMEOUT_SECS);
+            let (status, url, error) = self
+                .inspect_server_container(&container_name, sc.port, timeout)
+                .await;
 
             entries.push(ServerEntry {
                 name: sc.name.clone(),
@@ -177,7 +181,7 @@ impl DockerStatusResolver {
                 port: sc.port,
                 status,
                 url,
-                error: None,
+                error,
                 detail: None,
                 default: sc.default,
                 capabilities: server_capabilities_from_config(sc),
@@ -187,12 +191,17 @@ impl DockerStatusResolver {
         entries
     }
 
-    /// Inspect a server container and return its status + host URL.
+    /// Inspect a server container and return its status, host URL, and optional error.
+    ///
+    /// When a container is "running", checks whether the port is actually
+    /// reachable via TCP. If not, and the container has been running longer
+    /// than `startup_timeout_secs`, returns `Failed`.
     async fn inspect_server_container(
         &self,
         container_name: &str,
         container_port: u16,
-    ) -> (ServerStatus, Option<String>) {
+        startup_timeout_secs: u32,
+    ) -> (ServerStatus, Option<String>, Option<String>) {
         match self.client.docker.inspect_container(container_name, None).await {
             Ok(info) => {
                 let status_str = info
@@ -201,13 +210,6 @@ impl DockerStatusResolver {
                     .and_then(|s| s.status.as_ref())
                     .map(std::string::ToString::to_string)
                     .unwrap_or_default();
-
-                let server_status = match status_str.as_str() {
-                    "running" => ServerStatus::Started,
-                    "created" | "restarting" => ServerStatus::Starting,
-                    "dead" => ServerStatus::Failed,
-                    _ => ServerStatus::Stopped,
-                };
 
                 // Extract the dynamically assigned host port
                 let host_port = info
@@ -220,19 +222,67 @@ impl DockerStatusResolver {
                     .and_then(|b| b.host_port.as_ref())
                     .and_then(|p| if p.is_empty() { None } else { Some(p.clone()) });
 
-                let url = host_port.map(|port| format!("http://localhost:{port}"));
+                let url = host_port.as_ref().map(|port| format!("http://localhost:{port}"));
 
-                (server_status, url)
+                let server_status = match status_str.as_str() {
+                    "running" => {
+                        // Check if the port is actually reachable
+                        let port_open = if let Some(ref hp) = host_port {
+                            if let Ok(p) = hp.parse::<u16>() {
+                                tokio::net::TcpStream::connect(("127.0.0.1", p))
+                                    .await
+                                    .is_ok()
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        };
+
+                        if port_open {
+                            ServerStatus::Started
+                        } else {
+                            // Port not open — check if we've exceeded the startup timeout
+                            let started_at = info
+                                .state
+                                .as_ref()
+                                .and_then(|s| s.started_at.as_deref())
+                                .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                                .map(|dt| dt.with_timezone(&chrono::Utc));
+
+                            if let Some(started) = started_at {
+                                let elapsed = chrono::Utc::now() - started;
+                                if elapsed > chrono::Duration::seconds(startup_timeout_secs as i64)
+                                {
+                                    return (
+                                        ServerStatus::Failed,
+                                        url,
+                                        Some(
+                                            "Server failed to become ready within timeout"
+                                                .to_string(),
+                                        ),
+                                    );
+                                }
+                            }
+                            ServerStatus::Starting
+                        }
+                    }
+                    "created" | "restarting" => ServerStatus::Starting,
+                    "dead" => ServerStatus::Failed,
+                    _ => ServerStatus::Stopped,
+                };
+
+                (server_status, url, None)
             }
             Err(bollard::errors::Error::DockerResponseServerError {
                 status_code: 404, ..
             }) => {
                 debug!(container = %container_name, "Server container not found");
-                (ServerStatus::Stopped, None)
+                (ServerStatus::Stopped, None, None)
             }
             Err(e) => {
                 warn!(container = %container_name, error = %e, "Failed to inspect server container");
-                (ServerStatus::Failed, None)
+                (ServerStatus::Failed, None, None)
             }
         }
     }

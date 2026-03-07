@@ -149,6 +149,9 @@ pub fn pick_best_pod(pods: &[Pod]) -> Option<&Pod> {
         .or(terminating.first().copied())
 }
 
+/// Default readiness grace period for pod watcher (no per-server config available).
+pub const DEFAULT_SERVER_READINESS_TIMEOUT_SECS: u32 = 120;
+
 /// Extract container observed statuses from a K8s Pod.
 ///
 /// Excludes the `sandbox` container — this is used for monitoring *server*
@@ -201,6 +204,15 @@ pub fn extract_container_observed_statuses(pod: &Pod) -> Vec<ContainerObservedSt
                 .and_then(|s| s.terminated.as_ref())
                 .map(|t| t.exit_code);
 
+            let running_since = cs
+                .state
+                .as_ref()
+                .and_then(|s| s.running.as_ref())
+                .and_then(|r| r.started_at.as_ref())
+                .and_then(|t| {
+                    chrono::DateTime::from_timestamp(t.0.as_second(), t.0.subsec_nanosecond() as u32)
+                });
+
             ContainerObservedStatus {
                 name: cs.name.clone(),
                 ready: cs.ready,
@@ -212,6 +224,7 @@ pub fn extract_container_observed_statuses(pod: &Pod) -> Vec<ContainerObservedSt
                 exit_code,
                 last_terminated_reason,
                 last_exit_code,
+                running_since,
             }
         })
         .collect()

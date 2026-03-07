@@ -21,6 +21,24 @@ use tracing::{error, info, warn};
 
 use crate::state::SandboxState;
 
+/// Init error with permanence classification.
+/// Permanent errors use exit code 78 so the pod watcher stops immediately.
+/// Transient errors use exit code 1 and let K8s retry.
+pub(crate) enum InitError {
+    /// Will never succeed on retry (repo not found, access denied).
+    Permanent(String),
+    /// Might succeed on retry (backend unreachable, network timeout).
+    Transient(String),
+}
+
+impl std::fmt::Display for InitError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Permanent(msg) | Self::Transient(msg) => f.write_str(msg),
+        }
+    }
+}
+
 /// Tracks the current initialization phase.
 ///
 /// Stored in `SandboxState` as `Arc<RwLock<InitPhase>>` and read by:
@@ -86,10 +104,12 @@ pub async fn run_init(state: SandboxState) {
     if let Err(e) = run_core_init(&state).await {
         error!(error = %e, "Core initialization failed");
         // Write termination message for K8s to surface in pod status.
-        // Then exit — K8s will restart the container and eventually trigger
-        // CrashLoopBackOff, which the readiness checker detects as a permanent failure.
-        let _ = std::fs::write("/dev/termination-log", &e);
-        std::process::exit(1);
+        let _ = std::fs::write("/dev/termination-log", e.to_string());
+        let exit_code = match &e {
+            InitError::Permanent(_) => 78, // EX_CONFIG — pod watcher stops immediately
+            InitError::Transient(_) => 1,  // K8s retries, threshold handles it
+        };
+        std::process::exit(exit_code);
     }
 
     // Mark as ready — health endpoint now returns 200
@@ -134,7 +154,7 @@ pub async fn run_init(state: SandboxState) {
 /// 3. Configure git authentication (non-fatal)
 /// 4. Clone repository (fatal on failure)
 /// 5. Sync plugins (non-fatal)
-async fn run_core_init(state: &SandboxState) -> Result<(), String> {
+async fn run_core_init(state: &SandboxState) -> Result<(), InitError> {
     // 1. Ensure directories exist
     dirs::ensure_directories(&state.config);
 
@@ -146,7 +166,7 @@ async fn run_core_init(state: &SandboxState) -> Result<(), String> {
     if let Err(e) = credentials::fetch_and_apply_credentials(state).await {
         let msg = format!("Failed to fetch credentials: {e}");
         publish_sandbox_event(state, "CredentialsFailed", &msg, true).await;
-        return Err(msg);
+        return Err(InitError::Transient(msg));
     }
     publish_sandbox_event(
         state,
@@ -195,7 +215,7 @@ async fn run_core_init(state: &SandboxState) -> Result<(), String> {
                 Err(e) => {
                     let msg = format!("Failed to clone repository: {e}");
                     publish_sandbox_event(state, "RepositoryCloneFailed", &msg, true).await;
-                    return Err(msg);
+                    return Err(InitError::Permanent(msg));
                 }
             }
         }

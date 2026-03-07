@@ -315,6 +315,8 @@ pub struct ContainerObservedStatus {
     pub last_terminated_reason: Option<String>,
     /// Exit code from `last_state.terminated`.
     pub last_exit_code: Option<i32>,
+    /// When the container entered Running state (from K8s `started_at`).
+    pub running_since: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 impl ContainerObservedStatus {
@@ -356,6 +358,22 @@ impl ContainerObservedStatus {
         }
     }
 
+    /// Like `to_server_status()` but with a configurable readiness timeout.
+    /// If the container has been running for longer than `timeout_secs` without
+    /// becoming ready, returns `Failed` instead of `Starting`.
+    pub fn to_server_status_with_timeout(&self, timeout_secs: u32) -> ServerStatus {
+        let base = self.to_server_status();
+        if base == ServerStatus::Starting {
+            if let Some(since) = self.running_since {
+                let elapsed = chrono::Utc::now() - since;
+                if elapsed > chrono::Duration::seconds(timeout_secs as i64) {
+                    return ServerStatus::Failed;
+                }
+            }
+        }
+        base
+    }
+
     /// Return the error reason — terminated reasons take priority, then waiting reasons.
     pub fn error_reason(&self) -> Option<String> {
         use crate::sandbox::k8s::pod_status::SERVER_FAILURE_REASONS;
@@ -380,6 +398,23 @@ impl ContainerObservedStatus {
                 None
             }
         })
+    }
+
+    /// Like `error_reason()` but also reports readiness timeout failures.
+    pub fn error_reason_with_timeout(&self, timeout_secs: u32) -> Option<String> {
+        if let Some(reason) = self.error_reason() {
+            return Some(reason);
+        }
+        // Check for readiness timeout
+        if self.to_server_status() == ServerStatus::Starting {
+            if let Some(since) = self.running_since {
+                let elapsed = chrono::Utc::now() - since;
+                if elapsed > chrono::Duration::seconds(timeout_secs as i64) {
+                    return Some("Server failed to become ready within timeout".to_string());
+                }
+            }
+        }
+        None
     }
 
     /// Return the waiting reason only if it is a non-error detail (e.g. ContainerCreating).
@@ -418,6 +453,7 @@ impl ContainerObservedStatus {
             exit_code: None,
             last_terminated_reason: None,
             last_exit_code: None,
+            running_since: None,
         }
     }
 
@@ -437,6 +473,7 @@ impl ContainerObservedStatus {
             exit_code,
             last_terminated_reason: None,
             last_exit_code: None,
+            running_since: None,
         }
     }
 }
@@ -997,5 +1034,80 @@ mod tests {
         assert_eq!(req.plan.repo_config.name, "test-repo");
         assert_eq!(req.plan.git_clone_url, "https://github.com/test/repo.git");
         assert!(req.plan.git_branch.is_none());
+    }
+
+    // =========================================================================
+    // to_server_status_with_timeout()
+    // =========================================================================
+
+    #[test]
+    fn timeout_running_past_deadline_is_failed() {
+        let mut cs = ContainerObservedStatus::test(
+            "preview-server",
+            false,
+            true, // started but not ready → Starting
+            ContainerState::Running,
+            0,
+            None,
+        );
+        cs.running_since = Some(chrono::Utc::now() - chrono::Duration::seconds(150));
+        assert_eq!(cs.to_server_status_with_timeout(120), ServerStatus::Failed);
+    }
+
+    #[test]
+    fn timeout_running_within_deadline_is_starting() {
+        let mut cs = ContainerObservedStatus::test(
+            "preview-server",
+            false,
+            true,
+            ContainerState::Running,
+            0,
+            None,
+        );
+        cs.running_since = Some(chrono::Utc::now() - chrono::Duration::seconds(10));
+        assert_eq!(cs.to_server_status_with_timeout(120), ServerStatus::Starting);
+    }
+
+    #[test]
+    fn timeout_ready_container_unaffected() {
+        let mut cs = ContainerObservedStatus::test(
+            "preview-server",
+            true,
+            true,
+            ContainerState::Running,
+            0,
+            None,
+        );
+        cs.running_since = Some(chrono::Utc::now() - chrono::Duration::seconds(150));
+        assert_eq!(cs.to_server_status_with_timeout(120), ServerStatus::Started);
+    }
+
+    #[test]
+    fn timeout_no_running_since_stays_starting() {
+        let cs = ContainerObservedStatus::test(
+            "preview-server",
+            false,
+            true,
+            ContainerState::Running,
+            0,
+            None,
+        );
+        // running_since is None by default
+        assert_eq!(cs.to_server_status_with_timeout(120), ServerStatus::Starting);
+    }
+
+    #[test]
+    fn error_reason_with_timeout_reports_readiness_timeout() {
+        let mut cs = ContainerObservedStatus::test(
+            "preview-server",
+            false,
+            true,
+            ContainerState::Running,
+            0,
+            None,
+        );
+        cs.running_since = Some(chrono::Utc::now() - chrono::Duration::seconds(150));
+        assert!(cs.error_reason().is_none()); // base has no error
+        assert!(cs.error_reason_with_timeout(120).is_some());
     }
 }
