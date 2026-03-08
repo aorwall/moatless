@@ -11,6 +11,7 @@ use tracing::{debug, info, warn};
 use moatless_events::{AgentSubType, SandboxSubType, TaskSubType, TaskTurnSubType};
 
 use crate::state::AppState;
+use crate::task_event::dao::InsertTaskEvent;
 
 use super::agent_handlers;
 use super::models::{AgentEvent, EventKey};
@@ -197,6 +198,7 @@ impl EventHandlerConsumer {
                 // Extract the `payload` field and parse as AgentEvent
                 if let Some(payload_str) = extract_field(fields, "payload") {
                     if let Ok(event) = serde_json::from_str::<AgentEvent>(&payload_str) {
+                        self.persist_event(&event).await;
                         self.dispatch_event(&event).await;
                     } else {
                         warn!(entry_id = %entry_id, "Failed to parse event payload, ACKing to prevent redelivery");
@@ -226,6 +228,29 @@ impl EventHandlerConsumer {
                     );
                 }
             }
+        }
+    }
+
+    /// Persist an event to the database (best-effort, never blocks dispatch).
+    async fn persist_event(&self, event: &AgentEvent) {
+        let insert = InsertTaskEvent {
+            event_id: event.event_id.clone(),
+            task_id: event.task_id.clone(),
+            event_type: event.event_type.as_str().to_string(),
+            sub_type: event.sub_type.clone(),
+            is_error: event.is_error,
+            agent_type: event.agent_type.clone(),
+            turn_number: event.turn_number,
+            payload: event.payload.clone(),
+            timestamp: event.timestamp.clone(),
+        };
+        if let Err(e) = self.state.task_events.insert_event(&insert).await {
+            warn!(
+                task_id = %event.task_id,
+                event_id = %event.event_id,
+                error = %e,
+                "Failed to persist event to database"
+            );
         }
     }
 
