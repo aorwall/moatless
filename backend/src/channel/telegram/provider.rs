@@ -431,14 +431,26 @@ pub async fn resolve_and_process_telegram_update(
                     c
                 }
                 _ => {
-                    info!(source_id, "Telegram DM ignored: no active wildcard config");
-                    return Ok(());
+                    // Auto-create config from Moatable template
+                    match auto_create_config(state, &source_id, message, is_private_chat).await {
+                        Ok(c) => c,
+                        Err(e) => {
+                            warn!(source_id, error = %e, "Failed to auto-create Telegram config");
+                            return Ok(());
+                        }
+                    }
                 }
             }
         }
         None => {
-            info!(source_id, "Telegram message ignored: no channel config");
-            return Ok(());
+            // Auto-create config from Moatable template for groups
+            match auto_create_config(state, &source_id, message, is_private_chat).await {
+                Ok(c) => c,
+                Err(e) => {
+                    warn!(source_id, error = %e, "Failed to auto-create Telegram config");
+                    return Ok(());
+                }
+            }
         }
     };
 
@@ -471,6 +483,71 @@ pub async fn resolve_and_process_telegram_update(
     }
 
     Ok(())
+}
+
+/// Auto-create a channel config for an unknown Telegram chat using the seeded
+/// Moatable template repository as default.
+async fn auto_create_config(
+    state: &crate::state::AppState,
+    source_id: &str,
+    message: Option<&serde_json::Value>,
+    is_private_chat: bool,
+) -> Result<ChannelConfig, ChannelError> {
+    use crate::channel::models::RoutingMode;
+    use crate::scope::Scope;
+
+    let repo = state
+        .repositories
+        .find_by_name_and_user("Moatable", "system")
+        .await?
+        .ok_or_else(|| {
+            ChannelError::Internal("Default Moatable repository not found".into())
+        })?;
+
+    let chat_name = message
+        .and_then(|m| m.pointer("/chat/title"))
+        .and_then(|v| v.as_str())
+        .or_else(|| {
+            message
+                .and_then(|m| m.pointer("/chat/first_name"))
+                .and_then(|v| v.as_str())
+        });
+
+    let now = chrono::Utc::now();
+
+    // DMs use Pairing policy so the owner must approve new users;
+    // groups default to Open.
+    let provider_config = if is_private_chat {
+        Some(serde_json::to_value(TelegramProviderConfig {
+            dm_policy: super::config::DmPolicy::Pairing,
+            ..Default::default()
+        }).unwrap_or_default())
+    } else {
+        None
+    };
+
+    let new_config = ChannelConfig {
+        id: nanoid::nanoid!(21),
+        provider: "telegram".to_string(),
+        source_id: source_id.to_string(),
+        source_name: chat_name.map(String::from),
+        repository_id: repo.id.clone(),
+        routing_mode: RoutingMode::Ongoing,
+        prompt_template: None,
+        active: true,
+        provider_config,
+        ongoing_task_id: None,
+        response_config_id: None,
+        scope: Scope::Global,
+        team_id: None,
+        created_by: "system".to_string(),
+        created_at: now,
+        updated_at: now,
+    };
+
+    state.channel_configs.insert(&new_config).await?;
+    info!(config_id = %new_config.id, source_id, "Auto-created Telegram channel config");
+    Ok(new_config)
 }
 
 /// Strip bot mention from message text (e.g., "@mybot fix the bug" → "fix the bug").

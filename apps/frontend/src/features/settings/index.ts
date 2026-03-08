@@ -15,6 +15,7 @@ export { GitHubConfigurationSection } from './components/github-configuration-se
 export { GitLabConfigurationSection } from './components/gitlab-configuration-section'
 export { GitnessConfigurationSection } from './components/gitness-configuration-section'
 export { MarketplaceConfigurationSection } from './components/marketplace-configuration-section'
+export { PairingApprovalBanner } from './components/pairing-approval-banner'
 export { ProfileConfigurationSection } from './components/profile-configuration-section'
 export { SettingsDialog } from './components/settings-dialog'
 export * from './components/system-status-warning'

@@ -33,9 +33,37 @@ CREATE UNIQUE INDEX IF NOT EXISTS "teams_external_uq"
     WHERE "external_id" IS NOT NULL AND "external_provider" IS NOT NULL;
 
 -- =============================================
--- Alter provider_tokens: add team_id
+-- Alter provider_tokens: add id PK, team_id, make user_id nullable
 -- =============================================
 
+-- If the table was created by Drizzle it has a composite PK on (user_id, provider)
+-- and no id column. We need to:
+--   1. Drop the composite PK
+--   2. Add an id serial column as the new PK
+--   3. Make user_id nullable
+--   4. Replace uniqueness constraint to include team_id
+
+-- Add id column if missing (Drizzle schema doesn't have it)
+ALTER TABLE "provider_tokens" ADD COLUMN IF NOT EXISTS "id" serial;
+
+-- Drop composite PK if it exists (Drizzle schema: provider_tokens_user_id_provider_pk)
+DO $$
+DECLARE
+    pk_name text;
+BEGIN
+    SELECT conname INTO pk_name
+    FROM pg_constraint
+    WHERE conrelid = 'provider_tokens'::regclass AND contype = 'p';
+
+    IF pk_name IS NOT NULL THEN
+        EXECUTE format('ALTER TABLE provider_tokens DROP CONSTRAINT %I', pk_name);
+    END IF;
+END $$;
+
+-- Now add id as the primary key
+ALTER TABLE "provider_tokens" ADD PRIMARY KEY ("id");
+
+-- Add team_id column
 ALTER TABLE "provider_tokens" ADD COLUMN IF NOT EXISTS "team_id" text REFERENCES "teams"("id");
 
 -- Make user_id nullable so team-level tokens (team_id set, user_id NULL) can be stored

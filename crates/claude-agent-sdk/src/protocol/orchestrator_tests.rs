@@ -134,7 +134,7 @@ mod tests {
             "parent_tool_use_id": null
         });
         let sdk_msg = SdkMessage::from_value(assistant_json).unwrap();
-        h.feed(RawStdoutMessage::Sdk(sdk_msg)).await;
+        h.feed(RawStdoutMessage::Sdk(Box::new(sdk_msg))).await;
 
         let msg = h.recv().await;
         assert!(matches!(msg, SdkMessage::Assistant(_)));
@@ -160,7 +160,7 @@ mod tests {
             "permission_denials": []
         });
         let sdk_msg = SdkMessage::from_value(result_json).unwrap();
-        h.feed(RawStdoutMessage::Sdk(sdk_msg)).await;
+        h.feed(RawStdoutMessage::Sdk(Box::new(sdk_msg))).await;
 
         let msg = h.recv().await;
         assert!(matches!(msg, SdkMessage::Result(_)));
@@ -683,7 +683,7 @@ mod tests {
             },
             "parent_tool_use_id": null
         });
-        h.feed(RawStdoutMessage::Sdk(SdkMessage::from_value(json).unwrap()))
+        h.feed(RawStdoutMessage::Sdk(Box::new(SdkMessage::from_value(json).unwrap())))
             .await;
         let _ = h.recv().await;
 

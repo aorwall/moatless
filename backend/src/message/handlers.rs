@@ -24,7 +24,7 @@ use super::schemas::*;
     request_body = SendMessageRequest,
     responses(
         (status = 200, description = "Message sent", body = SendMessageResponse),
-        (status = 404, description = "Task not found", body = crate::sandbox::schemas::ErrorBody)
+        (status = 404, description = "Task not found", body = crate::error::ErrorBody)
     )
 )]
 pub async fn send_message(
@@ -141,7 +141,7 @@ pub async fn send_message(
     ),
     responses(
         (status = 200, description = "List of messages", body = GetMessagesResponse),
-        (status = 404, description = "Task not found", body = crate::sandbox::schemas::ErrorBody)
+        (status = 404, description = "Task not found", body = crate::error::ErrorBody)
     )
 )]
 pub async fn get_messages(
@@ -177,7 +177,7 @@ pub async fn get_messages(
     ),
     responses(
         (status = 200, description = "Pending messages", body = GetPendingMessagesResponse),
-        (status = 404, description = "Task not found", body = crate::sandbox::schemas::ErrorBody)
+        (status = 404, description = "Task not found", body = crate::error::ErrorBody)
     )
 )]
 pub async fn get_pending_messages(
@@ -233,7 +233,7 @@ pub async fn get_pending_messages(
     ),
     responses(
         (status = 200, description = "Message deleted", body = DeleteMessageResponse),
-        (status = 404, description = "Message not found", body = crate::sandbox::schemas::ErrorBody)
+        (status = 404, description = "Message not found", body = crate::error::ErrorBody)
     )
 )]
 pub async fn delete_queued_message(

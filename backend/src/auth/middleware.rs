@@ -21,7 +21,7 @@ use super::identity::AuthIdentity;
 use super::jwt;
 use super::users::UserRepository;
 use crate::config::Config;
-use crate::sandbox::schemas::ErrorBody;
+use crate::error::ErrorBody;
 
 /// Shared state for the auth middleware layer.
 #[derive(Clone)]

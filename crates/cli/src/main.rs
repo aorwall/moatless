@@ -5,6 +5,7 @@ mod auth;
 mod client;
 mod commands;
 mod config;
+pub mod credentials;
 mod output;
 
 use clap::{Parser, Subcommand};
@@ -26,11 +27,13 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Exchange token for session (auto on first use)
+    /// Authenticate with the Moatless API
     Login,
+    /// Remove saved credentials
+    Logout,
     /// Show current user info
     Whoami,
-    /// Show current sandbox context
+    /// Show current context (API URL, auth mode, profile)
     Status,
     /// Task management
     Tasks {
@@ -75,18 +78,40 @@ async fn main() {
 }
 
 async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
-    let cfg = config::Config::from_env()?;
+    let cfg = config::Config::from_env();
     let mut moat = client::MoatClient::new(&cfg, cli.verbose);
 
-    // Ensure we have a session (auto-login)
-    if !matches!(cli.command, Commands::Login) {
-        auth::ensure_session(&mut moat, &cfg).await?;
+    // For commands that require auth (everything except Login, Logout, Status)
+    let needs_auth = !matches!(
+        cli.command,
+        Commands::Login | Commands::Logout | Commands::Status
+    );
+    if needs_auth {
+        auth::ensure_auth(&mut moat, &cfg).await?;
     }
 
     match cli.command {
         Commands::Login => {
-            auth::login(&mut moat, &cfg).await?;
-            println!("Login successful.");
+            if cfg.is_sandbox() {
+                auth::login_sandbox(&mut moat, &cfg).await?;
+                println!("Login successful.");
+            } else {
+                auth::login_browser(&cfg).await?;
+            }
+        }
+        Commands::Logout => {
+            if cfg.is_sandbox() {
+                // In sandbox mode, delete session file
+                let _ = std::fs::remove_file(&cfg.session_file);
+                println!("Session cleared.");
+            } else {
+                let host = cfg.host();
+                match credentials::delete_credential(&host) {
+                    Ok(true) => println!("Logged out from {host}."),
+                    Ok(false) => println!("No credentials found for {host}."),
+                    Err(e) => eprintln!("Error: {e}"),
+                }
+            }
         }
         Commands::Whoami => {
             let resp = moat.get("/api/v1/auth/me").await?;

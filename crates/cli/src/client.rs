@@ -1,10 +1,10 @@
-//! HTTP client wrapper with session cookie auth.
+//! HTTP client wrapper with session cookie / API key auth.
 
-use reqwest::header::{COOKIE, HeaderMap, HeaderValue};
+use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, COOKIE};
 use serde::Serialize;
 use thiserror::Error;
 
-use crate::config::Config;
+use crate::config::{AuthMode, Config};
 
 #[derive(Debug, Error)]
 pub enum ClientError {
@@ -14,15 +14,27 @@ pub enum ClientError {
     Api { status: u16, body: String },
     #[error("Not authenticated — run `moat login`")]
     Unauthorized,
+    #[error("Not logged in — run `moat login` to authenticate")]
+    NotLoggedIn,
 }
 
 pub struct MoatClient {
     http: reqwest::Client,
     base_url: String,
-    session_token: Option<String>,
-    user_auth_token: String,
-    cookie_name: String,
+    auth_mode: ClientAuthMode,
     verbose: bool,
+}
+
+/// Internal auth mode for the client.
+enum ClientAuthMode {
+    /// Standalone: use `Authorization: Bearer mvk_...` on all requests.
+    ApiKey(String),
+    /// Sandbox: use X-User-Token for sandbox routes, session cookie for others.
+    Sandbox {
+        user_auth_token: String,
+        cookie_name: String,
+        session_token: Option<String>,
+    },
 }
 
 impl MoatClient {
@@ -32,38 +44,66 @@ impl MoatClient {
             .build()
             .unwrap_or_default();
 
+        let auth_mode = match &config.auth_mode {
+            AuthMode::Standalone { api_key } => {
+                ClientAuthMode::ApiKey(api_key.clone().unwrap_or_default())
+            }
+            AuthMode::Sandbox {
+                user_auth_token, ..
+            } => ClientAuthMode::Sandbox {
+                user_auth_token: user_auth_token.clone(),
+                cookie_name: config.cookie_name.clone(),
+                session_token: None,
+            },
+        };
+
         Self {
             http,
-            base_url: config.backend_api_url.trim_end_matches('/').to_string(),
-            session_token: None,
-            user_auth_token: config.user_auth_token.clone(),
-            cookie_name: config.cookie_name.clone(),
+            base_url: config.api_url.trim_end_matches('/').to_string(),
+            auth_mode,
             verbose,
         }
     }
 
     pub fn set_session_token(&mut self, token: String) {
-        self.session_token = Some(token);
+        if let ClientAuthMode::Sandbox {
+            ref mut session_token,
+            ..
+        } = self.auth_mode
+        {
+            *session_token = Some(token);
+        }
     }
-
-    pub fn user_auth_token(&self) -> &str {
-        &self.user_auth_token
-    }
-
 
     fn build_headers(&self, path: &str) -> HeaderMap {
         let mut headers = HeaderMap::new();
 
-        // Sandbox routes use X-User-Token directly
-        if path.starts_with("/api/sandbox/") {
-            if let Ok(v) = HeaderValue::from_str(&self.user_auth_token) {
-                headers.insert("X-User-Token", v);
+        match &self.auth_mode {
+            ClientAuthMode::ApiKey(key) => {
+                if !key.is_empty() {
+                    let bearer = format!("Bearer {key}");
+                    if let Ok(v) = HeaderValue::from_str(&bearer) {
+                        headers.insert(AUTHORIZATION, v);
+                    }
+                }
             }
-        } else if let Some(ref token) = self.session_token {
-            // Regular API routes use session cookie
-            let cookie = format!("{}={}", self.cookie_name, token);
-            if let Ok(v) = HeaderValue::from_str(&cookie) {
-                headers.insert(COOKIE, v);
+            ClientAuthMode::Sandbox {
+                user_auth_token,
+                cookie_name,
+                session_token,
+            } => {
+                // Sandbox routes use X-User-Token directly
+                if path.starts_with("/api/sandbox/") {
+                    if let Ok(v) = HeaderValue::from_str(user_auth_token) {
+                        headers.insert("X-User-Token", v);
+                    }
+                } else if let Some(ref token) = session_token {
+                    // Regular API routes use session cookie
+                    let cookie = format!("{cookie_name}={token}");
+                    if let Ok(v) = HeaderValue::from_str(&cookie) {
+                        headers.insert(COOKIE, v);
+                    }
+                }
             }
         }
 
@@ -75,7 +115,12 @@ impl MoatClient {
         if self.verbose {
             eprintln!("GET {url}");
         }
-        let resp = self.http.get(&url).headers(self.build_headers(path)).send().await?;
+        let resp = self
+            .http
+            .get(&url)
+            .headers(self.build_headers(path))
+            .send()
+            .await?;
         self.handle_response(resp).await
     }
 

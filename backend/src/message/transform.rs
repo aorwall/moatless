@@ -26,6 +26,27 @@ pub fn transform_to_ui(
         map
     };
 
+    // Build tool_use_result_map: tool_use_id from parent → tool_use_result JSON
+    let tool_use_result_map: HashMap<String, &serde_json::Value> = messages
+        .iter()
+        .filter(|m| m.message_type == MessageType::System && m.tool_use_result.is_some())
+        .filter_map(|m| {
+            // Find the tool_use_id this result corresponds to (from tool_result content blocks)
+            if let Some(content) = m.message_content.as_array() {
+                for block in content {
+                    if block.get("type").and_then(|v| v.as_str()) == Some("tool_result") {
+                        if let Some(tool_use_id) = block.get("tool_use_id").and_then(|v| v.as_str()) {
+                            if let Some(ref tur) = m.tool_use_result {
+                                return Some((tool_use_id.to_string(), tur));
+                            }
+                        }
+                    }
+                }
+            }
+            None
+        })
+        .collect();
+
     // Build tool_results_map: tool_use_id → tool_result message
     let tool_results_map: HashMap<String, &TaskMessage> = messages
         .iter()
@@ -54,7 +75,7 @@ pub fn transform_to_ui(
 
         match msg.message_type {
             MessageType::Assistant => {
-                let ui_msg = transform_assistant(msg, &msg_blocks, &tool_results_map, is_last, messages);
+                let ui_msg = transform_assistant(msg, &msg_blocks, &tool_results_map, &tool_use_result_map, is_last, messages);
                 ui_messages.push(ui_msg);
             }
             MessageType::User => {
@@ -85,6 +106,7 @@ fn transform_assistant(
     msg: &TaskMessage,
     blocks: &[&TaskMessageContentBlock],
     tool_results_map: &HashMap<String, &TaskMessage>,
+    tool_use_result_map: &HashMap<String, &serde_json::Value>,
     is_last: bool,
     all_messages: &[TaskMessage],
 ) -> UiMessage {
@@ -104,6 +126,7 @@ fn transform_assistant(
                                         tool_use_id: tool_use_id.to_string(),
                                         content: rb.get("content").and_then(|v| v.as_str()).map(std::string::ToString::to_string),
                                         is_error: rb.get("is_error").and_then(serde_json::Value::as_bool),
+                                        typed_result: tool_use_result_map.get(tool_use_id).copied().cloned(),
                                     });
                                 }
                             }
@@ -138,6 +161,7 @@ fn transform_assistant(
             message_id: msg.assistant_message_id.clone(),
             model: msg.assistant_message_model.clone(),
             stop_reason: msg.assistant_stop_reason.clone(),
+            stop_sequence: msg.assistant_stop_sequence.clone(),
             usage: Some(UiUsage {
                 input_tokens: msg.assistant_usage_input_tokens,
                 output_tokens: msg.assistant_usage_output_tokens,
@@ -146,6 +170,7 @@ fn transform_assistant(
             }),
         }),
         result: None,
+        sdk_metadata: msg.sdk_metadata.clone(),
     }
 }
 
@@ -188,6 +213,7 @@ fn transform_user(msg: &TaskMessage, blocks: &[&TaskMessageContentBlock]) -> UiM
         has_pending_user_input: None,
         assistant: None,
         result: None,
+        sdk_metadata: msg.sdk_metadata.clone(),
     }
 }
 
@@ -227,6 +253,7 @@ fn transform_result(msg: &TaskMessage, blocks: &[&TaskMessageContentBlock]) -> U
             will_not_resume: msg.will_not_resume,
             run_metrics: msg.run_metrics.clone(),
         }),
+        sdk_metadata: msg.sdk_metadata.clone(),
     }
 }
 

@@ -2,9 +2,8 @@
 
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::Json;
 
-use crate::sandbox::schemas::ErrorBody;
+use crate::error::error_response;
 
 #[derive(Debug, thiserror::Error)]
 pub enum TeamError {
@@ -22,13 +21,16 @@ pub enum TeamError {
 
 impl IntoResponse for TeamError {
     fn into_response(self) -> Response {
-        let (status, msg) = match &self {
+        let (status, message) = match &self {
             Self::NotFound(m) => (StatusCode::NOT_FOUND, m.clone()),
             Self::Conflict(m) => (StatusCode::CONFLICT, m.clone()),
             Self::BadRequest(m) => (StatusCode::BAD_REQUEST, m.clone()),
             Self::Forbidden(m) => (StatusCode::FORBIDDEN, m.clone()),
-            Self::Db(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+            Self::Db(e) => {
+                tracing::error!(error = %e, "Database error in team handler");
+                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
+            }
         };
-        (status, Json(ErrorBody { error: msg })).into_response()
+        error_response(status, message)
     }
 }

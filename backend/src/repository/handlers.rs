@@ -31,7 +31,7 @@ fn to_json<T: serde::Serialize>(val: T) -> Result<serde_json::Value, RepositoryE
     request_body = CreateRepositoryRequest,
     responses(
         (status = 201, description = "Repository created", body = RepositoryResponse),
-        (status = 409, description = "Repository already exists", body = crate::sandbox::schemas::ErrorBody)
+        (status = 409, description = "Repository already exists", body = crate::error::ErrorBody)
     )
 )]
 pub async fn create_repository(
@@ -176,7 +176,7 @@ pub async fn list_repositories(
     ),
     responses(
         (status = 200, description = "Repository details", body = RepositoryResponse),
-        (status = 404, description = "Repository not found", body = crate::sandbox::schemas::ErrorBody)
+        (status = 404, description = "Repository not found", body = crate::error::ErrorBody)
     )
 )]
 pub async fn get_repository(
@@ -202,7 +202,7 @@ pub async fn get_repository(
     request_body = UpdateRepositoryRequest,
     responses(
         (status = 200, description = "Repository updated", body = RepositoryResponse),
-        (status = 404, description = "Repository not found", body = crate::sandbox::schemas::ErrorBody)
+        (status = 404, description = "Repository not found", body = crate::error::ErrorBody)
     )
 )]
 pub async fn update_repository(
@@ -257,7 +257,7 @@ pub async fn update_repository(
     ),
     responses(
         (status = 204, description = "Repository deleted"),
-        (status = 404, description = "Repository not found", body = crate::sandbox::schemas::ErrorBody)
+        (status = 404, description = "Repository not found", body = crate::error::ErrorBody)
     )
 )]
 pub async fn delete_repository(
@@ -285,8 +285,8 @@ pub async fn delete_repository(
     ),
     responses(
         (status = 200, description = "Repository converted to template", body = RepositoryResponse),
-        (status = 400, description = "Cannot convert", body = crate::sandbox::schemas::ErrorBody),
-        (status = 404, description = "Repository not found", body = crate::sandbox::schemas::ErrorBody)
+        (status = 400, description = "Cannot convert", body = crate::error::ErrorBody),
+        (status = 404, description = "Repository not found", body = crate::error::ErrorBody)
     )
 )]
 pub async fn convert_to_template(
@@ -329,8 +329,8 @@ pub async fn convert_to_template(
     ),
     responses(
         (status = 200, description = "Branch list", body = BranchListResponse),
-        (status = 400, description = "Bad request", body = crate::sandbox::schemas::ErrorBody),
-        (status = 404, description = "Repository not found", body = crate::sandbox::schemas::ErrorBody)
+        (status = 400, description = "Bad request", body = crate::error::ErrorBody),
+        (status = 404, description = "Repository not found", body = crate::error::ErrorBody)
     )
 )]
 pub async fn get_branches(
@@ -767,8 +767,8 @@ async fn fetch_gitness_branches(
     ),
     responses(
         (status = 200, description = "Config synced", body = RepositoryResponse),
-        (status = 400, description = "Bad request", body = crate::sandbox::schemas::ErrorBody),
-        (status = 404, description = "Repository not found", body = crate::sandbox::schemas::ErrorBody)
+        (status = 400, description = "Bad request", body = crate::error::ErrorBody),
+        (status = 404, description = "Repository not found", body = crate::error::ErrorBody)
     )
 )]
 pub async fn sync_config(

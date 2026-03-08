@@ -86,6 +86,35 @@ pub struct ApprovePairingRequest {
     pub code: String,
 }
 
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PairingRequestResponse {
+    pub id: i32,
+    pub config_id: String,
+    pub provider_user_id: String,
+    pub code: String,
+    pub status: String,
+    #[schema(value_type = Option<Object>)]
+    pub meta: Option<serde_json::Value>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+impl PairingRequestResponse {
+    pub fn from_model(r: &super::telegram::pairing::PairingRequest) -> Self {
+        Self {
+            id: r.id,
+            config_id: r.config_id.clone(),
+            provider_user_id: r.provider_user_id.clone(),
+            code: r.code.clone(),
+            status: r.status.clone(),
+            meta: r.meta.clone(),
+            created_at: r.created_at.to_rfc3339(),
+            updated_at: r.updated_at.to_rfc3339(),
+        }
+    }
+}
+
 impl ChannelConfigResponse {
     pub fn from_model(row: &super::models::ChannelConfig) -> Self {
         let provider = ChannelType::parse(&row.provider)

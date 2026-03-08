@@ -18,7 +18,7 @@ use super::schemas::*;
     tag = "provider-settings",
     responses(
         (status = 200, description = "GitHub config", body = GitHubConfigResponse),
-        (status = 401, description = "Not authenticated", body = crate::sandbox::schemas::ErrorBody)
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorBody)
     )
 )]
 pub async fn get_github_config(
@@ -59,7 +59,7 @@ pub async fn get_github_config(
     request_body = SavePatRequest,
     responses(
         (status = 200, description = "PAT saved", body = GitHubConfigResponse),
-        (status = 400, description = "Invalid token", body = crate::sandbox::schemas::ErrorBody)
+        (status = 400, description = "Invalid token", body = crate::error::ErrorBody)
     )
 )]
 pub async fn save_github_pat(
@@ -98,7 +98,7 @@ pub async fn save_github_pat(
     tag = "provider-settings",
     responses(
         (status = 200, description = "OAuth URL", body = OAuthUrlResponse),
-        (status = 400, description = "GitHub OAuth not configured", body = crate::sandbox::schemas::ErrorBody)
+        (status = 400, description = "GitHub OAuth not configured", body = crate::error::ErrorBody)
     )
 )]
 pub async fn get_github_oauth_url(
@@ -144,7 +144,7 @@ pub async fn get_github_oauth_url(
     request_body = ExchangeTokenRequest,
     responses(
         (status = 200, description = "Token exchanged", body = ExchangeTokenResponse),
-        (status = 400, description = "Exchange failed", body = crate::sandbox::schemas::ErrorBody)
+        (status = 400, description = "Exchange failed", body = crate::error::ErrorBody)
     )
 )]
 pub async fn exchange_github_token(
@@ -203,7 +203,7 @@ pub async fn exchange_github_token(
     tag = "provider-settings",
     responses(
         (status = 200, description = "GitHub disconnected", body = GitHubConfigResponse),
-        (status = 401, description = "Not authenticated", body = crate::sandbox::schemas::ErrorBody)
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorBody)
     )
 )]
 pub async fn delete_github_config(
@@ -230,7 +230,7 @@ pub async fn delete_github_config(
     tag = "provider-settings",
     responses(
         (status = 200, description = "Gitness config", body = GitnessConfigResponse),
-        (status = 401, description = "Not authenticated", body = crate::sandbox::schemas::ErrorBody)
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorBody)
     )
 )]
 pub async fn get_gitness_config(
@@ -278,7 +278,7 @@ pub async fn get_gitness_config(
     request_body = SaveGitnessPATRequest,
     responses(
         (status = 200, description = "PAT saved", body = GitnessConfigResponse),
-        (status = 400, description = "Invalid token", body = crate::sandbox::schemas::ErrorBody)
+        (status = 400, description = "Invalid token", body = crate::error::ErrorBody)
     )
 )]
 pub async fn save_gitness_pat(
@@ -320,7 +320,7 @@ pub async fn save_gitness_pat(
     tag = "provider-settings",
     responses(
         (status = 200, description = "Gitness disconnected", body = GitnessConfigResponse),
-        (status = 401, description = "Not authenticated", body = crate::sandbox::schemas::ErrorBody)
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorBody)
     )
 )]
 pub async fn delete_gitness_config(

@@ -104,6 +104,7 @@ impl Orchestrator {
 
             match msg {
                 RawStdoutMessage::Sdk(sdk_msg) => {
+                    let sdk_msg = *sdk_msg;
                     let is_result = matches!(&sdk_msg, SdkMessage::Result(_));
                     if message_tx.send(Ok(sdk_msg)).await.is_err() {
                         warn!("Consumer dropped — orchestrator exiting");

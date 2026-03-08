@@ -16,6 +16,7 @@ pub mod channel;
 pub mod command;
 pub mod config;
 pub mod db;
+pub mod error;
 pub mod event_handler;
 pub mod events;
 pub mod extractors;

@@ -2,7 +2,8 @@
 
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::Json;
+
+use crate::error::error_response;
 
 /// Errors that can occur during sandbox lifecycle operations.
 #[derive(Debug, thiserror::Error)]
@@ -58,7 +59,7 @@ impl IntoResponse for SandboxError {
                 (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
             }
         };
-        (status, Json(serde_json::json!({"error": message}))).into_response()
+        error_response(status, message)
     }
 }
 

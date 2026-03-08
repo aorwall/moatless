@@ -280,6 +280,27 @@ pub async fn telegram_webhook(
 // Telegram pairing endpoints
 // =========================================================================
 
+/// List all pending pairing requests across all channels owned by the
+/// authenticated user. Unlike `list_pairing_requests`, this does not require
+/// a specific `config_id`.
+#[utoipa::path(
+    get,
+    path = "/api/v1/channels/pairing/my-requests",
+    tag = "channels",
+    responses(
+        (status = 200, description = "Pending pairing requests", body = Vec<PairingRequestResponse>)
+    )
+)]
+pub async fn list_my_pairing_requests(
+    State(state): State<AppState>,
+    auth: AuthUser,
+) -> Result<Json<Vec<PairingRequestResponse>>, ChannelError> {
+    let requests =
+        super::telegram::pairing::list_pending_for_user(&state.db, &auth.user_id).await?;
+    let items = requests.iter().map(PairingRequestResponse::from_model).collect();
+    Ok(Json(items))
+}
+
 /// List pending pairing requests for a Telegram channel config.
 #[utoipa::path(
     get,
@@ -467,7 +488,7 @@ pub async fn webhook_inbound(
     tag = "channels",
     responses(
         (status = 200, description = "Available Slack channels", body = Vec<SlackChannelInfoResponse>),
-        (status = 400, description = "Slack not configured", body = crate::sandbox::schemas::ErrorBody)
+        (status = 400, description = "Slack not configured", body = crate::error::ErrorBody)
     )
 )]
 pub async fn list_slack_channels(
@@ -513,8 +534,8 @@ pub async fn list_slack_channels(
     request_body = CreateChannelConfigRequest,
     responses(
         (status = 200, description = "Config created", body = ChannelConfigResponse),
-        (status = 400, description = "Invalid request", body = crate::sandbox::schemas::ErrorBody),
-        (status = 404, description = "Repository not found", body = crate::sandbox::schemas::ErrorBody)
+        (status = 400, description = "Invalid request", body = crate::error::ErrorBody),
+        (status = 404, description = "Repository not found", body = crate::error::ErrorBody)
     )
 )]
 pub async fn create_config(
@@ -614,7 +635,7 @@ pub async fn list_configs(
     ),
     responses(
         (status = 200, description = "Config details", body = ChannelConfigResponse),
-        (status = 404, description = "Not found", body = crate::sandbox::schemas::ErrorBody)
+        (status = 404, description = "Not found", body = crate::error::ErrorBody)
     )
 )]
 pub async fn get_config(
@@ -642,7 +663,7 @@ pub async fn get_config(
     request_body = UpdateChannelConfigRequest,
     responses(
         (status = 200, description = "Config updated", body = ChannelConfigResponse),
-        (status = 404, description = "Not found", body = crate::sandbox::schemas::ErrorBody)
+        (status = 404, description = "Not found", body = crate::error::ErrorBody)
     )
 )]
 pub async fn update_config(
@@ -688,7 +709,7 @@ pub async fn update_config(
     ),
     responses(
         (status = 204, description = "Config deleted"),
-        (status = 404, description = "Not found", body = crate::sandbox::schemas::ErrorBody)
+        (status = 404, description = "Not found", body = crate::error::ErrorBody)
     )
 )]
 pub async fn delete_config(

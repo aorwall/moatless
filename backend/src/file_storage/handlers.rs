@@ -23,8 +23,8 @@ use super::schemas::UploadResponse;
     request_body(content_type = "multipart/form-data", content = super::schemas::UploadFileBody),
     responses(
         (status = 200, description = "File uploaded successfully", body = UploadResponse),
-        (status = 400, description = "Bad request", body = crate::sandbox::schemas::ErrorBody),
-        (status = 500, description = "Internal error", body = crate::sandbox::schemas::ErrorBody)
+        (status = 400, description = "Bad request", body = crate::error::ErrorBody),
+        (status = 500, description = "Internal error", body = crate::error::ErrorBody)
     )
 )]
 pub async fn upload_file(
@@ -109,7 +109,7 @@ pub async fn upload_file(
     ),
     responses(
         (status = 200, description = "File content", content_type = "application/octet-stream"),
-        (status = 404, description = "File not found", body = crate::sandbox::schemas::ErrorBody)
+        (status = 404, description = "File not found", body = crate::error::ErrorBody)
     )
 )]
 pub async fn download_file(

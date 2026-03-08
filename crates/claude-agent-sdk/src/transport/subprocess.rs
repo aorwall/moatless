@@ -536,7 +536,7 @@ fn log_exit_status(status: std::process::ExitStatus, stderr_lines: &[String]) {
 /// Log a parsed stdout message at the appropriate level with human-readable formatting.
 fn log_stdout_message(msg: &RawStdoutMessage) {
     match msg {
-        RawStdoutMessage::Sdk(sdk_msg) => match sdk_msg {
+        RawStdoutMessage::Sdk(sdk_msg) => match sdk_msg.as_ref() {
             SdkMessage::Assistant(m) => {
                 let uuid_short = short_id(&m.uuid);
                 let blocks = format_content_blocks(&m.message.content);
@@ -762,6 +762,9 @@ fn format_content_blocks(blocks: &[ContentBlock]) -> String {
                     out.push_str(&indent(&truncate(&content_str, 500), "    "));
                     out.push('\n');
                 }
+            }
+            ContentBlock::RedactedThinking { .. } => {
+                let _ = writeln!(out, "  RedactedThinking: (redacted)");
             }
         }
     }

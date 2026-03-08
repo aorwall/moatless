@@ -1,6 +1,6 @@
 //! Info commands: whoami, status.
 
-use crate::config::Config;
+use crate::config::{AuthMode, Config};
 
 pub fn format_whoami(resp: &serde_json::Value) {
     if let Some(user) = resp.get("user") {
@@ -27,11 +27,30 @@ pub fn format_whoami(resp: &serde_json::Value) {
 }
 
 pub fn print_status(config: &Config) {
-    println!("Backend: {}", config.backend_api_url);
-    if let Some(ref task_id) = config.task_id {
-        println!("Task:    {task_id}");
-    } else {
-        println!("Task:    (not in sandbox)");
+    println!("API URL: {}", config.api_url);
+
+    match &config.auth_mode {
+        AuthMode::Sandbox { task_id, .. } => {
+            println!("Mode:    sandbox");
+            if let Some(ref tid) = task_id {
+                println!("Task:    {tid}");
+            }
+            println!("Session: {}", config.session_file);
+        }
+        AuthMode::Standalone { api_key } => {
+            println!("Mode:    standalone");
+            let host = config.host();
+            println!("Profile: {host}");
+            if api_key.is_some() {
+                let creds = crate::credentials::load_credentials();
+                if let Some(profile) = creds.profiles.get(&host) {
+                    println!("User:    {}", profile.user_login);
+                } else {
+                    println!("Auth:    API key set");
+                }
+            } else {
+                println!("Auth:    not logged in (run `moat login`)");
+            }
+        }
     }
-    println!("Session: {}", config.session_file);
 }

@@ -295,6 +295,7 @@ pub fn make_message_row(task_id: &str, uuid: &str) -> TaskMessage {
         assistant_usage_cache_creation_input_tokens: None,
         assistant_usage_cache_read_input_tokens: None,
         tool_use_result: None,
+        sdk_metadata: None,
         attachments: None,
         agent_session_id: None,
         will_not_resume: None,

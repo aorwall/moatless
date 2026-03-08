@@ -427,7 +427,40 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
         _ => None,
     };
 
-    // 4. Build TaskMessage
+    // 4. Extract API message fields and build sdk_metadata
+    let api_message = event.payload.get("message");
+
+    let (assistant_message_id, assistant_message_model, assistant_stop_reason, assistant_stop_sequence) =
+        if message_type == MessageType::Assistant {
+            (
+                api_message.and_then(|m| m.get("id")).and_then(|v| v.as_str()).map(ToString::to_string),
+                api_message.and_then(|m| m.get("model")).and_then(|v| v.as_str()).map(ToString::to_string),
+                api_message.and_then(|m| m.get("stop_reason")).and_then(|v| v.as_str()).map(ToString::to_string),
+                api_message.and_then(|m| m.get("stop_sequence")).and_then(|v| v.as_str()).map(ToString::to_string),
+            )
+        } else {
+            (None, None, None, None)
+        };
+
+    let sdk_metadata = if message_type == MessageType::Assistant {
+        build_sdk_metadata(&event.payload, &["isApiErrorMessage", "apiError", "requestId"])
+    } else {
+        build_sdk_metadata(&event.payload, &[
+            "isMeta", "isCompactSummary", "isVisibleInTranscriptOnly",
+            "planContent", "thinkingMetadata", "todos", "summarizeMetadata",
+            "sourceToolAssistantUUID", "sourceToolUseID", "permissionMode",
+        ])
+    };
+
+    let tool_use_result = if message_type == MessageType::Assistant {
+        None
+    } else {
+        event.payload.get("toolUseResult")
+            .or_else(|| event.payload.get("tool_use_result"))
+            .cloned()
+    };
+
+    // 5. Build TaskMessage
     let msg_row = TaskMessage {
         id: 0,
         task_id: event.task_id.clone(),
@@ -445,11 +478,11 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
         timestamp: event.timestamp.clone(),
         message_role,
         message_content: content.clone(),
-        assistant_message_id: None,
+        assistant_message_id,
         assistant_message_type: None,
-        assistant_message_model: None,
-        assistant_stop_reason: None,
-        assistant_stop_sequence: None,
+        assistant_message_model,
+        assistant_stop_reason,
+        assistant_stop_sequence,
         assistant_usage_input_tokens: usage
             .and_then(|u| u.get("input_tokens"))
             .and_then(serde_json::Value::as_i64)
@@ -466,7 +499,8 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
             .and_then(|u| u.get("cache_read_input_tokens"))
             .and_then(serde_json::Value::as_i64)
             .map(|v| v as i32),
-        tool_use_result: None,
+        tool_use_result,
+        sdk_metadata,
         attachments: None,
         agent_session_id: None,
         will_not_resume: None,
@@ -478,11 +512,11 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
         created_at: None,
     };
 
-    // 5. Build content blocks from the content array
+    // 6. Build content blocks from the content array
     let blocks = build_content_blocks_from_payload(&content);
     let contexts: Vec<TaskMessageContext> = vec![];
 
-    // 6. Persist message
+    // 7. Persist message
     match state.messages.append(&msg_row, &contexts, &blocks).await {
         Ok(_) => {
             tracing::info!(
@@ -502,7 +536,7 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
         }
     }
 
-    // 7. Skill tagging (only for assistant messages)
+    // 8. Skill tagging (only for assistant messages)
     if message_type == MessageType::Assistant {
         let skill_names = extract_skill_names(&event.payload);
         if skill_names.is_empty() {
@@ -678,6 +712,7 @@ fn build_result_message_row(
         assistant_usage_cache_creation_input_tokens: None,
         assistant_usage_cache_read_input_tokens: None,
         tool_use_result: None,
+        sdk_metadata: None,
         attachments: None,
         agent_session_id: session_id,
         will_not_resume: Some(will_not_resume),
@@ -688,6 +723,20 @@ fn build_result_message_row(
         sent_at: None,
         created_at: None,
     }
+}
+
+/// Build sdk_metadata JSON object from selected keys in a payload.
+/// Returns `None` if no keys matched or all were null.
+fn build_sdk_metadata(payload: &serde_json::Value, keys: &[&str]) -> Option<serde_json::Value> {
+    let mut meta = serde_json::Map::new();
+    for key in keys {
+        if let Some(v) = payload.get(*key) {
+            if !v.is_null() {
+                meta.insert((*key).to_string(), v.clone());
+            }
+        }
+    }
+    if meta.is_empty() { None } else { Some(serde_json::Value::Object(meta)) }
 }
 
 /// Extract skill names from tool_use blocks in agent message payload.

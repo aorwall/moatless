@@ -2,7 +2,8 @@
 
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::Json;
+
+use crate::error::error_response;
 
 #[derive(Debug, thiserror::Error)]
 pub enum MessageError {
@@ -38,6 +39,6 @@ impl IntoResponse for MessageError {
             }
         };
 
-        (status, Json(serde_json::json!({ "error": message }))).into_response()
+        error_response(status, message)
     }
 }

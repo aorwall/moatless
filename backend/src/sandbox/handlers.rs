@@ -29,7 +29,7 @@ use super::schemas::*;
     ),
     responses(
         (status = 200, description = "Sandbox provisioned successfully", body = ProvisionResponse),
-        (status = 500, description = "Provisioning failed", body = ErrorBody)
+        (status = 500, description = "Provisioning failed", body = crate::error::ErrorBody)
     )
 )]
 pub async fn provision_handler(
@@ -67,8 +67,8 @@ pub async fn provision_handler(
     ),
     responses(
         (status = 200, description = "Full sandbox status", body = SandboxStatusFullResponse),
-        (status = 503, description = "Sandbox not ready", body = ErrorBody),
-        (status = 500, description = "Internal error", body = ErrorBody)
+        (status = 503, description = "Sandbox not ready", body = crate::error::ErrorBody),
+        (status = 500, description = "Internal error", body = crate::error::ErrorBody)
     )
 )]
 pub async fn sandbox_status_handler(
@@ -109,7 +109,7 @@ pub async fn sandbox_status_handler(
     ),
     responses(
         (status = 204, description = "Sandbox stopped"),
-        (status = 500, description = "Stop failed", body = ErrorBody)
+        (status = 500, description = "Stop failed", body = crate::error::ErrorBody)
     )
 )]
 pub async fn stop_handler(
@@ -139,7 +139,7 @@ pub async fn stop_handler(
     ),
     responses(
         (status = 204, description = "Sandbox restarted"),
-        (status = 500, description = "Restart failed", body = ErrorBody)
+        (status = 500, description = "Restart failed", body = crate::error::ErrorBody)
     )
 )]
 pub async fn restart_handler(
@@ -169,7 +169,7 @@ pub async fn restart_handler(
     ),
     responses(
         (status = 204, description = "Sandbox cleaned up"),
-        (status = 500, description = "Cleanup failed", body = ErrorBody)
+        (status = 500, description = "Cleanup failed", body = crate::error::ErrorBody)
     )
 )]
 pub async fn cleanup_handler(
@@ -203,7 +203,7 @@ pub async fn cleanup_handler(
     ),
     responses(
         (status = 200, description = "Server status", body = ServerStatusResponse),
-        (status = 500, description = "Internal error", body = ErrorBody)
+        (status = 500, description = "Internal error", body = crate::error::ErrorBody)
     )
 )]
 pub async fn server_status_handler(
@@ -241,7 +241,7 @@ pub async fn server_status_handler(
     ),
     responses(
         (status = 200, description = "SSE stream of server log lines"),
-        (status = 500, description = "Internal error", body = ErrorBody)
+        (status = 500, description = "Internal error", body = crate::error::ErrorBody)
     )
 )]
 pub async fn server_logs_handler(

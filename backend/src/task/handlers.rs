@@ -25,7 +25,7 @@ use super::schemas::*;
     request_body = CreateTaskRequest,
     responses(
         (status = 200, description = "Task created", body = CreateTaskResponse),
-        (status = 404, description = "Repository not found", body = crate::sandbox::schemas::ErrorBody)
+        (status = 404, description = "Repository not found", body = crate::error::ErrorBody)
     )
 )]
 pub async fn create_task(
@@ -282,7 +282,7 @@ pub async fn list_tasks(
     ),
     responses(
         (status = 200, description = "Task details", body = TaskResponse),
-        (status = 404, description = "Task not found", body = crate::sandbox::schemas::ErrorBody)
+        (status = 404, description = "Task not found", body = crate::error::ErrorBody)
     )
 )]
 pub async fn get_task(
@@ -309,7 +309,7 @@ pub async fn get_task(
     request_body = UpdateTaskMetadataRequest,
     responses(
         (status = 200, description = "Task updated", body = TaskResponse),
-        (status = 404, description = "Task not found", body = crate::sandbox::schemas::ErrorBody)
+        (status = 404, description = "Task not found", body = crate::error::ErrorBody)
     )
 )]
 pub async fn update_task_metadata(
@@ -355,7 +355,7 @@ pub async fn update_task_metadata(
     ),
     responses(
         (status = 204, description = "Task deleted"),
-        (status = 404, description = "Task not found", body = crate::sandbox::schemas::ErrorBody)
+        (status = 404, description = "Task not found", body = crate::error::ErrorBody)
     )
 )]
 pub async fn delete_task(
@@ -388,7 +388,7 @@ pub async fn delete_task(
     ),
     responses(
         (status = 200, description = "Task closed", body = TaskResponse),
-        (status = 404, description = "Task not found", body = crate::sandbox::schemas::ErrorBody)
+        (status = 404, description = "Task not found", body = crate::error::ErrorBody)
     )
 )]
 pub async fn close_task(
@@ -444,8 +444,8 @@ pub async fn close_task(
     ),
     responses(
         (status = 204, description = "Task started"),
-        (status = 400, description = "Invalid task state", body = crate::sandbox::schemas::ErrorBody),
-        (status = 404, description = "Task not found", body = crate::sandbox::schemas::ErrorBody)
+        (status = 400, description = "Invalid task state", body = crate::error::ErrorBody),
+        (status = 404, description = "Task not found", body = crate::error::ErrorBody)
     )
 )]
 pub async fn start_task(
@@ -492,7 +492,7 @@ pub async fn start_task(
     ),
     responses(
         (status = 204, description = "Agent stopped"),
-        (status = 404, description = "Task not found", body = crate::sandbox::schemas::ErrorBody)
+        (status = 404, description = "Task not found", body = crate::error::ErrorBody)
     )
 )]
 pub async fn stop_task(
@@ -553,7 +553,7 @@ pub async fn stop_task(
     request_body = SetTagsRequest,
     responses(
         (status = 200, description = "Tags updated", body = Vec<TagResponse>),
-        (status = 404, description = "Task not found", body = crate::sandbox::schemas::ErrorBody)
+        (status = 404, description = "Task not found", body = crate::error::ErrorBody)
     )
 )]
 pub async fn set_task_tags(
@@ -593,8 +593,8 @@ pub async fn set_task_tags(
     request_body = UpdateVisibilityRequest,
     responses(
         (status = 200, description = "Visibility updated", body = TaskResponse),
-        (status = 400, description = "Invalid visibility value", body = crate::sandbox::schemas::ErrorBody),
-        (status = 404, description = "Task not found", body = crate::sandbox::schemas::ErrorBody)
+        (status = 400, description = "Invalid visibility value", body = crate::error::ErrorBody),
+        (status = 404, description = "Task not found", body = crate::error::ErrorBody)
     )
 )]
 pub async fn update_visibility(

@@ -3,13 +3,19 @@ import {
   type ChannelConfigResponse,
   type CreateChannelConfigRequest,
   channelsApi,
+  type PairingRequestResponse,
   type SlackChannelInfo,
   type UpdateChannelConfigRequest,
 } from '@/features/settings/api/channels.api'
 import { queryKeys } from '@/lib/api/query-keys'
 
 // Re-export types for consumers
-export type { ChannelConfigResponse, CreateChannelConfigRequest, SlackChannelInfo }
+export type {
+  ChannelConfigResponse,
+  CreateChannelConfigRequest,
+  PairingRequestResponse,
+  SlackChannelInfo,
+}
 
 /**
  * List configured channel providers (e.g. ['slack', 'telegram']).
@@ -82,6 +88,32 @@ export function useDeleteChannelConfig() {
     mutationFn: (id: string) => channelsApi.deleteConfig(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.channels.configs() })
+    },
+  })
+}
+
+/**
+ * List all pending pairing requests across the user's channels.
+ * Polls every 30s.
+ */
+export function useMyPairingRequests() {
+  return useQuery({
+    queryKey: queryKeys.channels.pairingRequests(),
+    queryFn: () => channelsApi.listMyPairingRequests(),
+    refetchInterval: 30_000,
+  })
+}
+
+/**
+ * Approve a pairing request by config ID + code.
+ */
+export function useApprovePairing() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ configId, code }: { configId: string; code: string }) =>
+      channelsApi.approvePairing(configId, code),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.channels.pairingRequests() })
     },
   })
 }

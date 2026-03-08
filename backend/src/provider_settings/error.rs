@@ -4,19 +4,28 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use tracing::error;
 
-#[derive(Debug)]
+use crate::error::error_response;
+
+#[derive(Debug, thiserror::Error)]
 pub enum ProviderSettingsError {
+    #[error("Not found: {0}")]
     NotFound(String),
+
+    #[error("Bad request: {0}")]
     BadRequest(String),
-    Db(sqlx::Error),
+
+    #[error("Database error: {0}")]
+    Db(#[from] sqlx::Error),
+
+    #[error("Provider error: {0}")]
     ProviderError(String),
 }
 
 impl IntoResponse for ProviderSettingsError {
     fn into_response(self) -> Response {
-        let (status, msg) = match self {
-            Self::NotFound(m) => (StatusCode::NOT_FOUND, m),
-            Self::BadRequest(m) => (StatusCode::BAD_REQUEST, m),
+        let (status, message) = match &self {
+            Self::NotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
+            Self::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             Self::Db(e) => {
                 error!(error = %e, "Provider settings database error");
                 (
@@ -24,14 +33,8 @@ impl IntoResponse for ProviderSettingsError {
                     "Internal server error".to_string(),
                 )
             }
-            Self::ProviderError(m) => (StatusCode::BAD_GATEWAY, m),
+            Self::ProviderError(_) => (StatusCode::BAD_GATEWAY, self.to_string()),
         };
-        (status, msg).into_response()
-    }
-}
-
-impl From<sqlx::Error> for ProviderSettingsError {
-    fn from(e: sqlx::Error) -> Self {
-        Self::Db(e)
+        error_response(status, message)
     }
 }

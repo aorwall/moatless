@@ -41,6 +41,17 @@ export interface UpdateChannelConfigRequest {
   providerConfig?: Record<string, unknown>
 }
 
+export interface PairingRequestResponse {
+  id: number
+  configId: string
+  providerUserId: string
+  code: string
+  status: string
+  meta: Record<string, unknown> | null
+  createdAt: string
+  updatedAt: string
+}
+
 // ---- API Client ----
 
 const CONFIGS_PATH = '/api/v1/channels/configs'
@@ -74,5 +85,13 @@ export const channelsApi = {
 
   async listProviders(): Promise<string[]> {
     return await apiClient.get<string[]>('/api/v1/channels/providers')
+  },
+
+  async listMyPairingRequests(): Promise<PairingRequestResponse[]> {
+    return await apiClient.get<PairingRequestResponse[]>('/api/v1/channels/pairing/my-requests')
+  },
+
+  async approvePairing(configId: string, code: string): Promise<void> {
+    await apiClient.post('/api/v1/channels/telegram/pairing/approve', { configId, code })
   },
 }

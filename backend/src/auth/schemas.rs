@@ -17,6 +17,12 @@ pub struct OAuthCallbackQuery {
     pub state: Option<String>,
 }
 
+/// Query params for CLI login initiation.
+#[derive(Deserialize)]
+pub struct CliLoginQuery {
+    pub port: u16,
+}
+
 /// Body for PATCH /api/v1/auth/me.
 #[derive(Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]

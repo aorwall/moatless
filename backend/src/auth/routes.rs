@@ -9,6 +9,7 @@ use axum::routing::get;
 use axum::Json;
 use rand::Rng;
 use tracing::{info, warn};
+use urlencoding;
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
@@ -18,7 +19,7 @@ use super::api_keys::ApiKeyRepository;
 use super::users::UserRepository;
 use super::provider_tokens::ProviderTokenAuthRepository;
 use crate::db::DbPool;
-use crate::sandbox::schemas::ErrorBody;
+use crate::error::ErrorBody;
 use crate::scope::ScopeContext;
 
 use super::api_key;
@@ -31,7 +32,7 @@ use super::models::UserRole;
 use super::oauth::provider::OAuthProvider;
 use super::session;
 use super::schemas::{
-    ApiKeyCreateResponse, ApiKeyListItem, CreateApiKeyRequest, MessageResponse,
+    ApiKeyCreateResponse, ApiKeyListItem, CliLoginQuery, CreateApiKeyRequest, MessageResponse,
     OAuthCallbackQuery, SessionResponse, TokenSessionResponse, UpdateUserRequest,
     UserInfo, UserListItem, UserListResponse, format_datetime, format_datetime_opt,
 };
@@ -152,6 +153,7 @@ pub fn auth_router(state: AuthState) -> (axum::Router, utoipa::openapi::OpenApi)
     // Build a separate plain Router for OAuth redirect routes (not in OpenAPI — browser-only flows)
     let oauth_router = axum::Router::new()
         .route("/api/v1/auth/login", get(login_handler))
+        .route("/api/v1/auth/cli/login", get(cli_login_handler))
         .route("/api/v1/auth/github", get(oauth_init_handler))
         .route("/api/v1/auth/github/callback", get(github_callback_handler))
         .route("/api/v1/auth/auth0", get(auth0_init_handler))
@@ -334,16 +336,14 @@ async fn me_handler(
         }));
     }
 
-    let claims = authenticate_from_cookie(&state.config, &headers)?;
+    // Try API key first, fall back to session cookie
+    let identity = authenticate_request(&state, &headers).await?;
 
     // Fetch fresh user data from DB (email/name/avatar may have changed)
-    let user = state.users.get_user(&claims.sub).await?;
+    let user = state.users.get_user(&identity.user_id).await?;
     let Some(user) = user else {
         return Err(AuthError::SessionExpired);
     };
-
-    let role = claims.user_role();
-    let expires_at = chrono::DateTime::from_timestamp(claims.exp as i64, 0);
 
     Ok(Json(SessionResponse {
         user: Some(UserInfo {
@@ -352,10 +352,10 @@ async fn me_handler(
             email: user.email,
             name: user.name,
             avatar_url: user.avatar_url,
-            provider: claims.provider,
-            role,
+            provider: identity.provider,
+            role: identity.role,
         }),
-        expires_at: expires_at.map(format_datetime),
+        expires_at: None,
     }))
 }
 
@@ -421,6 +421,47 @@ async fn login_handler(State(state): State<AuthState>) -> Result<Response, AuthE
         Some(AuthProvider::GitHub) => Ok(Redirect::to("/api/v1/auth/github").into_response()),
         Some(AuthProvider::Auth0) => Ok(Redirect::to("/api/v1/auth/auth0").into_response()),
     }
+}
+
+// ============================================================================
+// GET /api/v1/auth/cli/login — initiate OAuth for CLI login
+// ============================================================================
+
+/// CLI login: initiate OAuth flow with state encoding the CLI callback port.
+///
+/// The CSRF state is encoded as `{random}:cli:{port}` so that `handle_oauth_callback`
+/// can detect the CLI flow and redirect to `http://localhost:{port}/callback`.
+async fn cli_login_handler(
+    State(state): State<AuthState>,
+    axum::extract::Query(query): axum::extract::Query<CliLoginQuery>,
+) -> Result<Response, AuthError> {
+    let provider_id = state
+        .config
+        .auth
+        .provider
+        .ok_or_else(|| AuthError::Config("No OAuth provider configured".to_string()))?;
+
+    let provider = state
+        .providers
+        .get(provider_id)
+        .ok_or_else(|| AuthError::Config(format!("Provider {provider_id} not configured")))?;
+
+    // Encode CLI callback port in the CSRF state
+    let csrf_base = generate_csrf_state();
+    let csrf_state = format!("{csrf_base}:cli:{}", query.port);
+
+    let auth_url = provider
+        .generate_auth_url(&csrf_state)
+        .ok_or_else(|| AuthError::Config("Failed to generate OAuth URL".to_string()))?;
+
+    let state_cookie = cookie::build_oauth_state_cookie(&state.config, &csrf_state);
+
+    let mut headers = HeaderMap::new();
+    if let Ok(v) = state_cookie.parse() {
+        headers.insert(header::SET_COOKIE, v);
+    }
+
+    Ok((StatusCode::FOUND, headers, [("Location", auth_url.as_str())]).into_response())
 }
 
 // ============================================================================
@@ -518,7 +559,51 @@ async fn handle_oauth_callback(
     )
     .await?;
 
-    // Build response: set session cookie, clear state cookie, redirect to frontend
+    // Check if this is a CLI login flow (state contains ":cli:{port}")
+    let cli_port = query_state.and_then(|qs| {
+        let parts: Vec<&str> = qs.split(":cli:").collect();
+        if parts.len() == 2 {
+            parts[1].parse::<u16>().ok()
+        } else {
+            None
+        }
+    });
+
+    if let Some(port) = cli_port {
+        // CLI flow: generate API key and redirect to localhost callback
+        let result = api_key::generate_key(
+            state.api_keys.as_ref(),
+            &user_info.id,
+            "moat-cli",
+            None,
+            None,
+            None,
+        )
+        .await?;
+
+        let login_encoded = urlencoding::encode(&user_info.login);
+        let key_encoded = urlencoding::encode(&result.key);
+        let redirect_url = format!(
+            "http://127.0.0.1:{port}/callback?key={key_encoded}&login={login_encoded}"
+        );
+
+        info!(user_login = %user_info.login, "CLI login successful, redirecting to localhost:{}", port);
+
+        let clear_state_cookie = cookie::build_clear_oauth_state_cookie(&state.config);
+        let mut resp_headers = HeaderMap::new();
+        if let Ok(v) = clear_state_cookie.parse() {
+            resp_headers.append(header::SET_COOKIE, v);
+        }
+
+        return Ok((
+            StatusCode::FOUND,
+            resp_headers,
+            [("Location", redirect_url.as_str())],
+        )
+            .into_response());
+    }
+
+    // Normal flow: set session cookie, clear state cookie, redirect to frontend
     let session_cookie =
         cookie::build_session_cookie(&state.config, &jwt_token, state.config.auth.session_max_age_secs);
     let clear_state_cookie = cookie::build_clear_oauth_state_cookie(&state.config);

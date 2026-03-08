@@ -283,7 +283,7 @@ impl RepoRepository for PgRepoRepository {
     }
 
     async fn exists_by_name_including_deleted(&self, name: &str, created_by: &str) -> Result<bool, sqlx::Error> {
-        let row: Option<(i64,)> = sqlx::query_as(
+        let row: Option<(i32,)> = sqlx::query_as(
             "SELECT 1 FROM repositories WHERE name = $1 AND created_by = $2 LIMIT 1"
         )
         .bind(name)

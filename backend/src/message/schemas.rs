@@ -35,6 +35,10 @@ pub struct UiMessage {
     /// Result-specific metadata.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<UiResultMeta>,
+    /// SDK metadata (user flags, assistant extras).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<Object>)]
+    pub sdk_metadata: Option<serde_json::Value>,
 }
 
 /// Content block within a message.
@@ -63,6 +67,10 @@ pub struct UiToolResult {
     pub tool_use_id: String,
     pub content: Option<String>,
     pub is_error: Option<bool>,
+    /// Typed tool result from SDK (e.g., BashToolUseResult, ReadToolUseResult).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<Object>)]
+    pub typed_result: Option<serde_json::Value>,
 }
 
 /// Assistant message metadata.
@@ -72,6 +80,7 @@ pub struct UiAssistantMeta {
     pub message_id: Option<String>,
     pub model: Option<String>,
     pub stop_reason: Option<String>,
+    pub stop_sequence: Option<String>,
     pub usage: Option<UiUsage>,
 }
 

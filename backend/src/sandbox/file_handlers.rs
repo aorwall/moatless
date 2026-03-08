@@ -25,8 +25,8 @@ use super::schemas::*;
     request_body = SearchFilesRequest,
     responses(
         (status = 200, description = "File search results", body = Vec<FileSearchResult>),
-        (status = 503, description = "Sandbox not ready", body = ErrorBody),
-        (status = 500, description = "Internal error", body = ErrorBody)
+        (status = 503, description = "Sandbox not ready", body = crate::error::ErrorBody),
+        (status = 500, description = "Internal error", body = crate::error::ErrorBody)
     )
 )]
 pub async fn search_files_handler(
@@ -93,8 +93,8 @@ pub struct ListFilesQuery {
     ),
     responses(
         (status = 200, description = "File tree with git summary", body = FileTreeResponse),
-        (status = 503, description = "Sandbox not ready", body = ErrorBody),
-        (status = 500, description = "Internal error", body = ErrorBody)
+        (status = 503, description = "Sandbox not ready", body = crate::error::ErrorBody),
+        (status = 500, description = "Internal error", body = crate::error::ErrorBody)
     )
 )]
 pub async fn file_tree_handler(
@@ -122,9 +122,9 @@ pub async fn file_tree_handler(
     ),
     responses(
         (status = 200, description = "File content", body = FileContentResponse),
-        (status = 404, description = "File not found", body = ErrorBody),
-        (status = 503, description = "Sandbox not ready", body = ErrorBody),
-        (status = 500, description = "Internal error", body = ErrorBody)
+        (status = 404, description = "File not found", body = crate::error::ErrorBody),
+        (status = 503, description = "Sandbox not ready", body = crate::error::ErrorBody),
+        (status = 500, description = "Internal error", body = crate::error::ErrorBody)
     )
 )]
 pub async fn read_file_handler(
@@ -152,9 +152,9 @@ pub async fn read_file_handler(
     request_body = WriteFileRequestBody,
     responses(
         (status = 204, description = "File written successfully"),
-        (status = 400, description = "Invalid path", body = ErrorBody),
-        (status = 503, description = "Sandbox not ready", body = ErrorBody),
-        (status = 500, description = "Internal error", body = ErrorBody)
+        (status = 400, description = "Invalid path", body = crate::error::ErrorBody),
+        (status = 503, description = "Sandbox not ready", body = crate::error::ErrorBody),
+        (status = 500, description = "Internal error", body = crate::error::ErrorBody)
     )
 )]
 pub async fn write_file_handler(
@@ -181,8 +181,8 @@ pub async fn write_file_handler(
     ),
     responses(
         (status = 200, description = "File list", body = ListFilesResponse),
-        (status = 503, description = "Sandbox not ready", body = ErrorBody),
-        (status = 500, description = "Internal error", body = ErrorBody)
+        (status = 503, description = "Sandbox not ready", body = crate::error::ErrorBody),
+        (status = 500, description = "Internal error", body = crate::error::ErrorBody)
     )
 )]
 pub async fn list_files_handler(
@@ -211,8 +211,8 @@ pub async fn list_files_handler(
     request_body = SearchByNameRequest,
     responses(
         (status = 200, description = "Search results", body = SearchByNameResponse),
-        (status = 503, description = "Sandbox not ready", body = ErrorBody),
-        (status = 500, description = "Internal error", body = ErrorBody)
+        (status = 503, description = "Sandbox not ready", body = crate::error::ErrorBody),
+        (status = 500, description = "Internal error", body = crate::error::ErrorBody)
     )
 )]
 pub async fn search_by_name_handler(

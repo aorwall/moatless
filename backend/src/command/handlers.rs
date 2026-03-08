@@ -19,7 +19,7 @@ use super::schemas::*;
     request_body = CreateCommandRequest,
     responses(
         (status = 200, description = "Command created", body = CommandResponse),
-        (status = 409, description = "Command already exists", body = crate::sandbox::schemas::ErrorBody)
+        (status = 409, description = "Command already exists", body = crate::error::ErrorBody)
     )
 )]
 pub async fn create_command(
@@ -77,7 +77,7 @@ pub async fn list_commands(
     ),
     responses(
         (status = 200, description = "Command details", body = CommandResponse),
-        (status = 404, description = "Command not found", body = crate::sandbox::schemas::ErrorBody)
+        (status = 404, description = "Command not found", body = crate::error::ErrorBody)
     )
 )]
 pub async fn get_command(
@@ -103,7 +103,7 @@ pub async fn get_command(
     request_body = UpdateCommandRequest,
     responses(
         (status = 200, description = "Command updated", body = CommandResponse),
-        (status = 404, description = "Command not found", body = crate::sandbox::schemas::ErrorBody)
+        (status = 404, description = "Command not found", body = crate::error::ErrorBody)
     )
 )]
 pub async fn update_command(
@@ -146,7 +146,7 @@ pub async fn update_command(
     ),
     responses(
         (status = 204, description = "Command deleted"),
-        (status = 404, description = "Command not found", body = crate::sandbox::schemas::ErrorBody)
+        (status = 404, description = "Command not found", body = crate::error::ErrorBody)
     )
 )]
 pub async fn delete_command(

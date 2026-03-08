@@ -55,7 +55,7 @@ impl MessageRepository for PgMessageRepository {
                     assistant_usage_input_tokens, assistant_usage_output_tokens,
                     assistant_usage_cache_creation_input_tokens,
                     assistant_usage_cache_read_input_tokens,
-                    tool_use_result, attachments, agent_session_id,
+                    tool_use_result, sdk_metadata, attachments, agent_session_id,
                     will_not_resume, run_metrics,
                     agent_mode, model, resume, sent_at, created_at
                 FROM task_messages
@@ -108,21 +108,22 @@ impl MessageRepository for PgMessageRepository {
                 assistant_usage_input_tokens, assistant_usage_output_tokens,
                 assistant_usage_cache_creation_input_tokens,
                 assistant_usage_cache_read_input_tokens,
-                tool_use_result, attachments, agent_session_id,
+                tool_use_result, sdk_metadata, attachments, agent_session_id,
                 will_not_resume, run_metrics,
                 agent_mode, model, resume
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
                 $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
                 $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
-                $31, $32
+                $31, $32, $33
             )
             ON CONFLICT (uuid) DO UPDATE SET
                 message_type = EXCLUDED.message_type,
                 message_content = EXCLUDED.message_content,
                 agent_session_id = COALESCE(EXCLUDED.agent_session_id, task_messages.agent_session_id),
                 will_not_resume = COALESCE(EXCLUDED.will_not_resume, task_messages.will_not_resume),
-                run_metrics = COALESCE(EXCLUDED.run_metrics, task_messages.run_metrics)
+                run_metrics = COALESCE(EXCLUDED.run_metrics, task_messages.run_metrics),
+                sdk_metadata = COALESCE(EXCLUDED.sdk_metadata, task_messages.sdk_metadata)
             RETURNING id"#,
         )
         .bind(&msg.task_id)
@@ -150,6 +151,7 @@ impl MessageRepository for PgMessageRepository {
         .bind(msg.assistant_usage_cache_creation_input_tokens)
         .bind(msg.assistant_usage_cache_read_input_tokens)
         .bind(&msg.tool_use_result)
+        .bind(&msg.sdk_metadata)
         .bind(&msg.attachments)
         .bind(&msg.agent_session_id)
         .bind(msg.will_not_resume)

@@ -258,6 +258,13 @@ pub struct AssistantMessage {
     pub parent_tool_use_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<AssistantMessageError>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "isApiErrorMessage")]
+    pub is_api_error_message: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "apiError")]
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
+    pub api_error: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "requestId")]
+    pub request_id: Option<String>,
 }
 
 /// Error classification for assistant messages.
@@ -286,8 +293,28 @@ pub struct UserMessage {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "isSynthetic")]
     pub is_synthetic: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", rename = "toolUseResult")]
     pub tool_use_result: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "isMeta")]
+    pub is_meta: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "isCompactSummary")]
+    pub is_compact_summary: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "isVisibleInTranscriptOnly")]
+    pub is_visible_in_transcript_only: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "planContent")]
+    pub plan_content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "thinkingMetadata")]
+    pub thinking_metadata: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub todos: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "summarizeMetadata")]
+    pub summarize_metadata: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "sourceToolAssistantUUID")]
+    pub source_tool_assistant_uuid: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "sourceToolUseID")]
+    pub source_tool_use_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "permissionMode")]
+    pub permission_mode: Option<String>,
 }
 
 /// A replayed user message (from session resume).
@@ -302,8 +329,28 @@ pub struct UserMessageReplay {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "isSynthetic")]
     pub is_synthetic: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", rename = "toolUseResult")]
     pub tool_use_result: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "isMeta")]
+    pub is_meta: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "isCompactSummary")]
+    pub is_compact_summary: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "isVisibleInTranscriptOnly")]
+    pub is_visible_in_transcript_only: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "planContent")]
+    pub plan_content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "thinkingMetadata")]
+    pub thinking_metadata: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub todos: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "summarizeMetadata")]
+    pub summarize_metadata: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "sourceToolAssistantUUID")]
+    pub source_tool_assistant_uuid: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "sourceToolUseID")]
+    pub source_tool_use_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "permissionMode")]
+    pub permission_mode: Option<String>,
 }
 
 // ---------- Result ----------
@@ -742,5 +789,232 @@ mod tests {
         });
 
         assert!(SdkMessage::from_value(json).is_none());
+    }
+
+    #[test]
+    fn parse_assistant_with_enriched_fields() {
+        let json = serde_json::json!({
+            "type": "assistant",
+            "uuid": "abc-123",
+            "session_id": "sess-1",
+            "message": {
+                "role": "assistant",
+                "content": [{"type": "text", "text": "Hello!"}],
+                "model": "claude-sonnet-4-5-20250929",
+                "id": "msg_01XFDUDYJgAACzvnptvVoYEL",
+                "stop_reason": "end_turn",
+                "stop_sequence": null,
+                "usage": {
+                    "input_tokens": 100,
+                    "output_tokens": 50
+                }
+            },
+            "parent_tool_use_id": null,
+            "isApiErrorMessage": true,
+            "apiError": {"type": "overloaded", "message": "Overloaded"},
+            "requestId": "req-abc-123"
+        });
+
+        let msg = SdkMessage::from_value(json).unwrap();
+        if let SdkMessage::Assistant(a) = msg {
+            assert_eq!(a.message.model.as_deref(), Some("claude-sonnet-4-5-20250929"));
+            assert_eq!(a.message.id.as_deref(), Some("msg_01XFDUDYJgAACzvnptvVoYEL"));
+            assert_eq!(a.message.stop_reason.as_deref(), Some("end_turn"));
+            assert!(a.message.stop_sequence.is_none());
+            assert_eq!(a.is_api_error_message, Some(true));
+            assert!(a.api_error.is_some());
+            assert_eq!(a.request_id.as_deref(), Some("req-abc-123"));
+        } else {
+            panic!("Expected SdkMessage::Assistant");
+        }
+    }
+
+    #[test]
+    fn parse_assistant_with_redacted_thinking() {
+        let json = serde_json::json!({
+            "type": "assistant",
+            "uuid": "abc-123",
+            "session_id": "sess-1",
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {"type": "redacted_thinking", "data": "c2VjcmV0LXRoaW5raW5n"},
+                    {"type": "text", "text": "Here is my response."}
+                ]
+            },
+            "parent_tool_use_id": null
+        });
+
+        let msg = SdkMessage::from_value(json).unwrap();
+        if let SdkMessage::Assistant(a) = msg {
+            assert_eq!(a.message.content.len(), 2);
+            match &a.message.content[0] {
+                super::super::content::ContentBlock::RedactedThinking { data } => {
+                    assert_eq!(data, "c2VjcmV0LXRoaW5raW5n");
+                }
+                other => panic!("Expected RedactedThinking, got: {other:?}"),
+            }
+        } else {
+            panic!("Expected SdkMessage::Assistant");
+        }
+    }
+
+    #[test]
+    fn parse_usage_with_extended_fields() {
+        let json = serde_json::json!({
+            "type": "result",
+            "subtype": "success",
+            "uuid": "abc-123",
+            "session_id": "sess-1",
+            "duration_ms": 1234,
+            "duration_api_ms": 1000,
+            "is_error": false,
+            "num_turns": 1,
+            "result": "Done",
+            "total_cost_usd": 0.01,
+            "usage": {
+                "input_tokens": 500,
+                "output_tokens": 200,
+                "cache_read_input_tokens": 100,
+                "cache_creation_input_tokens": 50,
+                "service_tier": "standard",
+                "cache_creation": {"foo": "bar"},
+                "server_tool_use": {"input_tokens": 10, "output_tokens": 5}
+            },
+            "modelUsage": {},
+            "permission_denials": []
+        });
+
+        let msg = SdkMessage::from_value(json).unwrap();
+        if let SdkMessage::Result(ResultMessage::Success(s)) = msg {
+            assert_eq!(s.usage.input_tokens, 500);
+            assert_eq!(s.usage.output_tokens, 200);
+            assert_eq!(s.usage.cache_read_input_tokens, Some(100));
+            assert_eq!(s.usage.cache_creation_input_tokens, Some(50));
+            assert_eq!(s.usage.service_tier.as_deref(), Some("standard"));
+            assert!(s.usage.cache_creation.is_some());
+            assert!(s.usage.server_tool_use.is_some());
+        } else {
+            panic!("Expected ResultMessage::Success");
+        }
+    }
+
+    #[test]
+    fn parse_user_message_with_flags() {
+        let json = serde_json::json!({
+            "type": "user",
+            "uuid": "u-123",
+            "session_id": "sess-1",
+            "message": {
+                "role": "user",
+                "content": [{"type": "text", "text": "hello"}]
+            },
+            "parent_tool_use_id": null,
+            "isMeta": true,
+            "isCompactSummary": true,
+            "isVisibleInTranscriptOnly": true,
+            "planContent": "## Plan\n1. Do stuff",
+            "thinkingMetadata": {"budget_tokens": 1024},
+            "todos": [{"id": "t1", "text": "Fix bug", "done": false}],
+            "summarizeMetadata": {"reason": "auto"},
+            "sourceToolAssistantUUID": "asst-uuid-1",
+            "sourceToolUseID": "tool-use-1",
+            "permissionMode": "plan"
+        });
+
+        let msg = SdkMessage::from_value(json).unwrap();
+        if let SdkMessage::User(u) = msg {
+            assert_eq!(u.is_meta, Some(true));
+            assert_eq!(u.is_compact_summary, Some(true));
+            assert_eq!(u.is_visible_in_transcript_only, Some(true));
+            assert_eq!(u.plan_content.as_deref(), Some("## Plan\n1. Do stuff"));
+            assert!(u.thinking_metadata.is_some());
+            assert!(u.todos.is_some());
+            assert!(u.summarize_metadata.is_some());
+            assert_eq!(u.source_tool_assistant_uuid.as_deref(), Some("asst-uuid-1"));
+            assert_eq!(u.source_tool_use_id.as_deref(), Some("tool-use-1"));
+            assert_eq!(u.permission_mode.as_deref(), Some("plan"));
+        } else {
+            panic!("Expected SdkMessage::User");
+        }
+    }
+
+    #[test]
+    fn parse_user_message_with_tool_use_result() {
+        let json = serde_json::json!({
+            "type": "user",
+            "uuid": "u-456",
+            "session_id": "sess-1",
+            "message": {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "tool-1",
+                        "content": "output text"
+                    }
+                ]
+            },
+            "parent_tool_use_id": null,
+            "toolUseResult": {
+                "type": "tool_result",
+                "tool_use_id": "tool-1",
+                "name": "Bash",
+                "stdout": "hello world\n",
+                "stderr": "",
+                "exitCode": 0
+            }
+        });
+
+        let msg = SdkMessage::from_value(json).unwrap();
+        if let SdkMessage::User(u) = msg {
+            let tur = u.tool_use_result.as_ref().expect("Expected toolUseResult");
+            assert_eq!(tur["name"], "Bash");
+            assert_eq!(tur["exitCode"], 0);
+        } else {
+            panic!("Expected SdkMessage::User");
+        }
+    }
+
+    #[test]
+    fn parse_user_replay_with_flags() {
+        let json = serde_json::json!({
+            "type": "user",
+            "uuid": "u-replay-1",
+            "session_id": "sess-1",
+            "message": {
+                "role": "user",
+                "content": [{"type": "text", "text": "replayed msg"}]
+            },
+            "parent_tool_use_id": null,
+            "isReplay": true,
+            "isMeta": true,
+            "isCompactSummary": false,
+            "isVisibleInTranscriptOnly": true,
+            "planContent": "## Replay Plan",
+            "thinkingMetadata": {"budget_tokens": 2048},
+            "todos": [{"id": "t2", "text": "Review", "done": true}],
+            "summarizeMetadata": {"reason": "manual"},
+            "sourceToolAssistantUUID": "asst-replay-uuid",
+            "sourceToolUseID": "tool-replay-1",
+            "permissionMode": "default"
+        });
+
+        let msg = SdkMessage::from_value(json).unwrap();
+        if let SdkMessage::UserReplay(ur) = msg {
+            assert!(ur.is_replay);
+            assert_eq!(ur.is_meta, Some(true));
+            assert_eq!(ur.is_compact_summary, Some(false));
+            assert_eq!(ur.is_visible_in_transcript_only, Some(true));
+            assert_eq!(ur.plan_content.as_deref(), Some("## Replay Plan"));
+            assert!(ur.thinking_metadata.is_some());
+            assert!(ur.todos.is_some());
+            assert!(ur.summarize_metadata.is_some());
+            assert_eq!(ur.source_tool_assistant_uuid.as_deref(), Some("asst-replay-uuid"));
+            assert_eq!(ur.source_tool_use_id.as_deref(), Some("tool-replay-1"));
+            assert_eq!(ur.permission_mode.as_deref(), Some("default"));
+        } else {
+            panic!("Expected SdkMessage::UserReplay");
+        }
     }
 }

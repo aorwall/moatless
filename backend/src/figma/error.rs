@@ -2,8 +2,9 @@
 
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::Json;
 use tracing::error;
+
+use crate::error::error_response;
 
 #[derive(Debug, thiserror::Error)]
 pub enum FigmaError {
@@ -37,7 +38,7 @@ impl IntoResponse for FigmaError {
                 error!(error = %e, "Figma database error");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal database error".to_string(),
+                    "Internal server error".to_string(),
                 )
             }
             FigmaError::StorageError(ref msg) => {
@@ -46,6 +47,6 @@ impl IntoResponse for FigmaError {
             }
         };
 
-        (status, Json(serde_json::json!({ "error": message }))).into_response()
+        error_response(status, message)
     }
 }

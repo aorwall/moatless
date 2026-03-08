@@ -24,7 +24,7 @@ use super::schemas::*;
     request_body = ImportClipboardRequest,
     responses(
         (status = 200, description = "Import created", body = FigmaImportResponse),
-        (status = 400, description = "Parse error", body = crate::sandbox::schemas::ErrorBody)
+        (status = 400, description = "Parse error", body = crate::error::ErrorBody)
     )
 )]
 pub async fn import_clipboard(
@@ -85,7 +85,7 @@ pub async fn import_clipboard(
     request_body = ImportNodeRequest,
     responses(
         (status = 200, description = "Import created", body = FigmaImportResponse),
-        (status = 400, description = "Bad request", body = crate::sandbox::schemas::ErrorBody)
+        (status = 400, description = "Bad request", body = crate::error::ErrorBody)
     )
 )]
 pub async fn import_node(
@@ -240,7 +240,7 @@ pub async fn import_node(
     request_body = ParseClipboardRequest,
     responses(
         (status = 200, description = "Parsed clipboard", body = ParseClipboardResponse),
-        (status = 400, description = "Parse error", body = crate::sandbox::schemas::ErrorBody)
+        (status = 400, description = "Parse error", body = crate::error::ErrorBody)
     )
 )]
 pub async fn parse_clipboard(
@@ -271,7 +271,7 @@ pub async fn parse_clipboard(
     ),
     responses(
         (status = 200, description = "Import details", body = FigmaImportDetailResponse),
-        (status = 404, description = "Import not found", body = crate::sandbox::schemas::ErrorBody)
+        (status = 404, description = "Import not found", body = crate::error::ErrorBody)
     )
 )]
 pub async fn get_import(
@@ -328,7 +328,7 @@ pub async fn get_import(
     ),
     responses(
         (status = 200, description = "Image content", content_type = "image/png"),
-        (status = 404, description = "Image not found", body = crate::sandbox::schemas::ErrorBody)
+        (status = 404, description = "Image not found", body = crate::error::ErrorBody)
     )
 )]
 pub async fn get_import_image(

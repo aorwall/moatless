@@ -2,7 +2,8 @@
 
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::Json;
+
+use crate::error::error_response;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ChannelError {
@@ -57,6 +58,6 @@ impl IntoResponse for ChannelError {
             }
         };
 
-        (status, Json(serde_json::json!({ "error": message }))).into_response()
+        error_response(status, message)
     }
 }

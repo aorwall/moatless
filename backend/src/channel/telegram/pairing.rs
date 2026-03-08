@@ -122,6 +122,25 @@ pub async fn list_pending(
     Ok(rows)
 }
 
+/// List all pending pairing requests for channels owned by the given user.
+pub async fn list_pending_for_user(
+    db: &DbPool,
+    user_id: &str,
+) -> Result<Vec<PairingRequest>, ChannelError> {
+    let rows: Vec<PairingRequest> = sqlx::query_as(
+        "SELECT p.* FROM channel_pairing_requests p \
+         JOIN channel_configs c ON c.id = p.config_id \
+         WHERE c.created_by = $1 AND p.status = 'pending' \
+         ORDER BY p.created_at DESC",
+    )
+    .bind(user_id)
+    .fetch_all(db)
+    .await
+    .map_err(ChannelError::Db)?;
+
+    Ok(rows)
+}
+
 /// Approve a pairing request: mark approved + add user ID to dm_allowlist.
 pub async fn approve_request(
     db: &DbPool,

@@ -85,7 +85,7 @@ pub async fn run(
             let parent_task_id = if no_parent {
                 None
             } else {
-                parent.or_else(|| config.task_id.clone())
+                parent.or_else(|| config.task_id().map(String::from))
             };
 
             let mut body = serde_json::json!({
@@ -117,7 +117,7 @@ pub async fn run(
         }
         TaskAction::Children { task_id } => {
             let parent = task_id
-                .or_else(|| config.task_id.clone())
+                .or_else(|| config.task_id().map(String::from))
                 .ok_or_else(|| ClientError::Api {
                     status: 400,
                     body: "No task_id provided and TASK_ID not set".to_string(),

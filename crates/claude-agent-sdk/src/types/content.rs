@@ -10,6 +10,14 @@ pub struct ApiMessage {
     pub content: Vec<ContentBlock>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<Usage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stop_reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stop_sequence: Option<String>,
 }
 
 /// A content block within an API message.
@@ -62,6 +70,9 @@ pub enum ContentBlock {
         #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
         content: Option<Value>,
     },
+
+    #[serde(rename = "redacted_thinking")]
+    RedactedThinking { data: String },
 }
 
 /// Type of image source.
@@ -95,6 +106,15 @@ pub struct Usage {
     pub cache_read_input_tokens: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_creation_input_tokens: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<String>))]
+    pub service_tier: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
+    pub cache_creation: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
+    pub server_tool_use: Option<Value>,
 }
 
 /// Per-model usage statistics.

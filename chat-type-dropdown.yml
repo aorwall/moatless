@@ -1,0 +1,456 @@
+- generic:
+  - generic:
+    - generic:
+      - main:
+        - generic:
+          - generic:
+            - generic:
+              - heading [level=1]: Moatless Vibe
+              - generic:
+                - button:
+                  - img
+          - generic:
+            - generic:
+              - generic:
+                - generic:
+                  - generic:
+                    - heading [level=1]: What should we build today?
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - textbox:
+                              - /placeholder: Describe what you want to build...
+                          - generic:
+                            - generic:
+                              - button:
+                                - img
+                                - generic: Moatable
+                            - generic:
+                              - button:
+                                - img
+                              - button:
+                                - img
+                                - generic: Send
+              - generic:
+                - generic:
+                  - heading [level=1]: Tasks
+                  - generic:
+                    - group:
+                      - radio [checked]:
+                        - img
+                      - radio:
+                        - img
+                    - combobox:
+                      - generic: Tag
+                      - img
+                    - combobox:
+                      - generic: test-api-user
+                      - img
+                    - combobox:
+                      - generic: Repository
+                      - img
+                    - combobox:
+                      - generic: Open
+                      - img
+                    - button:
+                      - img
+                      - text: Clear
+                - generic:
+                  - generic:
+                    - button:
+                      - img
+                      - generic: Close task
+                    - link:
+                      - /url: /tasks/6d652b38-7188-4499-a12e-08c85a139a44
+                      - generic:
+                        - generic:
+                          - generic:
+                            - button:
+                              - img
+                          - generic:
+                            - heading [level=3]: Untitled
+                            - generic:
+                              - generic:
+                                - generic: moatless-vibe
+                                - generic:
+                                  - img
+                                - generic: by Test API User
+                              - generic: 2d ago
+                      - generic:
+                        - generic:
+                          - paragraph: No result available
+                  - generic:
+                    - button:
+                      - img
+                      - generic: Close task
+                    - link:
+                      - /url: /tasks/5688a848-1f52-4068-a551-6bf7843d56f5
+                      - generic:
+                        - generic:
+                          - generic:
+                            - button:
+                              - img
+                          - generic:
+                            - heading [level=3]: Untitled
+                            - generic:
+                              - generic:
+                                - generic: moatless-vibe
+                                - generic:
+                                  - img
+                                - generic: by Test API User
+                              - generic: 2d ago
+                      - generic:
+                        - generic:
+                          - paragraph: No result available
+                  - generic:
+                    - button:
+                      - img
+                      - generic: Close task
+                    - link:
+                      - /url: /tasks/ebd51e51-fafe-4f8e-8eaf-617f15da6c78
+                      - generic:
+                        - generic:
+                          - generic:
+                            - button:
+                              - img
+                          - generic:
+                            - heading [level=3]: Untitled
+                            - generic:
+                              - generic:
+                                - generic: moatless-vibe
+                                - generic:
+                                  - img
+                                - generic: by Test API User
+                              - generic: 2d ago
+                      - generic:
+                        - generic:
+                          - paragraph: No result available
+                  - generic:
+                    - button:
+                      - img
+                      - generic: Close task
+                    - link:
+                      - /url: /tasks/dd38550c-3d83-4d12-a6a9-a6b5f3dcc8ce
+                      - generic:
+                        - generic:
+                          - generic:
+                            - button:
+                              - img
+                          - generic:
+                            - heading [level=3]: Untitled
+                            - generic:
+                              - generic:
+                                - generic: moatless-vibe
+                                - generic:
+                                  - img
+                                - generic: by Test API User
+                              - generic: 2d ago
+                      - generic:
+                        - generic:
+                          - paragraph: No result available
+                  - generic:
+                    - button:
+                      - img
+                      - generic: Close task
+                    - link:
+                      - /url: /tasks/c53a1f8d-9631-4b8a-aa5e-7ec91d039e3e
+                      - generic:
+                        - generic:
+                          - generic:
+                            - button:
+                              - img
+                          - generic:
+                            - heading [level=3]: Untitled
+                            - generic:
+                              - generic:
+                                - generic: moatless-vibe
+                                - generic:
+                                  - img
+                                - generic: by Test API User
+                              - generic: 3d ago
+                      - generic:
+                        - generic:
+                          - paragraph: No result available
+                  - generic:
+                    - button:
+                      - img
+                      - generic: Close task
+                    - link:
+                      - /url: /tasks/ed94527e-7e78-431b-93af-e06741dddf19
+                      - generic:
+                        - generic:
+                          - generic:
+                            - button:
+                              - img
+                          - generic:
+                            - heading [level=3]: Untitled
+                            - generic:
+                              - generic:
+                                - generic: Moatable
+                                - generic:
+                                  - img
+                                - generic: by Test API User
+                              - generic: 3d ago
+                      - generic:
+                        - generic:
+                          - paragraph: No result available
+                  - generic:
+                    - button:
+                      - img
+                      - generic: Close task
+                    - link:
+                      - /url: /tasks/dc52e63d-62dd-4267-b975-c0a5d4690697
+                      - generic:
+                        - generic:
+                          - generic:
+                            - button:
+                              - img
+                          - generic:
+                            - heading [level=3]: Untitled
+                            - generic:
+                              - generic:
+                                - generic: Moatable
+                                - generic:
+                                  - img
+                                - generic: by Test API User
+                              - generic: 3d ago
+                      - generic:
+                        - generic:
+                          - paragraph: No result available
+                  - generic:
+                    - button:
+                      - img
+                      - generic: Close task
+                    - link:
+                      - /url: /tasks/77048b8d-2098-42d0-a352-871b26145e23
+                      - generic:
+                        - generic:
+                          - generic:
+                            - button:
+                              - img
+                          - generic:
+                            - heading [level=3]: Untitled
+                            - generic:
+                              - generic:
+                                - generic: Moatable
+                                - generic:
+                                  - img
+                                - generic: by Test API User
+                              - generic: 3d ago
+                      - generic:
+                        - generic:
+                          - paragraph: No result available
+    - region "Notifications alt+T"
+  - dialog:
+    - generic:
+      - button:
+        - img
+        - generic: Close
+      - generic:
+        - generic:
+          - heading [level=2]: Settings
+          - paragraph: Configure your application preferences
+        - generic:
+          - generic:
+            - generic:
+              - navigation:
+                - list:
+                  - listitem:
+                    - button:
+                      - generic:
+                        - img
+                      - generic: Profile
+                  - listitem:
+                    - button:
+                      - generic:
+                        - img
+                      - generic: Claude
+                  - listitem:
+                    - button:
+                      - generic:
+                        - img
+                      - generic: GitHub
+                  - listitem:
+                    - button:
+                      - generic:
+                        - img
+                      - generic: Figma
+                  - listitem:
+                    - button:
+                      - generic:
+                        - img
+                      - generic: API Keys
+                  - listitem:
+                    - button:
+                      - generic:
+                        - img
+                      - generic: Commands
+                  - listitem:
+                    - button:
+                      - generic:
+                        - img
+                      - generic: Channels
+                  - listitem:
+                    - button:
+                      - generic:
+                        - img
+                      - generic: Marketplaces
+      - generic:
+        - generic:
+          - generic:
+            - generic:
+              - heading [level=2]: Channels
+        - generic:
+          - generic:
+            - generic:
+              - generic:
+                - generic:
+                  - generic:
+                    - heading [level=3]: Channel Routing
+                    - paragraph: Route messages from external channels to repositories. Each config maps a channel to a repository with a routing strategy.
+                    - generic:
+                      - button:
+                        - img
+                        - text: Add Channel
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                            - generic: MoatlessBot Chat
+                            - generic: telegram
+                            - generic: Per Message
+                          - generic: moatless-vibe
+                        - generic:
+                          - switch [checked]
+                          - button:
+                            - img
+                          - button:
+                            - img
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                            - generic: Spec PM
+                            - generic: webhook
+                            - generic: Per Message
+                          - generic: Moatable
+                        - generic:
+                          - switch [checked]
+                          - button:
+                            - img
+                          - button:
+                            - img
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                            - generic: Spec Thread Based
+                            - generic: webhook
+                            - generic: Thread Based
+                          - generic: Moatable
+                        - generic:
+                          - switch [checked]
+                          - button:
+                            - img
+                          - button:
+                            - img
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                            - generic: Spec Ongoing
+                            - generic: webhook
+                            - generic: Ongoing
+                          - generic: Moatable
+                        - generic:
+                          - switch [checked]
+                          - button:
+                            - img
+                          - button:
+                            - img
+                      - generic:
+                        - generic:
+                          - generic:
+                            - img
+                            - generic: Spec Per Message
+                            - generic: webhook
+                            - generic: Per Message
+                          - generic: Moatable
+                        - generic:
+                          - switch [checked]
+                          - button:
+                            - img
+                          - button:
+                            - img
+  - dialog:
+    - generic:
+      - heading [level=2]: Add Channel Config
+      - paragraph: Route messages from an external channel to a repository.
+    - generic:
+      - generic:
+        - generic: Provider
+        - combobox:
+          - generic: Telegram
+          - img
+      - generic:
+        - generic: Chat Type
+        - combobox [expanded]:
+          - generic: Specific Chat
+          - img
+        - paragraph: Route messages from a specific group or channel.
+      - generic:
+        - generic: Chat ID
+        - textbox:
+          - /placeholder: "-1001234567890 or @username"
+        - paragraph: The Telegram chat ID. For groups, use the numeric ID (starts with -100). For public channels/groups, you can use @username.
+      - generic:
+        - generic:
+          - text: Secret Token
+          - generic: (optional)
+        - textbox:
+          - /placeholder: Webhook secret token
+        - paragraph: If set, Telegram will send this token in the X-Telegram-Bot-Api-Secret-Token header for webhook verification.
+      - generic:
+        - generic:
+          - text: Bot Username
+          - generic: (optional)
+        - textbox:
+          - /placeholder: "@mybot"
+      - generic:
+        - generic: Repository
+        - combobox:
+          - generic: Select a repository
+          - img
+      - generic:
+        - generic: Routing Mode
+        - combobox:
+          - generic: Thread Based
+          - img
+        - paragraph: New messages create tasks. Thread replies continue the existing task.
+      - generic:
+        - generic:
+          - text: Prompt Template
+          - generic: (optional)
+        - textbox:
+          - /placeholder: "Custom prompt wrapping the message. Use {message} as placeholder."
+      - generic:
+        - generic:
+          - generic: Active
+          - paragraph: Disable to pause routing without deleting the config.
+        - switch [checked]
+    - generic:
+      - button: Cancel
+      - button [disabled]: Create
+    - button:
+      - img
+      - generic: Close
+  - listbox [ref=e501]:
+    - option "All Direct Messages" [ref=e502]:
+      - generic [ref=e504]: All Direct Messages
+    - option "Specific Chat" [active] [selected] [ref=e505]:
+      - generic [ref=e507]:
+        - img
+      - generic [ref=e508]: Specific Chat

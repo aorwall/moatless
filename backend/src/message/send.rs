@@ -67,6 +67,7 @@ pub async fn send_message_flow(
         assistant_usage_cache_creation_input_tokens: None,
         assistant_usage_cache_read_input_tokens: None,
         tool_use_result: None,
+        sdk_metadata: None,
         attachments: None,
         agent_session_id: None, // Not yet acknowledged
         will_not_resume: None,
@@ -159,6 +160,7 @@ pub async fn persist_error_result(
         assistant_usage_cache_creation_input_tokens: None,
         assistant_usage_cache_read_input_tokens: None,
         tool_use_result: None,
+        sdk_metadata: None,
         attachments: None,
         agent_session_id: None,
         will_not_resume: Some(false),
@@ -238,6 +240,7 @@ pub async fn send_tool_response_flow(
         assistant_usage_cache_creation_input_tokens: None,
         assistant_usage_cache_read_input_tokens: None,
         tool_use_result: None,
+        sdk_metadata: None,
         attachments: None,
         agent_session_id: None,
         will_not_resume: None,

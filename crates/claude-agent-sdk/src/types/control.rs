@@ -12,7 +12,7 @@ use super::permissions::{PermissionMode, PermissionUpdate};
 #[derive(Debug, Clone)]
 pub enum RawStdoutMessage {
     /// A regular SDK message (assistant, user, result, system, etc.).
-    Sdk(SdkMessage),
+    Sdk(Box<SdkMessage>),
     /// An incoming control request from CLI → SDK.
     IncomingControlRequest {
         request_id: String,
@@ -225,7 +225,7 @@ impl RawStdoutMessage {
             _ => {
                 // Try to parse as an SDK message
                 match SdkMessage::from_value(value.clone()) {
-                    Some(msg) => RawStdoutMessage::Sdk(msg),
+                    Some(msg) => RawStdoutMessage::Sdk(Box::new(msg)),
                     None => RawStdoutMessage::Unknown(value),
                 }
             }
@@ -401,7 +401,7 @@ mod tests {
             "parent_tool_use_id": null
         });
         let msg = RawStdoutMessage::from_value(json);
-        assert!(matches!(msg, RawStdoutMessage::Sdk(SdkMessage::Assistant(_))));
+        assert!(matches!(msg, RawStdoutMessage::Sdk(m) if matches!(*m, SdkMessage::Assistant(_))));
     }
 
     #[test]

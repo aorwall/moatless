@@ -15,7 +15,7 @@ use super::schemas::TagResponse;
     tag = "tags",
     responses(
         (status = 200, description = "List of tags", body = Vec<TagResponse>),
-        (status = 500, description = "Internal error", body = crate::sandbox::schemas::ErrorBody)
+        (status = 500, description = "Internal error", body = crate::error::ErrorBody)
     )
 )]
 pub async fn list_tags(

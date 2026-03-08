@@ -43,7 +43,7 @@ pub async fn list_teams(
     request_body = CreateTeamRequest,
     responses(
         (status = 201, description = "Team created", body = TeamResponse),
-        (status = 409, description = "Slug already taken", body = crate::sandbox::schemas::ErrorBody)
+        (status = 409, description = "Slug already taken", body = crate::error::ErrorBody)
     )
 )]
 pub async fn create_team(
@@ -84,7 +84,7 @@ pub async fn create_team(
     params(("team_id" = String, Path, description = "Team identifier")),
     responses(
         (status = 200, description = "Team details", body = TeamResponse),
-        (status = 404, description = "Team not found", body = crate::sandbox::schemas::ErrorBody)
+        (status = 404, description = "Team not found", body = crate::error::ErrorBody)
     )
 )]
 pub async fn get_team(
@@ -115,7 +115,7 @@ pub async fn get_team(
     request_body = UpdateTeamRequest,
     responses(
         (status = 200, description = "Team updated", body = TeamResponse),
-        (status = 404, description = "Team not found", body = crate::sandbox::schemas::ErrorBody)
+        (status = 404, description = "Team not found", body = crate::error::ErrorBody)
     )
 )]
 pub async fn update_team(
@@ -143,7 +143,7 @@ pub async fn update_team(
     params(("team_id" = String, Path, description = "Team identifier")),
     responses(
         (status = 204, description = "Team deleted"),
-        (status = 404, description = "Team not found", body = crate::sandbox::schemas::ErrorBody)
+        (status = 404, description = "Team not found", body = crate::error::ErrorBody)
     )
 )]
 pub async fn delete_team(
@@ -187,7 +187,7 @@ pub async fn list_members(
     request_body = AddTeamMemberRequest,
     responses(
         (status = 204, description = "Member added"),
-        (status = 404, description = "Team not found", body = crate::sandbox::schemas::ErrorBody)
+        (status = 404, description = "Team not found", body = crate::error::ErrorBody)
     )
 )]
 pub async fn add_member(
@@ -215,7 +215,7 @@ pub async fn add_member(
     ),
     responses(
         (status = 204, description = "Member removed"),
-        (status = 404, description = "Team not found", body = crate::sandbox::schemas::ErrorBody)
+        (status = 404, description = "Team not found", body = crate::error::ErrorBody)
     )
 )]
 pub async fn remove_member(
@@ -240,7 +240,7 @@ pub async fn remove_member(
     params(("team_id" = String, Path, description = "Team identifier")),
     responses(
         (status = 200, description = "List of team credentials", body = Vec<TeamCredentialResponse>),
-        (status = 404, description = "Team not found", body = crate::sandbox::schemas::ErrorBody)
+        (status = 404, description = "Team not found", body = crate::error::ErrorBody)
     )
 )]
 pub async fn list_credentials(
@@ -274,7 +274,7 @@ pub async fn list_credentials(
     request_body = UpsertTeamCredentialRequest,
     responses(
         (status = 204, description = "Credential upserted"),
-        (status = 404, description = "Team not found", body = crate::sandbox::schemas::ErrorBody)
+        (status = 404, description = "Team not found", body = crate::error::ErrorBody)
     )
 )]
 pub async fn upsert_credential(
@@ -310,7 +310,7 @@ pub async fn upsert_credential(
     ),
     responses(
         (status = 204, description = "Credential deleted"),
-        (status = 404, description = "Team not found", body = crate::sandbox::schemas::ErrorBody)
+        (status = 404, description = "Team not found", body = crate::error::ErrorBody)
     )
 )]
 pub async fn delete_credential(

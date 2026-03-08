@@ -29,6 +29,8 @@ pub enum RepoAction {
         name: Option<String>,
         #[arg(long)]
         branch: Option<String>,
+        #[arg(long)]
+        git_url: Option<String>,
     },
 }
 
@@ -74,6 +76,7 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
             repo_id,
             name,
             branch,
+            git_url,
         } => {
             let mut body = serde_json::Map::new();
             if let Some(n) = name {
@@ -81,6 +84,9 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
             }
             if let Some(b) = branch {
                 body.insert("defaultBranch".into(), serde_json::json!(b));
+            }
+            if let Some(u) = git_url {
+                body.insert("remoteUrl".into(), serde_json::json!(u));
             }
             let resp = client
                 .put(

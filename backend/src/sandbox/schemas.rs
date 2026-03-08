@@ -8,12 +8,6 @@ use super::models::{
     ServerSnapshot, ServerStatus,
 };
 
-/// Generic error body returned by all error responses.
-#[derive(Debug, Serialize, ToSchema)]
-pub struct ErrorBody {
-    pub error: String,
-}
-
 /// Provision response
 #[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -320,7 +314,7 @@ mod tests {
 
     #[test]
     fn error_body_serializes() {
-        let body = ErrorBody { error: "not found".into() };
+        let body = crate::error::ErrorBody { error: "not found".into() };
         let json = serde_json::to_value(&body).unwrap();
         assert_eq!(json["error"], "not found");
     }
