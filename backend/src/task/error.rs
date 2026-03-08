@@ -21,6 +21,9 @@ pub enum TaskError {
 
     #[error("Internal error: {0}")]
     Internal(String),
+
+    #[error("Forbidden: {0}")]
+    Forbidden(String),
 }
 
 impl IntoResponse for TaskError {
@@ -37,6 +40,7 @@ impl IntoResponse for TaskError {
                 tracing::error!(error = %msg, "Internal error in task handler");
                 (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
             }
+            TaskError::Forbidden(_) => (StatusCode::FORBIDDEN, self.to_string()),
         };
 
         error_response(status, message)

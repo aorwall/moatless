@@ -30,6 +30,34 @@ pub async fn validate_github_token(token: &str) -> Result<String, String> {
         .ok_or_else(|| "GitHub response missing login field".to_string())
 }
 
+/// Check whether a GitHub token has access to a specific repository.
+/// Returns `Ok(())` if accessible, `Err` with a message otherwise.
+pub async fn check_github_repo_access(token: &str, owner: &str, repo: &str) -> Result<(), String> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .get(format!("https://api.github.com/repos/{owner}/{repo}"))
+        .header("Authorization", format!("Bearer {token}"))
+        .header("User-Agent", "moatless-vibe")
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .await
+        .map_err(|e| format!("GitHub API request failed: {e}"))?;
+
+    if resp.status().is_success() {
+        Ok(())
+    } else if resp.status() == reqwest::StatusCode::NOT_FOUND
+        || resp.status() == reqwest::StatusCode::FORBIDDEN
+    {
+        Err(format!(
+            "You do not have access to the GitHub repository {owner}/{repo}. Please check your permissions."
+        ))
+    } else {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        Err(format!("GitHub API returned {status}: {body}"))
+    }
+}
+
 /// Exchange a GitHub OAuth code for an access token.
 /// Returns (access_token, token_type).
 pub async fn exchange_github_oauth_code(

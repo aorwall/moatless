@@ -12,7 +12,7 @@ use crate::shared_models::{AgentMode, AgentType};
 use crate::state::AppState;
 use crate::task::models::{TaskStatus, Visibility};
 
-use crate::repository::models::RepositoryKind;
+use crate::repository::models::{RepositoryKind, RepositoryProvider};
 
 use super::error::TaskError;
 use super::schemas::*;
@@ -25,6 +25,7 @@ use super::schemas::*;
     request_body = CreateTaskRequest,
     responses(
         (status = 200, description = "Task created", body = CreateTaskResponse),
+        (status = 403, description = "No access to GitHub repository", body = crate::error::ErrorBody),
         (status = 404, description = "Repository not found", body = crate::error::ErrorBody)
     )
 )]
@@ -37,6 +38,57 @@ pub async fn create_task(
     let repo = state.repositories.find_repository_by_id(&req.repository_id)
         .await?
         .ok_or_else(|| TaskError::RepoNotFound(req.repository_id.clone()))?;
+
+    // Verify GitHub repository access for non-template repos
+    if repo.provider == Some(RepositoryProvider::Github) && repo.kind != RepositoryKind::Template {
+        if let Some(ref remote_url) = repo.remote_url {
+            if let Some((owner, repo_name)) =
+                crate::repository::handlers::parse_github_owner_repo(remote_url)
+            {
+                // Look up user's GitHub token, falling back to team token
+                let token = state
+                    .provider_tokens
+                    .find_provider_token(&auth.user_id, "github")
+                    .await
+                    .map_err(|e| {
+                        TaskError::Internal(format!("Failed to look up GitHub token: {e}"))
+                    })?;
+
+                let access_token = if let Some(t) = token {
+                    t.access_token
+                } else {
+                    let team_token = if let Some(ref team_id) = repo.team_id {
+                        state
+                            .provider_tokens
+                            .find_team_token(team_id, "github")
+                            .await
+                            .map_err(|e| {
+                                TaskError::Internal(format!(
+                                    "Failed to look up team GitHub token: {e}"
+                                ))
+                            })?
+                    } else {
+                        None
+                    };
+                    if let Some(t) = team_token {
+                        t.access_token
+                    } else {
+                        return Err(TaskError::Forbidden(
+                            "GitHub account not connected. Please connect your GitHub account to create tasks for this repository.".to_string(),
+                        ));
+                    }
+                };
+
+                crate::provider_settings::github_client::check_github_repo_access(
+                    &access_token,
+                    &owner,
+                    &repo_name,
+                )
+                .await
+                .map_err(TaskError::Forbidden)?;
+            }
+        }
+    }
 
     // Validate name if provided
     if let Some(ref name) = req.name {
