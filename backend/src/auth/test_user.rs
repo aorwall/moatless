@@ -44,6 +44,7 @@ pub async fn ensure_test_user(
         role: UserRole::Admin,
         created_at: now,
         last_login_at: now,
+        settings: serde_json::json!({}),
     };
 
     if let Err(e) = users.upsert_user(&user).await {

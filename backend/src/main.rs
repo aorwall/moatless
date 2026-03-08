@@ -20,7 +20,7 @@ use moatless_vibe_backend::sandbox;
 use moatless_vibe_backend::sse::routes::sse_router;
 use moatless_vibe_backend::startup;
 use moatless_vibe_backend::state::AppState;
-use moatless_vibe_backend::{command, figma, file_storage, message, provider_settings, repository, tag, task, task_event, team};
+use moatless_vibe_backend::{command, figma, file_storage, message, provider_settings, repository, tag, task, task_event, team, user_settings};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -192,6 +192,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             channel::routes::channel_router(app_state.clone()),
             team::routes::team_router(app_state.clone()),
             task_event::routes::task_event_router(app_state.clone()),
+            user_settings::routes::user_settings_router(app_state.clone()),
         ];
         for (mod_router, mod_api) in modules {
             router = router.merge(mod_router);

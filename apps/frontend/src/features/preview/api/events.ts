@@ -1,8 +1,10 @@
 import { apiClient } from '@/lib/api/client'
 import type { Event } from '@/lib/types/events'
 
-export function fetchTaskEvents(taskId: string): Promise<Event[]> {
-  return apiClient.get(`/api/v1/tasks/${taskId}/events`, {
-    types: 'sandbox,server',
-  })
+export async function fetchTaskEvents(taskId: string): Promise<Event[]> {
+  const response = await apiClient.get<{ items: Event[] }>(
+    `/api/v1/tasks/${taskId}/events/history`,
+    { types: 'sandbox,server' },
+  )
+  return response.items
 }

@@ -53,6 +53,9 @@ pub async fn create_session(
             .as_ref()
             .map_or(now, |u| u.created_at),
         last_login_at: now,
+        settings: existing_user
+            .as_ref()
+            .map_or_else(|| serde_json::json!({}), |u| u.settings.clone()),
     };
     users.upsert_user(&user_row).await?;
 
