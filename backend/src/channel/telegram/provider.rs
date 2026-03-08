@@ -572,7 +572,9 @@ async fn auto_create_config(
     Ok(new_config)
 }
 
-/// Resolve a Telegram `from_id` → system user → their default channel repo.
+/// Resolve a Telegram `from_id` → system user → default channel repo.
+///
+/// Fallback chain: user settings → first team's settings → `(None, None)`.
 ///
 /// Returns `(Some(repo), Some(user_id))` on success, or `(None, None)` if any
 /// step fails (no mapping, no setting, repo deleted, etc.).
@@ -601,30 +603,52 @@ async fn resolve_default_repo(
         return (None, None);
     };
 
-    // 2. Look up user's default channel repo setting
+    // 2. Check user's default channel repo setting
     let user = match state.users.get_user(&user_id).await {
         Ok(Some(u)) => u,
         _ => return (None, Some(user_id)),
     };
 
-    let Some(repo_id) = user.default_channel_repository_id() else {
-        debug!(user_id = %user_id, "User has no default channel repo set, using fallback");
-        return (None, Some(user_id));
-    };
-
-    // 3. Fetch the repo
-    if let Ok(Some(repo)) = state.repositories.find_repository_by_id(repo_id).await {
-        info!(
-            user_id = %user_id,
-            repo_id = %repo.id,
-            repo_name = %repo.name,
-            "Using user's default channel repository"
-        );
-        (Some(repo), Some(user_id))
-    } else {
-        warn!(user_id = %user_id, repo_id, "User's default channel repo not found, using fallback");
-        (None, Some(user_id))
+    if let Some(repo_id) = user.default_channel_repository_id() {
+        if let Ok(Some(repo)) = state.repositories.find_repository_by_id(repo_id).await {
+            info!(
+                user_id = %user_id,
+                repo_id = %repo.id,
+                repo_name = %repo.name,
+                "Using user's default channel repository"
+            );
+            return (Some(repo), Some(user_id));
+        }
+        warn!(user_id = %user_id, repo_id, "User's default channel repo not found, trying team settings");
     }
+
+    // 3. Check user's teams for a default channel repo
+    if let Ok(teams) = state.teams.find_teams_for_user(&user_id).await {
+        for team in &teams {
+            let settings = team.parsed_settings();
+            if let Some(ref repo_id) = settings.default_channel_repository_id {
+                if let Ok(Some(repo)) = state.repositories.find_repository_by_id(repo_id).await {
+                    info!(
+                        user_id = %user_id,
+                        team_id = %team.id,
+                        repo_id = %repo.id,
+                        repo_name = %repo.name,
+                        "Using team's default channel repository"
+                    );
+                    return (Some(repo), Some(user_id));
+                }
+                warn!(
+                    user_id = %user_id,
+                    team_id = %team.id,
+                    repo_id,
+                    "Team's default channel repo not found, trying next team"
+                );
+            }
+        }
+    }
+
+    debug!(user_id = %user_id, "No default channel repo in user or team settings, using fallback");
+    (None, Some(user_id))
 }
 
 /// Strip bot mention from message text (e.g., "@mybot fix the bug" → "fix the bug").

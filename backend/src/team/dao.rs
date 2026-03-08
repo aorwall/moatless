@@ -23,6 +23,13 @@ pub trait TeamRepository: Send + Sync {
     async fn remove_member(&self, team_id: &str, user_id: &str) -> Result<(), sqlx::Error>;
     async fn is_member(&self, team_id: &str, user_id: &str) -> Result<bool, sqlx::Error>;
 
+    /// Merge the given JSON object into the team's `settings` JSONB column.
+    async fn update_settings(
+        &self,
+        team_id: &str,
+        patch: &serde_json::Value,
+    ) -> Result<Option<Team>, sqlx::Error>;
+
     /// Upsert a team by external_id + provider (for Auth0 group sync).
     async fn upsert_by_external(
         &self,
@@ -40,7 +47,7 @@ pub struct PgTeamRepository(pub DbPool);
 impl TeamRepository for PgTeamRepository {
     async fn find_by_id(&self, id: &str) -> Result<Option<Team>, sqlx::Error> {
         sqlx::query_as::<_, Team>(
-            "SELECT id, name, slug, description, external_id, external_provider, is_default, created_at, updated_at FROM teams WHERE id = $1",
+            "SELECT id, name, slug, description, external_id, external_provider, is_default, settings, created_at, updated_at FROM teams WHERE id = $1",
         )
         .bind(id)
         .fetch_optional(&self.0)
@@ -49,7 +56,7 @@ impl TeamRepository for PgTeamRepository {
 
     async fn find_by_slug(&self, slug: &str) -> Result<Option<Team>, sqlx::Error> {
         sqlx::query_as::<_, Team>(
-            "SELECT id, name, slug, description, external_id, external_provider, is_default, created_at, updated_at FROM teams WHERE slug = $1",
+            "SELECT id, name, slug, description, external_id, external_provider, is_default, settings, created_at, updated_at FROM teams WHERE slug = $1",
         )
         .bind(slug)
         .fetch_optional(&self.0)
@@ -58,7 +65,7 @@ impl TeamRepository for PgTeamRepository {
 
     async fn find_by_external_id(&self, external_id: &str, provider: &str) -> Result<Option<Team>, sqlx::Error> {
         sqlx::query_as::<_, Team>(
-            "SELECT id, name, slug, description, external_id, external_provider, is_default, created_at, updated_at FROM teams WHERE external_id = $1 AND external_provider = $2",
+            "SELECT id, name, slug, description, external_id, external_provider, is_default, settings, created_at, updated_at FROM teams WHERE external_id = $1 AND external_provider = $2",
         )
         .bind(external_id)
         .bind(provider)
@@ -68,7 +75,7 @@ impl TeamRepository for PgTeamRepository {
 
     async fn list_all(&self) -> Result<Vec<Team>, sqlx::Error> {
         sqlx::query_as::<_, Team>(
-            "SELECT id, name, slug, description, external_id, external_provider, is_default, created_at, updated_at FROM teams ORDER BY name ASC",
+            "SELECT id, name, slug, description, external_id, external_provider, is_default, settings, created_at, updated_at FROM teams ORDER BY name ASC",
         )
         .fetch_all(&self.0)
         .await
@@ -76,8 +83,8 @@ impl TeamRepository for PgTeamRepository {
 
     async fn insert(&self, team: &Team) -> Result<(), sqlx::Error> {
         sqlx::query(
-            r#"INSERT INTO teams (id, name, slug, description, external_id, external_provider, is_default, created_at, updated_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"#,
+            r#"INSERT INTO teams (id, name, slug, description, external_id, external_provider, is_default, settings, created_at, updated_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"#,
         )
         .bind(&team.id)
         .bind(&team.name)
@@ -86,6 +93,7 @@ impl TeamRepository for PgTeamRepository {
         .bind(&team.external_id)
         .bind(&team.external_provider)
         .bind(team.is_default)
+        .bind(&team.settings)
         .bind(team.created_at)
         .bind(team.updated_at)
         .execute(&self.0)
@@ -115,7 +123,7 @@ impl TeamRepository for PgTeamRepository {
 
     async fn find_teams_for_user(&self, user_id: &str) -> Result<Vec<Team>, sqlx::Error> {
         sqlx::query_as::<_, Team>(
-            r#"SELECT t.id, t.name, t.slug, t.description, t.external_id, t.external_provider, t.is_default, t.created_at, t.updated_at
+            r#"SELECT t.id, t.name, t.slug, t.description, t.external_id, t.external_provider, t.is_default, t.settings, t.created_at, t.updated_at
                FROM teams t
                JOIN team_members tm ON t.id = tm.team_id
                WHERE tm.user_id = $1
@@ -179,6 +187,20 @@ impl TeamRepository for PgTeamRepository {
         Ok(row.0)
     }
 
+    async fn update_settings(
+        &self,
+        team_id: &str,
+        patch: &serde_json::Value,
+    ) -> Result<Option<Team>, sqlx::Error> {
+        sqlx::query_as::<_, Team>(
+            "UPDATE teams SET settings = settings || $2, updated_at = now() WHERE id = $1 RETURNING *",
+        )
+        .bind(team_id)
+        .bind(patch)
+        .fetch_optional(&self.0)
+        .await
+    }
+
     async fn upsert_by_external(
         &self,
         external_id: &str,
@@ -207,7 +229,7 @@ impl TeamRepository for PgTeamRepository {
 
         // Fetch the actual row (may be existing or newly created)
         let team = sqlx::query_as::<_, Team>(
-            "SELECT id, name, slug, description, external_id, external_provider, is_default, created_at, updated_at FROM teams WHERE external_id = $1 AND external_provider = $2",
+            "SELECT id, name, slug, description, external_id, external_provider, is_default, settings, created_at, updated_at FROM teams WHERE external_id = $1 AND external_provider = $2",
         )
         .bind(external_id)
         .bind(provider)

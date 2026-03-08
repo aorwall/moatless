@@ -20,6 +20,8 @@ use crate::state::AppState;
         handlers::list_members,
         handlers::add_member,
         handlers::remove_member,
+        handlers::get_settings,
+        handlers::update_settings,
         handlers::list_credentials,
         handlers::upsert_credential,
         handlers::delete_credential,
@@ -34,6 +36,7 @@ pub fn team_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenApi) 
         .routes(routes!(handlers::get_team, handlers::update_team, handlers::delete_team))
         .routes(routes!(handlers::list_members, handlers::add_member))
         .routes(routes!(handlers::remove_member))
+        .routes(routes!(handlers::get_settings, handlers::update_settings))
         .routes(routes!(handlers::list_credentials))
         .routes(routes!(handlers::upsert_credential, handlers::delete_credential))
         .with_state(state)

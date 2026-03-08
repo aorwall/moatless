@@ -5,6 +5,7 @@ use chrono::{DateTime, Utc};
 
 use super::models::UserRole;
 use crate::db::DbPool;
+use crate::shared_models::Settings;
 
 #[derive(sqlx::FromRow, Debug)]
 pub struct User {
@@ -21,6 +22,11 @@ pub struct User {
 }
 
 impl User {
+    /// Deserialize the JSONB `settings` column into the typed [`Settings`] struct.
+    pub fn parsed_settings(&self) -> Settings {
+        serde_json::from_value(self.settings.clone()).unwrap_or_default()
+    }
+
     /// Extract the default channel repository ID from user settings.
     pub fn default_channel_repository_id(&self) -> Option<&str> {
         self.settings

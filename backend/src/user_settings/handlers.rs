@@ -3,26 +3,16 @@
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::Json;
-use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
-
 use crate::error::ErrorBody;
 use crate::extractors::AuthUser;
+use crate::shared_models::Settings;
 use crate::state::AppState;
 
-/// Response for user settings.
-#[derive(Serialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct UserSettingsResponse {
-    pub default_channel_repository_id: Option<String>,
-}
+/// Response for user settings — wraps the shared [`Settings`] struct.
+pub type UserSettingsResponse = Settings;
 
-/// Request to update user settings.
-#[derive(Deserialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct UpdateUserSettingsRequest {
-    pub default_channel_repository_id: Option<String>,
-}
+/// Request to update user settings — wraps the shared [`Settings`] struct.
+pub type UpdateUserSettingsRequest = Settings;
 
 /// Get the current user's settings.
 #[utoipa::path(
@@ -46,11 +36,7 @@ pub async fn get_settings(
         .map_err(internal_error)?
         .ok_or_else(|| not_found("User not found"))?;
 
-    Ok(Json(UserSettingsResponse {
-        default_channel_repository_id: user
-            .default_channel_repository_id()
-            .map(String::from),
-    }))
+    Ok(Json(user.parsed_settings()))
 }
 
 /// Update the current user's settings.
@@ -81,9 +67,7 @@ pub async fn update_settings(
             .ok_or_else(|| not_found(&format!("Repository not found: {repo_id}")))?;
     }
 
-    let patch = serde_json::json!({
-        "default_channel_repository_id": body.default_channel_repository_id,
-    });
+    let patch = serde_json::to_value(&body).map_err(internal_error)?;
 
     let user = state
         .users
@@ -92,11 +76,7 @@ pub async fn update_settings(
         .map_err(internal_error)?
         .ok_or_else(|| not_found("User not found"))?;
 
-    Ok(Json(UserSettingsResponse {
-        default_channel_repository_id: user
-            .default_channel_repository_id()
-            .map(String::from),
-    }))
+    Ok(Json(user.parsed_settings()))
 }
 
 fn internal_error(e: impl std::fmt::Display) -> (StatusCode, Json<ErrorBody>) {
