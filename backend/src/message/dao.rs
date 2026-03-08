@@ -214,7 +214,7 @@ impl MessageRepository for PgMessageRepository {
                 assistant_usage_input_tokens, assistant_usage_output_tokens,
                 assistant_usage_cache_creation_input_tokens,
                 assistant_usage_cache_read_input_tokens,
-                tool_use_result, attachments, agent_session_id,
+                tool_use_result, sdk_metadata, attachments, agent_session_id,
                 will_not_resume, run_metrics,
                 agent_mode, model, resume, sent_at, created_at
             FROM task_messages
@@ -239,7 +239,7 @@ impl MessageRepository for PgMessageRepository {
                 assistant_usage_input_tokens, assistant_usage_output_tokens,
                 assistant_usage_cache_creation_input_tokens,
                 assistant_usage_cache_read_input_tokens,
-                tool_use_result, attachments, agent_session_id,
+                tool_use_result, sdk_metadata, attachments, agent_session_id,
                 will_not_resume, run_metrics,
                 agent_mode, model, resume, sent_at, created_at
             FROM task_messages
@@ -263,7 +263,7 @@ impl MessageRepository for PgMessageRepository {
                 assistant_usage_input_tokens, assistant_usage_output_tokens,
                 assistant_usage_cache_creation_input_tokens,
                 assistant_usage_cache_read_input_tokens,
-                tool_use_result, attachments, agent_session_id,
+                tool_use_result, sdk_metadata, attachments, agent_session_id,
                 will_not_resume, run_metrics,
                 agent_mode, model, resume, sent_at, created_at
             FROM task_messages
