@@ -21,6 +21,7 @@ use crate::repository::dao::{PgRepoRepository, RepoRepository};
 use crate::sandbox::provider::SandboxProvider;
 use crate::tag::dao::{PgTagRepository, TagRepository};
 use crate::task::dao::{PgTaskRepository, TaskRepository};
+use crate::task_event::dao::{PgTaskEventRepository, TaskEventRepository};
 use crate::team::dao::{PgTeamRepository, TeamRepository};
 
 /// Shared application state for task/message/agent/command/file routes.
@@ -58,6 +59,7 @@ pub struct AppState {
     pub users: Arc<dyn UserRepository>,
     pub provider_tokens: Arc<dyn ProviderTokenRepository>,
     pub teams: Arc<dyn TeamRepository>,
+    pub task_events: Arc<dyn TaskEventRepository>,
 }
 
 impl AppState {
@@ -86,6 +88,7 @@ impl AppState {
             users: Arc::new(PgUserRepository(pool.clone())),
             provider_tokens: Arc::new(PgProviderTokenRepository(pool.clone())),
             teams: Arc::new(PgTeamRepository(pool.clone())),
+            task_events: Arc::new(PgTaskEventRepository(pool.clone())),
             db: pool,
             config,
             sandbox,

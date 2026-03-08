@@ -35,4 +35,5 @@ pub mod startup;
 pub mod state;
 pub mod tag;
 pub mod task;
+pub mod task_event;
 pub mod team;
