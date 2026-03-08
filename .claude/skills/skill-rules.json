@@ -175,6 +175,39 @@
           ".claude/skills/e2e-testing/**/*"
         ]
       }
+    },
+    "moat-cli": {
+      "type": "domain",
+      "enforcement": "suggest",
+      "priority": "medium",
+      "description": "Moat CLI for managing tasks, repos, sandboxes, messages, and channels",
+      "promptTriggers": {
+        "keywords": [
+          "moat",
+          "CLI",
+          "moat login",
+          "moat repos",
+          "moat tasks",
+          "list tasks",
+          "create task",
+          "list repos",
+          "create repo",
+          "sandbox start",
+          "sandbox stop",
+          "sandbox status",
+          "send message",
+          "moat whoami"
+        ],
+        "intentPatterns": [
+          "(list|create|get|start|stop|restart|close).*?(task|repo|sandbox|message|channel)",
+          "moat\\s+(login|logout|whoami|status|tasks|repos|sandbox|messages|channels|commands|tags)"
+        ]
+      },
+      "fileTriggers": {
+        "pathPatterns": [
+          "crates/cli/src/**/*.rs"
+        ]
+      }
     }
   }
 }

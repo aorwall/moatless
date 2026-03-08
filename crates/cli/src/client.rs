@@ -176,6 +176,25 @@ impl MoatClient {
         self.handle_response(resp).await
     }
 
+    pub async fn patch(
+        &self,
+        path: &str,
+        body: &impl Serialize,
+    ) -> Result<serde_json::Value, ClientError> {
+        let url = format!("{}{path}", self.base_url);
+        if self.verbose {
+            eprintln!("PATCH {url}");
+        }
+        let resp = self
+            .http
+            .patch(&url)
+            .headers(self.build_headers(path))
+            .json(body)
+            .send()
+            .await?;
+        self.handle_response(resp).await
+    }
+
     /// Send a raw POST with custom headers (for token exchange).
     pub async fn post_with_headers(
         &self,

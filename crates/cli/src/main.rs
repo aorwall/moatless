@@ -60,6 +60,16 @@ enum Commands {
         #[command(subcommand)]
         action: commands::channels::ChannelAction,
     },
+    /// Team management
+    Teams {
+        #[command(subcommand)]
+        action: commands::teams::TeamAction,
+    },
+    /// User settings management
+    Settings {
+        #[command(subcommand)]
+        action: commands::settings::SettingsAction,
+    },
     /// List available commands
     #[command(name = "commands")]
     Cmds,
@@ -138,6 +148,12 @@ async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::Channels { action } => {
             commands::channels::run(&moat, action, cli.json).await?;
+        }
+        Commands::Teams { action } => {
+            commands::teams::run(&moat, action, cli.json).await?;
+        }
+        Commands::Settings { action } => {
+            commands::settings::run(&moat, action, cli.json).await?;
         }
         Commands::Cmds => {
             let resp = moat.get("/api/v1/commands").await?;
