@@ -277,6 +277,110 @@ pub async fn telegram_webhook(
 }
 
 // =========================================================================
+// Telegram pairing endpoints
+// =========================================================================
+
+/// List pending pairing requests for a Telegram channel config.
+#[utoipa::path(
+    get,
+    path = "/api/v1/channels/telegram/pairing/requests",
+    tag = "channels",
+    params(
+        ("config_id" = String, Query, description = "Channel config ID")
+    ),
+    responses(
+        (status = 200, description = "Pending pairing requests"),
+        (status = 403, description = "Access denied"),
+        (status = 404, description = "Config not found")
+    )
+)]
+pub async fn list_pairing_requests(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Query(query): Query<PairingQuery>,
+) -> Result<Json<Vec<serde_json::Value>>, ChannelError> {
+    let config = state
+        .channel_configs
+        .find_by_id(&query.config_id)
+        .await?
+        .ok_or_else(|| ChannelError::ConfigNotFound(query.config_id.clone()))?;
+
+    // Only the config owner can view pairing requests
+    if config.created_by != auth.user_id {
+        return Err(ChannelError::AccessDenied(
+            "Only the channel config owner can view pairing requests".into(),
+        ));
+    }
+
+    let requests =
+        super::telegram::pairing::list_pending(&state.db, &query.config_id).await?;
+
+    let items: Vec<serde_json::Value> = requests
+        .into_iter()
+        .map(|r| {
+            serde_json::json!({
+                "id": r.id,
+                "configId": r.config_id,
+                "providerUserId": r.provider_user_id,
+                "code": r.code,
+                "status": r.status,
+                "meta": r.meta,
+                "createdAt": r.created_at.to_rfc3339(),
+                "updatedAt": r.updated_at.to_rfc3339(),
+            })
+        })
+        .collect();
+
+    Ok(Json(items))
+}
+
+/// Approve a Telegram pairing request by code.
+#[utoipa::path(
+    post,
+    path = "/api/v1/channels/telegram/pairing/approve",
+    tag = "channels",
+    request_body = ApprovePairingRequest,
+    responses(
+        (status = 200, description = "Pairing approved"),
+        (status = 400, description = "Invalid code"),
+        (status = 403, description = "Access denied"),
+        (status = 404, description = "Config not found")
+    )
+)]
+pub async fn approve_pairing(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Json(req): Json<ApprovePairingRequest>,
+) -> Result<Json<serde_json::Value>, ChannelError> {
+    let config = state
+        .channel_configs
+        .find_by_id(&req.config_id)
+        .await?
+        .ok_or_else(|| ChannelError::ConfigNotFound(req.config_id.clone()))?;
+
+    // Only the config owner can approve
+    if config.created_by != auth.user_id {
+        return Err(ChannelError::AccessDenied(
+            "Only the channel config owner can approve pairing requests".into(),
+        ));
+    }
+
+    let approved =
+        super::telegram::pairing::approve_request(&state.db, &req.config_id, &req.code).await?;
+
+    Ok(Json(serde_json::json!({
+        "id": approved.id,
+        "configId": approved.config_id,
+        "providerUserId": approved.provider_user_id,
+        "code": approved.code,
+        "status": approved.status,
+        "meta": approved.meta,
+        "createdAt": approved.created_at.to_rfc3339(),
+        "updatedAt": approved.updated_at.to_rfc3339(),
+    })))
+}
+
+// =========================================================================
 // Webhook inbound handler
 // =========================================================================
 

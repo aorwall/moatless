@@ -23,11 +23,15 @@ impl TelegramApi {
     }
 
     /// Send a text message, chunking if it exceeds 4096 characters.
+    ///
+    /// `message_thread_id` is used for forum/topic groups — when set, the message
+    /// is posted into the specified forum topic.
     pub async fn send_message(
         &self,
         chat_id: &str,
         text: &str,
         reply_to_message_id: Option<i64>,
+        message_thread_id: Option<i64>,
     ) -> Result<(), ChannelError> {
         let chunks = chunk_text(text, MAX_MESSAGE_LENGTH);
 
@@ -45,6 +49,10 @@ impl TelegramApi {
                 body["reply_parameters"] = serde_json::json!({ "message_id": id });
             }
 
+            if let Some(topic_id) = message_thread_id {
+                body["message_thread_id"] = serde_json::json!(topic_id);
+            }
+
             let resp = self
                 .client
                 .post(format!("{}/sendMessage", self.base_url))
@@ -52,6 +60,46 @@ impl TelegramApi {
                 .send()
                 .await
                 .map_err(|e| ChannelError::ProviderApi(format!("Telegram sendMessage failed: {e}")))?;
+
+            if resp.status().as_u16() == 400 {
+                // Markdown parse error — retry without parse_mode
+                let resp_text = resp.text().await.unwrap_or_default();
+                if resp_text.contains("can't parse entities") {
+                    warn!("Telegram Markdown parse error, retrying as plain text");
+                    let mut plain_body = serde_json::json!({
+                        "chat_id": chat_id,
+                        "text": chunk,
+                    });
+                    if let Some(id) = reply_id {
+                        plain_body["reply_parameters"] =
+                            serde_json::json!({ "message_id": id });
+                    }
+                    let retry_resp = self
+                        .client
+                        .post(format!("{}/sendMessage", self.base_url))
+                        .json(&plain_body)
+                        .send()
+                        .await
+                        .map_err(|e| {
+                            ChannelError::ProviderApi(format!(
+                                "Telegram sendMessage retry failed: {e}"
+                            ))
+                        })?;
+                    if !retry_resp.status().is_success() {
+                        let status = retry_resp.status();
+                        let text = retry_resp.text().await.unwrap_or_default();
+                        warn!(status = %status, body = %text, "Telegram sendMessage error (plain text retry)");
+                        return Err(ChannelError::ProviderApi(format!(
+                            "Telegram sendMessage returned {status}: {text}"
+                        )));
+                    }
+                    continue;
+                }
+                warn!(status = 400, body = %resp_text, "Telegram sendMessage error");
+                return Err(ChannelError::ProviderApi(format!(
+                    "Telegram sendMessage returned 400 Bad Request: {resp_text}"
+                )));
+            }
 
             if !resp.status().is_success() {
                 let status = resp.status();
@@ -142,6 +190,69 @@ impl TelegramApi {
             .unwrap_or_default();
 
         Ok(updates)
+    }
+
+    /// Send a chat action indicator (e.g., "typing").
+    pub async fn send_chat_action(
+        &self,
+        chat_id: &str,
+        action: &str,
+    ) -> Result<(), ChannelError> {
+        let body = serde_json::json!({
+            "chat_id": chat_id,
+            "action": action,
+        });
+
+        let resp = self
+            .client
+            .post(format!("{}/sendChatAction", self.base_url))
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| {
+                ChannelError::ProviderApi(format!("Telegram sendChatAction failed: {e}"))
+            })?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            warn!(status = %status, body = %text, "Telegram sendChatAction error");
+        }
+
+        Ok(())
+    }
+
+    /// Set a reaction emoji on a message (Bot API 7.0+). Best-effort.
+    pub async fn set_message_reaction(
+        &self,
+        chat_id: &str,
+        message_id: i64,
+        emoji: &str,
+    ) -> Result<(), ChannelError> {
+        let body = serde_json::json!({
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "reaction": [{ "type": "emoji", "emoji": emoji }],
+        });
+
+        let resp = self
+            .client
+            .post(format!("{}/setMessageReaction", self.base_url))
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| {
+                ChannelError::ProviderApi(format!("Telegram setMessageReaction failed: {e}"))
+            })?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            // Best-effort — older bots or privacy settings may block reactions
+            warn!(status = %status, body = %text, "Telegram setMessageReaction error (ignored)");
+        }
+
+        Ok(())
     }
 
     /// Get chat info (for validation/discovery).

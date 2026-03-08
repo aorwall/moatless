@@ -5,11 +5,15 @@ use std::time::Duration;
 use tracing::{debug, info, warn};
 
 use crate::channel::error::ChannelError;
-use crate::channel::models::{ChannelConfig, ChannelThread, InboundMessage, OutboundReply};
+use crate::channel::models::{
+    ChannelConfig, ChannelThread, InboundMessage, MessageStatus, OutboundReply,
+};
 use crate::channel::provider::{ChannelProvider, ChannelType};
 use crate::db::DbPool;
 
+use super::access::{self, AccessDecision};
 use super::api::TelegramApi;
+use super::config::TelegramProviderConfig;
 
 /// Result of parsing a Telegram webhook update.
 pub enum TelegramWebhookResult {
@@ -92,11 +96,6 @@ impl TelegramProvider {
 
         let text = message.get("text").and_then(|v| v.as_str()).unwrap_or("");
 
-        if text.is_empty() {
-            debug!(update_id, "Telegram message has no text, ignoring");
-            return Ok(TelegramWebhookResult::Ignore);
-        }
-
         // 5. Extract sender (from field — absent in channel_post)
         let from = message.get("from");
         let from_id = from
@@ -108,21 +107,84 @@ impl TelegramProvider {
             return Ok(TelegramWebhookResult::Ignore);
         };
 
+        // 5.5. Parse typed provider config
+        let tg_config = TelegramProviderConfig::from_config(config);
+
+        // 5.6. Handle /start and /help before access control (always respond)
+        let chat_id_str = chat_id.to_string();
+        if !text.is_empty() {
+            let trimmed = text.trim();
+            if trimmed == "/start" || trimmed.starts_with("/start@") {
+                self.api
+                    .send_message(
+                        &chat_id_str,
+                        "Welcome! Send me a message to get started.",
+                        None,
+                        None,
+                    )
+                    .await
+                    .ok();
+                return Ok(TelegramWebhookResult::Ignore);
+            }
+            if trimmed == "/help" || trimmed.starts_with("/help@") {
+                self.api
+                    .send_message(
+                        &chat_id_str,
+                        "Send any message and I'll create a task for it.",
+                        None,
+                        None,
+                    )
+                    .await
+                    .ok();
+                return Ok(TelegramWebhookResult::Ignore);
+            }
+        }
+
+        if text.is_empty() {
+            debug!(update_id, "Telegram message has no text, ignoring");
+            return Ok(TelegramWebhookResult::Ignore);
+        }
+
         // 6. Handle reply threading
         let reply_to_message_id = message
             .pointer("/reply_to_message/message_id")
             .and_then(serde_json::Value::as_i64);
 
         // 7. Strip bot mention from group messages
-        let bot_username = config
-            .provider_config
-            .as_ref()
-            .and_then(|c| c.get("bot_username"))
-            .and_then(|v| v.as_str());
-
+        let bot_username = tg_config.bot_username.as_deref();
         let clean_text = strip_bot_mention(text, bot_username);
         if clean_text.trim().is_empty() {
             return Ok(TelegramWebhookResult::Ignore);
+        }
+
+        // 7.5. Access control
+        let from_username = from.and_then(|f| f.get("username")).and_then(|v| v.as_str());
+        let from_first_name = from.and_then(|f| f.get("first_name")).and_then(|v| v.as_str());
+        let from_last_name = from.and_then(|f| f.get("last_name")).and_then(|v| v.as_str());
+
+        let access_decision = if is_private_chat {
+            let ctx = access::DmAccessContext {
+                tg_config: &tg_config,
+                from_id,
+                from_username,
+                from_first_name,
+                from_last_name,
+                config,
+                api: &self.api,
+                chat_id,
+                db,
+            };
+            access::enforce_dm_access(&ctx).await?
+        } else {
+            access::enforce_group_access(&tg_config, chat_id, &clean_text)
+        };
+
+        match access_decision {
+            AccessDecision::Blocked | AccessDecision::PairingSent => {
+                debug!(from_id, chat_id, ?access_decision, "Access denied");
+                return Ok(TelegramWebhookResult::Ignore);
+            }
+            AccessDecision::Allowed => {}
         }
 
         // 8. Resolve Telegram user → system user (fall back to config owner for unmapped users)
@@ -139,19 +201,29 @@ impl TelegramProvider {
             config.created_by.clone()
         };
 
-        // 9. Build thread properties
-        let chat_id_str = chat_id.to_string();
+        // 9. Extract forum/topic fields
+        let is_forum = message
+            .pointer("/chat/is_forum")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        let forum_topic_id = message
+            .get("message_thread_id")
+            .and_then(serde_json::Value::as_i64);
+
+        // 10. Build thread properties
         let thread_properties = serde_json::json!({
             "chat_id": chat_id_str,
             "message_id": message_id,
+            "forum_topic_id": forum_topic_id,
         });
 
         // Threading strategy:
         // - Private chats (DMs): use chat_id as thread key so all messages from
         //   the same user thread together into one persistent task.
-        // - Group chats: use reply_to_message_id for thread continuity,
+        // - Forum groups: use chat_id:topic_id as thread key.
+        // - Non-forum groups: use reply_to_message_id for thread continuity,
         //   otherwise each message starts its own thread.
-        let (thread_id, message_thread_id, effective_source_id) = if is_private_chat {
+        let (thread_id, msg_thread_id, effective_source_id) = if is_private_chat {
             (
                 Some(chat_id_str.clone()),
                 chat_id_str.clone(),
@@ -162,12 +234,19 @@ impl TelegramProvider {
                     chat_id_str.clone()
                 },
             )
+        } else if let (true, Some(topic_id)) = (is_forum, forum_topic_id) {
+            let topic_key = format!("{chat_id_str}:{topic_id}");
+            (
+                Some(topic_key.clone()),
+                topic_key,
+                chat_id_str.clone(),
+            )
         } else {
             let thread_id = reply_to_message_id.map(|id| id.to_string());
-            let message_thread_id = reply_to_message_id
+            let msg_thread_id = reply_to_message_id
                 .unwrap_or(message_id)
                 .to_string();
-            (thread_id, message_thread_id, chat_id_str.clone())
+            (thread_id, msg_thread_id, chat_id_str.clone())
         };
 
         info!(
@@ -177,6 +256,8 @@ impl TelegramProvider {
             from_id,
             thread_id = ?thread_id,
             is_private_chat,
+            is_forum,
+            forum_topic_id,
             "Telegram message parsed"
         );
 
@@ -184,7 +265,7 @@ impl TelegramProvider {
             provider: ChannelType::Telegram,
             source_id: effective_source_id,
             thread_id,
-            message_thread_id,
+            message_thread_id: msg_thread_id,
             user_id,
             text: clean_text,
             file_ids: vec![],
@@ -244,16 +325,55 @@ impl ChannelProvider for TelegramProvider {
             .get("message_id")
             .and_then(serde_json::Value::as_i64);
 
+        let forum_topic_id = thread
+            .properties
+            .get("forum_topic_id")
+            .and_then(serde_json::Value::as_i64);
+
         let mut text = message.text.clone();
         if let Some(ref url) = message.task_url {
             use std::fmt::Write;
             let _ = write!(text, "\n\n[View task]({url})");
         }
 
-        self.api.send_message(chat_id, &text, reply_to).await
+        self.api
+            .send_message(chat_id, &text, reply_to, forum_topic_id)
+            .await
     }
 
-    // set_status: default no-op (no Telegram equivalent to Slack reactions)
+    async fn set_status(
+        &self,
+        thread: &ChannelThread,
+        _config: &ChannelConfig,
+        status: MessageStatus,
+    ) -> Result<(), ChannelError> {
+        let chat_id = match thread.properties.get("chat_id").and_then(|v| v.as_str()) {
+            Some(id) => id,
+            None => return Ok(()),
+        };
+
+        // Send typing indicator
+        if matches!(status, MessageStatus::Processing) {
+            let _ = self.api.send_chat_action(chat_id, "typing").await;
+        }
+
+        // Set reaction emoji (best-effort)
+        if let Some(message_id) = thread.properties.get("message_id").and_then(serde_json::Value::as_i64) {
+            let emoji = match status {
+                MessageStatus::Processing => "\u{1F440}",   // 👀
+                MessageStatus::Completed => "\u{2705}",     // ✅
+                MessageStatus::Error => "\u{274C}",         // ❌
+                MessageStatus::PendingResponse => return Ok(()),
+            };
+            let _ = self
+                .api
+                .set_message_reaction(chat_id, message_id, emoji)
+                .await;
+        }
+
+        Ok(())
+    }
+
     // fetch_context: default no-op (Bot API doesn't support fetching chat history)
 }
 

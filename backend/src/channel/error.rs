@@ -24,6 +24,9 @@ pub enum ChannelError {
     #[error("Provider API error: {0}")]
     ProviderApi(String),
 
+    #[error("Access denied: {0}")]
+    AccessDenied(String),
+
     #[error("Internal error: {0}")]
     Internal(String),
 }
@@ -44,6 +47,7 @@ impl IntoResponse for ChannelError {
                     "Internal server error".to_string(),
                 )
             }
+            ChannelError::AccessDenied(_) => (StatusCode::FORBIDDEN, self.to_string()),
             ChannelError::ProviderApi(_) => {
                 (StatusCode::BAD_GATEWAY, self.to_string())
             }

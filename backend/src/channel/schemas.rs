@@ -73,6 +73,19 @@ pub struct SlackChannelInfoResponse {
     pub name: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PairingQuery {
+    pub config_id: String,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ApprovePairingRequest {
+    pub config_id: String,
+    pub code: String,
+}
+
 impl ChannelConfigResponse {
     pub fn from_model(row: &super::models::ChannelConfig) -> Self {
         let provider = ChannelType::parse(&row.provider)
