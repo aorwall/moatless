@@ -21,6 +21,9 @@ pub enum RepoAction {
         branch: String,
         #[arg(long, default_value = "github")]
         provider: String,
+        /// Repository kind: remote, template, or git
+        #[arg(long, default_value = "remote")]
+        kind: String,
     },
     /// Update a repository
     Update {
@@ -57,12 +60,14 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
             git_url,
             branch,
             provider,
+            kind,
         } => {
             let body = serde_json::json!({
                 "name": name,
-                "gitUrl": git_url,
+                "kind": kind,
+                "remoteUrl": git_url,
                 "defaultBranch": branch,
-                "gitProvider": provider,
+                "provider": provider,
             });
             let resp = client.post("/api/v1/repositories", &body).await?;
             if json {
@@ -113,7 +118,7 @@ fn format_repo_list(resp: &serde_json::Value) {
             vec![
                 r.get("id").and_then(|v| v.as_str()).unwrap_or("-").to_string(),
                 r.get("name").and_then(|v| v.as_str()).unwrap_or("-").to_string(),
-                r.get("gitProvider")
+                r.get("provider")
                     .and_then(|v| v.as_str())
                     .unwrap_or("-")
                     .to_string(),
@@ -139,7 +144,7 @@ fn format_repo_detail(resp: &serde_json::Value) {
         .get("defaultBranch")
         .and_then(|v| v.as_str())
         .unwrap_or("-");
-    let git_url = resp.get("gitUrl").and_then(|v| v.as_str()).unwrap_or("-");
+    let git_url = resp.get("remoteUrl").and_then(|v| v.as_str()).unwrap_or("-");
 
     println!("ID:       {id}");
     println!("Name:     {name}");

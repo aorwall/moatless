@@ -203,6 +203,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Seed default repositories
         repository::seed::seed_default_repositories(&*app_state.repositories).await;
 
+        // Ensure local-user exists in dev mode (no auth provider)
+        if config.auth.provider.is_none() {
+            auth::local_user::ensure_local_user(app_state.users.as_ref()).await;
+        }
+
         // Ensure test API user + key (if configured)
         if let Some(ref key) = config.auth.test_api_key {
             let api_keys = moatless_vibe_backend::auth::api_keys::PgApiKeyRepository(

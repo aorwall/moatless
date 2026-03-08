@@ -347,6 +347,113 @@ Legacy types for the old Node.js API (`/api/v1/channels/slack/mappings`). These 
 
 ---
 
+## 7. Replace Local/Test User with Password Auth + Seed User
+
+**Status:** Not implemented — needs design + build
+
+### Current State
+
+The backend has two hardcoded dev/test user mechanisms that bypass real authentication:
+
+- **`local_user.rs`** — `ensure_local_user()` auto-creates a `"local-user"` (Admin, provider `"none"`) on startup when no auth provider is configured
+- **`test_user.rs`** — `ensure_test_user()` auto-creates `"test-api-user"` (Admin) when `TEST_API_KEY` env var is set
+
+In dev mode (`AUTH_PROVIDER` unset), the auth middleware **skips all validation entirely**, and the extractors fall back to `"local-user"` identity with no credentials required. This means any request is implicitly authenticated as an admin.
+
+### What Needs to Change
+
+1. **Remove `local_user.rs` and `test_user.rs`** — delete the modules and their registration in `auth/mod.rs`
+2. **Add password-based login** — hash with argon2 or bcrypt, store password hash in `users` table (new column)
+3. **Add `POST /api/v1/auth/login` endpoint** — accepts username + password, returns session JWT (same session flow as OAuth)
+4. **Seed default user** — migration or startup function creates a default admin user with configurable credentials (env vars: `DEFAULT_USER_EMAIL`, `DEFAULT_USER_PASSWORD`)
+5. **Always validate in middleware** — remove the dev-mode bypass (`config.auth.provider.is_none()` → skip). Middleware must check session/API key on every request regardless of mode
+6. **Remove `"local-user"` fallback from extractors** — `extractors.rs` must return 401 when no valid identity exists, not silently default to an admin user
+
+### Key Files
+
+- `backend/src/auth/local_user.rs` — to be removed
+- `backend/src/auth/test_user.rs` — to be removed
+- `backend/src/auth/mod.rs` — remove `pub mod local_user` and `pub mod test_user`
+- `backend/src/auth/middleware.rs` — remove dev-mode bypass (line ~95)
+- `backend/src/extractors.rs` — remove `"local-user"` fallback in dev mode
+- `backend/src/auth/routes.rs` — add `POST /api/v1/auth/login`
+- `backend/src/auth/schemas.rs` — add `LoginRequest { email, password }`
+- `backend/src/auth/models.rs` — add password hash field to user model
+- `backend/src/main.rs` — replace `ensure_local_user()`/`ensure_test_user()` with seed user
+
+### Action Items
+
+- [ ] Add `password_hash` column to `users` table (migration)
+- [ ] Implement password hashing (argon2 or bcrypt crate)
+- [ ] Add `POST /api/v1/auth/login` handler
+- [ ] Add seed user on startup (configurable via env vars)
+- [ ] Remove `local_user.rs`, `test_user.rs`, and dev-mode bypass
+- [ ] Remove `"local-user"` fallback from extractors
+- [ ] Update frontend login page to support username/password (alongside OAuth)
+- [ ] Ensure `TEST_API_KEY` flow still works via the standard API key mechanism (no special user needed)
+
+---
+
+## 8. Shared API Schemas Between CLI and Backend
+
+**Status:** Not implemented — needs design + build
+
+### Current State
+
+The CLI crate (`crates/cli/`) constructs all API requests as untyped `serde_json::json!()` calls with manually-written field names. There is **zero compile-time type safety** — if the backend renames a field (e.g. `gitUrl` → `git_url`), the CLI silently sends the wrong data.
+
+Meanwhile, the backend has well-typed schemas in each module's `schemas.rs` (12 modules with request/response DTOs). The TypeScript frontend gets auto-generated types from the OpenAPI spec via orval. Only the Rust CLI is left without type safety.
+
+**Examples of untyped CLI code (`crates/cli/src/commands/repos.rs`):**
+```rust
+let body = serde_json::json!({
+    "name": name,
+    "gitUrl": git_url,
+    "defaultBranch": branch,
+    "gitProvider": provider,
+});
+```
+
+This mirrors `backend/src/repository/schemas.rs::CreateRepositoryRequest` but isn't type-checked.
+
+### Proposed Approach
+
+**Option A: Shared Rust crate (recommended)**
+
+Create `crates/api-schemas/` following the existing `crates/events/` pattern:
+- Move API request/response types from `backend/src/*/schemas.rs` into the shared crate
+- Backend depends on it with a `utoipa` feature flag (for `ToSchema` derive)
+- CLI depends on it for typed requests/responses (no OpenAPI dependency)
+- Single source of truth — field renames break at compile time in both backend and CLI
+
+**Option B: Generate Rust client from OpenAPI**
+
+Similar to the TypeScript approach:
+- Backend dumps OpenAPI spec (`cargo run -- --dump-openapi`)
+- Use a Rust OpenAPI generator (e.g. `progenitor`, `openapi-generator`) to create a typed client crate
+- CLI depends on the generated client
+
+This is more complex to set up but mirrors the frontend workflow exactly.
+
+### Key Files
+
+- `crates/cli/src/commands/*.rs` — all command files use untyped JSON
+- `backend/src/*/schemas.rs` — 12 modules with typed DTOs
+- `crates/events/src/lib.rs` — existing shared crate pattern to follow
+- `packages/api-client/orval.config.ts` — TypeScript generation config (for reference)
+
+### Action Items
+
+- [ ] Decide on approach (A: shared crate vs B: generated client)
+- [ ] Create `crates/api-schemas/` with workspace member registration
+- [ ] Extract API types from backend schemas into shared crate
+- [ ] Add `utoipa` feature flag for backend-only OpenAPI derives
+- [ ] Update backend to import schemas from shared crate
+- [ ] Update CLI to use typed requests/responses instead of `serde_json::json!()`
+- [ ] Ensure `serde(rename_all = "camelCase")` is consistent across shared types
+
+---
+
 ## Priority Order
 
 1. **File upload** — quick verification, likely works
@@ -355,3 +462,5 @@ Legacy types for the old Node.js API (`/api/v1/channels/slack/mappings`). These 
 4. **Git push fallback** — needs design decision + implementation
 5. **Missing backend endpoints** — track as backend features are built (5a/5b/5c)
 6. **Type safety gaps** — address 6b (high risk) first, then 6a/6c/6d
+7. **Auth cleanup** — replace local/test user with password login + seed user
+8. **Shared API schemas** — create shared crate for CLI ↔ backend type safety

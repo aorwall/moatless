@@ -95,10 +95,29 @@ pub async fn process_inbound(
         }
     };
 
-    // Create or update thread record
+    // Create or update thread record.
+    // For ongoing mode without a thread_id, reuse the existing thread for this
+    // task+config to avoid duplicate outbound replies.
     let thread = if let Some(existing) = thread {
         state.channel_threads.touch(existing.id, Some(&msg.thread_properties)).await?;
         existing
+    } else if config.routing_mode == RoutingMode::Ongoing {
+        // Try to find an existing thread for this task+config before creating a new one
+        match state.channel_threads.find_by_task_id_and_config(&task_id, &config.id).await? {
+            Some(existing) => {
+                state.channel_threads.touch(existing.id, Some(&msg.thread_properties)).await?;
+                existing
+            }
+            None => {
+                state.channel_threads.insert(
+                    &config.id,
+                    &task_id,
+                    &msg.message_thread_id,
+                    &msg.thread_properties,
+                )
+                .await?
+            }
+        }
     } else {
         state.channel_threads.insert(
             &config.id,

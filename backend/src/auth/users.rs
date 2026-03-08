@@ -28,10 +28,8 @@ impl User {
     }
 
     /// Extract the default channel repository ID from user settings.
-    pub fn default_channel_repository_id(&self) -> Option<&str> {
-        self.settings
-            .get("default_channel_repository_id")
-            .and_then(|v| v.as_str())
+    pub fn default_channel_repository_id(&self) -> Option<String> {
+        self.parsed_settings().default_channel_repository_id
     }
 }
 

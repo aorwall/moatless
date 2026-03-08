@@ -609,7 +609,7 @@ async fn resolve_default_repo(
         _ => return (None, Some(user_id)),
     };
 
-    if let Some(repo_id) = user.default_channel_repository_id() {
+    if let Some(ref repo_id) = user.default_channel_repository_id() {
         if let Ok(Some(repo)) = state.repositories.find_repository_by_id(repo_id).await {
             info!(
                 user_id = %user_id,

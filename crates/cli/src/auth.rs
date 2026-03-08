@@ -213,10 +213,17 @@ pub async fn ensure_auth(client: &mut MoatClient, config: &Config) -> Result<(),
     match &config.auth_mode {
         AuthMode::Sandbox { .. } => ensure_session_sandbox(client, config).await,
         AuthMode::Standalone { api_key } => {
-            if api_key.is_some() {
-                Ok(())
+            if api_key.is_none() {
+                // No API key — try an unauthenticated probe to see if the
+                // server requires auth.  If it returns 401 we surface
+                // the "not logged in" error; otherwise let it through.
+                match client.get("/api/v1/repositories").await {
+                    Ok(_) => Ok(()),
+                    Err(ClientError::Unauthorized) => Err(ClientError::NotLoggedIn),
+                    Err(_) => Ok(()), // network / other error — let the actual command handle it
+                }
             } else {
-                Err(ClientError::NotLoggedIn)
+                Ok(())
             }
         }
     }
