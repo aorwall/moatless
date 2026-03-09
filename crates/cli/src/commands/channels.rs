@@ -51,6 +51,9 @@ pub enum ChannelDefaultsAction {
         /// Provider-specific config as JSON (e.g. '{"dm_access_policy":"pairing"}')
         #[arg(long)]
         provider_config: Option<String>,
+        /// Team ID to scope the defaults to
+        #[arg(long)]
+        team: Option<String>,
     },
 }
 
@@ -134,6 +137,7 @@ async fn run_defaults(
             repo,
             mode,
             provider_config,
+            team,
         } => {
             let parsed_config = provider_config
                 .as_deref()
@@ -149,6 +153,7 @@ async fn run_defaults(
                 "repositoryId": repo,
                 "routingMode": mode,
                 "providerConfig": parsed_config,
+                "teamId": team,
             });
 
             let resp = client
