@@ -9,35 +9,20 @@ FROM ubuntu:24.04
 ENV LANG="C.UTF-8"
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Add nodesource repo first, then single apt-get update + install for everything.
-# Combining into one RUN avoids stale apt indexes between layers (which cause 404s
-# when Ubuntu mirrors supersede packages between separate apt-get update calls).
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
-    && apt-get update \
+# Install essential system packages
+RUN apt-get update \
     && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
-        # Essential tools
-        curl \
-        wget \
-        git \
-        git-lfs \
-        gnupg2 \
-        ca-certificates \
-        build-essential \
-        jq \
-        ripgrep \
-        unzip \
-        zip \
-        # Network tools
-        dnsutils \
-        iputils-ping \
-        netcat-openbsd \
-        openssh-client \
-        # Dev tools
-        vim \
-        less \
-        procps \
-        lsof \
+        curl wget git git-lfs gnupg2 ca-certificates \
+        build-essential jq ripgrep unzip zip \
+        dnsutils iputils-ping netcat-openbsd openssh-client \
+        vim less procps lsof \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js 22 from nodesource (includes npm)
+# IMPORTANT: Do NOT run apt-get update after setup_22.x — it already does that.
+# Running it again would re-fetch Ubuntu's repo which has nodejs 18 at higher priority.
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
