@@ -128,6 +128,90 @@ jobs:
           path: apps/frontend/dist
           retention-days: 1
 
+  # ── Build sandbox binary (runs in parallel, no dependencies) ──
+  build-sandbox:
+    name: Build sandbox
+    runs-on: ubuntu-latest
+    env:
+      SCCACHE_GHA_ENABLED: true
+      RUSTC_WRAPPER: sccache
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.7
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+          shared-key: rust-release
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build sandbox (release)
+        run: |
+          # Fall back to direct rustc if sccache is unhealthy
+          sccache --zero-stats 2>/dev/null || unset RUSTC_WRAPPER
+          cargo build -p moatless-sandbox --release
+
+      - name: Upload sandbox binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: sandbox-binary
+          path: target/release/sandbox
+          retention-days: 1
+
+  # ── Build CLI binary (needs OpenAPI spec from generate-client) ──
+  build-cli:
+    name: Build CLI
+    needs: generate-client
+    runs-on: ubuntu-latest
+    env:
+      SCCACHE_GHA_ENABLED: true
+      RUSTC_WRAPPER: sccache
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download generated client
+        uses: actions/download-artifact@v4
+        with:
+          name: generated-client
+
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.7
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+          shared-key: rust-release
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build CLI (release)
+        run: |
+          # Fall back to direct rustc if sccache is unhealthy
+          sccache --zero-stats 2>/dev/null || unset RUSTC_WRAPPER
+          cargo build -p moatless-cli --release
+
+      - name: Upload CLI binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-binary
+          path: target/release/moat
+          retention-days: 1
+
   # ── Docker image builds (push to main only) ──
   build-frontend-image:
     name: Build & push frontend image
@@ -187,39 +271,26 @@ jobs:
 
   build-sandbox-image:
     name: Build & push sandbox image
-    needs: build-and-check-frontend
+    needs: [build-and-check-frontend, build-sandbox, build-cli]
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
-    env:
-      SCCACHE_GHA_ENABLED: true
-      RUSTC_WRAPPER: sccache
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install protoc
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.7
-
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
+      - name: Download sandbox binary
+        uses: actions/download-artifact@v4
         with:
-          workspaces: ". -> target"
-          shared-key: rust-release
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          name: sandbox-binary
+          path: /tmp/sandbox-binaries/amd64
 
-      - name: Build Rust sandbox binary
-        run: |
-          # Fall back to direct rustc if sccache is unhealthy
-          sccache --zero-stats 2>/dev/null || unset RUSTC_WRAPPER
-          cargo build -p moatless-sandbox -p moatless-cli --release
-          mkdir -p /tmp/sandbox-binaries/amd64
-          cp target/release/sandbox /tmp/sandbox-binaries/amd64/sandbox
-          cp target/release/moat /tmp/sandbox-binaries/amd64/moat
+      - name: Download CLI binary
+        uses: actions/download-artifact@v4
+        with:
+          name: cli-binary
+          path: /tmp/sandbox-binaries/amd64
+
+      - name: Prepare binaries
+        run: chmod +x /tmp/sandbox-binaries/amd64/sandbox /tmp/sandbox-binaries/amd64/moat
 
       - name: Login to Docker Hub
         run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
