@@ -11,6 +11,9 @@ env:
   SANDBOX_IMAGE_NAME: aorwall/moatless-vibe-sandbox-js
   BACKEND_IMAGE_NAME: aorwall/moatless-vibe-backend
   PREVIEW_SERVER_IMAGE: aorwall/moatless-vibe-preview-server
+  CARGO_INCREMENTAL: 0
+  SCCACHE_GHA_ENABLED: true
+  RUSTC_WRAPPER: sccache
 
 jobs:
   # ── Build backend binary (reused by generate-spec + Docker image) ──
@@ -26,10 +29,15 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.7
+
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: ". -> target"
+          shared-key: rust-release
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Build backend (release)
         run: cargo build -p moatless-vibe-backend --release
@@ -198,10 +206,15 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.7
+
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: ". -> target"
+          shared-key: rust-release
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Build Rust sandbox binary
         run: |
