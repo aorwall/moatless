@@ -9,7 +9,7 @@ use tracing::{info, warn};
 use super::client::K8sClient;
 use crate::auth::provider_token_dao::ProviderTokenRepository;
 use crate::repository::dao::RepoRepository;
-use crate::repository::models::{Repository, RepositoryProvider};
+use crate::repository::models::{Repository, RepositoryProvider, ResourceConfig};
 use crate::task::dao::TaskRepository;
 use crate::sandbox::error::SandboxError;
 use crate::sandbox::models::{ProvisionPlan, ProvisionRequest, RepoConfig, ServerConfig};
@@ -202,6 +202,12 @@ pub fn build_repo_config(repo: &Repository) -> RepoConfig {
     // Build code_execution pass-through
     let code_execution = build_code_execution(repo);
 
+    // Parse per-repo resources from JSONB
+    let resources: Option<ResourceConfig> = repo
+        .resources
+        .as_ref()
+        .and_then(|v| serde_json::from_value(v.clone()).ok());
+
     RepoConfig {
         name: repo.name.clone(),
         docker_image: repo.docker_image.clone(),
@@ -214,6 +220,7 @@ pub fn build_repo_config(repo: &Repository) -> RepoConfig {
         system_prompt: repo.system_prompt.clone(),
         code_execution,
         preview_config,
+        resources,
         docker_access: None,
         docker_networks: None,
     }

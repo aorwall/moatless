@@ -1,10 +1,23 @@
 //! Repository domain types — typed enums and DB row structs.
 
+use std::collections::HashMap;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::scope::Scope;
 use crate::task::models::Visibility;
+
+// =============================================================================
+// ResourceConfig
+// =============================================================================
+
+/// Per-repository K8s resource requests/limits configuration.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema, Default)]
+pub struct ResourceConfig {
+    pub requests: Option<HashMap<String, String>>,
+    pub limits: Option<HashMap<String, String>>,
+}
 
 // =============================================================================
 // RepositoryKind
@@ -166,6 +179,7 @@ pub struct Repository {
     pub scope: Scope,
     pub team_id: Option<String>,
     pub created_by: Option<String>,
+    pub resources: Option<serde_json::Value>,
     pub deleted: Option<bool>,
     pub created_at: Option<DateTime<Utc>>,
     pub updated_at: Option<DateTime<Utc>>,

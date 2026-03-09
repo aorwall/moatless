@@ -380,17 +380,33 @@ fn build_server_containers(
             ..Default::default()
         };
 
-        // Resource limits
-        let resources = ResourceRequirements {
-            limits: Some(BTreeMap::from([
-                ("cpu".to_string(), Quantity(config.sandbox.resources_cpu_limit.clone())),
-                ("memory".to_string(), Quantity(config.sandbox.resources_memory_limit.clone())),
-            ])),
-            requests: Some(BTreeMap::from([
-                ("cpu".to_string(), Quantity(config.sandbox.resources_cpu_request.clone())),
-                ("memory".to_string(), Quantity(config.sandbox.resources_memory_request.clone())),
-            ])),
-            ..Default::default()
+        // Resource limits: use per-repo override if set, otherwise global defaults
+        let resources = if let Some(ref res) = plan.repo_config.resources {
+            ResourceRequirements {
+                limits: res.limits.as_ref().map(|l| {
+                    l.iter()
+                        .map(|(k, v)| (k.clone(), Quantity(v.clone())))
+                        .collect()
+                }),
+                requests: res.requests.as_ref().map(|r| {
+                    r.iter()
+                        .map(|(k, v)| (k.clone(), Quantity(v.clone())))
+                        .collect()
+                }),
+                ..Default::default()
+            }
+        } else {
+            ResourceRequirements {
+                limits: Some(BTreeMap::from([
+                    ("cpu".to_string(), Quantity(config.sandbox.resources_cpu_limit.clone())),
+                    ("memory".to_string(), Quantity(config.sandbox.resources_memory_limit.clone())),
+                ])),
+                requests: Some(BTreeMap::from([
+                    ("cpu".to_string(), Quantity(config.sandbox.resources_cpu_request.clone())),
+                    ("memory".to_string(), Quantity(config.sandbox.resources_memory_request.clone())),
+                ])),
+                ..Default::default()
+            }
         };
 
         containers.push(Container {

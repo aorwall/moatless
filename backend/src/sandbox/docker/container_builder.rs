@@ -474,6 +474,7 @@ mod tests {
                 system_prompt: None,
                 code_execution: None,
                 preview_config: None,
+                resources: None,
                 docker_access: None,
                 docker_networks: None,
             },

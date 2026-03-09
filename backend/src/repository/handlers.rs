@@ -79,6 +79,7 @@ pub async fn create_repository(
         build_output_directory: req.build_output_directory,
         enable_inspector: req.enable_inspector,
         auto_reload: req.auto_reload,
+        resources: req.resources.map(to_json).transpose()?,
         description: req.description,
         provider: req.provider,
         visibility: Some(req.visibility.unwrap_or(Visibility::Public)),
@@ -234,6 +235,7 @@ pub async fn update_repository(
         build_output_directory: req.build_output_directory.map(Some),
         enable_inspector: req.enable_inspector.map(Some),
         auto_reload: req.auto_reload.map(Some),
+        resources: req.resources.map(to_json).transpose()?.map(Some),
         ..Default::default()
     };
 

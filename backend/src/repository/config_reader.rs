@@ -6,7 +6,7 @@ use tracing::debug;
 use super::dao::RepositoryPatch;
 use super::error::RepositoryError;
 use super::handlers::parse_github_owner_repo;
-use super::models::RepositoryProvider;
+use super::models::{RepositoryProvider, ResourceConfig};
 use crate::sandbox::models::ServerConfig;
 
 /// Top-level `.moatless/config.json` schema.
@@ -16,6 +16,7 @@ pub struct MoatlessRepoConfig {
     pub code_execution: Option<CodeExecution>,
     pub servers: Option<Vec<ServerConfig>>,
     pub system_prompt: Option<String>,
+    pub resources: Option<ResourceConfig>,
 }
 
 /// Code execution settings.
@@ -178,10 +179,19 @@ pub fn config_to_patch(config: &MoatlessRepoConfig) -> Result<RepositoryPatch, R
 
     let system_prompt = config.system_prompt.as_ref().map(|s| Some(s.clone()));
 
+    let resources = config
+        .resources
+        .as_ref()
+        .map(serde_json::to_value)
+        .transpose()
+        .map_err(|e| RepositoryError::BadRequest(format!("Serialization error: {e}")))?
+        .map(Some);
+
     Ok(RepositoryPatch {
         system_prompt,
         servers,
         setup_commands,
+        resources,
         ..Default::default()
     })
 }
@@ -237,6 +247,7 @@ mod tests {
                 ..Default::default()
             }]),
             system_prompt: Some("Be helpful".to_string()),
+            resources: None,
         };
 
         let patch = config_to_patch(&config).unwrap();
@@ -254,6 +265,7 @@ mod tests {
             code_execution: None,
             servers: None,
             system_prompt: None,
+            resources: None,
         };
 
         let patch = config_to_patch(&config).unwrap();

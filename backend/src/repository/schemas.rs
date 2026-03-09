@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use super::models::{Repository, RepositoryKind, RepositoryProvider};
+use super::models::{Repository, RepositoryKind, RepositoryProvider, ResourceConfig};
 use crate::sandbox::models::ServerConfig;
 use crate::scope::Scope;
 use crate::task::models::Visibility;
@@ -34,6 +34,7 @@ pub struct CreateRepositoryRequest {
     pub build_output_directory: Option<String>,
     pub enable_inspector: Option<bool>,
     pub auto_reload: Option<bool>,
+    pub resources: Option<ResourceConfig>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -56,6 +57,7 @@ pub struct UpdateRepositoryRequest {
     pub build_output_directory: Option<String>,
     pub enable_inspector: Option<bool>,
     pub auto_reload: Option<bool>,
+    pub resources: Option<ResourceConfig>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -83,6 +85,7 @@ pub struct RepositoryResponse {
     pub build_output_directory: Option<String>,
     pub enable_inspector: Option<bool>,
     pub auto_reload: Option<bool>,
+    pub resources: Option<ResourceConfig>,
     pub created_by: Option<String>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
@@ -132,6 +135,7 @@ impl From<Repository> for RepositoryResponse {
             build_output_directory: r.build_output_directory,
             enable_inspector: r.enable_inspector,
             auto_reload: r.auto_reload,
+            resources: r.resources.and_then(|v| serde_json::from_value(v).ok()),
             created_by: r.created_by,
             created_at: r.created_at.map(|t| t.to_rfc3339()),
             updated_at: r.updated_at.map(|t| t.to_rfc3339()),

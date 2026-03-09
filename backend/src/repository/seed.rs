@@ -52,6 +52,7 @@ async fn seed_moatable(repos: &dyn RepoRepository) -> Result<(), sqlx::Error> {
         build_output_directory: None,
         enable_inspector: None,
         auto_reload: None,
+        resources: None,
         description: Some("React + TypeScript + Vite + Tailwind CSS starter template".to_string()),
         provider: Some(RepositoryProvider::Github),
         visibility: Some(Visibility::Public),

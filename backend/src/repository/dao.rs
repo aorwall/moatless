@@ -16,6 +16,7 @@ const REPO_COLUMNS: &str = r#"
     build_command, build_output_directory,
     enable_inspector, auto_reload,
     description, provider, visibility, scope, team_id, created_by,
+    resources,
     deleted, created_at, updated_at
 "#;
 
@@ -41,6 +42,7 @@ pub struct RepositoryPatch {
     pub build_output_directory: Option<Option<String>>,
     pub enable_inspector: Option<Option<bool>>,
     pub auto_reload: Option<Option<bool>>,
+    pub resources: Option<Option<serde_json::Value>>,
 }
 
 /// Repository trait for repository persistence.
@@ -121,6 +123,7 @@ impl RepoRepository for PgRepoRepository {
                 build_command, build_output_directory,
                 enable_inspector, auto_reload,
                 description, provider, visibility, scope, team_id, created_by,
+                resources,
                 deleted, created_at, updated_at
             ) VALUES (
                 $1, $2, $3, $4, $5,
@@ -130,7 +133,8 @@ impl RepoRepository for PgRepoRepository {
                 $14, $15,
                 $16, $17,
                 $18, $19, $20, $21, $22, $23,
-                $24, $25, $26
+                $24,
+                $25, $26, $27
             )"#,
         )
         .bind(&row.id)
@@ -156,6 +160,7 @@ impl RepoRepository for PgRepoRepository {
         .bind(row.scope)
         .bind(&row.team_id)
         .bind(&row.created_by)
+        .bind(&row.resources)
         .bind(row.deleted)
         .bind(row.created_at)
         .bind(row.updated_at)
@@ -196,6 +201,7 @@ impl RepoRepository for PgRepoRepository {
         push_set!(build_output_directory);
         push_set!(enable_inspector);
         push_set!(auto_reload);
+        push_set!(resources);
 
         if sets.is_empty() {
             return Ok(false);
@@ -238,6 +244,7 @@ impl RepoRepository for PgRepoRepository {
         bind_opt!(build_output_directory);
         bind_opt!(enable_inspector);
         bind_opt!(auto_reload);
+        bind_opt!(resources);
 
         // Bind updated_at
         q = q.bind(now);

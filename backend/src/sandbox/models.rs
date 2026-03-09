@@ -56,6 +56,9 @@ pub struct RepoConfig {
     /// Preview server configuration
     #[schema(value_type = Object)]
     pub preview_config: Option<serde_json::Value>,
+    // --- K8s resource configuration (opt-in per-repo) ---
+    /// Per-repo K8s resource requests/limits override for server containers.
+    pub resources: Option<crate::repository::models::ResourceConfig>,
     // --- Docker access (opt-in) ---
     /// Mount Docker socket inside sandbox container (default: false).
     /// Overrides global DOCKER_ENABLE_SOCKET_MOUNT when set.
