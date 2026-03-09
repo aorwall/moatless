@@ -14,9 +14,64 @@ env:
   CARGO_INCREMENTAL: 0
 
 jobs:
+  # ── Detect which areas of code changed (push only) ──
+  detect-changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    # Always run on push; on PRs the outputs default to empty (jobs use || pr fallback)
+    if: github.event_name == 'push'
+    outputs:
+      rust: ${{ steps.filter.outputs.rust }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      docker-frontend: ${{ steps.filter.outputs.docker-frontend }}
+      docker-backend: ${{ steps.filter.outputs.docker-backend }}
+      docker-sandbox: ${{ steps.filter.outputs.docker-sandbox }}
+      docker-preview: ${{ steps.filter.outputs.docker-preview }}
+      helm: ${{ steps.filter.outputs.helm }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            rust:
+              - 'backend/**'
+              - 'sandbox/**'
+              - 'crates/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+            frontend:
+              - 'apps/frontend/**'
+              - 'packages/**'
+            docker-frontend:
+              - 'apps/frontend/**'
+              - 'packages/**'
+              - 'docker/Dockerfile.app'
+            docker-backend:
+              - 'backend/**'
+              - 'crates/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'docker/Dockerfile.backend-cross'
+            docker-sandbox:
+              - 'sandbox/**'
+              - 'crates/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'docker/Dockerfile.sandbox'
+              - 'docker/Dockerfile.sandbox-js'
+              - 'docker/docker-entrypoint-sandbox.sh'
+              - 'docker/sync-plugins.sh'
+            docker-preview:
+              - 'docker/Dockerfile.preview-server'
+            helm:
+              - 'k8s/helm/**'
+
   # ── Build backend + sandbox binaries (shared deps compile once) ──
   build-backend:
     name: Build backend + sandbox
+    needs: detect-changes
+    if: always() && (needs.detect-changes.outputs.rust == 'true' || github.event_name == 'pull_request')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -54,7 +109,8 @@ jobs:
   # ── Generate OpenAPI spec from compiled binary ──
   generate-spec:
     name: Generate OpenAPI spec
-    needs: build-backend
+    needs: [detect-changes, build-backend]
+    if: always() && needs.build-backend.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - name: Download backend binary
@@ -77,7 +133,8 @@ jobs:
   # ── Generate TypeScript API client from spec ──
   generate-ts-client:
     name: Generate TS client
-    needs: generate-spec
+    needs: [detect-changes, generate-spec]
+    if: always() && needs.generate-spec.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -110,6 +167,8 @@ jobs:
   # ── Lint frontend (no deps, runs immediately) ──
   lint-frontend:
     name: Lint frontend
+    needs: detect-changes
+    if: always() && (needs.detect-changes.outputs.frontend == 'true' || github.event_name == 'pull_request')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -125,10 +184,14 @@ jobs:
       - name: Lint check
         run: bun run biome:check
 
-  # ── Build & type-check frontend (needs generated client) ──
+  # ── Build & type-check frontend (needs generated client if Rust changed) ──
   build-frontend:
     name: Build frontend
-    needs: generate-ts-client
+    needs: [detect-changes, generate-ts-client]
+    if: >-
+      always() &&
+      needs.generate-ts-client.result != 'failure' &&
+      (needs.detect-changes.outputs.frontend == 'true' || needs.detect-changes.outputs.rust == 'true' || github.event_name == 'pull_request')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -142,6 +205,7 @@ jobs:
         run: bun install
 
       - name: Download generated client
+        if: needs.generate-ts-client.result == 'success'
         uses: actions/download-artifact@v4
         with:
           name: generated-client
@@ -162,7 +226,8 @@ jobs:
   # ── Build CLI binary (only needs OpenAPI spec, not TS client) ──
   build-cli:
     name: Build CLI
-    needs: generate-spec
+    needs: [detect-changes, generate-spec]
+    if: always() && needs.generate-spec.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -195,11 +260,16 @@ jobs:
           path: target/ci/moat
           retention-days: 1
 
-  # ── Docker image builds (push to main only) ──
+  # ── Docker image builds (push to main only, conditional on changed files) ──
   build-frontend-image:
     name: Build & push frontend image
-    needs: [lint-frontend, build-frontend]
-    if: github.event_name == 'push'
+    needs: [detect-changes, lint-frontend, build-frontend]
+    if: >-
+      always() &&
+      github.event_name == 'push' &&
+      needs.detect-changes.outputs.docker-frontend == 'true' &&
+      (needs.lint-frontend.result == 'success' || needs.lint-frontend.result == 'skipped') &&
+      needs.build-frontend.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -227,8 +297,12 @@ jobs:
 
   build-backend-image:
     name: Build & push backend image
-    needs: [lint-frontend, build-frontend]
-    if: github.event_name == 'push'
+    needs: [detect-changes, build-backend]
+    if: >-
+      always() &&
+      github.event_name == 'push' &&
+      needs.detect-changes.outputs.docker-backend == 'true' &&
+      needs.build-backend.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -260,8 +334,13 @@ jobs:
 
   build-sandbox-image:
     name: Build & push sandbox image
-    needs: [lint-frontend, build-frontend, build-backend, build-cli]
-    if: github.event_name == 'push'
+    needs: [detect-changes, build-backend, build-cli]
+    if: >-
+      always() &&
+      github.event_name == 'push' &&
+      needs.detect-changes.outputs.docker-sandbox == 'true' &&
+      needs.build-backend.result == 'success' &&
+      needs.build-cli.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -309,8 +388,11 @@ jobs:
 
   build-preview-server-image:
     name: Build & push preview-server image
-    needs: [lint-frontend, build-frontend]
-    if: github.event_name == 'push'
+    needs: [detect-changes]
+    if: >-
+      always() &&
+      github.event_name == 'push' &&
+      needs.detect-changes.outputs.docker-preview == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -333,8 +415,18 @@ jobs:
   # ── Publish dev Helm chart (push to main only) ──
   publish-helm-dev:
     name: Publish dev Helm chart
-    needs: [build-frontend-image, build-backend-image, build-sandbox-image, build-preview-server-image]
-    if: github.event_name == 'push'
+    needs: [detect-changes, build-frontend-image, build-backend-image, build-sandbox-image, build-preview-server-image]
+    if: >-
+      always() &&
+      github.event_name == 'push' &&
+      !contains(needs.*.result, 'failure') &&
+      (
+        needs.detect-changes.outputs.helm == 'true' ||
+        needs.build-frontend-image.result == 'success' ||
+        needs.build-backend-image.result == 'success' ||
+        needs.build-sandbox-image.result == 'success' ||
+        needs.build-preview-server-image.result == 'success'
+      )
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

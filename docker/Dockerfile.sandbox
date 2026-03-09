@@ -9,8 +9,11 @@ FROM ubuntu:24.04
 ENV LANG="C.UTF-8"
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install essential system packages only
-RUN apt-get update \
+# Add nodesource repo first, then single apt-get update + install for everything.
+# Combining into one RUN avoids stale apt indexes between layers (which cause 404s
+# when Ubuntu mirrors supersede packages between separate apt-get update calls).
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get update \
     && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
         # Essential tools
@@ -35,11 +38,8 @@ RUN apt-get update \
         less \
         procps \
         lsof \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Node.js 22 (includes npm)
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
-    && apt-get install -y nodejs \
+        # Node.js 22 (from nodesource repo added above)
+        nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 # Install git-delta for better diffs
