@@ -54,7 +54,7 @@ tasks:
     desc: Verify committed OpenAPI spec matches backend (fails if stale)
     cmds:
       - cargo run -p moatless-vibe-backend -- --dump-openapi > /tmp/openapi-specs-check.json
-      - diff -q openapi-specs.json /tmp/openapi-specs-check.json || (echo "ERROR: openapi-specs.json is stale. Run 'task generate' to update." && exit 1)
+      - 'diff -q openapi-specs.json /tmp/openapi-specs-check.json || (echo "ERROR: openapi-specs.json is stale. Run ''task generate'' to update." && exit 1)'
       - echo "OpenAPI spec is up-to-date"
 
   # ── Build targets ──────────────────────────────────────────────
