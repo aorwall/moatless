@@ -254,6 +254,7 @@ jobs:
       - name: Build sandbox base image
         run: |
           docker build \
+            --no-cache \
             --platform linux/amd64 \
             --build-context binaries=/tmp/sandbox-binaries \
             -f docker/Dockerfile.sandbox \
