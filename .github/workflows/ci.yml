@@ -71,7 +71,13 @@ jobs:
   build-backend:
     name: Build backend + sandbox
     needs: detect-changes
-    if: always() && (needs.detect-changes.outputs.rust == 'true' || github.event_name == 'pull_request')
+    if: >-
+      always() && (
+        needs.detect-changes.outputs.rust == 'true' ||
+        needs.detect-changes.outputs.docker-backend == 'true' ||
+        needs.detect-changes.outputs.docker-sandbox == 'true' ||
+        github.event_name == 'pull_request'
+      )
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -168,7 +174,7 @@ jobs:
   lint-frontend:
     name: Lint frontend
     needs: detect-changes
-    if: always() && (needs.detect-changes.outputs.frontend == 'true' || github.event_name == 'pull_request')
+    if: always() && (needs.detect-changes.outputs.frontend == 'true' || needs.detect-changes.outputs.docker-frontend == 'true' || github.event_name == 'pull_request')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -191,7 +197,7 @@ jobs:
     if: >-
       always() &&
       needs.generate-ts-client.result != 'failure' &&
-      (needs.detect-changes.outputs.frontend == 'true' || needs.detect-changes.outputs.rust == 'true' || github.event_name == 'pull_request')
+      (needs.detect-changes.outputs.frontend == 'true' || needs.detect-changes.outputs.docker-frontend == 'true' || needs.detect-changes.outputs.rust == 'true' || github.event_name == 'pull_request')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
