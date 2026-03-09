@@ -108,5 +108,12 @@ lto = "thin"
 codegen-units = 8
 strip = true
 
+# CI profile: release optimizations without LTO for faster builds
+# Binaries are ~10-15% larger but compile much faster
+[profile.ci]
+inherits = "release"
+lto = false
+codegen-units = 16
+
 [workspace.package]
 license = "AGPL-3.0-or-later"

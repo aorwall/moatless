@@ -18,9 +18,6 @@ jobs:
   build-backend:
     name: Build backend + sandbox
     runs-on: ubuntu-latest
-    env:
-      SCCACHE_GHA_ENABLED: true
-      RUSTC_WRAPPER: sccache
     steps:
       - uses: actions/checkout@v4
 
@@ -30,34 +27,28 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.7
-
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: ". -> target"
-          shared-key: rust-release
+          shared-key: rust-ci
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
-      - name: Build backend + sandbox (release)
-        run: |
-          # Fall back to direct rustc if sccache is unhealthy
-          sccache --zero-stats 2>/dev/null || unset RUSTC_WRAPPER
-          cargo build -p moatless-vibe-backend -p moatless-sandbox --release
+      - name: Build backend + sandbox (ci profile)
+        run: cargo build -p moatless-vibe-backend -p moatless-sandbox --profile ci
 
       - name: Upload backend binary
         uses: actions/upload-artifact@v4
         with:
           name: backend-binary
-          path: target/release/moatless-vibe-backend
+          path: target/ci/moatless-vibe-backend
           retention-days: 1
 
       - name: Upload sandbox binary
         uses: actions/upload-artifact@v4
         with:
           name: sandbox-binary
-          path: target/release/sandbox
+          path: target/ci/sandbox
           retention-days: 1
 
   # ── Generate OpenAPI spec + TypeScript client from compiled binary ──
@@ -140,9 +131,6 @@ jobs:
     name: Build CLI
     needs: generate-client
     runs-on: ubuntu-latest
-    env:
-      SCCACHE_GHA_ENABLED: true
-      RUSTC_WRAPPER: sccache
     steps:
       - uses: actions/checkout@v4
 
@@ -157,27 +145,21 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.7
-
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: ". -> target"
-          shared-key: rust-release
+          shared-key: rust-ci
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
-      - name: Build CLI (release)
-        run: |
-          # Fall back to direct rustc if sccache is unhealthy
-          sccache --zero-stats 2>/dev/null || unset RUSTC_WRAPPER
-          cargo build -p moatless-cli --release
+      - name: Build CLI (ci profile)
+        run: cargo build -p moatless-cli --profile ci
 
       - name: Upload CLI binary
         uses: actions/upload-artifact@v4
         with:
           name: cli-binary
-          path: target/release/moat
+          path: target/ci/moat
           retention-days: 1
 
   # ── Docker image builds (push to main only) ──
