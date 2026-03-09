@@ -216,9 +216,10 @@ jobs:
         run: |
           # Fall back to direct rustc if sccache is unhealthy
           sccache --zero-stats 2>/dev/null || unset RUSTC_WRAPPER
-          cargo build -p moatless-sandbox --release
+          cargo build -p moatless-sandbox -p moatless-cli --release
           mkdir -p /tmp/sandbox-binaries/amd64
           cp target/release/sandbox /tmp/sandbox-binaries/amd64/sandbox
+          cp target/release/moat /tmp/sandbox-binaries/amd64/moat
 
       - name: Login to Docker Hub
         run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
