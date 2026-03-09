@@ -12,14 +12,15 @@ env:
   BACKEND_IMAGE_NAME: aorwall/moatless-vibe-backend
   PREVIEW_SERVER_IMAGE: aorwall/moatless-vibe-preview-server
   CARGO_INCREMENTAL: 0
-  SCCACHE_GHA_ENABLED: true
-  RUSTC_WRAPPER: sccache
 
 jobs:
   # ── Build backend binary (reused by generate-spec + Docker image) ──
   build-backend:
     name: Build backend
     runs-on: ubuntu-latest
+    env:
+      SCCACHE_GHA_ENABLED: true
+      RUSTC_WRAPPER: sccache
     steps:
       - uses: actions/checkout@v4
 
@@ -40,7 +41,10 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Build backend (release)
-        run: cargo build -p moatless-vibe-backend --release
+        run: |
+          # Fall back to direct rustc if sccache is unhealthy
+          sccache --zero-stats 2>/dev/null || unset RUSTC_WRAPPER
+          cargo build -p moatless-vibe-backend --release
 
       - name: Upload backend binary
         uses: actions/upload-artifact@v4
@@ -197,6 +201,9 @@ jobs:
     needs: check-spec
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    env:
+      SCCACHE_GHA_ENABLED: true
+      RUSTC_WRAPPER: sccache
     steps:
       - uses: actions/checkout@v4
 
@@ -218,6 +225,8 @@ jobs:
 
       - name: Build Rust sandbox binary
         run: |
+          # Fall back to direct rustc if sccache is unhealthy
+          sccache --zero-stats 2>/dev/null || unset RUSTC_WRAPPER
           cargo build -p moatless-sandbox --release
           mkdir -p /tmp/sandbox-binaries/amd64
           cp target/release/sandbox /tmp/sandbox-binaries/amd64/sandbox
