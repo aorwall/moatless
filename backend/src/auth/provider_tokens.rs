@@ -41,7 +41,7 @@ impl ProviderTokenAuthRepository for PgProviderTokenAuthRepository {
                 connected_at, expires_at
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-            ON CONFLICT (user_id, provider) DO UPDATE SET
+            ON CONFLICT (user_id, provider, team_id) DO UPDATE SET
                 auth_method = EXCLUDED.auth_method,
                 access_token = EXCLUDED.access_token,
                 refresh_token = EXCLUDED.refresh_token,

@@ -306,6 +306,9 @@ async fn verify_handler(
 /// Format: `{task_id}--{port}.{proxy_domain}`
 fn extract_task_id_from_hostname(host: &str) -> Option<&str> {
     let first_segment = host.split('.').next()?;
+    if !first_segment.contains("--") {
+        return None;
+    }
     let task_id = first_segment.split("--").next()?;
     if task_id.is_empty() { None } else { Some(task_id) }
 }
