@@ -107,9 +107,27 @@ jobs:
             packages/api-client/src/
           retention-days: 1
 
-  # ── Build & check frontend (uses freshly generated client) ──
-  build-and-check-frontend:
-    name: Build & check frontend
+  # ── Lint frontend (no deps, runs immediately) ──
+  lint-frontend:
+    name: Lint frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Lint check
+        run: bun run biome:check
+
+  # ── Build & type-check frontend (needs generated client) ──
+  build-frontend:
+    name: Build frontend
     needs: generate-ts-client
     runs-on: ubuntu-latest
     steps:
@@ -130,9 +148,6 @@ jobs:
 
       - name: Type check
         run: bun run type:check
-
-      - name: Lint check
-        run: bun run biome:check
 
       - name: Build frontend
         run: bun run build
@@ -183,7 +198,7 @@ jobs:
   # ── Docker image builds (push to main only) ──
   build-frontend-image:
     name: Build & push frontend image
-    needs: build-and-check-frontend
+    needs: [lint-frontend, build-frontend]
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
@@ -212,7 +227,7 @@ jobs:
 
   build-backend-image:
     name: Build & push backend image
-    needs: build-and-check-frontend
+    needs: [lint-frontend, build-frontend]
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
@@ -245,7 +260,7 @@ jobs:
 
   build-sandbox-image:
     name: Build & push sandbox image
-    needs: [build-and-check-frontend, build-backend, build-cli]
+    needs: [lint-frontend, build-frontend, build-backend, build-cli]
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
@@ -294,7 +309,7 @@ jobs:
 
   build-preview-server-image:
     name: Build & push preview-server image
-    needs: build-and-check-frontend
+    needs: [lint-frontend, build-frontend]
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
