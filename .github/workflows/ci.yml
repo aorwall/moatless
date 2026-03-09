@@ -13,9 +13,9 @@ env:
   PREVIEW_SERVER_IMAGE: aorwall/moatless-vibe-preview-server
 
 jobs:
-  # ── Step 1: Compile backend + generate spec + verify clients ──
-  check-and-build-backend:
-    name: Build backend, generate spec & verify clients
+  # ── Build backend binary (reused by generate-spec + Docker image) ──
+  build-backend:
+    name: Build backend
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -31,6 +31,47 @@ jobs:
         with:
           workspaces: ". -> target"
 
+      - name: Build backend (release)
+        run: cargo build -p moatless-vibe-backend --release
+
+      - name: Upload backend binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-binary
+          path: target/release/moatless-vibe-backend
+          retention-days: 1
+
+  # ── Generate OpenAPI spec from compiled binary ──
+  generate-spec:
+    name: Generate OpenAPI spec
+    needs: build-backend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download backend binary
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-binary
+
+      - name: Generate spec
+        run: |
+          chmod +x ./moatless-vibe-backend
+          ./moatless-vibe-backend --dump-openapi > openapi-specs.json
+
+      - name: Upload OpenAPI spec
+        uses: actions/upload-artifact@v4
+        with:
+          name: openapi-spec
+          path: openapi-specs.json
+          retention-days: 1
+
+  # ── Verify generated TS client matches spec ──
+  check-spec:
+    name: Check spec is up to date
+    needs: generate-spec
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -39,11 +80,10 @@ jobs:
       - name: Install JS dependencies
         run: bun install
 
-      - name: Build backend (release)
-        run: cargo build -p moatless-vibe-backend --release
-
-      - name: Generate OpenAPI spec from backend
-        run: ./target/release/moatless-vibe-backend --dump-openapi > openapi-specs.json
+      - name: Download OpenAPI spec
+        uses: actions/download-artifact@v4
+        with:
+          name: openapi-spec
 
       - name: Regenerate TypeScript API client
         run: cd packages/api-client && bun run generate:client
@@ -56,23 +96,9 @@ jobs:
             exit 1
           fi
 
-      - name: Type check
-        run: bun run type:check
-
-      # Upload backend binary for Docker image build (push to main only)
-      - name: Upload backend binary
-        if: github.event_name == 'push'
-        uses: actions/upload-artifact@v4
-        with:
-          name: backend-binary
-          path: target/release/moatless-vibe-backend
-          retention-days: 1
-
-  # ── Step 2: Build & push Docker images (push to main only) ────
-  build-frontend:
-    name: Build & push frontend image
-    needs: check-and-build-backend
-    if: github.event_name == 'push'
+  # ── Build & check frontend (parallel with backend chain) ──
+  build-and-check-frontend:
+    name: Build & check frontend
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -82,8 +108,39 @@ jobs:
         with:
           bun-version: latest
 
-      - name: Install dependencies and build frontend
-        run: bun install && bun run build
+      - name: Install dependencies
+        run: bun install
+
+      - name: Type check
+        run: bun run type:check
+
+      - name: Lint check
+        run: bun run biome:check
+
+      - name: Build frontend
+        run: bun run build
+
+      - name: Upload frontend dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: apps/frontend/dist
+          retention-days: 1
+
+  # ── Docker image builds (push to main only) ──
+  build-frontend-image:
+    name: Build & push frontend image
+    needs: [check-spec, build-and-check-frontend]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download frontend dist
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: apps/frontend/dist
 
       - name: Login to Docker Hub
         run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
@@ -97,9 +154,9 @@ jobs:
             .
           docker push ${{ env.IMAGE_NAME }}:latest
 
-  build-backend:
+  build-backend-image:
     name: Build & push backend image
-    needs: check-and-build-backend
+    needs: check-spec
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
@@ -127,9 +184,9 @@ jobs:
             .
           docker push ${{ env.BACKEND_IMAGE_NAME }}:latest
 
-  build-sandbox:
+  build-sandbox-image:
     name: Build & push sandbox image
-    needs: check-and-build-backend
+    needs: check-spec
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
@@ -174,9 +231,9 @@ jobs:
             .
           docker push ${{ env.SANDBOX_IMAGE_NAME }}:latest
 
-  build-preview-server:
+  build-preview-server-image:
     name: Build & push preview-server image
-    needs: check-and-build-backend
+    needs: check-spec
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
