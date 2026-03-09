@@ -72,6 +72,12 @@ pub struct SetChannelDefaultsRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ChannelDefaultsQuery {
+    pub team_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ListChannelConfigsQuery {
     pub provider: Option<String>,
     pub repository_id: Option<String>,

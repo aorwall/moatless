@@ -734,7 +734,8 @@ pub async fn update_config(
     path = "/api/v1/channels/defaults/{provider}",
     tag = "channels",
     params(
-        ("provider" = String, Path, description = "Channel provider (slack, telegram)")
+        ("provider" = String, Path, description = "Channel provider (slack, telegram)"),
+        ("teamId" = Option<String>, Query, description = "Team ID (required if user belongs to multiple teams)")
     ),
     responses(
         (status = 200, description = "Default config", body = ChannelConfigResponse),
@@ -745,8 +746,18 @@ pub async fn get_defaults(
     State(state): State<AppState>,
     auth: AuthUser,
     Path(provider): Path<String>,
+    Query(query): Query<ChannelDefaultsQuery>,
 ) -> Result<Json<ChannelConfigResponse>, ChannelError> {
-    let team_id = auth.team_ids.first().map(String::as_str);
+    let team_id = match query.team_id.as_deref() {
+        Some(tid) => Some(tid),
+        None if auth.team_ids.len() == 1 => Some(auth.team_ids[0].as_str()),
+        None if auth.team_ids.len() > 1 => {
+            return Err(ChannelError::BadRequest(
+                "You belong to multiple teams. Please specify teamId.".to_string(),
+            ));
+        }
+        None => None,
+    };
     let row = state
         .channel_configs
         .find_wildcard(&provider, team_id)
@@ -792,7 +803,16 @@ pub async fn set_defaults(
             ChannelError::BadRequest(format!("Repository not found: {}", req.repository_id))
         })?;
 
-    let team_id = req.team_id.as_deref().or(auth.team_ids.first().map(String::as_str));
+    let team_id = match req.team_id.as_deref() {
+        Some(tid) => Some(tid),
+        None if auth.team_ids.len() == 1 => Some(auth.team_ids[0].as_str()),
+        None if auth.team_ids.len() > 1 => {
+            return Err(ChannelError::BadRequest(
+                "You belong to multiple teams. Please specify teamId.".to_string(),
+            ));
+        }
+        None => None,
+    };
 
     // Check if wildcard config already exists
     if let Some(existing) = state.channel_configs.find_wildcard(&provider, team_id).await? {
