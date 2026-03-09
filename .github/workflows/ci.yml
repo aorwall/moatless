@@ -51,10 +51,33 @@ jobs:
           path: target/ci/sandbox
           retention-days: 1
 
-  # ── Generate OpenAPI spec + TypeScript client from compiled binary ──
-  generate-client:
-    name: Generate API client
+  # ── Generate OpenAPI spec from compiled binary ──
+  generate-spec:
+    name: Generate OpenAPI spec
     needs: build-backend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download backend binary
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-binary
+
+      - name: Generate spec
+        run: |
+          chmod +x ./moatless-vibe-backend
+          ./moatless-vibe-backend --dump-openapi > openapi-specs.json
+
+      - name: Upload OpenAPI spec
+        uses: actions/upload-artifact@v4
+        with:
+          name: openapi-spec
+          path: openapi-specs.json
+          retention-days: 1
+
+  # ── Generate TypeScript API client from spec ──
+  generate-ts-client:
+    name: Generate TS client
+    needs: generate-spec
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -67,15 +90,10 @@ jobs:
       - name: Install JS dependencies
         run: bun install
 
-      - name: Download backend binary
+      - name: Download OpenAPI spec
         uses: actions/download-artifact@v4
         with:
-          name: backend-binary
-
-      - name: Generate OpenAPI spec
-        run: |
-          chmod +x ./moatless-vibe-backend
-          ./moatless-vibe-backend --dump-openapi > openapi-specs.json
+          name: openapi-spec
 
       - name: Generate TypeScript API client
         run: cd packages/api-client && bun run generate:client
@@ -92,7 +110,7 @@ jobs:
   # ── Build & check frontend (uses freshly generated client) ──
   build-and-check-frontend:
     name: Build & check frontend
-    needs: generate-client
+    needs: generate-ts-client
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -126,18 +144,18 @@ jobs:
           path: apps/frontend/dist
           retention-days: 1
 
-  # ── Build CLI binary (needs OpenAPI spec from generate-client) ──
+  # ── Build CLI binary (only needs OpenAPI spec, not TS client) ──
   build-cli:
     name: Build CLI
-    needs: generate-client
+    needs: generate-spec
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download generated client
+      - name: Download OpenAPI spec
         uses: actions/download-artifact@v4
         with:
-          name: generated-client
+          name: openapi-spec
 
       - name: Install protoc
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
