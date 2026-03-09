@@ -16,141 +16,56 @@ env:
   PREVIEW_SERVER_IMAGE: aorwall/moatless-vibe-preview-server
 
 jobs:
-  # ── Shared setup: determine version ───────────────────────────
+  # ── Shared setup: determine version + commit SHA ─────────────
   version:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
+      sha_tag: ${{ steps.version.outputs.sha_tag }}
     steps:
-      - name: Determine version
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine version and commit SHA
         id: version
         run: |
           VERSION="${{ github.event.inputs.version || github.ref_name }}"
           VERSION="${VERSION#v}"
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
 
-  # ── Build & push app (frontend) image ─────────────────────────
-  build-app:
+          # Get the commit SHA the tag points to
+          TAG_SHA=$(git rev-list -n 1 HEAD)
+          echo "sha_tag=sha-${TAG_SHA::7}" >> $GITHUB_OUTPUT
+
+  # ── Retag images from CI commit SHA to release version ───────
+  retag-images:
     needs: version
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Install dependencies and build frontend
-        run: bun install && bun run build
-
       - name: Login to Docker Hub
         run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
 
-      - name: Build and push app image
+      - name: Retag all images
         run: |
-          docker build \
-            --platform linux/amd64 \
-            -f docker/Dockerfile.app \
-            -t ${{ env.IMAGE_NAME }}:${{ needs.version.outputs.version }} \
-            -t ${{ env.IMAGE_NAME }}:latest \
-            .
-          docker push ${{ env.IMAGE_NAME }}:${{ needs.version.outputs.version }}
-          docker push ${{ env.IMAGE_NAME }}:latest
+          SHA_TAG="${{ needs.version.outputs.sha_tag }}"
+          VERSION="${{ needs.version.outputs.version }}"
 
-  # ── Build & push sandbox image ────────────────────────────────
-  build-sandbox:
-    needs: version
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+          for IMAGE in \
+            "${{ env.IMAGE_NAME }}" \
+            "${{ env.BACKEND_IMAGE_NAME }}" \
+            "${{ env.SANDBOX_IMAGE_NAME }}" \
+            "${{ env.PREVIEW_SERVER_IMAGE }}"; do
 
-      - name: Install protoc
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: ". -> target"
-
-      - name: Build Rust sandbox binary
-        run: |
-          cargo build -p moatless-sandbox --release
-          mkdir -p /tmp/sandbox-binaries/amd64
-          cp target/release/sandbox /tmp/sandbox-binaries/amd64/sandbox
-
-      - name: Login to Docker Hub
-        run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
-
-      - name: Build sandbox base image
-        run: |
-          docker build \
-            --platform linux/amd64 \
-            --build-context binaries=/tmp/sandbox-binaries \
-            -f docker/Dockerfile.sandbox \
-            -t moatless-vibe-sandbox:local \
-            .
-
-      - name: Build and push sandbox image
-        run: |
-          docker build \
-            --platform linux/amd64 \
-            -f docker/Dockerfile.sandbox-js \
-            --build-arg BASE_IMAGE=moatless-vibe-sandbox:local \
-            -t ${{ env.SANDBOX_IMAGE_NAME }}:${{ needs.version.outputs.version }} \
-            -t ${{ env.SANDBOX_IMAGE_NAME }}:latest \
-            .
-          docker push ${{ env.SANDBOX_IMAGE_NAME }}:${{ needs.version.outputs.version }}
-          docker push ${{ env.SANDBOX_IMAGE_NAME }}:latest
-
-  # ── Build & push backend image ────────────────────────────────
-  build-backend:
-    needs: version
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Login to Docker Hub
-        run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
-
-      - name: Build and push backend image
-        run: |
-          docker build \
-            --platform linux/amd64 \
-            -f docker/Dockerfile.backend \
-            -t ${{ env.BACKEND_IMAGE_NAME }}:${{ needs.version.outputs.version }} \
-            -t ${{ env.BACKEND_IMAGE_NAME }}:latest \
-            .
-          docker push ${{ env.BACKEND_IMAGE_NAME }}:${{ needs.version.outputs.version }}
-          docker push ${{ env.BACKEND_IMAGE_NAME }}:latest
-
-  # ── Build & push preview-server image ─────────────────────────
-  build-preview-server:
-    needs: version
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Login to Docker Hub
-        run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
-
-      - name: Build and push preview-server image
-        run: |
-          docker build \
-            --platform linux/amd64 \
-            -f docker/Dockerfile.preview-server \
-            -t ${{ env.PREVIEW_SERVER_IMAGE }}:${{ needs.version.outputs.version }} \
-            -t ${{ env.PREVIEW_SERVER_IMAGE }}:latest \
-            .
-          docker push ${{ env.PREVIEW_SERVER_IMAGE }}:${{ needs.version.outputs.version }}
-          docker push ${{ env.PREVIEW_SERVER_IMAGE }}:latest
+            echo "Retagging ${IMAGE}:${SHA_TAG} → ${IMAGE}:${VERSION}"
+            docker pull "${IMAGE}:${SHA_TAG}"
+            docker tag "${IMAGE}:${SHA_TAG}" "${IMAGE}:${VERSION}"
+            docker push "${IMAGE}:${VERSION}"
+          done
 
   # ── Helm chart + changelog ────────────────────────────────────
   publish-helm:
-    needs: [version, build-app, build-sandbox, build-backend]
+    needs: [version, retag-images]
     runs-on: ubuntu-latest
     permissions:
       contents: write
