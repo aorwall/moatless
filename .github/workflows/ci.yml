@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  check-api:
+    name: Verify OpenAPI spec & clients are up-to-date
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install JS dependencies
+        run: bun install
+
+      - name: Generate OpenAPI spec from backend
+        run: cargo run -p moatless-vibe-backend -- --dump-openapi > openapi-specs.json
+
+      - name: Regenerate TypeScript API client
+        run: cd packages/api-client && bun run generate:client
+
+      - name: Check for uncommitted changes
+        run: |
+          if ! git diff --quiet openapi-specs.json packages/api-client/src/; then
+            echo "::error::Generated API spec or clients are out of date. Run 'task generate' and commit the changes."
+            git diff --stat
+            exit 1
+          fi
+
+      - name: Type check
+        run: bun run type:check

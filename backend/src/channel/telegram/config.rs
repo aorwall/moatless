@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::channel::models::ChannelConfig;
+use crate::channel::models::{ChannelAccessPolicy, ChannelConfig};
 
 /// Typed representation of `provider_config` JSONB for Telegram channels.
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -10,48 +10,25 @@ pub struct TelegramProviderConfig {
     pub bot_username: Option<String>,
     pub secret_token: Option<String>,
     /// DM access policy. Default: Open (backward compat).
-    #[serde(default)]
-    pub dm_policy: DmPolicy,
+    ///
+    /// Accepts both the legacy field name `dm_policy` and the shared enum values.
+    #[serde(default, alias = "dm_policy")]
+    pub dm_access_policy: ChannelAccessPolicy,
     /// Telegram user IDs (numeric strings) allowed to DM.
     #[serde(default)]
     pub dm_allowlist: Vec<String>,
     /// Group access policy. Default: Open.
-    #[serde(default)]
-    pub group_policy: GroupPolicy,
+    ///
+    /// Accepts both the legacy field name `group_policy` and the shared enum values.
+    /// Note: `Pairing` is not valid for groups; it is treated as `Allowlist`.
+    #[serde(default, alias = "group_policy")]
+    pub group_access_policy: ChannelAccessPolicy,
     /// Chat IDs allowed for group messages.
     #[serde(default)]
     pub group_allowlist: Vec<String>,
     /// Require @bot mention in group messages.
     #[serde(default)]
     pub require_mention: bool,
-}
-
-/// DM access policy.
-#[derive(Debug, Clone, Deserialize, Serialize, Default, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum DmPolicy {
-    /// Accept messages from any user.
-    #[default]
-    Open,
-    /// Reject all DMs.
-    Disabled,
-    /// Accept only from users in dm_allowlist.
-    Allowlist,
-    /// Allowlist + prompt unknown users with a pairing code.
-    Pairing,
-}
-
-/// Group access policy.
-#[derive(Debug, Clone, Deserialize, Serialize, Default, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum GroupPolicy {
-    /// Accept messages from any group.
-    #[default]
-    Open,
-    /// Reject all group messages.
-    Disabled,
-    /// Accept only from groups in group_allowlist.
-    Allowlist,
 }
 
 impl TelegramProviderConfig {
@@ -76,39 +53,51 @@ mod tests {
         let cfg: TelegramProviderConfig = serde_json::from_value(json).unwrap();
 
         assert_eq!(cfg.bot_username.as_deref(), Some("@mybot"));
-        assert_eq!(cfg.dm_policy, DmPolicy::Open);
+        assert_eq!(cfg.dm_access_policy, ChannelAccessPolicy::Open);
         assert!(cfg.dm_allowlist.is_empty());
-        assert_eq!(cfg.group_policy, GroupPolicy::Open);
+        assert_eq!(cfg.group_access_policy, ChannelAccessPolicy::Open);
         assert!(cfg.group_allowlist.is_empty());
         assert!(!cfg.require_mention);
     }
 
     #[test]
-    fn deserialize_full_config() {
+    fn deserialize_full_config_with_new_field_names() {
         let json = serde_json::json!({
             "bot_username": "@testbot",
             "secret_token": "s3cret",
-            "dm_policy": "pairing",
+            "dm_access_policy": "pairing",
             "dm_allowlist": ["123", "456"],
-            "group_policy": "allowlist",
+            "group_access_policy": "allowlist",
             "group_allowlist": ["-100111"],
             "require_mention": true,
         });
         let cfg: TelegramProviderConfig = serde_json::from_value(json).unwrap();
 
-        assert_eq!(cfg.dm_policy, DmPolicy::Pairing);
+        assert_eq!(cfg.dm_access_policy, ChannelAccessPolicy::Pairing);
         assert_eq!(cfg.dm_allowlist, vec!["123", "456"]);
-        assert_eq!(cfg.group_policy, GroupPolicy::Allowlist);
+        assert_eq!(cfg.group_access_policy, ChannelAccessPolicy::Allowlist);
         assert_eq!(cfg.group_allowlist, vec!["-100111"]);
         assert!(cfg.require_mention);
+    }
+
+    #[test]
+    fn deserialize_legacy_field_names_via_alias() {
+        let json = serde_json::json!({
+            "dm_policy": "pairing",
+            "group_policy": "allowlist",
+        });
+        let cfg: TelegramProviderConfig = serde_json::from_value(json).unwrap();
+
+        assert_eq!(cfg.dm_access_policy, ChannelAccessPolicy::Pairing);
+        assert_eq!(cfg.group_access_policy, ChannelAccessPolicy::Allowlist);
     }
 
     #[test]
     fn deserialize_empty_object_gives_defaults() {
         let json = serde_json::json!({});
         let cfg: TelegramProviderConfig = serde_json::from_value(json).unwrap();
-        assert_eq!(cfg.dm_policy, DmPolicy::Open);
-        assert_eq!(cfg.group_policy, GroupPolicy::Open);
+        assert_eq!(cfg.dm_access_policy, ChannelAccessPolicy::Open);
+        assert_eq!(cfg.group_access_policy, ChannelAccessPolicy::Open);
     }
 
     #[test]
@@ -133,7 +122,7 @@ mod tests {
         };
 
         let tg = TelegramProviderConfig::from_config(&config);
-        assert_eq!(tg.dm_policy, DmPolicy::Open);
+        assert_eq!(tg.dm_access_policy, ChannelAccessPolicy::Open);
         assert!(tg.bot_username.is_none());
     }
 }

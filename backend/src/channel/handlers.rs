@@ -125,7 +125,7 @@ pub async fn slack_webhook(
         return Ok(StatusCode::OK.into_response());
     }
 
-    // Look up config
+    // Look up config — exact match first, then try wildcard auto-create
     let config = state.channel_configs.find_by_provider_source("slack", source_id)
         .await?;
 
@@ -136,8 +136,30 @@ pub async fn slack_webhook(
             return Ok(StatusCode::OK.into_response());
         }
         None => {
-            info!(source_id, "Slack message ignored: no channel config for this channel");
-            return Ok(StatusCode::OK.into_response());
+            // Try to auto-create from wildcard config
+            match super::defaults::create_config_from_wildcard(
+                &*state.channel_configs,
+                "slack",
+                source_id,
+                None, // source_name not available from webhook payload
+                None, // team_id not available
+                "system",
+            )
+            .await
+            {
+                Ok(Some(c)) => {
+                    info!(source_id, config_id = %c.id, "Slack channel auto-created from wildcard config");
+                    c
+                }
+                Ok(None) => {
+                    info!(source_id, "Slack message ignored: no channel config for this channel");
+                    return Ok(StatusCode::OK.into_response());
+                }
+                Err(e) => {
+                    warn!(source_id, error = %e, "Failed to auto-create Slack config from wildcard");
+                    return Ok(StatusCode::OK.into_response());
+                }
+            }
         }
     };
 
@@ -697,6 +719,131 @@ pub async fn update_config(
         .ok_or_else(|| ChannelError::ConfigNotFound(id))?;
 
     Ok(Json(ChannelConfigResponse::from_model(&row)))
+}
+
+// =========================================================================
+// Channel defaults (wildcard config) handlers
+// =========================================================================
+
+/// Get channel defaults for a provider.
+///
+/// Returns the wildcard (`source_id="*"`) config that serves as the default
+/// template for auto-creating per-channel configs.
+#[utoipa::path(
+    get,
+    path = "/api/v1/channels/defaults/{provider}",
+    tag = "channels",
+    params(
+        ("provider" = String, Path, description = "Channel provider (slack, telegram)")
+    ),
+    responses(
+        (status = 200, description = "Default config", body = ChannelConfigResponse),
+        (status = 404, description = "No defaults configured", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn get_defaults(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(provider): Path<String>,
+) -> Result<Json<ChannelConfigResponse>, ChannelError> {
+    let team_id = auth.team_ids.first().map(String::as_str);
+    let row = state
+        .channel_configs
+        .find_wildcard(&provider, team_id)
+        .await?
+        .ok_or_else(|| {
+            ChannelError::ConfigNotFound(format!("No defaults for provider: {provider}"))
+        })?;
+
+    Ok(Json(ChannelConfigResponse::from_model(&row)))
+}
+
+/// Set channel defaults for a provider.
+///
+/// Creates or updates the wildcard (`source_id="*"`) config for the given
+/// provider. New channels of this provider will inherit these settings.
+#[utoipa::path(
+    put,
+    path = "/api/v1/channels/defaults/{provider}",
+    tag = "channels",
+    params(
+        ("provider" = String, Path, description = "Channel provider (slack, telegram)")
+    ),
+    request_body = SetChannelDefaultsRequest,
+    responses(
+        (status = 200, description = "Defaults saved", body = ChannelConfigResponse),
+        (status = 400, description = "Invalid request", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn set_defaults(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(provider): Path<String>,
+    Json(req): Json<SetChannelDefaultsRequest>,
+) -> Result<Json<ChannelConfigResponse>, ChannelError> {
+    info!(provider = %provider, "Setting channel defaults");
+
+    // Validate repository exists
+    state
+        .repositories
+        .find_repository_by_id(&req.repository_id)
+        .await?
+        .ok_or_else(|| {
+            ChannelError::BadRequest(format!("Repository not found: {}", req.repository_id))
+        })?;
+
+    let team_id = req.team_id.as_deref().or(auth.team_ids.first().map(String::as_str));
+
+    // Check if wildcard config already exists
+    if let Some(existing) = state.channel_configs.find_wildcard(&provider, team_id).await? {
+        // Update existing wildcard config
+        let patch = ChannelConfigPatch {
+            repository_id: Some(req.repository_id),
+            routing_mode: Some(req.routing_mode),
+            prompt_template: Some(req.prompt_template),
+            provider_config: req.provider_config,
+            response_config_id: Some(req.response_config_id),
+            ..Default::default()
+        };
+
+        state.channel_configs.update(&existing.id, &patch).await?;
+
+        let row = state
+            .channel_configs
+            .find_by_id(&existing.id)
+            .await?
+            .ok_or_else(|| ChannelError::ConfigNotFound(existing.id))?;
+
+        Ok(Json(ChannelConfigResponse::from_model(&row)))
+    } else {
+        // Create new wildcard config
+        let id = nanoid::nanoid!(21);
+        let now = chrono::Utc::now();
+
+        let row = super::models::ChannelConfig {
+            id: id.clone(),
+            provider: provider.clone(),
+            source_id: "*".to_string(),
+            source_name: None,
+            repository_id: req.repository_id,
+            routing_mode: req.routing_mode,
+            prompt_template: req.prompt_template,
+            active: true,
+            provider_config: req.provider_config,
+            ongoing_task_id: None,
+            response_config_id: req.response_config_id,
+            scope: crate::scope::Scope::Global,
+            team_id: team_id.map(str::to_string),
+            created_by: auth.user_id,
+            created_at: now,
+            updated_at: now,
+        };
+
+        state.channel_configs.insert(&row).await?;
+        info!(config_id = %id, provider = %provider, "Channel defaults created");
+
+        Ok(Json(ChannelConfigResponse::from_model(&row)))
+    }
 }
 
 /// Delete a channel config.

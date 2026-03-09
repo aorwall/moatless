@@ -37,4 +37,3 @@ pub mod tag;
 pub mod task;
 pub mod task_event;
 pub mod team;
-pub mod user_settings;

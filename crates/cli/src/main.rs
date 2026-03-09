@@ -10,6 +10,8 @@ mod output;
 
 use clap::{Parser, Subcommand};
 
+use crate::client::map_api_error;
+
 #[derive(Parser)]
 #[command(name = "moat", about = "Moatless sandbox CLI")]
 struct Cli {
@@ -65,11 +67,6 @@ enum Commands {
         #[command(subcommand)]
         action: commands::teams::TeamAction,
     },
-    /// User settings management
-    Settings {
-        #[command(subcommand)]
-        action: commands::settings::SettingsAction,
-    },
     /// List available commands
     #[command(name = "commands")]
     Cmds,
@@ -124,11 +121,16 @@ async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         Commands::Whoami => {
-            let resp = moat.get("/api/v1/auth/me").await?;
+            let resp = moat
+                .api()
+                .me_handler()
+                .await
+                .map_err(map_api_error)?;
+            let session = resp.into_inner();
             if cli.json {
-                output::print_json(&resp);
+                output::print_json_typed(&session);
             } else {
-                commands::info::format_whoami(&resp);
+                commands::info::format_whoami(&session);
             }
         }
         Commands::Status => {
@@ -152,23 +154,30 @@ async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         Commands::Teams { action } => {
             commands::teams::run(&moat, action, cli.json).await?;
         }
-        Commands::Settings { action } => {
-            commands::settings::run(&moat, action, cli.json).await?;
-        }
         Commands::Cmds => {
-            let resp = moat.get("/api/v1/commands").await?;
+            let resp = moat
+                .api()
+                .list_commands()
+                .await
+                .map_err(map_api_error)?;
+            let cmds = resp.into_inner();
             if cli.json {
-                output::print_json(&resp);
+                output::print_json_typed(&cmds);
             } else {
-                commands::misc::format_commands(&resp);
+                commands::misc::format_commands(&cmds);
             }
         }
         Commands::Tags => {
-            let resp = moat.get("/api/v1/tags").await?;
+            let resp = moat
+                .api()
+                .list_tags()
+                .await
+                .map_err(map_api_error)?;
+            let tags = resp.into_inner();
             if cli.json {
-                output::print_json(&resp);
+                output::print_json_typed(&tags);
             } else {
-                commands::misc::format_tags(&resp);
+                commands::misc::format_tags(&tags);
             }
         }
     }

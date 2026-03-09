@@ -25,6 +25,8 @@ use crate::state::AppState;
         handlers::get_config,
         handlers::update_config,
         handlers::delete_config,
+        handlers::get_defaults,
+        handlers::set_defaults,
     )
 )]
 pub struct ChannelApiDoc;
@@ -46,6 +48,7 @@ pub fn channel_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenAp
             handlers::update_config,
             handlers::delete_config
         ))
+        .routes(routes!(handlers::get_defaults, handlers::set_defaults))
         .with_state(state)
         .split_for_parts();
 

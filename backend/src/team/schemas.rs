@@ -73,20 +73,6 @@ impl From<TeamMember> for TeamMemberResponse {
     }
 }
 
-// ---- Team settings schemas ----
-
-#[derive(Debug, Serialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct TeamSettingsResponse {
-    pub default_channel_repository_id: Option<String>,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct UpdateTeamSettingsRequest {
-    pub default_channel_repository_id: Option<String>,
-}
-
 // ---- Team credential schemas ----
 
 #[derive(Debug, Deserialize, ToSchema)]

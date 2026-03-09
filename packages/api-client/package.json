@@ -23,7 +23,7 @@
     "./sandbox/model": "./src/sandbox/model/index.ts"
   },
   "scripts": {
-    "generate:spec": "cargo run --manifest-path ../../backend/Cargo.toml -- --dump-openapi > specs/backend.json",
+    "generate:spec": "cargo run --manifest-path ../../backend/Cargo.toml -- --dump-openapi > ../../openapi-specs.json",
     "generate:client": "orval",
     "generate": "bun run generate:spec && bun run generate:client"
   },

@@ -6,12 +6,13 @@ use tracing::{debug, info, warn};
 
 use crate::channel::error::ChannelError;
 use crate::channel::models::{
-    ChannelConfig, ChannelThread, InboundMessage, MessageStatus, OutboundReply,
+    AccessDecision, ChannelAccessPolicy, ChannelConfig, ChannelThread, InboundMessage,
+    MessageStatus, OutboundReply,
 };
 use crate::channel::provider::{ChannelProvider, ChannelType};
 use crate::db::DbPool;
 
-use super::access::{self, AccessDecision};
+use super::access;
 use super::api::TelegramApi;
 use super::config::TelegramProviderConfig;
 
@@ -491,9 +492,8 @@ pub async fn resolve_and_process_telegram_update(
 
 /// Auto-create a channel config for an unknown Telegram chat.
 ///
-/// Resolution order for the repository:
-/// 1. Resolve `from_id` → system user → `settings.default_channel_repository_id`
-/// 2. Fall back to the seeded "Moatable" template repository.
+/// Uses the shared wildcard config helper to clone from a `source_id="*"` template.
+/// Falls back to the seeded "Moatable" template repository if no wildcard exists.
 async fn auto_create_config(
     state: &crate::state::AppState,
     source_id: &str,
@@ -504,22 +504,8 @@ async fn auto_create_config(
     use crate::channel::models::RoutingMode;
     use crate::scope::Scope;
 
-    // Try to resolve sender's default repo
-    let (repo, owner) = resolve_default_repo(state, from_id).await;
-
-    // Final fallback to Moatable template
-    let (repo, owner) = if let Some(r) = repo {
-        (r, owner.unwrap_or_else(|| "system".to_string()))
-    } else {
-        let r = state
-            .repositories
-            .find_by_name_and_user("Moatable", "system")
-            .await?
-            .ok_or_else(|| {
-                ChannelError::Internal("Default Moatable repository not found".into())
-            })?;
-        (r, "system".to_string())
-    };
+    // Try to resolve sender → system user (for ownership of the created config)
+    let owner = resolve_sender_user(state, from_id).await;
 
     let chat_name = message
         .and_then(|m| m.pointer("/chat/title"))
@@ -528,7 +514,38 @@ async fn auto_create_config(
             message
                 .and_then(|m| m.pointer("/chat/first_name"))
                 .and_then(|v| v.as_str())
-        });
+        })
+        .map(String::from);
+
+    // Try wildcard config clone first
+    let team_id = None; // Telegram doesn't have team context at webhook time
+    let created_by = owner.as_deref().unwrap_or("system");
+    if let Some(config) = crate::channel::defaults::create_config_from_wildcard(
+        &*state.channel_configs,
+        "telegram",
+        source_id,
+        chat_name.clone(),
+        team_id,
+        created_by,
+    )
+    .await?
+    {
+        info!(
+            config_id = %config.id,
+            source_id,
+            "Auto-created Telegram config from wildcard template"
+        );
+        return Ok(config);
+    }
+
+    // Final fallback: create from Moatable template
+    let repo = state
+        .repositories
+        .find_by_name_and_user("Moatable", "system")
+        .await?
+        .ok_or_else(|| {
+            ChannelError::Internal("Default Moatable repository not found".into())
+        })?;
 
     let now = chrono::Utc::now();
 
@@ -536,7 +553,7 @@ async fn auto_create_config(
     // groups default to Open.
     let provider_config = if is_private_chat {
         Some(serde_json::to_value(TelegramProviderConfig {
-            dm_policy: super::config::DmPolicy::Pairing,
+            dm_access_policy: ChannelAccessPolicy::Pairing,
             ..Default::default()
         }).unwrap_or_default())
     } else {
@@ -547,7 +564,7 @@ async fn auto_create_config(
         id: nanoid::nanoid!(21),
         provider: "telegram".to_string(),
         source_id: source_id.to_string(),
-        source_name: chat_name.map(String::from),
+        source_name: chat_name,
         repository_id: repo.id.clone(),
         routing_mode: RoutingMode::Ongoing,
         prompt_template: None,
@@ -557,7 +574,7 @@ async fn auto_create_config(
         response_config_id: None,
         scope: Scope::Global,
         team_id: None,
-        created_by: owner,
+        created_by: owner.unwrap_or_else(|| "system".to_string()),
         created_at: now,
         updated_at: now,
     };
@@ -567,88 +584,27 @@ async fn auto_create_config(
         config_id = %new_config.id,
         source_id,
         repository = %repo.name,
-        "Auto-created Telegram channel config"
+        "Auto-created Telegram channel config (Moatable fallback)"
     );
     Ok(new_config)
 }
 
-/// Resolve a Telegram `from_id` → system user → default channel repo.
-///
-/// Fallback chain: user settings → first team's settings → `(None, None)`.
-///
-/// Returns `(Some(repo), Some(user_id))` on success, or `(None, None)` if any
-/// step fails (no mapping, no setting, repo deleted, etc.).
-async fn resolve_default_repo(
+/// Resolve a Telegram `from_id` → system user ID (for ownership).
+async fn resolve_sender_user(
     state: &crate::state::AppState,
     from_id: Option<i64>,
-) -> (Option<crate::repository::models::Repository>, Option<String>) {
-    let Some(telegram_id) = from_id else {
-        return (None, None);
-    };
-
+) -> Option<String> {
+    let telegram_id = from_id?;
     let from_id_str = telegram_id.to_string();
 
-    // 1. Telegram user → system user
-    let user_id: Option<String> = sqlx::query_scalar(
+    sqlx::query_scalar(
         "SELECT user_id FROM provider_tokens WHERE provider = 'telegram' AND provider_user_id = $1 LIMIT 1",
     )
     .bind(&from_id_str)
     .fetch_optional(&state.db)
     .await
     .ok()
-    .flatten();
-
-    let Some(user_id) = user_id else {
-        debug!(telegram_user_id = %from_id_str, "No system user for Telegram user, using fallback repo");
-        return (None, None);
-    };
-
-    // 2. Check user's default channel repo setting
-    let user = match state.users.get_user(&user_id).await {
-        Ok(Some(u)) => u,
-        _ => return (None, Some(user_id)),
-    };
-
-    if let Some(ref repo_id) = user.default_channel_repository_id() {
-        if let Ok(Some(repo)) = state.repositories.find_repository_by_id(repo_id).await {
-            info!(
-                user_id = %user_id,
-                repo_id = %repo.id,
-                repo_name = %repo.name,
-                "Using user's default channel repository"
-            );
-            return (Some(repo), Some(user_id));
-        }
-        warn!(user_id = %user_id, repo_id, "User's default channel repo not found, trying team settings");
-    }
-
-    // 3. Check user's teams for a default channel repo
-    if let Ok(teams) = state.teams.find_teams_for_user(&user_id).await {
-        for team in &teams {
-            let settings = team.parsed_settings();
-            if let Some(ref repo_id) = settings.default_channel_repository_id {
-                if let Ok(Some(repo)) = state.repositories.find_repository_by_id(repo_id).await {
-                    info!(
-                        user_id = %user_id,
-                        team_id = %team.id,
-                        repo_id = %repo.id,
-                        repo_name = %repo.name,
-                        "Using team's default channel repository"
-                    );
-                    return (Some(repo), Some(user_id));
-                }
-                warn!(
-                    user_id = %user_id,
-                    team_id = %team.id,
-                    repo_id,
-                    "Team's default channel repo not found, trying next team"
-                );
-            }
-        }
-    }
-
-    debug!(user_id = %user_id, "No default channel repo in user or team settings, using fallback");
-    (None, Some(user_id))
+    .flatten()
 }
 
 /// Strip bot mention from message text (e.g., "@mybot fix the bug" → "fix the bug").

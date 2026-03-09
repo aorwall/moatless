@@ -37,6 +37,12 @@ pub trait ChannelConfigRepository: Send + Sync {
     async fn insert(&self, row: &ChannelConfig) -> Result<(), sqlx::Error>;
     async fn update(&self, id: &str, patch: &ChannelConfigPatch) -> Result<(), sqlx::Error>;
     async fn delete(&self, id: &str) -> Result<(), sqlx::Error>;
+
+    /// Find a wildcard (`source_id="*"`) config for the given provider.
+    ///
+    /// Lookup order: team-scoped wildcard first (if `team_id` is provided),
+    /// then global wildcard.
+    async fn find_wildcard(&self, provider: &str, team_id: Option<&str>) -> Result<Option<ChannelConfig>, sqlx::Error>;
 }
 
 /// PostgreSQL implementation of [`ChannelConfigRepository`].
@@ -259,5 +265,36 @@ impl ChannelConfigRepository for PgChannelConfigRepository {
             .execute(&self.0)
             .await?;
         Ok(())
+    }
+
+    async fn find_wildcard(&self, provider: &str, team_id: Option<&str>) -> Result<Option<ChannelConfig>, sqlx::Error> {
+        // Try team-scoped wildcard first
+        if let Some(tid) = team_id {
+            let sql = format!(
+                "SELECT {CHANNEL_CONFIG_COLUMNS} FROM channel_configs \
+                 WHERE provider = $1 AND source_id = '*' AND team_id = $2 AND active = true \
+                 LIMIT 1"
+            );
+            let result = sqlx::query_as::<_, ChannelConfig>(&sql)
+                .bind(provider)
+                .bind(tid)
+                .fetch_optional(&self.0)
+                .await?;
+            if result.is_some() {
+                return Ok(result);
+            }
+        }
+
+        // Fall back to global wildcard (no team_id constraint)
+        let sql = format!(
+            "SELECT {CHANNEL_CONFIG_COLUMNS} FROM channel_configs \
+             WHERE provider = $1 AND source_id = '*' AND active = true \
+             ORDER BY team_id NULLS LAST \
+             LIMIT 1"
+        );
+        sqlx::query_as::<_, ChannelConfig>(&sql)
+            .bind(provider)
+            .fetch_optional(&self.0)
+            .await
     }
 }

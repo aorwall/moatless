@@ -1,8 +1,12 @@
 //! Repository commands: list, get, create, update.
 
 use clap::Subcommand;
+use moatless_api_client::types::{
+    CreateRepositoryRequest, RepositoryKind, RepositoryProvider, RepositoryResponse,
+    UpdateRepositoryRequest,
+};
 
-use crate::client::{ClientError, MoatClient};
+use crate::client::{map_api_error, ClientError, MoatClient};
 use crate::output;
 
 #[derive(Subcommand)]
@@ -40,19 +44,29 @@ pub enum RepoAction {
 pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<(), ClientError> {
     match action {
         RepoAction::List => {
-            let resp = client.get("/api/v1/repositories").await?;
+            let resp = client
+                .api()
+                .list_repositories()
+                .await
+                .map_err(map_api_error)?;
+            let repos = resp.into_inner();
             if json {
-                output::print_json(&resp);
+                output::print_json_typed(&repos);
             } else {
-                format_repo_list(&resp);
+                format_repo_list(&repos);
             }
         }
         RepoAction::Get { repo_id } => {
-            let resp = client.get(&format!("/api/v1/repositories/{repo_id}")).await?;
+            let resp = client
+                .api()
+                .get_repository(&repo_id)
+                .await
+                .map_err(map_api_error)?;
+            let repo = resp.into_inner();
             if json {
-                output::print_json(&resp);
+                output::print_json_typed(&repo);
             } else {
-                format_repo_detail(&resp);
+                format_repo_detail(&repo);
             }
         }
         RepoAction::Create {
@@ -62,19 +76,39 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
             provider,
             kind,
         } => {
-            let body = serde_json::json!({
-                "name": name,
-                "kind": kind,
-                "remoteUrl": git_url,
-                "defaultBranch": branch,
-                "provider": provider,
-            });
-            let resp = client.post("/api/v1/repositories", &body).await?;
+            let req = CreateRepositoryRequest {
+                name,
+                kind: parse_repo_kind(&kind),
+                remote_url: Some(git_url),
+                default_branch: Some(branch),
+                provider: parse_repo_provider(&provider),
+                auto_reload: None,
+                build_command: None,
+                build_output_directory: None,
+                description: None,
+                docker_image: None,
+                enable_inspector: None,
+                env_vars: None,
+                plugins: None,
+                server_start_commands: None,
+                servers: None,
+                setup_commands: None,
+                startup_timeout_seconds: None,
+                scope: None,
+                system_prompt: None,
+                team_id: None,
+                visibility: None,
+            };
+            let resp = client
+                .api()
+                .create_repository(&req)
+                .await
+                .map_err(map_api_error)?;
+            let created = resp.into_inner();
             if json {
-                output::print_json(&resp);
+                output::print_json_typed(&created);
             } else {
-                let id = resp.get("id").and_then(|v| v.as_str()).unwrap_or("?");
-                println!("Repository created: {id}");
+                println!("Repository created: {}", created.id);
             }
         }
         RepoAction::Update {
@@ -83,49 +117,69 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
             branch,
             git_url,
         } => {
-            let mut body = serde_json::Map::new();
-            if let Some(n) = name {
-                body.insert("name".into(), serde_json::json!(n));
-            }
-            if let Some(b) = branch {
-                body.insert("defaultBranch".into(), serde_json::json!(b));
-            }
-            if let Some(u) = git_url {
-                body.insert("remoteUrl".into(), serde_json::json!(u));
-            }
+            let req = UpdateRepositoryRequest {
+                name,
+                default_branch: branch,
+                remote_url: git_url,
+                auto_reload: None,
+                build_command: None,
+                build_output_directory: None,
+                description: None,
+                docker_image: None,
+                enable_inspector: None,
+                env_vars: None,
+                plugins: None,
+                server_start_commands: None,
+                servers: None,
+                setup_commands: None,
+                startup_timeout_seconds: None,
+                system_prompt: None,
+                visibility: None,
+            };
             let resp = client
-                .put(
-                    &format!("/api/v1/repositories/{repo_id}"),
-                    &serde_json::Value::Object(body),
-                )
-                .await?;
+                .api()
+                .update_repository(&repo_id, &req)
+                .await
+                .map_err(map_api_error)?;
+            let updated = resp.into_inner();
             if json {
-                output::print_json(&resp);
+                output::print_json_typed(&updated);
             } else {
-                println!("Repository {repo_id} updated.");
+                println!("Repository {} updated.", updated.id);
             }
         }
     }
     Ok(())
 }
 
-fn format_repo_list(resp: &serde_json::Value) {
-    let items = resp.as_array().cloned().unwrap_or_default();
+fn parse_repo_kind(s: &str) -> RepositoryKind {
+    match s {
+        "template" => RepositoryKind::Template,
+        "git" => RepositoryKind::Git,
+        _ => RepositoryKind::Remote,
+    }
+}
 
-    let rows: Vec<Vec<String>> = items
+fn parse_repo_provider(s: &str) -> Option<RepositoryProvider> {
+    match s {
+        "github" => Some(RepositoryProvider::Github),
+        "gitlab" => Some(RepositoryProvider::Gitlab),
+        "gitness" => Some(RepositoryProvider::Gitness),
+        _ => None,
+    }
+}
+
+fn format_repo_list(repos: &[RepositoryResponse]) {
+    let rows: Vec<Vec<String>> = repos
         .iter()
         .map(|r| {
             vec![
-                r.get("id").and_then(|v| v.as_str()).unwrap_or("-").to_string(),
-                r.get("name").and_then(|v| v.as_str()).unwrap_or("-").to_string(),
-                r.get("provider")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("-")
-                    .to_string(),
-                r.get("defaultBranch")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("-")
-                    .to_string(),
+                r.id.clone(),
+                r.name.clone(),
+                r.provider
+                    .as_ref()
+                    .map_or("-".to_string(), ToString::to_string),
+                r.default_branch.as_deref().unwrap_or("-").to_string(),
             ]
         })
         .collect();
@@ -133,22 +187,21 @@ fn format_repo_list(resp: &serde_json::Value) {
     output::print_table(&["ID", "NAME", "PROVIDER", "BRANCH"], &rows);
 }
 
-fn format_repo_detail(resp: &serde_json::Value) {
-    let id = resp.get("id").and_then(|v| v.as_str()).unwrap_or("-");
-    let name = resp.get("name").and_then(|v| v.as_str()).unwrap_or("-");
-    let provider = resp
-        .get("gitProvider")
-        .and_then(|v| v.as_str())
-        .unwrap_or("-");
-    let branch = resp
-        .get("defaultBranch")
-        .and_then(|v| v.as_str())
-        .unwrap_or("-");
-    let git_url = resp.get("remoteUrl").and_then(|v| v.as_str()).unwrap_or("-");
-
-    println!("ID:       {id}");
-    println!("Name:     {name}");
-    println!("Provider: {provider}");
-    println!("Branch:   {branch}");
-    println!("Git URL:  {git_url}");
+fn format_repo_detail(r: &RepositoryResponse) {
+    println!("ID:       {}", r.id);
+    println!("Name:     {}", r.name);
+    println!(
+        "Provider: {}",
+        r.provider
+            .as_ref()
+            .map_or("-".to_string(), ToString::to_string)
+    );
+    println!(
+        "Branch:   {}",
+        r.default_branch.as_deref().unwrap_or("-")
+    );
+    println!(
+        "Git URL:  {}",
+        r.remote_url.as_deref().unwrap_or("-")
+    );
 }

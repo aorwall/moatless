@@ -1,26 +1,22 @@
 //! Info commands: whoami, status.
 
+use moatless_api_client::types::SessionResponse;
+
 use crate::config::{AuthMode, Config};
 
-pub fn format_whoami(resp: &serde_json::Value) {
-    if let Some(user) = resp.get("user") {
-        let id = user.get("id").and_then(|v| v.as_str()).unwrap_or("-");
-        let login = user.get("login").and_then(|v| v.as_str()).unwrap_or("-");
-        let name = user
-            .get("name")
-            .and_then(|v| v.as_str())
-            .unwrap_or("(not set)");
-        let email = user
-            .get("email")
-            .and_then(|v| v.as_str())
-            .unwrap_or("(not set)");
-        let role = user.get("role").and_then(|v| v.as_str()).unwrap_or("-");
-
-        println!("User:  {login}");
-        println!("Name:  {name}");
-        println!("Email: {email}");
-        println!("ID:    {id}");
-        println!("Role:  {role}");
+pub fn format_whoami(resp: &SessionResponse) {
+    if let Some(ref user) = resp.user {
+        println!("User:  {}", user.login);
+        println!(
+            "Name:  {}",
+            user.name.as_deref().unwrap_or("(not set)")
+        );
+        println!(
+            "Email: {}",
+            user.email.as_deref().unwrap_or("(not set)")
+        );
+        println!("ID:    {}", user.id);
+        println!("Role:  {}", user.role);
     } else {
         println!("Not authenticated.");
     }

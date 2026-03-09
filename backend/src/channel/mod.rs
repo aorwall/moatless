@@ -4,6 +4,7 @@
 
 pub mod config_dao;
 pub mod cron;
+pub mod defaults;
 pub mod error;
 pub mod handlers;
 pub mod inbound;

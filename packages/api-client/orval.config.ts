@@ -3,7 +3,7 @@ import { defineConfig } from "orval";
 export default defineConfig({
 	sandbox: {
 		input: {
-			target: "./specs/backend.json",
+			target: "../../openapi-specs.json",
 		},
 		output: {
 			target: "./src/sandbox/index.ts",

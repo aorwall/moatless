@@ -6,12 +6,15 @@ use std::time::Duration;
 use tracing::{debug, warn};
 
 use crate::channel::error::ChannelError;
+use crate::channel::models::{AccessDecision, ChannelTrigger};
 use crate::channel::provider::{ChannelProvider, ChannelType};
 use crate::channel::models::{InboundMessage, MessageStatus, OutboundReply};
 use crate::channel::models::{ChannelConfig, ChannelThread};
 use crate::db::DbPool;
 
+use super::access::enforce_slack_access;
 use super::api::SlackApi;
+use super::config::SlackProviderConfig;
 use super::signature;
 
 /// Result of parsing a Slack webhook event.
@@ -114,23 +117,19 @@ impl SlackProvider {
             self.dedup_cache.insert(event_id.to_string(), ()).await;
         }
 
-        // 6. Apply trigger filter from config
-        let trigger = config
-            .provider_config
-            .as_ref()
-            .and_then(|c| c.get("trigger"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("mention_only");
+        // 6. Parse typed provider config and apply trigger filter
+        let slack_config = SlackProviderConfig::from_config(config);
 
-        match (trigger, event_type) {
-            ("mention_only", "app_mention") => {} // process
-            ("all_messages", "message") => {}     // process
-            ("all_messages", "app_mention") => {} // also process mentions in all_messages mode
+        match (slack_config.trigger, event_type) {
+            (ChannelTrigger::MentionOnly, "app_mention") => {} // process
+            (ChannelTrigger::AllMessages, "message") => {}     // process
+            (ChannelTrigger::AllMessages, "app_mention") => {} // also process mentions in all_messages mode
             _ => return Ok(SlackWebhookResult::Ignore),
         }
 
         // 7. Ignore bot's own messages
         let user = event.get("user").and_then(|v| v.as_str()).unwrap_or("");
+        let channel = event.get("channel").and_then(|v| v.as_str()).unwrap_or("");
         if let Some(ref bot_id) = self.bot_user_id {
             if user == bot_id {
                 return Ok(SlackWebhookResult::Ignore);
@@ -141,11 +140,19 @@ impl SlackProvider {
             return Ok(SlackWebhookResult::Ignore);
         }
 
+        // 7.5. Enforce access policy
+        match enforce_slack_access(&slack_config, channel, user) {
+            AccessDecision::Allowed => {}
+            AccessDecision::Blocked | AccessDecision::PairingSent => {
+                debug!(channel, user, "Slack message blocked by access policy");
+                return Ok(SlackWebhookResult::Ignore);
+            }
+        }
+
         // 8. Extract message details
         let text = event.get("text").and_then(|v| v.as_str()).unwrap_or("");
         let ts = event.get("ts").and_then(|v| v.as_str()).unwrap_or("");
         let thread_ts = event.get("thread_ts").and_then(|v| v.as_str());
-        let channel = event.get("channel").and_then(|v| v.as_str()).unwrap_or("");
 
         if text.is_empty() || ts.is_empty() {
             return Ok(SlackWebhookResult::Ignore);
@@ -285,10 +292,8 @@ impl ChannelProvider for SlackProvider {
             return Ok(());
         }
 
-        let reactions = config
-            .provider_config
-            .as_ref()
-            .and_then(|c| c.get("reactions"));
+        let slack_config = SlackProviderConfig::from_config(config);
+        let reactions = slack_config.reactions.as_ref();
 
         let emoji = match (status, reactions) {
             (MessageStatus::Processing, Some(r)) => {
@@ -345,11 +350,9 @@ impl ChannelProvider for SlackProvider {
             return Ok(None);
         }
 
-        let config_limit = config
-            .provider_config
-            .as_ref()
-            .and_then(|c| c.get("thread_context_limit"))
-            .and_then(serde_json::Value::as_u64)
+        let slack_config = SlackProviderConfig::from_config(config);
+        let config_limit = slack_config
+            .thread_context_limit
             .unwrap_or(limit as u64) as usize;
 
         let messages = self

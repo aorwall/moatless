@@ -58,6 +58,18 @@ pub struct ChannelConfigResponse {
     pub updated_at: String,
 }
 
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SetChannelDefaultsRequest {
+    pub repository_id: String,
+    pub routing_mode: RoutingMode,
+    pub prompt_template: Option<String>,
+    #[schema(value_type = Option<Object>)]
+    pub provider_config: Option<serde_json::Value>,
+    pub response_config_id: Option<String>,
+    pub team_id: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ListChannelConfigsQuery {

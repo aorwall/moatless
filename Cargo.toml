@@ -7,6 +7,7 @@ members = [
     "crates/claude-agent-sdk",
     "crates/sandbox-proto",
     "crates/cli",
+    "crates/api-client",
 ]
 resolver = "2"
 

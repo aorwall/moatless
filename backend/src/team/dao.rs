@@ -23,13 +23,6 @@ pub trait TeamRepository: Send + Sync {
     async fn remove_member(&self, team_id: &str, user_id: &str) -> Result<(), sqlx::Error>;
     async fn is_member(&self, team_id: &str, user_id: &str) -> Result<bool, sqlx::Error>;
 
-    /// Merge the given JSON object into the team's `settings` JSONB column.
-    async fn update_settings(
-        &self,
-        team_id: &str,
-        patch: &serde_json::Value,
-    ) -> Result<Option<Team>, sqlx::Error>;
-
     /// Upsert a team by external_id + provider (for Auth0 group sync).
     async fn upsert_by_external(
         &self,
@@ -185,20 +178,6 @@ impl TeamRepository for PgTeamRepository {
         .fetch_one(&self.0)
         .await?;
         Ok(row.0)
-    }
-
-    async fn update_settings(
-        &self,
-        team_id: &str,
-        patch: &serde_json::Value,
-    ) -> Result<Option<Team>, sqlx::Error> {
-        sqlx::query_as::<_, Team>(
-            "UPDATE teams SET settings = settings || $2, updated_at = now() WHERE id = $1 RETURNING *",
-        )
-        .bind(team_id)
-        .bind(patch)
-        .fetch_optional(&self.0)
-        .await
     }
 
     async fn upsert_by_external(

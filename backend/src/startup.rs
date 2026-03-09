@@ -290,6 +290,7 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     use crate::tag::routes::TagApiDoc;
     use crate::task::routes::TaskApiDoc;
     use crate::task_event::routes::TaskEventApiDoc;
+    use crate::team::routes::TeamApiDoc;
     use utoipa::OpenApi;
 
     #[derive(OpenApi)]
@@ -352,6 +353,7 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     merged.merge(TagApiDoc::openapi());
     merged.merge(ProviderSettingsApiDoc::openapi());
     merged.merge(ChannelApiDoc::openapi());
+    merged.merge(TeamApiDoc::openapi());
     merged.merge(EventsApiDoc::openapi());
     merged.merge(TaskEventApiDoc::openapi());
     merged.merge(FeatureFlagsApiDoc::openapi());

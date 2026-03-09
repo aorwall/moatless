@@ -1,48 +1,28 @@
 //! Miscellaneous commands: commands list, tags list.
 
+use moatless_api_client::types::{CommandResponse, TagResponse};
+
 use crate::output;
 
-pub fn format_commands(resp: &serde_json::Value) {
-    let items = resp.as_array().cloned().unwrap_or_default();
-
-    let rows: Vec<Vec<String>> = items
+pub fn format_commands(commands: &[CommandResponse]) {
+    let rows: Vec<Vec<String>> = commands
         .iter()
         .map(|c| {
             vec![
-                c.get("id").and_then(|v| v.as_str()).unwrap_or("-").to_string(),
-                c.get("name")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("-")
-                    .to_string(),
-                c.get("description")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("-")
-                    .chars()
-                    .take(60)
-                    .collect(),
+                c.name.clone(),
+                c.description.chars().take(60).collect(),
             ]
         })
         .collect();
 
-    output::print_table(&["ID", "NAME", "DESCRIPTION"], &rows);
+    output::print_table(&["NAME", "DESCRIPTION"], &rows);
 }
 
-pub fn format_tags(resp: &serde_json::Value) {
-    let items = resp.as_array().cloned().unwrap_or_default();
-
-    let rows: Vec<Vec<String>> = items
+pub fn format_tags(tags: &[TagResponse]) {
+    let rows: Vec<Vec<String>> = tags
         .iter()
         .map(|t| {
-            vec![
-                t.get("tagId")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("-")
-                    .to_string(),
-                t.get("name")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("-")
-                    .to_string(),
-            ]
+            vec![t.tag_id.clone(), t.name.clone()]
         })
         .collect();
 

@@ -3,23 +3,12 @@
 use tracing::{debug, info};
 
 use crate::channel::error::ChannelError;
-use crate::channel::models::ChannelConfig;
+use crate::channel::models::{AccessDecision, ChannelAccessPolicy, ChannelConfig};
 use crate::db::DbPool;
 
 use super::api::TelegramApi;
-use super::config::{DmPolicy, GroupPolicy, TelegramProviderConfig};
+use super::config::TelegramProviderConfig;
 use super::pairing;
-
-/// Result of an access control check.
-#[derive(Debug)]
-pub enum AccessDecision {
-    /// Message is allowed through.
-    Allowed,
-    /// Message is blocked (silently dropped).
-    Blocked,
-    /// A pairing code was sent to the user; message is not processed.
-    PairingSent,
-}
 
 /// Context about the Telegram sender for DM access enforcement.
 pub struct DmAccessContext<'a> {
@@ -40,13 +29,13 @@ pub async fn enforce_dm_access(ctx: &DmAccessContext<'_>) -> Result<AccessDecisi
 
     let from_id = ctx.from_id;
 
-    match ctx.tg_config.dm_policy {
-        DmPolicy::Disabled => {
-            debug!(from_id, "DM blocked: dm_policy=disabled");
+    match ctx.tg_config.dm_access_policy {
+        ChannelAccessPolicy::Disabled => {
+            debug!(from_id, "DM blocked: dm_access_policy=disabled");
             Ok(AccessDecision::Blocked)
         }
-        DmPolicy::Open => Ok(AccessDecision::Allowed),
-        DmPolicy::Allowlist => {
+        ChannelAccessPolicy::Open => Ok(AccessDecision::Allowed),
+        ChannelAccessPolicy::Allowlist => {
             if ctx.tg_config.dm_allowlist.contains(&from_id_str) {
                 Ok(AccessDecision::Allowed)
             } else {
@@ -54,7 +43,7 @@ pub async fn enforce_dm_access(ctx: &DmAccessContext<'_>) -> Result<AccessDecisi
                 Ok(AccessDecision::Blocked)
             }
         }
-        DmPolicy::Pairing => {
+        ChannelAccessPolicy::Pairing => {
             // Check allowlist first — already-approved users pass through
             if ctx.tg_config.dm_allowlist.contains(&from_id_str) {
                 return Ok(AccessDecision::Allowed);
@@ -107,19 +96,20 @@ pub fn enforce_group_access(
     chat_id: i64,
     text: &str,
 ) -> AccessDecision {
-    match tg_config.group_policy {
-        GroupPolicy::Disabled => {
-            debug!(chat_id, "Group message blocked: group_policy=disabled");
+    match tg_config.group_access_policy {
+        ChannelAccessPolicy::Disabled => {
+            debug!(chat_id, "Group message blocked: group_access_policy=disabled");
             return AccessDecision::Blocked;
         }
-        GroupPolicy::Allowlist => {
+        ChannelAccessPolicy::Allowlist | ChannelAccessPolicy::Pairing => {
+            // Pairing is not meaningful for groups; treat as Allowlist
             let chat_id_str = chat_id.to_string();
             if !tg_config.group_allowlist.contains(&chat_id_str) {
                 debug!(chat_id, "Group message blocked: chat not in group_allowlist");
                 return AccessDecision::Blocked;
             }
         }
-        GroupPolicy::Open => {}
+        ChannelAccessPolicy::Open => {}
     }
 
     // Check mention requirement
@@ -144,23 +134,23 @@ pub fn enforce_group_access(
 mod tests {
     use super::*;
 
-    fn make_config(dm_policy: DmPolicy, dm_allowlist: Vec<&str>) -> TelegramProviderConfig {
+    fn make_config(dm_policy: ChannelAccessPolicy, dm_allowlist: Vec<&str>) -> TelegramProviderConfig {
         TelegramProviderConfig {
             bot_username: Some("testbot".into()),
-            dm_policy,
+            dm_access_policy: dm_policy,
             dm_allowlist: dm_allowlist.into_iter().map(String::from).collect(),
             ..Default::default()
         }
     }
 
     fn make_group_config(
-        group_policy: GroupPolicy,
+        group_policy: ChannelAccessPolicy,
         group_allowlist: Vec<&str>,
         require_mention: bool,
     ) -> TelegramProviderConfig {
         TelegramProviderConfig {
             bot_username: Some("testbot".into()),
-            group_policy,
+            group_access_policy: group_policy,
             group_allowlist: group_allowlist.into_iter().map(String::from).collect(),
             require_mention,
             ..Default::default()
@@ -171,7 +161,7 @@ mod tests {
 
     #[test]
     fn group_open_allows() {
-        let cfg = make_group_config(GroupPolicy::Open, vec![], false);
+        let cfg = make_group_config(ChannelAccessPolicy::Open, vec![], false);
         assert!(matches!(
             enforce_group_access(&cfg, -100123, "hello"),
             AccessDecision::Allowed
@@ -180,7 +170,7 @@ mod tests {
 
     #[test]
     fn group_disabled_blocks() {
-        let cfg = make_group_config(GroupPolicy::Disabled, vec![], false);
+        let cfg = make_group_config(ChannelAccessPolicy::Disabled, vec![], false);
         assert!(matches!(
             enforce_group_access(&cfg, -100123, "hello"),
             AccessDecision::Blocked
@@ -189,7 +179,7 @@ mod tests {
 
     #[test]
     fn group_allowlist_allows_listed() {
-        let cfg = make_group_config(GroupPolicy::Allowlist, vec!["-100123"], false);
+        let cfg = make_group_config(ChannelAccessPolicy::Allowlist, vec!["-100123"], false);
         assert!(matches!(
             enforce_group_access(&cfg, -100123, "hello"),
             AccessDecision::Allowed
@@ -198,7 +188,7 @@ mod tests {
 
     #[test]
     fn group_allowlist_blocks_unlisted() {
-        let cfg = make_group_config(GroupPolicy::Allowlist, vec!["-100999"], false);
+        let cfg = make_group_config(ChannelAccessPolicy::Allowlist, vec!["-100999"], false);
         assert!(matches!(
             enforce_group_access(&cfg, -100123, "hello"),
             AccessDecision::Blocked
@@ -207,7 +197,7 @@ mod tests {
 
     #[test]
     fn group_require_mention_blocks_without_mention() {
-        let cfg = make_group_config(GroupPolicy::Open, vec![], true);
+        let cfg = make_group_config(ChannelAccessPolicy::Open, vec![], true);
         assert!(matches!(
             enforce_group_access(&cfg, -100123, "hello world"),
             AccessDecision::Blocked
@@ -216,7 +206,7 @@ mod tests {
 
     #[test]
     fn group_require_mention_allows_with_mention() {
-        let cfg = make_group_config(GroupPolicy::Open, vec![], true);
+        let cfg = make_group_config(ChannelAccessPolicy::Open, vec![], true);
         assert!(matches!(
             enforce_group_access(&cfg, -100123, "hello @testbot fix this"),
             AccessDecision::Allowed
@@ -225,7 +215,7 @@ mod tests {
 
     #[test]
     fn group_require_mention_allowlist_both_required() {
-        let cfg = make_group_config(GroupPolicy::Allowlist, vec!["-100123"], true);
+        let cfg = make_group_config(ChannelAccessPolicy::Allowlist, vec!["-100123"], true);
         // In allowlist but no mention → blocked
         assert!(matches!(
             enforce_group_access(&cfg, -100123, "hello"),
@@ -242,28 +232,26 @@ mod tests {
 
     #[test]
     fn dm_open_allows() {
-        // DmPolicy::Open doesn't need async/DB, but enforce_dm_access is async.
-        // We test the logic conceptually here; the async flow is covered by integration tests.
-        let cfg = make_config(DmPolicy::Open, vec![]);
-        assert_eq!(cfg.dm_policy, DmPolicy::Open);
+        let cfg = make_config(ChannelAccessPolicy::Open, vec![]);
+        assert_eq!(cfg.dm_access_policy, ChannelAccessPolicy::Open);
     }
 
     #[test]
     fn dm_disabled_policy() {
-        let cfg = make_config(DmPolicy::Disabled, vec![]);
-        assert_eq!(cfg.dm_policy, DmPolicy::Disabled);
+        let cfg = make_config(ChannelAccessPolicy::Disabled, vec![]);
+        assert_eq!(cfg.dm_access_policy, ChannelAccessPolicy::Disabled);
     }
 
     #[test]
     fn dm_allowlist_contains_check() {
-        let cfg = make_config(DmPolicy::Allowlist, vec!["123", "456"]);
+        let cfg = make_config(ChannelAccessPolicy::Allowlist, vec!["123", "456"]);
         assert!(cfg.dm_allowlist.contains(&"123".to_string()));
         assert!(!cfg.dm_allowlist.contains(&"789".to_string()));
     }
 
     #[test]
     fn dm_pairing_checks_allowlist_first() {
-        let cfg = make_config(DmPolicy::Pairing, vec!["123"]);
+        let cfg = make_config(ChannelAccessPolicy::Pairing, vec!["123"]);
         // User 123 is in allowlist → should be allowed even with pairing policy
         assert!(cfg.dm_allowlist.contains(&"123".to_string()));
     }

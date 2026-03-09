@@ -1,6 +1,7 @@
 //! Table vs JSON output formatting.
 
-pub fn print_json(value: &serde_json::Value) {
+/// Print any `Serialize` value as pretty JSON.
+pub fn print_json_typed<T: serde::Serialize>(value: &T) {
     if let Ok(pretty) = serde_json::to_string_pretty(value) {
         println!("{pretty}");
     }

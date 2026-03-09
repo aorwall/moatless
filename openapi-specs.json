@@ -968,12 +968,45 @@
         }
       }
     },
+    "/api/v1/auth/token/session": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Exchange a sandbox user auth token (JWT) for a session cookie.",
+        "description": "Sandbox pods carry a `USER_AUTH_TOKEN` JWT signed with `TASK_TOKEN_SECRET`.\nThis endpoint verifies that token and creates a session, allowing the CLI\nto call authenticated `/api/v1/*` endpoints.",
+        "operationId": "exchange_token_handler",
+        "responses": {
+          "200": {
+            "description": "Session created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenSessionResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or missing token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/auth/verify": {
       "get": {
         "tags": [
           "auth"
         ],
         "summary": "Verify authentication via session cookie or API key (Traefik ForwardAuth).",
+        "description": "Returns 200/401 only \u2014 no response headers.\nFor preview URLs (hostname contains `--`), also checks task-based access.",
         "operationId": "verify_handler",
         "responses": {
           "200": {
@@ -981,6 +1014,16 @@
           },
           "401": {
             "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Access denied",
             "content": {
               "application/json": {
                 "schema": {
@@ -1210,6 +1253,55 @@
         }
       }
     },
+    "/api/v1/channels/pairing/my-requests": {
+      "get": {
+        "tags": [
+          "channels"
+        ],
+        "summary": "List all pending pairing requests across all channels owned by the\nauthenticated user. Unlike `list_pairing_requests`, this does not require\na specific `config_id`.",
+        "operationId": "list_my_pairing_requests",
+        "responses": {
+          "200": {
+            "description": "Pending pairing requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PairingRequestResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/channels/providers": {
+      "get": {
+        "tags": [
+          "channels"
+        ],
+        "summary": "List configured channel providers.",
+        "description": "Returns the names of user-facing providers that are currently configured\n(e.g. `[\"slack\", \"telegram\"]`). Internal providers like webhook and cron\nare excluded.",
+        "operationId": "list_providers",
+        "responses": {
+          "200": {
+            "description": "Configured provider names",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/channels/slack/channels": {
       "get": {
         "tags": [
@@ -1268,6 +1360,143 @@
           },
           "401": {
             "description": "Invalid signature"
+          }
+        }
+      }
+    },
+    "/api/v1/channels/telegram/pairing/approve": {
+      "post": {
+        "tags": [
+          "channels"
+        ],
+        "summary": "Approve a Telegram pairing request by code.",
+        "operationId": "approve_pairing",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApprovePairingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Pairing approved"
+          },
+          "400": {
+            "description": "Invalid code"
+          },
+          "403": {
+            "description": "Access denied"
+          },
+          "404": {
+            "description": "Config not found"
+          }
+        }
+      }
+    },
+    "/api/v1/channels/telegram/pairing/requests": {
+      "get": {
+        "tags": [
+          "channels"
+        ],
+        "summary": "List pending pairing requests for a Telegram channel config.",
+        "operationId": "list_pairing_requests",
+        "parameters": [
+          {
+            "name": "config_id",
+            "in": "query",
+            "description": "Channel config ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Pending pairing requests"
+          },
+          "403": {
+            "description": "Access denied"
+          },
+          "404": {
+            "description": "Config not found"
+          }
+        }
+      }
+    },
+    "/api/v1/channels/telegram/webhook": {
+      "post": {
+        "tags": [
+          "channels"
+        ],
+        "summary": "Handle Telegram Bot API webhook update.",
+        "operationId": "telegram_webhook",
+        "requestBody": {
+          "description": "Telegram Bot API Update payload",
+          "content": {
+            "text/plain": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook processed"
+          },
+          "401": {
+            "description": "Invalid secret token"
+          }
+        }
+      }
+    },
+    "/api/v1/channels/webhook/{config_id}": {
+      "post": {
+        "tags": [
+          "channels"
+        ],
+        "summary": "Handle inbound webhook message.",
+        "description": "Receives a JSON payload with `text`, optional `threadId`, `userId`, and `metadata`.\nVerifies HMAC signature if `webhook_secret` is configured in the channel config.",
+        "operationId": "webhook_inbound",
+        "parameters": [
+          {
+            "name": "config_id",
+            "in": "path",
+            "description": "Channel config ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WebhookPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook message accepted"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Invalid signature"
+          },
+          "404": {
+            "description": "Config not found"
           }
         }
       }
@@ -1977,6 +2206,58 @@
         }
       }
     },
+    "/api/v1/repositories/{repository_id}/sync-config": {
+      "post": {
+        "tags": [
+          "repositories"
+        ],
+        "summary": "Sync `.moatless/config.json` from the remote repository into the DB.",
+        "operationId": "sync_config",
+        "parameters": [
+          {
+            "name": "repository_id",
+            "in": "path",
+            "description": "Repository identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Config synced",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Repository not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/settings/github/config": {
       "get": {
         "tags": [
@@ -2364,6 +2645,17 @@
                 "null"
               ]
             }
+          },
+          {
+            "name": "parentTaskId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
           }
         ],
         "responses": {
@@ -2402,6 +2694,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/CreateTaskResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No access to GitHub repository",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
                 }
               }
             }
@@ -3004,6 +3306,549 @@
         }
       }
     },
+    "/api/v1/teams": {
+      "get": {
+        "tags": [
+          "teams"
+        ],
+        "summary": "List all teams the user belongs to.",
+        "operationId": "list_teams",
+        "responses": {
+          "200": {
+            "description": "List of teams",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TeamResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "teams"
+        ],
+        "summary": "Create a new team.",
+        "operationId": "create_team",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTeamRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Team created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Slug already taken",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/teams/{team_id}": {
+      "get": {
+        "tags": [
+          "teams"
+        ],
+        "summary": "Get a team by ID.",
+        "operationId": "get_team",
+        "parameters": [
+          {
+            "name": "team_id",
+            "in": "path",
+            "description": "Team identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Team details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Team not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "teams"
+        ],
+        "summary": "Update a team.",
+        "operationId": "update_team",
+        "parameters": [
+          {
+            "name": "team_id",
+            "in": "path",
+            "description": "Team identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTeamRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Team updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Team not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "teams"
+        ],
+        "summary": "Delete a team.",
+        "operationId": "delete_team",
+        "parameters": [
+          {
+            "name": "team_id",
+            "in": "path",
+            "description": "Team identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Team deleted"
+          },
+          "404": {
+            "description": "Team not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/teams/{team_id}/credentials": {
+      "get": {
+        "tags": [
+          "teams"
+        ],
+        "summary": "List credentials for a team.",
+        "operationId": "list_credentials",
+        "parameters": [
+          {
+            "name": "team_id",
+            "in": "path",
+            "description": "Team identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of team credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TeamCredentialResponse"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Team not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/teams/{team_id}/credentials/{provider}": {
+      "put": {
+        "tags": [
+          "teams"
+        ],
+        "summary": "Upsert a credential for a team.",
+        "operationId": "upsert_credential",
+        "parameters": [
+          {
+            "name": "team_id",
+            "in": "path",
+            "description": "Team identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "provider",
+            "in": "path",
+            "description": "Provider name (github, gitlab, claude, etc.)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertTeamCredentialRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Credential upserted"
+          },
+          "404": {
+            "description": "Team not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "teams"
+        ],
+        "summary": "Delete a credential for a team.",
+        "operationId": "delete_credential",
+        "parameters": [
+          {
+            "name": "team_id",
+            "in": "path",
+            "description": "Team identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "provider",
+            "in": "path",
+            "description": "Provider name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Credential deleted"
+          },
+          "404": {
+            "description": "Team not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/teams/{team_id}/members": {
+      "get": {
+        "tags": [
+          "teams"
+        ],
+        "summary": "List members of a team.",
+        "operationId": "list_members",
+        "parameters": [
+          {
+            "name": "team_id",
+            "in": "path",
+            "description": "Team identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of team members",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TeamMemberResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "teams"
+        ],
+        "summary": "Add a member to a team.",
+        "operationId": "add_member",
+        "parameters": [
+          {
+            "name": "team_id",
+            "in": "path",
+            "description": "Team identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddTeamMemberRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Member added"
+          },
+          "404": {
+            "description": "Team not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/teams/{team_id}/members/{user_id}": {
+      "delete": {
+        "tags": [
+          "teams"
+        ],
+        "summary": "Remove a member from a team.",
+        "operationId": "remove_member",
+        "parameters": [
+          {
+            "name": "team_id",
+            "in": "path",
+            "description": "Team identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "path",
+            "description": "User identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Member removed"
+          },
+          "404": {
+            "description": "Team not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/teams/{team_id}/settings": {
+      "get": {
+        "tags": [
+          "teams"
+        ],
+        "summary": "Get a team's settings.",
+        "operationId": "get_settings",
+        "parameters": [
+          {
+            "name": "team_id",
+            "in": "path",
+            "description": "Team identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Team settings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamSettingsResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Team not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "teams"
+        ],
+        "summary": "Update a team's settings.",
+        "operationId": "update_settings",
+        "parameters": [
+          {
+            "name": "team_id",
+            "in": "path",
+            "description": "Team identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTeamSettingsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Settings updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamSettingsResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Team not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/uploads": {
       "post": {
         "tags": [
@@ -3123,13 +3968,130 @@
           }
         }
       }
+    },
+    "/api/v1/users/me/settings": {
+      "get": {
+        "tags": [
+          "user-settings"
+        ],
+        "summary": "Get the current user's settings.",
+        "operationId": "get_user_settings",
+        "responses": {
+          "200": {
+            "description": "User settings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Settings"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "User not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "user-settings"
+        ],
+        "summary": "Update the current user's settings.",
+        "operationId": "update_user_settings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Settings"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Settings updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Settings"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "User or repository not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "AddTeamMemberRequest": {
+        "type": "object",
+        "required": [
+          "userId"
+        ],
+        "properties": {
+          "role": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "userId": {
+            "type": "string"
+          }
+        }
+      },
       "AgentEventPayload": {
         "type": "object",
-        "description": "Agent event payload — typed shape for `EventType::Agent` events.\n\nAgent payloads are pass-through from the sandbox (Claude CLI output).\nThis struct is primarily for OpenAPI schema generation; at runtime the\nbackend continues to forward `serde_json::Value` payloads.",
+        "description": "Agent event payload \u2014 typed shape for `EventType::Agent` events.\n\nAgent payloads are pass-through from the sandbox (Claude CLI output).\nThis struct is primarily for OpenAPI schema generation; at runtime the\nbackend continues to forward `serde_json::Value` payloads.",
         "properties": {
           "agentSessionId": {
             "type": [
@@ -3338,8 +4300,32 @@
               "$ref": "#/components/schemas/ContentBlock"
             }
           },
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "role": {
             "type": "string"
+          },
+          "stop_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "stop_sequence": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "usage": {
             "oneOf": [
@@ -3350,6 +4336,21 @@
                 "$ref": "#/components/schemas/Usage"
               }
             ]
+          }
+        }
+      },
+      "ApprovePairingRequest": {
+        "type": "object",
+        "required": [
+          "configId",
+          "code"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "configId": {
+            "type": "string"
           }
         }
       },
@@ -3377,6 +4378,12 @@
           "message"
         ],
         "properties": {
+          "apiError": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
           "error": {
             "oneOf": [
               {
@@ -3387,10 +4394,22 @@
               }
             ]
           },
+          "isApiErrorMessage": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
           "message": {
             "$ref": "#/components/schemas/ApiMessage"
           },
           "parent_tool_use_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "requestId": {
             "type": [
               "string",
               "null"
@@ -3460,6 +4479,7 @@
           "repositoryId",
           "routingMode",
           "active",
+          "scope",
           "createdBy",
           "createdAt",
           "updatedAt"
@@ -3501,13 +4521,28 @@
           "repositoryId": {
             "type": "string"
           },
+          "responseConfigId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "routingMode": {
             "$ref": "#/components/schemas/RoutingMode"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
           },
           "sourceId": {
             "type": "string"
           },
           "sourceName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "teamId": {
             "type": [
               "string",
               "null"
@@ -3523,7 +4558,10 @@
         "description": "Channel provider identifier.",
         "enum": [
           "slack",
-          "email"
+          "email",
+          "webhook",
+          "cron",
+          "telegram"
         ]
       },
       "CommandResponse": {
@@ -3750,6 +4788,24 @@
                 ]
               }
             }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "type"
+            ],
+            "properties": {
+              "data": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "redacted_thinking"
+                ]
+              }
+            }
           }
         ],
         "description": "A content block within an API message."
@@ -3810,13 +4866,35 @@
           "repositoryId": {
             "type": "string"
           },
+          "responseConfigId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "routingMode": {
             "$ref": "#/components/schemas/RoutingMode"
+          },
+          "scope": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
+            ]
           },
           "sourceId": {
             "type": "string"
           },
           "sourceName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "teamId": {
             "type": [
               "string",
               "null"
@@ -3975,6 +5053,16 @@
               "null"
             ]
           },
+          "scope": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
+            ]
+          },
           "serverStartCommands": {
             "type": [
               "array",
@@ -4010,6 +5098,12 @@
             "format": "int32"
           },
           "systemPrompt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "teamId": {
             "type": [
               "string",
               "null"
@@ -4095,6 +5189,12 @@
               "null"
             ]
           },
+          "parentTaskId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "repositoryId": {
             "type": "string"
           }
@@ -4115,6 +5215,27 @@
             "$ref": "#/components/schemas/TaskResponse"
           },
           "taskId": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateTeamRequest": {
+        "type": "object",
+        "required": [
+          "name",
+          "slug"
+        ],
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "slug": {
             "type": "string"
           }
         }
@@ -4161,22 +5282,9 @@
           }
         }
       },
-      "EnvironmentStatus": {
-        "type": "string",
-        "description": "Matches TS EnvironmentStatusSchema",
-        "enum": [
-          "not_created",
-          "initializing",
-          "ready",
-          "stopped",
-          "removing",
-          "removed",
-          "error"
-        ]
-      },
       "ErrorBody": {
         "type": "object",
-        "description": "Generic error body returned by all error responses.",
+        "description": "Standard JSON error body. All API errors MUST use this shape.",
         "required": [
           "error"
         ],
@@ -4188,7 +5296,7 @@
       },
       "EventType": {
         "type": "string",
-        "description": "Top-level event types.\n\nSerializes to the exact strings the frontend `EventTypeSchema` expects.\nRenamed: \"environment\" → \"sandbox\" to avoid confusion with K8s environments.",
+        "description": "Top-level event types.\n\nSerializes to the exact strings the frontend `EventTypeSchema` expects.\nRenamed: \"environment\" \u2192 \"sandbox\" to avoid confusion with K8s environments.",
         "enum": [
           "task",
           "taskTurn",
@@ -4288,7 +5396,7 @@
                 "$ref": "#/components/schemas/SlackConfig"
               }
             ]
-          },
+          }
         }
       },
       "FigmaContextData": {
@@ -4993,6 +6101,48 @@
           }
         }
       },
+      "PairingRequestResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "configId",
+          "providerUserId",
+          "code",
+          "status",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "configId": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "meta": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "providerUserId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        }
+      },
       "ParseClipboardRequest": {
         "type": "object",
         "required": [
@@ -5125,7 +6275,7 @@
         ],
         "properties": {
           "status": {
-            "$ref": "#/components/schemas/EnvironmentStatus"
+            "$ref": "#/components/schemas/SandboxStatus"
           }
         }
       },
@@ -5197,7 +6347,8 @@
           "id",
           "name",
           "kind",
-          "visibility"
+          "visibility",
+          "scope"
         ],
         "properties": {
           "autoReload": {
@@ -5300,6 +6451,9 @@
               "null"
             ]
           },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
           "serverStartCommands": {
             "type": [
               "array",
@@ -5335,6 +6489,12 @@
             "format": "int32"
           },
           "systemPrompt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "teamId": {
             "type": [
               "string",
               "null"
@@ -5397,7 +6557,7 @@
       },
       "ResourcesEventPayload": {
         "type": "object",
-        "description": "Resources event payload — typed shape for `EventType::Resources` events.",
+        "description": "Resources event payload \u2014 typed shape for `EventType::Resources` events.",
         "properties": {
           "message": {
             "type": "string"
@@ -5552,7 +6712,7 @@
       },
       "SandboxEventPayload": {
         "type": "object",
-        "description": "Sandbox event payload — typed payload for sandbox lifecycle events.\n\nUsed by the pod watcher and provider to publish structured events\ninstead of raw `serde_json::Value`.",
+        "description": "Sandbox event payload \u2014 typed payload for sandbox lifecycle events.\n\nUsed by the pod watcher and provider to publish structured events\ninstead of raw `serde_json::Value`.",
         "properties": {
           "error": {
             "type": [
@@ -5582,6 +6742,19 @@
           "missing"
         ]
       },
+      "SandboxStatus": {
+        "type": "string",
+        "description": "Sandbox status \u2014 valid status values for sandbox lifecycle events.\n\nThese match the frontend `EnvironmentStatusSchema` values.",
+        "enum": [
+          "not_created",
+          "initializing",
+          "ready",
+          "stopped",
+          "removing",
+          "removed",
+          "error"
+        ]
+      },
       "SandboxStatusFullResponse": {
         "type": "object",
         "description": "Full sandbox status response to frontend (matches TS SandboxStatusFullResponse)",
@@ -5607,7 +6780,7 @@
             ]
           },
           "environmentStatus": {
-            "$ref": "#/components/schemas/EnvironmentStatus"
+            "$ref": "#/components/schemas/SandboxStatus"
           },
           "resources": {
             "oneOf": [
@@ -5632,19 +6805,6 @@
             }
           }
         }
-      },
-      "SandboxSubType": {
-        "type": "string",
-        "description": "Sandbox sub-types — valid status values for sandbox lifecycle events.\n\nThese match the frontend `EnvironmentStatusSchema` values.",
-        "enum": [
-          "not_created",
-          "initializing",
-          "ready",
-          "stopped",
-          "removing",
-          "removed",
-          "error"
-        ]
       },
       "SaveGitnessPATRequest": {
         "type": "object",
@@ -5671,6 +6831,15 @@
             "type": "string"
           }
         }
+      },
+      "Scope": {
+        "type": "string",
+        "description": "3-level scope for repositories, tasks, channels, and credentials.",
+        "enum": [
+          "global",
+          "team",
+          "user"
+        ]
       },
       "SearchByNameRequest": {
         "type": "object",
@@ -5976,7 +7145,7 @@
       },
       "ServerEventPayload": {
         "type": "object",
-        "description": "Server event payload — matches frontend `ServerEventPayloadSchema`.",
+        "description": "Server event payload \u2014 matches frontend `ServerEventPayloadSchema`.",
         "required": [
           "serverName",
           "status"
@@ -6069,7 +7238,7 @@
       },
       "ServerSubType": {
         "type": "string",
-        "description": "Server sub-types — server container lifecycle.\n\n`Failed` covers all error conditions (was: Failed, Error, Timeout — consolidated).",
+        "description": "Server sub-types \u2014 server container lifecycle.\n\n`Failed` covers all error conditions (was: Failed, Error, Timeout \u2014 consolidated).",
         "enum": [
           "installing",
           "starting",
@@ -6114,6 +7283,18 @@
           }
         }
       },
+      "Settings": {
+        "type": "object",
+        "description": "Typed settings struct shared by users and teams.\n\nStored as JSONB in the database; round-trips via serde.",
+        "properties": {
+          "defaultChannelRepositoryId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "SlackChannelInfoResponse": {
         "type": "object",
         "description": "Available Slack channel info for dropdown selection.",
@@ -6144,7 +7325,7 @@
       },
       "StreamEvent": {
         "type": "object",
-        "description": "SSE event envelope — the shape of events streamed to the frontend.\n\nThis is the canonical wire format for all SSE events. The frontend\nreceives this shape and dispatches on `event_type` + `sub_type`.",
+        "description": "SSE event envelope \u2014 the shape of events streamed to the frontend.\n\nThis is the canonical wire format for all SSE events. The frontend\nreceives this shape and dispatches on `event_type` + `sub_type`.",
         "required": [
           "eventId",
           "type",
@@ -6206,7 +7387,7 @@
       },
       "TaskEventPayload": {
         "type": "object",
-        "description": "Task event payload — typed shape for `EventType::Task` events.",
+        "description": "Task event payload \u2014 typed shape for `EventType::Task` events.",
         "properties": {
           "message": {
             "type": "string"
@@ -6225,6 +7406,7 @@
           "lastMessageAt",
           "totalCostUsd",
           "visibility",
+          "scope",
           "tags"
         ],
         "properties": {
@@ -6285,6 +7467,12 @@
               "null"
             ]
           },
+          "parentTaskId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "repositoryId": {
             "type": "string"
           },
@@ -6293,6 +7481,9 @@
               "string",
               "null"
             ]
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
           },
           "shortId": {
             "type": [
@@ -6317,6 +7508,12 @@
           },
           "taskId": {
             "type": "string"
+          },
+          "teamId": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "templateId": {
             "type": [
@@ -6364,7 +7561,7 @@
       },
       "TaskTurnEventPayload": {
         "type": "object",
-        "description": "TaskTurn event payload — typed shape for `EventType::TaskTurn` events.",
+        "description": "TaskTurn event payload \u2014 typed shape for `EventType::TaskTurn` events.",
         "properties": {
           "message": {
             "type": "string"
@@ -6380,6 +7577,118 @@
           "error",
           "stopped"
         ]
+      },
+      "TeamCredentialResponse": {
+        "type": "object",
+        "required": [
+          "provider",
+          "hasRefreshToken"
+        ],
+        "properties": {
+          "hasRefreshToken": {
+            "type": "boolean"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "tokenType": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "TeamMemberResponse": {
+        "type": "object",
+        "required": [
+          "teamId",
+          "userId",
+          "role",
+          "createdAt"
+        ],
+        "properties": {
+          "createdAt": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "teamId": {
+            "type": "string"
+          },
+          "userId": {
+            "type": "string"
+          }
+        }
+      },
+      "TeamResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "slug",
+          "isDefault",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "createdAt": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "isDefault": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        }
+      },
+      "TeamSettingsResponse": {
+        "type": "object",
+        "properties": {
+          "defaultChannelRepositoryId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "TokenSessionResponse": {
+        "type": "object",
+        "description": "POST /api/v1/auth/token/session response.",
+        "required": [
+          "token",
+          "user",
+          "expiresAt"
+        ],
+        "properties": {
+          "expiresAt": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserInfo"
+          }
+        }
       },
       "UiAssistantMeta": {
         "type": "object",
@@ -6398,6 +7707,12 @@
             ]
           },
           "stopReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "stopSequence": {
             "type": [
               "string",
               "null"
@@ -6529,6 +7844,13 @@
           "role": {
             "$ref": "#/components/schemas/MessageRole"
           },
+          "sdkMetadata": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "SDK metadata (user flags, assistant extras)."
+          },
           "sessionId": {
             "type": [
               "string",
@@ -6596,6 +7918,13 @@
           },
           "toolUseId": {
             "type": "string"
+          },
+          "typedResult": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Typed tool result from SDK (e.g., BashToolUseResult, ReadToolUseResult)."
           }
         }
       },
@@ -6651,6 +7980,18 @@
           "providerConfig": {
             "type": [
               "object",
+              "null"
+            ]
+          },
+          "repositoryId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "responseConfigId": {
+            "type": [
+              "string",
               "null"
             ]
           },
@@ -6876,6 +8217,34 @@
           }
         }
       },
+      "UpdateTeamRequest": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "UpdateTeamSettingsRequest": {
+        "type": "object",
+        "properties": {
+          "defaultChannelRepositoryId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "UpdateUserRequest": {
         "type": "object",
         "description": "Body for PATCH /api/v1/auth/me.",
@@ -6942,6 +8311,30 @@
           }
         }
       },
+      "UpsertTeamCredentialRequest": {
+        "type": "object",
+        "required": [
+          "accessToken"
+        ],
+        "properties": {
+          "accessToken": {
+            "type": "string"
+          },
+          "metadata": {},
+          "refreshToken": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tokenType": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "Usage": {
         "type": "object",
         "description": "Token usage information.",
@@ -6950,6 +8343,12 @@
           "output_tokens"
         ],
         "properties": {
+          "cache_creation": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
           "cache_creation_input_tokens": {
             "type": [
               "integer",
@@ -6975,6 +8374,18 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          },
+          "server_tool_use": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "service_tier": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -7078,6 +8489,40 @@
           "private"
         ]
       },
+      "WebhookPayload": {
+        "type": "object",
+        "description": "Inbound webhook payload.",
+        "required": [
+          "text"
+        ],
+        "properties": {
+          "metadata": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Arbitrary metadata stored in thread properties."
+          },
+          "text": {
+            "type": "string",
+            "description": "Message text (required)."
+          },
+          "threadId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Thread ID for routing (maps to thread_id in InboundMessage)."
+          },
+          "userId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "User identity override (defaults to config's default user_id)."
+          }
+        }
+      },
       "WriteFileRequestBody": {
         "type": "object",
         "description": "Request body for writing a file.",
@@ -7148,6 +8593,14 @@
     {
       "name": "channels",
       "description": "Channel integration management and webhooks"
+    },
+    {
+      "name": "teams",
+      "description": "Team management"
+    },
+    {
+      "name": "user-settings",
+      "description": "User preferences and settings"
     }
   ]
 }

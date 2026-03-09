@@ -1,8 +1,9 @@
 //! Task commands: list, get, create, children, start, stop, close.
 
 use clap::Subcommand;
+use moatless_api_client::types::{CreateTaskRequest, ListTasksResponse, TaskResponse, TaskStatus};
 
-use crate::client::{ClientError, MoatClient};
+use crate::client::{map_api_error, ClientError, MoatClient};
 use crate::config::Config;
 use crate::output;
 
@@ -54,24 +55,30 @@ pub async fn run(
 ) -> Result<(), ClientError> {
     match action {
         TaskAction::List { status, limit } => {
-            let mut path = format!("/api/v1/tasks?limit={limit}");
-            if let Some(ref s) = status {
-                use std::fmt::Write;
-                let _ = write!(path, "&status={s}");
-            }
-            let resp = client.get(&path).await?;
+            let task_status = status.as_deref().and_then(parse_task_status);
+            let resp = client
+                .api()
+                .list_tasks(None, Some(limit), None, None, None, task_status, None)
+                .await
+                .map_err(map_api_error)?;
+            let list = resp.into_inner();
             if json {
-                output::print_json(&resp);
+                output::print_json_typed(&list);
             } else {
-                format_task_list(&resp);
+                format_task_list(&list);
             }
         }
         TaskAction::Get { task_id } => {
-            let resp = client.get(&format!("/api/v1/tasks/{task_id}")).await?;
+            let resp = client
+                .api()
+                .get_task(&task_id)
+                .await
+                .map_err(map_api_error)?;
+            let task = resp.into_inner();
             if json {
-                output::print_json(&resp);
+                output::print_json_typed(&task);
             } else {
-                format_task_detail(&resp);
+                format_task_detail(&task);
             }
         }
         TaskAction::Create {
@@ -88,31 +95,29 @@ pub async fn run(
                 parent.or_else(|| config.task_id().map(String::from))
             };
 
-            let mut body = serde_json::json!({
-                "repositoryId": repo,
-            });
-            if let Some(ref n) = name {
-                body["name"] = serde_json::json!(n);
-            }
-            if let Some(ref p) = parent_task_id {
-                body["parentTaskId"] = serde_json::json!(p);
-            }
-            if let Some(ref m) = message {
-                body["message"] = serde_json::json!(m);
-            }
-            if let Some(ref b) = branch {
-                body["branch"] = serde_json::json!(b);
-            }
-
-            let resp = client.post("/api/v1/tasks", &body).await?;
+            let req = CreateTaskRequest {
+                repository_id: repo,
+                name,
+                message,
+                branch,
+                parent_task_id,
+                agent_mode: None,
+                agent_type: None,
+                contexts: Vec::new(),
+                description: None,
+                file_ids: Vec::new(),
+                model: None,
+            };
+            let resp = client
+                .api()
+                .create_task(&req)
+                .await
+                .map_err(map_api_error)?;
+            let created = resp.into_inner();
             if json {
-                output::print_json(&resp);
+                output::print_json_typed(&created);
             } else {
-                let task_id = resp
-                    .get("taskId")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("?");
-                println!("Task created: {task_id}");
+                println!("Task created: {}", created.task_id);
             }
         }
         TaskAction::Children { task_id } => {
@@ -123,100 +128,81 @@ pub async fn run(
                     body: "No task_id provided and TASK_ID not set".to_string(),
                 })?;
             let resp = client
-                .get(&format!("/api/v1/tasks?parentTaskId={parent}"))
-                .await?;
+                .api()
+                .list_tasks(None, None, None, Some(&parent), None, None, None)
+                .await
+                .map_err(map_api_error)?;
+            let list = resp.into_inner();
             if json {
-                output::print_json(&resp);
+                output::print_json_typed(&list);
             } else {
-                format_task_list(&resp);
+                format_task_list(&list);
             }
         }
         TaskAction::Start { task_id } => {
             client
-                .post_empty(&format!("/api/v1/tasks/{task_id}/start"))
-                .await?;
+                .api()
+                .start_task(&task_id)
+                .await
+                .map_err(map_api_error)?;
             println!("Task {task_id} started.");
         }
         TaskAction::Stop { task_id } => {
             client
-                .post_empty(&format!("/api/v1/tasks/{task_id}/stop"))
-                .await?;
+                .api()
+                .stop_task(&task_id)
+                .await
+                .map_err(map_api_error)?;
             println!("Task {task_id} stopped.");
         }
         TaskAction::Close { task_id } => {
             client
-                .post_empty(&format!("/api/v1/tasks/{task_id}/close"))
-                .await?;
+                .api()
+                .close_task(&task_id)
+                .await
+                .map_err(map_api_error)?;
             println!("Task {task_id} closed.");
         }
     }
     Ok(())
 }
 
-fn format_task_list(resp: &serde_json::Value) {
-    let items = resp
-        .get("items")
-        .and_then(|v| v.as_array())
-        .cloned()
-        .unwrap_or_default();
+fn parse_task_status(s: &str) -> Option<TaskStatus> {
+    match s {
+        "open" => Some(TaskStatus::Open),
+        "closed" => Some(TaskStatus::Closed),
+        "error" => Some(TaskStatus::Error),
+        _ => None,
+    }
+}
 
-    let rows: Vec<Vec<String>> = items
-        .iter()
-        .map(|t| {
-            vec![
-                t.get("taskId")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("-")
-                    .to_string(),
-                t.get("status")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("-")
-                    .to_string(),
-                t.get("title")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("-")
-                    .chars()
-                    .take(50)
-                    .collect(),
-                t.get("repositoryName")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("-")
-                    .to_string(),
-            ]
-        })
-        .collect();
-
+fn format_task_list(list: &ListTasksResponse) {
+    let rows: Vec<Vec<String>> = list.items.iter().map(format_task_row).collect();
     output::print_table(&["TASK_ID", "STATUS", "TITLE", "REPO"], &rows);
 }
 
-fn format_task_detail(resp: &serde_json::Value) {
-    let id = resp.get("taskId").and_then(|v| v.as_str()).unwrap_or("-");
-    let status = resp.get("status").and_then(|v| v.as_str()).unwrap_or("-");
-    let title = resp.get("title").and_then(|v| v.as_str()).unwrap_or("-");
-    let repo = resp
-        .get("repositoryName")
-        .and_then(|v| v.as_str())
-        .unwrap_or("-");
-    let branch = resp.get("branch").and_then(|v| v.as_str()).unwrap_or("-");
-    let created_at = resp
-        .get("createdAt")
-        .and_then(|v| v.as_str())
-        .unwrap_or("-");
-    let cost = resp
-        .get("totalCostUsd")
-        .and_then(serde_json::Value::as_f64)
-        .unwrap_or(0.0);
-    let parent = resp
-        .get("parentTaskId")
-        .and_then(|v| v.as_str())
-        .unwrap_or("none");
+fn format_task_row(t: &TaskResponse) -> Vec<String> {
+    vec![
+        t.task_id.clone(),
+        t.status.to_string(),
+        t.title.chars().take(50).collect(),
+        t.repository_name.as_deref().unwrap_or("-").to_string(),
+    ]
+}
 
-    println!("Task:    {id}");
-    println!("Title:   {title}");
-    println!("Status:  {status}");
-    println!("Repo:    {repo}");
-    println!("Branch:  {branch}");
-    println!("Created: {created_at}");
-    println!("Cost:    ${cost:.4}");
-    println!("Parent:  {parent}");
+fn format_task_detail(t: &TaskResponse) {
+    println!("Task:    {}", t.task_id);
+    println!("Title:   {}", t.title);
+    println!("Status:  {}", t.status);
+    println!(
+        "Repo:    {}",
+        t.repository_name.as_deref().unwrap_or("-")
+    );
+    println!("Branch:  {}", t.branch.as_deref().unwrap_or("-"));
+    println!("Created: {}", t.created_at);
+    println!("Cost:    ${:.4}", t.total_cost_usd);
+    println!(
+        "Parent:  {}",
+        t.parent_task_id.as_deref().unwrap_or("none")
+    );
 }

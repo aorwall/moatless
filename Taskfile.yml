@@ -21,10 +21,47 @@ tasks:
     cmds:
       - task --list
 
+  # ── Code generation ──────────────────────────────────────────
+
+  generate:spec:
+    desc: Regenerate OpenAPI spec from backend
+    cmds:
+      - cargo run -p moatless-vibe-backend -- --dump-openapi > openapi-specs.json
+      - echo "OpenAPI spec regenerated at openapi-specs.json"
+
+  generate:client:ts:
+    desc: Regenerate TypeScript API client from OpenAPI spec
+    deps: [generate:spec]
+    cmds:
+      - cd packages/api-client && bun run generate:client
+      - echo "TypeScript API client regenerated"
+
+  generate:client:rust:
+    desc: Rebuild Rust API client from OpenAPI spec (runs automatically via build.rs)
+    deps: [generate:spec]
+    cmds:
+      - cargo build -p moatless-api-client
+      - echo "Rust API client regenerated"
+
+  generate:
+    desc: Regenerate OpenAPI spec and all API clients (TypeScript + Rust)
+    cmds:
+      - task: generate:spec
+      - task: generate:client:ts
+      - task: generate:client:rust
+
+  check:spec:
+    desc: Verify committed OpenAPI spec matches backend (fails if stale)
+    cmds:
+      - cargo run -p moatless-vibe-backend -- --dump-openapi > /tmp/openapi-specs-check.json
+      - diff -q openapi-specs.json /tmp/openapi-specs-check.json || (echo "ERROR: openapi-specs.json is stale. Run 'task generate' to update." && exit 1)
+      - echo "OpenAPI spec is up-to-date"
+
   # ── Build targets ──────────────────────────────────────────────
 
   build:frontend:
     desc: Build frontend Docker image
+    deps: [generate:client:ts]
     cmds:
       - ./docker/build-app.sh --tag {{.TAG}} --platform {{.PLATFORM}}
 
@@ -58,6 +95,7 @@ tasks:
 
   push:frontend:
     desc: Build and push frontend image
+    deps: [generate:client:ts]
     cmds:
       - ./docker/build-app.sh --tag {{.TAG}} --platform {{.PLATFORM}} --push
 

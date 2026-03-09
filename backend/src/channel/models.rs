@@ -142,6 +142,47 @@ pub struct OutboundReply {
     pub is_error: bool,
 }
 
+// =============================================================================
+// Shared access-control types (used by Telegram, Slack, and future providers)
+// =============================================================================
+
+/// Access policy for a channel (DM, group, or Slack channel).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ChannelAccessPolicy {
+    /// Accept messages from any source.
+    #[default]
+    Open,
+    /// Reject all messages.
+    Disabled,
+    /// Accept only from sources in the allowlist.
+    Allowlist,
+    /// Allowlist + prompt unknown users with a pairing code (DM only).
+    Pairing,
+}
+
+/// When to trigger processing of an inbound message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ChannelTrigger {
+    /// Only process messages that mention the bot.
+    #[default]
+    MentionOnly,
+    /// Process all messages in the channel.
+    AllMessages,
+}
+
+/// Result of an access control check.
+#[derive(Debug)]
+pub enum AccessDecision {
+    /// Message is allowed through.
+    Allowed,
+    /// Message is blocked (silently dropped).
+    Blocked,
+    /// A pairing code was sent to the user; message is not processed.
+    PairingSent,
+}
+
 /// Status indicator for a message (e.g., Slack emoji reactions).
 #[derive(Debug, Clone, Copy)]
 pub enum MessageStatus {

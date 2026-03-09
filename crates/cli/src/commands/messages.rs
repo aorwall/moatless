@@ -1,8 +1,9 @@
 //! Message commands: list, send.
 
 use clap::Subcommand;
+use moatless_api_client::types::{SendMessageRequest, UiMessage};
 
-use crate::client::{ClientError, MoatClient};
+use crate::client::{map_api_error, ClientError, MoatClient};
 use crate::output;
 
 #[derive(Subcommand)]
@@ -25,21 +26,37 @@ pub async fn run(
     match action {
         MessageAction::List { task_id } => {
             let resp = client
-                .get(&format!("/api/v1/tasks/{task_id}/messages"))
-                .await?;
+                .api()
+                .get_messages(&task_id)
+                .await
+                .map_err(map_api_error)?;
+            let messages = resp.into_inner();
             if json {
-                output::print_json(&resp);
+                output::print_json_typed(&messages);
             } else {
-                format_messages(&resp);
+                format_messages(&messages.messages);
             }
         }
         MessageAction::Send { task_id, text } => {
-            let body = serde_json::json!({ "message": text });
+            let req = SendMessageRequest {
+                message: text,
+                agent_mode: None,
+                command_name: None,
+                contexts: Vec::new(),
+                file_ids: Vec::new(),
+                model: None,
+                resume: None,
+                tool_name: None,
+                tool_response: None,
+                tool_use_id: None,
+            };
             let resp = client
-                .post(&format!("/api/v1/tasks/{task_id}/messages"), &body)
-                .await?;
+                .api()
+                .send_message(&task_id, &req)
+                .await
+                .map_err(map_api_error)?;
             if json {
-                output::print_json(&resp);
+                output::print_json_typed(&resp.into_inner());
             } else {
                 println!("Message sent.");
             }
@@ -48,28 +65,24 @@ pub async fn run(
     Ok(())
 }
 
-fn format_messages(resp: &serde_json::Value) {
-    let items = resp.as_array().cloned().unwrap_or_default();
-
-    let rows: Vec<Vec<String>> = items
+fn format_messages(messages: &[UiMessage]) {
+    let rows: Vec<Vec<String>> = messages
         .iter()
         .map(|m| {
-            let role = m
-                .get("role")
-                .and_then(|v| v.as_str())
-                .unwrap_or("-")
-                .to_string();
-            let content = m
-                .get("content")
-                .and_then(|v| v.as_str())
-                .or_else(|| m.get("text").and_then(|v| v.as_str()))
-                .unwrap_or("-");
-            let preview: String = content.chars().take(80).collect();
-            let created = m
-                .get("createdAt")
-                .and_then(|v| v.as_str())
-                .unwrap_or("-")
-                .to_string();
+            let role = m.role.to_string();
+            // Extract text from content blocks via serde
+            let preview: String = m
+                .content
+                .iter()
+                .find_map(|block| {
+                    let val = serde_json::to_value(block).ok()?;
+                    val.get("text").and_then(|t| t.as_str()).map(String::from)
+                })
+                .unwrap_or_else(|| "-".to_string())
+                .chars()
+                .take(80)
+                .collect();
+            let created = m.timestamp.clone();
             vec![role, preview, created]
         })
         .collect();

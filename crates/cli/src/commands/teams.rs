@@ -1,8 +1,9 @@
-//! Team commands: list, get, settings get/set.
+//! Team commands: list, get.
 
 use clap::Subcommand;
+use moatless_api_client::types::TeamResponse;
 
-use crate::client::{ClientError, MoatClient};
+use crate::client::{map_api_error, ClientError, MoatClient};
 use crate::output;
 
 #[derive(Subcommand)]
@@ -11,107 +12,49 @@ pub enum TeamAction {
     List,
     /// Get team details
     Get { team_id: String },
-    /// Show team settings
-    Settings {
-        #[command(subcommand)]
-        action: TeamSettingsAction,
-    },
-}
-
-#[derive(Subcommand)]
-pub enum TeamSettingsAction {
-    /// Show current team settings
-    Get { team_id: String },
-    /// Update team settings
-    Set {
-        team_id: String,
-        /// Default repository ID for channel integrations
-        #[arg(long)]
-        default_repo: Option<String>,
-    },
 }
 
 pub async fn run(client: &MoatClient, action: TeamAction, json: bool) -> Result<(), ClientError> {
     match action {
         TeamAction::List => {
-            let resp = client.get("/api/v1/teams").await?;
+            let resp = client
+                .api()
+                .list_teams()
+                .await
+                .map_err(map_api_error)?;
+            let teams = resp.into_inner();
             if json {
-                output::print_json(&resp);
+                output::print_json_typed(&teams);
             } else {
-                format_team_list(&resp);
+                format_team_list(&teams);
             }
         }
         TeamAction::Get { team_id } => {
-            let resp = client.get(&format!("/api/v1/teams/{team_id}")).await?;
+            let resp = client
+                .api()
+                .get_team(&team_id)
+                .await
+                .map_err(map_api_error)?;
+            let team = resp.into_inner();
             if json {
-                output::print_json(&resp);
+                output::print_json_typed(&team);
             } else {
-                format_team_detail(&resp);
+                format_team_detail(&team);
             }
         }
-        TeamAction::Settings { action } => match action {
-            TeamSettingsAction::Get { team_id } => {
-                let resp = client
-                    .get(&format!("/api/v1/teams/{team_id}/settings"))
-                    .await?;
-                if json {
-                    output::print_json(&resp);
-                } else {
-                    format_team_settings(&resp);
-                }
-            }
-            TeamSettingsAction::Set {
-                team_id,
-                default_repo,
-            } => {
-                let mut body = serde_json::Map::new();
-                if let Some(repo) = default_repo {
-                    body.insert(
-                        "defaultChannelRepositoryId".into(),
-                        serde_json::json!(repo),
-                    );
-                }
-                if body.is_empty() {
-                    eprintln!(
-                        "No settings to update. Use --default-repo <id> to set a value."
-                    );
-                    return Ok(());
-                }
-                let resp = client
-                    .patch(
-                        &format!("/api/v1/teams/{team_id}/settings"),
-                        &serde_json::Value::Object(body),
-                    )
-                    .await?;
-                if json {
-                    output::print_json(&resp);
-                } else {
-                    println!("Team settings updated.");
-                    format_team_settings(&resp);
-                }
-            }
-        },
     }
     Ok(())
 }
 
-fn format_team_list(resp: &serde_json::Value) {
-    let items = resp.as_array().cloned().unwrap_or_default();
-
-    let rows: Vec<Vec<String>> = items
+fn format_team_list(teams: &[TeamResponse]) {
+    let rows: Vec<Vec<String>> = teams
         .iter()
         .map(|t| {
             vec![
-                t.get("id").and_then(|v| v.as_str()).unwrap_or("-").to_string(),
-                t.get("name")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("-")
-                    .to_string(),
-                t.get("slug")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("-")
-                    .to_string(),
-                if t.get("isDefault").and_then(serde_json::Value::as_bool).unwrap_or(false) {
+                t.id.clone(),
+                t.name.clone(),
+                t.slug.clone(),
+                if t.is_default {
                     "yes".to_string()
                 } else {
                     String::new()
@@ -123,30 +66,13 @@ fn format_team_list(resp: &serde_json::Value) {
     output::print_table(&["ID", "NAME", "SLUG", "DEFAULT"], &rows);
 }
 
-fn format_team_detail(resp: &serde_json::Value) {
-    let id = resp.get("id").and_then(|v| v.as_str()).unwrap_or("-");
-    let name = resp.get("name").and_then(|v| v.as_str()).unwrap_or("-");
-    let slug = resp.get("slug").and_then(|v| v.as_str()).unwrap_or("-");
-    let desc = resp
-        .get("description")
-        .and_then(|v| v.as_str())
-        .unwrap_or("-");
-    let is_default = resp
-        .get("isDefault")
-        .and_then(serde_json::Value::as_bool)
-        .unwrap_or(false);
-
-    println!("ID:          {id}");
-    println!("Name:        {name}");
-    println!("Slug:        {slug}");
-    println!("Description: {desc}");
-    println!("Default:     {is_default}");
-}
-
-fn format_team_settings(resp: &serde_json::Value) {
-    let default_repo = resp
-        .get("defaultChannelRepositoryId")
-        .and_then(|v| v.as_str())
-        .unwrap_or("-");
-    println!("Default channel repo: {default_repo}");
+fn format_team_detail(t: &TeamResponse) {
+    println!("ID:          {}", t.id);
+    println!("Name:        {}", t.name);
+    println!("Slug:        {}", t.slug);
+    println!(
+        "Description: {}",
+        t.description.as_deref().unwrap_or("-")
+    );
+    println!("Default:     {}", t.is_default);
 }

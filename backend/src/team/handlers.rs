@@ -8,8 +8,7 @@ use super::error::TeamError;
 use super::models::Team;
 use super::schemas::{
     AddTeamMemberRequest, CreateTeamRequest, TeamCredentialResponse, TeamMemberResponse,
-    TeamResponse, TeamSettingsResponse, UpdateTeamRequest, UpdateTeamSettingsRequest,
-    UpsertTeamCredentialRequest,
+    TeamResponse, UpdateTeamRequest, UpsertTeamCredentialRequest,
 };
 use crate::extractors::AuthUser;
 use crate::state::AppState;
@@ -230,84 +229,6 @@ pub async fn remove_member(
 
     state.teams.remove_member(&team_id, &user_id).await?;
     Ok(StatusCode::NO_CONTENT)
-}
-
-// ---- Team settings endpoints ----
-
-/// Get a team's settings.
-#[utoipa::path(
-    get,
-    path = "/api/v1/teams/{team_id}/settings",
-    tag = "teams",
-    params(("team_id" = String, Path, description = "Team identifier")),
-    responses(
-        (status = 200, description = "Team settings", body = TeamSettingsResponse),
-        (status = 404, description = "Team not found", body = crate::error::ErrorBody)
-    )
-)]
-pub async fn get_settings(
-    State(state): State<AppState>,
-    auth: AuthUser,
-    Path(team_id): Path<String>,
-) -> Result<Json<TeamSettingsResponse>, TeamError> {
-    require_team_access(&state, &auth, &team_id).await?;
-
-    let team = state
-        .teams
-        .find_by_id(&team_id)
-        .await?
-        .ok_or_else(|| TeamError::NotFound(team_id))?;
-
-    let settings = team.parsed_settings();
-    Ok(Json(TeamSettingsResponse {
-        default_channel_repository_id: settings.default_channel_repository_id,
-    }))
-}
-
-/// Update a team's settings.
-#[utoipa::path(
-    patch,
-    path = "/api/v1/teams/{team_id}/settings",
-    tag = "teams",
-    params(("team_id" = String, Path, description = "Team identifier")),
-    request_body = UpdateTeamSettingsRequest,
-    responses(
-        (status = 200, description = "Settings updated", body = TeamSettingsResponse),
-        (status = 404, description = "Team not found", body = crate::error::ErrorBody)
-    )
-)]
-pub async fn update_settings(
-    State(state): State<AppState>,
-    auth: AuthUser,
-    Path(team_id): Path<String>,
-    Json(body): Json<UpdateTeamSettingsRequest>,
-) -> Result<Json<TeamSettingsResponse>, TeamError> {
-    require_team_access(&state, &auth, &team_id).await?;
-
-    // Validate repository exists if provided
-    if let Some(ref repo_id) = body.default_channel_repository_id {
-        state
-            .repositories
-            .find_repository_by_id(repo_id)
-            .await
-            .map_err(TeamError::Db)?
-            .ok_or_else(|| TeamError::BadRequest(format!("Repository not found: {repo_id}")))?;
-    }
-
-    let patch = serde_json::json!({
-        "default_channel_repository_id": body.default_channel_repository_id,
-    });
-
-    let team = state
-        .teams
-        .update_settings(&team_id, &patch)
-        .await?
-        .ok_or_else(|| TeamError::NotFound(team_id))?;
-
-    let settings = team.parsed_settings();
-    Ok(Json(TeamSettingsResponse {
-        default_channel_repository_id: settings.default_channel_repository_id,
-    }))
 }
 
 // ---- Team credential endpoints ----

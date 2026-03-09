@@ -1,8 +1,9 @@
 //! Sandbox commands: status, start, stop, restart.
 
 use clap::Subcommand;
+use moatless_api_client::types::SandboxStatusFullResponse;
 
-use crate::client::{ClientError, MoatClient};
+use crate::client::{map_api_error, ClientError, MoatClient};
 use crate::output;
 
 #[derive(Subcommand)]
@@ -25,61 +26,53 @@ pub async fn run(
     match action {
         SandboxAction::Status { task_id } => {
             let resp = client
-                .get(&format!("/api/sandbox/v1/tasks/{task_id}/status"))
-                .await?;
+                .api()
+                .sandbox_status_handler(&task_id)
+                .await
+                .map_err(map_api_error)?;
+            let status = resp.into_inner();
             if json {
-                output::print_json(&resp);
+                output::print_json_typed(&status);
             } else {
-                format_sandbox_status(&resp);
+                format_sandbox_status(&status);
             }
         }
         SandboxAction::Start { task_id } => {
             client
-                .post_empty(&format!("/api/sandbox/v1/tasks/{task_id}/start"))
-                .await?;
+                .api()
+                .provision_handler(&task_id)
+                .await
+                .map_err(map_api_error)?;
             println!("Sandbox for {task_id} started.");
         }
         SandboxAction::Stop { task_id } => {
             client
-                .post_empty(&format!("/api/sandbox/v1/tasks/{task_id}/stop"))
-                .await?;
+                .api()
+                .stop_handler(&task_id)
+                .await
+                .map_err(map_api_error)?;
             println!("Sandbox for {task_id} stopped.");
         }
         SandboxAction::Restart { task_id } => {
             client
-                .post_empty(&format!("/api/sandbox/v1/tasks/{task_id}/restart"))
-                .await?;
+                .api()
+                .restart_handler(&task_id)
+                .await
+                .map_err(map_api_error)?;
             println!("Sandbox for {task_id} restarted.");
         }
     }
     Ok(())
 }
 
-fn format_sandbox_status(resp: &serde_json::Value) {
-    let env_status = resp
-        .get("environmentStatus")
-        .and_then(|v| v.as_str())
-        .unwrap_or("-");
-    let agent_state = resp
-        .get("agentState")
-        .and_then(|v| v.as_str())
-        .unwrap_or("-");
+fn format_sandbox_status(status: &SandboxStatusFullResponse) {
+    println!("Environment: {}", status.environment_status);
+    println!("Agent:       {}", status.agent_state);
 
-    println!("Environment: {env_status}");
-    println!("Agent:       {agent_state}");
-
-    if let Some(servers) = resp.get("servers").and_then(|v| v.as_array()) {
-        if !servers.is_empty() {
-            println!("\nServers:");
-            for s in servers {
-                let name = s.get("name").and_then(|v| v.as_str()).unwrap_or("-");
-                let status = s.get("status").and_then(|v| v.as_str()).unwrap_or("-");
-                let port = s
-                    .get("port")
-                    .and_then(serde_json::Value::as_u64)
-                    .map_or("-".to_string(), |p| p.to_string());
-                println!("  {name}: {status} (port {port})");
-            }
+    if !status.servers.is_empty() {
+        println!("\nServers:");
+        for s in &status.servers {
+            println!("  {}: {} (port {})", s.name, s.status, s.port);
         }
     }
 }

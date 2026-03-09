@@ -1,9 +1,8 @@
 //! Authentication flows: sandbox token exchange and browser-based OAuth login.
 
-use reqwest::header::{HeaderMap, HeaderValue};
 use std::path::Path;
 
-use crate::client::{ClientError, MoatClient};
+use crate::client::{map_api_error, ClientError, MoatClient};
 use crate::config::{AuthMode, Config};
 
 // ============================================================================
@@ -12,40 +11,27 @@ use crate::config::{AuthMode, Config};
 
 /// Exchange the USER_AUTH_TOKEN for a session JWT, save to disk.
 pub async fn login_sandbox(client: &mut MoatClient, config: &Config) -> Result<(), ClientError> {
-    let user_auth_token = match &config.auth_mode {
-        AuthMode::Sandbox { user_auth_token, .. } => user_auth_token.clone(),
-        AuthMode::Standalone { .. } => {
-            return Err(ClientError::Api {
-                status: 500,
-                body: "login_sandbox called in standalone mode".to_string(),
-            });
-        }
-    };
-
-    let mut headers = HeaderMap::new();
-    if let Ok(v) = HeaderValue::from_str(&user_auth_token) {
-        headers.insert("X-User-Token", v);
+    if !matches!(config.auth_mode, AuthMode::Sandbox { .. }) {
+        return Err(ClientError::Api {
+            status: 500,
+            body: "login_sandbox called in standalone mode".to_string(),
+        });
     }
 
     let resp = client
-        .post_with_headers("/api/v1/auth/token/session", headers)
-        .await?;
-
-    let token = resp
-        .get("token")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ClientError::Api {
-            status: 500,
-            body: "No token in response".to_string(),
-        })?;
+        .api()
+        .exchange_token_handler()
+        .await
+        .map_err(map_api_error)?;
+    let session = resp.into_inner();
 
     // Save session to file
-    std::fs::write(&config.session_file, token).map_err(|e| ClientError::Api {
+    std::fs::write(&config.session_file, &session.token).map_err(|e| ClientError::Api {
         status: 500,
         body: format!("Failed to write session file: {e}"),
     })?;
 
-    client.set_session_token(token.to_string());
+    client.set_session_token(session.token.clone());
     Ok(())
 }
 
@@ -217,7 +203,7 @@ pub async fn ensure_auth(client: &mut MoatClient, config: &Config) -> Result<(),
                 // No API key — try an unauthenticated probe to see if the
                 // server requires auth.  If it returns 401 we surface
                 // the "not logged in" error; otherwise let it through.
-                match client.get("/api/v1/repositories").await {
+                match client.raw_get("/api/v1/repositories").await {
                     Ok(_) => Ok(()),
                     Err(ClientError::Unauthorized) => Err(ClientError::NotLoggedIn),
                     Err(_) => Ok(()), // network / other error — let the actual command handle it

@@ -4,20 +4,6 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 // =============================================================================
-// Settings (shared between User and Team)
-// =============================================================================
-
-/// Typed settings struct shared by users and teams.
-///
-/// Stored as JSONB in the database; round-trips via serde.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct Settings {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub default_channel_repository_id: Option<String>,
-}
-
-// =============================================================================
 // AgentType
 // =============================================================================
 

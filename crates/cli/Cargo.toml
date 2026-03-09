@@ -12,7 +12,9 @@ path = "src/main.rs"
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["derive"] }
 dirs = "6"
+moatless-api-client = { path = "../api-client" }
 open = "5"
+progenitor-client = "0.9"
 rand = "0.8"
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 serde = { version = "1", features = ["derive"] }
