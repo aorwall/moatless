@@ -38,8 +38,7 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
         less \
         procps \
         lsof \
-        # Node.js 22 (from nodesource repo added above)
-        nodejs \
+    && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 # Install git-delta for better diffs
