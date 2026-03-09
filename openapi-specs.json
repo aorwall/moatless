@@ -1006,7 +1006,7 @@
           "auth"
         ],
         "summary": "Verify authentication via session cookie or API key (Traefik ForwardAuth).",
-        "description": "Returns 200/401 only \u2014 no response headers.\nFor preview URLs (hostname contains `--`), also checks task-based access.",
+        "description": "Returns 200/401 only — no response headers.\nFor preview URLs (hostname contains `--`), also checks task-based access.",
         "operationId": "verify_handler",
         "responses": {
           "200": {
@@ -1242,6 +1242,109 @@
           },
           "404": {
             "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/channels/defaults/{provider}": {
+      "get": {
+        "tags": [
+          "channels"
+        ],
+        "summary": "Get channel defaults for a provider.",
+        "description": "Returns the wildcard (`source_id=\"*\"`) config that serves as the default\ntemplate for auto-creating per-channel configs.",
+        "operationId": "get_defaults",
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "description": "Channel provider (slack, telegram)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "teamId",
+            "in": "query",
+            "description": "Team ID (required if user belongs to multiple teams)",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default config",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelConfigResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No defaults configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "channels"
+        ],
+        "summary": "Set channel defaults for a provider.",
+        "description": "Creates or updates the wildcard (`source_id=\"*\"`) config for the given\nprovider. New channels of this provider will inherit these settings.",
+        "operationId": "set_defaults",
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "description": "Channel provider (slack, telegram)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetChannelDefaultsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Defaults saved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelConfigResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
             "content": {
               "application/json": {
                 "schema": {
@@ -2923,6 +3026,86 @@
         }
       }
     },
+    "/api/v1/tasks/{task_id}/events/history": {
+      "get": {
+        "tags": [
+          "task-events"
+        ],
+        "summary": "List persisted events for a task.",
+        "operationId": "list_task_events",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "types",
+            "in": "query",
+            "description": "Comma-separated event type filter (e.g., `?types=sandbox,server,agent`).",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of events to return (default 500, max 5000).",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Offset for pagination (default 0).",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of task events",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListTaskEventsResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tasks/{task_id}/messages": {
       "get": {
         "tags": [
@@ -3757,98 +3940,6 @@
         }
       }
     },
-    "/api/v1/teams/{team_id}/settings": {
-      "get": {
-        "tags": [
-          "teams"
-        ],
-        "summary": "Get a team's settings.",
-        "operationId": "get_settings",
-        "parameters": [
-          {
-            "name": "team_id",
-            "in": "path",
-            "description": "Team identifier",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Team settings",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TeamSettingsResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Team not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      },
-      "patch": {
-        "tags": [
-          "teams"
-        ],
-        "summary": "Update a team's settings.",
-        "operationId": "update_settings",
-        "parameters": [
-          {
-            "name": "team_id",
-            "in": "path",
-            "description": "Team identifier",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateTeamSettingsRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Settings updated",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TeamSettingsResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Team not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/uploads": {
       "post": {
         "tags": [
@@ -3968,106 +4059,6 @@
           }
         }
       }
-    },
-    "/api/v1/users/me/settings": {
-      "get": {
-        "tags": [
-          "user-settings"
-        ],
-        "summary": "Get the current user's settings.",
-        "operationId": "get_user_settings",
-        "responses": {
-          "200": {
-            "description": "User settings",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Settings"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Not authenticated",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "User not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      },
-      "patch": {
-        "tags": [
-          "user-settings"
-        ],
-        "summary": "Update the current user's settings.",
-        "operationId": "update_user_settings",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/Settings"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Settings updated",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Settings"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Not authenticated",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "User or repository not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
     }
   },
   "components": {
@@ -4091,7 +4082,7 @@
       },
       "AgentEventPayload": {
         "type": "object",
-        "description": "Agent event payload \u2014 typed shape for `EventType::Agent` events.\n\nAgent payloads are pass-through from the sandbox (Claude CLI output).\nThis struct is primarily for OpenAPI schema generation; at runtime the\nbackend continues to forward `serde_json::Value` payloads.",
+        "description": "Agent event payload — typed shape for `EventType::Agent` events.\n\nAgent payloads are pass-through from the sandbox (Claude CLI output).\nThis struct is primarily for OpenAPI schema generation; at runtime the\nbackend continues to forward `serde_json::Value` payloads.",
         "properties": {
           "agentSessionId": {
             "type": [
@@ -5053,6 +5044,16 @@
               "null"
             ]
           },
+          "resources": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ResourceConfig"
+              }
+            ]
+          },
           "scope": {
             "oneOf": [
               {
@@ -5296,7 +5297,7 @@
       },
       "EventType": {
         "type": "string",
-        "description": "Top-level event types.\n\nSerializes to the exact strings the frontend `EventTypeSchema` expects.\nRenamed: \"environment\" \u2192 \"sandbox\" to avoid confusion with K8s environments.",
+        "description": "Top-level event types.\n\nSerializes to the exact strings the frontend `EventTypeSchema` expects.\nRenamed: \"environment\" → \"sandbox\" to avoid confusion with K8s environments.",
         "enum": [
           "task",
           "taskTurn",
@@ -5864,6 +5865,21 @@
             "type": "array",
             "items": {
               "type": "string"
+            }
+          }
+        }
+      },
+      "ListTaskEventsResponse": {
+        "type": "object",
+        "description": "Response for listing task events.",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TaskEventResponse"
             }
           }
         }
@@ -6451,6 +6467,16 @@
               "null"
             ]
           },
+          "resources": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ResourceConfig"
+              }
+            ]
+          },
           "scope": {
             "$ref": "#/components/schemas/Scope"
           },
@@ -6511,6 +6537,36 @@
           }
         }
       },
+      "ResourceConfig": {
+        "type": "object",
+        "description": "Per-repository K8s resource requests/limits configuration.",
+        "properties": {
+          "limits": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "requests": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "ResourceMetrics": {
         "type": "object",
         "description": "Resource metrics from sandbox GET /status",
@@ -6557,7 +6613,7 @@
       },
       "ResourcesEventPayload": {
         "type": "object",
-        "description": "Resources event payload \u2014 typed shape for `EventType::Resources` events.",
+        "description": "Resources event payload — typed shape for `EventType::Resources` events.",
         "properties": {
           "message": {
             "type": "string"
@@ -6712,7 +6768,7 @@
       },
       "SandboxEventPayload": {
         "type": "object",
-        "description": "Sandbox event payload \u2014 typed payload for sandbox lifecycle events.\n\nUsed by the pod watcher and provider to publish structured events\ninstead of raw `serde_json::Value`.",
+        "description": "Sandbox event payload — typed payload for sandbox lifecycle events.\n\nUsed by the pod watcher and provider to publish structured events\ninstead of raw `serde_json::Value`.",
         "properties": {
           "error": {
             "type": [
@@ -6744,7 +6800,7 @@
       },
       "SandboxStatus": {
         "type": "string",
-        "description": "Sandbox status \u2014 valid status values for sandbox lifecycle events.\n\nThese match the frontend `EnvironmentStatusSchema` values.",
+        "description": "Sandbox status — valid status values for sandbox lifecycle events.\n\nThese match the frontend `EnvironmentStatusSchema` values.",
         "enum": [
           "not_created",
           "initializing",
@@ -7145,7 +7201,7 @@
       },
       "ServerEventPayload": {
         "type": "object",
-        "description": "Server event payload \u2014 matches frontend `ServerEventPayloadSchema`.",
+        "description": "Server event payload — matches frontend `ServerEventPayloadSchema`.",
         "required": [
           "serverName",
           "status"
@@ -7238,7 +7294,7 @@
       },
       "ServerSubType": {
         "type": "string",
-        "description": "Server sub-types \u2014 server container lifecycle.\n\n`Failed` covers all error conditions (was: Failed, Error, Timeout \u2014 consolidated).",
+        "description": "Server sub-types — server container lifecycle.\n\n`Failed` covers all error conditions (was: Failed, Error, Timeout — consolidated).",
         "enum": [
           "installing",
           "starting",
@@ -7269,6 +7325,45 @@
           }
         }
       },
+      "SetChannelDefaultsRequest": {
+        "type": "object",
+        "required": [
+          "repositoryId",
+          "routingMode"
+        ],
+        "properties": {
+          "promptTemplate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "providerConfig": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "repositoryId": {
+            "type": "string"
+          },
+          "responseConfigId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "routingMode": {
+            "$ref": "#/components/schemas/RoutingMode"
+          },
+          "teamId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "SetTagsRequest": {
         "type": "object",
         "required": [
@@ -7280,18 +7375,6 @@
             "items": {
               "type": "string"
             }
-          }
-        }
-      },
-      "Settings": {
-        "type": "object",
-        "description": "Typed settings struct shared by users and teams.\n\nStored as JSONB in the database; round-trips via serde.",
-        "properties": {
-          "defaultChannelRepositoryId": {
-            "type": [
-              "string",
-              "null"
-            ]
           }
         }
       },
@@ -7325,7 +7408,7 @@
       },
       "StreamEvent": {
         "type": "object",
-        "description": "SSE event envelope \u2014 the shape of events streamed to the frontend.\n\nThis is the canonical wire format for all SSE events. The frontend\nreceives this shape and dispatches on `event_type` + `sub_type`.",
+        "description": "SSE event envelope — the shape of events streamed to the frontend.\n\nThis is the canonical wire format for all SSE events. The frontend\nreceives this shape and dispatches on `event_type` + `sub_type`.",
         "required": [
           "eventId",
           "type",
@@ -7387,9 +7470,56 @@
       },
       "TaskEventPayload": {
         "type": "object",
-        "description": "Task event payload \u2014 typed shape for `EventType::Task` events.",
+        "description": "Task event payload — typed shape for `EventType::Task` events.",
         "properties": {
           "message": {
+            "type": "string"
+          }
+        }
+      },
+      "TaskEventResponse": {
+        "type": "object",
+        "description": "A single task event in the response.",
+        "required": [
+          "eventId",
+          "taskId",
+          "type",
+          "subType",
+          "isError",
+          "payload",
+          "timestamp"
+        ],
+        "properties": {
+          "agentType": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "isError": {
+            "type": "boolean"
+          },
+          "payload": {},
+          "subType": {
+            "type": "string"
+          },
+          "taskId": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string"
+          },
+          "turnNumber": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "type": {
             "type": "string"
           }
         }
@@ -7561,7 +7691,7 @@
       },
       "TaskTurnEventPayload": {
         "type": "object",
-        "description": "TaskTurn event payload \u2014 typed shape for `EventType::TaskTurn` events.",
+        "description": "TaskTurn event payload — typed shape for `EventType::TaskTurn` events.",
         "properties": {
           "message": {
             "type": "string"
@@ -7656,17 +7786,6 @@
           },
           "updatedAt": {
             "type": "string"
-          }
-        }
-      },
-      "TeamSettingsResponse": {
-        "type": "object",
-        "properties": {
-          "defaultChannelRepositoryId": {
-            "type": [
-              "string",
-              "null"
-            ]
           }
         }
       },
@@ -8148,6 +8267,16 @@
               "null"
             ]
           },
+          "resources": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ResourceConfig"
+              }
+            ]
+          },
           "serverStartCommands": {
             "type": [
               "array",
@@ -8231,17 +8360,6 @@
           },
           "name": {
             "type": "string"
-          }
-        }
-      },
-      "UpdateTeamSettingsRequest": {
-        "type": "object",
-        "properties": {
-          "defaultChannelRepositoryId": {
-            "type": [
-              "string",
-              "null"
-            ]
           }
         }
       },
@@ -8599,8 +8717,8 @@
       "description": "Team management"
     },
     {
-      "name": "user-settings",
-      "description": "User preferences and settings"
+      "name": "task-events",
+      "description": "Task event history"
     }
   ]
 }

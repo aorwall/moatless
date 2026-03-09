@@ -98,6 +98,7 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
                 system_prompt: None,
                 team_id: None,
                 visibility: None,
+                resources: None,
             };
             let resp = client
                 .api()
@@ -135,6 +136,7 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
                 startup_timeout_seconds: None,
                 system_prompt: None,
                 visibility: None,
+                resources: None,
             };
             let resp = client
                 .api()
