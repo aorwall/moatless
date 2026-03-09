@@ -88,14 +88,15 @@ jobs:
         github.event_name == 'workflow_dispatch'
       )
     runs-on: ubuntu-latest
+    # Build inside Debian 12 (bookworm) container so the binary links against
+    # GLIBC 2.36, matching the distroless/cc-debian12 runtime image.
+    container:
+      image: rust:1.88-bookworm
     steps:
       - uses: actions/checkout@v4
 
       - name: Install protoc
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        run: apt-get update && apt-get install -y protobuf-compiler
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
@@ -256,6 +257,9 @@ jobs:
     needs: [detect-changes, generate-spec]
     if: always() && needs.generate-spec.result == 'success'
     runs-on: ubuntu-latest
+    # Build inside Debian 12 container to match sandbox runtime GLIBC version.
+    container:
+      image: rust:1.88-bookworm
     steps:
       - uses: actions/checkout@v4
 
@@ -265,10 +269,7 @@ jobs:
           name: openapi-spec
 
       - name: Install protoc
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        run: apt-get update && apt-get install -y protobuf-compiler
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2

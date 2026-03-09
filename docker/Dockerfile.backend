@@ -77,7 +77,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     fi
 
 # --- Runtime stage (target platform) ---
-FROM gcr.io/distroless/cc-debian12
+FROM gcr.io/distroless/cc-debian13
 COPY --from=builder /app/moatless-vibe-backend /
 EXPOSE 8080 9090
 CMD ["/moatless-vibe-backend"]

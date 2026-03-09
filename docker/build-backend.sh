@@ -21,8 +21,8 @@ cd "$(dirname "$0")/.."
 IMAGE_NAME="${1:-aorwall/moatless-vibe-backend}"
 IMAGE_TAG="${2:-latest}"
 
-echo -e "${YELLOW}==> Cross-compiling for x86_64-unknown-linux-gnu...${NC}"
-cargo zigbuild -p moatless-vibe-backend --release --target x86_64-unknown-linux-gnu
+echo -e "${YELLOW}==> Cross-compiling for x86_64-unknown-linux-gnu (glibc 2.36)...${NC}"
+cargo zigbuild -p moatless-vibe-backend --release --target x86_64-unknown-linux-gnu.2.36
 
 # Resolve the workspace target directory (cargo puts binaries at workspace root)
 TARGET_DIR="$(cargo metadata --format-version 1 --no-deps 2>/dev/null | python3 -c 'import sys,json; print(json.load(sys.stdin)["target_directory"])')"
