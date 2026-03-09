@@ -447,7 +447,7 @@ jobs:
         run: |
           SHA_TAG="sha-${GITHUB_SHA::7}"
           sed -i "s/^version:.*/version: 0.0.0-${SHA_TAG}/" k8s/helm/moatless-vibe/Chart.yaml
-          sed -i "s/^appVersion:.*/appVersion: \"${SHA_TAG}\"/" k8s/helm/moatless-vibe/Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: \"latest\"/" k8s/helm/moatless-vibe/Chart.yaml
 
       - name: Update chart dependencies
         run: helm dependency update k8s/helm/moatless-vibe
