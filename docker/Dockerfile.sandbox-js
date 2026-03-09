@@ -22,8 +22,9 @@ RUN ARCH=$(dpkg --print-architecture) && \
     ln -s "$BUN_INSTALL/bin/bun" /usr/local/bin/bun && \
     ln -s "$BUN_INSTALL/bin/bun" /usr/local/bin/bunx
 
-# Install pnpm and yarn via corepack
-RUN corepack enable && \
+# Install pnpm and yarn via corepack (install corepack first — removed from Node.js 22+)
+RUN npm install -g corepack && \
+    corepack enable && \
     corepack prepare pnpm@latest --activate && \
     corepack prepare yarn@stable --activate
 
