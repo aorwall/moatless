@@ -17,5 +17,7 @@ export interface UiAssistantMeta {
   model?: string | null;
   /** @nullable */
   stopReason?: string | null;
+  /** @nullable */
+  stopSequence?: string | null;
   usage?: null | UiUsage;
 }

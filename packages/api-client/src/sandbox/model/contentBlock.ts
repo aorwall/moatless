@@ -42,4 +42,7 @@ export type ContentBlock = {
   content?: { [key: string]: unknown } | null;
   tool_use_id: string;
   type: 'web_search_tool_result';
+} | {
+  data: string;
+  type: 'redacted_thinking';
 };

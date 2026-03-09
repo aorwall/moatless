@@ -13,6 +13,14 @@ import type { Usage } from './usage';
  */
 export interface ApiMessage {
   content: ContentBlock[];
+  /** @nullable */
+  id?: string | null;
+  /** @nullable */
+  model?: string | null;
   role: string;
+  /** @nullable */
+  stop_reason?: string | null;
+  /** @nullable */
+  stop_sequence?: string | null;
   usage?: null | Usage;
 }

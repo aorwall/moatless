@@ -8,6 +8,7 @@
 import type { ChannelType } from './channelType';
 import type { CreateChannelConfigRequestProviderConfig } from './createChannelConfigRequestProviderConfig';
 import type { RoutingMode } from './routingMode';
+import type { Scope } from './scope';
 
 export interface CreateChannelConfigRequest {
   /** @nullable */
@@ -16,8 +17,13 @@ export interface CreateChannelConfigRequest {
   /** @nullable */
   providerConfig?: CreateChannelConfigRequestProviderConfig;
   repositoryId: string;
+  /** @nullable */
+  responseConfigId?: string | null;
   routingMode: RoutingMode;
+  scope?: null | Scope;
   sourceId: string;
   /** @nullable */
   sourceName?: string | null;
+  /** @nullable */
+  teamId?: string | null;
 }

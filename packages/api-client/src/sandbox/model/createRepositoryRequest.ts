@@ -8,6 +8,8 @@
 import type { CreateRepositoryRequestEnvVars } from './createRepositoryRequestEnvVars';
 import type { RepositoryKind } from './repositoryKind';
 import type { RepositoryProvider } from './repositoryProvider';
+import type { ResourceConfig } from './resourceConfig';
+import type { Scope } from './scope';
 import type { ServerConfig } from './serverConfig';
 import type { Visibility } from './visibility';
 
@@ -35,6 +37,8 @@ export interface CreateRepositoryRequest {
   provider?: null | RepositoryProvider;
   /** @nullable */
   remoteUrl?: string | null;
+  resources?: null | ResourceConfig;
+  scope?: null | Scope;
   /** @nullable */
   serverStartCommands?: string[] | null;
   /** @nullable */
@@ -45,5 +49,7 @@ export interface CreateRepositoryRequest {
   startupTimeoutSeconds?: number | null;
   /** @nullable */
   systemPrompt?: string | null;
+  /** @nullable */
+  teamId?: string | null;
   visibility?: null | Visibility;
 }

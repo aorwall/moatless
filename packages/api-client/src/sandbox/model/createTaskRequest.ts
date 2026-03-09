@@ -24,5 +24,7 @@ export interface CreateTaskRequest {
   model?: string | null;
   /** @nullable */
   name?: string | null;
+  /** @nullable */
+  parentTaskId?: string | null;
   repositoryId: string;
 }

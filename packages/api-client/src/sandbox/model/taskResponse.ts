@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AgentType } from './agentType';
+import type { Scope } from './scope';
 import type { TagResponse } from './tagResponse';
 import type { TaskStatus } from './taskStatus';
 import type { Visibility } from './visibility';
@@ -30,9 +31,12 @@ export interface TaskResponse {
   lastMessageAt: string;
   /** @nullable */
   name?: string | null;
+  /** @nullable */
+  parentTaskId?: string | null;
   repositoryId: string;
   /** @nullable */
   repositoryName?: string | null;
+  scope: Scope;
   /** @nullable */
   shortId?: string | null;
   /** @nullable */
@@ -40,6 +44,8 @@ export interface TaskResponse {
   status: TaskStatus;
   tags: TagResponse[];
   taskId: string;
+  /** @nullable */
+  teamId?: string | null;
   /** @nullable */
   templateId?: string | null;
   title: string;

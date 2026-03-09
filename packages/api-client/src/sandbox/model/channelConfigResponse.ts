@@ -8,6 +8,7 @@
 import type { ChannelConfigResponseProviderConfig } from './channelConfigResponseProviderConfig';
 import type { ChannelType } from './channelType';
 import type { RoutingMode } from './routingMode';
+import type { Scope } from './scope';
 
 export interface ChannelConfigResponse {
   active: boolean;
@@ -22,9 +23,14 @@ export interface ChannelConfigResponse {
   /** @nullable */
   providerConfig?: ChannelConfigResponseProviderConfig;
   repositoryId: string;
+  /** @nullable */
+  responseConfigId?: string | null;
   routingMode: RoutingMode;
+  scope: Scope;
   sourceId: string;
   /** @nullable */
   sourceName?: string | null;
+  /** @nullable */
+  teamId?: string | null;
   updatedAt: string;
 }

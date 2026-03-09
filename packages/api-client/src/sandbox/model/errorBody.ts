@@ -7,7 +7,7 @@
  */
 
 /**
- * Generic error body returned by all error responses.
+ * Standard JSON error body. All API errors MUST use this shape.
  */
 export interface ErrorBody {
   error: string;

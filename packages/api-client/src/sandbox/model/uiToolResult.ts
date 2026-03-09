@@ -5,6 +5,7 @@
  * Sandbox orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
+import type { UiToolResultTypedResult } from './uiToolResultTypedResult';
 
 /**
  * Tool result inlined into an assistant message.
@@ -15,4 +16,9 @@ export interface UiToolResult {
   /** @nullable */
   isError?: boolean | null;
   toolUseId: string;
+  /**
+   * Typed tool result from SDK (e.g., BashToolUseResult, ReadToolUseResult).
+   * @nullable
+   */
+  typedResult?: UiToolResultTypedResult;
 }

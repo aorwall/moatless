@@ -29,4 +29,8 @@ createdBy?: string | null;
  * @nullable
  */
 tag?: string | null;
+/**
+ * @nullable
+ */
+parentTaskId?: string | null;
 };

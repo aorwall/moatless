@@ -8,6 +8,8 @@
 import type { RepositoryKind } from './repositoryKind';
 import type { RepositoryProvider } from './repositoryProvider';
 import type { RepositoryResponseEnvVars } from './repositoryResponseEnvVars';
+import type { ResourceConfig } from './resourceConfig';
+import type { Scope } from './scope';
 import type { ServerConfig } from './serverConfig';
 import type { Visibility } from './visibility';
 
@@ -40,6 +42,8 @@ export interface RepositoryResponse {
   provider?: null | RepositoryProvider;
   /** @nullable */
   remoteUrl?: string | null;
+  resources?: null | ResourceConfig;
+  scope: Scope;
   /** @nullable */
   serverStartCommands?: string[] | null;
   /** @nullable */
@@ -50,6 +54,8 @@ export interface RepositoryResponse {
   startupTimeoutSeconds?: number | null;
   /** @nullable */
   systemPrompt?: string | null;
+  /** @nullable */
+  teamId?: string | null;
   /** @nullable */
   updatedAt?: string | null;
   visibility: Visibility;

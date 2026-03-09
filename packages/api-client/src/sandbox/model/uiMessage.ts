@@ -10,6 +10,7 @@ import type { MessageRole } from './messageRole';
 import type { MessageType } from './messageType';
 import type { UiAssistantMeta } from './uiAssistantMeta';
 import type { UiContentBlock } from './uiContentBlock';
+import type { UiMessageSdkMetadata } from './uiMessageSdkMetadata';
 import type { UiResultMeta } from './uiResultMeta';
 import type { UiToolResult } from './uiToolResult';
 
@@ -33,6 +34,11 @@ export interface UiMessage {
   model?: string | null;
   result?: null | UiResultMeta;
   role: MessageRole;
+  /**
+   * SDK metadata (user flags, assistant extras).
+   * @nullable
+   */
+  sdkMetadata?: UiMessageSdkMetadata;
   /** @nullable */
   sessionId?: string | null;
   timestamp: string;

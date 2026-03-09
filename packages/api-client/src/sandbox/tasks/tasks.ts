@@ -188,6 +188,11 @@ export type createTaskResponse200 = {
   status: 200
 }
 
+export type createTaskResponse403 = {
+  data: ErrorBody
+  status: 403
+}
+
 export type createTaskResponse404 = {
   data: ErrorBody
   status: 404
@@ -196,7 +201,7 @@ export type createTaskResponse404 = {
 export type createTaskResponseSuccess = (createTaskResponse200) & {
   headers: Headers;
 };
-export type createTaskResponseError = (createTaskResponse404) & {
+export type createTaskResponseError = (createTaskResponse403 | createTaskResponse404) & {
   headers: Headers;
 };
 

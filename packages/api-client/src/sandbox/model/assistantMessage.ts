@@ -6,16 +6,23 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { ApiMessage } from './apiMessage';
+import type { AssistantMessageApiError } from './assistantMessageApiError';
 import type { AssistantMessageError } from './assistantMessageError';
 
 /**
  * A complete assistant turn message.
  */
 export interface AssistantMessage {
+  /** @nullable */
+  apiError?: AssistantMessageApiError;
   error?: null | AssistantMessageError;
+  /** @nullable */
+  isApiErrorMessage?: boolean | null;
   message: ApiMessage;
   /** @nullable */
   parent_tool_use_id?: string | null;
+  /** @nullable */
+  requestId?: string | null;
   session_id: string;
   uuid: string;
 }

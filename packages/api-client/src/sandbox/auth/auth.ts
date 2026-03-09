@@ -28,6 +28,7 @@ import type {
   ErrorBody,
   MessageResponse,
   SessionResponse,
+  TokenSessionResponse,
   UpdateUserRequest
 } from '.././model';
 
@@ -445,6 +446,99 @@ export const useUpdateMeHandler = <TError = ErrorType<ErrorBody>,
       return useMutation(getUpdateMeHandlerMutationOptions(options), queryClient);
     }
     /**
+ * Sandbox pods carry a `USER_AUTH_TOKEN` JWT signed with `TASK_TOKEN_SECRET`.
+This endpoint verifies that token and creates a session, allowing the CLI
+to call authenticated `/api/v1/*` endpoints.
+ * @summary Exchange a sandbox user auth token (JWT) for a session cookie.
+ */
+export type exchangeTokenHandlerResponse200 = {
+  data: TokenSessionResponse
+  status: 200
+}
+
+export type exchangeTokenHandlerResponse401 = {
+  data: ErrorBody
+  status: 401
+}
+    
+export type exchangeTokenHandlerResponseSuccess = (exchangeTokenHandlerResponse200) & {
+  headers: Headers;
+};
+export type exchangeTokenHandlerResponseError = (exchangeTokenHandlerResponse401) & {
+  headers: Headers;
+};
+
+export type exchangeTokenHandlerResponse = (exchangeTokenHandlerResponseSuccess | exchangeTokenHandlerResponseError)
+
+export const getExchangeTokenHandlerUrl = () => {
+
+
+  
+
+  return `/api/v1/auth/token/session`
+}
+
+export const exchangeTokenHandler = async ( options?: RequestInit): Promise<exchangeTokenHandlerResponse> => {
+  
+  return customInstance<exchangeTokenHandlerResponse>(getExchangeTokenHandlerUrl(),
+  {      
+    ...options,
+    method: 'POST'
+    
+    
+  }
+);}
+
+
+
+
+export const getExchangeTokenHandlerMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof exchangeTokenHandler>>, TError,void, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof exchangeTokenHandler>>, TError,void, TContext> => {
+
+const mutationKey = ['exchangeTokenHandler'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof exchangeTokenHandler>>, void> = () => {
+          
+
+          return  exchangeTokenHandler(requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ExchangeTokenHandlerMutationResult = NonNullable<Awaited<ReturnType<typeof exchangeTokenHandler>>>
+    
+    export type ExchangeTokenHandlerMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Exchange a sandbox user auth token (JWT) for a session cookie.
+ */
+export const useExchangeTokenHandler = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof exchangeTokenHandler>>, TError,void, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof exchangeTokenHandler>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getExchangeTokenHandlerMutationOptions(options), queryClient);
+    }
+    /**
+ * Returns 200/401 only — no response headers.
+For preview URLs (hostname contains `--`), also checks task-based access.
  * @summary Verify authentication via session cookie or API key (Traefik ForwardAuth).
  */
 export type verifyHandlerResponse200 = {
@@ -456,11 +550,16 @@ export type verifyHandlerResponse401 = {
   data: ErrorBody
   status: 401
 }
+
+export type verifyHandlerResponse403 = {
+  data: ErrorBody
+  status: 403
+}
     
 export type verifyHandlerResponseSuccess = (verifyHandlerResponse200) & {
   headers: Headers;
 };
-export type verifyHandlerResponseError = (verifyHandlerResponse401) & {
+export type verifyHandlerResponseError = (verifyHandlerResponse401 | verifyHandlerResponse403) & {
   headers: Headers;
 };
 

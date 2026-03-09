@@ -25,12 +25,18 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  ApprovePairingRequest,
   ChannelConfigResponse,
   CreateChannelConfigRequest,
   ErrorBody,
+  GetDefaultsParams,
   ListConfigsParams,
+  ListPairingRequestsParams,
+  PairingRequestResponse,
+  SetChannelDefaultsRequest,
   SlackChannelInfoResponse,
-  UpdateChannelConfigRequest
+  UpdateChannelConfigRequest,
+  WebhookPayload
 } from '.././model';
 
 import { customInstance } from '../../../custom-instance';
@@ -580,6 +586,504 @@ export const useDeleteConfig = <TError = ErrorType<ErrorBody>,
       return useMutation(getDeleteConfigMutationOptions(options), queryClient);
     }
     /**
+ * Returns the wildcard (`source_id="*"`) config that serves as the default
+template for auto-creating per-channel configs.
+ * @summary Get channel defaults for a provider.
+ */
+export type getDefaultsResponse200 = {
+  data: ChannelConfigResponse
+  status: 200
+}
+
+export type getDefaultsResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+    
+export type getDefaultsResponseSuccess = (getDefaultsResponse200) & {
+  headers: Headers;
+};
+export type getDefaultsResponseError = (getDefaultsResponse404) & {
+  headers: Headers;
+};
+
+export type getDefaultsResponse = (getDefaultsResponseSuccess | getDefaultsResponseError)
+
+export const getGetDefaultsUrl = (provider: string,
+    params?: GetDefaultsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/v1/channels/defaults/${provider}?${stringifiedParams}` : `/api/v1/channels/defaults/${provider}`
+}
+
+export const getDefaults = async (provider: string,
+    params?: GetDefaultsParams, options?: RequestInit): Promise<getDefaultsResponse> => {
+  
+  return customInstance<getDefaultsResponse>(getGetDefaultsUrl(provider,params),
+  {      
+    ...options,
+    method: 'GET'
+    
+    
+  }
+);}
+
+
+
+
+
+export const getGetDefaultsQueryKey = (provider: string,
+    params?: GetDefaultsParams,) => {
+    return [
+    `/api/v1/channels/defaults/${provider}`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+    
+export const getGetDefaultsQueryOptions = <TData = Awaited<ReturnType<typeof getDefaults>>, TError = ErrorType<ErrorBody>>(provider: string,
+    params?: GetDefaultsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getDefaults>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetDefaultsQueryKey(provider,params);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getDefaults>>> = ({ signal }) => getDefaults(provider,params, { signal, ...requestOptions });
+
+      
+
+      
+
+   return  { queryKey, queryFn, enabled: !!(provider), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getDefaults>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
+}
+
+export type GetDefaultsQueryResult = NonNullable<Awaited<ReturnType<typeof getDefaults>>>
+export type GetDefaultsQueryError = ErrorType<ErrorBody>
+
+
+export function useGetDefaults<TData = Awaited<ReturnType<typeof getDefaults>>, TError = ErrorType<ErrorBody>>(
+ provider: string,
+    params: undefined |  GetDefaultsParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getDefaults>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getDefaults>>,
+          TError,
+          Awaited<ReturnType<typeof getDefaults>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useGetDefaults<TData = Awaited<ReturnType<typeof getDefaults>>, TError = ErrorType<ErrorBody>>(
+ provider: string,
+    params?: GetDefaultsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getDefaults>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getDefaults>>,
+          TError,
+          Awaited<ReturnType<typeof getDefaults>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useGetDefaults<TData = Awaited<ReturnType<typeof getDefaults>>, TError = ErrorType<ErrorBody>>(
+ provider: string,
+    params?: GetDefaultsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getDefaults>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+/**
+ * @summary Get channel defaults for a provider.
+ */
+
+export function useGetDefaults<TData = Awaited<ReturnType<typeof getDefaults>>, TError = ErrorType<ErrorBody>>(
+ provider: string,
+    params?: GetDefaultsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getDefaults>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
+
+  const queryOptions = getGetDefaultsQueryOptions(provider,params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get channel defaults for a provider.
+ */
+export const prefetchGetDefaultsQuery = async <TData = Awaited<ReturnType<typeof getDefaults>>, TError = ErrorType<ErrorBody>>(
+ queryClient: QueryClient, provider: string,
+    params?: GetDefaultsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getDefaults>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+
+  ): Promise<QueryClient> => {
+
+  const queryOptions = getGetDefaultsQueryOptions(provider,params,options)
+
+  await queryClient.prefetchQuery(queryOptions);
+
+  return queryClient;
+}
+
+
+
+/**
+ * Creates or updates the wildcard (`source_id="*"`) config for the given
+provider. New channels of this provider will inherit these settings.
+ * @summary Set channel defaults for a provider.
+ */
+export type setDefaultsResponse200 = {
+  data: ChannelConfigResponse
+  status: 200
+}
+
+export type setDefaultsResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+    
+export type setDefaultsResponseSuccess = (setDefaultsResponse200) & {
+  headers: Headers;
+};
+export type setDefaultsResponseError = (setDefaultsResponse400) & {
+  headers: Headers;
+};
+
+export type setDefaultsResponse = (setDefaultsResponseSuccess | setDefaultsResponseError)
+
+export const getSetDefaultsUrl = (provider: string,) => {
+
+
+  
+
+  return `/api/v1/channels/defaults/${provider}`
+}
+
+export const setDefaults = async (provider: string,
+    setChannelDefaultsRequest: SetChannelDefaultsRequest, options?: RequestInit): Promise<setDefaultsResponse> => {
+  
+  return customInstance<setDefaultsResponse>(getSetDefaultsUrl(provider),
+  {      
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      setChannelDefaultsRequest,)
+  }
+);}
+
+
+
+
+export const getSetDefaultsMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setDefaults>>, TError,{provider: string;data: SetChannelDefaultsRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof setDefaults>>, TError,{provider: string;data: SetChannelDefaultsRequest}, TContext> => {
+
+const mutationKey = ['setDefaults'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof setDefaults>>, {provider: string;data: SetChannelDefaultsRequest}> = (props) => {
+          const {provider,data} = props ?? {};
+
+          return  setDefaults(provider,data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SetDefaultsMutationResult = NonNullable<Awaited<ReturnType<typeof setDefaults>>>
+    export type SetDefaultsMutationBody = SetChannelDefaultsRequest
+    export type SetDefaultsMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Set channel defaults for a provider.
+ */
+export const useSetDefaults = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setDefaults>>, TError,{provider: string;data: SetChannelDefaultsRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof setDefaults>>,
+        TError,
+        {provider: string;data: SetChannelDefaultsRequest},
+        TContext
+      > => {
+      return useMutation(getSetDefaultsMutationOptions(options), queryClient);
+    }
+    /**
+ * @summary List all pending pairing requests across all channels owned by the
+authenticated user. Unlike `list_pairing_requests`, this does not require
+a specific `config_id`.
+ */
+export type listMyPairingRequestsResponse200 = {
+  data: PairingRequestResponse[]
+  status: 200
+}
+    
+export type listMyPairingRequestsResponseSuccess = (listMyPairingRequestsResponse200) & {
+  headers: Headers;
+};
+;
+
+export type listMyPairingRequestsResponse = (listMyPairingRequestsResponseSuccess)
+
+export const getListMyPairingRequestsUrl = () => {
+
+
+  
+
+  return `/api/v1/channels/pairing/my-requests`
+}
+
+export const listMyPairingRequests = async ( options?: RequestInit): Promise<listMyPairingRequestsResponse> => {
+  
+  return customInstance<listMyPairingRequestsResponse>(getListMyPairingRequestsUrl(),
+  {      
+    ...options,
+    method: 'GET'
+    
+    
+  }
+);}
+
+
+
+
+
+export const getListMyPairingRequestsQueryKey = () => {
+    return [
+    `/api/v1/channels/pairing/my-requests`
+    ] as const;
+    }
+
+    
+export const getListMyPairingRequestsQueryOptions = <TData = Awaited<ReturnType<typeof listMyPairingRequests>>, TError = ErrorType<unknown>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listMyPairingRequests>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListMyPairingRequestsQueryKey();
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listMyPairingRequests>>> = ({ signal }) => listMyPairingRequests({ signal, ...requestOptions });
+
+      
+
+      
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listMyPairingRequests>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
+}
+
+export type ListMyPairingRequestsQueryResult = NonNullable<Awaited<ReturnType<typeof listMyPairingRequests>>>
+export type ListMyPairingRequestsQueryError = ErrorType<unknown>
+
+
+export function useListMyPairingRequests<TData = Awaited<ReturnType<typeof listMyPairingRequests>>, TError = ErrorType<unknown>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listMyPairingRequests>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listMyPairingRequests>>,
+          TError,
+          Awaited<ReturnType<typeof listMyPairingRequests>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useListMyPairingRequests<TData = Awaited<ReturnType<typeof listMyPairingRequests>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listMyPairingRequests>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listMyPairingRequests>>,
+          TError,
+          Awaited<ReturnType<typeof listMyPairingRequests>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useListMyPairingRequests<TData = Awaited<ReturnType<typeof listMyPairingRequests>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listMyPairingRequests>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+/**
+ * @summary List all pending pairing requests across all channels owned by the
+authenticated user. Unlike `list_pairing_requests`, this does not require
+a specific `config_id`.
+ */
+
+export function useListMyPairingRequests<TData = Awaited<ReturnType<typeof listMyPairingRequests>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listMyPairingRequests>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
+
+  const queryOptions = getListMyPairingRequestsQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary List all pending pairing requests across all channels owned by the
+authenticated user. Unlike `list_pairing_requests`, this does not require
+a specific `config_id`.
+ */
+export const prefetchListMyPairingRequestsQuery = async <TData = Awaited<ReturnType<typeof listMyPairingRequests>>, TError = ErrorType<unknown>>(
+ queryClient: QueryClient,  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listMyPairingRequests>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+
+  ): Promise<QueryClient> => {
+
+  const queryOptions = getListMyPairingRequestsQueryOptions(options)
+
+  await queryClient.prefetchQuery(queryOptions);
+
+  return queryClient;
+}
+
+
+
+/**
+ * Returns the names of user-facing providers that are currently configured
+(e.g. `["slack", "telegram"]`). Internal providers like webhook and cron
+are excluded.
+ * @summary List configured channel providers.
+ */
+export type listProvidersResponse200 = {
+  data: string[]
+  status: 200
+}
+    
+export type listProvidersResponseSuccess = (listProvidersResponse200) & {
+  headers: Headers;
+};
+;
+
+export type listProvidersResponse = (listProvidersResponseSuccess)
+
+export const getListProvidersUrl = () => {
+
+
+  
+
+  return `/api/v1/channels/providers`
+}
+
+export const listProviders = async ( options?: RequestInit): Promise<listProvidersResponse> => {
+  
+  return customInstance<listProvidersResponse>(getListProvidersUrl(),
+  {      
+    ...options,
+    method: 'GET'
+    
+    
+  }
+);}
+
+
+
+
+
+export const getListProvidersQueryKey = () => {
+    return [
+    `/api/v1/channels/providers`
+    ] as const;
+    }
+
+    
+export const getListProvidersQueryOptions = <TData = Awaited<ReturnType<typeof listProviders>>, TError = ErrorType<unknown>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listProviders>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListProvidersQueryKey();
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listProviders>>> = ({ signal }) => listProviders({ signal, ...requestOptions });
+
+      
+
+      
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listProviders>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
+}
+
+export type ListProvidersQueryResult = NonNullable<Awaited<ReturnType<typeof listProviders>>>
+export type ListProvidersQueryError = ErrorType<unknown>
+
+
+export function useListProviders<TData = Awaited<ReturnType<typeof listProviders>>, TError = ErrorType<unknown>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listProviders>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listProviders>>,
+          TError,
+          Awaited<ReturnType<typeof listProviders>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useListProviders<TData = Awaited<ReturnType<typeof listProviders>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listProviders>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listProviders>>,
+          TError,
+          Awaited<ReturnType<typeof listProviders>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useListProviders<TData = Awaited<ReturnType<typeof listProviders>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listProviders>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+/**
+ * @summary List configured channel providers.
+ */
+
+export function useListProviders<TData = Awaited<ReturnType<typeof listProviders>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listProviders>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
+
+  const queryOptions = getListProvidersQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary List configured channel providers.
+ */
+export const prefetchListProvidersQuery = async <TData = Awaited<ReturnType<typeof listProviders>>, TError = ErrorType<unknown>>(
+ queryClient: QueryClient,  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listProviders>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+
+  ): Promise<QueryClient> => {
+
+  const queryOptions = getListProvidersQueryOptions(options)
+
+  await queryClient.prefetchQuery(queryOptions);
+
+  return queryClient;
+}
+
+
+
+/**
  * @summary List available Slack channels the bot is a member of.
  */
 export type listSlackChannelsResponse200 = {
@@ -798,5 +1302,438 @@ export const useSlackWebhook = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getSlackWebhookMutationOptions(options), queryClient);
+    }
+    /**
+ * @summary Approve a Telegram pairing request by code.
+ */
+export type approvePairingResponse200 = {
+  data: void
+  status: 200
+}
+
+export type approvePairingResponse400 = {
+  data: void
+  status: 400
+}
+
+export type approvePairingResponse403 = {
+  data: void
+  status: 403
+}
+
+export type approvePairingResponse404 = {
+  data: void
+  status: 404
+}
+    
+export type approvePairingResponseSuccess = (approvePairingResponse200) & {
+  headers: Headers;
+};
+export type approvePairingResponseError = (approvePairingResponse400 | approvePairingResponse403 | approvePairingResponse404) & {
+  headers: Headers;
+};
+
+export type approvePairingResponse = (approvePairingResponseSuccess | approvePairingResponseError)
+
+export const getApprovePairingUrl = () => {
+
+
+  
+
+  return `/api/v1/channels/telegram/pairing/approve`
+}
+
+export const approvePairing = async (approvePairingRequest: ApprovePairingRequest, options?: RequestInit): Promise<approvePairingResponse> => {
+  
+  return customInstance<approvePairingResponse>(getApprovePairingUrl(),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      approvePairingRequest,)
+  }
+);}
+
+
+
+
+export const getApprovePairingMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approvePairing>>, TError,{data: ApprovePairingRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof approvePairing>>, TError,{data: ApprovePairingRequest}, TContext> => {
+
+const mutationKey = ['approvePairing'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof approvePairing>>, {data: ApprovePairingRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  approvePairing(data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ApprovePairingMutationResult = NonNullable<Awaited<ReturnType<typeof approvePairing>>>
+    export type ApprovePairingMutationBody = ApprovePairingRequest
+    export type ApprovePairingMutationError = ErrorType<void>
+
+    /**
+ * @summary Approve a Telegram pairing request by code.
+ */
+export const useApprovePairing = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approvePairing>>, TError,{data: ApprovePairingRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof approvePairing>>,
+        TError,
+        {data: ApprovePairingRequest},
+        TContext
+      > => {
+      return useMutation(getApprovePairingMutationOptions(options), queryClient);
+    }
+    /**
+ * @summary List pending pairing requests for a Telegram channel config.
+ */
+export type listPairingRequestsResponse200 = {
+  data: void
+  status: 200
+}
+
+export type listPairingRequestsResponse403 = {
+  data: void
+  status: 403
+}
+
+export type listPairingRequestsResponse404 = {
+  data: void
+  status: 404
+}
+    
+export type listPairingRequestsResponseSuccess = (listPairingRequestsResponse200) & {
+  headers: Headers;
+};
+export type listPairingRequestsResponseError = (listPairingRequestsResponse403 | listPairingRequestsResponse404) & {
+  headers: Headers;
+};
+
+export type listPairingRequestsResponse = (listPairingRequestsResponseSuccess | listPairingRequestsResponseError)
+
+export const getListPairingRequestsUrl = (params: ListPairingRequestsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/v1/channels/telegram/pairing/requests?${stringifiedParams}` : `/api/v1/channels/telegram/pairing/requests`
+}
+
+export const listPairingRequests = async (params: ListPairingRequestsParams, options?: RequestInit): Promise<listPairingRequestsResponse> => {
+  
+  return customInstance<listPairingRequestsResponse>(getListPairingRequestsUrl(params),
+  {      
+    ...options,
+    method: 'GET'
+    
+    
+  }
+);}
+
+
+
+
+
+export const getListPairingRequestsQueryKey = (params?: ListPairingRequestsParams,) => {
+    return [
+    `/api/v1/channels/telegram/pairing/requests`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+    
+export const getListPairingRequestsQueryOptions = <TData = Awaited<ReturnType<typeof listPairingRequests>>, TError = ErrorType<void>>(params: ListPairingRequestsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPairingRequests>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListPairingRequestsQueryKey(params);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listPairingRequests>>> = ({ signal }) => listPairingRequests(params, { signal, ...requestOptions });
+
+      
+
+      
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listPairingRequests>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
+}
+
+export type ListPairingRequestsQueryResult = NonNullable<Awaited<ReturnType<typeof listPairingRequests>>>
+export type ListPairingRequestsQueryError = ErrorType<void>
+
+
+export function useListPairingRequests<TData = Awaited<ReturnType<typeof listPairingRequests>>, TError = ErrorType<void>>(
+ params: ListPairingRequestsParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPairingRequests>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listPairingRequests>>,
+          TError,
+          Awaited<ReturnType<typeof listPairingRequests>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useListPairingRequests<TData = Awaited<ReturnType<typeof listPairingRequests>>, TError = ErrorType<void>>(
+ params: ListPairingRequestsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPairingRequests>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listPairingRequests>>,
+          TError,
+          Awaited<ReturnType<typeof listPairingRequests>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useListPairingRequests<TData = Awaited<ReturnType<typeof listPairingRequests>>, TError = ErrorType<void>>(
+ params: ListPairingRequestsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPairingRequests>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+/**
+ * @summary List pending pairing requests for a Telegram channel config.
+ */
+
+export function useListPairingRequests<TData = Awaited<ReturnType<typeof listPairingRequests>>, TError = ErrorType<void>>(
+ params: ListPairingRequestsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPairingRequests>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
+
+  const queryOptions = getListPairingRequestsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary List pending pairing requests for a Telegram channel config.
+ */
+export const prefetchListPairingRequestsQuery = async <TData = Awaited<ReturnType<typeof listPairingRequests>>, TError = ErrorType<void>>(
+ queryClient: QueryClient, params: ListPairingRequestsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPairingRequests>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+
+  ): Promise<QueryClient> => {
+
+  const queryOptions = getListPairingRequestsQueryOptions(params,options)
+
+  await queryClient.prefetchQuery(queryOptions);
+
+  return queryClient;
+}
+
+
+
+/**
+ * @summary Handle Telegram Bot API webhook update.
+ */
+export type telegramWebhookResponse200 = {
+  data: void
+  status: 200
+}
+
+export type telegramWebhookResponse401 = {
+  data: void
+  status: 401
+}
+    
+export type telegramWebhookResponseSuccess = (telegramWebhookResponse200) & {
+  headers: Headers;
+};
+export type telegramWebhookResponseError = (telegramWebhookResponse401) & {
+  headers: Headers;
+};
+
+export type telegramWebhookResponse = (telegramWebhookResponseSuccess | telegramWebhookResponseError)
+
+export const getTelegramWebhookUrl = () => {
+
+
+  
+
+  return `/api/v1/channels/telegram/webhook`
+}
+
+export const telegramWebhook = async (telegramWebhookBody: string, options?: RequestInit): Promise<telegramWebhookResponse> => {
+  
+  return customInstance<telegramWebhookResponse>(getTelegramWebhookUrl(),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain', ...options?.headers },
+    body: 
+      telegramWebhookBody,
+  }
+);}
+
+
+
+
+export const getTelegramWebhookMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof telegramWebhook>>, TError,{data: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof telegramWebhook>>, TError,{data: string}, TContext> => {
+
+const mutationKey = ['telegramWebhook'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof telegramWebhook>>, {data: string}> = (props) => {
+          const {data} = props ?? {};
+
+          return  telegramWebhook(data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type TelegramWebhookMutationResult = NonNullable<Awaited<ReturnType<typeof telegramWebhook>>>
+    export type TelegramWebhookMutationBody = string
+    export type TelegramWebhookMutationError = ErrorType<void>
+
+    /**
+ * @summary Handle Telegram Bot API webhook update.
+ */
+export const useTelegramWebhook = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof telegramWebhook>>, TError,{data: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof telegramWebhook>>,
+        TError,
+        {data: string},
+        TContext
+      > => {
+      return useMutation(getTelegramWebhookMutationOptions(options), queryClient);
+    }
+    /**
+ * Receives a JSON payload with `text`, optional `threadId`, `userId`, and `metadata`.
+Verifies HMAC signature if `webhook_secret` is configured in the channel config.
+ * @summary Handle inbound webhook message.
+ */
+export type webhookInboundResponse200 = {
+  data: void
+  status: 200
+}
+
+export type webhookInboundResponse400 = {
+  data: void
+  status: 400
+}
+
+export type webhookInboundResponse401 = {
+  data: void
+  status: 401
+}
+
+export type webhookInboundResponse404 = {
+  data: void
+  status: 404
+}
+    
+export type webhookInboundResponseSuccess = (webhookInboundResponse200) & {
+  headers: Headers;
+};
+export type webhookInboundResponseError = (webhookInboundResponse400 | webhookInboundResponse401 | webhookInboundResponse404) & {
+  headers: Headers;
+};
+
+export type webhookInboundResponse = (webhookInboundResponseSuccess | webhookInboundResponseError)
+
+export const getWebhookInboundUrl = (configId: string,) => {
+
+
+  
+
+  return `/api/v1/channels/webhook/${configId}`
+}
+
+export const webhookInbound = async (configId: string,
+    webhookPayload: WebhookPayload, options?: RequestInit): Promise<webhookInboundResponse> => {
+  
+  return customInstance<webhookInboundResponse>(getWebhookInboundUrl(configId),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      webhookPayload,)
+  }
+);}
+
+
+
+
+export const getWebhookInboundMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof webhookInbound>>, TError,{configId: string;data: WebhookPayload}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof webhookInbound>>, TError,{configId: string;data: WebhookPayload}, TContext> => {
+
+const mutationKey = ['webhookInbound'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof webhookInbound>>, {configId: string;data: WebhookPayload}> = (props) => {
+          const {configId,data} = props ?? {};
+
+          return  webhookInbound(configId,data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type WebhookInboundMutationResult = NonNullable<Awaited<ReturnType<typeof webhookInbound>>>
+    export type WebhookInboundMutationBody = WebhookPayload
+    export type WebhookInboundMutationError = ErrorType<void>
+
+    /**
+ * @summary Handle inbound webhook message.
+ */
+export const useWebhookInbound = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof webhookInbound>>, TError,{configId: string;data: WebhookPayload}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof webhookInbound>>,
+        TError,
+        {configId: string;data: WebhookPayload},
+        TContext
+      > => {
+      return useMutation(getWebhookInboundMutationOptions(options), queryClient);
     }
     

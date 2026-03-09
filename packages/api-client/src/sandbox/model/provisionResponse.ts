@@ -5,11 +5,11 @@
  * Sandbox orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
-import type { EnvironmentStatus } from './environmentStatus';
+import type { SandboxStatus } from './sandboxStatus';
 
 /**
  * Provision response
  */
 export interface ProvisionResponse {
-  status: EnvironmentStatus;
+  status: SandboxStatus;
 }

@@ -15,4 +15,7 @@ export type ChannelType = typeof ChannelType[keyof typeof ChannelType];
 export const ChannelType = {
   slack: 'slack',
   email: 'email',
+  webhook: 'webhook',
+  cron: 'cron',
+  telegram: 'telegram',
 } as const;

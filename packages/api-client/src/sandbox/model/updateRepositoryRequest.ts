@@ -5,6 +5,7 @@
  * Sandbox orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
+import type { ResourceConfig } from './resourceConfig';
 import type { ServerConfig } from './serverConfig';
 import type { UpdateRepositoryRequestEnvVars } from './updateRepositoryRequestEnvVars';
 import type { Visibility } from './visibility';
@@ -32,6 +33,7 @@ export interface UpdateRepositoryRequest {
   plugins?: string[] | null;
   /** @nullable */
   remoteUrl?: string | null;
+  resources?: null | ResourceConfig;
   /** @nullable */
   serverStartCommands?: string[] | null;
   /** @nullable */

@@ -15,6 +15,10 @@ export interface UpdateChannelConfigRequest {
   promptTemplate?: string | null;
   /** @nullable */
   providerConfig?: UpdateChannelConfigRequestProviderConfig;
+  /** @nullable */
+  repositoryId?: string | null;
+  /** @nullable */
+  responseConfigId?: string | null;
   routingMode?: null | RoutingMode;
   /** @nullable */
   sourceName?: string | null;

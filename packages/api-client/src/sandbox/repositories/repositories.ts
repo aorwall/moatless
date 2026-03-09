@@ -795,4 +795,97 @@ export const useConvertToTemplate = <TError = ErrorType<ErrorBody>,
       > => {
       return useMutation(getConvertToTemplateMutationOptions(options), queryClient);
     }
+    /**
+ * @summary Sync `.moatless/config.json` from the remote repository into the DB.
+ */
+export type syncConfigResponse200 = {
+  data: RepositoryResponse
+  status: 200
+}
+
+export type syncConfigResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
+export type syncConfigResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+    
+export type syncConfigResponseSuccess = (syncConfigResponse200) & {
+  headers: Headers;
+};
+export type syncConfigResponseError = (syncConfigResponse400 | syncConfigResponse404) & {
+  headers: Headers;
+};
+
+export type syncConfigResponse = (syncConfigResponseSuccess | syncConfigResponseError)
+
+export const getSyncConfigUrl = (repositoryId: string,) => {
+
+
+  
+
+  return `/api/v1/repositories/${repositoryId}/sync-config`
+}
+
+export const syncConfig = async (repositoryId: string, options?: RequestInit): Promise<syncConfigResponse> => {
+  
+  return customInstance<syncConfigResponse>(getSyncConfigUrl(repositoryId),
+  {      
+    ...options,
+    method: 'POST'
+    
+    
+  }
+);}
+
+
+
+
+export const getSyncConfigMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof syncConfig>>, TError,{repositoryId: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof syncConfig>>, TError,{repositoryId: string}, TContext> => {
+
+const mutationKey = ['syncConfig'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof syncConfig>>, {repositoryId: string}> = (props) => {
+          const {repositoryId} = props ?? {};
+
+          return  syncConfig(repositoryId,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SyncConfigMutationResult = NonNullable<Awaited<ReturnType<typeof syncConfig>>>
+    
+    export type SyncConfigMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Sync `.moatless/config.json` from the remote repository into the DB.
+ */
+export const useSyncConfig = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof syncConfig>>, TError,{repositoryId: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof syncConfig>>,
+        TError,
+        {repositoryId: string},
+        TContext
+      > => {
+      return useMutation(getSyncConfigMutationOptions(options), queryClient);
+    }
     
