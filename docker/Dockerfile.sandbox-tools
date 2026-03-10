@@ -1,0 +1,37 @@
+# Minimal toolbox image containing only moatless sandbox binaries and Claude CLI.
+# Used as a build source via COPY --from in sandbox variant Dockerfiles.
+#
+# Published as: aorwall/moatless-vibe-sandbox-tools:latest
+#
+# Usage in any Dockerfile:
+#   COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/sandbox /usr/local/bin/sandbox
+#   COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/moat /usr/local/bin/moat
+#   COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/claude /usr/local/bin/claude
+#   COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/docker-entrypoint-sandbox.sh /usr/local/bin/docker-entrypoint-sandbox.sh
+#   COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/sync-plugins.sh /usr/local/bin/sync-plugins.sh
+
+FROM ubuntu:24.04
+
+# Install Claude Code CLI
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl ca-certificates && \
+    rm -rf /var/lib/apt/lists/* && \
+    curl -fsSL https://claude.ai/install.sh | bash
+
+# Stage all tools into /tools for easy COPY --from
+RUN mkdir -p /tools
+
+# Claude CLI (installed above)
+RUN cp /root/.local/bin/claude /tools/claude && \
+    chmod 755 /tools/claude
+
+# Copy pre-built Rust binaries (from named build context, per-arch)
+ARG TARGETARCH
+COPY --from=binaries ${TARGETARCH}/sandbox /tools/sandbox
+COPY --from=binaries ${TARGETARCH}/moat /tools/moat
+RUN chmod +x /tools/sandbox /tools/moat
+
+# Copy entrypoint and helper scripts
+COPY docker/docker-entrypoint-sandbox.sh /tools/docker-entrypoint-sandbox.sh
+COPY docker/sync-plugins.sh /tools/sync-plugins.sh
+RUN chmod +x /tools/docker-entrypoint-sandbox.sh /tools/sync-plugins.sh

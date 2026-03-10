@@ -77,19 +77,17 @@ RUN mkdir -p /home/$USERNAME/.cache \
     /home/$USERNAME/.config/gh \
     && chown -R $USERNAME:$USERNAME /home/$USERNAME
 
-# Install Claude Code CLI as root
-WORKDIR /home/moatless
-RUN curl -fsSL https://claude.ai/install.sh | bash
-RUN cp /root/.local/bin/claude /usr/local/bin/claude && \
-    chmod 755 /usr/local/bin/claude && \
-    claude --version && \
-    (claude --version 2>/dev/null || echo "unknown") > /opt/moatless/.claude-cli-version
+# Copy pre-built binaries from sandbox-tools image
+COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/claude /usr/local/bin/claude
+COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/sandbox /usr/local/bin/sandbox
+COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/moat /usr/local/bin/moat
+COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/docker-entrypoint-sandbox.sh /usr/local/bin/docker-entrypoint-sandbox.sh
+COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/sync-plugins.sh /usr/local/bin/sync-plugins.sh
+RUN chmod +x /usr/local/bin/claude /usr/local/bin/sandbox /usr/local/bin/moat \
+    /usr/local/bin/docker-entrypoint-sandbox.sh /usr/local/bin/sync-plugins.sh \
+    && (claude --version 2>/dev/null || echo "unknown") > /opt/moatless/.claude-cli-version
 
-# Copy pre-built Rust binaries (from named build context, per-arch)
-ARG TARGETARCH
-COPY --from=binaries ${TARGETARCH}/sandbox /usr/local/bin/sandbox
-COPY --from=binaries ${TARGETARCH}/moat /usr/local/bin/moat
-RUN chmod +x /usr/local/bin/sandbox /usr/local/bin/moat
+WORKDIR /home/moatless
 
 # Environment variables for sandbox paths
 # HOME: Standard Linux home directory

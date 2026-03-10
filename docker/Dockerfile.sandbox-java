@@ -1,24 +1,70 @@
-ARG BASE_IMAGE=aorwall/moatless-vibe-sandbox:latest
+# Java sandbox: Eclipse Temurin JDK + Maven + moatless sandbox tools
+# Can be built independently using COPY --from sandbox-tools image.
+#
+# Published as: aorwall/moatless-vibe-sandbox-java:<version>
+#
+# Build: docker build --build-arg JAVA_VERSION=25 -f docker/Dockerfile.sandbox-java -t sandbox-java:25 .
+
+ARG BASE_IMAGE=eclipse-temurin:25-jdk-noble
 FROM ${BASE_IMAGE}
 
 ARG JAVA_VERSION=25
 
-USER root
+ENV LANG="C.UTF-8"
+ENV DEBIAN_FRONTEND=noninteractive
 
-# Install Eclipse Temurin JDK + Maven + PostgreSQL client
+# Install essential system packages for sandbox operation
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends wget apt-transport-https gpg && \
-    wget -qO - https://packages.adoptium.net/artifactory/api/gpg/key/public | \
-      gpg --dearmor -o /etc/apt/keyrings/adoptium.gpg && \
-    echo "deb [signed-by=/etc/apt/keyrings/adoptium.gpg] https://packages.adoptium.net/artifactory/deb $(. /etc/os-release && echo $VERSION_CODENAME) main" \
-      > /etc/apt/sources.list.d/adoptium.list && \
-    apt-get update && \
     apt-get install -y --no-install-recommends \
-      temurin-${JAVA_VERSION}-jdk \
-      maven \
-      postgresql-client \
+      curl wget git git-lfs gnupg2 ca-certificates \
+      build-essential jq ripgrep unzip zip \
+      openssh-client vim less procps \
+      maven postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
-ENV JAVA_HOME=/usr/lib/jvm/temurin-${JAVA_VERSION}-jdk-amd64
+# Install Node.js 22 (required by Claude Code CLI)
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
 
+# Install GitHub CLI
+RUN ARCH=$(dpkg --print-architecture) && \
+    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && \
+    chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg && \
+    echo "deb [arch=${ARCH} signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null && \
+    apt-get update && apt-get install -y gh && \
+    rm -rf /var/lib/apt/lists/*
+
+# Create moatless user (UID 1000)
+ARG USERNAME=moatless
+ARG USER_UID=1000
+ARG USER_GID=$USER_UID
+RUN groupadd --gid $USER_GID $USERNAME 2>/dev/null || true && \
+    useradd --uid $USER_UID --gid $USER_GID -m -d /home/$USERNAME -s /bin/bash $USERNAME 2>/dev/null || true && \
+    mkdir -p /opt/moatless/data /mnt/plugins && \
+    chown -R $USERNAME:$USERNAME /opt/moatless /mnt/plugins && \
+    mkdir -p /home/$USERNAME/.cache /home/$USERNAME/.config/gh && \
+    chown -R $USERNAME:$USERNAME /home/$USERNAME
+
+# Copy moatless sandbox tools from published tools image
+COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/claude /usr/local/bin/claude
+COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/sandbox /usr/local/bin/sandbox
+COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/moat /usr/local/bin/moat
+COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/docker-entrypoint-sandbox.sh /usr/local/bin/docker-entrypoint-sandbox.sh
+COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/sync-plugins.sh /usr/local/bin/sync-plugins.sh
+RUN chmod +x /usr/local/bin/claude /usr/local/bin/sandbox /usr/local/bin/moat \
+    /usr/local/bin/docker-entrypoint-sandbox.sh /usr/local/bin/sync-plugins.sh
+
+# Environment
+ENV HOME=/home/moatless
+ENV WORKSPACE_DIR=/opt/moatless/repo
+ENV CLAUDE_CONFIG_DIR=/opt/moatless/.claude
+ENV CLAUDE_BIN_DIR=/usr/local/bin
+ENV DATA_DIR=/opt/moatless/data
+ENV JAVA_HOME=/usr/lib/jvm/default-java
+
+WORKDIR /home/moatless
 USER moatless
+
+EXPOSE 8001 50052
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint-sandbox.sh"]
