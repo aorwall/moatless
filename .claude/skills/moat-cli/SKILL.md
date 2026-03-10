@@ -1,11 +1,11 @@
 ---
 name: moat-cli
-description: "This skill should be used when the user asks to 'list tasks', 'create a task', 'list repos', 'create a repo', 'start sandbox', 'stop sandbox', 'send message', 'check status', 'moat login', or mentions the moat CLI, moatless CLI, or sandbox management from the terminal."
+description: "This skill should be used when the user asks to 'list tasks', 'create a task', 'list repos', 'create a repo', 'start task', 'stop task', 'check status', 'send message', 'moat login', or mentions the moat CLI, moatless CLI, or task management from the terminal."
 ---
 
 # Moat CLI
 
-The `moat` CLI is a Rust command-line tool for interacting with the Moatless Vibe platform. It manages tasks, repositories, sandboxes, messages, and channels.
+The `moat` CLI is a Rust command-line tool for interacting with the Moatless Vibe platform. It manages tasks, repositories, messages, and channels.
 
 ## Installation
 
@@ -61,14 +61,12 @@ Activated automatically when `USER_AUTH_TOKEN` env var is set. Exchanges token f
 | `moat tasks start <id>` | Start a task | — |
 | `moat tasks stop <id>` | Stop a task | — |
 | `moat tasks close <id>` | Close a task | — |
-| `moat sandbox status <id>` | Show sandbox & agent status | — |
-| `moat sandbox start <id>` | Start sandbox for task | — |
-| `moat sandbox stop <id>` | Stop sandbox for task | — |
-| `moat sandbox restart <id>` | Restart sandbox for task | — |
-| `moat sandbox logs <id>` | Stream server container logs | `--server` (default: sandbox) |
-| `moat sandbox files <id> tree` | Show file tree with git status | `--path` |
-| `moat sandbox files <id> read` | Read file content from workspace | `--path` (required) |
-| `moat sandbox files <id> list` | List files in workspace | `--path`, `--recursive` |
+| `moat tasks status <id>` | Show full status (environment, agent, servers) | — |
+| `moat tasks restart <id>` | Restart sandbox for task | — |
+| `moat tasks logs <id>` | Stream server container logs | `--server` (default: sandbox) |
+| `moat tasks files <id> tree` | Show file tree with git status | `--path` |
+| `moat tasks files <id> read` | Read file content from workspace | `--path` (required) |
+| `moat tasks files <id> list` | List files in workspace | `--path`, `--recursive` |
 | `moat messages list <id>` | List messages for a task | — |
 | `moat messages send <id>` | Send message to a task | `--text` |
 | `moat channels list` | List channel configs | — |
@@ -95,14 +93,14 @@ For full flag details and examples, see [Command Reference](references/command-r
 # 1. Create repository
 moat repos create --name my-app --git-url https://github.com/org/my-app
 
-# 2. Create task (sandbox starts automatically — no need to run `moat sandbox start`)
+# 2. Create task (sandbox starts automatically)
 moat tasks create --repo <repo-id> --name "Build landing page" --message "Create a responsive landing page"
 
-# 3. Check sandbox status
-moat sandbox status <task-id>
+# 3. Check task status
+moat tasks status <task-id>
 ```
 
-> **Note:** Creating a task automatically starts its sandbox. You only need `moat sandbox start` to resume a previously stopped sandbox.
+> **Note:** Creating a task automatically starts its sandbox. Use `moat tasks start` to resume a previously stopped task.
 
 ### Monitor and interact with a running task
 
@@ -117,13 +115,13 @@ moat messages send <task-id> --text "Also add a dark mode toggle"
 moat messages list <task-id>
 ```
 
-### Manage sandbox lifecycle
+### Manage task lifecycle
 
 ```bash
-moat sandbox status <task-id>     # Check current state
-moat sandbox stop <task-id>       # Pause (scale to 0, preserves state)
-moat sandbox start <task-id>      # Resume (or auto-provision if needed)
-moat sandbox restart <task-id>    # Recreate pod (keeps PVC)
+moat tasks status <task-id>      # Check current state (environment, agent, servers)
+moat tasks stop <task-id>        # Pause (scale to 0, preserves state)
+moat tasks start <task-id>       # Resume task (provisions sandbox if needed)
+moat tasks restart <task-id>     # Recreate pod (keeps PVC)
 ```
 
 ### Configure channel integrations
@@ -162,11 +160,11 @@ moat teams settings get <team-id>
 moat teams settings set <team-id> --default-repo <repo-id>
 ```
 
-### Debug a failing sandbox
+### Debug a failing task
 
 ```bash
 # 1. Check status — shows error details and server errors
-moat sandbox status <task-id>
+moat tasks status <task-id>
 
 # 2. View lifecycle events (sandbox + server events with errors highlighted)
 moat events list <task-id> --types sandbox,server
@@ -176,11 +174,11 @@ moat events list <task-id> --errors         # show only errors
 moat events list <task-id> --types sandbox -f
 
 # 4. Check files in the workspace
-moat sandbox files <task-id> tree
-moat sandbox files <task-id> read --path CLAUDE.md
+moat tasks files <task-id> tree
+moat tasks files <task-id> read --path CLAUDE.md
 
 # 5. Stream server container logs
-moat sandbox logs <task-id> --server preview-server
+moat tasks logs <task-id> --server preview-server
 ```
 
 ### Multi-environment usage
@@ -201,8 +199,8 @@ moat repos list
 # Get task ID programmatically
 moat tasks list --status running --json | jq '.[0].id'
 
-# Get sandbox environment status
-moat sandbox status <task-id> --json | jq '.environmentStatus'
+# Get task environment status
+moat tasks status <task-id> --json | jq '.environmentStatus'
 ```
 
 ## Environment Variables
@@ -235,9 +233,8 @@ CLI source lives at `crates/cli/src/`:
 | `config.rs` | Config resolution (env vars → defaults) |
 | `client.rs` | HTTP client with auth header injection |
 | `output.rs` | Table and JSON formatting |
-| `commands/tasks.rs` | Task subcommands |
+| `commands/tasks.rs` | Task subcommands (includes status, restart, logs, files) |
 | `commands/repos.rs` | Repository subcommands |
-| `commands/sandbox.rs` | Sandbox subcommands |
 | `commands/messages.rs` | Message subcommands |
 | `commands/events.rs` | Event subcommands (list, follow) |
 | `commands/channels.rs` | Channel subcommands |

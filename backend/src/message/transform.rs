@@ -277,7 +277,7 @@ fn build_content_from_message(
                     text: block.get("text").and_then(|v| v.as_str()).map(std::string::ToString::to_string),
                     tool_use_id: block.get("id").and_then(|v| v.as_str()).map(std::string::ToString::to_string),
                     tool_name: block.get("name").and_then(|v| v.as_str()).map(std::string::ToString::to_string),
-                    tool_input: block.get("input").cloned(),
+                    tool_input: block.get("input").filter(|v| !v.is_null()).cloned(),
                     show_in_ui: None,
                 }
             })

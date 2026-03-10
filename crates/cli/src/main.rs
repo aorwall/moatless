@@ -47,11 +47,6 @@ enum Commands {
         #[command(subcommand)]
         action: commands::repos::RepoAction,
     },
-    /// Sandbox environment management
-    Sandbox {
-        #[command(subcommand)]
-        action: commands::sandbox::SandboxAction,
-    },
     /// Message management
     Messages {
         #[command(subcommand)]
@@ -146,9 +141,6 @@ async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::Repos { action } => {
             commands::repos::run(&moat, action, cli.json).await?;
-        }
-        Commands::Sandbox { action } => {
-            commands::sandbox::run(&moat, action, cli.json).await?;
         }
         Commands::Messages { action } => {
             commands::messages::run(&moat, action, cli.json).await?;
