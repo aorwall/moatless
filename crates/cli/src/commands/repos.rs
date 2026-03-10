@@ -42,6 +42,9 @@ pub enum RepoAction {
         /// Memory limit (e.g. "4096Mi")
         #[arg(long)]
         resource_memory_limit: Option<String>,
+        /// Docker image for sandbox (e.g. "myregistry/my-sandbox:latest")
+        #[arg(long)]
+        docker_image: Option<String>,
     },
     /// Update a repository
     Update {
@@ -64,6 +67,9 @@ pub enum RepoAction {
         /// Memory limit (e.g. "4096Mi")
         #[arg(long)]
         resource_memory_limit: Option<String>,
+        /// Docker image for sandbox (e.g. "myregistry/my-sandbox:latest")
+        #[arg(long)]
+        docker_image: Option<String>,
     },
     /// Sync .moatless/config.json from the remote repository
     SyncConfig { repo_id: String },
@@ -107,6 +113,7 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
             resource_cpu_limit,
             resource_memory_request,
             resource_memory_limit,
+            docker_image,
         } => {
             let resources = build_resource_config(
                 resource_cpu_request,
@@ -124,7 +131,7 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
                 build_command: None,
                 build_output_directory: None,
                 description: None,
-                docker_image: None,
+                docker_image,
                 enable_inspector: None,
                 env_vars: None,
                 plugins: None,
@@ -159,6 +166,7 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
             resource_cpu_limit,
             resource_memory_request,
             resource_memory_limit,
+            docker_image,
         } => {
             let resources = build_resource_config(
                 resource_cpu_request,
@@ -174,7 +182,7 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
                 build_command: None,
                 build_output_directory: None,
                 description: None,
-                docker_image: None,
+                docker_image,
                 enable_inspector: None,
                 env_vars: None,
                 plugins: None,

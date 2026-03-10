@@ -13,6 +13,7 @@ use crate::sandbox::models::ServerConfig;
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MoatlessRepoConfig {
+    pub docker_image: Option<String>,
     pub code_execution: Option<CodeExecution>,
     pub servers: Option<Vec<ServerConfig>>,
     pub system_prompt: Option<String>,
@@ -187,7 +188,10 @@ pub fn config_to_patch(config: &MoatlessRepoConfig) -> Result<RepositoryPatch, R
         .map_err(|e| RepositoryError::BadRequest(format!("Serialization error: {e}")))?
         .map(Some);
 
+    let docker_image = config.docker_image.as_ref().map(|s| Some(s.clone()));
+
     Ok(RepositoryPatch {
+        docker_image,
         system_prompt,
         servers,
         setup_commands,
@@ -232,6 +236,7 @@ mod tests {
     #[test]
     fn config_to_patch_maps_fields() {
         let config = MoatlessRepoConfig {
+            docker_image: Some("myregistry/custom-sandbox:latest".to_string()),
             code_execution: Some(CodeExecution {
                 setup_commands: Some(vec!["npm install".to_string()]),
             }),
@@ -251,6 +256,10 @@ mod tests {
         };
 
         let patch = config_to_patch(&config).unwrap();
+        assert_eq!(
+            patch.docker_image,
+            Some(Some("myregistry/custom-sandbox:latest".to_string()))
+        );
         assert!(patch.servers.is_some());
         assert!(patch.setup_commands.is_some());
         assert_eq!(patch.system_prompt, Some(Some("Be helpful".to_string())));
@@ -262,6 +271,7 @@ mod tests {
     #[test]
     fn config_to_patch_empty_config() {
         let config = MoatlessRepoConfig {
+            docker_image: None,
             code_execution: None,
             servers: None,
             system_prompt: None,

@@ -1,0 +1,177 @@
+name: Build Sandbox Images
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      build_all:
+        description: 'Build all images (ignore change detection)'
+        type: boolean
+        default: true
+
+env:
+  SANDBOX_BASE_IMAGE: aorwall/moatless-vibe-sandbox
+  SANDBOX_JS_IMAGE: aorwall/moatless-vibe-sandbox-js
+  SANDBOX_JAVA_IMAGE: aorwall/moatless-vibe-sandbox-java
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  # ── Detect which areas of code changed (push only) ──
+  detect-changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    outputs:
+      sandbox: ${{ steps.filter.outputs.sandbox }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            sandbox:
+              - 'sandbox/**'
+              - 'crates/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'docker/Dockerfile.sandbox'
+              - 'docker/Dockerfile.sandbox-js'
+              - 'docker/Dockerfile.sandbox-java'
+              - 'docker/docker-entrypoint-sandbox.sh'
+              - 'docker/sync-plugins.sh'
+
+  # ── Build sandbox + CLI binaries ──
+  build-binaries:
+    name: Build sandbox + CLI binaries
+    needs: detect-changes
+    if: >-
+      always() && (
+        needs.detect-changes.outputs.sandbox == 'true' ||
+        github.event_name == 'pull_request' ||
+        github.event_name == 'workflow_dispatch'
+      )
+    runs-on: ubuntu-latest
+    container:
+      image: rust:1.88-bookworm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install protoc
+        run: apt-get update && apt-get install -y protobuf-compiler
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+          shared-key: rust-sandbox-ci
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build sandbox + CLI (ci profile)
+        run: cargo build -p moatless-sandbox -p moatless-cli --profile ci
+
+      - name: Upload sandbox binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: sandbox-binary
+          path: target/ci/sandbox
+          retention-days: 1
+
+      - name: Upload CLI binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-binary
+          path: target/ci/moat
+          retention-days: 1
+
+  # ── Build and push all sandbox Docker images ──
+  build-and-push-images:
+    name: Build & push sandbox images
+    needs: [detect-changes, build-binaries]
+    if: >-
+      always() &&
+      github.event_name != 'pull_request' &&
+      needs.build-binaries.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download sandbox binary
+        uses: actions/download-artifact@v4
+        with:
+          name: sandbox-binary
+          path: /tmp/sandbox-binaries/amd64
+
+      - name: Download CLI binary
+        uses: actions/download-artifact@v4
+        with:
+          name: cli-binary
+          path: /tmp/sandbox-binaries/amd64
+
+      - name: Prepare binaries
+        run: chmod +x /tmp/sandbox-binaries/amd64/sandbox /tmp/sandbox-binaries/amd64/moat
+
+      - name: Login to Docker Hub
+        run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+
+      # ── Base sandbox image ──
+      - name: Build base sandbox image
+        run: |
+          SHA_TAG="sha-${GITHUB_SHA::7}"
+          docker build \
+            --no-cache \
+            --platform linux/amd64 \
+            --build-context binaries=/tmp/sandbox-binaries \
+            -f docker/Dockerfile.sandbox \
+            -t ${{ env.SANDBOX_BASE_IMAGE }}:latest \
+            -t ${{ env.SANDBOX_BASE_IMAGE }}:sha-${SHA_TAG} \
+            .
+          docker push ${{ env.SANDBOX_BASE_IMAGE }}:latest
+          docker push ${{ env.SANDBOX_BASE_IMAGE }}:sha-${SHA_TAG}
+
+      # ── Sandbox JS image ──
+      - name: Build and push sandbox-js image
+        run: |
+          SHA_TAG="sha-${GITHUB_SHA::7}"
+          docker build \
+            --platform linux/amd64 \
+            -f docker/Dockerfile.sandbox-js \
+            --build-arg BASE_IMAGE=${{ env.SANDBOX_BASE_IMAGE }}:latest \
+            -t ${{ env.SANDBOX_JS_IMAGE }}:latest \
+            -t ${{ env.SANDBOX_JS_IMAGE }}:sha-${SHA_TAG} \
+            .
+          docker push ${{ env.SANDBOX_JS_IMAGE }}:latest
+          docker push ${{ env.SANDBOX_JS_IMAGE }}:sha-${SHA_TAG}
+
+      # ── Sandbox Java images (matrix-like, sequential for shared base) ──
+      - name: Build and push sandbox-java:21
+        run: |
+          SHA_TAG="sha-${GITHUB_SHA::7}"
+          docker build \
+            --platform linux/amd64 \
+            -f docker/Dockerfile.sandbox-java \
+            --build-arg BASE_IMAGE=${{ env.SANDBOX_BASE_IMAGE }}:latest \
+            --build-arg JAVA_VERSION=21 \
+            -t ${{ env.SANDBOX_JAVA_IMAGE }}:21 \
+            -t ${{ env.SANDBOX_JAVA_IMAGE }}:21-${SHA_TAG} \
+            .
+          docker push ${{ env.SANDBOX_JAVA_IMAGE }}:21
+          docker push ${{ env.SANDBOX_JAVA_IMAGE }}:21-${SHA_TAG}
+
+      - name: Build and push sandbox-java:25
+        run: |
+          SHA_TAG="sha-${GITHUB_SHA::7}"
+          docker build \
+            --platform linux/amd64 \
+            -f docker/Dockerfile.sandbox-java \
+            --build-arg BASE_IMAGE=${{ env.SANDBOX_BASE_IMAGE }}:latest \
+            --build-arg JAVA_VERSION=25 \
+            -t ${{ env.SANDBOX_JAVA_IMAGE }}:25 \
+            -t ${{ env.SANDBOX_JAVA_IMAGE }}:25-${SHA_TAG} \
+            -t ${{ env.SANDBOX_JAVA_IMAGE }}:latest \
+            .
+          docker push ${{ env.SANDBOX_JAVA_IMAGE }}:25
+          docker push ${{ env.SANDBOX_JAVA_IMAGE }}:25-${SHA_TAG}
+          docker push ${{ env.SANDBOX_JAVA_IMAGE }}:latest

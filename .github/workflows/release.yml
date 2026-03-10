@@ -11,7 +11,9 @@ on:
 
 env:
   IMAGE_NAME: aorwall/moatless-vibe-frontend
-  SANDBOX_IMAGE_NAME: aorwall/moatless-vibe-sandbox-js
+  SANDBOX_BASE_IMAGE: aorwall/moatless-vibe-sandbox
+  SANDBOX_JS_IMAGE: aorwall/moatless-vibe-sandbox-js
+  SANDBOX_JAVA_IMAGE: aorwall/moatless-vibe-sandbox-java
   BACKEND_IMAGE_NAME: aorwall/moatless-vibe-backend
   PREVIEW_SERVER_IMAGE: aorwall/moatless-vibe-preview-server
 
@@ -54,13 +56,27 @@ jobs:
           for IMAGE in \
             "${{ env.IMAGE_NAME }}" \
             "${{ env.BACKEND_IMAGE_NAME }}" \
-            "${{ env.SANDBOX_IMAGE_NAME }}" \
+            "${{ env.SANDBOX_BASE_IMAGE }}" \
+            "${{ env.SANDBOX_JS_IMAGE }}" \
             "${{ env.PREVIEW_SERVER_IMAGE }}"; do
 
             echo "Retagging ${IMAGE}:${SHA_TAG} → ${IMAGE}:${VERSION}"
             docker pull "${IMAGE}:${SHA_TAG}"
             docker tag "${IMAGE}:${SHA_TAG}" "${IMAGE}:${VERSION}"
             docker push "${IMAGE}:${VERSION}"
+          done
+
+          # Retag sandbox-java variants
+          for JAVA_VERSION in 21 25; do
+            IMAGE="${{ env.SANDBOX_JAVA_IMAGE }}"
+            SRC_TAG="${JAVA_VERSION}-${SHA_TAG}"
+            DST_TAG="${JAVA_VERSION}-${VERSION}"
+            echo "Retagging ${IMAGE}:${SRC_TAG} → ${IMAGE}:${DST_TAG}"
+            docker pull "${IMAGE}:${SRC_TAG}" || echo "Skipping ${IMAGE}:${SRC_TAG} (not found)"
+            if docker image inspect "${IMAGE}:${SRC_TAG}" >/dev/null 2>&1; then
+              docker tag "${IMAGE}:${SRC_TAG}" "${IMAGE}:${DST_TAG}"
+              docker push "${IMAGE}:${DST_TAG}"
+            fi
           done
 
   # ── Helm chart + changelog ────────────────────────────────────
@@ -109,7 +125,9 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Docker Images" >> $GITHUB_STEP_SUMMARY
           echo "- **App:** \`${{ env.IMAGE_NAME }}:${{ needs.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Sandbox:** \`${{ env.SANDBOX_IMAGE_NAME }}:${{ needs.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Sandbox Base:** \`${{ env.SANDBOX_BASE_IMAGE }}:${{ needs.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Sandbox JS:** \`${{ env.SANDBOX_JS_IMAGE }}:${{ needs.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Sandbox Java:** \`${{ env.SANDBOX_JAVA_IMAGE }}:21-${{ needs.version.outputs.version }}\`, \`:25-${{ needs.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Backend:** \`${{ env.BACKEND_IMAGE_NAME }}:${{ needs.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Preview Server:** \`${{ env.PREVIEW_SERVER_IMAGE }}:${{ needs.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
