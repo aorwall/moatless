@@ -215,6 +215,7 @@ fn parse_channel_type(s: &str) -> ChannelType {
     match s {
         "email" => ChannelType::Email,
         "telegram" => ChannelType::Telegram,
+        "github_pr" => ChannelType::GithubPr,
         _ => ChannelType::Slack,
     }
 }

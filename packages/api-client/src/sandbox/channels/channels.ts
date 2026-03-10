@@ -827,6 +827,95 @@ export const useSetDefaults = <TError = ErrorType<ErrorBody>,
       return useMutation(getSetDefaultsMutationOptions(options), queryClient);
     }
     /**
+ * @summary Handle GitHub webhook for PR events.
+ */
+export type githubPrWebhookResponse200 = {
+  data: void
+  status: 200
+}
+
+export type githubPrWebhookResponse401 = {
+  data: void
+  status: 401
+}
+    
+export type githubPrWebhookResponseSuccess = (githubPrWebhookResponse200) & {
+  headers: Headers;
+};
+export type githubPrWebhookResponseError = (githubPrWebhookResponse401) & {
+  headers: Headers;
+};
+
+export type githubPrWebhookResponse = (githubPrWebhookResponseSuccess | githubPrWebhookResponseError)
+
+export const getGithubPrWebhookUrl = () => {
+
+
+  
+
+  return `/api/v1/channels/github-pr/webhook`
+}
+
+export const githubPrWebhook = async (githubPrWebhookBody: string, options?: RequestInit): Promise<githubPrWebhookResponse> => {
+  
+  return customInstance<githubPrWebhookResponse>(getGithubPrWebhookUrl(),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain', ...options?.headers },
+    body: 
+      githubPrWebhookBody,
+  }
+);}
+
+
+
+
+export const getGithubPrWebhookMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof githubPrWebhook>>, TError,{data: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof githubPrWebhook>>, TError,{data: string}, TContext> => {
+
+const mutationKey = ['githubPrWebhook'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof githubPrWebhook>>, {data: string}> = (props) => {
+          const {data} = props ?? {};
+
+          return  githubPrWebhook(data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type GithubPrWebhookMutationResult = NonNullable<Awaited<ReturnType<typeof githubPrWebhook>>>
+    export type GithubPrWebhookMutationBody = string
+    export type GithubPrWebhookMutationError = ErrorType<void>
+
+    /**
+ * @summary Handle GitHub webhook for PR events.
+ */
+export const useGithubPrWebhook = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof githubPrWebhook>>, TError,{data: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof githubPrWebhook>>,
+        TError,
+        {data: string},
+        TContext
+      > => {
+      return useMutation(getGithubPrWebhookMutationOptions(options), queryClient);
+    }
+    /**
  * @summary List all pending pairing requests across all channels owned by the
 authenticated user. Unlike `list_pairing_requests`, this does not require
 a specific `config_id`.

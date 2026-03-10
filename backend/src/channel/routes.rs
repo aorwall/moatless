@@ -15,6 +15,7 @@ use crate::state::AppState;
         handlers::list_providers,
         handlers::slack_webhook,
         handlers::telegram_webhook,
+        handlers::github_pr_webhook,
         handlers::list_pairing_requests,
         handlers::approve_pairing,
         handlers::list_my_pairing_requests,
@@ -37,6 +38,7 @@ pub fn channel_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenAp
         .routes(routes!(handlers::list_providers))
         .routes(routes!(handlers::slack_webhook))
         .routes(routes!(handlers::telegram_webhook))
+        .routes(routes!(handlers::github_pr_webhook))
         .routes(routes!(handlers::list_pairing_requests))
         .routes(routes!(handlers::approve_pairing))
         .routes(routes!(handlers::list_my_pairing_requests))

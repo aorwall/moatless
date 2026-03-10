@@ -68,7 +68,9 @@ Activated automatically when `USER_AUTH_TOKEN` env var is set. Exchanges token f
 | `moat messages list <id>` | List messages for a task | — |
 | `moat messages send <id>` | Send message to a task | `--text` |
 | `moat channels list` | List channel configs | — |
-| `moat channels create` | Create channel config | `--provider`, `--source`, `--repo`, `--mode` |
+| `moat channels create` | Create channel config | `--provider`, `--source`, `--repo`, `--mode`, `--provider-config` |
+| `moat channels defaults get` | Get provider defaults | `--provider` |
+| `moat channels defaults set` | Set provider defaults | `--provider`, `--repo`, `--mode`, `--provider-config`, `--team` |
 | `moat teams list` | List teams | — |
 | `moat teams get <id>` | Get team details | — |
 | `moat teams settings get <id>` | Show team settings | — |
@@ -118,6 +120,29 @@ moat sandbox status <task-id>     # Check current state
 moat sandbox stop <task-id>       # Pause (scale to 0, preserves state)
 moat sandbox start <task-id>      # Resume (or auto-provision if needed)
 moat sandbox restart <task-id>    # Recreate pod (keeps PVC)
+```
+
+### Configure channel integrations
+
+```bash
+# Slack — route a specific channel to a repo
+moat channels create --provider slack --source C0123456789 --repo <repo-id> --mode per_message
+
+# Telegram — all DMs to a repo
+moat channels create --provider telegram --source '*' --repo <repo-id> --mode ongoing
+
+# GitHub PR — each PR becomes a task
+moat channels create --provider github_pr --source owner/repo --repo <repo-id> --mode thread_based
+
+# GitHub PR with full config
+moat channels create --provider github_pr --source owner/repo --repo <repo-id> --mode thread_based \
+  --provider-config '{"bot_token":"ghp_abc","webhook_secret":"whsec_xyz","bot_username":"my-bot[bot]"}'
+
+# Set provider defaults (Slack/Telegram only — GitHub PR is always per-repo)
+moat channels defaults set --provider slack --repo <repo-id> --mode per_message
+
+# List all configured channels
+moat channels list
 ```
 
 ### Configure settings

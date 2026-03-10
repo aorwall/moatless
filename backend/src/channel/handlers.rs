@@ -424,6 +424,55 @@ pub async fn approve_pairing(
 }
 
 // =========================================================================
+// GitHub PR webhook handler
+// =========================================================================
+
+/// Handle GitHub webhook for PR events.
+#[utoipa::path(
+    post,
+    path = "/api/v1/channels/github-pr/webhook",
+    tag = "channels",
+    request_body(content = String, description = "GitHub webhook payload"),
+    responses(
+        (status = 200, description = "Webhook processed"),
+        (status = 401, description = "Invalid signature")
+    )
+)]
+pub async fn github_pr_webhook(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<StatusCode, ChannelError> {
+    let providers = state
+        .channel_providers
+        .as_ref()
+        .ok_or_else(|| ChannelError::ProviderNotConfigured("github_pr".into()))?;
+
+    let github_pr = providers
+        .get(ChannelType::GithubPr)
+        .ok_or_else(|| ChannelError::ProviderNotConfigured("github_pr".into()))?;
+
+    let github_pr_provider = github_pr
+        .as_any()
+        .downcast_ref::<super::github_pr::provider::GithubPrProvider>()
+        .ok_or_else(|| ChannelError::Internal("Provider type mismatch".into()))?;
+
+    if let Err(e) = super::github_pr::provider::resolve_and_process_github_webhook(
+        &state,
+        providers,
+        github_pr_provider,
+        &headers,
+        &body,
+    )
+    .await
+    {
+        warn!(error = %e, "GitHub PR webhook processing error");
+    }
+
+    Ok(StatusCode::OK)
+}
+
+// =========================================================================
 // Webhook inbound handler
 // =========================================================================
 

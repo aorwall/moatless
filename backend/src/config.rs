@@ -317,6 +317,27 @@ impl fmt::Debug for TelegramConfig {
     }
 }
 
+/// GitHub PR channel integration settings.
+///
+/// Implements a custom `Debug` to redact secrets.
+#[derive(Clone)]
+pub struct GithubPrConfig {
+    /// Global webhook secret for verifying GitHub webhook signatures.
+    pub webhook_secret: Option<String>,
+    /// Global GitHub token for API calls (PAT or GitHub App installation token).
+    pub bot_token: Option<String>,
+}
+
+#[allow(clippy::missing_fields_in_debug)]
+impl fmt::Debug for GithubPrConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GithubPrConfig")
+            .field("webhook_secret", &self.webhook_secret.as_ref().map(|_| "[REDACTED]"))
+            .field("bot_token", &self.bot_token.as_ref().map(|_| "[REDACTED]"))
+            .finish()
+    }
+}
+
 /// Docker-specific sandbox configuration.
 #[derive(Debug, Clone)]
 pub struct DockerConfig {
@@ -370,6 +391,7 @@ pub struct Config {
     pub s3: S3Config,
     pub slack: SlackConfig,
     pub telegram: TelegramConfig,
+    pub github_pr: GithubPrConfig,
 }
 
 /// Configuration validation errors.
@@ -512,6 +534,11 @@ impl Config {
             telegram: TelegramConfig {
                 bot_token: env_opt("TELEGRAM_BOT_TOKEN"),
                 mode: env_opt("TELEGRAM_MODE").unwrap_or_else(|| "webhook".into()),
+            },
+
+            github_pr: GithubPrConfig {
+                webhook_secret: env_opt("GITHUB_CHANNEL_WEBHOOK_SECRET"),
+                bot_token: env_opt("GITHUB_CHANNEL_TOKEN"),
             },
         };
 
@@ -756,6 +783,7 @@ mod tests {
             s3: S3Config { bucket_name: None, key_prefix: "test".into(), region: "us-east-1".into() },
             slack: SlackConfig { bot_token: None, signing_secret: None, bot_user_id: None },
             telegram: TelegramConfig { bot_token: None, mode: "webhook".into() },
+            github_pr: GithubPrConfig { webhook_secret: None, bot_token: None },
         }
     }
 

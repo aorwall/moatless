@@ -18,4 +18,5 @@ export const ChannelType = {
   webhook: 'webhook',
   cron: 'cron',
   telegram: 'telegram',
+  github_pr: 'github_pr',
 } as const;

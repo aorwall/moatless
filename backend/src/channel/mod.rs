@@ -14,6 +14,7 @@ pub mod provider;
 pub mod router;
 pub mod routes;
 pub mod schemas;
+pub mod github_pr;
 pub mod slack;
 pub mod telegram;
 pub mod thread_dao;

@@ -293,15 +293,103 @@ Create a channel configuration.
 
 | Flag | Required | Description |
 |------|----------|-------------|
-| `--provider` | Yes | Channel provider (e.g., `slack`, `telegram`) |
-| `--source` | Yes | Source identifier (channel ID, chat ID) |
+| `--provider` | Yes | Channel provider: `slack`, `telegram`, `github_pr` |
+| `--source` | Yes | Source identifier (see per-provider details below) |
 | `--repo` | Yes | Repository ID to route messages to |
 | `--mode` | Yes | Routing mode: `ongoing`, `per_message`, `thread_based` |
+| `--provider-config` | No | Provider-specific config as JSON object |
 
 - **API**: `POST /api/v1/channels/configs`
 
+#### Slack
+
+Source ID is the Slack channel ID (e.g., `C0123456789`).
+
 ```bash
+# Basic — mention-only trigger (default)
 moat channels create --provider slack --source C0123456789 --repo <repo-id> --mode per_message
+
+# All messages trigger
+moat channels create --provider slack --source C0123456789 --repo <repo-id> --mode per_message \
+  --provider-config '{"trigger":"all_messages"}'
+```
+
+#### Telegram
+
+Source ID is the chat ID (numeric, e.g., `-1001234567890`) or `*` for all DMs.
+
+```bash
+# Specific group chat
+moat channels create --provider telegram --source -1001234567890 --repo <repo-id> --mode thread_based
+
+# All DMs (wildcard)
+moat channels create --provider telegram --source '*' --repo <repo-id> --mode ongoing \
+  --provider-config '{"bot_username":"@mybot","secret_token":"my-webhook-secret"}'
+```
+
+**Provider config fields** (`--provider-config` JSON):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `secret_token` | string | Webhook verification token (X-Telegram-Bot-Api-Secret-Token) |
+| `bot_username` | string | Bot's @username for filtering self-replies |
+
+#### GitHub PR
+
+Source ID is the repository in `owner/repo` format. Each PR becomes a separate thread. Recommended routing mode: `thread_based`.
+
+```bash
+# Basic — includes PR diff on open (default)
+moat channels create --provider github_pr --source aorwall/my-repo --repo <repo-id> --mode thread_based
+
+# With bot token and webhook secret
+moat channels create --provider github_pr --source aorwall/my-repo --repo <repo-id> --mode thread_based \
+  --provider-config '{"bot_token":"ghp_abc123","webhook_secret":"whsec_xyz","bot_username":"my-bot[bot]"}'
+
+# Disable diff inclusion
+moat channels create --provider github_pr --source aorwall/my-repo --repo <repo-id> --mode thread_based \
+  --provider-config '{"include_diff":false}'
+```
+
+**Provider config fields** (`--provider-config` JSON):
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `webhook_secret` | string | — | Per-channel webhook secret (overrides `GITHUB_CHANNEL_WEBHOOK_SECRET` env) |
+| `bot_token` | string | — | GitHub token for API calls (overrides `GITHUB_CHANNEL_TOKEN` env, falls back to owner's linked GitHub token) |
+| `bot_username` | string | — | Bot's GitHub login (filters self-replies from webhooks) |
+| `include_diff` | bool | `true` | Include PR diff when a new PR is opened |
+| `max_diff_size` | number | `10000` | Max diff characters to include |
+| `events_filter` | string[] | `[]` (all) | Filter event types: `"pull_request"`, `"issue_comment"`, `"pull_request_review_comment"`, `"pull_request_review"` |
+
+**Webhook URL**: Configure your GitHub repository webhook to point to `{API_URL}/api/v1/channels/github-pr/webhook` with content type `application/json`.
+
+### `moat channels defaults get`
+
+Get default settings for a channel provider. Useful for Slack and Telegram where wildcard routing applies. Not applicable to GitHub PR (always specific `owner/repo`).
+
+```bash
+moat channels defaults get --provider slack
+moat channels defaults get --provider telegram --json
+```
+
+### `moat channels defaults set`
+
+Set default settings for a channel provider (creates or updates a wildcard config).
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--provider` | Yes | Channel provider name |
+| `--repo` | Yes | Default repository ID |
+| `--mode` | Yes | Default routing mode |
+| `--provider-config` | No | Default provider config JSON |
+| `--team` | No | Scope defaults to a team |
+
+```bash
+moat channels defaults set --provider slack --repo <repo-id> --mode per_message \
+  --provider-config '{"trigger":"mention_only"}'
+
+moat channels defaults set --provider telegram --repo <repo-id> --mode ongoing --team <team-id>
 ```
 
 ---
@@ -431,6 +519,8 @@ List available tags.
 | `messages send` | POST | `/api/v1/tasks/{id}/messages` |
 | `channels list` | GET | `/api/v1/channels/configs` |
 | `channels create` | POST | `/api/v1/channels/configs` |
+| `channels defaults get` | GET | `/api/v1/channels/defaults/{provider}` |
+| `channels defaults set` | PUT | `/api/v1/channels/defaults/{provider}` |
 | `teams list` | GET | `/api/v1/teams` |
 | `teams get` | GET | `/api/v1/teams/{id}` |
 | `teams settings get` | GET | `/api/v1/teams/{id}/settings` |

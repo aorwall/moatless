@@ -22,6 +22,7 @@ pub enum ChannelType {
     Webhook,
     Cron,
     Telegram,
+    GithubPr,
 }
 
 impl ChannelType {
@@ -32,6 +33,7 @@ impl ChannelType {
             Self::Webhook => "webhook",
             Self::Cron => "cron",
             Self::Telegram => "telegram",
+            Self::GithubPr => "github_pr",
         }
     }
 
@@ -42,6 +44,7 @@ impl ChannelType {
             "webhook" => Some(Self::Webhook),
             "cron" => Some(Self::Cron),
             "telegram" => Some(Self::Telegram),
+            "github_pr" => Some(Self::GithubPr),
             _ => None,
         }
     }
@@ -152,6 +155,16 @@ impl ChannelProviders {
             let telegram = super::telegram::provider::TelegramProvider::new(token);
             providers.register(Arc::new(telegram));
             tracing::info!("Telegram channel provider configured");
+        }
+
+        // GitHub PR provider (always available — config is per-channel in provider_config JSONB)
+        {
+            let github_pr = super::github_pr::provider::GithubPrProvider::new(
+                config.github_pr.webhook_secret.clone(),
+                config.github_pr.bot_token.clone(),
+            );
+            providers.register(Arc::new(github_pr));
+            tracing::info!("GitHub PR channel provider configured");
         }
 
         Some(providers)

@@ -49,11 +49,18 @@ interface FormState {
   secretToken: string
   botUsername: string
   chatMode: 'dm_wildcard' | 'specific'
+  // GitHub PR fields
+  githubWebhookSecret: string
+  githubBotToken: string
+  githubBotUsername: string
+  githubIncludeDiff: boolean
+  githubMaxDiffSize: string
 }
 
 const PROVIDER_LABELS: Record<string, string> = {
   slack: 'Slack',
   telegram: 'Telegram',
+  github_pr: 'GitHub PR',
 }
 
 function makeInitialForm(defaultProvider: string): FormState {
@@ -69,6 +76,11 @@ function makeInitialForm(defaultProvider: string): FormState {
     secretToken: '',
     botUsername: '',
     chatMode: 'specific',
+    githubWebhookSecret: '',
+    githubBotToken: '',
+    githubBotUsername: '',
+    githubIncludeDiff: true,
+    githubMaxDiffSize: '10000',
   }
 }
 
@@ -80,7 +92,7 @@ const ROUTING_MODE_DESCRIPTIONS: Record<string, string> = {
 
 function formStateFromConfig(config: ChannelConfigResponse): FormState {
   const providerConfig = config.providerConfig as Record<string, unknown> | null
-  return {
+  const base: FormState = {
     provider: config.provider,
     sourceId: config.sourceId,
     sourceName: config.sourceName ?? '',
@@ -92,7 +104,20 @@ function formStateFromConfig(config: ChannelConfigResponse): FormState {
     secretToken: (providerConfig?.secret_token as string) ?? '',
     botUsername: (providerConfig?.bot_username as string) ?? '',
     chatMode: config.sourceId === '*' ? 'dm_wildcard' : 'specific',
+    githubWebhookSecret: '',
+    githubBotToken: '',
+    githubBotUsername: '',
+    githubIncludeDiff: true,
+    githubMaxDiffSize: '10000',
   }
+  if (config.provider === 'github_pr' && providerConfig) {
+    base.githubWebhookSecret = (providerConfig.webhook_secret as string) ?? ''
+    base.githubBotToken = (providerConfig.bot_token as string) ?? ''
+    base.githubBotUsername = (providerConfig.bot_username as string) ?? ''
+    base.githubIncludeDiff = (providerConfig.include_diff as boolean) ?? true
+    base.githubMaxDiffSize = String(providerConfig.max_diff_size ?? 10000)
+  }
+  return base
 }
 
 interface SlackChannelFieldProps {
@@ -153,6 +178,23 @@ function SlackChannelField({
   )
 }
 
+function buildGithubPrPayload(form: FormState): Record<string, unknown> {
+  const providerConfig: Record<string, unknown> = {
+    include_diff: form.githubIncludeDiff,
+    max_diff_size: Number.parseInt(form.githubMaxDiffSize, 10) || 10000,
+  }
+  if (form.githubWebhookSecret) {
+    providerConfig.webhook_secret = form.githubWebhookSecret
+  }
+  if (form.githubBotToken) {
+    providerConfig.bot_token = form.githubBotToken
+  }
+  if (form.githubBotUsername) {
+    providerConfig.bot_username = form.githubBotUsername
+  }
+  return providerConfig
+}
+
 function buildProviderPayload(
   form: FormState,
   slackChannels: Array<{ id: string; name: string }> | undefined,
@@ -175,6 +217,12 @@ function buildProviderPayload(
     const sourceName =
       form.chatMode === 'dm_wildcard' ? 'All Direct Messages' : form.sourceName || form.sourceId
     return { sourceName, providerConfig }
+  }
+  if (form.provider === 'github_pr') {
+    return {
+      sourceName: form.sourceName || form.sourceId,
+      providerConfig: buildGithubPrPayload(form),
+    }
   }
   return { sourceName: form.sourceName || form.sourceId, providerConfig: {} }
 }
@@ -271,6 +319,118 @@ function TelegramFields({
           onChange={(e) => onBotUsernameChange(e.target.value)}
           placeholder="@mybot"
         />
+      </div>
+    </>
+  )
+}
+
+interface GitHubPrFieldsProps {
+  sourceId: string
+  webhookSecret: string
+  botToken: string
+  botUsername: string
+  includeDiff: boolean
+  maxDiffSize: string
+  onSourceIdChange: (value: string) => void
+  onWebhookSecretChange: (value: string) => void
+  onBotTokenChange: (value: string) => void
+  onBotUsernameChange: (value: string) => void
+  onIncludeDiffChange: (value: boolean) => void
+  onMaxDiffSizeChange: (value: string) => void
+  disabled: boolean
+}
+
+function GitHubPrFields({
+  sourceId,
+  webhookSecret,
+  botToken,
+  botUsername,
+  includeDiff,
+  maxDiffSize,
+  onSourceIdChange,
+  onWebhookSecretChange,
+  onBotTokenChange,
+  onBotUsernameChange,
+  onIncludeDiffChange,
+  onMaxDiffSizeChange,
+  disabled,
+}: GitHubPrFieldsProps) {
+  return (
+    <>
+      <div className="space-y-2">
+        <Label>Repository (owner/repo)</Label>
+        <Input
+          value={sourceId}
+          onChange={(e) => onSourceIdChange(e.target.value)}
+          placeholder="owner/repo"
+          disabled={disabled}
+        />
+        <p className="text-xs text-muted-foreground">
+          The GitHub repository in owner/repo format (e.g. aorwall/moatless-swarm-ui).
+        </p>
+      </div>
+      <div className="space-y-2">
+        <Label>
+          Webhook Secret <span className="text-muted-foreground">(optional)</span>
+        </Label>
+        <Input
+          type="password"
+          value={webhookSecret}
+          onChange={(e) => onWebhookSecretChange(e.target.value)}
+          placeholder="GitHub webhook secret"
+        />
+        <p className="text-xs text-muted-foreground">
+          Per-channel webhook secret. Overrides the global GITHUB_CHANNEL_WEBHOOK_SECRET env var.
+        </p>
+      </div>
+      <div className="space-y-2">
+        <Label>
+          Bot Token <span className="text-muted-foreground">(optional)</span>
+        </Label>
+        <Input
+          type="password"
+          value={botToken}
+          onChange={(e) => onBotTokenChange(e.target.value)}
+          placeholder="ghp_... or github_pat_..."
+        />
+        <p className="text-xs text-muted-foreground">
+          GitHub token for API calls. Falls back to GITHUB_CHANNEL_TOKEN env var, then the config
+          owner's linked GitHub token.
+        </p>
+      </div>
+      <div className="space-y-2">
+        <Label>
+          Bot Username <span className="text-muted-foreground">(optional)</span>
+        </Label>
+        <Input
+          value={botUsername}
+          onChange={(e) => onBotUsernameChange(e.target.value)}
+          placeholder="my-bot[bot]"
+        />
+        <p className="text-xs text-muted-foreground">
+          The bot's GitHub login. Used to filter out self-replies from webhooks.
+        </p>
+      </div>
+      <div className="flex items-center justify-between">
+        <div>
+          <Label>Include PR Diff</Label>
+          <p className="text-xs text-muted-foreground">
+            Include the PR diff when a new PR is opened.
+          </p>
+        </div>
+        <Switch checked={includeDiff} onCheckedChange={onIncludeDiffChange} />
+      </div>
+      <div className="space-y-2">
+        <Label>Max Diff Size</Label>
+        <Input
+          type="number"
+          value={maxDiffSize}
+          onChange={(e) => onMaxDiffSizeChange(e.target.value)}
+          placeholder="10000"
+        />
+        <p className="text-xs text-muted-foreground">
+          Maximum diff size in characters to include (default 10000).
+        </p>
       </div>
     </>
   )
@@ -401,6 +561,11 @@ export function ChannelConfigFormDialog({
                   sourceId: '',
                   secretToken: '',
                   botUsername: '',
+                  githubWebhookSecret: '',
+                  githubBotToken: '',
+                  githubBotUsername: '',
+                  githubIncludeDiff: true,
+                  githubMaxDiffSize: '10000',
                 }))
               }
               disabled={isEditing}
@@ -439,6 +604,25 @@ export function ChannelConfigFormDialog({
               onSecretTokenChange={(v) => setForm((prev) => ({ ...prev, secretToken: v }))}
               onBotUsernameChange={(v) => setForm((prev) => ({ ...prev, botUsername: v }))}
               onChatModeChange={(v) => setForm((prev) => ({ ...prev, chatMode: v }))}
+              disabled={isEditing}
+            />
+          )}
+          {form.provider === 'github_pr' && (
+            <GitHubPrFields
+              sourceId={form.sourceId}
+              webhookSecret={form.githubWebhookSecret}
+              botToken={form.githubBotToken}
+              botUsername={form.githubBotUsername}
+              includeDiff={form.githubIncludeDiff}
+              maxDiffSize={form.githubMaxDiffSize}
+              onSourceIdChange={(v) => setForm((prev) => ({ ...prev, sourceId: v }))}
+              onWebhookSecretChange={(v) =>
+                setForm((prev) => ({ ...prev, githubWebhookSecret: v }))
+              }
+              onBotTokenChange={(v) => setForm((prev) => ({ ...prev, githubBotToken: v }))}
+              onBotUsernameChange={(v) => setForm((prev) => ({ ...prev, githubBotUsername: v }))}
+              onIncludeDiffChange={(v) => setForm((prev) => ({ ...prev, githubIncludeDiff: v }))}
+              onMaxDiffSizeChange={(v) => setForm((prev) => ({ ...prev, githubMaxDiffSize: v }))}
               disabled={isEditing}
             />
           )}

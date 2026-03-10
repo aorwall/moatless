@@ -1356,6 +1356,34 @@
         }
       }
     },
+    "/api/v1/channels/github-pr/webhook": {
+      "post": {
+        "tags": [
+          "channels"
+        ],
+        "summary": "Handle GitHub webhook for PR events.",
+        "operationId": "github_pr_webhook",
+        "requestBody": {
+          "description": "GitHub webhook payload",
+          "content": {
+            "text/plain": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook processed"
+          },
+          "401": {
+            "description": "Invalid signature"
+          }
+        }
+      }
+    },
     "/api/v1/channels/pairing/my-requests": {
       "get": {
         "tags": [
@@ -4552,7 +4580,8 @@
           "email",
           "webhook",
           "cron",
-          "telegram"
+          "telegram",
+          "github_pr"
         ]
       },
       "CommandResponse": {
