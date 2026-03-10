@@ -56,7 +56,7 @@ Activated automatically when `USER_AUTH_TOKEN` env var is set. Exchanges token f
 | `moat repos update <id>` | Update a repository | `--name`, `--branch`, `--git-url` |
 | `moat tasks list` | List tasks | `--status`, `--limit` |
 | `moat tasks get <id>` | Get task details | — |
-| `moat tasks create` | Create a task | `--repo`, `--name`, `--message`, `--parent`, `--no-parent`, `--branch` |
+| `moat tasks create` | Create a task | `--repo` (name or ID), `--name`, `--message`, `--parent`, `--no-parent`, `--branch` |
 | `moat tasks children [id]` | List child tasks | defaults to `$TASK_ID` |
 | `moat tasks start <id>` | Start a task | — |
 | `moat tasks stop <id>` | Stop a task | — |
@@ -65,6 +65,10 @@ Activated automatically when `USER_AUTH_TOKEN` env var is set. Exchanges token f
 | `moat sandbox start <id>` | Start sandbox for task | — |
 | `moat sandbox stop <id>` | Stop sandbox for task | — |
 | `moat sandbox restart <id>` | Restart sandbox for task | — |
+| `moat sandbox logs <id>` | Stream server container logs | `--server` (default: sandbox) |
+| `moat sandbox files <id> tree` | Show file tree with git status | `--path` |
+| `moat sandbox files <id> read` | Read file content from workspace | `--path` (required) |
+| `moat sandbox files <id> list` | List files in workspace | `--path`, `--recursive` |
 | `moat messages list <id>` | List messages for a task | — |
 | `moat messages send <id>` | Send message to a task | `--text` |
 | `moat channels list` | List channel configs | — |
@@ -77,6 +81,7 @@ Activated automatically when `USER_AUTH_TOKEN` env var is set. Exchanges token f
 | `moat teams settings set <id>` | Update team settings | `--default-repo` |
 | `moat settings get` | Show current user settings | — |
 | `moat settings set` | Update user settings | `--default-repo` |
+| `moat events list <id>` | List task lifecycle events | `--types`, `--limit`, `--errors`, `--follow` |
 | `moat commands` | List available commands | — |
 | `moat tags` | List tags | — |
 
@@ -90,15 +95,14 @@ For full flag details and examples, see [Command Reference](references/command-r
 # 1. Create repository
 moat repos create --name my-app --git-url https://github.com/org/my-app
 
-# 2. Create task
+# 2. Create task (sandbox starts automatically — no need to run `moat sandbox start`)
 moat tasks create --repo <repo-id> --name "Build landing page" --message "Create a responsive landing page"
 
-# 3. Start sandbox
-moat sandbox start <task-id>
-
-# 4. Check sandbox status
+# 3. Check sandbox status
 moat sandbox status <task-id>
 ```
+
+> **Note:** Creating a task automatically starts its sandbox. You only need `moat sandbox start` to resume a previously stopped sandbox.
 
 ### Monitor and interact with a running task
 
@@ -158,6 +162,39 @@ moat teams settings get <team-id>
 moat teams settings set <team-id> --default-repo <repo-id>
 ```
 
+### Debug a failing sandbox
+
+```bash
+# 1. Check status — shows error details and server errors
+moat sandbox status <task-id>
+
+# 2. View lifecycle events (sandbox + server events with errors highlighted)
+moat events list <task-id> --types sandbox,server
+moat events list <task-id> --errors         # show only errors
+
+# 3. Follow events in real-time while sandbox starts
+moat events list <task-id> --types sandbox -f
+
+# 4. Check files in the workspace
+moat sandbox files <task-id> tree
+moat sandbox files <task-id> read --path CLAUDE.md
+
+# 5. Stream server container logs
+moat sandbox logs <task-id> --server preview-server
+```
+
+### Multi-environment usage
+
+```bash
+# Target a specific environment (default: https://moatless.dev)
+MOATLESS_API_URL=https://moatless.xyz moat tasks list
+
+# Or export for the session
+export MOATLESS_API_URL=https://moatless.xyz
+moat login     # Login is per-host (stored in credentials.json profiles)
+moat repos list
+```
+
 ### Scripting with JSON output
 
 ```bash
@@ -202,6 +239,7 @@ CLI source lives at `crates/cli/src/`:
 | `commands/repos.rs` | Repository subcommands |
 | `commands/sandbox.rs` | Sandbox subcommands |
 | `commands/messages.rs` | Message subcommands |
+| `commands/events.rs` | Event subcommands (list, follow) |
 | `commands/channels.rs` | Channel subcommands |
 | `commands/settings.rs` | User settings subcommands |
 | `commands/teams.rs` | Team subcommands |

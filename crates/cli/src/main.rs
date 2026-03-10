@@ -62,6 +62,11 @@ enum Commands {
         #[command(subcommand)]
         action: commands::channels::ChannelAction,
     },
+    /// Task event history
+    Events {
+        #[command(subcommand)]
+        action: commands::events::EventAction,
+    },
     /// Team management
     Teams {
         #[command(subcommand)]
@@ -150,6 +155,9 @@ async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::Channels { action } => {
             commands::channels::run(&moat, action, cli.json).await?;
+        }
+        Commands::Events { action } => {
+            commands::events::run(&moat, action, cli.json).await?;
         }
         Commands::Teams { action } => {
             commands::teams::run(&moat, action, cli.json).await?;

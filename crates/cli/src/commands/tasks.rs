@@ -95,8 +95,10 @@ pub async fn run(
                 parent.or_else(|| config.task_id().map(String::from))
             };
 
+            let repo_id = resolve_repo_id(client, &repo).await?;
+
             let req = CreateTaskRequest {
-                repository_id: repo,
+                repository_id: repo_id,
                 name,
                 message,
                 branch,
@@ -188,6 +190,47 @@ fn format_task_row(t: &TaskResponse) -> Vec<String> {
         t.title.chars().take(50).collect(),
         t.repository_name.as_deref().unwrap_or("-").to_string(),
     ]
+}
+
+/// Resolve a repo argument to a repository ID.
+/// If it looks like a UUID, pass through. Otherwise, search by name.
+async fn resolve_repo_id(client: &MoatClient, repo_arg: &str) -> Result<String, ClientError> {
+    // Simple UUID check: 36 chars with 4 hyphens.
+    if repo_arg.len() == 36 && repo_arg.chars().filter(|c| *c == '-').count() == 4 {
+        return Ok(repo_arg.to_string());
+    }
+
+    let resp = client
+        .api()
+        .list_repositories()
+        .await
+        .map_err(map_api_error)?;
+    let repos = resp.into_inner();
+
+    let matches: Vec<_> = repos
+        .iter()
+        .filter(|r| r.name.eq_ignore_ascii_case(repo_arg))
+        .collect();
+
+    match matches.len() {
+        1 => Ok(matches[0].id.clone()),
+        0 => Err(ClientError::Api {
+            status: 404,
+            body: format!(
+                "No repository found with name '{repo_arg}'. Run 'moat repos list' to see available repositories."
+            ),
+        }),
+        _ => {
+            let names: Vec<_> = matches.iter().map(|r| format!("{} ({})", r.name, r.id)).collect();
+            Err(ClientError::Api {
+                status: 400,
+                body: format!(
+                    "Multiple repositories match '{repo_arg}': {}",
+                    names.join(", ")
+                ),
+            })
+        }
+    }
 }
 
 fn format_task_detail(t: &TaskResponse) {

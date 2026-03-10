@@ -179,6 +179,60 @@ impl MoatClient {
             body: format!("Invalid JSON: {body}"),
         })
     }
+
+    /// Start a streaming GET request (no timeout, returns raw response for SSE/NDJSON).
+    pub async fn raw_get_stream(&self, path: &str) -> Result<reqwest::Response, ClientError> {
+        let url = format!("{}{path}", self.base_url);
+        if self.verbose {
+            eprintln!("GET (stream) {url}");
+        }
+        // Build a client with no timeout for long-lived SSE connections.
+        let http = Self::build_streaming_http_client(&self.auth_mode);
+        let resp = http.get(&url).send().await?;
+        let status = resp.status().as_u16();
+        if status == 401 {
+            return Err(ClientError::Unauthorized);
+        }
+        if status >= 400 {
+            let body = resp.text().await?;
+            return Err(ClientError::Api { status, body });
+        }
+        Ok(resp)
+    }
+
+    /// Build a `reqwest::Client` with no timeout (for SSE streaming).
+    fn build_streaming_http_client(auth_mode: &ClientAuthMode) -> reqwest::Client {
+        let mut default_headers = HeaderMap::new();
+        match auth_mode {
+            ClientAuthMode::ApiKey(key) => {
+                if !key.is_empty() {
+                    let bearer = format!("Bearer {key}");
+                    if let Ok(v) = HeaderValue::from_str(&bearer) {
+                        default_headers.insert(AUTHORIZATION, v);
+                    }
+                }
+            }
+            ClientAuthMode::Sandbox {
+                user_auth_token,
+                cookie_name,
+                session_token,
+            } => {
+                if let Some(ref token) = session_token {
+                    let cookie = format!("{cookie_name}={token}");
+                    if let Ok(v) = HeaderValue::from_str(&cookie) {
+                        default_headers.insert(COOKIE, v);
+                    }
+                }
+                if let Ok(v) = HeaderValue::from_str(user_auth_token) {
+                    default_headers.insert("X-User-Token", v);
+                }
+            }
+        }
+        reqwest::Client::builder()
+            .default_headers(default_headers)
+            .build()
+            .unwrap_or_default()
+    }
 }
 
 /// Convert a progenitor `Error<E>` into our `ClientError`.

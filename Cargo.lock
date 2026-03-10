@@ -2923,6 +2923,7 @@ dependencies = [
  "chrono",
  "clap",
  "dirs",
+ "futures-util",
  "moatless-api-client",
  "open",
  "progenitor-client",

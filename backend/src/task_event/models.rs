@@ -5,7 +5,7 @@ use chrono::{DateTime, Utc};
 /// A persisted task event row.
 #[derive(Debug, sqlx::FromRow)]
 pub struct TaskEvent {
-    pub id: i64,
+    pub id: i32,
     pub event_id: String,
     pub task_id: String,
     pub event_type: String,
