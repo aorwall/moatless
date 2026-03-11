@@ -103,17 +103,40 @@ moat repos create --name my-app --git-url https://github.com/org/my-app --branch
 
 Update an existing repository. All flags are optional — only provided fields are updated.
 
-| Flag | Description |
-|------|-------------|
-| `--name` | New name |
-| `--branch` | New default branch |
-| `--git-url` | New git URL |
+| Flag | Type | Description |
+|------|------|-------------|
+| `--name` | `String` | New name |
+| `--branch` | `String` | New default branch |
+| `--git-url` | `String` | New git URL |
+| `--docker-image` | `String` | Docker image for sandbox |
+| `--setup-command <CMD>` | repeatable | Setup commands run before server starts |
+| `--server-start-command <CMD>` | repeatable | Legacy server start commands |
+| `--env-var <KEY=VALUE>` | repeatable | Repo-level environment variables |
+| `--startup-timeout <SECS>` | `i32` | Startup timeout in seconds |
+| `--servers-json <JSON>` | `String` | Full servers config as JSON string |
+| `--resource-cpu-request` | `String` | CPU request (e.g. "200m") |
+| `--resource-cpu-limit` | `String` | CPU limit (e.g. "4") |
+| `--resource-memory-request` | `String` | Memory request (e.g. "2560Mi") |
+| `--resource-memory-limit` | `String` | Memory limit (e.g. "4096Mi") |
 
 - **API**: `PUT /api/v1/repositories/{repo_id}`
 
 ```bash
+# Basic updates
 moat repos update 3c9b49b9-... --name new-name
 moat repos update 3c9b49b9-... --branch develop
+
+# Update server config (JSON array of ServerConfig objects)
+moat repos update <repo-id> --servers-json '[{"name":"preview","port":3000,"startCommands":["bunx next dev --port 3000"],"default":true}]'
+
+# Set environment variables
+moat repos update <repo-id> --env-var PORT=3000 --env-var NODE_ENV=development
+
+# Set setup commands
+moat repos update <repo-id> --setup-command "bun install" --setup-command "bun run build"
+
+# Set startup timeout
+moat repos update <repo-id> --startup-timeout 120
 ```
 
 ---
@@ -208,6 +231,46 @@ Stop a running task.
 Close/complete a task.
 
 - **API**: `POST /api/v1/tasks/{task_id}/close`
+
+### `moat tasks diagnose <task_id>`
+
+Aggregated sandbox diagnostics: status, container states, and recent error events in a single view.
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--limit` | 10 | Number of recent error events to show |
+
+- **API**: Multiple — aggregates status, container diagnostics, and events
+- **Output**: Environment status, container restart counts, recent errors
+
+```bash
+moat tasks diagnose <task-id>
+moat tasks diagnose <task-id> --limit 20
+moat tasks diagnose <task-id> --json
+```
+
+### `moat tasks logs <task_id>`
+
+Stream server container logs from the sandbox pod.
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--server` / `-s` | `sandbox` | Container name to stream logs from (e.g. `sandbox`, `preview`, `files-server`) |
+| `--previous` | `false` | Fetch logs from the previous (crashed/restarted) container instance |
+
+- **API**: `GET /api/sandbox/v1/tasks/{task_id}/servers/{server}/logs[?previous=true]`
+
+```bash
+# Stream sandbox logs (default)
+moat tasks logs <task-id>
+
+# Stream preview server logs
+moat tasks logs <task-id> --server preview
+
+# View previous container logs (after crash/restart)
+moat tasks logs <task-id> --server sandbox --previous
+moat tasks logs <task-id> --server preview --previous
+```
 
 ---
 
@@ -511,6 +574,8 @@ List available tags.
 | `tasks start` | POST | `/api/v1/tasks/{id}/start` |
 | `tasks stop` | POST | `/api/v1/tasks/{id}/stop` |
 | `tasks close` | POST | `/api/v1/tasks/{id}/close` |
+| `tasks diagnose` | GET (multiple) | Aggregates status, diagnostics, events |
+| `tasks logs` | GET | `/api/sandbox/v1/tasks/{id}/servers/{server}/logs` |
 | `sandbox status` | GET | `/api/sandbox/v1/tasks/{id}/status` |
 | `sandbox start` | POST | `/api/sandbox/v1/tasks/{id}/start` |
 | `sandbox stop` | POST | `/api/sandbox/v1/tasks/{id}/stop` |

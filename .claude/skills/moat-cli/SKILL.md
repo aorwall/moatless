@@ -53,7 +53,7 @@ Activated automatically when `USER_AUTH_TOKEN` env var is set. Exchanges token f
 | `moat repos list` | List all repositories | — |
 | `moat repos get <id>` | Get repository details | — |
 | `moat repos create` | Create a repository | `--name`, `--git-url`, `--branch`, `--provider` |
-| `moat repos update <id>` | Update a repository | `--name`, `--branch`, `--git-url` |
+| `moat repos update <id>` | Update a repository | `--name`, `--branch`, `--git-url`, `--servers-json`, `--env-var`, `--setup-command`, `--startup-timeout` |
 | `moat tasks list` | List tasks | `--status`, `--limit` |
 | `moat tasks get <id>` | Get task details | — |
 | `moat tasks create` | Create a task | `--repo` (name or ID), `--name`, `--message`, `--parent`, `--no-parent`, `--branch` |
@@ -63,7 +63,8 @@ Activated automatically when `USER_AUTH_TOKEN` env var is set. Exchanges token f
 | `moat tasks close <id>` | Close a task | — |
 | `moat tasks status <id>` | Show full status (environment, agent, servers) | — |
 | `moat tasks restart <id>` | Restart sandbox for task | — |
-| `moat tasks logs <id>` | Stream server container logs | `--server` (default: sandbox) |
+| `moat tasks logs <id>` | Stream server container logs | `--server` (default: sandbox), `--previous` |
+| `moat tasks diagnose <id>` | Aggregated diagnostics (status + containers + errors) | `--limit` |
 | `moat tasks files <id> tree` | Show file tree with git status | `--path` |
 | `moat tasks files <id> read` | Read file content from workspace | `--path` (required) |
 | `moat tasks files <id> list` | List files in workspace | `--path`, `--recursive` |
@@ -163,22 +164,28 @@ moat teams settings set <team-id> --default-repo <repo-id>
 ### Debug a failing task
 
 ```bash
-# 1. Check status — shows error details and server errors
-moat tasks status <task-id>
+# 1. Run diagnose — aggregates status, container diagnostics, and recent errors
+moat tasks diagnose <task-id>
 
-# 2. View lifecycle events (sandbox + server events with errors highlighted)
+# 2. Check previous container logs (crashed/restarted containers)
+moat tasks logs <task-id> --server sandbox --previous
+moat tasks logs <task-id> --server preview --previous
+
+# 3. Stream live server logs
+moat tasks logs <task-id> --server preview
+
+# 4. Check and fix repo config if needed
+moat repos get <repo-id>                           # review server config
+moat repos update <repo-id> --servers-json '[...]'  # fix start commands
+moat tasks restart <task-id>                        # restart with new config
+
+# 5. View lifecycle events (sandbox + server events with errors highlighted)
 moat events list <task-id> --types sandbox,server
 moat events list <task-id> --errors         # show only errors
 
-# 3. Follow events in real-time while sandbox starts
-moat events list <task-id> --types sandbox -f
-
-# 4. Check files in the workspace
+# 6. Check files in the workspace
 moat tasks files <task-id> tree
 moat tasks files <task-id> read --path CLAUDE.md
-
-# 5. Stream server container logs
-moat tasks logs <task-id> --server preview-server
 ```
 
 ### Multi-environment usage

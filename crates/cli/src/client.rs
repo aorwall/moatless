@@ -20,6 +20,8 @@ pub enum ClientError {
     NotLoggedIn,
     #[error("Typed API error ({status}): {message}")]
     TypedApi { status: u16, message: String },
+    #[error("{0}")]
+    Other(String),
 }
 
 pub struct MoatClient {
@@ -42,7 +44,73 @@ enum ClientAuthMode {
     },
 }
 
+impl std::ops::Deref for MoatClient {
+    type Target = moatless_api_client::Client;
+
+    fn deref(&self) -> &Self::Target {
+        &self.typed_client
+    }
+}
+
 impl MoatClient {
+    /// Create a client with no auth headers. Reads `MOATLESS_API_URL` from env.
+    pub fn new_unauthenticated() -> Result<Self, ClientError> {
+        Self::from_headers(HeaderMap::new())
+    }
+
+    /// Create a client that simulates a specific user via ForwardAuth dev-mode headers.
+    pub fn new_as_user(user_id: &str, login: &str, role: &str) -> Result<Self, ClientError> {
+        let headers = Self::user_headers(user_id, login, role)?;
+        Self::from_headers(headers)
+    }
+
+    /// Create a client that simulates a user with team membership via ForwardAuth dev-mode headers.
+    pub fn new_as_user_with_teams(
+        user_id: &str,
+        login: &str,
+        role: &str,
+        team_ids: &[&str],
+    ) -> Result<Self, ClientError> {
+        let mut headers = Self::user_headers(user_id, login, role)?;
+        if !team_ids.is_empty() {
+            headers.insert(
+                "X-Team-Ids",
+                HeaderValue::from_str(&team_ids.join(","))
+                    .map_err(|e| ClientError::Api { status: 0, body: e.to_string() })?,
+            );
+        }
+        Self::from_headers(headers)
+    }
+
+    fn user_headers(user_id: &str, login: &str, role: &str) -> Result<HeaderMap, ClientError> {
+        let mut headers = HeaderMap::new();
+        let map_err = |e: reqwest::header::InvalidHeaderValue| ClientError::Api {
+            status: 0,
+            body: e.to_string(),
+        };
+        headers.insert("X-User-Id", HeaderValue::from_str(user_id).map_err(map_err)?);
+        headers.insert("X-User-Login", HeaderValue::from_str(login).map_err(map_err)?);
+        headers.insert("X-User-Role", HeaderValue::from_str(role).map_err(map_err)?);
+        Ok(headers)
+    }
+
+    fn from_headers(headers: HeaderMap) -> Result<Self, ClientError> {
+        let base_url = std::env::var("MOATLESS_API_URL")
+            .unwrap_or_else(|_| "http://localhost:8080".into())
+            .trim_end_matches('/')
+            .to_string();
+        let http = reqwest::Client::builder()
+            .default_headers(headers)
+            .build()?;
+        let typed_client = moatless_api_client::Client::new_with_client(&base_url, http);
+        Ok(Self {
+            base_url,
+            auth_mode: ClientAuthMode::ApiKey(String::new()),
+            verbose: false,
+            typed_client,
+        })
+    }
+
     pub fn new(config: &Config, verbose: bool) -> Self {
         let auth_mode = match &config.auth_mode {
             AuthMode::Standalone { api_key } => {
@@ -125,6 +193,11 @@ impl MoatClient {
     /// Access the typed progenitor-generated API client.
     pub fn api(&self) -> &moatless_api_client::Client {
         &self.typed_client
+    }
+
+    /// Return the base URL.
+    pub fn base_url(&self) -> &str {
+        &self.base_url
     }
 
     /// Raw GET for the auth probe in `ensure_auth`.

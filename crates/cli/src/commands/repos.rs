@@ -3,9 +3,10 @@
 use std::collections::HashMap;
 
 use clap::Subcommand;
+use serde_json;
 use moatless_api_client::types::{
     CreateRepositoryRequest, RepositoryKind, RepositoryProvider, RepositoryResponse,
-    ResourceConfig, UpdateRepositoryRequest,
+    ResourceConfig, ServerConfig, UpdateRepositoryRequest,
 };
 
 use crate::client::{map_api_error, ClientError, MoatClient};
@@ -70,6 +71,21 @@ pub enum RepoAction {
         /// Docker image for sandbox (e.g. "myregistry/my-sandbox:latest")
         #[arg(long)]
         docker_image: Option<String>,
+        /// Setup commands run before server starts (repeatable)
+        #[arg(long = "setup-command")]
+        setup_commands: Vec<String>,
+        /// Legacy server start commands (repeatable)
+        #[arg(long = "server-start-command")]
+        server_start_commands: Vec<String>,
+        /// Repo-level environment variables as KEY=VALUE (repeatable)
+        #[arg(long = "env-var")]
+        env_vars: Vec<String>,
+        /// Startup timeout in seconds
+        #[arg(long)]
+        startup_timeout: Option<i32>,
+        /// Full servers config as JSON string
+        #[arg(long)]
+        servers_json: Option<String>,
     },
     /// Sync .moatless/config.json from the remote repository
     SyncConfig { repo_id: String },
@@ -167,6 +183,11 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
             resource_memory_request,
             resource_memory_limit,
             docker_image,
+            setup_commands,
+            server_start_commands,
+            env_vars,
+            startup_timeout,
+            servers_json,
         } => {
             let resources = build_resource_config(
                 resource_cpu_request,
@@ -174,6 +195,14 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
                 resource_memory_request,
                 resource_memory_limit,
             );
+            let servers = match servers_json {
+                Some(ref json_str) => {
+                    let parsed: Vec<ServerConfig> = serde_json::from_str(json_str)
+                        .map_err(|e| ClientError::Other(format!("Invalid --servers-json: {e}")))?;
+                    Some(parsed)
+                }
+                None => None,
+            };
             let req = UpdateRepositoryRequest {
                 name,
                 default_branch: branch,
@@ -184,12 +213,20 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
                 description: None,
                 docker_image,
                 enable_inspector: None,
-                env_vars: None,
+                env_vars: parse_env_vars(&env_vars),
                 plugins: None,
-                server_start_commands: None,
-                servers: None,
-                setup_commands: None,
-                startup_timeout_seconds: None,
+                server_start_commands: if server_start_commands.is_empty() {
+                    None
+                } else {
+                    Some(server_start_commands)
+                },
+                servers,
+                setup_commands: if setup_commands.is_empty() {
+                    None
+                } else {
+                    Some(setup_commands)
+                },
+                startup_timeout_seconds: startup_timeout,
                 system_prompt: None,
                 visibility: None,
                 resources,
@@ -305,6 +342,21 @@ fn format_repo_list(repos: &[RepositoryResponse]) {
     output::print_table(&["ID", "NAME", "PROVIDER", "BRANCH"], &rows);
 }
 
+/// Parse `KEY=VALUE` strings into a `HashMap`. Returns `None` if the list is empty.
+fn parse_env_vars(raw: &[String]) -> Option<HashMap<String, String>> {
+    if raw.is_empty() {
+        return None;
+    }
+    let map: HashMap<String, String> = raw
+        .iter()
+        .filter_map(|entry| {
+            let (k, v) = entry.split_once('=')?;
+            Some((k.to_string(), v.to_string()))
+        })
+        .collect();
+    if map.is_empty() { None } else { Some(map) }
+}
+
 fn format_repo_detail(r: &RepositoryResponse) {
     println!("ID:       {}", r.id);
     println!("Name:     {}", r.name);
@@ -322,6 +374,9 @@ fn format_repo_detail(r: &RepositoryResponse) {
         "Git URL:  {}",
         r.remote_url.as_deref().unwrap_or("-")
     );
+    if let Some(ref img) = r.docker_image {
+        println!("Image:    {img}");
+    }
     if let Some(ref res) = r.resources {
         if let Some(ref req) = res.requests {
             let parts: Vec<String> = req.iter().map(|(k, v)| format!("{k}={v}")).collect();
@@ -331,5 +386,54 @@ fn format_repo_detail(r: &RepositoryResponse) {
             let parts: Vec<String> = lim.iter().map(|(k, v)| format!("{k}={v}")).collect();
             println!("Resource limits:   {}", parts.join(", "));
         }
+    }
+    if let Some(ref servers) = r.servers {
+        if !servers.is_empty() {
+            println!("Servers:");
+            for s in servers {
+                println!("  {}:", s.name);
+                if let Some(port) = s.port {
+                    println!("    Port:     {port}");
+                }
+                if let Some(ref cmds) = s.start_commands {
+                    println!("    Commands: {}", cmds.join("; "));
+                }
+                if let Some(ref vars) = s.env_vars {
+                    if !vars.is_empty() {
+                        let parts: Vec<String> =
+                            vars.iter().map(|(k, v)| format!("{k}={v}")).collect();
+                        println!("    Env:      {}", parts.join(", "));
+                    }
+                }
+                if let Some(timeout) = s.startup_timeout_seconds {
+                    println!("    Timeout:  {timeout}s");
+                }
+            }
+        }
+    }
+    if let Some(ref cmds) = r.setup_commands {
+        if !cmds.is_empty() {
+            println!("Setup commands: {}", cmds.join("; "));
+        }
+    }
+    if let Some(ref cmds) = r.server_start_commands {
+        if !cmds.is_empty() {
+            println!("Server start commands: {}", cmds.join("; "));
+        }
+    }
+    if let Some(ref vars) = r.env_vars {
+        if !vars.is_empty() {
+            let parts: Vec<String> = vars.iter().map(|(k, v)| format!("{k}={v}")).collect();
+            println!("Env vars: {}", parts.join(", "));
+        }
+    }
+    if let Some(timeout) = r.startup_timeout_seconds {
+        println!("Startup timeout: {timeout}s");
+    }
+    if let Some(ref cmd) = r.build_command {
+        println!("Build command: {cmd}");
+    }
+    if let Some(ref dir) = r.build_output_directory {
+        println!("Build output dir: {dir}");
     }
 }
