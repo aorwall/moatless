@@ -57,9 +57,19 @@ pub enum TaskAction {
     /// Stream server logs from a task's sandbox
     Logs {
         task_id: String,
-        /// Server name (e.g. "sandbox", "preview-server", "files-server")
+        /// Server name (e.g. "sandbox", "preview", "files")
         #[arg(long, short = 's', default_value = "sandbox")]
         server: String,
+        /// Fetch logs from previous (crashed/restarted) container instance
+        #[arg(long)]
+        previous: bool,
+    },
+    /// Diagnose sandbox issues (status + container diagnostics + recent errors)
+    Diagnose {
+        task_id: String,
+        /// Number of error events to show
+        #[arg(long, default_value = "10")]
+        limit: i64,
     },
     /// File operations in a task's workspace
     Files {
@@ -233,8 +243,15 @@ pub async fn run(
                 .map_err(map_api_error)?;
             println!("Sandbox for {task_id} restarted.");
         }
-        TaskAction::Logs { task_id, server } => {
-            stream_logs(client, &task_id, &server).await?;
+        TaskAction::Logs {
+            task_id,
+            server,
+            previous,
+        } => {
+            stream_logs(client, &task_id, &server, previous).await?;
+        }
+        TaskAction::Diagnose { task_id, limit } => {
+            run_diagnose(client, &task_id, limit, json).await?;
         }
         TaskAction::Files { task_id, action } => {
             run_file_action(client, &task_id, action, json).await?;
@@ -343,6 +360,188 @@ fn format_sandbox_status(status: &SandboxStatusFullResponse) {
             }
         }
     }
+
+    format_container_diagnostics_json(None);
+}
+
+fn format_container_diagnostics_json(diagnostics: Option<&Vec<serde_json::Value>>) {
+    let items = match diagnostics {
+        Some(items) if !items.is_empty() => items,
+        _ => return,
+    };
+
+    println!("\nContainer Diagnostics:");
+    for c in items {
+        let name = c.get("name").and_then(serde_json::Value::as_str).unwrap_or("?");
+        let state = c.get("state").and_then(serde_json::Value::as_str).unwrap_or("?");
+        let restarts = c
+            .get("restartCount")
+            .and_then(serde_json::Value::as_i64)
+            .unwrap_or(0);
+
+        println!("  {name}:");
+        println!("    State:          {state}");
+        println!("    Restart Count:  {restarts}");
+
+        if let Some(code) = c.get("exitCode").and_then(serde_json::Value::as_i64) {
+            println!("    Exit Code:      {code}");
+        }
+        if let Some(reason) = c.get("terminatedReason").and_then(serde_json::Value::as_str) {
+            println!("    Terminated:     {reason}");
+        }
+        if let Some(code) = c.get("lastExitCode").and_then(serde_json::Value::as_i64) {
+            println!("    Last Exit Code: {code}");
+        }
+        if let Some(reason) = c.get("lastTerminatedReason").and_then(serde_json::Value::as_str) {
+            println!("    Last Terminated: {reason}");
+        }
+        if let Some(reason) = c.get("waitingReason").and_then(serde_json::Value::as_str) {
+            println!("    Waiting:        {reason}");
+        }
+    }
+}
+
+/// Diagnose sandbox issues: aggregates status + container diagnostics + recent errors.
+async fn run_diagnose(
+    client: &MoatClient,
+    task_id: &str,
+    limit: i64,
+    json: bool,
+) -> Result<(), ClientError> {
+    // Fetch status (includes container diagnostics from Phase 1)
+    let status_path = format!("/api/sandbox/v1/tasks/{task_id}/status");
+    let status = client.raw_get(&status_path).await?;
+
+    // Fetch recent error events
+    let events_path = format!(
+        "/api/v1/tasks/{task_id}/events/history?limit={limit}&types=sandbox,server"
+    );
+    let events_resp = client.raw_get(&events_path).await;
+
+    if json {
+        let mut report = serde_json::json!({
+            "taskId": task_id,
+            "status": status,
+        });
+        if let Ok(ref events) = events_resp {
+            report["events"] = events.clone();
+        }
+        let pretty = serde_json::to_string_pretty(&report).unwrap_or_default();
+        println!("{pretty}");
+        return Ok(());
+    }
+
+    // Format human-readable report
+    println!("=== Sandbox Diagnostics: {task_id} ===\n");
+
+    // Status section
+    println!("Status:");
+    let env_status = status
+        .get("environmentStatus")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("unknown");
+    println!("  Environment:  {env_status}");
+
+    let agent_state = status
+        .get("agentState")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("unknown");
+    println!("  Agent:        {agent_state}");
+
+    if let Some(err) = status.get("environmentError").and_then(serde_json::Value::as_str) {
+        println!("  Error:        {err}");
+    }
+
+    // Container diagnostics section
+    let diagnostics = status
+        .get("containerDiagnostics")
+        .and_then(serde_json::Value::as_array);
+    format_container_diagnostics_json(diagnostics);
+
+    // Runtime events section (from K8s/Docker events)
+    if let Some(rt_events) = status.get("runtimeEvents").and_then(serde_json::Value::as_array) {
+        if !rt_events.is_empty() {
+            println!("\nRuntime Events:");
+            for e in rt_events {
+                let reason = e.get("reason").and_then(serde_json::Value::as_str).unwrap_or("?");
+                let message = e.get("message").and_then(serde_json::Value::as_str).unwrap_or("");
+                let severity = e.get("severity").and_then(serde_json::Value::as_str).unwrap_or("normal");
+                let count = e.get("count").and_then(serde_json::Value::as_i64).unwrap_or(1);
+                let ts = e
+                    .get("lastTimestamp")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("-");
+                let ts = if ts.len() > 19 { &ts[..19] } else { ts };
+                let sev_tag = if severity == "warning" { " [WARN]" } else { "" };
+                println!("  {ts}  {reason}{sev_tag} (x{count})  {message}");
+            }
+        }
+    }
+
+    // Servers section
+    if let Some(servers) = status.get("servers").and_then(serde_json::Value::as_array) {
+        if !servers.is_empty() {
+            println!("\nServers:");
+            for s in servers {
+                let name = s.get("name").and_then(serde_json::Value::as_str).unwrap_or("?");
+                let srv_status = s.get("status").and_then(serde_json::Value::as_str).unwrap_or("?");
+                let port = s.get("port").and_then(serde_json::Value::as_u64).unwrap_or(0);
+                println!("  {name}: {srv_status} (port {port})");
+                if let Some(err) = s.get("error").and_then(serde_json::Value::as_str) {
+                    println!("    Error: {err}");
+                }
+            }
+        }
+    }
+
+    // Recent events section
+    if let Ok(events) = events_resp {
+        let items = events
+            .get("items")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+
+        // Filter to error events only
+        let errors: Vec<_> = items
+            .iter()
+            .filter(|e| {
+                e.get("isError")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false)
+            })
+            .collect();
+
+        if errors.is_empty() {
+            println!("\nNo recent error events.");
+        } else {
+            println!("\nRecent Error Events:");
+            for e in &errors {
+                let ts = e
+                    .get("timestamp")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("-");
+                let ts = if ts.len() > 19 { &ts[..19] } else { ts };
+                let event_type = e.get("type").and_then(serde_json::Value::as_str).unwrap_or("-");
+                let sub_type = e
+                    .get("subType")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("-");
+                let payload = e
+                    .get("payload")
+                    .and_then(|v| {
+                        v.get("message")
+                            .or_else(|| v.get("error"))
+                            .or_else(|| v.get("status"))
+                            .and_then(serde_json::Value::as_str)
+                    })
+                    .unwrap_or("");
+                println!("  {ts}  {event_type:<8} {sub_type:<10} {payload}");
+            }
+        }
+    }
+
+    Ok(())
 }
 
 /// Stream server logs via SSE.
@@ -350,8 +549,12 @@ async fn stream_logs(
     client: &MoatClient,
     task_id: &str,
     server: &str,
+    previous: bool,
 ) -> Result<(), ClientError> {
-    let path = format!("/api/sandbox/v1/tasks/{task_id}/servers/{server}/logs");
+    let mut path = format!("/api/sandbox/v1/tasks/{task_id}/servers/{server}/logs");
+    if previous {
+        path.push_str("?previous=true");
+    }
     let resp = client.raw_get_stream(&path).await?;
     let mut stream = resp.bytes_stream();
     let mut buf = String::new();

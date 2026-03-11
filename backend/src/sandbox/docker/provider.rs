@@ -307,6 +307,7 @@ impl SandboxProvider for DockerSandboxProvider {
         &self,
         _task_id: &str,
         _server_name: &str,
+        _previous: bool,
     ) -> Result<BoxStream<'static, Result<Event, SandboxError>>, SandboxError> {
         Err(SandboxError::NotReady(
             "Server logs not available in Docker mode".to_string(),

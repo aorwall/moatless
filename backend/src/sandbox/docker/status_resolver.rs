@@ -52,6 +52,8 @@ impl DockerStatusResolver {
                 sandbox_ready: true,
                 can_execute: true,
                 resources: None,
+                container_diagnostics: None,
+                runtime_events: None,
             };
         }
 
@@ -72,6 +74,8 @@ impl DockerStatusResolver {
             sandbox_ready: false,
             can_execute,
             resources: None,
+            container_diagnostics: None,
+            runtime_events: None,
         }
     }
 

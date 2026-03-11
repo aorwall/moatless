@@ -2946,6 +2946,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "moatless-integration-tests"
+version = "0.0.0"
+dependencies = [
+ "futures-util",
+ "moatless-api-client",
+ "moatless-cli",
+ "pretty_assertions",
+ "progenitor-client",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "moatless-sandbox"
 version = "0.1.0"
 dependencies = [

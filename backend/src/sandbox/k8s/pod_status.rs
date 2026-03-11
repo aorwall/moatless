@@ -152,11 +152,29 @@ pub fn pick_best_pod(pods: &[Pod]) -> Option<&Pod> {
 /// Default readiness grace period for pod watcher (no per-server config available).
 pub const DEFAULT_SERVER_READINESS_TIMEOUT_SECS: u32 = 120;
 
+/// Extract observed statuses for **all** containers in a K8s Pod.
+///
+/// Unlike [`extract_container_observed_statuses`], this includes the `sandbox`
+/// container. Used for diagnostics/troubleshooting.
+pub fn extract_all_container_statuses(pod: &Pod) -> Vec<ContainerObservedStatus> {
+    extract_container_statuses_filtered(pod, false)
+}
+
 /// Extract container observed statuses from a K8s Pod.
 ///
 /// Excludes the `sandbox` container — this is used for monitoring *server*
 /// containers only (files-server, preview-server, etc.).
 pub fn extract_container_observed_statuses(pod: &Pod) -> Vec<ContainerObservedStatus> {
+    extract_container_statuses_filtered(pod, true)
+}
+
+/// Shared implementation for container status extraction.
+///
+/// When `exclude_sandbox` is `true`, the `sandbox` container is filtered out.
+fn extract_container_statuses_filtered(
+    pod: &Pod,
+    exclude_sandbox: bool,
+) -> Vec<ContainerObservedStatus> {
     let container_statuses = match pod
         .status
         .as_ref()
@@ -168,7 +186,7 @@ pub fn extract_container_observed_statuses(pod: &Pod) -> Vec<ContainerObservedSt
 
     container_statuses
         .iter()
-        .filter(|cs| cs.name != "sandbox") // Exclude the main agent container
+        .filter(|cs| !exclude_sandbox || cs.name != "sandbox")
         .map(|cs| {
             let (state, waiting_reason) = match cs.state.as_ref() {
                 Some(s) if s.running.is_some() => (ContainerState::Running, None),

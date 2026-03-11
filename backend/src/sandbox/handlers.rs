@@ -3,12 +3,13 @@
 //! Extracted from routes.rs for consistency with other modules
 //! (task/, message/, agent/, etc.).
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::IntoResponse;
 use axum::Json;
 use futures::stream::Stream;
+use serde::Deserialize;
 use tracing::{error, info, warn};
 
 use super::error::SandboxError;
@@ -227,9 +228,18 @@ pub async fn server_status_handler(
     Json(ServerStatusResponse { servers }).into_response()
 }
 
+/// Query parameters for the server logs endpoint.
+#[derive(Debug, Deserialize)]
+pub struct LogsQuery {
+    /// Fetch logs from the previous container instance (useful for crashed containers).
+    #[serde(default)]
+    pub previous: bool,
+}
+
 /// Stream server logs via SSE.
 ///
 /// Returns a Server-Sent Events stream of log lines for the given server.
+/// Pass `?previous=true` to fetch logs from a crashed/restarted container.
 /// The response body cannot be represented in OpenAPI (SSE streaming).
 #[utoipa::path(
     get,
@@ -237,7 +247,8 @@ pub async fn server_status_handler(
     tag = "sandbox",
     params(
         ("task_id" = String, Path, description = "Task identifier"),
-        ("server_name" = String, Path, description = "Server name")
+        ("server_name" = String, Path, description = "Server name"),
+        ("previous" = bool, Query, description = "Fetch logs from previous container instance")
     ),
     responses(
         (status = 200, description = "SSE stream of server log lines"),
@@ -247,10 +258,11 @@ pub async fn server_status_handler(
 pub async fn server_logs_handler(
     State(state): State<SandboxApiState>,
     Path((task_id, server_name)): Path<(String, String)>,
+    Query(query): Query<LogsQuery>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, SandboxError>>>, SandboxError> {
     let stream = state
         .provider
-        .server_logs(&task_id, &server_name)
+        .server_logs(&task_id, &server_name, query.previous)
         .await?;
     Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
 }

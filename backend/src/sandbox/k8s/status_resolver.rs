@@ -85,6 +85,9 @@ impl StatusResolver {
             // Query actual agent status from the sandbox pod via gRPC
             let agent_state = self.fetch_agent_state(task_id).await;
 
+            // Fetch all container statuses for diagnostics
+            let container_diagnostics = self.fetch_container_diagnostics(task_id).await;
+
             return SandboxStatusFullResponse {
                 sandbox_state: SandboxState::Exists,
                 environment_status,
@@ -94,6 +97,8 @@ impl StatusResolver {
                 sandbox_ready: true,
                 can_execute: true,
                 resources: None,
+                container_diagnostics,
+                runtime_events: None,
             };
         }
 
@@ -158,6 +163,25 @@ impl StatusResolver {
                 .collect()
         };
 
+        // Fetch diagnostics for non-running pods with issues
+        let fetch_diagnostics = matches!(
+            phase,
+            PodPhase::Pending | PodPhase::Failed | PodPhase::Unknown
+        );
+        let container_diagnostics = if fetch_diagnostics {
+            self.fetch_container_diagnostics(task_id).await
+        } else {
+            None
+        };
+
+        // Fetch runtime events for error/initializing states
+        let runtime_events = if fetch_diagnostics {
+            let events = pod_reader::fetch_pod_runtime_events(&self.k8s, task_id).await;
+            if events.is_empty() { None } else { Some(events) }
+        } else {
+            None
+        };
+
         SandboxStatusFullResponse {
             sandbox_state,
             environment_status,
@@ -167,6 +191,8 @@ impl StatusResolver {
             sandbox_ready: false,
             can_execute,
             resources: None,
+            container_diagnostics,
+            runtime_events,
         }
     }
 
@@ -199,6 +225,37 @@ impl StatusResolver {
                 AgentState::None
             }
         }
+    }
+
+    /// Fetch container diagnostics for all containers in the pod.
+    async fn fetch_container_diagnostics(
+        &self,
+        task_id: &str,
+    ) -> Option<Vec<ContainerDiagnostics>> {
+        let all_statuses = pod_reader::fetch_all_container_statuses(&self.k8s, task_id).await;
+        if all_statuses.is_empty() {
+            return None;
+        }
+        Some(
+            all_statuses
+                .into_iter()
+                .map(|cs| ContainerDiagnostics {
+                    name: cs.name,
+                    state: match cs.state {
+                        ContainerState::Running => "running".to_string(),
+                        ContainerState::Waiting => "waiting".to_string(),
+                        ContainerState::Terminated => "terminated".to_string(),
+                        ContainerState::Unknown => "unknown".to_string(),
+                    },
+                    restart_count: cs.restart_count,
+                    exit_code: cs.exit_code,
+                    terminated_reason: cs.terminated_reason,
+                    last_exit_code: cs.last_exit_code,
+                    last_terminated_reason: cs.last_terminated_reason,
+                    waiting_reason: cs.waiting_reason,
+                })
+                .collect(),
+        )
     }
 
     /// Resolve the effective pod phase and any permanent error, checking

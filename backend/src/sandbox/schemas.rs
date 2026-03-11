@@ -32,6 +32,48 @@ pub struct ServerEntry {
     pub capabilities: ServerCapabilities,
 }
 
+/// A provider-agnostic runtime event associated with a sandbox.
+///
+/// In K8s mode, these are sourced from K8s Event objects (FailedScheduling,
+/// BackOff, Pulling, etc.). Docker mode can populate from `docker events`.
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeEvent {
+    /// Event reason (e.g. "BackOff", "FailedScheduling", "Pulling", "OOMKilled")
+    pub reason: String,
+    /// Human-readable message
+    pub message: String,
+    /// Severity: "normal" or "warning"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub severity: Option<String>,
+    /// Number of times this event has occurred
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub count: Option<i32>,
+    /// Last time the event occurred (ISO 8601)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_timestamp: Option<String>,
+}
+
+/// Container-level diagnostics for troubleshooting sandbox issues.
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ContainerDiagnostics {
+    pub name: String,
+    /// Container state: "running", "waiting", "terminated", "unknown"
+    pub state: String,
+    pub restart_count: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub terminated_reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_exit_code: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_terminated_reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub waiting_reason: Option<String>,
+}
+
 /// Full sandbox status response to frontend (matches TS SandboxStatusFullResponse)
 #[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -45,6 +87,10 @@ pub struct SandboxStatusFullResponse {
     pub can_execute: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resources: Option<ResourceMetrics>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub container_diagnostics: Option<Vec<ContainerDiagnostics>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime_events: Option<Vec<RuntimeEvent>>,
 }
 
 /// Request body for file search in sandbox.

@@ -243,14 +243,20 @@ impl SandboxProvider for K8sSandboxProvider {
         &self,
         task_id: &str,
         server_name: &str,
+        previous: bool,
     ) -> Result<BoxStream<'static, Result<Event, SandboxError>>, SandboxError> {
-        let container_name = format!("{server_name}-server");
+        let container_name = if server_name == "sandbox" {
+            "sandbox".to_string()
+        } else {
+            format!("{server_name}-server")
+        };
 
         match pod_reader::stream_container_logs_k8s(
             &self.k8s,
             task_id,
             &container_name,
             500,
+            previous,
         )
         .await
         {

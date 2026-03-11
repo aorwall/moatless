@@ -58,10 +58,14 @@ pub trait SandboxProvider: Send + Sync {
     ) -> Result<Vec<ContainerObservedStatus>, SandboxError>;
 
     /// Stream server logs via SSE (proxied from sandbox pod).
+    ///
+    /// When `previous` is `true`, fetches logs from the previous container
+    /// instance (useful for crashed containers).
     async fn server_logs(
         &self,
         task_id: &str,
         server_name: &str,
+        previous: bool,
     ) -> Result<BoxStream<'static, Result<Event, SandboxError>>, SandboxError>;
 
     /// Get a ready gRPC client for the sandbox identified by `task_id`.

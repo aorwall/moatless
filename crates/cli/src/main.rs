@@ -1,16 +1,14 @@
 #![allow(clippy::print_stdout, clippy::print_stderr)]
 //! `moat` — Sandbox CLI for the Moatless backend API.
 
-mod auth;
-mod client;
-mod commands;
-mod config;
-pub mod credentials;
-mod output;
-
 use clap::{Parser, Subcommand};
 
-use crate::client::map_api_error;
+use moatless_cli::auth;
+use moatless_cli::client::{map_api_error, MoatClient};
+use moatless_cli::commands;
+use moatless_cli::config::Config;
+use moatless_cli::credentials;
+use moatless_cli::output;
 
 #[derive(Parser)]
 #[command(name = "moat", about = "Moatless sandbox CLI")]
@@ -85,8 +83,8 @@ async fn main() {
 }
 
 async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
-    let cfg = config::Config::from_env();
-    let mut moat = client::MoatClient::new(&cfg, cli.verbose);
+    let cfg = Config::from_env();
+    let mut moat = MoatClient::new(&cfg, cli.verbose);
 
     // For commands that require auth (everything except Login, Logout, Status)
     let needs_auth = !matches!(

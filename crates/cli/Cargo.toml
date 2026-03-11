@@ -4,6 +4,10 @@ name = "moatless-cli"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "moatless_cli"
+path = "src/lib.rs"
+
 [[bin]]
 name = "moat"
 path = "src/main.rs"
