@@ -314,7 +314,7 @@ pub async fn fetch_container_resource_usage(
     let response: PodMetrics = match k8s.client.request(request).await {
         Ok(resp) => resp,
         Err(e) => {
-            debug!(task_id, error = %e, "Failed to fetch pod metrics (metrics-server may not be installed)");
+            warn!(task_id, error = %e, "Failed to fetch pod metrics (metrics-server may not be installed)");
             return HashMap::new();
         }
     };
