@@ -1,109 +1,12 @@
 //! Repository request/response types.
+//!
+//! Re-exported from the `moatless-api-schemas` crate.
 
-use std::collections::HashMap;
+pub use moatless_api_schemas::repository::*;
 
-use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
-
-use super::models::{Repository, RepositoryKind, RepositoryProvider, ResourceConfig};
-use crate::sandbox::models::ServerConfig;
+use super::models::Repository;
 use crate::scope::Scope;
-use crate::task::models::Visibility;
-
-#[derive(Debug, Deserialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct CreateRepositoryRequest {
-    pub name: String,
-    pub kind: RepositoryKind,
-    pub remote_url: Option<String>,
-    pub default_branch: Option<String>,
-    pub docker_image: Option<String>,
-    pub system_prompt: Option<String>,
-    pub description: Option<String>,
-    pub provider: Option<RepositoryProvider>,
-    pub visibility: Option<Visibility>,
-    pub scope: Option<Scope>,
-    pub team_id: Option<String>,
-    pub servers: Option<Vec<ServerConfig>>,
-    pub plugins: Option<Vec<String>>,
-    pub env_vars: Option<HashMap<String, String>>,
-    pub setup_commands: Option<Vec<String>>,
-    pub server_start_commands: Option<Vec<String>>,
-    pub startup_timeout_seconds: Option<i32>,
-    pub build_command: Option<String>,
-    pub build_output_directory: Option<String>,
-    pub enable_inspector: Option<bool>,
-    pub auto_reload: Option<bool>,
-    pub resources: Option<ResourceConfig>,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct UpdateRepositoryRequest {
-    pub name: Option<String>,
-    pub remote_url: Option<String>,
-    pub default_branch: Option<String>,
-    pub docker_image: Option<String>,
-    pub system_prompt: Option<String>,
-    pub description: Option<String>,
-    pub visibility: Option<Visibility>,
-    pub servers: Option<Vec<ServerConfig>>,
-    pub plugins: Option<Vec<String>>,
-    pub env_vars: Option<HashMap<String, String>>,
-    pub setup_commands: Option<Vec<String>>,
-    pub server_start_commands: Option<Vec<String>>,
-    pub startup_timeout_seconds: Option<i32>,
-    pub build_command: Option<String>,
-    pub build_output_directory: Option<String>,
-    pub enable_inspector: Option<bool>,
-    pub auto_reload: Option<bool>,
-    pub resources: Option<ResourceConfig>,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct RepositoryResponse {
-    pub id: String,
-    pub name: String,
-    pub kind: RepositoryKind,
-    pub remote_url: Option<String>,
-    pub default_branch: Option<String>,
-    pub docker_image: Option<String>,
-    pub system_prompt: Option<String>,
-    pub description: Option<String>,
-    pub provider: Option<RepositoryProvider>,
-    pub visibility: Visibility,
-    pub scope: Scope,
-    pub team_id: Option<String>,
-    pub servers: Option<Vec<ServerConfig>>,
-    pub plugins: Option<Vec<String>>,
-    pub env_vars: Option<HashMap<String, String>>,
-    pub setup_commands: Option<Vec<String>>,
-    pub server_start_commands: Option<Vec<String>>,
-    pub startup_timeout_seconds: Option<i32>,
-    pub build_command: Option<String>,
-    pub build_output_directory: Option<String>,
-    pub enable_inspector: Option<bool>,
-    pub auto_reload: Option<bool>,
-    pub resources: Option<ResourceConfig>,
-    pub created_by: Option<String>,
-    pub created_at: Option<String>,
-    pub updated_at: Option<String>,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct BranchListResponse {
-    pub branches: Vec<BranchEntry>,
-    pub default_branch: Option<String>,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct BranchEntry {
-    pub name: String,
-    pub is_default: bool,
-}
+use moatless_api_schemas::enums::Visibility;
 
 impl From<Repository> for RepositoryResponse {
     fn from(r: Repository) -> Self {

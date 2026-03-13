@@ -4,7 +4,7 @@
 //! Spec IDs: REPO-01 through REPO-07
 
 use integration_tests::{create_repo_request, test_client};
-use moatless_api_client::types::{RepositoryKind, UpdateRepositoryRequest};
+use moatless_api_schemas::{enums::RepositoryKind, repository::UpdateRepositoryRequest};
 use pretty_assertions::assert_eq;
 
 // =============================================================================
@@ -20,7 +20,7 @@ async fn repo_crud_chain() {
     req.remote_url = Some("https://github.com/aorwall/hello-world-ui.git".into());
     req.description = Some("Created by API integration test".into());
 
-    let created = client.create_repository(&req).await.unwrap().into_inner();
+    let created = client.api().create_repository(&req).await.unwrap();
     assert!(!created.id.is_empty());
     assert_eq!(created.name, "E2E Test Repository");
     assert_eq!(created.kind, RepositoryKind::Template);
@@ -28,11 +28,11 @@ async fn repo_crud_chain() {
     let repo_id = created.id;
 
     // REPO-01.1: Repository appears in listing
-    let repos = client.list_repositories().await.unwrap().into_inner();
+    let repos = client.api().list_repositories().await.unwrap();
     assert!(repos.iter().any(|r| r.id == repo_id));
 
     // REPO-02: Get repository by ID
-    let got = client.get_repository(&repo_id).await.unwrap().into_inner();
+    let got = client.api().get_repository(&repo_id).await.unwrap();
     assert_eq!(got.id, repo_id);
     assert_eq!(got.name, "E2E Test Repository");
     assert_eq!(got.kind, RepositoryKind::Template);
@@ -45,10 +45,10 @@ async fn repo_crud_chain() {
         ..Default::default()
     };
     let updated = client
+        .api()
         .update_repository(&repo_id, &update)
         .await
-        .unwrap()
-        .into_inner();
+        .unwrap();
     assert_eq!(updated.name, "Updated E2E Repository");
     assert_eq!(
         updated.description.as_deref(),
@@ -56,21 +56,21 @@ async fn repo_crud_chain() {
     );
 
     // Confirm via GET
-    let fetched = client.get_repository(&repo_id).await.unwrap().into_inner();
+    let fetched = client.api().get_repository(&repo_id).await.unwrap();
     assert_eq!(fetched.name, "Updated E2E Repository");
 
     // REPO-04: List repositories
-    let repos = client.list_repositories().await.unwrap().into_inner();
+    let repos = client.api().list_repositories().await.unwrap();
     assert!(!repos.is_empty());
     let found = repos.iter().find(|r| r.id == repo_id);
     assert!(found.is_some());
     assert_eq!(found.unwrap().name, "Updated E2E Repository");
 
     // REPO-05: Delete repository
-    client.delete_repository(&repo_id).await.unwrap();
+    client.api().delete_repository(&repo_id).await.unwrap();
 
     // REPO-05.1: Repository removed from listing
-    let repos = client.list_repositories().await.unwrap().into_inner();
+    let repos = client.api().list_repositories().await.unwrap();
     assert!(!repos.iter().any(|r| r.id == repo_id));
 }
 
@@ -103,12 +103,12 @@ async fn repo_create_missing_fields() {
 async fn repo_get_nonexistent() {
     let client = test_client();
     let fake_id = uuid::Uuid::new_v4().to_string();
-    let err = client.get_repository(&fake_id).await.unwrap_err();
+    let err = client.api().get_repository(&fake_id).await.unwrap_err();
 
     match &err {
-        progenitor_client::Error::ErrorResponse(resp) => {
-            assert_eq!(resp.status(), 404);
+        moatless_api_client::ApiError::Api { status, .. } => {
+            assert_eq!(*status, 404);
         }
-        other => panic!("expected ErrorResponse, got {other:?}"),
+        other => panic!("expected Api error, got {other:?}"),
     }
 }

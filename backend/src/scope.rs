@@ -1,73 +1,9 @@
 //! Access control scope types.
 //!
-//! Defines the 3-level scope model (Global / Team / User) and the
-//! `ScopeContext` used to filter queries by access level.
+//! The `Scope` enum is re-exported from `moatless-api-schemas`.
+//! `ScopeContext` is backend-only (used for query filtering).
 
-use serde::{Deserialize, Serialize};
-
-/// 3-level scope for repositories, tasks, channels, and credentials.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum Scope {
-    /// Visible to all authenticated users.
-    Global,
-    /// Visible to team members.
-    Team,
-    /// Visible only to the creator.
-    User,
-}
-
-impl Scope {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Global => "global",
-            Self::Team => "team",
-            Self::User => "user",
-        }
-    }
-}
-
-impl std::fmt::Display for Scope {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-impl TryFrom<&str> for Scope {
-    type Error = String;
-    fn try_from(s: &str) -> Result<Self, String> {
-        match s {
-            "global" => Ok(Self::Global),
-            "team" => Ok(Self::Team),
-            "user" => Ok(Self::User),
-            other => Err(format!("unknown Scope: {other:?}")),
-        }
-    }
-}
-
-impl sqlx::Type<sqlx::Postgres> for Scope {
-    fn type_info() -> sqlx::postgres::PgTypeInfo {
-        <String as sqlx::Type<sqlx::Postgres>>::type_info()
-    }
-}
-
-impl<'r> sqlx::Decode<'r, sqlx::Postgres> for Scope {
-    fn decode(
-        value: sqlx::postgres::PgValueRef<'r>,
-    ) -> Result<Self, sqlx::error::BoxDynError> {
-        let s = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
-        Scope::try_from(s.as_str()).map_err(Into::into)
-    }
-}
-
-impl sqlx::Encode<'_, sqlx::Postgres> for Scope {
-    fn encode_by_ref(
-        &self,
-        buf: &mut sqlx::postgres::PgArgumentBuffer,
-    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
-        <&str as sqlx::Encode<sqlx::Postgres>>::encode_by_ref(&self.as_str(), buf)
-    }
-}
+pub use moatless_api_schemas::enums::Scope;
 
 /// Access context derived from the authenticated user.
 ///

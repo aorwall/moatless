@@ -8,7 +8,7 @@
 use std::time::Duration;
 
 use integration_tests::{ensure_template_repo, sandbox_helpers, test_client};
-use moatless_api_client::types::{CreateTaskRequest, SandboxStatus, WriteFileRequestBody};
+use moatless_api_schemas::{task::CreateTaskRequest, sandbox::WriteFileRequestBody};
 use moatless_cli::events::EventCollector;
 
 // =============================================================================
@@ -45,7 +45,7 @@ async fn sandbox_lifecycle_chain() {
         file_ids: vec![],
         model: None,
     };
-    let created = client.create_task(&req).await.unwrap().into_inner();
+    let created = client.api().create_task(&req).await.unwrap();
     let task_id = &created.task_id;
 
     // SANDBOX-01: Wait for sandbox ready
@@ -55,13 +55,13 @@ async fn sandbox_lifecycle_chain() {
     );
 
     let status = client
-        .sandbox_status_handler(task_id)
+        .api()
+        .sandbox_status(task_id)
         .await
-        .unwrap()
-        .into_inner();
+        .unwrap();
     assert_eq!(
         status.environment_status,
-        SandboxStatus::Ready,
+        "ready",
         "environment_status should be ready"
     );
 
@@ -77,25 +77,26 @@ async fn sandbox_lifecycle_chain() {
         content: "sandbox lifecycle test".into(),
     };
     client
-        .write_file_handler(task_id, &write_req)
+        .api()
+        .write_file(task_id, &write_req)
         .await
         .unwrap();
 
     // SANDBOX-02: Provision again — should be idempotent (still ready)
     let provision_resp = client
-        .provision_handler(task_id)
+        .api()
+        .provision_sandbox(task_id)
         .await
-        .unwrap()
-        .into_inner();
+        .unwrap();
     // Verify still ready after provision
     let status = client
-        .sandbox_status_handler(task_id)
+        .api()
+        .sandbox_status(task_id)
         .await
-        .unwrap()
-        .into_inner();
+        .unwrap();
     assert_eq!(
         status.environment_status,
-        SandboxStatus::Ready,
+        "ready",
         "Should still be ready after re-provision"
     );
     println!(
@@ -104,12 +105,12 @@ async fn sandbox_lifecycle_chain() {
     );
 
     // SANDBOX-03: Stop sandbox
-    client.stop_handler(task_id).await.unwrap();
+    client.api().stop_sandbox(task_id).await.unwrap();
     assert!(
         sandbox_helpers::wait_for_sandbox_status(
             &client,
             task_id,
-            SandboxStatus::Stopped,
+            "stopped",
             Duration::from_secs(60)
         )
         .await,
@@ -117,7 +118,7 @@ async fn sandbox_lifecycle_chain() {
     );
 
     // SANDBOX-03.2: Start task — should re-provision and become ready
-    client.start_task(task_id).await.unwrap();
+    client.api().start_task(task_id).await.unwrap();
     assert!(
         sandbox_helpers::wait_for_sandbox_ready(&client, task_id, Duration::from_secs(120)).await,
         "Sandbox did not become ready after start"
@@ -125,17 +126,17 @@ async fn sandbox_lifecycle_chain() {
 
     // Verify files persist after restart
     let readback = client
-        .read_file_handler(task_id, None, "lifecycle-marker.txt")
+        .api()
+        .read_file(task_id, "lifecycle-marker.txt")
         .await
-        .unwrap()
-        .into_inner();
+        .unwrap();
     assert_eq!(
         readback.content, "sandbox lifecycle test",
         "Marker file should persist across stop/start"
     );
 
     // SANDBOX-04: Restart sandbox
-    client.restart_handler(task_id).await.unwrap();
+    client.api().restart_sandbox(task_id).await.unwrap();
     assert!(
         sandbox_helpers::wait_for_sandbox_ready(&client, task_id, Duration::from_secs(120)).await,
         "Sandbox did not become ready after restart"
@@ -143,22 +144,22 @@ async fn sandbox_lifecycle_chain() {
 
     // Verify files persist after restart
     let readback = client
-        .read_file_handler(task_id, None, "lifecycle-marker.txt")
+        .api()
+        .read_file(task_id, "lifecycle-marker.txt")
         .await
-        .unwrap()
-        .into_inner();
+        .unwrap();
     assert_eq!(
         readback.content, "sandbox lifecycle test",
         "Marker file should persist across restart"
     );
 
     // SANDBOX-05: Cleanup sandbox
-    client.cleanup_handler(task_id).await.unwrap();
+    client.api().cleanup_sandbox(task_id).await.unwrap();
     assert!(
         sandbox_helpers::wait_for_sandbox_status(
             &client,
             task_id,
-            SandboxStatus::NotCreated,
+            "not_created",
             Duration::from_secs(60)
         )
         .await,
@@ -169,5 +170,5 @@ async fn sandbox_lifecycle_chain() {
     collector.stop();
 
     // Cleanup task
-    let _ = client.delete_task(task_id).await;
+    let _ = client.api().delete_task(task_id).await;
 }

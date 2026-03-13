@@ -2,13 +2,13 @@
 //!
 //! Client construction is delegated to [`moatless_cli::client::MoatClient`] —
 //! the same client the CLI uses — so tests exercise the real client code path.
-//! Helpers return `moatless_api_client::Client` (via `MoatClient::api()`) for
-//! ergonomic use of typed API methods in tests.
 
 pub mod callback_server;
 pub mod raw_api;
 pub mod sandbox_helpers;
 
+use moatless_api_schemas::enums::RepositoryKind;
+use moatless_api_schemas::repository::CreateRepositoryRequest;
 use moatless_cli::client::MoatClient;
 
 /// Create a test client with no auth headers.
@@ -62,11 +62,8 @@ pub async fn seed_test_users() {
 }
 
 /// Create a `CreateRepositoryRequest` with only the commonly-used fields set.
-pub fn create_repo_request(
-    name: &str,
-    kind: moatless_api_client::types::RepositoryKind,
-) -> moatless_api_client::types::CreateRepositoryRequest {
-    moatless_api_client::types::CreateRepositoryRequest {
+pub fn create_repo_request(name: &str, kind: RepositoryKind) -> CreateRepositoryRequest {
+    CreateRepositoryRequest {
         name: name.into(),
         kind,
         remote_url: None,
@@ -94,22 +91,11 @@ pub fn create_repo_request(
 
 /// Ensure a template repository exists for tests that need one. Returns the repository ID.
 pub async fn ensure_template_repo(client: &MoatClient) -> String {
-    let repos = client.api().list_repositories().await.unwrap().into_inner();
-    if let Some(repo) = repos.iter().find(|r| {
-        r.kind == moatless_api_client::types::RepositoryKind::Template
-    }) {
+    let repos = client.api().list_repositories().await.unwrap();
+    if let Some(repo) = repos.iter().find(|r| r.kind == RepositoryKind::Template) {
         return repo.id.clone();
     }
-    let mut req = create_repo_request(
-        "E2E Template Repository",
-        moatless_api_client::types::RepositoryKind::Template,
-    );
+    let mut req = create_repo_request("E2E Template Repository", RepositoryKind::Template);
     req.remote_url = Some("https://github.com/aorwall/hello-world-ui.git".into());
-    client
-        .api()
-        .create_repository(&req)
-        .await
-        .unwrap()
-        .into_inner()
-        .id
+    client.api().create_repository(&req).await.unwrap().id
 }

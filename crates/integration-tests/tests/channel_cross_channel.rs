@@ -4,7 +4,8 @@
 //! Spec IDs: CHAN-40 through CHAN-42
 
 use integration_tests::{ensure_template_repo, raw_api, test_client};
-use moatless_api_client::types::{ChannelType, CreateChannelConfigRequest, RoutingMode};
+use moatless_api_schemas::channel::CreateChannelConfigRequest;
+use moatless_api_schemas::enums::{ChannelType, RoutingMode};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
@@ -41,10 +42,10 @@ async fn cross_channel_response_routing() {
         team_id: None,
     };
     let trigger = client
-        .create_config(&trigger_req)
+        .api()
+        .create_channel_config(&trigger_req)
         .await
-        .unwrap()
-        .into_inner();
+        .unwrap();
     assert!(!trigger.id.is_empty());
 
     // Create response webhook config
@@ -61,10 +62,10 @@ async fn cross_channel_response_routing() {
         team_id: None,
     };
     let response_config = client
-        .create_config(&response_req)
+        .api()
+        .create_channel_config(&response_req)
         .await
-        .unwrap()
-        .into_inner();
+        .unwrap();
     assert!(!response_config.id.is_empty());
 
     // CHAN-41: Link response_config_id on trigger via PUT
@@ -93,7 +94,7 @@ async fn cross_channel_response_routing() {
     );
 
     // CHAN-42: GET trigger config, assert response_config_id persisted
-    let fetched = client.get_config(&trigger.id).await.unwrap().into_inner();
+    let fetched = client.api().get_channel_config(&trigger.id).await.unwrap();
     assert_eq!(
         fetched.response_config_id.as_deref(),
         Some(response_config.id.as_str()),
@@ -101,6 +102,6 @@ async fn cross_channel_response_routing() {
     );
 
     // Cleanup
-    let _ = client.delete_config(&trigger.id).await;
-    let _ = client.delete_config(&response_config.id).await;
+    let _ = client.api().delete_channel_config(&trigger.id).await;
+    let _ = client.api().delete_channel_config(&response_config.id).await;
 }

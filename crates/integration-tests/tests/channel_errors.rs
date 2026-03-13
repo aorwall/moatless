@@ -4,9 +4,9 @@
 //! Spec IDs: CHAN-50 through CHAN-54
 
 use integration_tests::{ensure_template_repo, raw_api, test_client};
-use moatless_api_client::types::{
-    ChannelType, CreateChannelConfigRequest, RoutingMode, UpdateChannelConfigRequest,
-};
+use moatless_api_schemas::channel::{CreateChannelConfigRequest, UpdateChannelConfigRequest};
+use moatless_api_schemas::enums::{ChannelType, RoutingMode};
+use moatless_cli::client::MoatClient;
 use pretty_assertions::assert_eq;
 
 fn timestamp_suffix() -> String {
@@ -19,7 +19,7 @@ fn timestamp_suffix() -> String {
 
 /// Create a webhook config helper.
 async fn create_webhook_config(
-    client: &moatless_api_client::Client,
+    client: &MoatClient,
     repo_id: &str,
     source_id: &str,
     provider_config: Option<serde_json::Map<String, serde_json::Value>>,
@@ -37,10 +37,10 @@ async fn create_webhook_config(
         team_id: None,
     };
     client
-        .create_config(&req)
+        .api()
+        .create_channel_config(&req)
         .await
         .unwrap()
-        .into_inner()
         .id
 }
 
@@ -73,7 +73,7 @@ async fn webhook_inactive_config() {
         active: Some(false),
         ..Default::default()
     };
-    client.update_config(&config_id, &update).await.unwrap();
+    client.api().update_channel_config(&config_id, &update).await.unwrap();
 
     // Send message — should be accepted but ignored
     let resp = raw_api::send_webhook_message(
@@ -85,7 +85,7 @@ async fn webhook_inactive_config() {
     assert_eq!(resp.status().as_u16(), 200);
 
     // Cleanup
-    let _ = client.delete_config(&config_id).await;
+    let _ = client.api().delete_channel_config(&config_id).await;
 }
 
 // CHAN-52: Webhook with invalid signature is rejected
@@ -121,7 +121,7 @@ async fn webhook_invalid_signature() {
     assert_eq!(resp.status().as_u16(), 401);
 
     // Cleanup
-    let _ = client.delete_config(&config_id).await;
+    let _ = client.api().delete_channel_config(&config_id).await;
 }
 
 // CHAN-53: Create config with non-existent repository returns error
@@ -142,12 +142,12 @@ async fn channel_create_nonexistent_repo() {
         scope: None,
         team_id: None,
     };
-    let err = client.create_config(&req).await.unwrap_err();
+    let err = client.api().create_channel_config(&req).await.unwrap_err();
     match &err {
-        progenitor_client::Error::ErrorResponse(resp) => {
-            assert_eq!(resp.status().as_u16(), 400);
+        moatless_api_client::ApiError::Api { status, .. } => {
+            assert_eq!(*status, 400);
         }
-        other => panic!("expected ErrorResponse, got {other:?}"),
+        other => panic!("expected Api error, got {other:?}"),
     }
 }
 
@@ -172,5 +172,5 @@ async fn webhook_missing_text() {
     assert_eq!(resp.status().as_u16(), 400);
 
     // Cleanup
-    let _ = client.delete_config(&config_id).await;
+    let _ = client.api().delete_channel_config(&config_id).await;
 }

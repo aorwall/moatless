@@ -1,12 +1,5 @@
 //! Tag response types.
+//!
+//! Re-exported from the `moatless-api-schemas` crate.
 
-use serde::Serialize;
-use utoipa::ToSchema;
-
-#[derive(Debug, Serialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct TagResponse {
-    pub tag_id: String,
-    pub name: String,
-    pub description: Option<String>,
-}
+pub use moatless_api_schemas::tag::*;

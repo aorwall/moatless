@@ -1,11 +1,10 @@
 //! Channel commands: list, create, defaults.
 
 use clap::Subcommand;
-use moatless_api_client::types::{
-    ChannelConfigResponse, ChannelType, CreateChannelConfigRequest, RoutingMode,
-};
+use moatless_api_schemas::channel::{ChannelConfigResponse, CreateChannelConfigRequest};
+use moatless_api_schemas::enums::{ChannelType, RoutingMode};
 
-use crate::client::{map_api_error, ClientError, MoatClient};
+use crate::client::{ClientError, MoatClient};
 use crate::output;
 
 #[derive(Subcommand)]
@@ -64,12 +63,7 @@ pub async fn run(
 ) -> Result<(), ClientError> {
     match action {
         ChannelAction::List => {
-            let resp = client
-                .api()
-                .list_configs(None, None)
-                .await
-                .map_err(map_api_error)?;
-            let configs = resp.into_inner();
+            let configs = client.api().list_channel_configs(None, None).await?;
             if json {
                 output::print_json_typed(&configs);
             } else {
@@ -83,7 +77,8 @@ pub async fn run(
             mode,
             provider_config,
         } => {
-            let parsed_config = parse_provider_config(provider_config.as_deref())?;
+            let parsed_config = parse_provider_config(provider_config.as_deref())?
+                .map(serde_json::Value::Object);
 
             let req = CreateChannelConfigRequest {
                 provider: parse_channel_type(&provider),
@@ -97,12 +92,7 @@ pub async fn run(
                 source_name: None,
                 team_id: None,
             };
-            let resp = client
-                .api()
-                .create_config(&req)
-                .await
-                .map_err(map_api_error)?;
-            let created = resp.into_inner();
+            let created = client.api().create_channel_config(&req).await?;
             if json {
                 output::print_json_typed(&created);
             } else {

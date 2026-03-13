@@ -4,9 +4,9 @@
 //! Spec IDs: CHAN-10 through CHAN-33
 
 use integration_tests::{ensure_template_repo, raw_api, test_client};
-use moatless_api_client::types::{
-    ChannelType, CreateChannelConfigRequest, RoutingMode, TaskStatus,
-};
+use moatless_api_schemas::channel::CreateChannelConfigRequest;
+use moatless_api_schemas::enums::{ChannelType, RoutingMode, TaskStatus};
+use moatless_cli::client::MoatClient;
 use pretty_assertions::assert_eq;
 
 fn timestamp_suffix() -> String {
@@ -36,10 +36,10 @@ async fn send_webhook(
 }
 
 /// Helper to clean up tasks
-async fn cleanup_tasks(client: &moatless_api_client::Client, task_ids: &[String]) {
+async fn cleanup_tasks(client: &MoatClient, task_ids: &[String]) {
     for id in task_ids {
-        let _ = client.stop_task(id).await;
-        let _ = client.delete_task(id).await;
+        let _ = client.api().stop_task(id).await;
+        let _ = client.api().delete_task(id).await;
     }
 }
 
@@ -68,7 +68,7 @@ async fn channel_per_message_routing() {
         scope: None,
         team_id: None,
     };
-    let config = client.create_config(&req).await.unwrap().into_inner();
+    let config = client.api().create_channel_config(&req).await.unwrap();
     assert!(config.active);
     assert_eq!(config.routing_mode, RoutingMode::PerMessage);
     let config_id = config.id;
@@ -82,10 +82,10 @@ async fn channel_per_message_routing() {
 
     // CHAN-11.1: Task is in open state
     let task = client
+        .api()
         .get_task(&first_task_id)
         .await
-        .unwrap()
-        .into_inner();
+        .unwrap();
     assert_eq!(task.status, TaskStatus::Open);
 
     // CHAN-11.2: Task linked to correct repository
@@ -114,7 +114,7 @@ async fn channel_per_message_routing() {
     task_ids.push(third_task_id);
 
     // Cleanup
-    let _ = client.delete_config(&config_id).await;
+    let _ = client.api().delete_channel_config(&config_id).await;
     cleanup_tasks(&client, &task_ids).await;
 }
 
@@ -143,7 +143,7 @@ async fn channel_ongoing_routing() {
         scope: None,
         team_id: None,
     };
-    let config = client.create_config(&req).await.unwrap().into_inner();
+    let config = client.api().create_channel_config(&req).await.unwrap();
     assert!(config.active);
     assert_eq!(config.routing_mode, RoutingMode::Ongoing);
     let config_id = config.id;
@@ -159,7 +159,7 @@ async fn channel_ongoing_routing() {
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
     // Check that config now has ongoing_task_id
-    let config = client.get_config(&config_id).await.unwrap().into_inner();
+    let config = client.api().get_channel_config(&config_id).await.unwrap();
     assert_eq!(
         config.ongoing_task_id.as_deref(),
         Some(ongoing_task_id.as_str())
@@ -172,7 +172,7 @@ async fn channel_ongoing_routing() {
     assert_eq!(task_id.as_deref(), Some(ongoing_task_id.as_str()));
 
     // CHAN-23: After task closed, next message creates new task
-    client.close_task(&ongoing_task_id).await.unwrap();
+    client.api().close_task(&ongoing_task_id).await.unwrap();
     let (status, task_id) =
         send_webhook(&http, &config_id, "Message after close", None).await;
     assert_eq!(status, 200);
@@ -184,11 +184,11 @@ async fn channel_ongoing_routing() {
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
     // Config should now point to the new task
-    let config = client.get_config(&config_id).await.unwrap().into_inner();
+    let config = client.api().get_channel_config(&config_id).await.unwrap();
     assert_eq!(config.ongoing_task_id.as_deref(), Some(new_task_id.as_str()));
 
     // Cleanup
-    let _ = client.delete_config(&config_id).await;
+    let _ = client.api().delete_channel_config(&config_id).await;
     cleanup_tasks(&client, &task_ids).await;
 }
 
@@ -217,7 +217,7 @@ async fn channel_thread_based_routing() {
         scope: None,
         team_id: None,
     };
-    let config = client.create_config(&req).await.unwrap().into_inner();
+    let config = client.api().create_channel_config(&req).await.unwrap();
     assert!(config.active);
     assert_eq!(config.routing_mode, RoutingMode::ThreadBased);
     let config_id = config.id;
@@ -261,6 +261,6 @@ async fn channel_thread_based_routing() {
     task_ids.push(second_task_id);
 
     // Cleanup
-    let _ = client.delete_config(&config_id).await;
+    let _ = client.api().delete_channel_config(&config_id).await;
     cleanup_tasks(&client, &task_ids).await;
 }

@@ -1,6 +1,7 @@
 //! Miscellaneous commands: commands list, tags list.
 
-use moatless_api_client::types::{CommandResponse, TagResponse};
+use moatless_api_schemas::command::CommandResponse;
+use moatless_api_schemas::tag::TagResponse;
 
 use crate::output;
 

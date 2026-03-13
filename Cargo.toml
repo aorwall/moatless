@@ -8,6 +8,7 @@ members = [
     "crates/sandbox-proto",
     "crates/cli",
     "crates/api-client",
+    "crates/api-schemas",
     "crates/integration-tests",
 ]
 resolver = "2"

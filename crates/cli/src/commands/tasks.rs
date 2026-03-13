@@ -4,11 +4,11 @@ use std::fmt::Write;
 
 use clap::Subcommand;
 use futures_util::StreamExt;
-use moatless_api_client::types::{
-    CreateTaskRequest, ListTasksResponse, SandboxStatusFullResponse, TaskResponse, TaskStatus,
-};
+use moatless_api_schemas::enums::TaskStatus;
+use moatless_api_schemas::sandbox::SandboxStatusFullResponse;
+use moatless_api_schemas::task::{CreateTaskRequest, ListTasksQuery, ListTasksResponse, TaskResponse};
 
-use crate::client::{map_api_error, ClientError, MoatClient};
+use crate::client::{ClientError, MoatClient};
 use crate::config::Config;
 use crate::output;
 
@@ -113,12 +113,16 @@ pub async fn run(
     match action {
         TaskAction::List { status, limit } => {
             let task_status = status.as_deref().and_then(parse_task_status);
-            let resp = client
-                .api()
-                .list_tasks(None, Some(limit), None, None, None, task_status, None)
-                .await
-                .map_err(map_api_error)?;
-            let list = resp.into_inner();
+            let query = ListTasksQuery {
+                limit: Some(limit),
+                offset: None,
+                status: task_status,
+                repository_id: None,
+                created_by: None,
+                tag: None,
+                parent_task_id: None,
+            };
+            let list = client.api().list_tasks(&query).await?;
             if json {
                 output::print_json_typed(&list);
             } else {
@@ -126,12 +130,7 @@ pub async fn run(
             }
         }
         TaskAction::Get { task_id } => {
-            let resp = client
-                .api()
-                .get_task(&task_id)
-                .await
-                .map_err(map_api_error)?;
-            let task = resp.into_inner();
+            let task = client.api().get_task(&task_id).await?;
             if json {
                 output::print_json_typed(&task);
             } else {
@@ -167,12 +166,7 @@ pub async fn run(
                 file_ids: Vec::new(),
                 model: None,
             };
-            let resp = client
-                .api()
-                .create_task(&req)
-                .await
-                .map_err(map_api_error)?;
-            let created = resp.into_inner();
+            let created = client.api().create_task(&req).await?;
             if json {
                 output::print_json_typed(&created);
             } else {
@@ -186,12 +180,16 @@ pub async fn run(
                     status: 400,
                     body: "No task_id provided and TASK_ID not set".to_string(),
                 })?;
-            let resp = client
-                .api()
-                .list_tasks(None, None, None, Some(&parent), None, None, None)
-                .await
-                .map_err(map_api_error)?;
-            let list = resp.into_inner();
+            let query = ListTasksQuery {
+                limit: None,
+                offset: None,
+                status: None,
+                repository_id: None,
+                created_by: None,
+                tag: None,
+                parent_task_id: Some(parent),
+            };
+            let list = client.api().list_tasks(&query).await?;
             if json {
                 output::print_json_typed(&list);
             } else {
@@ -199,36 +197,19 @@ pub async fn run(
             }
         }
         TaskAction::Start { task_id } => {
-            client
-                .api()
-                .start_task(&task_id)
-                .await
-                .map_err(map_api_error)?;
+            client.api().start_task(&task_id).await?;
             println!("Task {task_id} started.");
         }
         TaskAction::Stop { task_id } => {
-            client
-                .api()
-                .stop_task(&task_id)
-                .await
-                .map_err(map_api_error)?;
+            client.api().stop_task(&task_id).await?;
             println!("Task {task_id} stopped.");
         }
         TaskAction::Close { task_id } => {
-            client
-                .api()
-                .close_task(&task_id)
-                .await
-                .map_err(map_api_error)?;
+            client.api().close_task(&task_id).await?;
             println!("Task {task_id} closed.");
         }
         TaskAction::Status { task_id } => {
-            let resp = client
-                .api()
-                .sandbox_status_handler(&task_id)
-                .await
-                .map_err(map_api_error)?;
-            let status = resp.into_inner();
+            let status = client.api().sandbox_status(&task_id).await?;
             if json {
                 output::print_json_typed(&status);
             } else {
@@ -236,11 +217,7 @@ pub async fn run(
             }
         }
         TaskAction::Restart { task_id } => {
-            client
-                .api()
-                .restart_handler(&task_id)
-                .await
-                .map_err(map_api_error)?;
+            client.api().restart_sandbox(&task_id).await?;
             println!("Sandbox for {task_id} restarted.");
         }
         TaskAction::Logs {
@@ -291,12 +268,7 @@ async fn resolve_repo_id(client: &MoatClient, repo_arg: &str) -> Result<String, 
         return Ok(repo_arg.to_string());
     }
 
-    let resp = client
-        .api()
-        .list_repositories()
-        .await
-        .map_err(map_api_error)?;
-    let repos = resp.into_inner();
+    let repos = client.api().list_repositories().await?;
 
     let matches: Vec<_> = repos
         .iter()

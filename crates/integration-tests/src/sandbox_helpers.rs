@@ -5,7 +5,6 @@
 
 use std::time::Duration;
 
-use moatless_api_client::types::{AgentState, SandboxStatus};
 use moatless_cli::client::MoatClient;
 
 /// Poll until `environment_status == "ready"` and `sandbox_ready == true`.
@@ -13,14 +12,12 @@ use moatless_cli::client::MoatClient;
 pub async fn wait_for_sandbox_ready(client: &MoatClient, task_id: &str, timeout: Duration) -> bool {
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
-        if let Ok(resp) = client.sandbox_status_handler(task_id).await {
-            let status = resp.into_inner();
-            if status.environment_status == SandboxStatus::Ready && status.sandbox_ready {
+        if let Ok(status) = client.api().sandbox_status(task_id).await {
+            if status.environment_status == "ready" && status.sandbox_ready {
                 // Stability re-check after 3s
                 tokio::time::sleep(Duration::from_secs(3)).await;
-                if let Ok(resp2) = client.sandbox_status_handler(task_id).await {
-                    let s2 = resp2.into_inner();
-                    if s2.environment_status == SandboxStatus::Ready && s2.sandbox_ready {
+                if let Ok(s2) = client.api().sandbox_status(task_id).await {
+                    if s2.environment_status == "ready" && s2.sandbox_ready {
                         return true;
                     }
                 }
@@ -37,13 +34,13 @@ pub async fn wait_for_sandbox_ready(client: &MoatClient, task_id: &str, timeout:
 pub async fn wait_for_sandbox_status(
     client: &MoatClient,
     task_id: &str,
-    target: SandboxStatus,
+    target: &str,
     timeout: Duration,
 ) -> bool {
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
-        if let Ok(resp) = client.sandbox_status_handler(task_id).await {
-            if resp.into_inner().environment_status == target {
+        if let Ok(status) = client.api().sandbox_status(task_id).await {
+            if status.environment_status == target {
                 return true;
             }
         }
@@ -62,8 +59,8 @@ pub async fn wait_for_agent_idle(
 ) -> bool {
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
-        if let Ok(resp) = client.sandbox_status_handler(task_id).await {
-            if resp.into_inner().agent_state == AgentState::Idle {
+        if let Ok(status) = client.api().sandbox_status(task_id).await {
+            if format!("{}", status.agent_state) == "idle" {
                 return true;
             }
         }
@@ -74,7 +71,7 @@ pub async fn wait_for_agent_idle(
     }
 }
 
-/// Poll until `list_files_handler` returns a non-empty file list.
+/// Poll until `list_files` returns a non-empty file list.
 pub async fn wait_for_files_available(
     client: &MoatClient,
     task_id: &str,
@@ -82,8 +79,8 @@ pub async fn wait_for_files_available(
 ) -> bool {
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
-        if let Ok(resp) = client.list_files_handler(task_id, None, None).await {
-            if !resp.into_inner().files.is_empty() {
+        if let Ok(resp) = client.api().list_files(task_id).await {
+            if !resp.files.is_empty() {
                 return true;
             }
         }

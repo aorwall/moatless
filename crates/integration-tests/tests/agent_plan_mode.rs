@@ -8,7 +8,7 @@
 use std::time::Duration;
 
 use integration_tests::{ensure_template_repo, sandbox_helpers, test_client};
-use moatless_api_client::types::{CreateTaskRequest, SendMessageRequest};
+use moatless_api_schemas::{task::CreateTaskRequest, message::SendMessageRequest};
 use moatless_cli::events::EventCollector;
 
 // =============================================================================
@@ -49,7 +49,7 @@ async fn agent_plan_mode() {
         file_ids: vec![],
         model: None,
     };
-    let created = client.create_task(&req).await.unwrap().into_inner();
+    let created = client.api().create_task(&req).await.unwrap();
     let task_id = &created.task_id;
 
     // Wait for sandbox ready
@@ -90,7 +90,7 @@ async fn agent_plan_mode() {
                     tool_response: None,
                     tool_use_id: None,
                 };
-                client.send_message(task_id, &approval).await.unwrap();
+                client.api().send_message(task_id, &approval).await.unwrap();
 
                 // Wait for completion after approval
                 let completed = collector
@@ -113,10 +113,10 @@ async fn agent_plan_mode() {
 
     // AGENT-03.2: Assert messages contain plan content
     let messages = client
+        .api()
         .get_messages(task_id)
         .await
-        .unwrap()
-        .into_inner();
+        .unwrap();
     assert!(
         messages.messages.len() >= 2,
         "Expected at least 2 messages, got {}",
@@ -125,5 +125,5 @@ async fn agent_plan_mode() {
 
     // Cleanup
     collector.stop();
-    let _ = client.delete_task(task_id).await;
+    let _ = client.api().delete_task(task_id).await;
 }

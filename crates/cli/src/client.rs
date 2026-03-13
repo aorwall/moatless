@@ -1,8 +1,8 @@
 //! HTTP client wrapper with session cookie / API key auth.
 //!
-//! Wraps the progenitor-generated `moatless_api_client::Client` with auth
-//! header injection.  Exposes `api()` for typed endpoints.
+//! Wraps `moatless_api_client::ApiClient` with auth header injection.
 
+use moatless_api_client::{ApiClient, ApiError};
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, COOKIE};
 use thiserror::Error;
 
@@ -18,18 +18,36 @@ pub enum ClientError {
     Unauthorized,
     #[error("Not logged in — run `moat login` to authenticate")]
     NotLoggedIn,
-    #[error("Typed API error ({status}): {message}")]
-    TypedApi { status: u16, message: String },
     #[error("{0}")]
     Other(String),
+}
+
+impl From<ApiError> for ClientError {
+    fn from(err: ApiError) -> Self {
+        match err {
+            ApiError::Http(e) => ClientError::Http(e),
+            ApiError::Api { status, body } => {
+                if status == 401 {
+                    ClientError::Unauthorized
+                } else {
+                    ClientError::Api { status, body }
+                }
+            }
+            ApiError::Unauthorized => ClientError::Unauthorized,
+            ApiError::InvalidJson(msg) => ClientError::Api {
+                status: 500,
+                body: format!("Invalid response: {msg}"),
+            },
+        }
+    }
 }
 
 pub struct MoatClient {
     base_url: String,
     auth_mode: ClientAuthMode,
     verbose: bool,
-    /// Progenitor-generated typed client.
-    typed_client: moatless_api_client::Client,
+    /// Typed API client.
+    typed_client: ApiClient,
 }
 
 /// Internal auth mode for the client.
@@ -42,14 +60,6 @@ enum ClientAuthMode {
         cookie_name: String,
         session_token: Option<String>,
     },
-}
-
-impl std::ops::Deref for MoatClient {
-    type Target = moatless_api_client::Client;
-
-    fn deref(&self) -> &Self::Target {
-        &self.typed_client
-    }
 }
 
 impl MoatClient {
@@ -102,7 +112,7 @@ impl MoatClient {
         let http = reqwest::Client::builder()
             .default_headers(headers)
             .build()?;
-        let typed_client = moatless_api_client::Client::new_with_client(&base_url, http);
+        let typed_client = ApiClient::new(&base_url, http);
         Ok(Self {
             base_url,
             auth_mode: ClientAuthMode::ApiKey(String::new()),
@@ -127,7 +137,7 @@ impl MoatClient {
 
         let base_url = config.api_url.trim_end_matches('/').to_string();
         let http = Self::build_http_client(&auth_mode);
-        let typed_client = moatless_api_client::Client::new_with_client(&base_url, http);
+        let typed_client = ApiClient::new(&base_url, http);
 
         Self {
             base_url,
@@ -185,13 +195,12 @@ impl MoatClient {
             *session_token = Some(token);
             // Rebuild HTTP client and typed client with new session cookie.
             let http = Self::build_http_client(&self.auth_mode);
-            self.typed_client =
-                moatless_api_client::Client::new_with_client(&self.base_url, http);
+            self.typed_client = ApiClient::new(&self.base_url, http);
         }
     }
 
-    /// Access the typed progenitor-generated API client.
-    pub fn api(&self) -> &moatless_api_client::Client {
+    /// Access the typed API client.
+    pub fn api(&self) -> &ApiClient {
         &self.typed_client
     }
 
@@ -305,50 +314,5 @@ impl MoatClient {
             .default_headers(default_headers)
             .build()
             .unwrap_or_default()
-    }
-}
-
-/// Convert a progenitor `Error<E>` into our `ClientError`.
-pub fn map_api_error<E: std::fmt::Debug>(err: progenitor_client::Error<E>) -> ClientError {
-    match err {
-        progenitor_client::Error::InvalidRequest(msg) => ClientError::Api {
-            status: 400,
-            body: msg,
-        },
-        progenitor_client::Error::CommunicationError(e) => ClientError::Http(e),
-        progenitor_client::Error::ErrorResponse(rv) => {
-            let status = rv.status().as_u16();
-            if status == 401 {
-                ClientError::Unauthorized
-            } else {
-                ClientError::TypedApi {
-                    status,
-                    message: format!("{:?}", rv.into_inner()),
-                }
-            }
-        }
-        progenitor_client::Error::InvalidResponsePayload(_, e) => ClientError::Api {
-            status: 500,
-            body: format!("Invalid response: {e}"),
-        },
-        progenitor_client::Error::UnexpectedResponse(resp) => {
-            let status = resp.status().as_u16();
-            if status == 401 {
-                ClientError::Unauthorized
-            } else {
-                ClientError::TypedApi {
-                    status,
-                    message: format!("Unexpected response (status {status})"),
-                }
-            }
-        }
-        progenitor_client::Error::PreHookError(e) => ClientError::Api {
-            status: 500,
-            body: format!("Pre-hook error: {e}"),
-        },
-        _ => ClientError::Api {
-            status: 500,
-            body: format!("Unknown error: {err:?}"),
-        },
     }
 }

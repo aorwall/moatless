@@ -8,7 +8,7 @@
 use std::time::Duration;
 
 use integration_tests::{ensure_template_repo, sandbox_helpers, test_client};
-use moatless_api_client::types::{CreateTaskRequest, SearchFilesRequest, SendMessageRequest};
+use moatless_api_schemas::{task::CreateTaskRequest, sandbox::SearchFilesRequest, message::SendMessageRequest};
 use moatless_cli::events::EventCollector;
 
 // =============================================================================
@@ -47,7 +47,7 @@ async fn agent_execution_and_multi_turn() {
         file_ids: vec![],
         model: None,
     };
-    let created = client.create_task(&req).await.unwrap().into_inner();
+    let created = client.api().create_task(&req).await.unwrap();
     let task_id = &created.task_id;
 
     // Wait for sandbox ready
@@ -84,10 +84,10 @@ async fn agent_execution_and_multi_turn() {
 
     // AGENT-02: Get messages — assert ≥2 messages (user + assistant)
     let messages = client
+        .api()
         .get_messages(task_id)
         .await
-        .unwrap()
-        .into_inner();
+        .unwrap();
     assert!(
         messages.messages.len() >= 2,
         "Expected at least 2 messages (user + assistant), got {}",
@@ -100,10 +100,10 @@ async fn agent_execution_and_multi_turn() {
         limit: None,
     };
     let search_results = client
-        .search_files_handler(task_id, &search_req)
+        .api()
+        .search_files(task_id, &search_req)
         .await
-        .unwrap()
-        .into_inner();
+        .unwrap();
     assert!(
         !search_results.is_empty(),
         "Expected to find 'E2E Test Success' in files"
@@ -123,6 +123,7 @@ async fn agent_execution_and_multi_turn() {
         tool_use_id: None,
     };
     client
+        .api()
         .send_message(task_id, &follow_up)
         .await
         .unwrap();
@@ -142,10 +143,10 @@ async fn agent_execution_and_multi_turn() {
         limit: None,
     };
     let search_results2 = client
-        .search_files_handler(task_id, &search_req2)
+        .api()
+        .search_files(task_id, &search_req2)
         .await
-        .unwrap()
-        .into_inner();
+        .unwrap();
     assert!(
         !search_results2.is_empty(),
         "Expected to find 'Multi-Turn Success' in files"
@@ -153,5 +154,5 @@ async fn agent_execution_and_multi_turn() {
 
     // Cleanup
     collector.stop();
-    let _ = client.delete_task(task_id).await;
+    let _ = client.api().delete_task(task_id).await;
 }

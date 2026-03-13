@@ -8,8 +8,8 @@
 use std::time::Duration;
 
 use integration_tests::{ensure_template_repo, sandbox_helpers, test_client};
-use moatless_api_client::types::{
-    AgentState, CreateTaskRequest, SearchFilesRequest, SendMessageRequest,
+use moatless_api_schemas::{
+    task::CreateTaskRequest, sandbox::SearchFilesRequest, message::SendMessageRequest,
 };
 use moatless_cli::events::EventCollector;
 
@@ -52,7 +52,7 @@ async fn agent_stop_and_recovery() {
         file_ids: vec![],
         model: None,
     };
-    let created = client.create_task(&req).await.unwrap().into_inner();
+    let created = client.api().create_task(&req).await.unwrap();
     let task_id = &created.task_id;
 
     // Wait for sandbox ready
@@ -74,14 +74,14 @@ async fn agent_stop_and_recovery() {
     tokio::time::sleep(Duration::from_secs(5)).await;
 
     // AGENT-04.2: Stop agent mid-execution
-    let _ = client.stop_task(task_id).await;
+    let _ = client.api().stop_task(task_id).await;
 
     // Verify agent becomes idle/none after stop
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
     loop {
-        if let Ok(resp) = client.sandbox_status_handler(task_id).await {
-            let status = resp.into_inner();
-            if status.agent_state == AgentState::Idle || status.agent_state == AgentState::None {
+        if let Ok(status) = client.api().sandbox_status(task_id).await {
+            let agent_state_str = format!("{}", status.agent_state);
+            if agent_state_str == "idle" || agent_state_str == "none" {
                 println!(
                     "AGENT-04.2: Agent stopped, state={}",
                     status.agent_state
@@ -96,7 +96,7 @@ async fn agent_stop_and_recovery() {
     }
 
     // AGENT-05: Restart sandbox, verify files persist
-    client.restart_handler(task_id).await.unwrap();
+    client.api().restart_sandbox(task_id).await.unwrap();
     assert!(
         sandbox_helpers::wait_for_sandbox_ready(&client, task_id, Duration::from_secs(120)).await,
         "Sandbox did not become ready after restart"
@@ -104,10 +104,10 @@ async fn agent_stop_and_recovery() {
 
     // Check that at least some files were created before the stop
     let files = client
-        .list_files_handler(task_id, None, None)
+        .api()
+        .list_files(task_id)
         .await
-        .unwrap()
-        .into_inner();
+        .unwrap();
     println!(
         "AGENT-05: Files after restart: {:?}",
         files.files.iter().filter(|f| f.contains("step")).collect::<Vec<_>>()
@@ -128,6 +128,7 @@ async fn agent_stop_and_recovery() {
         tool_use_id: None,
     };
     client
+        .api()
         .send_message(task_id, &follow_up)
         .await
         .unwrap();
@@ -148,10 +149,10 @@ async fn agent_stop_and_recovery() {
 
     // AGENT-06.5: Assert messages and search for resumed content
     let messages = client
+        .api()
         .get_messages(task_id)
         .await
-        .unwrap()
-        .into_inner();
+        .unwrap();
     assert!(
         messages.messages.len() >= 4,
         "Expected at least 4 messages (initial + stop + follow-up + response), got {}",
@@ -163,10 +164,10 @@ async fn agent_stop_and_recovery() {
         limit: None,
     };
     let search_results = client
-        .search_files_handler(task_id, &search_req)
+        .api()
+        .search_files(task_id, &search_req)
         .await
-        .unwrap()
-        .into_inner();
+        .unwrap();
     assert!(
         !search_results.is_empty(),
         "Expected to find 'Resumed Session Works' in files"
@@ -174,5 +175,5 @@ async fn agent_stop_and_recovery() {
 
     // Cleanup
     collector.stop();
-    let _ = client.delete_task(task_id).await;
+    let _ = client.api().delete_task(task_id).await;
 }

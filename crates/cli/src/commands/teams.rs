@@ -1,9 +1,9 @@
 //! Team commands: list, get.
 
 use clap::Subcommand;
-use moatless_api_client::types::TeamResponse;
+use moatless_api_schemas::team::TeamResponse;
 
-use crate::client::{map_api_error, ClientError, MoatClient};
+use crate::client::{ClientError, MoatClient};
 use crate::output;
 
 #[derive(Subcommand)]
@@ -17,12 +17,7 @@ pub enum TeamAction {
 pub async fn run(client: &MoatClient, action: TeamAction, json: bool) -> Result<(), ClientError> {
     match action {
         TeamAction::List => {
-            let resp = client
-                .api()
-                .list_teams()
-                .await
-                .map_err(map_api_error)?;
-            let teams = resp.into_inner();
+            let teams = client.api().list_teams().await?;
             if json {
                 output::print_json_typed(&teams);
             } else {
@@ -30,12 +25,7 @@ pub async fn run(client: &MoatClient, action: TeamAction, json: bool) -> Result<
             }
         }
         TeamAction::Get { team_id } => {
-            let resp = client
-                .api()
-                .get_team(&team_id)
-                .await
-                .map_err(map_api_error)?;
-            let team = resp.into_inner();
+            let team = client.api().get_team(&team_id).await?;
             if json {
                 output::print_json_typed(&team);
             } else {

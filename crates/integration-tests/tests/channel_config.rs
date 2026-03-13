@@ -4,9 +4,8 @@
 //! Spec IDs: CHAN-01 through CHAN-05.1
 
 use integration_tests::{ensure_template_repo, test_client};
-use moatless_api_client::types::{
-    ChannelType, CreateChannelConfigRequest, RoutingMode, UpdateChannelConfigRequest,
-};
+use moatless_api_schemas::channel::{CreateChannelConfigRequest, UpdateChannelConfigRequest};
+use moatless_api_schemas::enums::{ChannelType, RoutingMode};
 use pretty_assertions::assert_eq;
 
 fn timestamp_suffix() -> String {
@@ -40,7 +39,7 @@ async fn channel_config_crud_chain() {
         scope: None,
         team_id: None,
     };
-    let config = client.create_config(&req).await.unwrap().into_inner();
+    let config = client.api().create_channel_config(&req).await.unwrap();
     assert!(config.active);
     assert!(!config.id.is_empty());
     assert_eq!(config.provider, ChannelType::Webhook);
@@ -50,14 +49,14 @@ async fn channel_config_crud_chain() {
 
     // CHAN-01.1: Config appears in listing
     let configs = client
-        .list_configs(None, None)
+        .api()
+        .list_channel_configs(None, None)
         .await
-        .unwrap()
-        .into_inner();
+        .unwrap();
     assert!(configs.iter().any(|c| c.id == config_id));
 
     // CHAN-02: Get channel config by ID
-    let config = client.get_config(&config_id).await.unwrap().into_inner();
+    let config = client.api().get_channel_config(&config_id).await.unwrap();
     assert_eq!(config.id, config_id);
     assert_eq!(config.provider, ChannelType::Webhook);
     assert_eq!(config.routing_mode, RoutingMode::PerMessage);
@@ -70,10 +69,10 @@ async fn channel_config_crud_chain() {
         ..Default::default()
     };
     let updated = client
-        .update_config(&config_id, &update)
+        .api()
+        .update_channel_config(&config_id, &update)
         .await
-        .unwrap()
-        .into_inner();
+        .unwrap();
     assert_eq!(updated.source_name.as_deref(), Some("Updated CRUD Webhook"));
     assert_eq!(
         updated.prompt_template.as_deref(),
@@ -87,28 +86,28 @@ async fn channel_config_crud_chain() {
         ..Default::default()
     };
     let deactivated = client
-        .update_config(&config_id, &update)
+        .api()
+        .update_channel_config(&config_id, &update)
         .await
-        .unwrap()
-        .into_inner();
+        .unwrap();
     assert!(!deactivated.active);
 
     // Still appears in listing
     let configs = client
-        .list_configs(None, None)
+        .api()
+        .list_channel_configs(None, None)
         .await
-        .unwrap()
-        .into_inner();
+        .unwrap();
     assert!(configs.iter().any(|c| c.id == config_id));
 
     // CHAN-05: Delete channel config
-    client.delete_config(&config_id).await.unwrap();
+    client.api().delete_channel_config(&config_id).await.unwrap();
 
     // CHAN-05.1: Config removed from listing
     let configs = client
-        .list_configs(None, None)
+        .api()
+        .list_channel_configs(None, None)
         .await
-        .unwrap()
-        .into_inner();
+        .unwrap();
     assert!(!configs.iter().any(|c| c.id == config_id));
 }

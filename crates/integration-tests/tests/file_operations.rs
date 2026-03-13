@@ -10,8 +10,8 @@ use std::time::Duration;
 use integration_tests::{
     ensure_template_repo, sandbox_helpers, test_client,
 };
-use moatless_api_client::types::{
-    CreateTaskRequest, SearchByNameRequest, WriteFileRequestBody,
+use moatless_api_schemas::{
+    task::CreateTaskRequest, sandbox::{SearchByNameRequest, WriteFileRequestBody},
 };
 use pretty_assertions::assert_eq;
 
@@ -44,7 +44,7 @@ async fn file_operations_chain() {
         file_ids: vec![],
         model: None,
     };
-    let created = client.create_task(&req).await.unwrap().into_inner();
+    let created = client.api().create_task(&req).await.unwrap();
     let task_id = &created.task_id;
 
     // Wait for sandbox to be ready
@@ -59,10 +59,10 @@ async fn file_operations_chain() {
         "Files did not become available"
     );
     let files = client
-        .list_files_handler(task_id, None, None)
+        .api()
+        .list_files(task_id)
         .await
-        .unwrap()
-        .into_inner();
+        .unwrap();
     assert!(
         files.files.iter().any(|f| f.contains("package.json")),
         "Expected package.json in file list: {:?}",
@@ -71,10 +71,10 @@ async fn file_operations_chain() {
 
     // FILE-02: Read package.json, assert non-empty content
     let content = client
-        .read_file_handler(task_id, None, "package.json")
+        .api()
+        .read_file(task_id, "package.json")
         .await
-        .unwrap()
-        .into_inner();
+        .unwrap();
     assert!(
         !content.content.is_empty(),
         "package.json content should not be empty"
@@ -82,10 +82,10 @@ async fn file_operations_chain() {
 
     // FILE-03: File tree, assert has entries
     let tree = client
-        .file_tree_handler(task_id, None)
+        .api()
+        .file_tree(task_id)
         .await
-        .unwrap()
-        .into_inner();
+        .unwrap();
     assert!(
         !tree.tree.is_empty(),
         "File tree should have entries"
@@ -98,10 +98,10 @@ async fn file_operations_chain() {
         max_results: None,
     };
     let search_result = client
-        .search_by_name_handler(task_id, &search_req)
+        .api()
+        .search_by_name(task_id, &search_req)
         .await
-        .unwrap()
-        .into_inner();
+        .unwrap();
     assert!(
         search_result.total_matches > 0,
         "Expected to find package.json via search"
@@ -113,20 +113,21 @@ async fn file_operations_chain() {
         content: "E2E file operations test content".into(),
     };
     client
-        .write_file_handler(task_id, &write_req)
+        .api()
+        .write_file(task_id, &write_req)
         .await
         .unwrap();
 
     let readback = client
-        .read_file_handler(task_id, None, "e2e-test-file.txt")
+        .api()
+        .read_file(task_id, "e2e-test-file.txt")
         .await
-        .unwrap()
-        .into_inner();
+        .unwrap();
     assert_eq!(
         readback.content, "E2E file operations test content",
         "Written content should match read content"
     );
 
     // Cleanup
-    let _ = client.delete_task(task_id).await;
+    let _ = client.api().delete_task(task_id).await;
 }

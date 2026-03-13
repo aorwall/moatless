@@ -4,7 +4,7 @@
 use clap::{Parser, Subcommand};
 
 use moatless_cli::auth;
-use moatless_cli::client::{map_api_error, MoatClient};
+use moatless_cli::client::MoatClient;
 use moatless_cli::commands;
 use moatless_cli::config::Config;
 use moatless_cli::credentials;
@@ -119,12 +119,7 @@ async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         Commands::Whoami => {
-            let resp = moat
-                .api()
-                .me_handler()
-                .await
-                .map_err(map_api_error)?;
-            let session = resp.into_inner();
+            let session = moat.api().me().await?;
             if cli.json {
                 output::print_json_typed(&session);
             } else {
@@ -153,12 +148,7 @@ async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             commands::teams::run(&moat, action, cli.json).await?;
         }
         Commands::Cmds => {
-            let resp = moat
-                .api()
-                .list_commands()
-                .await
-                .map_err(map_api_error)?;
-            let cmds = resp.into_inner();
+            let cmds = moat.api().list_commands().await?;
             if cli.json {
                 output::print_json_typed(&cmds);
             } else {
@@ -166,12 +156,7 @@ async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         Commands::Tags => {
-            let resp = moat
-                .api()
-                .list_tags()
-                .await
-                .map_err(map_api_error)?;
-            let tags = resp.into_inner();
+            let tags = moat.api().list_tags().await?;
             if cli.json {
                 output::print_json_typed(&tags);
             } else {

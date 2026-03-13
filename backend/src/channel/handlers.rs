@@ -319,7 +319,7 @@ pub async fn list_my_pairing_requests(
 ) -> Result<Json<Vec<PairingRequestResponse>>, ChannelError> {
     let requests =
         super::telegram::pairing::list_pending_for_user(&state.db, &auth.user_id).await?;
-    let items = requests.iter().map(PairingRequestResponse::from_model).collect();
+    let items = requests.iter().map(pairing_request_from_model).collect();
     Ok(Json(items))
 }
 
@@ -661,7 +661,7 @@ pub async fn create_config(
     state.channel_configs.insert(&row).await?;
     info!(config_id = %id, provider = %row.provider, "Channel config created");
 
-    Ok(Json(ChannelConfigResponse::from_model(&row)))
+    Ok(Json(channel_config_from_model(&row)))
 }
 
 /// List channel configs with optional filters.
@@ -692,7 +692,7 @@ pub async fn list_configs(
     )
     .await?;
 
-    let items: Vec<ChannelConfigResponse> = rows.iter().map(ChannelConfigResponse::from_model).collect();
+    let items: Vec<ChannelConfigResponse> = rows.iter().map(channel_config_from_model).collect();
     Ok(Json(items))
 }
 
@@ -720,7 +720,7 @@ pub async fn get_config(
         .await?
         .ok_or_else(|| ChannelError::ConfigNotFound(id))?;
 
-    Ok(Json(ChannelConfigResponse::from_model(&row)))
+    Ok(Json(channel_config_from_model(&row)))
 }
 
 /// Update a channel config.
@@ -767,7 +767,7 @@ pub async fn update_config(
         .await?
         .ok_or_else(|| ChannelError::ConfigNotFound(id))?;
 
-    Ok(Json(ChannelConfigResponse::from_model(&row)))
+    Ok(Json(channel_config_from_model(&row)))
 }
 
 // =========================================================================
@@ -815,7 +815,7 @@ pub async fn get_defaults(
             ChannelError::ConfigNotFound(format!("No defaults for provider: {provider}"))
         })?;
 
-    Ok(Json(ChannelConfigResponse::from_model(&row)))
+    Ok(Json(channel_config_from_model(&row)))
 }
 
 /// Set channel defaults for a provider.
@@ -883,7 +883,7 @@ pub async fn set_defaults(
             .await?
             .ok_or_else(|| ChannelError::ConfigNotFound(existing.id))?;
 
-        Ok(Json(ChannelConfigResponse::from_model(&row)))
+        Ok(Json(channel_config_from_model(&row)))
     } else {
         // Create new wildcard config
         let id = nanoid::nanoid!(21);
@@ -911,7 +911,7 @@ pub async fn set_defaults(
         state.channel_configs.insert(&row).await?;
         info!(config_id = %id, provider = %provider, "Channel defaults created");
 
-        Ok(Json(ChannelConfigResponse::from_model(&row)))
+        Ok(Json(channel_config_from_model(&row)))
     }
 }
 

@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use crate::client::{map_api_error, ClientError, MoatClient};
+use crate::client::{ClientError, MoatClient};
 use crate::config::{AuthMode, Config};
 
 // ============================================================================
@@ -18,12 +18,7 @@ pub async fn login_sandbox(client: &mut MoatClient, config: &Config) -> Result<(
         });
     }
 
-    let resp = client
-        .api()
-        .exchange_token_handler()
-        .await
-        .map_err(map_api_error)?;
-    let session = resp.into_inner();
+    let session = client.api().exchange_token().await?;
 
     // Save session to file
     std::fs::write(&config.session_file, &session.token).map_err(|e| ClientError::Api {

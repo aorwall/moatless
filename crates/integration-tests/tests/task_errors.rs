@@ -4,7 +4,7 @@
 //! Spec IDs: TASK-10 through TASK-11
 
 use integration_tests::{ensure_template_repo, raw_api, test_client};
-use moatless_api_client::types::CreateTaskRequest;
+use moatless_api_schemas::task::CreateTaskRequest;
 
 // TASK-10: Create task with invalid repository (404)
 #[tokio::test]
@@ -43,11 +43,11 @@ async fn task_send_message_to_closed_task() {
         file_ids: vec![],
         model: None,
     };
-    let created = client.create_task(&req).await.unwrap().into_inner();
+    let created = client.api().create_task(&req).await.unwrap();
     let task_id = created.task_id;
 
     // Close it
-    client.close_task(&task_id).await.unwrap();
+    client.api().close_task(&task_id).await.unwrap();
 
     // Send message — should be accepted (backend reopens)
     let resp = raw_api::send_message_raw(
@@ -66,5 +66,5 @@ async fn task_send_message_to_closed_task() {
     );
 
     // Cleanup
-    let _ = client.delete_task(&task_id).await;
+    let _ = client.api().delete_task(&task_id).await;
 }

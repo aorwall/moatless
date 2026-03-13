@@ -3,13 +3,13 @@
 use std::collections::HashMap;
 
 use clap::Subcommand;
-use serde_json;
-use moatless_api_client::types::{
-    CreateRepositoryRequest, RepositoryKind, RepositoryProvider, RepositoryResponse,
-    ResourceConfig, ServerConfig, UpdateRepositoryRequest,
+use moatless_api_schemas::enums::{RepositoryKind, RepositoryProvider};
+use moatless_api_schemas::repository::{
+    CreateRepositoryRequest, RepositoryResponse, ResourceConfig, ServerConfig,
+    UpdateRepositoryRequest,
 };
 
-use crate::client::{map_api_error, ClientError, MoatClient};
+use crate::client::{ClientError, MoatClient};
 use crate::output;
 
 #[derive(Subcommand)]
@@ -94,12 +94,7 @@ pub enum RepoAction {
 pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<(), ClientError> {
     match action {
         RepoAction::List => {
-            let resp = client
-                .api()
-                .list_repositories()
-                .await
-                .map_err(map_api_error)?;
-            let repos = resp.into_inner();
+            let repos = client.api().list_repositories().await?;
             if json {
                 output::print_json_typed(&repos);
             } else {
@@ -107,12 +102,7 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
             }
         }
         RepoAction::Get { repo_id } => {
-            let resp = client
-                .api()
-                .get_repository(&repo_id)
-                .await
-                .map_err(map_api_error)?;
-            let repo = resp.into_inner();
+            let repo = client.api().get_repository(&repo_id).await?;
             if json {
                 output::print_json_typed(&repo);
             } else {
@@ -161,12 +151,7 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
                 visibility: None,
                 resources,
             };
-            let resp = client
-                .api()
-                .create_repository(&req)
-                .await
-                .map_err(map_api_error)?;
-            let created = resp.into_inner();
+            let created = client.api().create_repository(&req).await?;
             if json {
                 output::print_json_typed(&created);
             } else {
@@ -231,12 +216,7 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
                 visibility: None,
                 resources,
             };
-            let resp = client
-                .api()
-                .update_repository(&repo_id, &req)
-                .await
-                .map_err(map_api_error)?;
-            let updated = resp.into_inner();
+            let updated = client.api().update_repository(&repo_id, &req).await?;
             if json {
                 output::print_json_typed(&updated);
             } else {
@@ -244,12 +224,7 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
             }
         }
         RepoAction::SyncConfig { repo_id } => {
-            let resp = client
-                .api()
-                .sync_config(&repo_id)
-                .await
-                .map_err(map_api_error)?;
-            let updated = resp.into_inner();
+            let updated = client.api().sync_config(&repo_id).await?;
             if json {
                 output::print_json_typed(&updated);
             } else {
@@ -392,9 +367,7 @@ fn format_repo_detail(r: &RepositoryResponse) {
             println!("Servers:");
             for s in servers {
                 println!("  {}:", s.name);
-                if let Some(port) = s.port {
-                    println!("    Port:     {port}");
-                }
+                println!("    Port:     {}", s.port);
                 if let Some(ref cmds) = s.start_commands {
                     println!("    Commands: {}", cmds.join("; "));
                 }

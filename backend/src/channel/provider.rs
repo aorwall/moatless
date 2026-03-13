@@ -3,8 +3,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
-
 use std::any::Any;
 
 use super::models::{ChannelConfig, ChannelThread};
@@ -13,48 +11,7 @@ use crate::db::DbPool;
 use super::error::ChannelError;
 use super::models::{MessageStatus, OutboundReply};
 
-/// Channel provider identifier.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum ChannelType {
-    Slack,
-    Email,
-    Webhook,
-    Cron,
-    Telegram,
-    GithubPr,
-}
-
-impl ChannelType {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Slack => "slack",
-            Self::Email => "email",
-            Self::Webhook => "webhook",
-            Self::Cron => "cron",
-            Self::Telegram => "telegram",
-            Self::GithubPr => "github_pr",
-        }
-    }
-
-    pub fn parse(s: &str) -> Option<Self> {
-        match s {
-            "slack" => Some(Self::Slack),
-            "email" => Some(Self::Email),
-            "webhook" => Some(Self::Webhook),
-            "cron" => Some(Self::Cron),
-            "telegram" => Some(Self::Telegram),
-            "github_pr" => Some(Self::GithubPr),
-            _ => None,
-        }
-    }
-}
-
-impl std::fmt::Display for ChannelType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
+pub use moatless_api_schemas::enums::ChannelType;
 
 /// Channel provider handles outbound messaging, user resolution, and context fetching.
 ///

@@ -1,9 +1,9 @@
 //! Message commands: list, send.
 
 use clap::Subcommand;
-use moatless_api_client::types::{SendMessageRequest, UiMessage};
+use moatless_api_schemas::message::{SendMessageRequest, UiMessage};
 
-use crate::client::{map_api_error, ClientError, MoatClient};
+use crate::client::{ClientError, MoatClient};
 use crate::output;
 
 #[derive(Subcommand)]
@@ -25,12 +25,7 @@ pub async fn run(
 ) -> Result<(), ClientError> {
     match action {
         MessageAction::List { task_id } => {
-            let resp = client
-                .api()
-                .get_messages(&task_id)
-                .await
-                .map_err(map_api_error)?;
-            let messages = resp.into_inner();
+            let messages = client.api().get_messages(&task_id).await?;
             if json {
                 output::print_json_typed(&messages);
             } else {
@@ -50,13 +45,9 @@ pub async fn run(
                 tool_response: None,
                 tool_use_id: None,
             };
-            let resp = client
-                .api()
-                .send_message(&task_id, &req)
-                .await
-                .map_err(map_api_error)?;
+            let resp = client.api().send_message(&task_id, &req).await?;
             if json {
-                output::print_json_typed(&resp.into_inner());
+                output::print_json_typed(&resp);
             } else {
                 println!("Message sent.");
             }

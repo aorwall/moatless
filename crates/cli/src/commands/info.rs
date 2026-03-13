@@ -1,6 +1,6 @@
 //! Info commands: whoami, status.
 
-use moatless_api_client::types::SessionResponse;
+use moatless_api_schemas::auth::SessionResponse;
 
 use crate::config::{AuthMode, Config};
 

@@ -106,6 +106,9 @@ figma-clipboard = { path = "../crates/figma-clipboard" }
 # Typed event system (shared with sandbox)
 moatless-events = { path = "../crates/events", features = ["openapi"] }
 
+# Shared API schemas (DTOs shared with CLI)
+moatless-api-schemas = { path = "../crates/api-schemas", features = ["openapi", "database"] }
+
 # Claude agent SDK types (for OpenAPI schema generation)
 claude-agent-sdk = { path = "../crates/claude-agent-sdk", features = ["openapi"] }
 

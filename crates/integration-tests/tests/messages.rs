@@ -3,7 +3,7 @@
 //! Tests sending messages and retrieving them.
 
 use integration_tests::{ensure_template_repo, test_client};
-use moatless_api_client::types::{CreateTaskRequest, SendMessageRequest};
+use moatless_api_schemas::{message::SendMessageRequest, task::CreateTaskRequest};
 
 #[tokio::test]
 async fn send_and_list_messages() {
@@ -12,6 +12,7 @@ async fn send_and_list_messages() {
 
     // Create a task
     let task = client
+        .api()
         .create_task(&CreateTaskRequest {
             repository_id: repo_id,
             message: Some("Initial message".into()),
@@ -26,8 +27,7 @@ async fn send_and_list_messages() {
             model: None,
         })
         .await
-        .unwrap()
-        .into_inner();
+        .unwrap();
 
     let task_id = task.task_id;
 
@@ -44,15 +44,15 @@ async fn send_and_list_messages() {
         tool_response: None,
         tool_use_id: None,
     };
-    let _resp = client.send_message(&task_id, &msg).await.unwrap();
+    let _resp = client.api().send_message(&task_id, &msg).await.unwrap();
 
     // List messages
-    let messages = client.get_messages(&task_id).await.unwrap().into_inner();
+    let messages = client.api().get_messages(&task_id).await.unwrap();
     assert!(
         !messages.messages.is_empty(),
         "expected at least one message"
     );
 
     // Cleanup
-    let _ = client.delete_task(&task_id).await;
+    let _ = client.api().delete_task(&task_id).await;
 }

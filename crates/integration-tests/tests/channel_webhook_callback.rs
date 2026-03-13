@@ -10,7 +10,8 @@ use std::time::Duration;
 use integration_tests::{
     callback_server::CallbackServer, ensure_template_repo, raw_api, sandbox_helpers, test_client,
 };
-use moatless_api_client::types::{ChannelType, CreateChannelConfigRequest, RoutingMode};
+use moatless_api_schemas::channel::CreateChannelConfigRequest;
+use moatless_api_schemas::enums::{ChannelType, RoutingMode};
 use moatless_cli::events::EventCollector;
 use serde_json::json;
 
@@ -68,10 +69,10 @@ async fn webhook_outbound_callback() {
         team_id: None,
     };
     let config = client
-        .create_config(&config_req)
+        .api()
+        .create_channel_config(&config_req)
         .await
-        .unwrap()
-        .into_inner();
+        .unwrap();
     assert!(!config.id.is_empty());
 
     // CHAN-62: Send webhook inbound message
@@ -123,6 +124,6 @@ async fn webhook_outbound_callback() {
     // Cleanup
     collector.stop();
     callback_server.stop();
-    let _ = client.delete_config(&config.id).await;
-    let _ = client.delete_task(task_id).await;
+    let _ = client.api().delete_channel_config(&config.id).await;
+    let _ = client.api().delete_task(task_id).await;
 }
