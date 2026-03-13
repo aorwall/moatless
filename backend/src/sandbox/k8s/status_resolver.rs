@@ -227,7 +227,8 @@ impl StatusResolver {
         }
     }
 
-    /// Fetch container diagnostics for all containers in the pod.
+    /// Fetch container diagnostics for all containers in the pod,
+    /// including resource usage from the K8s Metrics API when available.
     async fn fetch_container_diagnostics(
         &self,
         task_id: &str,
@@ -236,23 +237,32 @@ impl StatusResolver {
         if all_statuses.is_empty() {
             return None;
         }
+
+        // Fetch resource usage (best-effort — returns empty map if metrics-server unavailable)
+        let resource_usage = pod_reader::fetch_container_resource_usage(&self.k8s, task_id).await;
+
         Some(
             all_statuses
                 .into_iter()
-                .map(|cs| ContainerDiagnostics {
-                    name: cs.name,
-                    state: match cs.state {
-                        ContainerState::Running => "running".to_string(),
-                        ContainerState::Waiting => "waiting".to_string(),
-                        ContainerState::Terminated => "terminated".to_string(),
-                        ContainerState::Unknown => "unknown".to_string(),
-                    },
-                    restart_count: cs.restart_count,
-                    exit_code: cs.exit_code,
-                    terminated_reason: cs.terminated_reason,
-                    last_exit_code: cs.last_exit_code,
-                    last_terminated_reason: cs.last_terminated_reason,
-                    waiting_reason: cs.waiting_reason,
+                .map(|cs| {
+                    let usage = resource_usage.get(&cs.name);
+                    ContainerDiagnostics {
+                        name: cs.name,
+                        state: match cs.state {
+                            ContainerState::Running => "running".to_string(),
+                            ContainerState::Waiting => "waiting".to_string(),
+                            ContainerState::Terminated => "terminated".to_string(),
+                            ContainerState::Unknown => "unknown".to_string(),
+                        },
+                        restart_count: cs.restart_count,
+                        exit_code: cs.exit_code,
+                        terminated_reason: cs.terminated_reason,
+                        last_exit_code: cs.last_exit_code,
+                        last_terminated_reason: cs.last_terminated_reason,
+                        waiting_reason: cs.waiting_reason,
+                        cpu_millicores: usage.map(|u| u.cpu_millicores),
+                        memory_mb: usage.map(|u| u.memory_bytes / (1024 * 1024)),
+                    }
                 })
                 .collect(),
         )

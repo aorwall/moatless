@@ -376,6 +376,17 @@ fn format_container_diagnostics_json(diagnostics: Option<&Vec<serde_json::Value>
         if let Some(reason) = c.get("waitingReason").and_then(serde_json::Value::as_str) {
             println!("    Waiting:        {reason}");
         }
+        // Resource usage (from K8s Metrics API)
+        let has_cpu = c.get("cpuMillicores").and_then(serde_json::Value::as_u64);
+        let has_mem = c.get("memoryMb").and_then(serde_json::Value::as_u64);
+        if has_cpu.is_some() || has_mem.is_some() {
+            if let Some(cpu) = has_cpu {
+                println!("    CPU:            {cpu}m");
+            }
+            if let Some(mem) = has_mem {
+                println!("    Memory:         {mem}Mi");
+            }
+        }
     }
 }
 

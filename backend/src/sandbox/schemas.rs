@@ -72,6 +72,12 @@ pub struct ContainerDiagnostics {
     pub last_terminated_reason: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub waiting_reason: Option<String>,
+    /// CPU usage in millicores (from K8s Metrics API, if available)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cpu_millicores: Option<u64>,
+    /// Memory usage in megabytes (from K8s Metrics API, if available)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub memory_mb: Option<u64>,
 }
 
 /// Full sandbox status response to frontend (matches TS SandboxStatusFullResponse)

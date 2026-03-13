@@ -7,6 +7,8 @@ use axum::response::sse::Event;
 use futures::stream::BoxStream;
 use k8s_openapi::api::core::v1::Pod;
 use kube::api::{Api, ListParams, LogParams};
+use serde::Deserialize;
+use std::collections::HashMap;
 use tracing::{debug, warn};
 
 use super::client::K8sClient;
@@ -241,5 +243,131 @@ pub async fn stream_container_logs_k8s(
             };
             Ok(Box::pin(event_stream))
         }
+    }
+}
+
+// =============================================================================
+// Resource metrics from K8s Metrics API
+// =============================================================================
+
+/// Per-container resource usage from the K8s Metrics API.
+#[derive(Debug, Clone)]
+pub struct ContainerResourceUsage {
+    pub name: String,
+    /// CPU usage in millicores (e.g. 250 = 0.25 cores)
+    pub cpu_millicores: u64,
+    /// Memory usage in bytes
+    pub memory_bytes: u64,
+}
+
+/// Response from the K8s Metrics API for a single pod.
+#[derive(Debug, Deserialize)]
+struct PodMetrics {
+    containers: Vec<ContainerMetrics>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ContainerMetrics {
+    name: String,
+    usage: ContainerUsage,
+}
+
+#[derive(Debug, Deserialize)]
+struct ContainerUsage {
+    cpu: String,
+    memory: String,
+}
+
+/// Fetch resource usage for all containers in a task's pod via the K8s Metrics API.
+///
+/// Requires metrics-server to be installed in the cluster.
+/// Returns an empty map on any failure (metrics unavailable, pod not found, etc.).
+pub async fn fetch_container_resource_usage(
+    k8s: &K8sClient,
+    task_id: &str,
+) -> HashMap<String, ContainerResourceUsage> {
+    let pods_api: Api<Pod> = Api::namespaced(k8s.client.clone(), k8s.namespace());
+    let lp = ListParams::default().labels(&format!("moatless.io/task-id={task_id}"));
+
+    let pod_name = match pods_api.list(&lp).await {
+        Ok(list) => match list.items.first().and_then(|p| p.metadata.name.clone()) {
+            Some(name) => name,
+            None => return HashMap::new(),
+        },
+        Err(_) => return HashMap::new(),
+    };
+
+    // Query: /apis/metrics.k8s.io/v1beta1/namespaces/{ns}/pods/{pod}
+    let url = format!(
+        "/apis/metrics.k8s.io/v1beta1/namespaces/{}/pods/{pod_name}",
+        k8s.namespace()
+    );
+
+    let request = match hyper::Request::get(&url).body(Vec::new()) {
+        Ok(r) => r,
+        Err(e) => {
+            debug!(task_id, error = %e, "Failed to build metrics request");
+            return HashMap::new();
+        }
+    };
+
+    let response: PodMetrics = match k8s.client.request(request).await {
+        Ok(resp) => resp,
+        Err(e) => {
+            debug!(task_id, error = %e, "Failed to fetch pod metrics (metrics-server may not be installed)");
+            return HashMap::new();
+        }
+    };
+
+    response
+        .containers
+        .into_iter()
+        .map(|c| {
+            let cpu = parse_cpu_to_millicores(&c.usage.cpu);
+            let mem = parse_memory_to_bytes(&c.usage.memory);
+            (
+                c.name.clone(),
+                ContainerResourceUsage {
+                    name: c.name,
+                    cpu_millicores: cpu,
+                    memory_bytes: mem,
+                },
+            )
+        })
+        .collect()
+}
+
+/// Parse K8s CPU quantity (e.g. "250m", "1", "100n") to millicores.
+fn parse_cpu_to_millicores(s: &str) -> u64 {
+    if let Some(nano) = s.strip_suffix('n') {
+        // Nanocores → millicores
+        nano.parse::<u64>().unwrap_or(0) / 1_000_000
+    } else if let Some(micro) = s.strip_suffix('u') {
+        micro.parse::<u64>().unwrap_or(0) / 1_000
+    } else if let Some(milli) = s.strip_suffix('m') {
+        milli.parse::<u64>().unwrap_or(0)
+    } else {
+        // Whole cores
+        s.parse::<f64>().map(|v| (v * 1000.0) as u64).unwrap_or(0)
+    }
+}
+
+/// Parse K8s memory quantity (e.g. "128Mi", "1Gi", "256000Ki") to bytes.
+fn parse_memory_to_bytes(s: &str) -> u64 {
+    if let Some(v) = s.strip_suffix("Ki") {
+        v.parse::<u64>().unwrap_or(0) * 1024
+    } else if let Some(v) = s.strip_suffix("Mi") {
+        v.parse::<u64>().unwrap_or(0) * 1024 * 1024
+    } else if let Some(v) = s.strip_suffix("Gi") {
+        v.parse::<u64>().unwrap_or(0) * 1024 * 1024 * 1024
+    } else if let Some(v) = s.strip_suffix('k') {
+        v.parse::<u64>().unwrap_or(0) * 1000
+    } else if let Some(v) = s.strip_suffix('M') {
+        v.parse::<u64>().unwrap_or(0) * 1_000_000
+    } else if let Some(v) = s.strip_suffix('G') {
+        v.parse::<u64>().unwrap_or(0) * 1_000_000_000
+    } else {
+        // Plain bytes
+        s.parse::<u64>().unwrap_or(0)
     }
 }
