@@ -44,6 +44,16 @@ pub trait SandboxProvider: Send + Sync {
     /// Restart a sandbox (delete pods, Deployment controller recreates).
     async fn restart(&self, task_id: &str) -> Result<(), SandboxError>;
 
+    /// Redeploy a sandbox (delete Deployment/Service/IngressRoutes, recreate from fresh config).
+    ///
+    /// Preserves the PVC so workspace data is retained. Use this after updating
+    /// repo server configs to apply the new configuration.
+    async fn redeploy(
+        &self,
+        task_id: &str,
+        request: &ProvisionRequest,
+    ) -> Result<ProvisionResponse, SandboxError>;
+
     /// Fully clean up a sandbox (remove all resources).
     async fn cleanup(&self, task_id: &str) -> Result<(), SandboxError>;
 

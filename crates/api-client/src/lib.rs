@@ -300,6 +300,17 @@ impl ApiClient {
         .await
     }
 
+    /// POST /api/sandbox/v1/tasks/{task_id}/redeploy
+    pub async fn redeploy_sandbox(
+        &self,
+        task_id: &str,
+    ) -> Result<moatless_api_schemas::sandbox::ProvisionResponse, ApiError> {
+        self.post_no_body(&format!(
+            "/api/sandbox/v1/tasks/{task_id}/redeploy"
+        ))
+        .await
+    }
+
     /// POST /api/sandbox/v1/tasks/{task_id}/cleanup
     pub async fn cleanup_sandbox(&self, task_id: &str) -> Result<(), ApiError> {
         self.post_empty(&format!("/api/sandbox/v1/tasks/{task_id}/cleanup"))

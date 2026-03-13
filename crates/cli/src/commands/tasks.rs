@@ -54,6 +54,8 @@ pub enum TaskAction {
     Status { task_id: String },
     /// Restart sandbox for a task
     Restart { task_id: String },
+    /// Redeploy sandbox (recreate with fresh repo config, preserves workspace data)
+    Redeploy { task_id: String },
     /// Stream server logs from a task's sandbox
     Logs {
         task_id: String,
@@ -219,6 +221,10 @@ pub async fn run(
         TaskAction::Restart { task_id } => {
             client.api().restart_sandbox(&task_id).await?;
             println!("Sandbox for {task_id} restarted.");
+        }
+        TaskAction::Redeploy { task_id } => {
+            let resp = client.api().redeploy_sandbox(&task_id).await?;
+            println!("Sandbox for {task_id} redeployed (status: {:?}).", resp.status);
         }
         TaskAction::Logs {
             task_id,

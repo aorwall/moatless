@@ -160,6 +160,46 @@ pub async fn restart_handler(
     }
 }
 
+/// Redeploy a sandbox (delete Deployment/Service/IngressRoutes, recreate with fresh repo config).
+///
+/// Preserves workspace data (PVC). Use after updating repo server configs.
+#[utoipa::path(
+    post,
+    path = "/api/sandbox/v1/tasks/{task_id}/redeploy",
+    tag = "sandbox",
+    params(
+        ("task_id" = String, Path, description = "Task identifier")
+    ),
+    responses(
+        (status = 200, description = "Sandbox redeployed successfully", body = ProvisionResponse),
+        (status = 500, description = "Redeploy failed", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn redeploy_handler(
+    State(state): State<SandboxApiState>,
+    Path(task_id): Path<String>,
+) -> Result<Json<ProvisionResponse>, SandboxError> {
+    info!(task_id = %task_id, "POST /redeploy");
+
+    let (tasks, repos, provider_tokens) = match (&state.tasks, &state.repos, &state.provider_tokens) {
+        (Some(t), Some(r), Some(pt)) => (t.as_ref(), r.as_ref(), pt.as_ref()),
+        _ => return Err(SandboxError::Internal("Database not available for redeployment".into())),
+    };
+
+    let request = super::auto_provision::build_provision_request(tasks, repos, provider_tokens, &task_id).await?;
+
+    match state.provider.redeploy(&task_id, &request).await {
+        Ok(response) => {
+            info!(task_id = %task_id, "Redeploy succeeded");
+            Ok(Json(response))
+        }
+        Err(e) => {
+            error!(task_id = %task_id, error = %e, "Redeploy failed");
+            Err(e)
+        }
+    }
+}
+
 /// Clean up a sandbox and all associated resources.
 #[utoipa::path(
     post,

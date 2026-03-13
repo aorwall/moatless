@@ -271,6 +271,24 @@ impl SandboxProvider for DockerSandboxProvider {
         Ok(())
     }
 
+    async fn redeploy(
+        &self,
+        task_id: &str,
+        request: &ProvisionRequest,
+    ) -> Result<ProvisionResponse, SandboxError> {
+        info!(task_id = %task_id, "Redeploying Docker sandbox (remove containers, reprovision)");
+
+        // Remove server containers
+        self.remove_server_containers(task_id).await;
+
+        // Remove sandbox container
+        let container_name = generate_container_name(task_id);
+        self.force_remove_container(&container_name, task_id).await;
+
+        // Reprovision with fresh config (workspace dirs on host are preserved)
+        self.provision(task_id, request).await
+    }
+
     async fn cleanup(&self, task_id: &str) -> Result<(), SandboxError> {
         info!(task_id = %task_id, "Cleaning up Docker sandbox");
 

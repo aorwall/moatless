@@ -202,6 +202,30 @@ impl SandboxProvider for K8sSandboxProvider {
         Ok(())
     }
 
+    async fn redeploy(
+        &self,
+        task_id: &str,
+        request: &ProvisionRequest,
+    ) -> Result<ProvisionResponse, SandboxError> {
+        info!(task_id = %task_id, "Redeploying sandbox (deleting Deployment/Service/IngressRoutes, preserving PVC)");
+
+        // 1. Delete Deployment (cascades to pods + ReplicaSets)
+        if let Err(e) = deployment::delete_deployment(&self.k8s, task_id).await {
+            warn!(task_id = %task_id, error = %e, "Failed to delete Deployment during redeploy");
+        }
+        // 2. Delete Service + IngressRoutes (will recreate with new config)
+        if let Err(e) = service::delete_sandbox_service(&self.k8s, task_id).await {
+            warn!(task_id = %task_id, error = %e, "Failed to delete Service during redeploy");
+        }
+        if let Err(e) = ingress::delete_task_ingress_routes(&self.k8s, task_id).await {
+            warn!(task_id = %task_id, error = %e, "Failed to delete IngressRoutes during redeploy");
+        }
+        // 3. PVC is intentionally NOT deleted — workspace data is preserved
+
+        // 4. Reprovision with fresh config (provision handles PVC reuse)
+        self.provision(task_id, request).await
+    }
+
     async fn cleanup(&self, task_id: &str) -> Result<(), SandboxError> {
         info!(task_id = %task_id, "Cleaning up sandbox (deleting all resources)");
 
