@@ -54,4 +54,39 @@ roleRef:
   kind: Role
   name: {{ include "moatless-vibe.fullname" . }}-ingressroute-manager
   apiGroup: rbac.authorization.k8s.io
+---
+# Observability permissions: K8s events + metrics-server pod metrics
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "moatless-vibe.fullname" . }}-observability
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "moatless-vibe.labels" . | nindent 4 }}
+rules:
+  # K8s Events — used by sandbox diagnostics (pod_reader::fetch_pod_runtime_events)
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list"]
+  # Metrics API — used by sandbox diagnostics (pod_reader::fetch_container_resource_usage)
+  # Requires metrics-server to be installed in the cluster
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "moatless-vibe.fullname" . }}-observability
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "moatless-vibe.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "moatless-vibe.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: Role
+  name: {{ include "moatless-vibe.fullname" . }}-observability
+  apiGroup: rbac.authorization.k8s.io
 {{- end }}
