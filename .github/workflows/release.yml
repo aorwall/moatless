@@ -61,9 +61,12 @@ jobs:
             "${{ env.PREVIEW_SERVER_IMAGE }}"; do
 
             echo "Retagging ${IMAGE}:${SHA_TAG} → ${IMAGE}:${VERSION}"
-            docker pull "${IMAGE}:${SHA_TAG}"
-            docker tag "${IMAGE}:${SHA_TAG}" "${IMAGE}:${VERSION}"
-            docker push "${IMAGE}:${VERSION}"
+            if docker pull "${IMAGE}:${SHA_TAG}"; then
+              docker tag "${IMAGE}:${SHA_TAG}" "${IMAGE}:${VERSION}"
+              docker push "${IMAGE}:${VERSION}"
+            else
+              echo "⚠ ${IMAGE}:${SHA_TAG} not found (no changes in this release), skipping"
+            fi
           done
 
           # Retag sandbox-java variants
