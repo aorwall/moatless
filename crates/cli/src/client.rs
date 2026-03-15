@@ -220,6 +220,27 @@ impl MoatClient {
         self.handle_response(resp).await
     }
 
+    /// GET an arbitrary URL (not relative to base) with the same auth headers.
+    /// Returns the response body as text. Only fails on auth errors, not app-level errors.
+    pub async fn raw_get_url(&self, url: &str) -> Result<String, ClientError> {
+        if self.verbose {
+            eprintln!("GET {url}");
+        }
+        let http = Self::build_http_client(&self.auth_mode);
+        let resp = http.get(url).send().await?;
+        let status = resp.status().as_u16();
+        if status == 401 {
+            return Err(ClientError::Unauthorized);
+        }
+        if status == 403 {
+            return Err(ClientError::Api {
+                status,
+                body: "Access denied".to_string(),
+            });
+        }
+        Ok(resp.text().await?)
+    }
+
     /// Raw PUT with JSON body.
     pub async fn raw_put(
         &self,

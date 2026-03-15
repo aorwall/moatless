@@ -73,6 +73,16 @@ pub enum TaskAction {
         #[arg(long, default_value = "10")]
         limit: i64,
     },
+    /// Fetch preview server page content
+    Preview {
+        task_id: String,
+        /// Server name (e.g. "preview", "files")
+        #[arg(long, short = 's', default_value = "preview")]
+        server: String,
+        /// URL path to fetch (default: "/")
+        #[arg(long, default_value = "/")]
+        path: String,
+    },
     /// File operations in a task's workspace
     Files {
         task_id: String,
@@ -235,6 +245,37 @@ pub async fn run(
         }
         TaskAction::Diagnose { task_id, limit } => {
             run_diagnose(client, &task_id, limit, json).await?;
+        }
+        TaskAction::Preview {
+            task_id,
+            server,
+            path,
+        } => {
+            let status = client.api().sandbox_status(&task_id).await?;
+            let entry = status
+                .servers
+                .iter()
+                .find(|s| s.name == server)
+                .ok_or_else(|| ClientError::Api {
+                    status: 404,
+                    body: format!(
+                        "No server '{}' found. Available: {}",
+                        server,
+                        status
+                            .servers
+                            .iter()
+                            .map(|s| s.name.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                })?;
+            let base_url = entry.url.as_deref().ok_or_else(|| ClientError::Api {
+                status: 404,
+                body: format!("Server '{}' has no URL (status: {:?})", server, entry.status),
+            })?;
+            let url = format!("{}{}", base_url.trim_end_matches('/'), path);
+            let body = client.raw_get_url(&url).await?;
+            print!("{body}");
         }
         TaskAction::Files { task_id, action } => {
             run_file_action(client, &task_id, action, json).await?;
