@@ -1,11 +1,11 @@
 //! Tag HTTP handlers.
 
 use axum::extract::State;
-use axum::http::StatusCode;
 use axum::Json;
 
 use crate::state::AppState;
 
+use super::error::TagError;
 use super::schemas::TagResponse;
 
 /// List all tags.
@@ -20,15 +20,8 @@ use super::schemas::TagResponse;
 )]
 pub async fn list_tags(
     State(state): State<AppState>,
-) -> Result<Json<Vec<TagResponse>>, (StatusCode, String)> {
-    let rows = state.tags.list_all()
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Database error: {e}"),
-            )
-        })?;
+) -> Result<Json<Vec<TagResponse>>, TagError> {
+    let rows = state.tags.list_all().await?;
 
     let tags: Vec<TagResponse> = rows
         .into_iter()

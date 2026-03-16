@@ -3,11 +3,12 @@
 use serde::Deserialize;
 use tracing::debug;
 
+use crate::sandbox::models::ServerConfig;
+
 use super::dao::RepositoryPatch;
 use super::error::RepositoryError;
 use super::handlers::parse_github_owner_repo;
 use super::models::{RepositoryProvider, ResourceConfig};
-use crate::sandbox::models::ServerConfig;
 
 /// Top-level `.moatless/config.json` schema.
 #[derive(Debug, Deserialize)]

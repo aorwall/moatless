@@ -6,15 +6,15 @@ use axum::Json;
 
 use tracing::{debug, info, warn};
 
-use super::config_reader::{config_to_patch, fetch_moatless_config};
-use super::dao::RepositoryPatch;
-use super::models::{Repository, RepositoryKind, RepositoryProvider};
 use crate::extractors::AuthUser;
 use crate::scope::Scope;
 use crate::state::AppState;
 use crate::task::models::Visibility;
 
+use super::config_reader::{config_to_patch, fetch_moatless_config};
+use super::dao::RepositoryPatch;
 use super::error::RepositoryError;
+use super::models::{Repository, RepositoryKind, RepositoryProvider};
 use super::schemas::*;
 
 /// Convert a serializable value to JSON Value, mapping errors to `RepositoryError`.

@@ -14,15 +14,12 @@ use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::config::{AuthProvider, Config};
-use super::sessions::SessionRepository;
-use super::api_keys::ApiKeyRepository;
-use super::users::UserRepository;
-use super::provider_tokens::ProviderTokenAuthRepository;
 use crate::db::DbPool;
 use crate::error::ErrorBody;
 use crate::scope::ScopeContext;
 
 use super::api_key;
+use super::api_keys::ApiKeyRepository;
 use super::cache::AuthCache;
 use super::cookie;
 use super::error::AuthError;
@@ -30,12 +27,15 @@ use super::identity::AuthIdentity;
 use super::jwt::{self, SessionClaims};
 use super::models::UserRole;
 use super::oauth::provider::OAuthProvider;
-use super::session;
+use super::provider_tokens::ProviderTokenAuthRepository;
 use super::schemas::{
     ApiKeyCreateResponse, ApiKeyListItem, CliLoginQuery, CreateApiKeyRequest, MessageResponse,
     OAuthCallbackQuery, SessionResponse, TokenSessionResponse, UpdateUserRequest,
     UserInfo, UserListItem, UserListResponse, format_datetime, format_datetime_opt,
 };
+use super::session;
+use super::sessions::SessionRepository;
+use super::users::UserRepository;
 
 /// Type-safe container for configured OAuth providers.
 #[derive(Clone, Default)]

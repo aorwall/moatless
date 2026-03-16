@@ -6,15 +6,15 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
 use tracing::{info, warn};
 
-use super::config_dao::ChannelConfigPatch;
 use crate::extractors::AuthUser;
 use crate::state::AppState;
 
+use super::config_dao::ChannelConfigPatch;
 use super::error::ChannelError;
 use super::inbound;
 use super::provider::ChannelType;
-use super::slack::provider::SlackWebhookResult;
 use super::schemas::*;
+use super::slack::provider::SlackWebhookResult;
 
 // =========================================================================
 // Provider discovery
