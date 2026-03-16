@@ -55,6 +55,7 @@ metadata:
     {{- with .Values.ingress.annotations }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
+    alb.ingress.kubernetes.io/group.order: "10"
 spec:
   {{- if .Values.ingress.className }}
   ingressClassName: {{ .Values.ingress.className }}
@@ -118,6 +119,7 @@ metadata:
     {{- with .Values.ingress.annotations }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
+    alb.ingress.kubernetes.io/group.order: "20"
 spec:
   {{- if .Values.ingress.className }}
   ingressClassName: {{ .Values.ingress.className }}
@@ -146,6 +148,7 @@ metadata:
     {{- with .Values.ingress.annotations }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
+    alb.ingress.kubernetes.io/group.order: "30"
     nginx.ingress.kubernetes.io/auth-url: "http://{{ $fullname }}-backend.{{ .Release.Namespace }}.svc.cluster.local:8080/api/v1/auth/verify"
     nginx.ingress.kubernetes.io/auth-response-headers: "X-User-Id,X-User-Login,X-User-Role,X-User-Provider,X-Group-Id"
 spec:
@@ -176,6 +179,7 @@ metadata:
     {{- with .Values.ingress.annotations }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
+    alb.ingress.kubernetes.io/group.order: "100"
 spec:
   {{- if .Values.ingress.className }}
   ingressClassName: {{ .Values.ingress.className }}
