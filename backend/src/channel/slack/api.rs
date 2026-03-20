@@ -48,6 +48,7 @@ struct SlackMessage {
     user: Option<String>,
     #[allow(dead_code)] // Deserialized from Slack API but not directly read
     ts: Option<String>,
+    blocks: Option<Vec<serde_json::Value>>,
 }
 
 #[derive(Deserialize)]
@@ -333,7 +334,18 @@ impl SlackApi {
                 }
                 true
             })
-            .filter_map(|m| m.text)
+            .filter_map(|m| {
+                // Prefer blocks (has full content) over text (fallback, often minimal)
+                m.blocks
+                    .as_ref()
+                    .map(|b| super::format::extract_text_from_blocks(b))
+                    .filter(|t| !t.is_empty())
+                    .or_else(|| {
+                        m.text
+                            .filter(|t| !t.is_empty())
+                            .map(|t| super::format::format_slack_text(&t))
+                    })
+            })
             .collect();
 
         Ok(filtered)
