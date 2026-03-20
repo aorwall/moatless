@@ -46,9 +46,10 @@ struct ConversationsRepliesResponse {
 struct SlackMessage {
     text: Option<String>,
     user: Option<String>,
-    #[allow(dead_code)] // Deserialized from Slack API but not directly read
+    #[allow(dead_code)] // reason: deserialized from Slack API but not directly read
     ts: Option<String>,
     blocks: Option<Vec<serde_json::Value>>,
+    attachments: Option<Vec<serde_json::Value>>,
 }
 
 #[derive(Deserialize)]
@@ -335,11 +336,17 @@ impl SlackApi {
                 true
             })
             .filter_map(|m| {
-                // Prefer blocks (has full content) over text (fallback, often minimal)
+                // Try blocks first (Block Kit), then attachments (legacy), then text (fallback)
                 m.blocks
                     .as_ref()
                     .map(|b| super::format::extract_text_from_blocks(b))
                     .filter(|t| !t.is_empty())
+                    .or_else(|| {
+                        m.attachments
+                            .as_ref()
+                            .map(|a| super::format::extract_text_from_attachments(a))
+                            .filter(|t| !t.is_empty())
+                    })
                     .or_else(|| {
                         m.text
                             .filter(|t| !t.is_empty())

@@ -126,6 +126,67 @@ fn extract_rich_text_element(element: &serde_json::Value, parts: &mut Vec<String
     }
 }
 
+/// Extract readable text from Slack legacy `attachments` array.
+///
+/// Walks each attachment and pulls text from:
+/// - `title` — attachment title (often the alert name)
+/// - `text` — main body text
+/// - `pretext` — text shown above the attachment
+/// - `fields[]` — title/value pairs (e.g., severity: critical)
+/// - `fallback` — last resort plain-text summary
+///
+/// Used by Prometheus Alertmanager, Grafana, and other webhook-based integrations
+/// that send structured content via attachments rather than Block Kit blocks.
+pub fn extract_text_from_attachments(attachments: &[serde_json::Value]) -> String {
+    let mut parts: Vec<String> = Vec::new();
+
+    for attachment in attachments {
+        // pretext appears above the attachment
+        if let Some(pretext) = attachment.get("pretext").and_then(|v| v.as_str()) {
+            if !pretext.is_empty() {
+                parts.push(pretext.to_string());
+            }
+        }
+
+        // title (often the alert name)
+        if let Some(title) = attachment.get("title").and_then(|v| v.as_str()) {
+            if !title.is_empty() {
+                parts.push(title.to_string());
+            }
+        }
+
+        // main body text
+        if let Some(text) = attachment.get("text").and_then(|v| v.as_str()) {
+            if !text.is_empty() {
+                parts.push(text.to_string());
+            }
+        }
+
+        // fields (key-value pairs like severity: critical)
+        if let Some(fields) = attachment.get("fields").and_then(|f| f.as_array()) {
+            for field in fields {
+                let title = field.get("title").and_then(|t| t.as_str()).unwrap_or("");
+                let value = field.get("value").and_then(|v| v.as_str()).unwrap_or("");
+                if !title.is_empty() || !value.is_empty() {
+                    parts.push(format!("{title}: {value}"));
+                }
+            }
+        }
+
+        // fallback — only if nothing else was found for this attachment
+        if parts.is_empty() {
+            if let Some(fallback) = attachment.get("fallback").and_then(|v| v.as_str()) {
+                if !fallback.is_empty() {
+                    parts.push(fallback.to_string());
+                }
+            }
+        }
+    }
+
+    let raw = parts.join("\n");
+    format_slack_text(&raw)
+}
+
 /// Convert Slack mrkdwn markup to readable markdown/plain text.
 pub fn format_slack_text(text: &str) -> String {
     let mut result = text.to_string();
@@ -422,5 +483,91 @@ mod tests {
             extract_text_from_blocks(blocks.as_array().unwrap()),
             "Ping @alice in #ops"
         );
+    }
+
+    // --- extract_text_from_attachments tests ---
+
+    #[test]
+    fn attachments_prometheus_alert() {
+        let attachments = serde_json::json!([
+            {
+                "color": "danger",
+                "title": "[FIRING:1] HighMemoryUsage",
+                "text": "Memory usage is above 90% on node-1",
+                "fields": [
+                    { "title": "severity", "value": "critical", "short": true },
+                    { "title": "instance", "value": "10.0.0.1:9090", "short": true }
+                ],
+                "fallback": "HighMemoryUsage firing"
+            }
+        ]);
+        let result = extract_text_from_attachments(attachments.as_array().unwrap());
+        assert!(result.contains("[FIRING:1] HighMemoryUsage"));
+        assert!(result.contains("Memory usage is above 90% on node-1"));
+        assert!(result.contains("severity: critical"));
+        assert!(result.contains("instance: 10.0.0.1:9090"));
+    }
+
+    #[test]
+    fn attachments_with_pretext() {
+        let attachments = serde_json::json!([
+            {
+                "pretext": "New alert from Grafana",
+                "title": "CPU Spike",
+                "text": "CPU at 98%"
+            }
+        ]);
+        let result = extract_text_from_attachments(attachments.as_array().unwrap());
+        assert!(result.starts_with("New alert from Grafana"));
+        assert!(result.contains("CPU Spike"));
+        assert!(result.contains("CPU at 98%"));
+    }
+
+    #[test]
+    fn attachments_fallback_only() {
+        let attachments = serde_json::json!([
+            {
+                "fallback": "Alert: DiskFull on prod-db-1"
+            }
+        ]);
+        assert_eq!(
+            extract_text_from_attachments(attachments.as_array().unwrap()),
+            "Alert: DiskFull on prod-db-1"
+        );
+    }
+
+    #[test]
+    fn attachments_empty() {
+        let attachments = serde_json::json!([]);
+        assert_eq!(
+            extract_text_from_attachments(attachments.as_array().unwrap()),
+            ""
+        );
+    }
+
+    #[test]
+    fn attachments_mrkdwn_converted() {
+        let attachments = serde_json::json!([
+            {
+                "text": "Alert for <@U123|alice> in <#C456|ops>"
+            }
+        ]);
+        assert_eq!(
+            extract_text_from_attachments(attachments.as_array().unwrap()),
+            "Alert for @alice in #ops"
+        );
+    }
+
+    #[test]
+    fn attachments_multiple() {
+        let attachments = serde_json::json!([
+            { "title": "Alert 1", "text": "First alert" },
+            { "title": "Alert 2", "text": "Second alert" }
+        ]);
+        let result = extract_text_from_attachments(attachments.as_array().unwrap());
+        assert!(result.contains("Alert 1"));
+        assert!(result.contains("First alert"));
+        assert!(result.contains("Alert 2"));
+        assert!(result.contains("Second alert"));
     }
 }
