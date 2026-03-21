@@ -8,6 +8,11 @@
 
 export interface GitHubConfigResponse {
   connected: boolean;
+  /**
+   * True when a GitHub-OAuth user has an active PAT override.
+   * @nullable
+   */
+  hasPatOverride?: boolean | null;
   /** @nullable */
   login?: string | null;
   /** @nullable */

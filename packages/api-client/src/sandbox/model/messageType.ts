@@ -7,7 +7,7 @@
  */
 
 /**
- * Type of message in the conversation.
+ * Type of task message.
  */
 export type MessageType = typeof MessageType[keyof typeof MessageType];
 

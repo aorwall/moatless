@@ -6,6 +6,9 @@
  * OpenAPI spec version: 0.1.0
  */
 
+/**
+ * Tag as embedded in a task response (minimal: id + name only).
+ */
 export interface TagResponse {
   name: string;
   tagId: string;

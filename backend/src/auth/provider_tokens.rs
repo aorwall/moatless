@@ -25,6 +25,23 @@ pub struct ProviderToken {
 #[async_trait]
 pub trait ProviderTokenAuthRepository: Send + Sync {
     async fn upsert_provider_token(&self, token: &ProviderToken) -> Result<(), sqlx::Error>;
+
+    /// Look up the `token_type` for a user+provider row (e.g. "pat" or "bearer").
+    /// Used to detect PAT overrides before blindly overwriting during OAuth re-login.
+    async fn find_token_type(
+        &self,
+        user_id: &str,
+        provider: &str,
+    ) -> Result<Option<String>, sqlx::Error>;
+
+    /// Update the stashed OAuth token in `metadata.oauth_access_token` for an existing
+    /// PAT-override row without overwriting the PAT itself.
+    async fn update_stashed_oauth_token(
+        &self,
+        user_id: &str,
+        provider: &str,
+        oauth_access_token: &str,
+    ) -> Result<(), sqlx::Error>;
 }
 
 /// PostgreSQL implementation of [`ProviderTokenAuthRepository`].
@@ -64,6 +81,45 @@ impl ProviderTokenAuthRepository for PgProviderTokenAuthRepository {
         .bind(&token.provider_login)
         .bind(token.connected_at)
         .bind(token.expires_at)
+        .execute(&self.0)
+        .await?;
+        Ok(())
+    }
+
+    async fn find_token_type(
+        &self,
+        user_id: &str,
+        provider: &str,
+    ) -> Result<Option<String>, sqlx::Error> {
+        let row: Option<(Option<String>,)> = sqlx::query_as(
+            "SELECT token_type FROM provider_tokens WHERE user_id = $1 AND provider = $2",
+        )
+        .bind(user_id)
+        .bind(provider)
+        .fetch_optional(&self.0)
+        .await?;
+        Ok(row.and_then(|r| r.0))
+    }
+
+    async fn update_stashed_oauth_token(
+        &self,
+        user_id: &str,
+        provider: &str,
+        oauth_access_token: &str,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"UPDATE provider_tokens
+               SET metadata = jsonb_set(
+                   COALESCE(metadata, '{}'),
+                   '{oauth_access_token}',
+                   to_jsonb($3::text)
+               ),
+               updated_at = NOW()
+               WHERE user_id = $1 AND provider = $2"#,
+        )
+        .bind(user_id)
+        .bind(provider)
+        .bind(oauth_access_token)
         .execute(&self.0)
         .await?;
         Ok(())

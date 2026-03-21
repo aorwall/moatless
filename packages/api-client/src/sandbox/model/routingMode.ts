@@ -7,7 +7,7 @@
  */
 
 /**
- * Routing mode from channel_configs.routing_mode.
+ * Channel routing mode for message-to-task mapping.
  */
 export type RoutingMode = typeof RoutingMode[keyof typeof RoutingMode];
 

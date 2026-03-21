@@ -6,6 +6,9 @@
  * OpenAPI spec version: 0.1.0
  */
 
+/**
+ * Git hosting provider.
+ */
 export type RepositoryProvider = typeof RepositoryProvider[keyof typeof RepositoryProvider];
 
 

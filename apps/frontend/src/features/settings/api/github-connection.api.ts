@@ -1,4 +1,4 @@
-import { unwrapResponse } from '@moatless/api-client/custom-instance'
+import { customInstance, unwrapResponse } from '@moatless/api-client/custom-instance'
 import type {
   ExchangeTokenRequest,
   GitHubConfigResponse,
@@ -16,6 +16,7 @@ import {
 type ExchangeGitHubTokenResponse = { success: boolean; message: string }
 type DisconnectGitHubResponse = { success: boolean; message: string }
 type SaveGitHubPATResponse = { success: boolean; message: string }
+type RemovePATOverrideResponse = { data: GitHubConfigResponse; status: number; headers: Headers }
 
 export const githubConnectionApi = {
   /**
@@ -52,6 +53,17 @@ export const githubConnectionApi = {
   savePAT: async (request: SavePatRequest): Promise<SaveGitHubPATResponse> => {
     return await unwrapResponse<SaveGitHubPATResponse>(
       saveGithubPatHandler({ token: request.token }),
+    )
+  },
+
+  /**
+   * Remove PAT override (restore OAuth token for GitHub-OAuth users)
+   */
+  removePATOverride: async (): Promise<GitHubConfigResponse> => {
+    return await unwrapResponse<GitHubConfigResponse>(
+      customInstance<RemovePATOverrideResponse>('/api/v1/settings/github/pat', {
+        method: 'DELETE',
+      }),
     )
   },
 }

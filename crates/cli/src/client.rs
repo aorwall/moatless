@@ -256,6 +256,17 @@ impl MoatClient {
         self.handle_response(resp).await
     }
 
+    /// Raw DELETE (no body).
+    pub async fn raw_delete(&self, path: &str) -> Result<serde_json::Value, ClientError> {
+        let url = format!("{}{path}", self.base_url);
+        if self.verbose {
+            eprintln!("DELETE {url}");
+        }
+        let http = Self::build_http_client(&self.auth_mode);
+        let resp = http.delete(&url).send().await?;
+        self.handle_response(resp).await
+    }
+
     async fn handle_response(
         &self,
         resp: reqwest::Response,

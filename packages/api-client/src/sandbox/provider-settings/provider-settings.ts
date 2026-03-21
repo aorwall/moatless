@@ -576,6 +576,99 @@ export const useSaveGithubPat = <TError = ErrorType<ErrorBody>,
       return useMutation(getSaveGithubPatMutationOptions(options), queryClient);
     }
     /**
+ * @summary Remove a PAT override for a GitHub-OAuth user, restoring the original OAuth token.
+ */
+export type deleteGithubPatOverrideResponse200 = {
+  data: GitHubConfigResponse
+  status: 200
+}
+
+export type deleteGithubPatOverrideResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
+export type deleteGithubPatOverrideResponse401 = {
+  data: ErrorBody
+  status: 401
+}
+    
+export type deleteGithubPatOverrideResponseSuccess = (deleteGithubPatOverrideResponse200) & {
+  headers: Headers;
+};
+export type deleteGithubPatOverrideResponseError = (deleteGithubPatOverrideResponse400 | deleteGithubPatOverrideResponse401) & {
+  headers: Headers;
+};
+
+export type deleteGithubPatOverrideResponse = (deleteGithubPatOverrideResponseSuccess | deleteGithubPatOverrideResponseError)
+
+export const getDeleteGithubPatOverrideUrl = () => {
+
+
+  
+
+  return `/api/v1/settings/github/pat`
+}
+
+export const deleteGithubPatOverride = async ( options?: RequestInit): Promise<deleteGithubPatOverrideResponse> => {
+  
+  return customInstance<deleteGithubPatOverrideResponse>(getDeleteGithubPatOverrideUrl(),
+  {      
+    ...options,
+    method: 'DELETE'
+    
+    
+  }
+);}
+
+
+
+
+export const getDeleteGithubPatOverrideMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteGithubPatOverride>>, TError,void, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteGithubPatOverride>>, TError,void, TContext> => {
+
+const mutationKey = ['deleteGithubPatOverride'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteGithubPatOverride>>, void> = () => {
+          
+
+          return  deleteGithubPatOverride(requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteGithubPatOverrideMutationResult = NonNullable<Awaited<ReturnType<typeof deleteGithubPatOverride>>>
+    
+    export type DeleteGithubPatOverrideMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Remove a PAT override for a GitHub-OAuth user, restoring the original OAuth token.
+ */
+export const useDeleteGithubPatOverride = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteGithubPatOverride>>, TError,void, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof deleteGithubPatOverride>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getDeleteGithubPatOverrideMutationOptions(options), queryClient);
+    }
+    /**
  * @summary Get current Gitness configuration for the user.
  */
 export type getGitnessConfigResponse200 = {

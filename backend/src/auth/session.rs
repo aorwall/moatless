@@ -93,33 +93,59 @@ pub async fn create_session(
     };
     sessions.insert_session(&session).await?;
 
-    // For GitHub OAuth, also persist to provider_tokens for cross-context access
+    // For GitHub OAuth, also persist to provider_tokens for cross-context access.
+    // If a PAT override is active, update the stashed OAuth token instead of overwriting.
     if provider_id == "github" && !tokens.access_token.is_empty() {
-        let pt = ProviderToken {
-            user_id: user_info.id.clone(),
-            provider: "github".to_string(),
-            auth_method: "oauth".to_string(),
-            access_token: tokens.access_token.clone(),
-            refresh_token: None,
-            token_type: Some(tokens.token_type.clone()),
-            scope: tokens.scope.clone(),
-            provider_user_id: Some(user_info.id.clone()),
-            provider_login: Some(user_info.login.clone()),
-            connected_at: now,
-            expires_at: None,
-        };
-        if let Err(e) = provider_tokens.upsert_provider_token(&pt).await {
-            warn!(
-                error = %e,
-                user_id = %user_info.id,
-                "Failed to persist GitHub OAuth token to provider_tokens"
-            );
+        let existing_token_type = provider_tokens
+            .find_token_type(&user_info.id, "github")
+            .await
+            .unwrap_or(None);
+
+        if existing_token_type.as_deref() == Some("pat") {
+            // PAT override is active — refresh the stashed OAuth token in metadata
+            if let Err(e) = provider_tokens
+                .update_stashed_oauth_token(&user_info.id, "github", &tokens.access_token)
+                .await
+            {
+                warn!(
+                    error = %e,
+                    user_id = %user_info.id,
+                    "Failed to update stashed OAuth token in provider_tokens"
+                );
+            } else {
+                info!(
+                    user_id = %user_info.id,
+                    login = %user_info.login,
+                    "Updated stashed OAuth token (PAT override active)"
+                );
+            }
         } else {
-            info!(
-                user_id = %user_info.id,
-                login = %user_info.login,
-                "Persisted GitHub OAuth token to provider_tokens"
-            );
+            let pt = ProviderToken {
+                user_id: user_info.id.clone(),
+                provider: "github".to_string(),
+                auth_method: "oauth".to_string(),
+                access_token: tokens.access_token.clone(),
+                refresh_token: None,
+                token_type: Some(tokens.token_type.clone()),
+                scope: tokens.scope.clone(),
+                provider_user_id: Some(user_info.id.clone()),
+                provider_login: Some(user_info.login.clone()),
+                connected_at: now,
+                expires_at: None,
+            };
+            if let Err(e) = provider_tokens.upsert_provider_token(&pt).await {
+                warn!(
+                    error = %e,
+                    user_id = %user_info.id,
+                    "Failed to persist GitHub OAuth token to provider_tokens"
+                );
+            } else {
+                info!(
+                    user_id = %user_info.id,
+                    login = %user_info.login,
+                    "Persisted GitHub OAuth token to provider_tokens"
+                );
+            }
         }
     }
 

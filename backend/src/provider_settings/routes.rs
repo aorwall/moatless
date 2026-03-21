@@ -14,6 +14,7 @@ use crate::state::AppState;
     paths(
         handlers::get_github_config,
         handlers::save_github_pat,
+        handlers::delete_github_pat_override,
         handlers::get_github_oauth_url,
         handlers::exchange_github_token,
         handlers::delete_github_config,
@@ -28,7 +29,7 @@ pub struct ProviderSettingsApiDoc;
 pub fn provider_settings_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenApi) {
     let (router, api) = OpenApiRouter::with_openapi(ProviderSettingsApiDoc::openapi())
         .routes(routes!(handlers::get_github_config, handlers::delete_github_config))
-        .routes(routes!(handlers::save_github_pat))
+        .routes(routes!(handlers::save_github_pat, handlers::delete_github_pat_override))
         .routes(routes!(handlers::get_github_oauth_url))
         .routes(routes!(handlers::exchange_github_token))
         .routes(routes!(handlers::get_gitness_config, handlers::delete_gitness_config))

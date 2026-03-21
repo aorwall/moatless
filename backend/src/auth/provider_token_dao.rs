@@ -113,8 +113,8 @@ impl ProviderTokenRepository for PgProviderTokenRepository {
         metadata: Option<&serde_json::Value>,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
-            r#"INSERT INTO provider_tokens (user_id, provider, access_token, refresh_token, token_type, metadata, updated_at)
-               VALUES ($1, $2, $3, $4, $5, $6, NOW())
+            r#"INSERT INTO provider_tokens (user_id, provider, access_token, refresh_token, token_type, metadata, auth_method, connected_at, updated_at)
+               VALUES ($1, $2, $3, $4, $5, $6, 'manual', NOW(), NOW())
                ON CONFLICT ON CONSTRAINT provider_tokens_scope_uq
                DO UPDATE SET access_token = $3, refresh_token = $4, token_type = $5, metadata = $6, updated_at = NOW()"#,
         )

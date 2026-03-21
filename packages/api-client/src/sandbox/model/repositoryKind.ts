@@ -6,6 +6,9 @@
  * OpenAPI spec version: 0.1.0
  */
 
+/**
+ * Kind of repository source.
+ */
 export type RepositoryKind = typeof RepositoryKind[keyof typeof RepositoryKind];
 
 

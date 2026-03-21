@@ -11,6 +11,9 @@ pub struct GitHubConfigResponse {
     pub login: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token_type: Option<String>,
+    /// True when a GitHub-OAuth user has an active PAT override.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub has_pat_override: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

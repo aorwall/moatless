@@ -4,5 +4,6 @@ pub mod info;
 pub mod messages;
 pub mod misc;
 pub mod repos;
+pub mod settings;
 pub mod tasks;
 pub mod teams;

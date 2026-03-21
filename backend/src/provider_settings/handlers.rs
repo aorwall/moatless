@@ -28,6 +28,8 @@ pub async fn get_github_config(
     let token = state.provider_tokens.find_provider_token_full(&auth.user_id, "github")
         .await?;
 
+    let is_github_oauth_user = auth.provider.as_deref() == Some("github");
+
     match token {
         Some(row) => {
             let login = row
@@ -37,16 +39,24 @@ pub async fn get_github_config(
                 .and_then(|v| v.as_str())
                 .map(std::string::ToString::to_string);
 
+            let has_pat_override = if is_github_oauth_user {
+                Some(row.token_type.as_deref() == Some("pat"))
+            } else {
+                None
+            };
+
             Ok(Json(GitHubConfigResponse {
                 connected: true,
                 login,
                 token_type: row.token_type,
+                has_pat_override,
             }))
         }
         None => Ok(Json(GitHubConfigResponse {
             connected: false,
             login: None,
             token_type: None,
+            has_pat_override: if is_github_oauth_user { Some(false) } else { None },
         })),
     }
 }
@@ -72,7 +82,51 @@ pub async fn save_github_pat(
         .await
         .map_err(ProviderSettingsError::ProviderError)?;
 
-    let metadata = serde_json::json!({ "login": login });
+    let mut metadata = serde_json::json!({ "login": login });
+
+    // For GitHub-OAuth users, preserve the original OAuth token so it can be restored later
+    if auth.provider.as_deref() == Some("github") {
+        if let Ok(Some(existing)) = state
+            .provider_tokens
+            .find_provider_token_full(&auth.user_id, "github")
+            .await
+        {
+            if existing.token_type.as_deref() == Some("pat") {
+                // Already a PAT override — preserve the stashed OAuth token
+                if let Some(stashed) = existing
+                    .metadata
+                    .as_ref()
+                    .and_then(|m| m.get("oauth_access_token"))
+                    .and_then(|v| v.as_str())
+                {
+                    metadata["oauth_access_token"] =
+                        serde_json::Value::String(stashed.to_string());
+                }
+                if let Some(oauth_login) = existing
+                    .metadata
+                    .as_ref()
+                    .and_then(|m| m.get("oauth_login"))
+                    .and_then(|v| v.as_str())
+                {
+                    metadata["oauth_login"] =
+                        serde_json::Value::String(oauth_login.to_string());
+                }
+            } else {
+                // Stash the current OAuth token
+                metadata["oauth_access_token"] =
+                    serde_json::Value::String(existing.access_token.clone());
+                if let Some(oauth_login) = existing
+                    .metadata
+                    .as_ref()
+                    .and_then(|m| m.get("login"))
+                    .and_then(|v| v.as_str())
+                {
+                    metadata["oauth_login"] =
+                        serde_json::Value::String(oauth_login.to_string());
+                }
+            }
+        }
+    }
 
     state.provider_tokens.upsert_token(
         &auth.user_id,
@@ -84,10 +138,13 @@ pub async fn save_github_pat(
     )
     .await?;
 
+    let is_github_oauth_user = auth.provider.as_deref() == Some("github");
+
     Ok(Json(GitHubConfigResponse {
         connected: true,
         login: Some(login),
         token_type: Some("pat".to_string()),
+        has_pat_override: if is_github_oauth_user { Some(true) } else { None },
     }))
 }
 
@@ -216,6 +273,83 @@ pub async fn delete_github_config(
         connected: false,
         login: None,
         token_type: None,
+        has_pat_override: None,
+    }))
+}
+
+/// Remove a PAT override for a GitHub-OAuth user, restoring the original OAuth token.
+#[utoipa::path(
+    delete,
+    path = "/api/v1/settings/github/pat",
+    tag = "provider-settings",
+    responses(
+        (status = 200, description = "PAT override removed", body = GitHubConfigResponse),
+        (status = 400, description = "No PAT override to remove", body = crate::error::ErrorBody),
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn delete_github_pat_override(
+    State(state): State<AppState>,
+    auth: AuthUser,
+) -> Result<Json<GitHubConfigResponse>, ProviderSettingsError> {
+    if auth.provider.as_deref() != Some("github") {
+        return Err(ProviderSettingsError::BadRequest(
+            "PAT override removal is only available for GitHub-OAuth users".to_string(),
+        ));
+    }
+
+    let token = state
+        .provider_tokens
+        .find_provider_token_full(&auth.user_id, "github")
+        .await?
+        .ok_or_else(|| ProviderSettingsError::NotFound("No GitHub token found".to_string()))?;
+
+    if token.token_type.as_deref() != Some("pat") {
+        return Err(ProviderSettingsError::BadRequest(
+            "No PAT override to remove".to_string(),
+        ));
+    }
+
+    // Restore the stashed OAuth token from metadata
+    let oauth_token = token
+        .metadata
+        .as_ref()
+        .and_then(|m| m.get("oauth_access_token"))
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| {
+            ProviderSettingsError::BadRequest(
+                "Cannot restore OAuth token — original token not preserved".to_string(),
+            )
+        })?
+        .to_string();
+
+    let oauth_login = token
+        .metadata
+        .as_ref()
+        .and_then(|m| m.get("oauth_login"))
+        .and_then(|v| v.as_str())
+        .map(std::string::ToString::to_string);
+
+    let login = oauth_login.unwrap_or_else(|| auth.login.clone());
+    let metadata = serde_json::json!({ "login": login });
+
+    state
+        .provider_tokens
+        .upsert_token(
+            &auth.user_id,
+            "github",
+            &oauth_token,
+            None,
+            Some("bearer"),
+            Some(&metadata),
+        )
+        .await?;
+
+    Ok(Json(GitHubConfigResponse {
+        connected: true,
+        login: Some(login),
+        token_type: Some("bearer".to_string()),
+        has_pat_override: Some(false),
     }))
 }
 

@@ -1,7 +1,9 @@
 //! Channel commands: list, create, defaults.
 
 use clap::Subcommand;
-use moatless_api_schemas::channel::{ChannelConfigResponse, CreateChannelConfigRequest};
+use moatless_api_schemas::channel::{
+    ChannelConfigResponse, CreateChannelConfigRequest, UpdateChannelConfigRequest,
+};
 use moatless_api_schemas::enums::{ChannelType, RoutingMode};
 
 use crate::client::{ClientError, MoatClient};
@@ -24,6 +26,35 @@ pub enum ChannelAction {
         /// Provider-specific config as JSON (e.g. '{"access_policy":"open","trigger":"all_messages"}')
         #[arg(long)]
         provider_config: Option<String>,
+        /// System prompt template for the channel
+        #[arg(long)]
+        prompt_template: Option<String>,
+    },
+    /// Update a channel config
+    Update {
+        /// Channel config ID
+        id: String,
+        /// Repository ID to route messages to
+        #[arg(long)]
+        repo: Option<String>,
+        /// Routing mode (ongoing, per_message, thread_based)
+        #[arg(long)]
+        mode: Option<String>,
+        /// Display name for the source
+        #[arg(long)]
+        source_name: Option<String>,
+        /// Enable or disable the channel (true/false)
+        #[arg(long)]
+        active: Option<bool>,
+        /// Provider-specific config as JSON
+        #[arg(long)]
+        provider_config: Option<String>,
+        /// Prompt template
+        #[arg(long)]
+        prompt_template: Option<String>,
+        /// Response config ID
+        #[arg(long)]
+        response_config_id: Option<String>,
     },
     /// Manage default settings for a channel provider
     Defaults {
@@ -76,6 +107,7 @@ pub async fn run(
             repo,
             mode,
             provider_config,
+            prompt_template,
         } => {
             let parsed_config = parse_provider_config(provider_config.as_deref())?
                 .map(serde_json::Value::Object);
@@ -85,7 +117,7 @@ pub async fn run(
                 source_id: source,
                 repository_id: repo,
                 routing_mode: parse_routing_mode(&mode),
-                prompt_template: None,
+                prompt_template,
                 provider_config: parsed_config,
                 response_config_id: None,
                 scope: None,
@@ -97,6 +129,36 @@ pub async fn run(
                 output::print_json_typed(&created);
             } else {
                 println!("Channel config created: {}", created.id);
+            }
+        }
+        ChannelAction::Update {
+            id,
+            repo,
+            mode,
+            source_name,
+            active,
+            provider_config,
+            prompt_template,
+            response_config_id,
+        } => {
+            let parsed_config = parse_provider_config(provider_config.as_deref())?
+                .map(serde_json::Value::Object);
+
+            let req = UpdateChannelConfigRequest {
+                repository_id: repo,
+                routing_mode: mode.as_deref().map(parse_routing_mode),
+                source_name,
+                active,
+                provider_config: parsed_config,
+                prompt_template: prompt_template.map(Some),
+                response_config_id: response_config_id.map(Some),
+            };
+            let updated = client.api().update_channel_config(&id, &req).await?;
+            if json {
+                output::print_json_typed(&updated);
+            } else {
+                println!("Channel config updated: {}", updated.id);
+                format_channels(&[updated]);
             }
         }
         ChannelAction::Defaults { action: defaults } => {

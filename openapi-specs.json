@@ -434,6 +434,49 @@
         }
       }
     },
+    "/api/sandbox/v1/tasks/{task_id}/redeploy": {
+      "post": {
+        "tags": [
+          "sandbox"
+        ],
+        "summary": "Redeploy a sandbox (delete Deployment/Service/IngressRoutes, recreate with fresh repo config).",
+        "description": "Preserves workspace data (PVC). Use after updating repo server configs.",
+        "operationId": "redeploy_handler",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sandbox redeployed successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProvisionResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Redeploy failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/sandbox/v1/tasks/{task_id}/restart": {
       "post": {
         "tags": [
@@ -582,7 +625,7 @@
           "sandbox"
         ],
         "summary": "Stream server logs via SSE.",
-        "description": "Returns a Server-Sent Events stream of log lines for the given server.\nThe response body cannot be represented in OpenAPI (SSE streaming).",
+        "description": "Returns a Server-Sent Events stream of log lines for the given server.\nPass `?previous=true` to fetch logs from a crashed/restarted container.\nThe response body cannot be represented in OpenAPI (SSE streaming).",
         "operationId": "server_logs_handler",
         "parameters": [
           {
@@ -601,6 +644,15 @@
             "required": true,
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "previous",
+            "in": "query",
+            "description": "Fetch logs from previous container instance",
+            "required": true,
+            "schema": {
+              "type": "boolean"
             }
           }
         ],
@@ -2551,6 +2603,45 @@
           },
           "400": {
             "description": "Invalid token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "provider-settings"
+        ],
+        "summary": "Remove a PAT override for a GitHub-OAuth user, restoring the original OAuth token.",
+        "operationId": "delete_github_pat_override",
+        "responses": {
+          "200": {
+            "description": "PAT override removed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubConfigResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No PAT override to remove",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
             "content": {
               "application/json": {
                 "schema": {
@@ -4643,6 +4734,78 @@
           }
         }
       },
+      "ContainerDiagnostics": {
+        "type": "object",
+        "description": "Container-level diagnostics for troubleshooting sandbox issues.",
+        "required": [
+          "name",
+          "state",
+          "restartCount"
+        ],
+        "properties": {
+          "cpuMillicores": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "CPU usage in millicores (from K8s Metrics API, if available)",
+            "minimum": 0
+          },
+          "exitCode": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "lastExitCode": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "lastTerminatedReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "memoryMb": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Memory usage in megabytes (from K8s Metrics API, if available)",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string"
+          },
+          "restartCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "state": {
+            "type": "string",
+            "description": "Container state: \"running\", \"waiting\", \"terminated\", \"unknown\""
+          },
+          "terminatedReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "waitingReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "ContentBlock": {
         "oneOf": [
           {
@@ -5747,6 +5910,13 @@
           "connected": {
             "type": "boolean"
           },
+          "hasPatOverride": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "True when a GitHub-OAuth user has an active PAT override."
+          },
           "login": {
             "type": [
               "string",
@@ -6028,7 +6198,7 @@
       },
       "MessageType": {
         "type": "string",
-        "description": "Type of message in the conversation.",
+        "description": "Type of task message.",
         "enum": [
           "assistant",
           "user",
@@ -6372,6 +6542,7 @@
       },
       "RepositoryKind": {
         "type": "string",
+        "description": "Kind of repository source.",
         "enum": [
           "git",
           "remote",
@@ -6380,6 +6551,7 @@
       },
       "RepositoryProvider": {
         "type": "string",
+        "description": "Git hosting provider.",
         "enum": [
           "github",
           "gitlab",
@@ -6788,12 +6960,52 @@
       },
       "RoutingMode": {
         "type": "string",
-        "description": "Routing mode from channel_configs.routing_mode.",
+        "description": "Channel routing mode for message-to-task mapping.",
         "enum": [
           "ongoing",
           "per_message",
           "thread_based"
         ]
+      },
+      "RuntimeEvent": {
+        "type": "object",
+        "description": "A provider-agnostic runtime event associated with a sandbox.\n\nIn K8s mode, these are sourced from K8s Event objects (FailedScheduling,\nBackOff, Pulling, etc.). Docker mode can populate from `docker events`.",
+        "required": [
+          "reason",
+          "message"
+        ],
+        "properties": {
+          "count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Number of times this event has occurred"
+          },
+          "lastTimestamp": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Last time the event occurred (ISO 8601)"
+          },
+          "message": {
+            "type": "string",
+            "description": "Human-readable message"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Event reason (e.g. \"BackOff\", \"FailedScheduling\", \"Pulling\", \"OOMKilled\")"
+          },
+          "severity": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Severity: \"normal\" or \"warning\""
+          }
+        }
       },
       "SandboxEventPayload": {
         "type": "object",
@@ -6858,6 +7070,15 @@
           "canExecute": {
             "type": "boolean"
           },
+          "containerDiagnostics": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ContainerDiagnostics"
+            }
+          },
           "environmentError": {
             "type": [
               "string",
@@ -6876,6 +7097,15 @@
                 "$ref": "#/components/schemas/ResourceMetrics"
               }
             ]
+          },
+          "runtimeEvents": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/RuntimeEvent"
+            }
           },
           "sandboxReady": {
             "type": "boolean"
@@ -7109,7 +7339,7 @@
       },
       "ServerConfig": {
         "type": "object",
-        "description": "Server config entry",
+        "description": "Server config entry.",
         "required": [
           "name"
         ],
@@ -7484,6 +7714,7 @@
       },
       "TagResponse": {
         "type": "object",
+        "description": "Tag as embedded in a task response (minimal: id + name only).",
         "required": [
           "tagId",
           "name"
@@ -8623,6 +8854,7 @@
       },
       "UserRole": {
         "type": "string",
+        "description": "Role assigned to a user.",
         "enum": [
           "user",
           "admin"

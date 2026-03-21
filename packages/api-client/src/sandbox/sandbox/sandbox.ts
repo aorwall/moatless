@@ -38,6 +38,7 @@ import type {
   SearchByNameRequest,
   SearchByNameResponse,
   SearchFilesRequest,
+  ServerLogsHandlerParams,
   ServerStatusResponse,
   WriteFileRequestBody
 } from '.././model';
@@ -889,6 +890,95 @@ export const useProvisionHandler = <TError = ErrorType<ErrorBody>,
       return useMutation(getProvisionHandlerMutationOptions(options), queryClient);
     }
     /**
+ * Preserves workspace data (PVC). Use after updating repo server configs.
+ * @summary Redeploy a sandbox (delete Deployment/Service/IngressRoutes, recreate with fresh repo config).
+ */
+export type redeployHandlerResponse200 = {
+  data: ProvisionResponse
+  status: 200
+}
+
+export type redeployHandlerResponse500 = {
+  data: ErrorBody
+  status: 500
+}
+    
+export type redeployHandlerResponseSuccess = (redeployHandlerResponse200) & {
+  headers: Headers;
+};
+export type redeployHandlerResponseError = (redeployHandlerResponse500) & {
+  headers: Headers;
+};
+
+export type redeployHandlerResponse = (redeployHandlerResponseSuccess | redeployHandlerResponseError)
+
+export const getRedeployHandlerUrl = (taskId: string,) => {
+
+
+  
+
+  return `/api/sandbox/v1/tasks/${taskId}/redeploy`
+}
+
+export const redeployHandler = async (taskId: string, options?: RequestInit): Promise<redeployHandlerResponse> => {
+  
+  return customInstance<redeployHandlerResponse>(getRedeployHandlerUrl(taskId),
+  {      
+    ...options,
+    method: 'POST'
+    
+    
+  }
+);}
+
+
+
+
+export const getRedeployHandlerMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof redeployHandler>>, TError,{taskId: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof redeployHandler>>, TError,{taskId: string}, TContext> => {
+
+const mutationKey = ['redeployHandler'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof redeployHandler>>, {taskId: string}> = (props) => {
+          const {taskId} = props ?? {};
+
+          return  redeployHandler(taskId,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RedeployHandlerMutationResult = NonNullable<Awaited<ReturnType<typeof redeployHandler>>>
+    
+    export type RedeployHandlerMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Redeploy a sandbox (delete Deployment/Service/IngressRoutes, recreate with fresh repo config).
+ */
+export const useRedeployHandler = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof redeployHandler>>, TError,{taskId: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof redeployHandler>>,
+        TError,
+        {taskId: string},
+        TContext
+      > => {
+      return useMutation(getRedeployHandlerMutationOptions(options), queryClient);
+    }
+    /**
  * @summary Restart a sandbox (stop + start).
  */
 export type restartHandlerResponse204 = {
@@ -1204,6 +1294,7 @@ export const prefetchServerStatusHandlerQuery = async <TData = Awaited<ReturnTyp
 
 /**
  * Returns a Server-Sent Events stream of log lines for the given server.
+Pass `?previous=true` to fetch logs from a crashed/restarted container.
 The response body cannot be represented in OpenAPI (SSE streaming).
  * @summary Stream server logs via SSE.
  */
@@ -1227,18 +1318,27 @@ export type serverLogsHandlerResponseError = (serverLogsHandlerResponse500) & {
 export type serverLogsHandlerResponse = (serverLogsHandlerResponseSuccess | serverLogsHandlerResponseError)
 
 export const getServerLogsHandlerUrl = (taskId: string,
-    serverName: string,) => {
+    serverName: string,
+    params: ServerLogsHandlerParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
+    
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
 
-  
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/sandbox/v1/tasks/${taskId}/servers/${serverName}/logs`
+  return stringifiedParams.length > 0 ? `/api/sandbox/v1/tasks/${taskId}/servers/${serverName}/logs?${stringifiedParams}` : `/api/sandbox/v1/tasks/${taskId}/servers/${serverName}/logs`
 }
 
 export const serverLogsHandler = async (taskId: string,
-    serverName: string, options?: RequestInit): Promise<serverLogsHandlerResponse> => {
+    serverName: string,
+    params: ServerLogsHandlerParams, options?: RequestInit): Promise<serverLogsHandlerResponse> => {
   
-  return customInstance<serverLogsHandlerResponse>(getServerLogsHandlerUrl(taskId,serverName),
+  return customInstance<serverLogsHandlerResponse>(getServerLogsHandlerUrl(taskId,serverName,params),
   {      
     ...options,
     method: 'GET'
@@ -1252,24 +1352,26 @@ export const serverLogsHandler = async (taskId: string,
 
 
 export const getServerLogsHandlerQueryKey = (taskId: string,
-    serverName: string,) => {
+    serverName: string,
+    params?: ServerLogsHandlerParams,) => {
     return [
-    `/api/sandbox/v1/tasks/${taskId}/servers/${serverName}/logs`
+    `/api/sandbox/v1/tasks/${taskId}/servers/${serverName}/logs`, ...(params ? [params] : [])
     ] as const;
     }
 
     
 export const getServerLogsHandlerQueryOptions = <TData = Awaited<ReturnType<typeof serverLogsHandler>>, TError = ErrorType<ErrorBody>>(taskId: string,
-    serverName: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof serverLogsHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+    serverName: string,
+    params: ServerLogsHandlerParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof serverLogsHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getServerLogsHandlerQueryKey(taskId,serverName);
+  const queryKey =  queryOptions?.queryKey ?? getServerLogsHandlerQueryKey(taskId,serverName,params);
 
   
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof serverLogsHandler>>> = ({ signal }) => serverLogsHandler(taskId,serverName, { signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof serverLogsHandler>>> = ({ signal }) => serverLogsHandler(taskId,serverName,params, { signal, ...requestOptions });
 
       
 
@@ -1284,7 +1386,8 @@ export type ServerLogsHandlerQueryError = ErrorType<ErrorBody>
 
 export function useServerLogsHandler<TData = Awaited<ReturnType<typeof serverLogsHandler>>, TError = ErrorType<ErrorBody>>(
  taskId: string,
-    serverName: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof serverLogsHandler>>, TError, TData>> & Pick<
+    serverName: string,
+    params: ServerLogsHandlerParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof serverLogsHandler>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
           Awaited<ReturnType<typeof serverLogsHandler>>,
           TError,
@@ -1295,7 +1398,8 @@ export function useServerLogsHandler<TData = Awaited<ReturnType<typeof serverLog
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
 export function useServerLogsHandler<TData = Awaited<ReturnType<typeof serverLogsHandler>>, TError = ErrorType<ErrorBody>>(
  taskId: string,
-    serverName: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof serverLogsHandler>>, TError, TData>> & Pick<
+    serverName: string,
+    params: ServerLogsHandlerParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof serverLogsHandler>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
           Awaited<ReturnType<typeof serverLogsHandler>>,
           TError,
@@ -1306,7 +1410,8 @@ export function useServerLogsHandler<TData = Awaited<ReturnType<typeof serverLog
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
 export function useServerLogsHandler<TData = Awaited<ReturnType<typeof serverLogsHandler>>, TError = ErrorType<ErrorBody>>(
  taskId: string,
-    serverName: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof serverLogsHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+    serverName: string,
+    params: ServerLogsHandlerParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof serverLogsHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
 /**
@@ -1315,11 +1420,12 @@ export function useServerLogsHandler<TData = Awaited<ReturnType<typeof serverLog
 
 export function useServerLogsHandler<TData = Awaited<ReturnType<typeof serverLogsHandler>>, TError = ErrorType<ErrorBody>>(
  taskId: string,
-    serverName: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof serverLogsHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+    serverName: string,
+    params: ServerLogsHandlerParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof serverLogsHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient 
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
 
-  const queryOptions = getServerLogsHandlerQueryOptions(taskId,serverName,options)
+  const queryOptions = getServerLogsHandlerQueryOptions(taskId,serverName,params,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
 
@@ -1331,11 +1437,12 @@ export function useServerLogsHandler<TData = Awaited<ReturnType<typeof serverLog
  */
 export const prefetchServerLogsHandlerQuery = async <TData = Awaited<ReturnType<typeof serverLogsHandler>>, TError = ErrorType<ErrorBody>>(
  queryClient: QueryClient, taskId: string,
-    serverName: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof serverLogsHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+    serverName: string,
+    params: ServerLogsHandlerParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof serverLogsHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 
   ): Promise<QueryClient> => {
 
-  const queryOptions = getServerLogsHandlerQueryOptions(taskId,serverName,options)
+  const queryOptions = getServerLogsHandlerQueryOptions(taskId,serverName,params,options)
 
   await queryClient.prefetchQuery(queryOptions);
 

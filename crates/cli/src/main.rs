@@ -65,6 +65,11 @@ enum Commands {
         #[command(subcommand)]
         action: commands::teams::TeamAction,
     },
+    /// Provider settings (GitHub PAT, etc.)
+    Settings {
+        #[command(subcommand)]
+        action: commands::settings::SettingsAction,
+    },
     /// List available commands
     #[command(name = "commands")]
     Cmds,
@@ -146,6 +151,9 @@ async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::Teams { action } => {
             commands::teams::run(&moat, action, cli.json).await?;
+        }
+        Commands::Settings { action } => {
+            commands::settings::run(&moat, action, cli.json).await?;
         }
         Commands::Cmds => {
             let cmds = moat.api().list_commands().await?;

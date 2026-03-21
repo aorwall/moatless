@@ -6,7 +6,9 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AgentState } from './agentState';
+import type { ContainerDiagnostics } from './containerDiagnostics';
 import type { ResourceMetrics } from './resourceMetrics';
+import type { RuntimeEvent } from './runtimeEvent';
 import type { SandboxState } from './sandboxState';
 import type { SandboxStatus } from './sandboxStatus';
 import type { ServerEntry } from './serverEntry';
@@ -18,9 +20,13 @@ export interface SandboxStatusFullResponse {
   agentState: AgentState;
   canExecute: boolean;
   /** @nullable */
+  containerDiagnostics?: ContainerDiagnostics[] | null;
+  /** @nullable */
   environmentError?: string | null;
   environmentStatus: SandboxStatus;
   resources?: null | ResourceMetrics;
+  /** @nullable */
+  runtimeEvents?: RuntimeEvent[] | null;
   sandboxReady: boolean;
   sandboxState: SandboxState;
   servers: ServerEntry[];

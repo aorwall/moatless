@@ -1,4 +1,8 @@
-import type { ExchangeTokenRequest, SavePatRequest } from '@moatless/api-client/sandbox/model'
+import type {
+  ExchangeTokenRequest,
+  GitHubConfigResponse,
+  SavePatRequest,
+} from '@moatless/api-client/sandbox/model'
 import {
   type UseMutationOptions,
   useMutation,
@@ -86,6 +90,23 @@ export function useSaveGitHubPAT(
     mutationFn: githubConnectionApi.savePAT,
     onSuccess: () => {
       // Invalidate GitHub config to refresh connection status
+      queryClient.invalidateQueries({ queryKey: queryKeys.settings.github() })
+    },
+    ...options,
+  })
+}
+
+/**
+ * Remove PAT override (restore OAuth token for GitHub-OAuth users)
+ */
+export function useRemoveGitHubPATOverride(
+  options?: UseMutationOptions<GitHubConfigResponse, ApiError>,
+) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: githubConnectionApi.removePATOverride,
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.settings.github() })
     },
     ...options,

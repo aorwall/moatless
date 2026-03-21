@@ -8,7 +8,7 @@
 import type { ServerConfigEnvVars } from './serverConfigEnvVars';
 
 /**
- * Server config entry
+ * Server config entry.
  */
 export interface ServerConfig {
   autoReload?: boolean;
