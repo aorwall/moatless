@@ -28,7 +28,7 @@ export const EVENT_INVALIDATION_MAP = {
     started: [queryKeys.tasks.sandboxStatus],
     stopped: [queryKeys.tasks.sandboxStatus],
     message: [queryKeys.tasks.messages], // Only messages, not status
-    completed: [queryKeys.tasks.detail], // Full turn impact
+    completed: [queryKeys.tasks.detail, queryKeys.tasks.sandboxStatus], // Full turn impact
     error: [queryKeys.tasks.detail, queryKeys.tasks.sandboxStatus],
   },
   sandbox: {

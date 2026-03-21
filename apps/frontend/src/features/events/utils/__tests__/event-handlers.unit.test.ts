@@ -46,9 +46,10 @@ describe('event-handlers', () => {
 
       const keys = getInvalidationKeys(event)
 
-      // Should invalidate task detail
-      expect(keys).toHaveLength(1)
+      // Should invalidate task detail and sandbox status (so thinking indicator clears)
+      expect(keys).toHaveLength(2)
       expect(keys[0]('task-456')).toEqual(queryKeys.tasks.detail('task-456'))
+      expect(keys[1]('task-456')).toEqual(queryKeys.tasks.sandboxStatus('task-456'))
     })
 
     it('should return correct invalidation keys for AGENT MESSAGE event', () => {
