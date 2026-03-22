@@ -90,3 +90,28 @@ pub async fn wait_for_files_available(
         tokio::time::sleep(Duration::from_secs(2)).await;
     }
 }
+
+/// Poll until `environment_status` contains an error or error message is set.
+pub async fn wait_for_sandbox_error(
+    client: &MoatClient,
+    task_id: &str,
+    timeout: Duration,
+) -> Option<String> {
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        if let Ok(status) = client.api().sandbox_status(task_id).await {
+            if status.environment_status == "error" || status.environment_status == "failed" {
+                return Some(status.environment_status);
+            }
+            if let Some(ref error) = status.environment_error {
+                if !error.is_empty() {
+                    return Some(error.clone());
+                }
+            }
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return None;
+        }
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    }
+}
