@@ -22,7 +22,7 @@ async fn create_webhook_config(
     client: &MoatClient,
     repo_id: &str,
     source_id: &str,
-    provider_config: Option<serde_json::Map<String, serde_json::Value>>,
+    provider_config: Option<serde_json::Value>,
 ) -> String {
     let req = CreateChannelConfigRequest {
         provider: ChannelType::Webhook,
@@ -106,7 +106,7 @@ async fn webhook_invalid_signature() {
         &client,
         &repo_id,
         &format!("sig-test-{suffix}"),
-        Some(provider_config),
+        Some(serde_json::Value::Object(provider_config)),
     )
     .await;
 

@@ -306,6 +306,28 @@ tasks:
         docker compose -f docker-compose/docker-compose.yml
         ps
 
+  # ── Docker Compose Integration Tests ──────────────────────────
+
+  test:compose:
+    desc: Build images, start compose, run integration tests, tear down
+    cmds:
+      - docker-compose/test-runner.sh {{.CLI_ARGS}}
+
+  test:compose:db:
+    desc: Run DB-tier integration tests (no sandbox build, fastest)
+    cmds:
+      - docker-compose/test-runner.sh --tier db
+
+  test:compose:sandbox:
+    desc: Run sandbox-tier integration tests
+    cmds:
+      - docker-compose/test-runner.sh --tier sandbox
+
+  test:compose:all:
+    desc: Run all integration test tiers
+    cmds:
+      - docker-compose/test-runner.sh --tier all
+
   # ── Cleanup ────────────────────────────────────────────────────
 
   clean:workers:

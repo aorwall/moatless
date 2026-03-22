@@ -65,7 +65,7 @@ async fn channel_config_crud_chain() {
     // CHAN-03: Update channel config
     let update = UpdateChannelConfigRequest {
         source_name: Some("Updated CRUD Webhook".into()),
-        prompt_template: Some("Please help: {message}".into()),
+        prompt_template: Some(Some("Please help: {message}".into())),
         ..Default::default()
     };
     let updated = client

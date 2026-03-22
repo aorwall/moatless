@@ -99,3 +99,62 @@ pub async fn ensure_template_repo(client: &MoatClient) -> String {
     req.remote_url = Some("https://github.com/aorwall/hello-world-ui.git".into());
     client.api().create_repository(&req).await.unwrap().id
 }
+
+/// Truncate all application tables. Requires docker CLI and running `moatless-postgres` container.
+///
+/// Mirrors the TypeScript `tests/api/helpers/db-reset.ts` behavior.
+pub fn reset_database() {
+    let tables = [
+        "task_message_content_blocks",
+        "task_message_contexts",
+        "task_messages",
+        "task_events",
+        "task_tags",
+        "tasks",
+        "repository_plugin_repos",
+        "plugin_repos",
+        "repositories",
+        "channel_configs",
+        "channel_threads",
+        "channel_pairing_requests",
+        "team_members",
+        "teams",
+        "sessions",
+        "api_keys",
+        "provider_tokens",
+        "users",
+        "commands",
+        "figma_imports",
+        "file_metadata",
+        "tags",
+    ];
+    let sql = format!("TRUNCATE {} CASCADE;", tables.join(", "));
+    let output = std::process::Command::new("docker")
+        .args([
+            "exec",
+            "moatless-postgres",
+            "psql",
+            "-U",
+            "moatless",
+            "-d",
+            "moatless",
+            "-c",
+            &sql,
+        ])
+        .output();
+
+    match output {
+        Ok(out) if out.status.success() => {
+            eprintln!("Database reset: truncated {} tables", tables.len());
+        }
+        Ok(out) => {
+            eprintln!(
+                "Database reset warning: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+        }
+        Err(e) => {
+            eprintln!("Database reset skipped (docker not available): {e}");
+        }
+    }
+}

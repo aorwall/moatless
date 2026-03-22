@@ -87,6 +87,9 @@ dev-browser/
 # Test reports (local)
 test-reports/
 
+# Integration test logs
+test-logs/
+
 # Issue notes (local)
 issues/
 

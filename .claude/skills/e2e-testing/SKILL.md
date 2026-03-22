@@ -1,201 +1,307 @@
 ---
 name: e2e-testing
-description: Execute end-to-end UI tests for the Moatless Vibe application. Tests repository configuration, task creation, agent execution, preview functionality, and screenshot verification. Use when validating application workflows, testing new features, or running regression tests. Supports both automated API-based testing and UI verification.
+description: Run and write E2E tests for Moatless Vibe. Covers Rust integration tests (crates/integration-tests/ — API/CLI, tiered by db/sandbox/agent) and Playwright UI tests (tests/ui/ — browser-based smoke, navigation, task creation). Use when running tests, writing new tests, setting up the test environment, or debugging test failures.
 ---
 
-# E2E Testing Skill
-
-Execute comprehensive end-to-end tests of the Moatless Vibe application using the MCP preview tools and API endpoints.
+# E2E Testing
 
 ## Overview
 
-This skill provides a framework for testing Moatless Vibe UI workflows end-to-end. It uses:
-- **API calls** for reliable task creation and status monitoring
-- **MCP preview tools** for navigation and screenshot verification
-- **Modular test cases** for different features (repository setup, task execution, etc.)
+Two test suites cover E2E testing:
 
-## Prerequisites
+| Suite | Location | Runner | What it tests |
+|-------|----------|--------|---------------|
+| **Rust integration tests** | `crates/integration-tests/` | `cargo test` | Backend API via HTTP (MoatClient/reqwest) |
+| **Playwright UI tests** | `tests/ui/` | `bun run test:e2e` | Browser-based UI workflows (Chromium) |
 
-Before running tests:
-- Moatless Vibe instance must be running
-- Preview server accessible (typically `http://localhost:PORT`)
-- MCP tools available: `mcp__moatless-tools__*`
+Both suites require the backend running at `http://localhost:8080` (Docker Compose).
 
-## Available Test Cases
+---
 
-Test cases are defined in the `test-cases/` directory:
+## Rust Integration Tests
 
-1. **Repository and Task Creation** (`test-cases/repo-and-task.md`)
-   - Verify repository configuration
-   - Create tasks via API
-   - Monitor agent execution
-   - Verify screenshots and preview
+### Test Tiers
 
-More test cases can be added as separate files in `test-cases/`.
+Tests are organized into three tiers with environment variable gates:
 
-## Test Execution Workflow
+| Tier | Env Gate | `cargo test` flags | Tests |
+|------|----------|-------------------|-------|
+| **db** | None | `-- --nocapture` | task_crud, task_errors, repo_crud, messages, channel_config, channel_errors, channel_routing, channel_cross_channel, channel_webhook_callback, auth_verify, auth_teams, auth_access |
+| **sandbox** | `SANDBOX_E2E=1` | `-- --ignored --nocapture` | sandbox_lifecycle, sandbox_errors, file_operations |
+| **agent** | `CLAUDE_SDK_E2E=1` | `-- --ignored --nocapture` | agent_execution_flow, agent_plan_mode, agent_stop_recovery, message_acknowledgment, plugin_repos_e2e |
 
-When running tests, follow this general pattern:
+The sandbox and agent tier tests use `#[ignore]` and only run with `-- --ignored`.
 
-### 1. Setup and Verification
-- Navigate to dashboard (`/`)
-- Verify application is accessible
-- Check prerequisites (repositories, configuration)
+### Shared Utilities (`crates/integration-tests/src/`)
 
-### 2. Execute Test Steps
-- Use API calls for reliable data operations
-- Use MCP tools for UI verification
-- Document each step's result
+**`lib.rs`** — Core helpers:
+- `test_client()` — Unauthenticated `MoatClient` (reads `MOATLESS_API_URL`, defaults to `http://localhost:8080`)
+- `client_as_user(user_id, login, role)` — Client with ForwardAuth headers
+- `client_as_user_with_teams(user_id, login, role, team_ids)` — Client with team membership
+- `seed_test_users()` — Seeds alice, bob, carol via ForwardAuth
+- `ensure_template_repo(client)` — Creates/finds template repo (`hello-world-ui.git`)
+- `reset_database()` — Truncates all 13 application tables via `docker exec moatless-postgres psql`
 
-### 3. Verification
-- Check expected outcomes (screenshots, status changes, etc.)
-- Use appropriate verification methods:
-  - API: Data integrity, status changes
-  - Screenshots: Visual confirmation of UI elements
-  - Logs: Error detection, timing
+**`sandbox_helpers.rs`** — Polling helpers (2s intervals):
+- `wait_for_sandbox_ready(client, task_id, timeout)` — Polls until `environment_status == "ready"` with stability re-check
+- `wait_for_agent_idle(client, task_id, timeout)` — Polls until `agent_state == "idle"`
+- `wait_for_files_available(client, task_id, timeout)` — Polls until workspace has files
+- `wait_for_sandbox_error(client, task_id, timeout)` — Polls for error state
 
-### 4. Report Results
-- Provide structured test report with pass/fail status
-- Include timing measurements
-- Document any issues found
-- Suggest troubleshooting steps if failures occur
+**`callback_server.rs`** — In-process HTTP server for webhook callback testing:
+- `CallbackServer::start()` — Binds ephemeral port, captures POST bodies as JSON
+- `wait_for_callback(timeout)` — Waits for a webhook to arrive
 
-## General Testing Best Practices
+**`raw_api.rs`** — Raw reqwest helpers for endpoints not in the generated API client (error cases, webhook sending, auth verify with custom headers).
 
-UI automation with `typeText` can trigger multiple form submissions when handling multi-line text, causing duplicate tasks.
+### Running Rust Integration Tests
 
-### UI Verification (Screenshots)
-
-Use MCP tools for visual verification:
-
-```javascript
-// Navigate to page
-mcp__moatless-tools__navigatePreview({ path: "/tasks/TASK_ID" })
-
-// Take screenshot
-mcp__moatless-tools__takePreviewScreenshot()
-
-// Verify elements via accessibility snapshot
-mcp__moatless-tools__takePreviewSnapshot()
-```
-
-**Note**: Direct iframe interaction (clicking, typing) may not work due to security restrictions. Use screenshots and accessibility snapshots for verification.
-
-### Status Monitoring
-
-Poll APIs for status changes:
+**Automated (recommended)** — builds images, starts compose, runs tests, tears down:
 
 ```bash
-# Check task status
-curl http://localhost:PORT/api/v1/tasks/TASK_ID | jq '{status, numTurns}'
+# DB-tier only (fastest, no sandbox build)
+docker-compose/test-runner.sh --tier db
 
-# Monitor until completion
-while [ "$(curl -s http://localhost:PORT/api/v1/tasks/TASK_ID | jq -r '.status')" = "running" ]; do
-  echo "Agent still running..."
-  sleep 15
-done
+# Sandbox-tier (builds sandbox images)
+docker-compose/test-runner.sh --tier sandbox
+
+# Agent-tier (requires Claude credentials)
+CLAUDE_CODE_OAUTH_TOKEN=... docker-compose/test-runner.sh --tier agent
+
+# All tiers
+CLAUDE_CODE_OAUTH_TOKEN=... docker-compose/test-runner.sh --tier all
+
+# Single test file
+docker-compose/test-runner.sh --test task_crud
+
+# Skip build, keep running for debugging
+docker-compose/test-runner.sh --skip-build --keep-running --tier db
 ```
 
-## Running a Test
-
-To execute a specific test case:
-
-1. **Identify the test case** you want to run (e.g., repo-and-task)
-2. **Read the test case file** for specific instructions
-3. **Execute the steps** using the appropriate tools (API, MCP tools)
-4. **Verify results** against success criteria
-5. **Generate test report** with findings
-
-## Test Report Format
-
-Each test should produce a structured report:
-
-```markdown
-## Test Report: [Test Name]
-
-**Date**: [timestamp]
-**Duration**: [time]
-**Result**: PASS/FAIL
-
-### Test Summary
-- [Brief overview of what was tested]
-- [Overall outcome]
-
-### Detailed Results
-| Step | Status | Notes |
-|------|--------|-------|
-| Step 1 | ✅ PASS | [details] |
-| Step 2 | ❌ FAIL | [error message] |
-
-### Issues Found
-- [Issue 1 description]
-- [Issue 2 description]
-
-### Recommendations
-- [Suggestion 1]
-- [Suggestion 2]
-```
-
-## Common Verification Patterns
-
-### Verify Repository Configuration
+**Via Taskfile:**
 
 ```bash
-curl http://localhost:PORT/api/v1/repositories | \
-  jq '.repositories[] | select(.name == "REPO_NAME")'
+task test:compose:db       # DB tier
+task test:compose:sandbox  # Sandbox tier
+task test:compose:all      # All tiers
+task test:compose -- --test task_crud --keep-running  # Custom flags
 ```
 
-Expected fields:
-- `codeExecution.setupCommands`: Array of setup commands
-- `previewConfig.serverStartCommands`: Array of server start commands
-- `previewConfig.takeScreenshots`: `true`
-- `previewConfig.autoReload`: `true`
-
-### Verify Task Creation
+**Manual** (when backend is already running):
 
 ```bash
-# Check no duplicates created within last minute
-curl http://localhost:PORT/api/v1/tasks?limit=20 | \
-  jq '.tasks[0:5] | group_by(.name) | map(select(length > 1))'
+# DB-tier tests
+MOATLESS_API_URL=http://localhost:8080 cargo test -p moatless-integration-tests -- --nocapture
+
+# Sandbox tests
+SANDBOX_E2E=1 MOATLESS_API_URL=http://localhost:8080 cargo test -p moatless-integration-tests -- --ignored --nocapture
+
+# Single test
+cargo test -p moatless-integration-tests --test task_crud -- --nocapture
 ```
 
-### Verify Agent Completion
+### Writing a New Rust Integration Test
+
+1. Create `crates/integration-tests/tests/<name>.rs`
+2. Use the shared helpers:
+
+```rust
+use integration_tests::{test_client, seed_test_users, reset_database};
+
+#[tokio::test]
+async fn my_test() {
+    reset_database();
+    seed_test_users().await;
+
+    let client = test_client();
+    // ... test API calls via client.api()
+}
+```
+
+3. For sandbox/agent tests, add `#[ignore]` and document the env gate:
+
+```rust
+#[tokio::test]
+#[ignore] // Requires SANDBOX_E2E=1
+async fn my_sandbox_test() {
+    // Use sandbox_helpers for polling
+    use integration_tests::sandbox_helpers;
+    // ...
+}
+```
+
+---
+
+## Playwright UI E2E Tests
+
+### Structure
+
+```
+tests/ui/
+  playwright.config.ts       # Config: Chromium, 180s timeout, 2 workers
+  specs/
+    smoke.spec.ts            # App loads, endpoints accessible
+    task-creation.spec.ts    # Create task via API, verify in UI
+    navigation.spec.ts       # Route navigation, direct URL access
+  fixtures/
+    ui-fixtures.ts           # Custom fixtures: api, testRepoId
+tests/shared/
+  api-client.ts              # Type-safe API client (fetch-based, ~100 methods)
+  wait-helpers.ts            # Polling helpers (workspace ready, agent idle)
+  sse-collector.ts           # NDJSON event stream collector
+```
+
+### Configuration
+
+- **Browser:** Chromium only
+- **Test timeout:** 180s
+- **Expect timeout:** 15s
+- **Workers:** 2 (CI: 1)
+- **Base URL:** `DOCKER_COMPOSE_URL` or `http://localhost:${BACKEND_PORT:-8080}`
+- **Artifacts:** Screenshots on failure, videos retained on failure, traces on first retry
+
+### Custom Fixtures
+
+The `ui-fixtures.ts` provides:
+
+- **`api`** — `ApiClient` instance pointed at the backend. Performs a health check on setup (throws if backend is down).
+- **`testRepoId`** — Template repository ID. Auto-creates one if none exists.
+
+Usage in tests:
+
+```typescript
+import { test, expect } from "../fixtures/ui-fixtures";
+
+test("my test", async ({ page, api, testRepoId }) => {
+  const task = await api.createVibeTask({
+    templateId: testRepoId,
+    name: "Test Task",
+    message: "Do something",
+  });
+
+  await page.goto(`/tasks/${task.id}`);
+  await page.waitForLoadState("networkidle");
+  await expect(page.locator("#root")).toBeVisible();
+
+  // Cleanup
+  await api.stopTask(task.id);
+  await api.deleteTask(task.id);
+});
+```
+
+### Running Playwright UI Tests
+
+Requires the backend to be running (via Docker Compose or `dev-docker.sh`).
 
 ```bash
-curl http://localhost:PORT/api/v1/tasks/TASK_ID | \
-  jq '{
-    status,
-    numTurns,
-    hasScreenshot: (.iterations[0].screenshot_file_id != null),
-    completionTime: .iterations[0].end_time
-  }'
+# Run all UI E2E tests
+bun run test:e2e
+
+# Interactive UI mode
+bun run test:e2e:ui
+
+# Headed (visible browser)
+bun run test:e2e:headed
+
+# Debug mode (step-through)
+bun run test:e2e:debug
+
+# Via Taskfile
+task test:ui
 ```
 
-## Error Handling
+### Writing a New Playwright Test
 
-If a test fails:
+1. Create `tests/ui/specs/<name>.spec.ts`
+2. Import from fixtures:
 
-1. **Capture diagnostic information**:
-   - API response bodies
-   - Screenshot of current UI state
-   - Console logs if available
-   - Server logs via `mcp__moatless-tools__getPreviewServerLogs`
+```typescript
+import { test, expect } from "../fixtures/ui-fixtures";
 
-2. **Check common issues**:
-   - JSON parse errors → Repository configuration format
-   - Task not starting → Repository ID or API endpoint
-   - No screenshot → `takeScreenshots` setting
-   - Duplicate tasks → UI vs API creation method
+test.describe("Feature Name", () => {
+  test("scenario description", async ({ page, api, testRepoId }) => {
+    // Setup via API (faster than UI interaction)
+    // Navigate with page.goto()
+    // Assert with expect()
+    // Cleanup via API
+  });
+});
+```
 
-3. **Provide actionable guidance**:
-   - Reference troubleshooting documentation
-   - Suggest API commands to diagnose
-   - Recommend manual verification steps
+---
 
-## Resources
+## Environment Setup
 
-- **Test Cases**: `test-cases/` - Individual test scenarios
-- **Test Data**: `resources/test-data.md` - Sample prompts and configurations
-- **Reference**: `resources/api-reference.md` - API endpoint documentation
+### Docker Compose Test Runner (recommended)
 
-For detailed test case instructions, see the files in `test-cases/` directory.
+`docker-compose/test-runner.sh` handles the full lifecycle:
+
+1. Builds backend Docker image (and sandbox images if needed)
+2. Stops existing containers, removes volumes
+3. Starts `postgres`, `redis`, `backend` with CI overlay (auth disabled)
+4. Polls `/health` until ready (60s max)
+5. Resets database (truncates all tables)
+6. Runs tests, captures output to `test-logs/`
+7. Captures compose logs
+8. Tears down (unless `--keep-running`)
+
+**Flags:**
+
+| Flag | Description |
+|------|-------------|
+| `--tier <db\|sandbox\|agent\|all>` | Test tier (default: `db`) |
+| `--test <name>` | Single test file |
+| `--skip-build` | Reuse existing Docker images |
+| `--keep-running` | Don't tear down (for debugging) |
+| `--verbose` | Set `RUST_LOG=debug` on backend |
+
+**Environment variables:**
+
+| Variable | Required for | Default |
+|----------|-------------|---------|
+| `TASK_TOKEN_SECRET` | All | Auto-generated |
+| `DATA_DIR` | All | `$HOME/.moatless/data` |
+| `CLAUDE_CODE_OAUTH_TOKEN` | agent tier | - |
+| `ANTHROPIC_API_KEY` | agent tier | - |
+| `GITHUB_PAT` | repo clone tests | - |
+
+### Manual Setup
+
+```bash
+# Start backend + dependencies
+./docker-compose/dev-docker.sh --no-logs
+
+# Then run tests separately:
+cargo test -p moatless-integration-tests -- --nocapture    # Rust tests
+bun run test:e2e                                   # Playwright tests
+```
+
+### After `--keep-running`
+
+```bash
+# Inspect logs
+docker compose -f docker-compose/docker-compose.yml -f docker-compose/docker-compose.ci.yml logs backend
+
+# Tear down manually
+docker compose -f docker-compose/docker-compose.yml -f docker-compose/docker-compose.ci.yml down --remove-orphans
+```
+
+---
+
+## Debugging Test Failures
+
+**Rust tests:**
+- Check `test-logs/test-<tier>-<timestamp>.log` for test output
+- Check `test-logs/compose-<timestamp>.log` for backend logs
+- Use `--keep-running` + `--verbose` to inspect live
+
+**Playwright tests:**
+- HTML report: `test-results/ui/`
+- Screenshots captured on failure
+- Use `bun run test:e2e:debug` for step-through debugging
+
+**Common issues:**
+- Backend not healthy: check `docker compose logs backend`
+- Tests can't connect: verify `MOATLESS_API_URL` is set correctly
+- Sandbox tests fail: ensure sandbox image is built (`docker/build-sandbox.sh --local`)
+- Agent tests fail: check `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` is set
