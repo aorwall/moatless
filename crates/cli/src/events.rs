@@ -188,4 +188,61 @@ impl EventCollector {
             })
             .count()
     }
+
+    /// Wait for an event matching type/subType where a payload field equals a value.
+    ///
+    /// Useful for filtering events by payload content, e.g. waiting for a
+    /// `sandbox.initializing` event with `payload.reason == "PluginReposCloned"`.
+    pub async fn wait_for_event_with_payload(
+        &self,
+        event_type: &str,
+        sub_type: Option<&str>,
+        task_id: &str,
+        payload_key: &str,
+        payload_value: &str,
+        timeout: Duration,
+    ) -> Option<SseEvent> {
+        let deadline = tokio::time::Instant::now() + timeout;
+        loop {
+            {
+                let guard = self.events.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                if let Some(evt) = guard.iter().rev().find(|e| {
+                    e.event_type == event_type
+                        && e.task_id.as_deref() == Some(task_id)
+                        && match sub_type {
+                            Some(st) => e.sub_type.as_deref() == Some(st),
+                            None => true,
+                        }
+                        && e.payload
+                            .get(payload_key)
+                            .and_then(|v| v.as_str())
+                            == Some(payload_value)
+                }) {
+                    return Some(evt.clone());
+                }
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return None;
+            }
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+    }
+
+    /// Return a summary of event counts by type.subType for a given task.
+    ///
+    /// Useful for test diagnostics.
+    pub fn event_summary(&self, task_id: &str) -> Vec<(String, usize)> {
+        let guard = self.events.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        for e in guard.iter().filter(|e| e.task_id.as_deref() == Some(task_id)) {
+            let key = match &e.sub_type {
+                Some(st) => format!("{}.{}", e.event_type, st),
+                None => e.event_type.clone(),
+            };
+            *counts.entry(key).or_default() += 1;
+        }
+        let mut result: Vec<_> = counts.into_iter().collect();
+        result.sort_by(|a, b| a.0.cmp(&b.0));
+        result
+    }
 }
