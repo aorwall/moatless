@@ -141,6 +141,13 @@ moat channels create --provider github_pr --source owner/repo --repo <repo-id> -
 moat channels create --provider github_pr --source owner/repo --repo <repo-id> --mode thread_based \
   --provider-config '{"bot_token":"ghp_abc","webhook_secret":"whsec_xyz","bot_username":"my-bot[bot]"}'
 
+# Cron — scheduled task trigger (runs on a cron schedule)
+# IMPORTANT: The cron library requires 7-field expressions:
+#   sec min hour dom month dow year
+# Standard 5-field crontab (e.g. "0 6 * * MON-FRI") will be rejected.
+moat channels create --provider cron --source daily-check --repo <repo-id> --mode per_message \
+  --provider-config '{"schedule":"0 0 6 * * MON-FRI *","message":"Run daily check","user_id":"<user-id>"}'
+
 # Set provider defaults (Slack/Telegram only — GitHub PR is always per-repo)
 moat channels defaults set --provider slack --repo <repo-id> --mode per_message
 

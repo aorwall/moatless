@@ -9,6 +9,8 @@ use tracing::{info, warn};
 use crate::extractors::AuthUser;
 use crate::state::AppState;
 
+use cron::Schedule;
+
 use super::config_dao::ChannelConfigPatch;
 use super::error::ChannelError;
 use super::inbound;
@@ -616,6 +618,9 @@ pub async fn create_config(
 ) -> Result<Json<ChannelConfigResponse>, ChannelError> {
     info!(provider = %req.provider, source_id = %req.source_id, "Creating channel config");
 
+    // Validate cron schedule if applicable
+    validate_cron_schedule(req.provider.as_str(), req.provider_config.as_ref())?;
+
     // Validate repository exists
     state.repositories.find_repository_by_id(&req.repository_id)
         .await?
@@ -653,6 +658,8 @@ pub async fn create_config(
         response_config_id: req.response_config_id,
         scope,
         team_id: req.team_id,
+        task_name: req.task_name,
+        tag_ids: req.tag_ids.unwrap_or_default(),
         created_by: auth.user_id,
         created_at: now,
         updated_at: now,
@@ -746,9 +753,12 @@ pub async fn update_config(
     info!(config_id = %id, "Updating channel config");
 
     // Verify exists and accessible
-    state.channel_configs.find_by_id_scoped(&id, &auth.scope_context())
+    let existing = state.channel_configs.find_by_id_scoped(&id, &auth.scope_context())
         .await?
         .ok_or_else(|| ChannelError::ConfigNotFound(id.clone()))?;
+
+    // Validate cron schedule if updating provider_config on a cron channel
+    validate_cron_schedule(&existing.provider, req.provider_config.as_ref())?;
 
     let patch = ChannelConfigPatch {
         source_name: req.source_name,
@@ -758,6 +768,8 @@ pub async fn update_config(
         active: req.active,
         provider_config: req.provider_config,
         response_config_id: req.response_config_id,
+        task_name: req.task_name,
+        tag_ids: req.tag_ids,
         ..Default::default()
     };
 
@@ -843,6 +855,9 @@ pub async fn set_defaults(
 ) -> Result<Json<ChannelConfigResponse>, ChannelError> {
     info!(provider = %provider, "Setting channel defaults");
 
+    // Validate cron schedule if applicable
+    validate_cron_schedule(&provider, req.provider_config.as_ref())?;
+
     // Validate repository exists
     state
         .repositories
@@ -872,6 +887,8 @@ pub async fn set_defaults(
             prompt_template: Some(req.prompt_template),
             provider_config: req.provider_config,
             response_config_id: Some(req.response_config_id),
+            task_name: Some(req.task_name),
+            tag_ids: req.tag_ids,
             ..Default::default()
         };
 
@@ -903,6 +920,8 @@ pub async fn set_defaults(
             response_config_id: req.response_config_id,
             scope: crate::scope::Scope::Global,
             team_id: team_id.map(str::to_string),
+            task_name: req.task_name,
+            tag_ids: req.tag_ids.unwrap_or_default(),
             created_by: auth.user_id,
             created_at: now,
             updated_at: now,
@@ -942,4 +961,34 @@ pub async fn delete_config(
     state.channel_configs.delete(&id).await?;
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// Validate cron schedule in provider_config if the provider is "cron".
+///
+/// The `cron` crate expects 7-field expressions: `sec min hour dom month dow year`.
+/// Returns `BadRequest` if the schedule field is present but cannot be parsed.
+fn validate_cron_schedule(
+    provider: &str,
+    provider_config: Option<&serde_json::Value>,
+) -> Result<(), ChannelError> {
+    if provider != "cron" {
+        return Ok(());
+    }
+
+    let Some(schedule_str) = provider_config
+        .and_then(|c| c.get("schedule"))
+        .and_then(|v| v.as_str())
+    else {
+        return Ok(());
+    };
+
+    schedule_str.parse::<Schedule>().map_err(|e| {
+        ChannelError::BadRequest(format!(
+            "Invalid cron schedule \"{schedule_str}\": {e}. \
+             The cron library requires 7-field expressions: sec min hour dom month dow year \
+             (e.g. \"0 0 6 * * MON-FRI *\")"
+        ))
+    })?;
+
+    Ok(())
 }
