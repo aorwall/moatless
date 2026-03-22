@@ -126,3 +126,197 @@ impl claude_agent_sdk::PermissionHandler for InteractivePermissionHandler {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use claude_agent_sdk::types::permissions::PermissionContext;
+    use claude_agent_sdk::PermissionHandler;
+
+    fn test_context() -> PermissionContext {
+        PermissionContext {
+            tool_use_id: "tu-1".to_string(),
+            agent_id: None,
+            suggestions: None,
+            blocked_path: None,
+            decision_reason: None,
+        }
+    }
+
+    fn empty_input() -> serde_json::Map<String, serde_json::Value> {
+        serde_json::Map::new()
+    }
+
+    #[tokio::test]
+    async fn plan_mode_denies_write_tool() {
+        let state = Arc::new(AgentState::new());
+        let handler = InteractivePermissionHandler::with_plan_mode(state, true);
+        let result = handler
+            .can_use_tool("Write", &empty_input(), test_context())
+            .await;
+        assert!(
+            matches!(result, claude_agent_sdk::PermissionResult::Deny { .. }),
+            "Write should be denied in plan mode"
+        );
+    }
+
+    #[tokio::test]
+    async fn plan_mode_denies_bash_tool() {
+        let state = Arc::new(AgentState::new());
+        let handler = InteractivePermissionHandler::with_plan_mode(state, true);
+        let result = handler
+            .can_use_tool("Bash", &empty_input(), test_context())
+            .await;
+        assert!(matches!(
+            result,
+            claude_agent_sdk::PermissionResult::Deny { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn plan_mode_denies_edit_tool() {
+        let state = Arc::new(AgentState::new());
+        let handler = InteractivePermissionHandler::with_plan_mode(state, true);
+        let result = handler
+            .can_use_tool("Edit", &empty_input(), test_context())
+            .await;
+        assert!(matches!(
+            result,
+            claude_agent_sdk::PermissionResult::Deny { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn plan_mode_allows_read_tool() {
+        let state = Arc::new(AgentState::new());
+        let handler = InteractivePermissionHandler::with_plan_mode(state, true);
+        let result = handler
+            .can_use_tool("Read", &empty_input(), test_context())
+            .await;
+        assert!(
+            matches!(
+                result,
+                claude_agent_sdk::PermissionResult::Allow { .. }
+            ),
+            "Read should be allowed even in plan mode"
+        );
+    }
+
+    #[tokio::test]
+    async fn no_plan_mode_allows_write_tool() {
+        let state = Arc::new(AgentState::new());
+        let handler = InteractivePermissionHandler::with_plan_mode(state, false);
+        let result = handler
+            .can_use_tool("Write", &empty_input(), test_context())
+            .await;
+        assert!(matches!(
+            result,
+            claude_agent_sdk::PermissionResult::Allow { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn non_interactive_tool_auto_allowed() {
+        let state = Arc::new(AgentState::new());
+        let handler = InteractivePermissionHandler::new(state);
+        let result = handler
+            .can_use_tool("Grep", &empty_input(), test_context())
+            .await;
+        assert!(matches!(
+            result,
+            claude_agent_sdk::PermissionResult::Allow {
+                updated_input: None,
+                ..
+            }
+        ));
+    }
+
+    #[tokio::test]
+    async fn ask_user_question_creates_pending_prompt() {
+        let state = Arc::new(AgentState::new());
+        let handler = InteractivePermissionHandler::new(Arc::clone(&state));
+
+        // Spawn handler in background — it will block on the oneshot
+        let handle = tokio::spawn(async move {
+            handler
+                .can_use_tool("AskUserQuestion", &empty_input(), test_context())
+                .await
+        });
+
+        // Wait for the prompt to appear
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert!(state.has_pending_prompt().await, "Prompt should be pending");
+
+        // Resolve the prompt
+        let prompt = state.take_pending_prompt().await.unwrap();
+        let _ = prompt.sender.send(PromptResponse::AskUserAnswer {
+            answers: serde_json::json!({ "text": "blue" }),
+        });
+
+        let result = handle.await.unwrap();
+        assert!(
+            matches!(result, claude_agent_sdk::PermissionResult::Allow { .. }),
+            "AskUserQuestion should be allowed after response"
+        );
+    }
+
+    #[tokio::test]
+    async fn exit_plan_mode_deactivates_plan_mode() {
+        let state = Arc::new(AgentState::new());
+        let handler = InteractivePermissionHandler::with_plan_mode(Arc::clone(&state), true);
+        let plan_mode = Arc::clone(&handler.plan_mode_active);
+
+        assert!(plan_mode.load(std::sync::atomic::Ordering::SeqCst));
+
+        let handle = tokio::spawn(async move {
+            handler
+                .can_use_tool("ExitPlanMode", &empty_input(), test_context())
+                .await
+        });
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        let prompt = state.take_pending_prompt().await.unwrap();
+        let _ = prompt.sender.send(PromptResponse::PlanApproved);
+
+        let result = handle.await.unwrap();
+        assert!(matches!(
+            result,
+            claude_agent_sdk::PermissionResult::Allow { .. }
+        ));
+        assert!(
+            !plan_mode.load(std::sync::atomic::Ordering::SeqCst),
+            "Plan mode should be deactivated after approval"
+        );
+    }
+
+    #[tokio::test]
+    async fn cancelled_prompt_returns_deny() {
+        let state = Arc::new(AgentState::new());
+        let handler = InteractivePermissionHandler::new(Arc::clone(&state));
+
+        let handle = tokio::spawn(async move {
+            handler
+                .can_use_tool("AskUserQuestion", &empty_input(), test_context())
+                .await
+        });
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        // Drop the prompt sender to simulate cancellation
+        let prompt = state.take_pending_prompt().await.unwrap();
+        drop(prompt.sender);
+
+        let result = handle.await.unwrap();
+        assert!(
+            matches!(
+                result,
+                claude_agent_sdk::PermissionResult::Deny {
+                    interrupt: Some(true),
+                    ..
+                }
+            ),
+            "Cancelled prompt should return Deny with interrupt"
+        );
+    }
+}

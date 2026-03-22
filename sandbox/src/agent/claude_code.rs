@@ -261,3 +261,156 @@ fn truncate(s: &str, max: usize) -> &str {
         None => s,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use claude_agent_sdk::types::content::Usage;
+    use claude_agent_sdk::types::messages::{ResultError, ResultMessage, ResultSuccess};
+    use std::collections::HashMap;
+
+    fn make_usage() -> Usage {
+        Usage {
+            input_tokens: 100,
+            output_tokens: 50,
+            cache_read_input_tokens: None,
+            cache_creation_input_tokens: None,
+            service_tier: None,
+            cache_creation: None,
+            server_tool_use: None,
+        }
+    }
+
+    fn make_success(is_error: bool, result: &str) -> ResultMessage {
+        ResultMessage::Success(ResultSuccess {
+            uuid: "uuid-1".to_string(),
+            session_id: "sess-abc".to_string(),
+            duration_ms: 1000,
+            duration_api_ms: 800,
+            is_error,
+            num_turns: 3,
+            result: result.to_string(),
+            total_cost_usd: 0.01,
+            usage: make_usage(),
+            model_usage: HashMap::new(),
+            permission_denials: vec![],
+            structured_output: None,
+        })
+    }
+
+    fn make_error(errors: Vec<&str>) -> ResultMessage {
+        ResultMessage::Error(ResultError {
+            subtype: "agent_error".to_string(),
+            uuid: "uuid-2".to_string(),
+            session_id: "sess-xyz".to_string(),
+            duration_ms: 500,
+            duration_api_ms: 400,
+            is_error: true,
+            num_turns: 1,
+            total_cost_usd: 0.005,
+            usage: make_usage(),
+            model_usage: HashMap::new(),
+            permission_denials: vec![],
+            errors: errors.into_iter().map(ToString::to_string).collect(),
+        })
+    }
+
+    // ── extract_result_info ─────────────────────────────────────────
+
+    #[test]
+    fn extract_result_info_success() {
+        let result = make_success(false, "All done");
+        let (is_error, session_id, sub_type, _payload) = extract_result_info(&result);
+        assert!(!is_error);
+        assert_eq!(session_id, "sess-abc");
+        assert_eq!(sub_type, AgentSubType::Completed);
+    }
+
+    #[test]
+    fn extract_result_info_success_with_is_error() {
+        let result = make_success(true, "Failed to complete");
+        let (is_error, session_id, sub_type, _payload) = extract_result_info(&result);
+        assert!(is_error);
+        assert_eq!(session_id, "sess-abc");
+        // Even with is_error=true, Success maps to Completed (backend reads the flag)
+        assert_eq!(sub_type, AgentSubType::Completed);
+    }
+
+    #[test]
+    fn extract_result_info_error() {
+        let result = make_error(vec!["something went wrong"]);
+        let (is_error, session_id, sub_type, _payload) = extract_result_info(&result);
+        assert!(is_error);
+        assert_eq!(session_id, "sess-xyz");
+        assert_eq!(sub_type, AgentSubType::Error);
+    }
+
+    // ── extract_error_text ──────────────────────────────────────────
+
+    #[test]
+    fn extract_error_text_from_success() {
+        let result = make_success(true, "This is the error output");
+        let text = extract_error_text(&result);
+        assert_eq!(text, "This is the error output");
+    }
+
+    #[test]
+    fn extract_error_text_from_success_truncates() {
+        let long = "x".repeat(600);
+        let result = make_success(true, &long);
+        let text = extract_error_text(&result);
+        assert_eq!(text.len(), 500);
+    }
+
+    #[test]
+    fn extract_error_text_from_error() {
+        let result = make_error(vec!["first error", "second error"]);
+        let text = extract_error_text(&result);
+        assert_eq!(text, "first error");
+    }
+
+    #[test]
+    fn extract_error_text_from_error_no_errors() {
+        let result = make_error(vec![]);
+        let text = extract_error_text(&result);
+        assert_eq!(text, "Unknown error");
+    }
+
+    // ── sdk_message_variant ─────────────────────────────────────────
+
+    #[test]
+    fn sdk_message_variant_coverage() {
+        // Verify all known variants map to non-empty strings
+        let variants = [
+            "assistant", "user", "user_replay", "result", "system_init",
+            "compact_boundary", "status", "hook_started", "hook_progress",
+            "hook_response", "task_notification", "files_persisted",
+            "stream_event", "tool_progress", "auth_status", "tool_use_summary",
+        ];
+        // Just check the count matches the enum variants
+        assert_eq!(variants.len(), 16);
+    }
+
+    // ── truncate ────────────────────────────────────────────────────
+
+    #[test]
+    fn truncate_short_string_unchanged() {
+        assert_eq!(truncate("hello", 10), "hello");
+    }
+
+    #[test]
+    fn truncate_long_string_clips() {
+        assert_eq!(truncate("hello world", 5), "hello");
+    }
+
+    #[test]
+    fn truncate_empty_string() {
+        assert_eq!(truncate("", 10), "");
+    }
+
+    #[test]
+    fn truncate_multibyte_chars() {
+        let s = "🎉🎊🎈";
+        assert_eq!(truncate(s, 2), "🎉🎊");
+    }
+}

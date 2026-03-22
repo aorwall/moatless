@@ -351,3 +351,191 @@ fn batch_messages(messages: Vec<InternalPendingMessage>) -> AgentRunRequest {
         agent_type,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_text_block(text: &str) -> ContentBlock {
+        ContentBlock::Text {
+            text: text.to_string(),
+        }
+    }
+
+    fn make_internal_msg(
+        text: &str,
+        is_error: bool,
+        model: Option<&str>,
+        system_prompt: Option<&str>,
+        resume: Option<ResumeSession>,
+        agent_type: Option<&str>,
+        uuid: Option<&str>,
+    ) -> InternalPendingMessage {
+        InternalPendingMessage {
+            content: vec![make_text_block(text)],
+            is_error,
+            model: model.map(ToString::to_string),
+            system_prompt: system_prompt.map(ToString::to_string),
+            resume,
+            agent_type: agent_type.map(ToString::to_string),
+            uuid: uuid.map(ToString::to_string),
+        }
+    }
+
+    // ── batch_messages ──────────────────────────────────────────────
+
+    #[test]
+    fn batch_messages_single_message() {
+        let msgs = vec![make_internal_msg(
+            "hello",
+            false,
+            Some("claude-sonnet-4-5-20250929"),
+            None,
+            None,
+            None,
+            Some("uuid-1"),
+        )];
+        let req = batch_messages(msgs);
+        assert_eq!(req.extract_text(), "hello");
+        assert_eq!(req.model.as_deref(), Some("claude-sonnet-4-5-20250929"));
+        assert!(req.system_prompt.is_none());
+        assert!(req.resume.is_none());
+    }
+
+    #[test]
+    fn batch_messages_multiple_messages_last_wins() {
+        let msgs = vec![
+            make_internal_msg(
+                "first",
+                false,
+                Some("model-a"),
+                Some("prompt-a"),
+                Some(ResumeSession::Last),
+                Some("agent-a"),
+                Some("u1"),
+            ),
+            make_internal_msg(
+                "second",
+                false,
+                Some("model-b"),
+                None,
+                Some(ResumeSession::WithId("sess-123".into())),
+                None,
+                Some("u2"),
+            ),
+        ];
+        let req = batch_messages(msgs);
+        assert_eq!(req.extract_text(), "first\nsecond");
+        assert_eq!(req.model.as_deref(), Some("model-b"));
+        assert_eq!(req.system_prompt.as_deref(), Some("prompt-a"));
+        assert_eq!(
+            req.resume,
+            Some(ResumeSession::WithId("sess-123".into()))
+        );
+        assert_eq!(req.agent_type.as_deref(), Some("agent-a"));
+    }
+
+    #[test]
+    fn batch_messages_error_message_prefix() {
+        let msgs = vec![make_internal_msg(
+            "something broke",
+            true,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )];
+        let req = batch_messages(msgs);
+        let text = req.extract_text();
+        assert!(
+            text.starts_with("[System Error - Sandbox Harness]"),
+            "Expected error prefix, got: {text}"
+        );
+        assert!(text.contains("something broke"));
+    }
+
+    #[test]
+    fn batch_messages_empty_vec() {
+        let req = batch_messages(vec![]);
+        assert!(req.content.is_empty());
+        assert!(req.model.is_none());
+        assert!(req.system_prompt.is_none());
+        assert!(req.resume.is_none());
+        assert!(req.agent_type.is_none());
+    }
+
+    // ── from_proto ──────────────────────────────────────────────────
+
+    #[test]
+    fn from_proto_resume_session_id() {
+        let msg = sandbox_proto::PendingMessage {
+            content: vec![],
+            is_error: None,
+            model: None,
+            system_prompt: None,
+            resume: None,
+            resume_session_id: Some("sess-abc".to_string()),
+            agent_type: None,
+            uuid: None,
+        };
+        let internal = InternalPendingMessage::from_proto(msg);
+        assert_eq!(
+            internal.resume,
+            Some(ResumeSession::WithId("sess-abc".to_string()))
+        );
+    }
+
+    #[test]
+    fn from_proto_resume_true_maps_to_last() {
+        let msg = sandbox_proto::PendingMessage {
+            content: vec![],
+            is_error: None,
+            model: None,
+            system_prompt: None,
+            resume: Some(true),
+            resume_session_id: None,
+            agent_type: None,
+            uuid: None,
+        };
+        let internal = InternalPendingMessage::from_proto(msg);
+        assert_eq!(internal.resume, Some(ResumeSession::Last));
+    }
+
+    #[test]
+    fn from_proto_resume_false_no_resume() {
+        let msg = sandbox_proto::PendingMessage {
+            content: vec![],
+            is_error: None,
+            model: None,
+            system_prompt: None,
+            resume: Some(false),
+            resume_session_id: None,
+            agent_type: None,
+            uuid: None,
+        };
+        let internal = InternalPendingMessage::from_proto(msg);
+        assert!(internal.resume.is_none());
+    }
+
+    #[test]
+    fn from_proto_defaults() {
+        let msg = sandbox_proto::PendingMessage {
+            content: vec![],
+            is_error: None,
+            model: None,
+            system_prompt: None,
+            resume: None,
+            resume_session_id: None,
+            agent_type: None,
+            uuid: None,
+        };
+        let internal = InternalPendingMessage::from_proto(msg);
+        assert!(!internal.is_error);
+        assert!(internal.model.is_none());
+        assert!(internal.system_prompt.is_none());
+        assert!(internal.resume.is_none());
+        assert!(internal.agent_type.is_none());
+        assert!(internal.uuid.is_none());
+    }
+}

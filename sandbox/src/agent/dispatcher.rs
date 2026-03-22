@@ -92,3 +92,55 @@ fn extract_text_from_content(content: &[ContentBlock]) -> String {
         .collect::<Vec<_>>()
         .join("\n")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent::types::{ImageSource, ImageSourceType};
+
+    #[test]
+    fn extract_text_joins_text_blocks() {
+        let content = vec![
+            ContentBlock::Text {
+                text: "hello".to_string(),
+            },
+            ContentBlock::Text {
+                text: "world".to_string(),
+            },
+        ];
+        assert_eq!(extract_text_from_content(&content), "hello\nworld");
+    }
+
+    #[test]
+    fn extract_text_skips_non_text_blocks() {
+        let content = vec![
+            ContentBlock::Text {
+                text: "before".to_string(),
+            },
+            ContentBlock::Image {
+                source: ImageSource {
+                    source_type: ImageSourceType::Base64,
+                    media_type: "image/png".to_string(),
+                    data: "abc".to_string(),
+                },
+            },
+            ContentBlock::Text {
+                text: "after".to_string(),
+            },
+        ];
+        assert_eq!(extract_text_from_content(&content), "before\nafter");
+    }
+
+    #[test]
+    fn extract_text_empty_content() {
+        assert_eq!(extract_text_from_content(&[]), "");
+    }
+
+    #[test]
+    fn extract_text_single_block() {
+        let content = vec![ContentBlock::Text {
+            text: "only".to_string(),
+        }];
+        assert_eq!(extract_text_from_content(&content), "only");
+    }
+}
