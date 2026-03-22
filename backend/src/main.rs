@@ -20,7 +20,7 @@ use moatless_vibe_backend::sandbox;
 use moatless_vibe_backend::sse::routes::sse_router;
 use moatless_vibe_backend::startup;
 use moatless_vibe_backend::state::AppState;
-use moatless_vibe_backend::{command, figma, file_storage, message, provider_settings, repository, tag, task, task_event, team};
+use moatless_vibe_backend::{command, figma, file_storage, message, plugin_repo, provider_settings, repository, tag, task, task_event, team};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -138,12 +138,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Arc::new(moatless_vibe_backend::auth::provider_token_dao::PgProviderTokenRepository(p.clone()))
                 as Arc<dyn moatless_vibe_backend::auth::provider_token_dao::ProviderTokenRepository>
         });
+    let sandbox_plugin_repos: Option<Arc<dyn moatless_vibe_backend::plugin_repo::dao::PluginRepoRepository>> =
+        db_pool.as_ref().map(|p| {
+            Arc::new(moatless_vibe_backend::plugin_repo::dao::PgPluginRepoRepository(p.clone()))
+                as Arc<dyn moatless_vibe_backend::plugin_repo::dao::PluginRepoRepository>
+        });
 
     let sandbox_state = sandbox::routes::SandboxApiState {
         provider: Arc::clone(&sandbox_provider),
         tasks: sandbox_tasks,
         repos: sandbox_repos,
         provider_tokens: sandbox_provider_tokens,
+        plugin_repos: sandbox_plugin_repos,
     };
     let (mut router, mut api) = sandbox::routes::api_router(sandbox_state);
 
@@ -192,6 +198,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             channel::routes::channel_router(app_state.clone()),
             team::routes::team_router(app_state.clone()),
             task_event::routes::task_event_router(app_state.clone()),
+            plugin_repo::routes::plugin_repo_router(app_state.clone()),
         ];
         for (mod_router, mod_api) in modules {
             router = router.merge(mod_router);

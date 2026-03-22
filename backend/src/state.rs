@@ -17,6 +17,7 @@ use crate::events::EventPublisher;
 use crate::figma::dao::{FigmaRepository, PgFigmaRepository};
 use crate::file_storage::dao::{FileRepository, PgFileRepository};
 use crate::message::dao::{MessageRepository, PgMessageRepository};
+use crate::plugin_repo::dao::{PgPluginRepoRepository, PluginRepoRepository};
 use crate::repository::dao::{PgRepoRepository, RepoRepository};
 use crate::sandbox::provider::SandboxProvider;
 use crate::tag::dao::{PgTagRepository, TagRepository};
@@ -60,6 +61,7 @@ pub struct AppState {
     pub provider_tokens: Arc<dyn ProviderTokenRepository>,
     pub teams: Arc<dyn TeamRepository>,
     pub task_events: Arc<dyn TaskEventRepository>,
+    pub plugin_repos: Arc<dyn PluginRepoRepository>,
 }
 
 impl AppState {
@@ -89,6 +91,7 @@ impl AppState {
             provider_tokens: Arc::new(PgProviderTokenRepository(pool.clone())),
             teams: Arc::new(PgTeamRepository(pool.clone())),
             task_events: Arc::new(PgTaskEventRepository(pool.clone())),
+            plugin_repos: Arc::new(PgPluginRepoRepository(pool.clone())),
             db: pool,
             config,
             sandbox,

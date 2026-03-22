@@ -86,6 +86,7 @@ pub async fn send_message(
         state.tasks.as_ref(),
         state.repositories.as_ref(),
         state.provider_tokens.as_ref(),
+        state.plugin_repos.as_ref(),
         &task_id,
     )
     .await

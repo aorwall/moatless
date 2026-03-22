@@ -25,6 +25,7 @@ pub mod figma;
 pub mod file_storage;
 pub mod message;
 pub mod metrics;
+pub mod plugin_repo;
 pub mod provider_settings;
 pub mod repository;
 pub mod sandbox;

@@ -87,9 +87,9 @@ fn build_system_prompt(config: &Config, request: &AgentRunRequest) -> Option<Sys
     }
 }
 
-/// Build plugin configs from config paths.
+/// Build plugin configs from config paths and cloned plugin repos.
 fn build_plugins(config: &Config) -> Vec<PluginConfig> {
-    config
+    let mut plugins: Vec<PluginConfig> = config
         .agent_config
         .plugin_paths
         .iter()
@@ -97,7 +97,25 @@ fn build_plugins(config: &Config) -> Vec<PluginConfig> {
             plugin_type: "local".to_string(),
             path: path.clone(),
         })
-        .collect()
+        .collect();
+
+    // Discover cloned plugin repos in /opt/moatless/plugins/
+    let plugins_dir = std::path::Path::new("/opt/moatless/plugins");
+    if plugins_dir.is_dir() {
+        if let Ok(entries) = std::fs::read_dir(plugins_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    plugins.push(PluginConfig {
+                        plugin_type: "local".to_string(),
+                        path: path.to_string_lossy().to_string(),
+                    });
+                }
+            }
+        }
+    }
+
+    plugins
 }
 
 /// Resolve session resume from request.

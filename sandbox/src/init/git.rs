@@ -228,7 +228,7 @@ fn extract_github_repo_path(url: &str) -> String {
 ///
 /// Converts `https://host/path.git` → `https://x-access-token:{token}@host/path.git`.
 /// If the URL already has credentials embedded, replaces them.
-fn inject_token_into_url(url: &str, token: &str) -> String {
+pub(crate) fn inject_token_into_url(url: &str, token: &str) -> String {
     if let Some(rest) = url.strip_prefix("https://") {
         // Strip any existing credentials (user:pass@)
         let host_and_path = if let Some(at_pos) = rest.find('@') {
@@ -279,7 +279,7 @@ async fn resolve_github_user() -> Result<(Option<String>, Option<String>), Strin
 }
 
 /// Run a command and return an error if it fails.
-async fn run_command(program: &str, args: &[&str]) -> Result<(), String> {
+pub(crate) async fn run_command(program: &str, args: &[&str]) -> Result<(), String> {
     let output = Command::new(program)
         .args(args)
         .output()

@@ -56,7 +56,8 @@ src/
 
 ## Reference
 
-Types mirror the TypeScript SDK at `node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts` (1777 lines). The existing TS consumer lives at `apps/sandbox/src/features/agents/claude-code/`.
+- **Claude Code CLI reference**: https://code.claude.com/docs/en/cli-reference — authoritative source for supported flags, options, and usage patterns
+- Types mirror the TypeScript SDK at `node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts` (1777 lines). The existing TS consumer lives at `apps/sandbox/src/features/agents/claude-code/`.
 
 ## Dependencies
 

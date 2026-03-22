@@ -650,6 +650,64 @@ impl ApiClient {
     ) -> Result<Vec<moatless_api_schemas::tag::TagResponse>, ApiError> {
         self.get("/api/v1/tags").await
     }
+
+    // ========================================================================
+    // Plugin Repos
+    // ========================================================================
+
+    /// GET /api/v1/plugin-repos
+    pub async fn list_plugin_repos(
+        &self,
+    ) -> Result<Vec<moatless_api_schemas::plugin_repo::PluginRepoResponse>, ApiError> {
+        self.get("/api/v1/plugin-repos").await
+    }
+
+    /// POST /api/v1/plugin-repos
+    pub async fn create_plugin_repo(
+        &self,
+        req: &moatless_api_schemas::plugin_repo::CreatePluginRepoRequest,
+    ) -> Result<moatless_api_schemas::plugin_repo::PluginRepoResponse, ApiError> {
+        self.post("/api/v1/plugin-repos", req).await
+    }
+
+    /// DELETE /api/v1/plugin-repos/{id}
+    pub async fn delete_plugin_repo(&self, id: &str) -> Result<(), ApiError> {
+        self.delete_request(&format!("/api/v1/plugin-repos/{id}"))
+            .await
+    }
+
+    /// GET /api/v1/repositories/{repo_id}/plugins
+    pub async fn list_repo_plugins(
+        &self,
+        repo_id: &str,
+    ) -> Result<Vec<moatless_api_schemas::plugin_repo::PluginRepoResponse>, ApiError> {
+        self.get(&format!("/api/v1/repositories/{repo_id}/plugins"))
+            .await
+    }
+
+    /// POST /api/v1/repositories/{repo_id}/plugins/{plugin_id}
+    pub async fn link_plugin_to_repo(
+        &self,
+        repo_id: &str,
+        plugin_id: &str,
+    ) -> Result<(), ApiError> {
+        self.post_empty(&format!(
+            "/api/v1/repositories/{repo_id}/plugins/{plugin_id}"
+        ))
+        .await
+    }
+
+    /// DELETE /api/v1/repositories/{repo_id}/plugins/{plugin_id}
+    pub async fn unlink_plugin_from_repo(
+        &self,
+        repo_id: &str,
+        plugin_id: &str,
+    ) -> Result<(), ApiError> {
+        self.delete_request(&format!(
+            "/api/v1/repositories/{repo_id}/plugins/{plugin_id}"
+        ))
+        .await
+    }
 }
 
 /// Percent-encode a value for use in a query string.

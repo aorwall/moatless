@@ -70,6 +70,21 @@ export interface SearchByNameResult {
 	files: Array<{ path: string; name: string }>;
 }
 
+// =============================================================================
+// Plugin Repo Types
+// =============================================================================
+
+export interface PluginRepoResponse {
+	id: string;
+	name: string;
+	gitUrl: string;
+}
+
+export interface CreatePluginRepoRequest {
+	name: string;
+	gitUrl: string;
+}
+
 export interface ChannelConfigResponse {
 	id: string;
 	provider: string;
@@ -885,6 +900,48 @@ export class ApiClient {
 	): Promise<TeamCredentialResponse[]> {
 		return this.fetchJson<TeamCredentialResponse[]>(
 			`${this.baseURL}/api/v1/teams/${teamId}/credentials`,
+		);
+	}
+
+	// =========================================================================
+	// Plugin Repo Operations
+	// =========================================================================
+
+	async createPluginRepo(req: CreatePluginRepoRequest): Promise<PluginRepoResponse> {
+		return this.fetchJson<PluginRepoResponse>(`${this.baseURL}/api/v1/plugin-repos`, {
+			method: "POST",
+			body: JSON.stringify(req),
+		});
+	}
+
+	async listPluginRepos(): Promise<PluginRepoResponse[]> {
+		return this.fetchJson<PluginRepoResponse[]>(`${this.baseURL}/api/v1/plugin-repos`);
+	}
+
+	async deletePluginRepo(id: string): Promise<void> {
+		await this.fetchRaw(`${this.baseURL}/api/v1/plugin-repos/${id}`, {
+			method: "DELETE",
+			throwOnError: true,
+		});
+	}
+
+	async listRepoPlugins(repoId: string): Promise<PluginRepoResponse[]> {
+		return this.fetchJson<PluginRepoResponse[]>(
+			`${this.baseURL}/api/v1/repositories/${repoId}/plugins`,
+		);
+	}
+
+	async linkPluginToRepo(repoId: string, pluginId: string): Promise<void> {
+		await this.fetchRaw(
+			`${this.baseURL}/api/v1/repositories/${repoId}/plugins/${pluginId}`,
+			{ method: "POST", throwOnError: true },
+		);
+	}
+
+	async unlinkPluginFromRepo(repoId: string, pluginId: string): Promise<void> {
+		await this.fetchRaw(
+			`${this.baseURL}/api/v1/repositories/${repoId}/plugins/${pluginId}`,
+			{ method: "DELETE", throwOnError: true },
 		);
 	}
 

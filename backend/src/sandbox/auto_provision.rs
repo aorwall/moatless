@@ -8,6 +8,7 @@ use std::env;
 use tracing::{info, warn};
 
 use crate::auth::provider_token_dao::ProviderTokenRepository;
+use crate::plugin_repo::dao::PluginRepoRepository;
 use crate::repository::dao::RepoRepository;
 use crate::repository::models::RepositoryProvider;
 use crate::sandbox::error::SandboxError;
@@ -33,6 +34,7 @@ pub async fn build_provision_request(
     tasks: &dyn TaskRepository,
     repos: &dyn RepoRepository,
     provider_tokens: &dyn ProviderTokenRepository,
+    plugin_repos: &dyn PluginRepoRepository,
     task_id: &str,
 ) -> Result<ProvisionRequest, SandboxError> {
     // 1. Read task from DB
@@ -79,8 +81,29 @@ pub async fn build_provision_request(
     let git_clone_url = repo.remote_url.clone().unwrap_or_default();
     let git_branch = task.branch.or(repo.default_branch.clone());
 
-    let repo_config = build_repo_config(&repo);
+    let mut repo_config = build_repo_config(&repo);
     let env_vars = crate::sandbox::k8s::auto_provision::parse_env_vars(&repo);
+
+    // Resolve plugin git repos from the join table
+    match plugin_repos.find_by_repository_id(&task.repository_id).await {
+        Ok(plugins) if !plugins.is_empty() => {
+            let urls: Vec<String> = plugins.into_iter().map(|p| p.git_url).collect();
+            info!(
+                task_id = %task_id,
+                count = urls.len(),
+                "Auto-provision: resolved plugin git repos"
+            );
+            repo_config.plugin_repos = Some(urls);
+        }
+        Ok(_) => {}
+        Err(e) => {
+            warn!(
+                task_id = %task_id,
+                error = %e,
+                "Auto-provision: failed to query plugin repos (non-fatal)"
+            );
+        }
+    }
 
     let plan = crate::sandbox::models::ProvisionPlan {
         repo_config,

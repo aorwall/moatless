@@ -37,6 +37,8 @@ struct RepoConfigFile {
     code_execution: Option<CodeExecutionConfig>,
     #[serde(default)]
     plugin_ids: Option<Vec<String>>,
+    #[serde(default)]
+    plugin_repos: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -59,6 +61,7 @@ struct ParsedRepoConfig {
     agent_config: AgentConfig,
     setup_commands: Vec<String>,
     plugin_ids: Vec<String>,
+    plugin_repos: Vec<String>,
 }
 
 /// Main sandbox configuration.
@@ -107,6 +110,8 @@ pub struct Config {
     pub setup_commands: Vec<String>,
     /// Plugin IDs from REPO_CONFIG.pluginIds
     pub plugin_ids: Vec<String>,
+    /// Plugin git repo URLs from REPO_CONFIG.pluginRepos
+    pub plugin_repos: Vec<String>,
 }
 
 impl Config {
@@ -166,6 +171,7 @@ impl Config {
             repo_config_raw: env::var("REPO_CONFIG").ok(),
             setup_commands: parsed.setup_commands,
             plugin_ids: parsed.plugin_ids,
+            plugin_repos: parsed.plugin_repos,
         }
     }
 }
@@ -179,6 +185,7 @@ fn parse_repo_config() -> ParsedRepoConfig {
                 agent_config: AgentConfig::default(),
                 setup_commands: Vec::new(),
                 plugin_ids: Vec::new(),
+                plugin_repos: Vec::new(),
             };
         }
     };
@@ -191,6 +198,7 @@ fn parse_repo_config() -> ParsedRepoConfig {
                 agent_config: AgentConfig::default(),
                 setup_commands: Vec::new(),
                 plugin_ids: Vec::new(),
+                plugin_repos: Vec::new(),
             };
         }
     };
@@ -212,10 +220,12 @@ fn parse_repo_config() -> ParsedRepoConfig {
         .unwrap_or_default();
 
     let plugin_ids = repo_config.plugin_ids.unwrap_or_default();
+    let plugin_repos = repo_config.plugin_repos.unwrap_or_default();
 
     ParsedRepoConfig {
         agent_config,
         setup_commands,
         plugin_ids,
+        plugin_repos,
     }
 }

@@ -59,6 +59,9 @@ pub struct RepoConfig {
     // --- K8s resource configuration (opt-in per-repo) ---
     /// Per-repo K8s resource requests/limits override for server containers.
     pub resources: Option<crate::repository::models::ResourceConfig>,
+    // --- Plugin git repos (auto-provisioned from DB join table) ---
+    /// Git URLs of plugin repos to clone into the sandbox.
+    pub plugin_repos: Option<Vec<String>>,
     // --- Docker access (opt-in) ---
     /// Mount Docker socket inside sandbox container (default: false).
     /// Overrides global DOCKER_ENABLE_SOCKET_MOUNT when set.

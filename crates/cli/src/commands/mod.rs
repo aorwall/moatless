@@ -3,6 +3,7 @@ pub mod events;
 pub mod info;
 pub mod messages;
 pub mod misc;
+pub mod plugins;
 pub mod repos;
 pub mod settings;
 pub mod tasks;

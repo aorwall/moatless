@@ -14,6 +14,7 @@ use super::file_handlers;
 use super::handlers;
 use super::provider::SandboxProvider;
 use crate::auth::provider_token_dao::ProviderTokenRepository;
+use crate::plugin_repo::dao::PluginRepoRepository;
 use crate::repository::dao::RepoRepository;
 use crate::task::dao::TaskRepository;
 
@@ -27,6 +28,8 @@ pub struct SandboxApiState {
     pub repos: Option<Arc<dyn RepoRepository>>,
     /// Optional provider token repository — enables credential resolution for provisioning.
     pub provider_tokens: Option<Arc<dyn ProviderTokenRepository>>,
+    /// Optional plugin repo repository — enables plugin git URL resolution for provisioning.
+    pub plugin_repos: Option<Arc<dyn PluginRepoRepository>>,
 }
 
 #[derive(OpenApi)]

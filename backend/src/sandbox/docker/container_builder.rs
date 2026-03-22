@@ -209,6 +209,7 @@ fn build_repo_config_json(plan: &ProvisionPlan) -> Option<String> {
         && rc.preview_config.is_none()
         && rc.servers.is_none()
         && rc.plugin_ids.is_none()
+        && rc.plugin_repos.is_none()
     {
         return None;
     }
@@ -244,6 +245,9 @@ fn build_repo_config_json(plan: &ProvisionPlan) -> Option<String> {
     }
     if let Some(ref pi) = rc.plugin_ids {
         map.insert("pluginIds".into(), serde_json::json!(pi));
+    }
+    if let Some(ref pr) = rc.plugin_repos {
+        map.insert("pluginRepos".into(), serde_json::json!(pr));
     }
 
     Some(serde_json::Value::Object(map).to_string())
@@ -476,6 +480,7 @@ mod tests {
                 code_execution: None,
                 preview_config: None,
                 resources: None,
+                plugin_repos: None,
                 docker_access: None,
                 docker_networks: None,
             },

@@ -103,6 +103,73 @@ pub async fn setup_build_cache(config: &Config) {
     }
 }
 
+/// Clone plugin git repos into `/opt/moatless/plugins/{name}/`.
+///
+/// For each URL: derive name from last path segment (minus `.git`),
+/// clone with `git clone --depth 1`, use `GIT_TOKEN` for auth.
+/// Skip if already cloned. Non-fatal on failure.
+/// Returns list of cloned directory paths.
+pub async fn clone_plugin_repos(config: &Config) -> Vec<String> {
+    if config.plugin_repos.is_empty() {
+        return Vec::new();
+    }
+
+    let base_dir = "/opt/moatless/plugins";
+    if let Err(e) = fs::create_dir_all(base_dir).await {
+        warn!(error = %e, "Failed to create plugins directory");
+        return Vec::new();
+    }
+
+    let git_token = std::env::var("GIT_TOKEN")
+        .or_else(|_| std::env::var("GITHUB_TOKEN"))
+        .ok();
+
+    let mut cloned_paths = Vec::new();
+
+    for url in &config.plugin_repos {
+        let name = derive_plugin_name(url);
+        let dest = format!("{base_dir}/{name}");
+
+        // Skip if already cloned
+        if Path::new(&dest).join(".git").exists() {
+            info!(name = %name, "Plugin repo already cloned, skipping");
+            cloned_paths.push(dest);
+            continue;
+        }
+
+        // Build clone URL with token auth if available
+        let clone_url = match &git_token {
+            Some(token) => super::git::inject_token_into_url(url, token),
+            None => url.clone(),
+        };
+
+        let args = vec!["clone", "--depth", "1", &clone_url, &dest];
+        match super::git::run_command("git", &args).await {
+            Ok(()) => {
+                info!(name = %name, "Plugin repo cloned successfully");
+                cloned_paths.push(dest);
+            }
+            Err(e) => {
+                warn!(name = %name, url = %url, error = %e, "Failed to clone plugin repo (non-fatal)");
+            }
+        }
+    }
+
+    cloned_paths
+}
+
+/// Derive a plugin name from a git URL.
+///
+/// Extracts the last path segment and strips `.git` suffix.
+/// e.g. `https://github.com/org/foo-plugin.git` → `foo-plugin`
+fn derive_plugin_name(url: &str) -> String {
+    url.rsplit('/')
+        .next()
+        .unwrap_or("plugin")
+        .trim_end_matches(".git")
+        .to_string()
+}
+
 /// Run a single setup command in the workspace directory.
 pub async fn run_setup_command(config: &Config, cmd: &str) -> Result<(), String> {
     if cmd.is_empty() {

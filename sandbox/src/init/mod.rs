@@ -239,6 +239,20 @@ async fn run_core_init(state: &SandboxState) -> Result<(), InitError> {
         }
     }
 
+    // 6. Clone plugin git repos (non-fatal)
+    if !state.config.plugin_repos.is_empty() {
+        let cloned = workspace::clone_plugin_repos(&state.config).await;
+        if !cloned.is_empty() {
+            publish_sandbox_event(
+                state,
+                "PluginReposCloned",
+                &format!("Cloned {} plugin repo(s)", cloned.len()),
+                false,
+            )
+            .await;
+        }
+    }
+
     Ok(())
 }
 

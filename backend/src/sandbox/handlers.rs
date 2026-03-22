@@ -39,12 +39,12 @@ pub async fn provision_handler(
 ) -> Result<Json<ProvisionResponse>, SandboxError> {
     info!(task_id = %task_id, "POST /provision");
 
-    let (tasks, repos, provider_tokens) = match (&state.tasks, &state.repos, &state.provider_tokens) {
-        (Some(t), Some(r), Some(pt)) => (t.as_ref(), r.as_ref(), pt.as_ref()),
+    let (tasks, repos, provider_tokens, plugin_repos) = match (&state.tasks, &state.repos, &state.provider_tokens, &state.plugin_repos) {
+        (Some(t), Some(r), Some(pt), Some(pr)) => (t.as_ref(), r.as_ref(), pt.as_ref(), pr.as_ref()),
         _ => return Err(SandboxError::Internal("Database not available for provisioning".into())),
     };
 
-    let request = super::auto_provision::build_provision_request(tasks, repos, provider_tokens, &task_id).await?;
+    let request = super::auto_provision::build_provision_request(tasks, repos, provider_tokens, plugin_repos, &task_id).await?;
 
     match state.provider.provision(&task_id, &request).await {
         Ok(response) => {
@@ -181,12 +181,12 @@ pub async fn redeploy_handler(
 ) -> Result<Json<ProvisionResponse>, SandboxError> {
     info!(task_id = %task_id, "POST /redeploy");
 
-    let (tasks, repos, provider_tokens) = match (&state.tasks, &state.repos, &state.provider_tokens) {
-        (Some(t), Some(r), Some(pt)) => (t.as_ref(), r.as_ref(), pt.as_ref()),
+    let (tasks, repos, provider_tokens, plugin_repos) = match (&state.tasks, &state.repos, &state.provider_tokens, &state.plugin_repos) {
+        (Some(t), Some(r), Some(pt), Some(pr)) => (t.as_ref(), r.as_ref(), pt.as_ref(), pr.as_ref()),
         _ => return Err(SandboxError::Internal("Database not available for redeployment".into())),
     };
 
-    let request = super::auto_provision::build_provision_request(tasks, repos, provider_tokens, &task_id).await?;
+    let request = super::auto_provision::build_provision_request(tasks, repos, provider_tokens, plugin_repos, &task_id).await?;
 
     match state.provider.redeploy(&task_id, &request).await {
         Ok(response) => {

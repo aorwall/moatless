@@ -4,9 +4,31 @@
 
 //! Directory creation for sandbox initialization.
 
+use std::path::Path;
+
 use tracing::{info, warn};
 
 use crate::config::Config;
+
+/// Recursively copy directory contents from `src` to `dst`.
+/// Returns the number of files copied.
+fn copy_dir_contents(src: &Path, dst: &Path) -> std::io::Result<usize> {
+    let mut count = 0;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+
+        if src_path.is_dir() {
+            std::fs::create_dir_all(&dst_path)?;
+            count += copy_dir_contents(&src_path, &dst_path)?;
+        } else {
+            std::fs::copy(&src_path, &dst_path)?;
+            count += 1;
+        }
+    }
+    Ok(count)
+}
 
 /// Ensure all required directories exist.
 pub fn ensure_directories(config: &Config) {
@@ -21,6 +43,23 @@ pub fn ensure_directories(config: &Config) {
     for dir in dirs {
         if let Err(e) = std::fs::create_dir_all(dir) {
             warn!(dir = %dir, error = %e, "Failed to create directory");
+        }
+    }
+
+    // Copy staged skills from image into config dir (survives volume mounts).
+    // Downstream Dockerfiles COPY skills to /usr/share/moatless-skills/ in the image;
+    // we copy them here so they land inside the mounted volume.
+    let staged_skills = std::path::Path::new("/usr/share/moatless-skills");
+    if staged_skills.is_dir() {
+        let target_skills = format!("{}/skills", config.claude_config_dir);
+        if let Err(e) = std::fs::create_dir_all(&target_skills) {
+            warn!(error = %e, "Failed to create skills directory");
+        } else {
+            match copy_dir_contents(staged_skills, std::path::Path::new(&target_skills)) {
+                Ok(0) => {}
+                Ok(count) => info!(count, "Copied staged skills into config dir"),
+                Err(e) => warn!(error = %e, "Failed to copy staged skills"),
+            }
         }
     }
 
