@@ -5,7 +5,11 @@
  * Tests add assertions; preconditions skip them.
  */
 
-import type { ApiClient, GetMessagesResponse } from "../../shared/api-client";
+import type {
+	ApiClient,
+	GetMessagesResponse,
+	UiMessage,
+} from "../../shared/api-client";
 import type { SSEEventCollector, SSEEvent } from "../../shared/sse-collector";
 import { waitForAgentComplete } from "../../shared/wait-helpers";
 
@@ -74,4 +78,19 @@ export async function getTaskMessages(
 	taskId: string,
 ): Promise<GetMessagesResponse> {
 	return api.getTaskMessages(taskId);
+}
+
+// =============================================================================
+// MSG helpers: Queued message filtering
+// =============================================================================
+
+/**
+ * Return user messages that are still queued (not yet acknowledged by an agent session).
+ */
+export async function getQueuedMessages(
+	api: ApiClient,
+	taskId: string,
+): Promise<UiMessage[]> {
+	const { messages } = await api.getTaskMessages(taskId);
+	return messages.filter((m) => m.isQueued === true);
 }

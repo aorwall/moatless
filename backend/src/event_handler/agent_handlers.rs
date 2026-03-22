@@ -174,31 +174,19 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
 
 /// Handle `agent.session_init` event — Claude Code session started.
 ///
-/// Sets the real Claude Code session_id on user messages that have been
-/// fetched by the sandbox (sent_at IS NOT NULL) but don't yet have a session_id.
-pub async fn handle_agent_session_init(state: &AppState, event: &AgentEvent) {
+/// Per-message acknowledgment is now handled by the sandbox via
+/// `AcknowledgeMessages` gRPC call. This handler only logs the event.
+pub async fn handle_agent_session_init(_state: &AppState, event: &AgentEvent) {
     let session_id = if let Some(sid) = event.payload.get("session_id").and_then(|v| v.as_str()) { sid } else {
         tracing::warn!(task_id = %event.task_id, "agent.session_init missing session_id");
         return;
     };
 
-    match state.messages.set_session_id_for_task(&event.task_id, session_id).await {
-        Ok(count) => {
-            tracing::info!(
-                task_id = %event.task_id,
-                session_id = %session_id,
-                count,
-                "Set Claude Code session_id on user messages"
-            );
-        }
-        Err(e) => {
-            tracing::warn!(
-                task_id = %event.task_id,
-                error = %e,
-                "Failed to set session_id on user messages"
-            );
-        }
-    }
+    tracing::info!(
+        task_id = %event.task_id,
+        session_id = %session_id,
+        "Agent session initialized"
+    );
 }
 
 /// Handle `agent.stopped` event — user requested stop.

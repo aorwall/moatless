@@ -27,6 +27,7 @@ export const EVENT_INVALIDATION_MAP = {
     // Agent subtypes have different invalidation needs
     started: [queryKeys.tasks.sandboxStatus],
     stopped: [queryKeys.tasks.sandboxStatus],
+    session_init: [queryKeys.tasks.messages], // Refresh message status (queued → sent)
     message: [queryKeys.tasks.messages], // Only messages, not status
     completed: [queryKeys.tasks.detail, queryKeys.tasks.sandboxStatus], // Full turn impact
     error: [queryKeys.tasks.detail, queryKeys.tasks.sandboxStatus],

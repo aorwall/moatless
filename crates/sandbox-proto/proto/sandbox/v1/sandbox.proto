@@ -10,6 +10,9 @@ service BackendSandboxService {
   // Fetch pending user messages for this task
   rpc GetPendingMessages(GetPendingMessagesRequest) returns (GetPendingMessagesResponse);
 
+  // Acknowledge that pending messages have been delivered to the agent session
+  rpc AcknowledgeMessages(AcknowledgeMessagesRequest) returns (AcknowledgeMessagesResponse);
+
   // Fetch credentials for sandbox initialization (auth via gRPC metadata)
   rpc GetCredentials(GetCredentialsRequest) returns (GetCredentialsResponse);
 }
@@ -52,6 +55,8 @@ message PendingMessage {
   optional bool is_error = 6;
   // The agent_session_id from the previous turn — used for --resume <id>
   optional string resume_session_id = 7;
+  // Message UUID for per-message acknowledgment tracking
+  optional string uuid = 8;
 }
 
 message ContentBlock {
@@ -69,6 +74,14 @@ message ImageBlock {
   string url = 1;
   string media_type = 2;
 }
+
+message AcknowledgeMessagesRequest {
+  string task_id = 1;
+  repeated string message_uuids = 2;
+  string session_id = 3;
+}
+
+message AcknowledgeMessagesResponse {}
 
 message GetCredentialsRequest {
   string task_id = 1;

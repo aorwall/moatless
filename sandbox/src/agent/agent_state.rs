@@ -23,6 +23,8 @@ struct AgentInner {
     pending_prompt: Option<PendingPrompt>,
     consecutive_errors: u32,
     messages_pending: bool,
+    /// UUIDs of messages delivered in the current agent run, pending acknowledgment.
+    pending_message_uuids: Vec<String>,
 }
 
 impl Default for AgentState {
@@ -42,6 +44,7 @@ impl AgentState {
                 pending_prompt: None,
                 consecutive_errors: 0,
                 messages_pending: false,
+                pending_message_uuids: Vec::new(),
             }),
         }
     }
@@ -86,6 +89,7 @@ impl AgentState {
         inner.cancel_token = None;
         inner.pending_prompt = None;
         inner.consecutive_errors = 0;
+        inner.pending_message_uuids.clear();
     }
 
     pub async fn set_stopped(&self) {
@@ -102,6 +106,7 @@ impl AgentState {
         inner.cancel_token = None;
         inner.pending_prompt = None;
         inner.consecutive_errors += 1;
+        inner.pending_message_uuids.clear();
     }
 
     /// Number of consecutive errors without a successful idle transition.
@@ -133,6 +138,16 @@ impl AgentState {
         let pending = inner.messages_pending;
         inner.messages_pending = false;
         pending
+    }
+
+    /// Store UUIDs of messages being delivered in the current agent run.
+    pub async fn set_pending_message_uuids(&self, uuids: Vec<String>) {
+        self.inner.write().await.pending_message_uuids = uuids;
+    }
+
+    /// Take the pending message UUIDs (removes them from state).
+    pub async fn take_pending_message_uuids(&self) -> Vec<String> {
+        std::mem::take(&mut self.inner.write().await.pending_message_uuids)
     }
 
     /// Stop the running agent by cancelling its token.
@@ -301,5 +316,36 @@ mod tests {
         let token = CancellationToken::new();
         state.set_running(token).await;
         assert!(!state.has_pending_prompt().await);
+    }
+
+    #[tokio::test]
+    async fn pending_message_uuids_lifecycle() {
+        let state = AgentState::new();
+
+        // Initially empty
+        assert!(state.take_pending_message_uuids().await.is_empty());
+
+        // Set UUIDs and take them
+        let uuids = vec!["uuid-1".to_string(), "uuid-2".to_string()];
+        state.set_pending_message_uuids(uuids.clone()).await;
+        let taken = state.take_pending_message_uuids().await;
+        assert_eq!(taken, uuids);
+
+        // Second take returns empty
+        assert!(state.take_pending_message_uuids().await.is_empty());
+
+        // set_idle clears UUIDs
+        state
+            .set_pending_message_uuids(vec!["uuid-3".to_string()])
+            .await;
+        state.set_idle().await;
+        assert!(state.take_pending_message_uuids().await.is_empty());
+
+        // set_error clears UUIDs
+        state
+            .set_pending_message_uuids(vec!["uuid-4".to_string()])
+            .await;
+        state.set_error("boom".to_string()).await;
+        assert!(state.take_pending_message_uuids().await.is_empty());
     }
 }

@@ -13,8 +13,9 @@ use tracing::{debug, info, warn};
 
 use sandbox_proto::backend_sandbox_service_server::BackendSandboxService;
 use sandbox_proto::{
-    GetCredentialsRequest, GetCredentialsResponse, GetPendingMessagesRequest,
-    GetPendingMessagesResponse, PublishEventRequest, PublishEventResponse,
+    AcknowledgeMessagesRequest, AcknowledgeMessagesResponse, GetCredentialsRequest,
+    GetCredentialsResponse, GetPendingMessagesRequest, GetPendingMessagesResponse,
+    PublishEventRequest, PublishEventResponse,
 };
 
 use crate::auth::provider_token_dao::ProviderTokenRepository;
@@ -240,11 +241,56 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
                     agent_type: row.agent_mode.as_ref().map(|m| m.0.clone()),
                     is_error: None,
                     resume_session_id: resume_session_id.clone(),
+                    uuid: Some(row.uuid.clone()),
                 })
             })
             .collect();
 
         Ok(Response::new(GetPendingMessagesResponse { messages }))
+    }
+
+    /// Acknowledge that pending messages have been delivered to an agent session.
+    ///
+    /// Sets `sent_at`, `session_id`, and `agent_session_id` on the specified
+    /// messages, transitioning them from "queued" to "sent".
+    async fn acknowledge_messages(
+        &self,
+        request: Request<AcknowledgeMessagesRequest>,
+    ) -> Result<Response<AcknowledgeMessagesResponse>, Status> {
+        if self.task_token_secret.is_some() {
+            let _claims = self.verify_auth(&request)?;
+        }
+
+        let req = request.into_inner();
+
+        let Some(ref messages) = self.messages else {
+            return Ok(Response::new(AcknowledgeMessagesResponse {}));
+        };
+
+        match messages
+            .acknowledge_messages(&req.task_id, &req.message_uuids, &req.session_id)
+            .await
+        {
+            Ok(count) => {
+                info!(
+                    task_id = %req.task_id,
+                    session_id = %req.session_id,
+                    requested = req.message_uuids.len(),
+                    acknowledged = count,
+                    "Messages acknowledged"
+                );
+            }
+            Err(e) => {
+                warn!(
+                    task_id = %req.task_id,
+                    error = %e,
+                    "Failed to acknowledge messages"
+                );
+                return Err(Status::internal("Failed to acknowledge messages"));
+            }
+        }
+
+        Ok(Response::new(AcknowledgeMessagesResponse {}))
     }
 
     /// Return credentials for sandbox initialization.

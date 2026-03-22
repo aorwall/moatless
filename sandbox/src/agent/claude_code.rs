@@ -135,7 +135,35 @@ async fn execute_agent(
                 );
                 state.agent.set_session_id(init.session_id.clone()).await;
 
-                // Publish session_init so backend can set session_id on user messages
+                // Acknowledge pending messages with the real session ID
+                let uuids = state.agent.take_pending_message_uuids().await;
+                if !uuids.is_empty() {
+                    let task_id = state.config.task_id.clone();
+                    let session_id = init.session_id.clone();
+                    let client = state.backend_client.clone();
+                    let uuid_count = uuids.len();
+                    tokio::spawn(async move {
+                        match client.acknowledge_messages(&task_id, uuids, &session_id).await {
+                            Ok(()) => {
+                                info!(
+                                    task_id = %task_id,
+                                    session_id = %session_id,
+                                    count = uuid_count,
+                                    "Acknowledged pending messages"
+                                );
+                            }
+                            Err(e) => {
+                                warn!(
+                                    task_id = %task_id,
+                                    error = %e,
+                                    "Failed to acknowledge pending messages"
+                                );
+                            }
+                        }
+                    });
+                }
+
+                // Publish session_init so frontend can refresh message status
                 publish_agent_event(
                     state,
                     AgentSubType::SessionInit,

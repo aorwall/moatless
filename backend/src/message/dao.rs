@@ -30,6 +30,7 @@ pub trait MessageRepository: Send + Sync {
     async fn get_latest_session_id(&self, task_id: &str) -> Result<Option<String>, sqlx::Error>;
     async fn get_latest_agent_session_id(&self, task_id: &str) -> Result<Option<String>, sqlx::Error>;
     async fn set_session_id_for_task(&self, task_id: &str, session_id: &str) -> Result<u64, sqlx::Error>;
+    async fn acknowledge_messages(&self, task_id: &str, uuids: &[String], session_id: &str) -> Result<u64, sqlx::Error>;
     async fn delete_queued(&self, task_id: &str, message_uuid: &str) -> Result<bool, sqlx::Error>;
     async fn get_last_message_type(&self, task_id: &str) -> Result<Option<super::models::MessageType>, sqlx::Error>;
     async fn get_latest_message_times(&self, task_ids: &[String]) -> Result<HashMap<String, DateTime<Utc>>, sqlx::Error>;
@@ -320,10 +321,27 @@ impl MessageRepository for PgMessageRepository {
         Ok(result.rows_affected())
     }
 
+    async fn acknowledge_messages(&self, task_id: &str, uuids: &[String], session_id: &str) -> Result<u64, sqlx::Error> {
+        let result = sqlx::query(
+            r#"UPDATE task_messages
+               SET sent_at = NOW(), session_id = $3, agent_session_id = $3
+               WHERE task_id = $1
+                 AND uuid = ANY($2)
+                 AND agent_session_id IS NULL"#,
+        )
+        .bind(task_id)
+        .bind(uuids)
+        .bind(session_id)
+        .execute(&self.0)
+        .await?;
+
+        Ok(result.rows_affected())
+    }
+
     async fn delete_queued(&self, task_id: &str, message_uuid: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query(
             r#"DELETE FROM task_messages
-               WHERE task_id = $1 AND uuid = $2 AND agent_session_id IS NULL"#,
+               WHERE task_id = $1 AND uuid = $2 AND agent_session_id IS NULL AND sent_at IS NULL"#,
         )
         .bind(task_id)
         .bind(message_uuid)
@@ -400,6 +418,11 @@ pub async fn set_session_id_for_task(pool: &DbPool, task_id: &str, session_id: &
 /// Get the last result message (convenience wrapper).
 pub async fn get_last_result(pool: &DbPool, task_id: &str) -> Result<Option<TaskMessage>, sqlx::Error> {
     PgMessageRepository(pool.clone()).get_last_result(task_id).await
+}
+
+/// Acknowledge messages with a session_id (convenience wrapper).
+pub async fn acknowledge_messages(pool: &DbPool, task_id: &str, uuids: &[String], session_id: &str) -> Result<u64, sqlx::Error> {
+    PgMessageRepository(pool.clone()).acknowledge_messages(task_id, uuids, session_id).await
 }
 
 /// Delete a queued message (convenience wrapper).

@@ -9,8 +9,8 @@ use std::time::Duration;
 
 use sandbox_proto::backend_sandbox_service_client::BackendSandboxServiceClient;
 use sandbox_proto::{
-    GetCredentialsRequest, GetCredentialsResponse, GetPendingMessagesRequest, PendingMessage,
-    PublishEventRequest,
+    AcknowledgeMessagesRequest, GetCredentialsRequest, GetCredentialsResponse,
+    GetPendingMessagesRequest, PendingMessage, PublishEventRequest,
 };
 use tonic::service::interceptor::InterceptedService;
 use tonic::transport::Channel;
@@ -110,6 +110,27 @@ impl BackendGrpcClient {
             .await?;
 
         Ok(resp.into_inner().messages)
+    }
+
+    /// Acknowledge that pending messages have been delivered to an agent session.
+    ///
+    /// Called when the Claude Code session initializes, linking queued messages
+    /// to the real session ID.
+    pub async fn acknowledge_messages(
+        &self,
+        task_id: &str,
+        message_uuids: Vec<String>,
+        session_id: &str,
+    ) -> Result<(), tonic::Status> {
+        let mut client = self.client.clone();
+        client
+            .acknowledge_messages(AcknowledgeMessagesRequest {
+                task_id: task_id.to_string(),
+                message_uuids,
+                session_id: session_id.to_string(),
+            })
+            .await?;
+        Ok(())
     }
 
     /// Fetch credentials for sandbox initialization from the backend.

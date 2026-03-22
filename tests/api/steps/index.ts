@@ -40,6 +40,7 @@ export {
 
 // Agent steps (AGENT-01 through AGENT-05)
 export {
+	getQueuedMessages,
 	getTaskMessages,
 	sendFollowUpMessage,
 	stopAgent,

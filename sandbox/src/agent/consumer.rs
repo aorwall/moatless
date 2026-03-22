@@ -127,6 +127,15 @@ async fn process_pending_messages_inner(state: SandboxState) {
         return;
     }
 
+    // Collect message UUIDs for per-message acknowledgment
+    let uuids: Vec<String> = messages
+        .iter()
+        .filter_map(|m| m.uuid.clone())
+        .collect();
+    if !uuids.is_empty() {
+        state.agent.set_pending_message_uuids(uuids).await;
+    }
+
     // Batch messages into a single request
     info!(message_count = messages.len(), "Batching messages and starting agent execution");
     let request = batch_messages(messages);
@@ -141,6 +150,8 @@ struct InternalPendingMessage {
     system_prompt: Option<String>,
     resume: Option<ResumeSession>,
     agent_type: Option<String>,
+    /// Message UUID for per-message acknowledgment.
+    uuid: Option<String>,
 }
 
 impl InternalPendingMessage {
@@ -164,6 +175,7 @@ impl InternalPendingMessage {
             system_prompt: msg.system_prompt,
             resume,
             agent_type: msg.agent_type,
+            uuid: msg.uuid,
         }
     }
 }

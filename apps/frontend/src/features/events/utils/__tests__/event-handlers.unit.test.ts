@@ -68,6 +68,25 @@ describe('event-handlers', () => {
       expect(keys[0]).toBe(queryKeys.tasks.messages)
     })
 
+    it('should return messages invalidation for AGENT SESSION_INIT event', () => {
+      const event: Event = {
+        eventId: 'event-5',
+        type: 'agent',
+        subType: 'session_init',
+        taskId: 'task-ack',
+        agentType: 'test',
+        isError: false,
+        timestamp: '2024-01-01T00:00:00Z',
+        payload: { session_id: 'sess-1', model: 'claude' },
+      } as AgentEvent
+
+      const keys = getInvalidationKeys(event)
+
+      // session_init should invalidate messages so frontend refreshes queued→sent status
+      expect(keys).toHaveLength(1)
+      expect(keys[0]).toBe(queryKeys.tasks.messages)
+    })
+
     it('should return correct invalidation keys for SANDBOX event', () => {
       const event: Event = {
         eventId: 'event-4',
@@ -102,6 +121,7 @@ describe('event-handlers', () => {
     it('should return false for non-status-affecting events', () => {
       const nonStatusEvents = [
         { type: 'agent', subType: 'message' },
+        { type: 'agent', subType: 'session_init' },
         { type: 'taskTurn', subType: 'created' },
       ]
 
