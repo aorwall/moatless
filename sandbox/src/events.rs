@@ -7,11 +7,13 @@
 //! directly to Redis from the sandbox. The public API is unchanged —
 //! all publish methods are fire-and-forget.
 
+use std::sync::Arc;
+
 use moatless_events::{AgentSubType, EventType, TaskSubType, TaskTurnSubType};
 use sandbox_proto::PublishEventRequest;
 use tracing::debug;
 
-use crate::backend_client::BackendGrpcClient;
+use crate::backend_client::BackendClient;
 
 /// Publishes sandbox events to the backend via gRPC.
 ///
@@ -19,18 +21,18 @@ use crate::backend_client::BackendGrpcClient;
 /// but never propagated.
 #[derive(Clone)]
 pub struct GrpcEventPublisher {
-    client: BackendGrpcClient,
+    client: Arc<dyn BackendClient>,
 }
 
 impl GrpcEventPublisher {
-    /// Create a new publisher backed by the given gRPC client.
-    pub fn new(client: BackendGrpcClient) -> Self {
+    /// Create a new publisher backed by the given backend client.
+    pub fn new(client: Arc<dyn BackendClient>) -> Self {
         Self { client }
     }
 
     /// Access the underlying backend client (for direct gRPC calls).
-    pub fn client(&self) -> &BackendGrpcClient {
-        &self.client
+    pub fn client(&self) -> &dyn BackendClient {
+        &*self.client
     }
 
     /// Publish a task lifecycle event (e.g. status changes, metadata updates).

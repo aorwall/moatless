@@ -24,6 +24,35 @@ pub enum BackendGrpcClientError {
     InvalidUri(#[from] tonic::codegen::http::uri::InvalidUri),
 }
 
+/// Trait abstracting backend communication for testability.
+///
+/// The real implementation is [`BackendGrpcClient`]; tests can provide a mock.
+#[async_trait::async_trait]
+pub trait BackendClient: Send + Sync {
+    /// Publish an event to the backend (fire-and-forget).
+    async fn publish_event(&self, req: PublishEventRequest);
+
+    /// Fetch pending messages for a task.
+    async fn get_pending_messages(
+        &self,
+        task_id: &str,
+    ) -> Result<Vec<PendingMessage>, tonic::Status>;
+
+    /// Acknowledge that messages have been delivered to a session.
+    async fn acknowledge_messages(
+        &self,
+        task_id: &str,
+        message_uuids: Vec<String>,
+        session_id: &str,
+    ) -> Result<(), tonic::Status>;
+
+    /// Fetch credentials for sandbox initialization.
+    async fn get_credentials(
+        &self,
+        task_id: &str,
+    ) -> Result<GetCredentialsResponse, tonic::Status>;
+}
+
 /// Auth interceptor that injects a Bearer token on every outbound gRPC call.
 #[derive(Clone)]
 pub struct AuthInterceptor {
@@ -74,12 +103,11 @@ impl BackendGrpcClient {
 
         Ok(Self { client })
     }
+}
 
-    /// Publish an event to the backend (fire-and-forget).
-    ///
-    /// Logs warnings on failure, never propagates errors — matches the
-    /// existing Redis event publisher behavior.
-    pub async fn publish_event(&self, req: PublishEventRequest) {
+#[async_trait::async_trait]
+impl BackendClient for BackendGrpcClient {
+    async fn publish_event(&self, req: PublishEventRequest) {
         let mut client = self.client.clone();
         match client.publish_event(req).await {
             Ok(resp) => {
@@ -94,10 +122,7 @@ impl BackendGrpcClient {
         }
     }
 
-    /// Fetch pending messages for a task from the backend.
-    ///
-    /// Auth is handled by the interceptor — no explicit token parameter needed.
-    pub async fn get_pending_messages(
+    async fn get_pending_messages(
         &self,
         task_id: &str,
     ) -> Result<Vec<PendingMessage>, tonic::Status> {
@@ -112,11 +137,7 @@ impl BackendGrpcClient {
         Ok(resp.into_inner().messages)
     }
 
-    /// Acknowledge that pending messages have been delivered to an agent session.
-    ///
-    /// Called when the Claude Code session initializes, linking queued messages
-    /// to the real session ID.
-    pub async fn acknowledge_messages(
+    async fn acknowledge_messages(
         &self,
         task_id: &str,
         message_uuids: Vec<String>,
@@ -133,8 +154,7 @@ impl BackendGrpcClient {
         Ok(())
     }
 
-    /// Fetch credentials for sandbox initialization from the backend.
-    pub async fn get_credentials(
+    async fn get_credentials(
         &self,
         task_id: &str,
     ) -> Result<GetCredentialsResponse, tonic::Status> {

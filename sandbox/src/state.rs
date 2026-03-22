@@ -7,7 +7,7 @@ use tokio::sync::RwLock;
 
 use crate::agent::agent_state::AgentState;
 use crate::agent::executor::AgentExecutor;
-use crate::backend_client::BackendGrpcClient;
+use crate::backend_client::BackendClient;
 use crate::config::Config;
 use crate::events::GrpcEventPublisher;
 use crate::init::InitPhase;
@@ -25,8 +25,8 @@ pub struct SandboxState {
     pub agent: Arc<AgentState>,
     /// Generic agent executor (e.g. ClaudeCodeExecutor).
     pub executor: Arc<dyn AgentExecutor>,
-    /// gRPC client for backend communication (message polling).
-    pub backend_client: BackendGrpcClient,
+    /// Backend client for gRPC communication (message polling, acknowledgment).
+    pub backend_client: Arc<dyn BackendClient>,
     /// Current initialization phase — tracked for health probes and consumer gating.
     pub init_phase: Arc<RwLock<InitPhase>>,
     /// Credentials fetched during init, passed to agent subprocess via `ClaudeOptions.env`.

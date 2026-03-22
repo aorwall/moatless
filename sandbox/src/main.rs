@@ -53,8 +53,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("Failed to create backend gRPC client");
     info!(url = %config.backend_grpc_url, "Backend gRPC client created (lazy connection)");
 
+    // Wrap backend client in Arc for shared ownership
+    let backend_client: Arc<dyn moatless_sandbox::backend_client::BackendClient> =
+        Arc::new(backend_client);
+
     // Create event publisher backed by gRPC
-    let event_publisher = GrpcEventPublisher::new(backend_client.clone());
+    let event_publisher = GrpcEventPublisher::new(Arc::clone(&backend_client));
 
     // Build shared state with init phase tracking
     let state = SandboxState {
