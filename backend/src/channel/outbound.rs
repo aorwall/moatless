@@ -9,6 +9,23 @@ use crate::state::AppState;
 use super::models::{ChannelConfig, ChannelThread, MessageStatus, OutboundReply};
 use super::provider::{ChannelProvider, ChannelProviders};
 
+/// Resolved outbound target for a channel notification.
+enum OutboundTarget<'a> {
+    /// Thread exists — use `send_reply`.
+    Reply {
+        provider: &'a dyn ChannelProvider,
+        config: ChannelConfig,
+        thread: ChannelThread,
+    },
+    /// No thread yet (cross-channel) — use `send_message` to create one.
+    NewMessage {
+        provider: &'a dyn ChannelProvider,
+        config: ChannelConfig,
+        originating_config_id: String,
+        task_id: String,
+    },
+}
+
 /// Handle a channel notification triggered by an agent event.
 ///
 /// Called from `event_handler/consumer.rs` after standard event processing.
@@ -56,10 +73,10 @@ pub async fn handle_channel_notification(
         let task_url = build_task_url(state, &event.task_id);
 
         // Resolve outbound target: use response_config_id if set
-        let (out_provider, out_config, out_thread) =
+        let target =
             match resolve_outbound_target(state, providers, &config, thread, &event.task_id).await
             {
-                Some(target) => target,
+                Some(t) => t,
                 None => continue,
             };
 
@@ -78,15 +95,8 @@ pub async fn handle_channel_notification(
                     is_error: false,
                 };
 
-                if let Err(e) = out_provider.send_reply(&out_thread, &out_config, &reply).await {
-                    warn!(task_id = %event.task_id, error = %e, "Failed to send channel reply");
-                }
-                if let Err(e) = out_provider
-                    .set_status(&out_thread, &out_config, MessageStatus::Completed)
-                    .await
-                {
-                    warn!(task_id = %event.task_id, error = %e, "Failed to set completed status");
-                }
+                send_outbound(state, &event.task_id, target, &reply, MessageStatus::Completed)
+                    .await;
             }
 
             EventKey::Agent(AgentSubType::Error)
@@ -103,15 +113,7 @@ pub async fn handle_channel_notification(
                     is_error: true,
                 };
 
-                if let Err(e) = out_provider.send_reply(&out_thread, &out_config, &reply).await {
-                    warn!(task_id = %event.task_id, error = %e, "Failed to send error reply");
-                }
-                if let Err(e) = out_provider
-                    .set_status(&out_thread, &out_config, MessageStatus::Error)
-                    .await
-                {
-                    warn!(task_id = %event.task_id, error = %e, "Failed to set error status");
-                }
+                send_outbound(state, &event.task_id, target, &reply, MessageStatus::Error).await;
             }
 
             _ => {
@@ -126,17 +128,97 @@ pub async fn handle_channel_notification(
     }
 }
 
-/// Resolve the outbound target: provider, config, and thread.
+/// Send an outbound reply via the resolved target.
+///
+/// For `Reply` targets, uses `send_reply` on an existing thread.
+/// For `NewMessage` targets, uses `send_message` to post a top-level message
+/// and persists the thread for future replies.
+async fn send_outbound(
+    state: &AppState,
+    task_id: &str,
+    target: OutboundTarget<'_>,
+    reply: &OutboundReply,
+    status: MessageStatus,
+) {
+    match target {
+        OutboundTarget::Reply {
+            provider,
+            config,
+            thread,
+        } => {
+            if let Err(e) = provider.send_reply(&thread, &config, reply).await {
+                warn!(task_id = %task_id, error = %e, "Failed to send channel reply");
+            }
+            if let Err(e) = provider.set_status(&thread, &config, status).await {
+                warn!(task_id = %task_id, error = %e, "Failed to set channel status");
+            }
+        }
+        OutboundTarget::NewMessage {
+            provider,
+            config,
+            originating_config_id,
+            task_id: ref tid,
+        } => {
+            let thread_info = match provider.send_message(&config, reply).await {
+                Ok(info) => info,
+                Err(e) => {
+                    warn!(
+                        task_id = %task_id,
+                        config_id = %config.id,
+                        error = %e,
+                        "Failed to send new channel message"
+                    );
+                    return;
+                }
+            };
+
+            // Persist the thread so future replies thread under this message
+            match state
+                .channel_threads
+                .insert(
+                    &config.id,
+                    tid,
+                    &thread_info.external_thread_id,
+                    &thread_info.properties,
+                )
+                .await
+            {
+                Ok(thread) => {
+                    info!(
+                        task_id = %task_id,
+                        config_id = %config.id,
+                        originating_config_id = %originating_config_id,
+                        "Cross-channel message sent and thread created"
+                    );
+                    // Set status on the newly created thread (e.g., add reaction)
+                    if let Err(e) = provider.set_status(&thread, &config, status).await {
+                        warn!(task_id = %task_id, error = %e, "Failed to set channel status");
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        task_id = %task_id,
+                        error = %e,
+                        "Failed to persist channel thread after send_message"
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// Resolve the outbound target: provider, config, and thread (or new-message intent).
 ///
 /// If the originating config has `response_config_id`, load the response config
-/// and use its provider for outbound. Create or reuse a thread under the response config.
+/// and use its provider for outbound. If a thread already exists under the response
+/// config, return `Reply`; otherwise return `NewMessage`.
 async fn resolve_outbound_target<'a>(
     state: &AppState,
     providers: &'a ChannelProviders,
     config: &ChannelConfig,
     thread: &ChannelThread,
     task_id: &str,
-) -> Option<(&'a dyn ChannelProvider, ChannelConfig, ChannelThread)> {
+) -> Option<OutboundTarget<'a>> {
     if let Some(ref response_config_id) = config.response_config_id {
         // Cross-channel: load response config
         let response_config = match state
@@ -168,46 +250,44 @@ async fn resolve_outbound_target<'a>(
         };
         let response_provider = response_provider.as_ref();
 
-        // Find or create thread under response config
-        let response_thread = match state
+        // Check if a thread already exists under the response config
+        match state
             .channel_threads
             .find_by_task_id_and_config(task_id, response_config_id)
             .await
         {
-            Ok(Some(t)) => t,
+            Ok(Some(response_thread)) => {
+                info!(
+                    config_id = %config.id,
+                    response_config_id = %response_config_id,
+                    response_provider = %response_config.provider,
+                    "Cross-channel routing: reply via existing response thread"
+                );
+                Some(OutboundTarget::Reply {
+                    provider: response_provider,
+                    config: response_config,
+                    thread: response_thread,
+                })
+            }
             Ok(None) => {
-                // Create a new thread under the response config
-                match state
-                    .channel_threads
-                    .insert(
-                        response_config_id,
-                        task_id,
-                        &thread.external_thread_id,
-                        &serde_json::json!({"cross_channel_from": config.id}),
-                    )
-                    .await
-                {
-                    Ok(t) => t,
-                    Err(e) => {
-                        warn!(error = %e, "Failed to create response thread, falling back");
-                        return resolve_direct(providers, config, thread);
-                    }
-                }
+                info!(
+                    config_id = %config.id,
+                    response_config_id = %response_config_id,
+                    response_provider = %response_config.provider,
+                    "Cross-channel routing: new message (no existing response thread)"
+                );
+                Some(OutboundTarget::NewMessage {
+                    provider: response_provider,
+                    config: response_config,
+                    originating_config_id: config.id.clone(),
+                    task_id: task_id.to_string(),
+                })
             }
             Err(e) => {
                 warn!(error = %e, "Failed to look up response thread, falling back");
-                return resolve_direct(providers, config, thread);
+                resolve_direct(providers, config, thread)
             }
-        };
-
-        info!(
-            config_id = %config.id,
-            response_config_id = %response_config_id,
-            response_provider = %response_config.provider,
-            "Cross-channel routing: outbound via response config"
-        );
-
-        Some((response_provider, response_config, response_thread))
+        }
     } else {
         resolve_direct(providers, config, thread)
     }
@@ -218,9 +298,13 @@ fn resolve_direct<'a>(
     providers: &'a ChannelProviders,
     config: &ChannelConfig,
     thread: &ChannelThread,
-) -> Option<(&'a dyn ChannelProvider, ChannelConfig, ChannelThread)> {
+) -> Option<OutboundTarget<'a>> {
     let provider = providers.get_by_name(&config.provider)?;
-    Some((provider.as_ref(), config.clone(), thread.clone()))
+    Some(OutboundTarget::Reply {
+        provider: provider.as_ref(),
+        config: config.clone(),
+        thread: thread.clone(),
+    })
 }
 
 /// Build the task URL for linking in channel replies.

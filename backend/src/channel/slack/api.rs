@@ -18,6 +18,14 @@ struct SlackResponse {
     error: Option<String>,
 }
 
+/// Response from `chat.postMessage` — includes the posted message's `ts`.
+#[derive(Deserialize)]
+struct PostMessageResponse {
+    ok: bool,
+    error: Option<String>,
+    ts: Option<String>,
+}
+
 #[derive(Deserialize)]
 struct UserInfoResponse {
     ok: bool,
@@ -88,12 +96,14 @@ impl SlackApi {
     }
 
     /// Post a message to a Slack channel (optionally in a thread).
+    ///
+    /// Returns the posted message's `ts` if available.
     pub async fn post_message(
         &self,
         channel: &str,
         text: &str,
         thread_ts: Option<&str>,
-    ) -> Result<(), ChannelError> {
+    ) -> Result<Option<String>, ChannelError> {
         let mut body = serde_json::json!({
             "channel": channel,
             "text": text,
@@ -102,7 +112,7 @@ impl SlackApi {
             body["thread_ts"] = serde_json::Value::String(ts.to_string());
         }
 
-        let resp: SlackResponse = self
+        let resp: PostMessageResponse = self
             .client
             .post("https://slack.com/api/chat.postMessage")
             .bearer_auth(&self.token)
@@ -124,7 +134,7 @@ impl SlackApi {
             )));
         }
 
-        Ok(())
+        Ok(resp.ts)
     }
 
     /// Add an emoji reaction to a message.

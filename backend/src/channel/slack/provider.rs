@@ -8,7 +8,7 @@ use tracing::{debug, warn};
 use crate::channel::error::ChannelError;
 use crate::channel::models::{AccessDecision, ChannelTrigger};
 use crate::channel::provider::{ChannelProvider, ChannelType};
-use crate::channel::models::{InboundMessage, MessageStatus, OutboundReply};
+use crate::channel::models::{InboundMessage, MessageStatus, NewThreadInfo, OutboundReply};
 use crate::channel::models::{ChannelConfig, ChannelThread};
 use crate::db::DbPool;
 
@@ -268,7 +268,39 @@ impl ChannelProvider for SlackProvider {
 
         self.api
             .post_message(channel, &text, Some(thread_ts))
-            .await
+            .await?;
+        Ok(())
+    }
+
+    async fn send_message(
+        &self,
+        config: &ChannelConfig,
+        message: &OutboundReply,
+    ) -> Result<NewThreadInfo, ChannelError> {
+        let channel = &config.source_id;
+
+        let mut text = message.text.clone();
+        if let Some(ref url) = message.task_url {
+            use std::fmt::Write;
+            let _ = write!(text, "\n<{url}|View task>");
+        }
+
+        let ts = self
+            .api
+            .post_message(channel, &text, None)
+            .await?
+            .ok_or_else(|| {
+                ChannelError::Internal("Slack did not return message ts".into())
+            })?;
+
+        Ok(NewThreadInfo {
+            external_thread_id: ts.clone(),
+            properties: serde_json::json!({
+                "channel": channel,
+                "ts": ts,
+                "thread_ts": ts,
+            }),
+        })
     }
 
     async fn set_status(

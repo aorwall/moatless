@@ -83,6 +83,15 @@ pub struct OutboundReply {
     pub is_error: bool,
 }
 
+/// Info returned by `send_message` to create a new `ChannelThread`.
+#[derive(Debug)]
+pub struct NewThreadInfo {
+    /// Provider-specific thread/message ID (e.g., Slack message `ts`).
+    pub external_thread_id: String,
+    /// Provider-specific properties for the thread (e.g., `channel`, `thread_ts`).
+    pub properties: serde_json::Value,
+}
+
 // =============================================================================
 // Shared access-control types (used by Telegram, Slack, and future providers)
 // =============================================================================

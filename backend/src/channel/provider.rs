@@ -9,7 +9,7 @@ use super::models::{ChannelConfig, ChannelThread};
 use crate::db::DbPool;
 
 use super::error::ChannelError;
-use super::models::{MessageStatus, OutboundReply};
+use super::models::{MessageStatus, NewThreadInfo, OutboundReply};
 
 pub use moatless_api_schemas::enums::ChannelType;
 
@@ -40,6 +40,24 @@ pub trait ChannelProvider: Send + Sync {
         config: &ChannelConfig,
         message: &OutboundReply,
     ) -> Result<(), ChannelError>;
+
+    /// Send a new top-level message to a channel (no existing thread).
+    ///
+    /// Returns [`NewThreadInfo`] with the external thread ID and properties
+    /// needed to create a [`ChannelThread`] for future replies.
+    ///
+    /// Default: returns an error. Providers that support outbound-initiated
+    /// messages (e.g., Slack) must override this.
+    async fn send_message(
+        &self,
+        _config: &ChannelConfig,
+        _message: &OutboundReply,
+    ) -> Result<NewThreadInfo, ChannelError> {
+        Err(ChannelError::Internal(format!(
+            "{:?} does not support send_message",
+            self.channel_type()
+        )))
+    }
 
     /// Set a status indicator (e.g., Slack emoji reaction). Default: no-op.
     async fn set_status(
