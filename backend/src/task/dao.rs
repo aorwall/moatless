@@ -76,7 +76,8 @@ impl TaskRepository for PgTaskRepository {
             WHERE task_id = $1
               AND ($2 OR scope = 'global'
                    OR (scope = 'team' AND team_id = ANY($3))
-                   OR (scope = 'user' AND created_by = $4))"#,
+                   OR (scope = 'user' AND created_by = $4))
+              AND (visibility = 'public' OR created_by = $4 OR $2)"#,
         )
         .bind(task_id)
         .bind(ctx.is_admin)
@@ -170,6 +171,7 @@ impl TaskRepository for PgTaskRepository {
             WHERE ($1 OR t.scope = 'global'
                    OR (t.scope = 'team' AND t.team_id = ANY($2))
                    OR (t.scope = 'user' AND t.created_by = $3))
+              AND (t.visibility = 'public' OR t.created_by = $3 OR $1)
               AND ($4::text IS NULL OR t.status = $4)
               AND ($5::text IS NULL OR t.repository_id = $5)
               AND ($6::text IS NULL OR t.created_by = $6)
