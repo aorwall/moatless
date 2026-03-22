@@ -132,6 +132,7 @@ pub fn build_pod(
                 termination_grace_period_seconds: Some(30),
                 tolerations,
                 node_selector,
+                service_account_name: config.sandbox.service_account_name.clone(),
                 ..Default::default()
             }
         }),

@@ -418,6 +418,7 @@ mod tests {
                 max_crash_restart_count: 5,
                 node_selector_json: None,
                 tolerations_json: None,
+                service_account_name: None,
             },
             proxy: ProxyConfig {
                 domain: None,

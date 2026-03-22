@@ -154,6 +154,8 @@ pub struct SandboxConfig {
     pub tolerations_json: Option<String>,
     /// JSON-encoded node selector for sandbox pods (e.g., `{"karpenter.sh/capacity-type":"spot"}`)
     pub node_selector_json: Option<String>,
+    /// Kubernetes ServiceAccount name for sandbox pods (set via K8S_SANDBOX_SERVICE_ACCOUNT)
+    pub service_account_name: Option<String>,
 }
 
 /// Proxy / Traefik IngressRoute settings.
@@ -444,6 +446,7 @@ impl Config {
                 max_crash_restart_count: env_or("SANDBOX_MAX_CRASH_RESTART_COUNT", 5),
                 tolerations_json: env_opt("K8S_SANDBOX_TOLERATIONS"),
                 node_selector_json: env_opt("K8S_SANDBOX_NODE_SELECTOR"),
+                service_account_name: env_opt("K8S_SANDBOX_SERVICE_ACCOUNT"),
             },
 
             proxy: ProxyConfig {
@@ -736,6 +739,7 @@ mod tests {
                 max_crash_restart_count: 5,
                 node_selector_json: None,
                 tolerations_json: None,
+                service_account_name: None,
             },
             proxy: ProxyConfig {
                 domain: None,

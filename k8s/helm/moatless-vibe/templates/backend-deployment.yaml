@@ -224,7 +224,7 @@ spec:
               value: {{ include "moatless-vibe.sandboxNamespace" . | quote }}
             - name: K8S_SANDBOX_IMAGE
               value: {{ include "moatless-vibe.sandboxImage" . | quote }}
-            - name: K8S_SERVICE_ACCOUNT
+            - name: K8S_SANDBOX_SERVICE_ACCOUNT
               value: {{ include "moatless-vibe.serviceAccountName" . | quote }}
             - name: K8S_POD_STARTUP_TIMEOUT
               value: {{ .Values.kubernetes.podStartupTimeout | quote }}
