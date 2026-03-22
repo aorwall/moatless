@@ -35,9 +35,9 @@ function TasksIndex() {
     <TaskDashboard
       view={search.view ?? 'cards'}
       tag={search.tag}
-      createdBy={search.createdBy === 'all' ? undefined : (search.createdBy ?? user?.id)}
+      createdBy={search.createdBy ?? user?.id}
       repositoryId={search.repositoryId}
-      status={search.status === 'all' ? undefined : (search.status ?? 'open')}
+      status={search.status ?? 'open'}
       page={search.page ?? 1}
       onSearchChange={handleSearchChange}
     />

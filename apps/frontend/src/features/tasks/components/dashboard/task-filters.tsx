@@ -109,7 +109,7 @@ export function TaskFilters({
 
       {/* User filter */}
       <Select
-        value={createdBy ?? ''}
+        value={createdBy === 'all' ? '__all__' : (createdBy ?? '')}
         onValueChange={(value) => updateFilter('createdBy', value === '__all__' ? 'all' : value)}
       >
         <SelectTrigger size="sm" className="min-w-[120px]">
@@ -147,7 +147,7 @@ export function TaskFilters({
 
       {/* Status filter */}
       <Select
-        value={status ?? ''}
+        value={status === 'all' ? '__all__' : (status ?? '')}
         onValueChange={(value) => updateFilter('status', value === '__all__' ? 'all' : value)}
       >
         <SelectTrigger size="sm" className="min-w-[100px]">

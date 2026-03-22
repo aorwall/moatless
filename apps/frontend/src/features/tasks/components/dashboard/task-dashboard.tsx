@@ -65,7 +65,7 @@ interface TaskDashboardProps {
   tag?: string
   createdBy?: string
   repositoryId?: string
-  status?: 'open' | 'error' | 'closed'
+  status?: 'all' | 'open' | 'error' | 'closed'
   page: number
   onSearchChange: (params: DashboardSearchParams) => void
 }
@@ -93,9 +93,9 @@ export function TaskDashboard({
     {
       limit: PAGE_SIZE,
       offset,
-      status,
+      status: status === 'all' ? undefined : status,
       tag,
-      createdBy,
+      createdBy: createdBy === 'all' ? undefined : createdBy,
       repositoryId,
     },
     {
@@ -140,7 +140,8 @@ export function TaskDashboard({
     return <TaskDashboardSkeleton />
   }
 
-  const hasFilters = tag || createdBy || repositoryId || status
+  const hasFilters =
+    tag || (createdBy && createdBy !== 'all') || repositoryId || (status && status !== 'all')
   if (sortedTasks.length === 0 && !hasFilters) {
     return <EmptyTaskState />
   }
