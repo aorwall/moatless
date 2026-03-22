@@ -221,33 +221,6 @@ async fn test_agent_state_transitions() {
     fresh.stop().await.expect("stop should succeed");
     assert!(cancel_clone.is_cancelled());
 
-    // --- Pending message UUIDs ---
-    let uuid_state = AgentState::new();
-
-    // Initially empty
-    assert!(uuid_state.take_pending_message_uuids().await.is_empty());
-
-    // Set and take
-    uuid_state
-        .set_pending_message_uuids(vec!["msg-1".to_string(), "msg-2".to_string()])
-        .await;
-    let taken = uuid_state.take_pending_message_uuids().await;
-    assert_eq!(taken, vec!["msg-1", "msg-2"]);
-    assert!(uuid_state.take_pending_message_uuids().await.is_empty());
-
-    // set_idle clears UUIDs
-    uuid_state
-        .set_pending_message_uuids(vec!["msg-3".to_string()])
-        .await;
-    uuid_state.set_idle().await;
-    assert!(uuid_state.take_pending_message_uuids().await.is_empty());
-
-    // set_error clears UUIDs
-    uuid_state
-        .set_pending_message_uuids(vec!["msg-4".to_string()])
-        .await;
-    uuid_state.set_error("fail".to_string()).await;
-    assert!(uuid_state.take_pending_message_uuids().await.is_empty());
 }
 
 // ===========================================================================

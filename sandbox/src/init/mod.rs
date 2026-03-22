@@ -129,7 +129,7 @@ pub async fn run_init(state: SandboxState) {
     // Spawned (not awaited) so it doesn't block Phase 2 workspace setup.
     let startup_state = state.clone();
     tokio::spawn(async move {
-        crate::agent::consumer::process_pending_messages(startup_state).await;
+        crate::agent::dispatcher::dispatch_pending_messages(startup_state).await;
     });
 
     // Phase 2: Workspace setup — runs after health is 200

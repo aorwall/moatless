@@ -18,6 +18,7 @@ use tracing::info;
 use tracing_subscriber::EnvFilter;
 
 use moatless_sandbox::agent;
+use moatless_sandbox::agent::claude_code::ClaudeCodeExecutor;
 use moatless_sandbox::backend_client::BackendGrpcClient;
 use moatless_sandbox::config::Config;
 use moatless_sandbox::events::GrpcEventPublisher;
@@ -60,6 +61,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config: Arc::new(config.clone()),
         events: event_publisher,
         agent: Arc::new(agent::agent_state::AgentState::new()),
+        executor: Arc::new(ClaudeCodeExecutor),
         backend_client,
         init_phase: Arc::new(RwLock::new(InitPhase::Starting)),
         credentials: Arc::new(RwLock::new(std::collections::HashMap::new())),

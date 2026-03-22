@@ -6,6 +6,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::agent::agent_state::AgentState;
+use crate::agent::executor::AgentExecutor;
 use crate::backend_client::BackendGrpcClient;
 use crate::config::Config;
 use crate::events::GrpcEventPublisher;
@@ -22,6 +23,8 @@ pub struct SandboxState {
     pub events: GrpcEventPublisher,
     /// Agent execution state (status, session, cancel token, pending prompts).
     pub agent: Arc<AgentState>,
+    /// Generic agent executor (e.g. ClaudeCodeExecutor).
+    pub executor: Arc<dyn AgentExecutor>,
     /// gRPC client for backend communication (message polling).
     pub backend_client: BackendGrpcClient,
     /// Current initialization phase — tracked for health probes and consumer gating.

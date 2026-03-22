@@ -18,8 +18,8 @@ use sandbox_proto::{
 
 use moatless_events::AgentSubType;
 
-use crate::agent::claude_code::spawn_agent_execution;
-use crate::agent::types::{content_blocks_from_proto, AgentRunRequest, AgentStatus, ResumeSession};
+use crate::agent::executor::run_agent;
+use crate::agent::types::AgentStatus;
 use crate::files;
 use crate::state::SandboxState;
 
@@ -33,34 +33,18 @@ pub struct SandboxServiceImpl {
 impl SandboxService for SandboxServiceImpl {
     async fn execute_agent(
         &self,
-        request: Request<ExecuteAgentRequest>,
+        _request: Request<ExecuteAgentRequest>,
     ) -> Result<Response<ExecuteAgentResponse>, Status> {
-        let req = request.into_inner();
-
         // Check if agent is already running
         if self.state.agent.status().await == AgentStatus::Running {
             return Err(Status::already_exists("Agent is already running"));
         }
 
-        // Convert proto ContentBlock to internal ContentBlock
-        let content = content_blocks_from_proto(req.content);
-        let content_blocks = content.len();
-        let agent_request = AgentRunRequest {
-            content,
-            model: req.model.clone(),
-            system_prompt: req.system_prompt,
-            resume: req.resume.filter(|&b| b).map(|_| ResumeSession::Last),
-            agent_type: req.agent_type.clone(),
-        };
+        // run_agent fetches its own messages from the backend.
+        // The backend must store content as a pending message before calling ExecuteAgent.
+        run_agent(self.state.clone());
 
-        spawn_agent_execution(self.state.clone(), agent_request);
-
-        info!(
-            blocks = content_blocks,
-            model = ?req.model,
-            agent_type = ?req.agent_type,
-            "Agent execution started via gRPC"
-        );
+        info!("Agent execution started via gRPC");
         Ok(Response::new(ExecuteAgentResponse {}))
     }
 
@@ -112,7 +96,7 @@ impl SandboxService for SandboxServiceImpl {
     ) -> Result<Response<NotifyMessagesResponse>, Status> {
         let state = self.state.clone();
         tokio::spawn(async move {
-            crate::agent::consumer::process_pending_messages(state).await;
+            crate::agent::dispatcher::dispatch_pending_messages(state).await;
         });
         info!("Message processing triggered via gRPC");
         Ok(Response::new(NotifyMessagesResponse {}))
