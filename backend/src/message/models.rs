@@ -118,6 +118,7 @@ pub struct TaskMessage {
     pub resume: bool,
     pub sent_at: Option<DateTime<Utc>>,
     pub created_at: Option<DateTime<Utc>>,
+    pub channel_external_id: Option<String>,
 }
 
 impl TaskMessage {
@@ -160,6 +161,7 @@ impl TaskMessage {
             resume: true,
             sent_at: None,
             created_at: None,
+            channel_external_id: None,
         }
     }
 }

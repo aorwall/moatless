@@ -91,10 +91,10 @@ impl ChannelProvider for CronProvider {
         _thread: &ChannelThread,
         _config: &ChannelConfig,
         _message: &OutboundReply,
-    ) -> Result<(), ChannelError> {
+    ) -> Result<Option<String>, ChannelError> {
         // Cron provider has no outbound channel — use response_config_id
         // to route replies to another channel.
-        Ok(())
+        Ok(None)
     }
 
     async fn set_status(

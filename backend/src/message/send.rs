@@ -21,7 +21,22 @@ pub async fn send_message_flow(
     file_ids: &[String],
     contexts: &[MessageContextInput],
     resume: bool,
+    channel_external_id: Option<&str>,
 ) -> Result<(), MessageError> {
+    // Dedup: if this channel message was already persisted, skip the insert entirely.
+    // Prevents duplicates from Slack retries or re-delivered webhooks.
+    if let Some(ext_id) = channel_external_id {
+        let exists = state
+            .messages
+            .has_channel_external_id(task_id, ext_id)
+            .await
+            .map_err(|e| MessageError::Internal(format!("Dedup check failed: {e}")))?;
+        if exists {
+            tracing::debug!(task_id = %task_id, channel_external_id = %ext_id, "Duplicate channel message, skipping");
+            return Ok(());
+        }
+    }
+
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let msg_uuid = uuid::Uuid::new_v4().to_string();
 
@@ -77,6 +92,7 @@ pub async fn send_message_flow(
         resume,
         sent_at: None,
         created_at: None,
+        channel_external_id: channel_external_id.map(std::string::ToString::to_string),
     };
 
     // Build content blocks for the showInUI=true user text
@@ -170,6 +186,7 @@ pub async fn persist_error_result(
         resume: true,
         sent_at: None,
         created_at: None,
+        channel_external_id: None,
     };
 
     let blocks = vec![TaskMessageContentBlock {
@@ -250,6 +267,7 @@ pub async fn send_tool_response_flow(
         resume: true,
         sent_at: None,
         created_at: None,
+        channel_external_id: None,
     };
 
     let contexts: Vec<TaskMessageContext> = vec![];

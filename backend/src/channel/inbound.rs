@@ -139,35 +139,9 @@ pub async fn process_inbound(
         }
     }
 
-    // Fetch thread context if this is a reply in an existing thread
-    let thread_context = if msg.thread_id.is_some() {
-        if let Some(provider) = providers.get_by_name(&config.provider) {
-            match provider.fetch_context(&thread, &config, 20).await {
-                Ok(Some(ctx)) => Some(ctx),
-                Ok(None) => None,
-                Err(e) => {
-                    warn!(error = %e, "Failed to fetch thread context");
-                    None
-                }
-            }
-        } else {
-            None
-        }
-    } else {
-        None
-    };
+    // Apply prompt template and send the new message
+    let message_text = apply_prompt_template(&config, &msg.text);
 
-    // Apply prompt template if configured, prepending thread context if available
-    let message_text = if let Some(ref ctx) = thread_context {
-        format!(
-            "Previous thread messages for context:\n\n{ctx}\n\n---\n\nNew message:\n{}",
-            apply_prompt_template(&config, &msg.text)
-        )
-    } else {
-        apply_prompt_template(&config, &msg.text)
-    };
-
-    // Send message to the task
     if let Err(e) = crate::message::send::send_message_flow(
         state,
         &task_id,
@@ -177,6 +151,7 @@ pub async fn process_inbound(
         &msg.file_ids,
         &[],
         true,
+        Some(&msg.message_thread_id),
     )
     .await
     {
@@ -223,7 +198,7 @@ async fn create_task_for_channel(
         site_url: None,
         template_id: None,
         vibe: None,
-        name: None, // Will be auto-named by agent
+        name: config.task_name.clone(),
         description: Some(truncate(&msg.text, 200)),
         site_id: None,
         site_provider: None,
@@ -239,6 +214,13 @@ async fn create_task_for_channel(
     state.tasks.insert_task(&row)
         .await
         .map_err(|e| ChannelError::Internal(format!("Failed to create task: {e}")))?;
+
+    // Assign channel tags to the task
+    if !config.tag_ids.is_empty() {
+        if let Err(e) = state.tags.add_task_tags(&task_id, &config.tag_ids).await {
+            warn!(task_id = %task_id, error = %e, "Failed to assign channel tags to task");
+        }
+    }
 
     // Emit task event
     if let Some(ref events) = state.events {
@@ -310,6 +292,8 @@ mod tests {
             response_config_id: None,
             scope: crate::scope::Scope::User,
             team_id: None,
+            task_name: None,
+            tag_ids: vec![],
             created_by: "u1".into(),
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
@@ -334,6 +318,8 @@ mod tests {
             response_config_id: None,
             scope: crate::scope::Scope::User,
             team_id: None,
+            task_name: None,
+            tag_ids: vec![],
             created_by: "u1".into(),
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),

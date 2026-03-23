@@ -314,7 +314,7 @@ impl ChannelProvider for TelegramProvider {
         thread: &ChannelThread,
         _config: &ChannelConfig,
         message: &OutboundReply,
-    ) -> Result<(), ChannelError> {
+    ) -> Result<Option<String>, ChannelError> {
         let chat_id = thread
             .properties
             .get("chat_id")
@@ -339,7 +339,8 @@ impl ChannelProvider for TelegramProvider {
 
         self.api
             .send_message(chat_id, &text, reply_to, forum_topic_id)
-            .await
+            .await?;
+        Ok(None)
     }
 
     async fn set_status(
@@ -574,6 +575,8 @@ async fn auto_create_config(
         response_config_id: None,
         scope: Scope::Global,
         team_id: None,
+        task_name: None,
+        tag_ids: vec![],
         created_by: owner.unwrap_or_else(|| "system".to_string()),
         created_at: now,
         updated_at: now,
@@ -798,6 +801,8 @@ mod tests {
             response_config_id: None,
             scope: crate::scope::Scope::User,
             team_id: None,
+            task_name: None,
+            tag_ids: vec![],
             created_by: "system".into(),
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),

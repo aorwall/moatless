@@ -34,6 +34,17 @@ pub trait MessageRepository: Send + Sync {
     async fn delete_queued(&self, task_id: &str, message_uuid: &str) -> Result<bool, sqlx::Error>;
     async fn get_last_message_type(&self, task_id: &str) -> Result<Option<super::models::MessageType>, sqlx::Error>;
     async fn get_latest_message_times(&self, task_ids: &[String]) -> Result<HashMap<String, DateTime<Utc>>, sqlx::Error>;
+    async fn set_channel_external_id(
+        &self,
+        message_uuid: &str,
+        external_id: &str,
+    ) -> Result<bool, sqlx::Error>;
+
+    async fn has_channel_external_id(
+        &self,
+        task_id: &str,
+        external_id: &str,
+    ) -> Result<bool, sqlx::Error>;
 }
 
 /// PostgreSQL implementation of [`MessageRepository`].
@@ -58,7 +69,8 @@ impl MessageRepository for PgMessageRepository {
                     assistant_usage_cache_read_input_tokens,
                     tool_use_result, sdk_metadata, attachments, agent_session_id,
                     will_not_resume, run_metrics,
-                    agent_mode, model, resume, sent_at, created_at
+                    agent_mode, model, resume, sent_at, created_at,
+                    channel_external_id
                 FROM task_messages
                 WHERE task_id = $1
                 ORDER BY timestamp, id"#,
@@ -111,12 +123,12 @@ impl MessageRepository for PgMessageRepository {
                 assistant_usage_cache_read_input_tokens,
                 tool_use_result, sdk_metadata, attachments, agent_session_id,
                 will_not_resume, run_metrics,
-                agent_mode, model, resume
+                agent_mode, model, resume, channel_external_id
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
                 $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
                 $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
-                $31, $32, $33
+                $31, $32, $33, $34
             )
             ON CONFLICT (uuid) DO UPDATE SET
                 message_type = EXCLUDED.message_type,
@@ -160,6 +172,7 @@ impl MessageRepository for PgMessageRepository {
         .bind(&msg.agent_mode)
         .bind(&msg.model)
         .bind(msg.resume)
+        .bind(&msg.channel_external_id)
         .fetch_one(&mut *tx)
         .await?;
 
@@ -217,7 +230,8 @@ impl MessageRepository for PgMessageRepository {
                 assistant_usage_cache_read_input_tokens,
                 tool_use_result, sdk_metadata, attachments, agent_session_id,
                 will_not_resume, run_metrics,
-                agent_mode, model, resume, sent_at, created_at
+                agent_mode, model, resume, sent_at, created_at,
+                    channel_external_id
             FROM task_messages
             WHERE task_id = $1
               AND agent_session_id IS NULL
@@ -242,7 +256,8 @@ impl MessageRepository for PgMessageRepository {
                 assistant_usage_cache_read_input_tokens,
                 tool_use_result, sdk_metadata, attachments, agent_session_id,
                 will_not_resume, run_metrics,
-                agent_mode, model, resume, sent_at, created_at
+                agent_mode, model, resume, sent_at, created_at,
+                    channel_external_id
             FROM task_messages
             WHERE task_id = $1 AND message_type IN ('result', 'error')
             ORDER BY timestamp DESC
@@ -266,7 +281,8 @@ impl MessageRepository for PgMessageRepository {
                 assistant_usage_cache_read_input_tokens,
                 tool_use_result, sdk_metadata, attachments, agent_session_id,
                 will_not_resume, run_metrics,
-                agent_mode, model, resume, sent_at, created_at
+                agent_mode, model, resume, sent_at, created_at,
+                    channel_external_id
             FROM task_messages
             WHERE task_id = $1 AND message_type = 'user'
             ORDER BY timestamp DESC
@@ -380,6 +396,43 @@ impl MessageRepository for PgMessageRepository {
         .await?;
 
         Ok(rows.into_iter().collect())
+    }
+
+    async fn set_channel_external_id(
+        &self,
+        message_uuid: &str,
+        external_id: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query(
+            r#"UPDATE task_messages
+               SET channel_external_id = $2
+               WHERE uuid = $1 AND channel_external_id IS NULL"#,
+        )
+        .bind(message_uuid)
+        .bind(external_id)
+        .execute(&self.0)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn has_channel_external_id(
+        &self,
+        task_id: &str,
+        external_id: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let row: (bool,) = sqlx::query_as(
+            r#"SELECT EXISTS(
+                SELECT 1 FROM task_messages
+                WHERE task_id = $1 AND channel_external_id = $2
+            )"#,
+        )
+        .bind(task_id)
+        .bind(external_id)
+        .fetch_one(&self.0)
+        .await?;
+
+        Ok(row.0)
     }
 }
 

@@ -34,12 +34,15 @@ pub trait ChannelProvider: Send + Sync {
     ) -> Result<Option<String>, ChannelError>;
 
     /// Send a reply back to the channel thread.
+    ///
+    /// Returns the external message ID if the provider tracks outbound messages
+    /// (e.g., Slack `ts`). Providers that don't track outbound return `Ok(None)`.
     async fn send_reply(
         &self,
         thread: &ChannelThread,
         config: &ChannelConfig,
         message: &OutboundReply,
-    ) -> Result<(), ChannelError>;
+    ) -> Result<Option<String>, ChannelError>;
 
     /// Send a new top-level message to a channel (no existing thread).
     ///

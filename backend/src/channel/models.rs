@@ -25,6 +25,8 @@ pub struct ChannelConfig {
     pub response_config_id: Option<String>,
     pub scope: Scope,
     pub team_id: Option<String>,
+    pub task_name: Option<String>,
+    pub tag_ids: Vec<String>,
     pub created_by: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,

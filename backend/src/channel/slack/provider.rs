@@ -248,7 +248,7 @@ impl ChannelProvider for SlackProvider {
         thread: &ChannelThread,
         _config: &ChannelConfig,
         message: &OutboundReply,
-    ) -> Result<(), ChannelError> {
+    ) -> Result<Option<String>, ChannelError> {
         let channel = thread
             .properties
             .get("channel")
@@ -266,10 +266,11 @@ impl ChannelProvider for SlackProvider {
             let _ = write!(text, "\n<{url}|View task>");
         }
 
-        self.api
+        let ts = self
+            .api
             .post_message(channel, &text, Some(thread_ts))
             .await?;
-        Ok(())
+        Ok(ts)
     }
 
     async fn send_message(
@@ -403,6 +404,7 @@ impl ChannelProvider for SlackProvider {
 
         Ok(Some(messages.join("\n\n---\n\n")))
     }
+
 }
 
 /// Strip bot mention from message text (e.g., "<@U123ABC> fix the bug" → "fix the bug").

@@ -142,7 +142,7 @@ impl ChannelProvider for WebhookProvider {
         thread: &ChannelThread,
         config: &ChannelConfig,
         message: &OutboundReply,
-    ) -> Result<(), ChannelError> {
+    ) -> Result<Option<String>, ChannelError> {
         let callback_url = config
             .provider_config
             .as_ref()
@@ -151,7 +151,7 @@ impl ChannelProvider for WebhookProvider {
 
         let Some(callback_url) = callback_url else {
             debug!(config_id = %config.id, "No callback_url configured, skipping outbound webhook");
-            return Ok(());
+            return Ok(None);
         };
 
         let callback_headers: std::collections::HashMap<String, String> = config
@@ -178,7 +178,7 @@ impl ChannelProvider for WebhookProvider {
         match req.send().await {
             Ok(resp) if resp.status().is_success() => {
                 debug!(config_id = %config.id, url = %callback_url, "Webhook callback sent successfully");
-                Ok(())
+                Ok(None)
             }
             Ok(resp) => {
                 let status = resp.status();
@@ -228,6 +228,8 @@ mod tests {
             response_config_id: None,
             scope: crate::scope::Scope::User,
             team_id: None,
+            task_name: None,
+            tag_ids: vec![],
             created_by: "default-user".into(),
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),

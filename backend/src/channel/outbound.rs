@@ -80,6 +80,12 @@ pub async fn handle_channel_notification(
                 None => continue,
             };
 
+        // Extract message_id from payload (injected by agent_handlers for outbound tracking)
+        let message_id = event
+            .payload
+            .get("message_id")
+            .and_then(|v| v.as_str());
+
         match &key {
             EventKey::TaskTurn(TaskTurnSubType::Completed)
             | EventKey::Agent(AgentSubType::Completed) => {
@@ -95,7 +101,7 @@ pub async fn handle_channel_notification(
                     is_error: false,
                 };
 
-                send_outbound(state, &event.task_id, target, &reply, MessageStatus::Completed)
+                send_outbound(state, &event.task_id, target, &reply, MessageStatus::Completed, message_id)
                     .await;
             }
 
@@ -113,7 +119,7 @@ pub async fn handle_channel_notification(
                     is_error: true,
                 };
 
-                send_outbound(state, &event.task_id, target, &reply, MessageStatus::Error).await;
+                send_outbound(state, &event.task_id, target, &reply, MessageStatus::Error, message_id).await;
             }
 
             _ => {
@@ -133,12 +139,16 @@ pub async fn handle_channel_notification(
 /// For `Reply` targets, uses `send_reply` on an existing thread.
 /// For `NewMessage` targets, uses `send_message` to post a top-level message
 /// and persists the thread for future replies.
+///
+/// If `message_id` is provided and the provider returns an external ID,
+/// stores the mapping via `set_channel_external_id` for outbound tracking.
 async fn send_outbound(
     state: &AppState,
     task_id: &str,
     target: OutboundTarget<'_>,
     reply: &OutboundReply,
     status: MessageStatus,
+    message_id: Option<&str>,
 ) {
     match target {
         OutboundTarget::Reply {
@@ -146,8 +156,18 @@ async fn send_outbound(
             config,
             thread,
         } => {
-            if let Err(e) = provider.send_reply(&thread, &config, reply).await {
-                warn!(task_id = %task_id, error = %e, "Failed to send channel reply");
+            match provider.send_reply(&thread, &config, reply).await {
+                Ok(Some(external_id)) => {
+                    if let Some(msg_id) = message_id {
+                        if let Err(e) = state.messages.set_channel_external_id(msg_id, &external_id).await {
+                            warn!(task_id = %task_id, error = %e, "Failed to store outbound external ID");
+                        }
+                    }
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    warn!(task_id = %task_id, error = %e, "Failed to send channel reply");
+                }
             }
             if let Err(e) = provider.set_status(&thread, &config, status).await {
                 warn!(task_id = %task_id, error = %e, "Failed to set channel status");

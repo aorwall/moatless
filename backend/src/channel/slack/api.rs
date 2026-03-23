@@ -54,7 +54,7 @@ struct ConversationsRepliesResponse {
 struct SlackMessage {
     text: Option<String>,
     user: Option<String>,
-    #[allow(dead_code)] // reason: deserialized from Slack API but not directly read
+    #[allow(dead_code)] // reason: deserialized from API but only used for structured replies
     ts: Option<String>,
     blocks: Option<Vec<serde_json::Value>>,
     attachments: Option<Vec<serde_json::Value>>,
@@ -367,4 +367,5 @@ impl SlackApi {
 
         Ok(filtered)
     }
+
 }

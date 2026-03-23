@@ -568,7 +568,7 @@ impl ChannelProvider for GithubPrProvider {
         thread: &ChannelThread,
         config: &ChannelConfig,
         message: &OutboundReply,
-    ) -> Result<(), ChannelError> {
+    ) -> Result<Option<String>, ChannelError> {
         let (owner, repo, pr_number) = Self::parse_thread_props(thread)?;
         let token = self.resolve_token_outbound(config)?;
         let api = GithubPrApi::new(&token);
@@ -581,7 +581,7 @@ impl ChannelProvider for GithubPrProvider {
 
         api.post_comment(&owner, &repo, pr_number, &body).await?;
 
-        Ok(())
+        Ok(None)
     }
 
     async fn set_status(

@@ -146,13 +146,20 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
             MessageType::Error => TaskTurnSubType::Error,
             _ => TaskTurnSubType::Completed,
         };
+
+        // Include message_id in payload for outbound channel tracking
+        let mut turn_payload = event.payload.clone();
+        if let Some(obj) = turn_payload.as_object_mut() {
+            obj.insert("message_id".to_string(), serde_json::json!(msg_uuid));
+        }
+
         events
             .publish_task_turn_event(
                 &event.task_id,
                 turn_sub,
                 event.agent_type.as_deref(),
                 event.turn_number,
-                event.payload.clone(),
+                turn_payload,
             )
             .await;
 
@@ -332,13 +339,19 @@ pub async fn handle_agent_error(state: &AppState, event: &AgentEvent) {
     }
 
     if let Some(ref events) = state.events {
+        // Include message_id in payload for outbound channel tracking
+        let mut turn_payload = event.payload.clone();
+        if let Some(obj) = turn_payload.as_object_mut() {
+            obj.insert("message_id".to_string(), serde_json::json!(msg_uuid));
+        }
+
         events
             .publish_task_turn_event(
                 &event.task_id,
                 TaskTurnSubType::Error,
                 event.agent_type.as_deref(),
                 event.turn_number,
-                event.payload.clone(),
+                turn_payload,
             )
             .await;
     }
@@ -498,6 +511,7 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
         resume: true,
         sent_at: None,
         created_at: None,
+        channel_external_id: None,
     };
 
     // 6. Build content blocks from the content array
@@ -710,6 +724,7 @@ fn build_result_message_row(
         resume: true,
         sent_at: None,
         created_at: None,
+        channel_external_id: None,
     }
 }
 
