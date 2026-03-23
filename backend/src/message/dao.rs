@@ -45,6 +45,11 @@ pub trait MessageRepository: Send + Sync {
         task_id: &str,
         external_id: &str,
     ) -> Result<bool, sqlx::Error>;
+
+    async fn get_channel_external_ids(
+        &self,
+        task_id: &str,
+    ) -> Result<Vec<String>, sqlx::Error>;
 }
 
 /// PostgreSQL implementation of [`MessageRepository`].
@@ -433,6 +438,21 @@ impl MessageRepository for PgMessageRepository {
         .await?;
 
         Ok(row.0)
+    }
+
+    async fn get_channel_external_ids(
+        &self,
+        task_id: &str,
+    ) -> Result<Vec<String>, sqlx::Error> {
+        let rows: Vec<(String,)> = sqlx::query_as(
+            r#"SELECT channel_external_id FROM task_messages
+               WHERE task_id = $1 AND channel_external_id IS NOT NULL"#,
+        )
+        .bind(task_id)
+        .fetch_all(&self.0)
+        .await?;
+
+        Ok(rows.into_iter().map(|r| r.0).collect())
     }
 }
 

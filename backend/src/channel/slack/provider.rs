@@ -22,7 +22,7 @@ pub enum SlackWebhookResult {
     /// URL verification challenge — return the challenge string immediately.
     Challenge(String),
     /// Parsed message ready for routing.
-    Message(InboundMessage),
+    Message(Box<InboundMessage>),
     /// Event should be ignored (bot's own message, unsupported event, etc.).
     Ignore,
 }
@@ -206,7 +206,7 @@ impl SlackProvider {
             "thread_ts": thread_ts.unwrap_or(ts),
         });
 
-        Ok(SlackWebhookResult::Message(InboundMessage {
+        Ok(SlackWebhookResult::Message(Box::new(InboundMessage {
             provider: ChannelType::Slack,
             source_id: channel.to_string(),
             thread_id: thread_ts.map(std::string::ToString::to_string),
@@ -218,7 +218,8 @@ impl SlackProvider {
             provider_context: serde_json::json!({
                 "team_id": payload.get("team_id").and_then(|v| v.as_str()).unwrap_or(""),
             }),
-        }))
+            channel_external_id: Some(ts.to_string()),
+        })))
     }
 }
 
@@ -329,6 +330,7 @@ impl ChannelProvider for SlackProvider {
         thread: &ChannelThread,
         config: &ChannelConfig,
         limit: usize,
+        exclude_external_ids: &[String],
     ) -> Result<Option<String>, ChannelError> {
         let channel = thread
             .properties
@@ -350,7 +352,7 @@ impl ChannelProvider for SlackProvider {
             .thread_context_limit
             .unwrap_or(limit as u64) as usize;
 
-        let messages = self
+        let replies = self
             .api
             .get_thread_replies(
                 channel,
@@ -359,6 +361,20 @@ impl ChannelProvider for SlackProvider {
                 self.bot_user_id.as_deref(),
             )
             .await?;
+
+        if replies.is_empty() {
+            return Ok(None);
+        }
+
+        // Filter out messages already delivered to the task
+        let messages: Vec<&str> = replies
+            .iter()
+            .filter(|r| {
+                r.ts.as_ref()
+                    .is_none_or(|ts| !exclude_external_ids.contains(ts))
+            })
+            .map(|r| r.text.as_str())
+            .collect();
 
         if messages.is_empty() {
             return Ok(None);

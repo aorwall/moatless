@@ -64,11 +64,15 @@ pub trait ChannelProvider: Send + Sync {
 
     /// Fetch thread context for enriching agent messages (e.g., Slack thread replies).
     /// Returns formatted context string or None if not supported.
+    ///
+    /// `exclude_external_ids` contains external message IDs already delivered to the task.
+    /// Providers should filter these out to avoid sending duplicate context.
     async fn fetch_context(
         &self,
         _thread: &ChannelThread,
         _config: &ChannelConfig,
         _limit: usize,
+        _exclude_external_ids: &[String],
     ) -> Result<Option<String>, ChannelError> {
         Ok(None)
     }

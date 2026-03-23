@@ -299,6 +299,7 @@ impl GithubPrProvider {
                 "pr_number": pr_number,
             }),
             provider_context: serde_json::json!({}),
+            channel_external_id: None,
         })))
     }
 
@@ -364,6 +365,7 @@ impl GithubPrProvider {
                 "comment_id": comment_id,
             }),
             provider_context: serde_json::json!({}),
+            channel_external_id: Some(comment_id.to_string()),
         })))
     }
 
@@ -440,6 +442,7 @@ impl GithubPrProvider {
                 "comment_id": comment_id,
             }),
             provider_context: serde_json::json!({}),
+            channel_external_id: Some(comment_id.to_string()),
         })))
     }
 
@@ -512,6 +515,7 @@ impl GithubPrProvider {
                 "pr_number": pr_number,
             }),
             provider_context: serde_json::json!({}),
+            channel_external_id: None,
         })))
     }
 
@@ -588,6 +592,7 @@ impl ChannelProvider for GithubPrProvider {
         thread: &ChannelThread,
         config: &ChannelConfig,
         limit: usize,
+        exclude_external_ids: &[String],
     ) -> Result<Option<String>, ChannelError> {
         let (owner, repo, pr_number) = Self::parse_thread_props(thread)?;
 
@@ -611,6 +616,10 @@ impl ChannelProvider for GithubPrProvider {
                 c.body
                     .as_deref()
                     .is_none_or(|b| !b.contains(AGENT_MARKER))
+            })
+            .filter(|c| {
+                // Exclude comments already delivered to the task
+                !exclude_external_ids.contains(&c.id.to_string())
             })
             .map(|c| {
                 format!(

@@ -48,10 +48,17 @@ struct ConversationsRepliesResponse {
 struct SlackMessage {
     text: Option<String>,
     user: Option<String>,
-    #[allow(dead_code)] // reason: deserialized from API but only used for structured replies
     ts: Option<String>,
     blocks: Option<Vec<serde_json::Value>>,
     attachments: Option<Vec<serde_json::Value>>,
+}
+
+/// A formatted thread reply with its Slack timestamp for dedup filtering.
+pub struct ThreadReply {
+    /// The formatted message text.
+    pub text: String,
+    /// The Slack message timestamp (unique ID).
+    pub ts: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -222,13 +229,15 @@ impl SlackApi {
     }
 
     /// Fetch thread replies for context enrichment.
+    ///
+    /// Returns structured replies with Slack `ts` for filtering already-delivered messages.
     pub async fn get_thread_replies(
         &self,
         channel: &str,
         thread_ts: &str,
         limit: usize,
         bot_user_id: Option<&str>,
-    ) -> Result<Vec<String>, ChannelError> {
+    ) -> Result<Vec<ThreadReply>, ChannelError> {
         let resp: ConversationsRepliesResponse = self
             .client
             .get("https://slack.com/api/conversations.replies")
@@ -256,7 +265,7 @@ impl SlackApi {
         }
 
         let messages = resp.messages.unwrap_or_default();
-        let filtered: Vec<String> = messages
+        let filtered: Vec<ThreadReply> = messages
             .into_iter()
             .filter(|m| {
                 // Exclude bot's own messages
@@ -268,8 +277,9 @@ impl SlackApi {
                 true
             })
             .filter_map(|m| {
+                let ts = m.ts.clone();
                 // Try blocks first (Block Kit), then attachments (legacy), then text (fallback)
-                m.blocks
+                let text = m.blocks
                     .as_ref()
                     .map(|b| super::format::extract_text_from_blocks(b))
                     .filter(|t| !t.is_empty())
@@ -283,7 +293,8 @@ impl SlackApi {
                         m.text
                             .filter(|t| !t.is_empty())
                             .map(|t| super::format::format_slack_text(&t))
-                    })
+                    })?;
+                Some(ThreadReply { text, ts })
             })
             .collect();
 

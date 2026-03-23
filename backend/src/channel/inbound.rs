@@ -21,6 +21,7 @@ pub async fn process_inbound(
 ) -> Result<String, ChannelError> {
     let routing_result = router::route_message(state, &msg).await?;
 
+    let mut is_new_task = false;
     let (task_id, config, thread) = match routing_result {
         RoutingResult::NoConfig => {
             warn!(
@@ -90,6 +91,7 @@ pub async fn process_inbound(
                 .await?;
             }
 
+            is_new_task = true;
             (task_id, config, None)
         }
     };
@@ -97,7 +99,7 @@ pub async fn process_inbound(
     // Create or update thread record.
     // For ongoing mode without a thread_id, reuse the existing thread for this
     // task+config to avoid duplicate outbound replies.
-    let _thread = if let Some(existing) = thread {
+    let thread = if let Some(existing) = thread {
         state.channel_threads.touch(existing.id, Some(&msg.thread_properties)).await?;
         existing
     } else if config.routing_mode == RoutingMode::Ongoing {
@@ -127,8 +129,44 @@ pub async fn process_inbound(
         .await?
     };
 
-    // Apply prompt template and send the new message
-    let message_text = apply_prompt_template(&config, &msg.text);
+    // Fetch thread context for replies, excluding messages already delivered to the task.
+    let thread_context = if msg.thread_id.is_some() {
+        if let Some(ref providers) = state.channel_providers {
+            if let Some(provider) = providers.get_by_name(&config.provider) {
+                let mut exclude_ids = match state.messages.get_channel_external_ids(&task_id).await {
+                    Ok(ids) => ids,
+                    Err(e) => {
+                        warn!(error = %e, "Failed to fetch channel external IDs, fetching full context");
+                        vec![]
+                    }
+                };
+                // Also exclude the current message (not yet stored in DB)
+                if let Some(ref ext_id) = msg.channel_external_id {
+                    exclude_ids.push(ext_id.clone());
+                }
+
+                match provider.fetch_context(&thread, &config, 20, &exclude_ids).await {
+                    Ok(ctx) => ctx,
+                    Err(e) => {
+                        warn!(error = %e, "Failed to fetch thread context");
+                        None
+                    }
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    // Use the raw message text — prompt_template is passed as append_system_prompt on the task
+    let mut message_text = msg.text.clone();
+    if let Some(ctx) = thread_context {
+        message_text = format!("Thread context (previous messages):\n\n{ctx}\n\n---\n\nNew message:\n\n{message_text}");
+    }
 
     if let Err(e) = crate::message::send::send_message_flow(
         state,
@@ -139,7 +177,7 @@ pub async fn process_inbound(
         &msg.file_ids,
         &[],
         true,
-        Some(&msg.message_thread_id),
+        msg.channel_external_id.as_deref(),
     )
     .await
     {
@@ -150,7 +188,11 @@ pub async fn process_inbound(
     }
 
     // Notify sandbox that a new message is available (fire-and-forget).
-    crate::sandbox::notify::notify_sandbox_for_task(state, &task_id).await;
+    // Skip for new tasks — the sandbox pod is still starting and will fetch
+    // pending messages on startup.
+    if !is_new_task {
+        crate::sandbox::notify::notify_sandbox_for_task(state, &task_id).await;
+    }
 
     info!(task_id = %task_id, provider = config.provider, "Channel message routed to task");
     Ok(task_id)
@@ -192,6 +234,7 @@ async fn create_task_for_channel(
         created_at_db: None,
         updated_at: None,
         parent_task_id: None,
+        append_system_prompt: config.prompt_template.clone(),
     };
 
     state.tasks.insert_task(&row)
@@ -219,15 +262,6 @@ async fn create_task_for_channel(
 
     info!(task_id = %task_id, config_id = %config.id, "Created task from channel message");
     Ok(task_id)
-}
-
-/// Apply prompt template (replace {message} placeholder with actual message).
-fn apply_prompt_template(config: &ChannelConfig, message: &str) -> String {
-    if let Some(ref template) = config.prompt_template {
-        template.replace("{message}", message)
-    } else {
-        message.to_string()
-    }
 }
 
 /// Generate a unique short ID.
@@ -258,58 +292,6 @@ fn truncate(s: &str, max: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn apply_template_with_placeholder() {
-        let config = ChannelConfig {
-            id: "c1".into(),
-            provider: "slack".into(),
-            source_id: "C123".into(),
-            source_name: None,
-            repository_id: "r1".into(),
-            routing_mode: RoutingMode::ThreadBased,
-            prompt_template: Some("User request:\n\n{message}\n\nPlease help.".into()),
-            active: true,
-            provider_config: None,
-            ongoing_task_id: None,
-            response_config_id: None,
-            scope: crate::scope::Scope::User,
-            team_id: None,
-            task_name: None,
-            tag_ids: vec![],
-            created_by: "u1".into(),
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
-        };
-        let result = apply_prompt_template(&config, "fix the bug");
-        assert_eq!(result, "User request:\n\nfix the bug\n\nPlease help.");
-    }
-
-    #[test]
-    fn apply_template_no_template() {
-        let config = ChannelConfig {
-            id: "c1".into(),
-            provider: "slack".into(),
-            source_id: "C123".into(),
-            source_name: None,
-            repository_id: "r1".into(),
-            routing_mode: RoutingMode::ThreadBased,
-            prompt_template: None,
-            active: true,
-            provider_config: None,
-            ongoing_task_id: None,
-            response_config_id: None,
-            scope: crate::scope::Scope::User,
-            team_id: None,
-            task_name: None,
-            tag_ids: vec![],
-            created_by: "u1".into(),
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
-        };
-        let result = apply_prompt_template(&config, "fix the bug");
-        assert_eq!(result, "fix the bug");
-    }
 
     #[test]
     fn truncate_short() {
