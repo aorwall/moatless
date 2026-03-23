@@ -36,6 +36,7 @@ pub struct Task {
     pub scope: Scope,
     pub team_id: Option<String>,
     pub created_at_db: Option<DateTime<Utc>>,
+    pub updated_at: Option<DateTime<Utc>>,
     pub parent_task_id: Option<String>,
 }
 

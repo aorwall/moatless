@@ -124,6 +124,7 @@ pub async fn create_task(
         scope: repo.scope,
         team_id: repo.team_id.clone(),
         created_at_db: None,
+        updated_at: None,
         parent_task_id: req.parent_task_id.clone(),
     };
 
