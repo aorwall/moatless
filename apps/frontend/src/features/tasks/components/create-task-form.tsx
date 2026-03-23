@@ -22,7 +22,7 @@ import { Button } from '@/lib/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/lib/components/ui/card'
 import { Label } from '@/lib/components/ui/label'
 import { useZodForm } from '@/lib/hooks/use-zod-form'
-import { DEFAULT_CLAUDE_MODEL } from '@/lib/types/claude-models'
+import { DEFAULT_CLAUDE_MODEL, modelToApiValue } from '@/lib/types/claude-models'
 import { getErrorMessage } from '@/lib/utils/error'
 
 const CreateTaskRequestSchema = z.object({
@@ -86,7 +86,7 @@ export function CreateTaskForm() {
       message: '',
       repositoryId: selectedRepositoryId,
       branch: selectedBranch === '__none__' ? undefined : selectedBranch,
-      model: DEFAULT_CLAUDE_MODEL,
+      model: modelToApiValue(DEFAULT_CLAUDE_MODEL),
       agentMode: agentModeSelector.value,
       fileIds: taskInputs.getFileIds(),
       contexts: taskInputs.contextItems.length > 0 ? taskInputs.contextItems : undefined,

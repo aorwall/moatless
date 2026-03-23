@@ -39,7 +39,7 @@ import { MessageHistory } from '@/lib/components/chat/message-history'
 import { QueuedMessages } from '@/lib/components/chat/queued-messages'
 import { Button } from '@/lib/components/ui/button'
 import { useFeatureFlag } from '@/lib/hooks/use-feature-flag'
-import { type ClaudeModel, DEFAULT_CLAUDE_MODEL } from '@/lib/types/claude-models'
+import { type ClaudeModel, DEFAULT_CLAUDE_MODEL, modelToApiValue } from '@/lib/types/claude-models'
 import type { Question } from '@/lib/types/user-input'
 import { getErrorMessage } from '@/lib/utils/error'
 import { CommandButtons } from './command-buttons'
@@ -314,7 +314,7 @@ function ChatContainer({
     const messageData = {
       message: trimmedMessage,
       resume: resumeConversation,
-      model: isModelSelectorEnabled ? selectedModel : DEFAULT_CLAUDE_MODEL,
+      model: isModelSelectorEnabled ? modelToApiValue(selectedModel) : undefined,
       fileIds: taskInputs.getFileIds(),
       contexts: taskInputs.contextItems.length > 0 ? taskInputs.contextItems : undefined,
       agentMode: selectedAgentMode,
@@ -343,7 +343,7 @@ function ChatContainer({
         message: command.prompt,
         commandName: command.name,
         resume: command.willNotResume !== true,
-        model: isModelSelectorEnabled ? selectedModel : DEFAULT_CLAUDE_MODEL,
+        model: isModelSelectorEnabled ? modelToApiValue(selectedModel) : undefined,
         agentMode: command.agentMode || selectedAgentMode,
         fileIds: taskInputs.getFileIds(),
         contexts: taskInputs.contextItems.length > 0 ? taskInputs.contextItems : undefined,
@@ -370,7 +370,7 @@ function ChatContainer({
         message: command.prompt,
         commandName: command.name,
         resume: command.willNotResume !== true,
-        model: isModelSelectorEnabled ? selectedModel : DEFAULT_CLAUDE_MODEL,
+        model: isModelSelectorEnabled ? modelToApiValue(selectedModel) : undefined,
         agentMode: command.agentMode || selectedAgentMode,
       }
       sendMessage.mutate(commandData)

@@ -30,7 +30,7 @@ import {
   useRepositorySelector,
 } from '@/lib/components/chat/chat-input/selectors'
 import { useFeatureFlag } from '@/lib/hooks/use-feature-flag'
-import { type ClaudeModel, DEFAULT_CLAUDE_MODEL } from '@/lib/types/claude-models'
+import { type ClaudeModel, DEFAULT_CLAUDE_MODEL, modelToApiValue } from '@/lib/types/claude-models'
 import { getErrorMessage } from '@/lib/utils/error'
 
 interface CreateCodeTaskProps {
@@ -144,7 +144,7 @@ export function CreateCodeTask({
         agentType: 'claude-code',
         message: message.trim() || undefined,
         repositoryId,
-        model: isModelSelectorEnabled ? model : DEFAULT_CLAUDE_MODEL,
+        model: isModelSelectorEnabled ? modelToApiValue(model) : undefined,
         fileIds: taskInputs.getFileIds(),
         contexts: taskInputs.contextItems.length > 0 ? taskInputs.contextItems : undefined,
         branch: branchSelector.value,

@@ -169,8 +169,20 @@ export function useModelSelector(value?: ClaudeModel, onChange?: (value: ClaudeM
   const items = useMemo(
     () => [
       {
+        id: CLAUDE_MODELS.DEFAULT,
+        label: CLAUDE_MODEL_DISPLAY_NAMES[CLAUDE_MODELS.DEFAULT],
+      },
+      {
         id: CLAUDE_MODELS.OPUS_4,
         label: CLAUDE_MODEL_DISPLAY_NAMES[CLAUDE_MODELS.OPUS_4],
+      },
+      {
+        id: CLAUDE_MODELS.SONNET_4,
+        label: CLAUDE_MODEL_DISPLAY_NAMES[CLAUDE_MODELS.SONNET_4],
+      },
+      {
+        id: CLAUDE_MODELS.HAIKU_4,
+        label: CLAUDE_MODEL_DISPLAY_NAMES[CLAUDE_MODELS.HAIKU_4],
       },
     ],
     [],
