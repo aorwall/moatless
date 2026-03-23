@@ -193,7 +193,11 @@ async fn run_agent_inner(state: SandboxState) {
             }
         });
 
-        // 6. Execute
+        // 6. Execute — capture context for error reporting before request is consumed
+        let ctx_model = request.model.clone();
+        let ctx_resume = format!("{:?}", request.resume);
+        let ctx_agent_type = request.agent_type.clone();
+
         let result = state
             .executor
             .execute(&state, request, cancel_token, events_tx)
@@ -221,7 +225,12 @@ async fn run_agent_inner(state: SandboxState) {
                     .publish_agent_event(
                         &task_id,
                         AgentSubType::Error,
-                        serde_json::json!({ "error": e.to_string() }),
+                        serde_json::json!({
+                            "error": e.to_string(),
+                            "model": ctx_model,
+                            "resume": ctx_resume,
+                            "agent_type": ctx_agent_type,
+                        }),
                     )
                     .await;
             }

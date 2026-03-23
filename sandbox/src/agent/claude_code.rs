@@ -69,9 +69,21 @@ impl AgentExecutor for ClaudeCodeExecutor {
         );
 
         // Start the query
-        let mut handle = claude_agent_sdk::query(&prompt, options)
-            .await
-            .map_err(SandboxError::Sdk)?;
+        let mut handle = match claude_agent_sdk::query(&prompt, options).await {
+            Ok(h) => h,
+            Err(e) => {
+                warn!(
+                    task_id = %state.config.task_id,
+                    agent_type = agent_type_str,
+                    model = ?request.model,
+                    resume = ?request.resume,
+                    cli_path = %state.config.claude_cli_path,
+                    error = %e,
+                    "SDK query failed during initialization"
+                );
+                return Err(SandboxError::Sdk(e));
+            }
+        };
 
         // Process message stream — convert SDK messages to AgentEvents
         let mut event_count = 0u64;

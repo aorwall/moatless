@@ -21,6 +21,8 @@ pub(crate) struct SubprocessTransport {
     stdout_lines: Lines<BufReader<ChildStdout>>,
     cancellation_token: CancellationToken,
     _stderr_task: JoinHandle<Vec<String>>,
+    /// Shared buffer for real-time stderr access (e.g. on init timeout).
+    stderr_buffer: Arc<Mutex<Vec<String>>>,
 }
 
 impl SubprocessTransport {
@@ -81,9 +83,14 @@ impl SubprocessTransport {
         let stdin = Arc::new(Mutex::new(stdin));
         let stdout_lines = BufReader::new(stdout).lines();
 
-        // Drain stderr in background
+        // Drain stderr in background with a shared buffer for real-time access
+        let stderr_buffer = Arc::new(Mutex::new(Vec::new()));
         let stderr_callback = options.stderr_callback.as_ref().map(|_| ());
-        let stderr_task = tokio::spawn(drain_stderr(stderr, stderr_callback.is_some()));
+        let stderr_task = tokio::spawn(drain_stderr(
+            stderr,
+            stderr_callback.is_some(),
+            Arc::clone(&stderr_buffer),
+        ));
 
         Ok(Self {
             child,
@@ -91,7 +98,13 @@ impl SubprocessTransport {
             stdout_lines,
             cancellation_token,
             _stderr_task: stderr_task,
+            stderr_buffer,
         })
+    }
+
+    /// Get a handle to the shared stderr buffer for reading collected lines.
+    pub(crate) fn stderr_buffer(&self) -> Arc<Mutex<Vec<String>>> {
+        Arc::clone(&self.stderr_buffer)
     }
 
     /// Read the next message from stdout. Returns `None` on EOF.
@@ -465,12 +478,14 @@ pub(crate) fn build_cli_args(options: &ClaudeOptions) -> Vec<String> {
 async fn drain_stderr(
     stderr: tokio::process::ChildStderr,
     _has_callback: bool,
+    shared_buffer: Arc<Mutex<Vec<String>>>,
 ) -> Vec<String> {
     let mut lines = BufReader::new(stderr).lines();
     let mut collected = Vec::new();
 
     while let Ok(Some(line)) = lines.next_line().await {
         debug!(line = %line, "CLI stderr");
+        shared_buffer.lock().await.push(line.clone());
         collected.push(line);
     }
 

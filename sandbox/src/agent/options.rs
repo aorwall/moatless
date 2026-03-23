@@ -6,6 +6,7 @@ use std::sync::Arc;
 use claude_agent_sdk::{ClaudeOptions, PermissionMode};
 use claude_agent_sdk::types::options::{PluginConfig, SystemPrompt};
 use tokio_util::sync::CancellationToken;
+use tracing::info;
 
 use crate::agent::types::AgentRunRequest;
 use crate::config::Config;
@@ -38,6 +39,17 @@ pub fn build_options(
 
     // Determine session resume
     let (resume, continue_conversation) = resolve_resume(request);
+    let init_timeout = std::time::Duration::from_secs(120);
+
+    info!(
+        task_id = %config.task_id,
+        model = ?model,
+        resume = ?resume,
+        continue_conversation = ?continue_conversation,
+        cli_path = %config.claude_cli_path,
+        init_timeout_secs = init_timeout.as_secs(),
+        "Built agent options"
+    );
 
     ClaudeOptions {
         model,
@@ -51,7 +63,7 @@ pub fn build_options(
         can_use_tool: Some(Arc::new(permission_handler)),
         cancellation_token: Some(cancel_token),
         max_turns: config.agent_config.timeout.map(|t| t as u32),
-        init_timeout: Some(std::time::Duration::from_secs(120)),
+        init_timeout: Some(init_timeout),
         env,
         ..ClaudeOptions::default()
     }

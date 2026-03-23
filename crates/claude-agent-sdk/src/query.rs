@@ -3,7 +3,7 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
-use tracing::debug;
+use tracing::{debug, info, warn};
 
 use crate::error::{Result, SdkError};
 use crate::mcp::SdkMcpServer;
@@ -183,6 +183,8 @@ pub async fn query(prompt: &str, mut options: ClaudeOptions) -> Result<QueryHand
     let stdin_writer: Arc<dyn StdinWriter> = Arc::new(ChildStdinWriter {
         inner: transport.stdin.clone(),
     });
+    // Capture stderr buffer before transport is moved into the orchestrator
+    let stderr_buf = transport.stderr_buffer();
 
     // 2. Create channels
     let (message_tx, message_rx) = mpsc::channel(CHANNEL_CAPACITY);
@@ -221,11 +223,22 @@ pub async fn query(prompt: &str, mut options: ClaudeOptions) -> Result<QueryHand
         .init_timeout
         .unwrap_or(std::time::Duration::from_secs(60));
 
+    info!(
+        request_id = %init_id,
+        init_timeout_ms = init_timeout.as_millis() as u64,
+        "Waiting for initialize response from CLI"
+    );
+
     match tokio::time::timeout(init_timeout, init_rx).await {
         Ok(Ok(Ok(_))) => {
             debug!("Initialize control request succeeded");
         }
         Ok(Ok(Err(error_info))) => {
+            warn!(
+                request_id = %init_id,
+                error = %error_info.error,
+                "CLI rejected initialize request"
+            );
             cancellation_token.cancel();
             return Err(SdkError::ControlError {
                 request_id: init_id,
@@ -233,10 +246,32 @@ pub async fn query(prompt: &str, mut options: ClaudeOptions) -> Result<QueryHand
             });
         }
         Ok(Err(_)) => {
+            warn!(
+                request_id = %init_id,
+                "Transport closed before init response — CLI may have crashed during startup"
+            );
             cancellation_token.cancel();
             return Err(SdkError::TransportClosed);
         }
         Err(_) => {
+            let stderr_snapshot = stderr_buf.lock().await;
+            let stderr_tail: Vec<&str> = stderr_snapshot
+                .iter()
+                .rev()
+                .take(20)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .map(String::as_str)
+                .collect();
+            warn!(
+                request_id = %init_id,
+                timeout_ms = init_timeout.as_millis() as u64,
+                stderr_line_count = stderr_snapshot.len(),
+                stderr_tail = ?stderr_tail,
+                "CLI init timed out — no initialize response received"
+            );
+            drop(stderr_snapshot);
             cancellation_token.cancel();
             return Err(SdkError::ControlTimeout {
                 request_id: init_id,
@@ -286,6 +321,8 @@ pub async fn query_streaming(mut options: ClaudeOptions) -> Result<QueryHandle> 
     let stdin_writer: Arc<dyn StdinWriter> = Arc::new(ChildStdinWriter {
         inner: transport.stdin.clone(),
     });
+    // Capture stderr buffer before transport is moved into the orchestrator
+    let stderr_buf = transport.stderr_buffer();
 
     // 2. Create channels
     let (message_tx, message_rx) = mpsc::channel(CHANNEL_CAPACITY);
@@ -324,11 +361,22 @@ pub async fn query_streaming(mut options: ClaudeOptions) -> Result<QueryHandle> 
         .init_timeout
         .unwrap_or(std::time::Duration::from_secs(60));
 
+    info!(
+        request_id = %init_id,
+        init_timeout_ms = init_timeout.as_millis() as u64,
+        "Waiting for initialize response from CLI"
+    );
+
     match tokio::time::timeout(init_timeout, init_rx).await {
         Ok(Ok(Ok(_))) => {
             debug!("Initialize control request succeeded");
         }
         Ok(Ok(Err(error_info))) => {
+            warn!(
+                request_id = %init_id,
+                error = %error_info.error,
+                "CLI rejected initialize request"
+            );
             cancellation_token.cancel();
             return Err(SdkError::ControlError {
                 request_id: init_id,
@@ -336,10 +384,32 @@ pub async fn query_streaming(mut options: ClaudeOptions) -> Result<QueryHandle> 
             });
         }
         Ok(Err(_)) => {
+            warn!(
+                request_id = %init_id,
+                "Transport closed before init response — CLI may have crashed during startup"
+            );
             cancellation_token.cancel();
             return Err(SdkError::TransportClosed);
         }
         Err(_) => {
+            let stderr_snapshot = stderr_buf.lock().await;
+            let stderr_tail: Vec<&str> = stderr_snapshot
+                .iter()
+                .rev()
+                .take(20)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .map(String::as_str)
+                .collect();
+            warn!(
+                request_id = %init_id,
+                timeout_ms = init_timeout.as_millis() as u64,
+                stderr_line_count = stderr_snapshot.len(),
+                stderr_tail = ?stderr_tail,
+                "CLI init timed out — no initialize response received"
+            );
+            drop(stderr_snapshot);
             cancellation_token.cancel();
             return Err(SdkError::ControlTimeout {
                 request_id: init_id,
