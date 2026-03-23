@@ -57,10 +57,19 @@ pub fn build_options(
     }
 }
 
+/// Instructions appended to every sandbox agent run so the agent knows
+/// about the `moat` CLI tools available inside the pod.
+const SANDBOX_TOOLS_PROMPT: &str = "\
+# Sandbox Tools
+
+You have access to the `moat` CLI for managing this task:
+- `moat set-name \"<name>\"` — Set a short, descriptive name for this task (do this early, based on the user's request)
+- `moat set-tags <tag1> <tag2> ...` — Set tags on this task";
+
 /// Build the system prompt configuration.
 #[allow(clippy::unnecessary_wraps)] // Option for caller API consistency
 fn build_system_prompt(config: &Config, request: &AgentRunRequest) -> Option<SystemPrompt> {
-    // Combine config system prompt + request system prompt as appended text
+    // Combine config system prompt + request system prompt + sandbox tools
     let mut append_parts = Vec::new();
 
     if let Some(ref sp) = config.agent_config.system_prompt {
@@ -71,20 +80,13 @@ fn build_system_prompt(config: &Config, request: &AgentRunRequest) -> Option<Sys
         append_parts.push(sp.clone());
     }
 
-    if append_parts.is_empty() {
-        // Use the default preset with no append
-        Some(SystemPrompt::Preset {
-            prompt_type: "preset".to_string(),
-            preset: "claude_code".to_string(),
-            append: None,
-        })
-    } else {
-        Some(SystemPrompt::Preset {
-            prompt_type: "preset".to_string(),
-            preset: "claude_code".to_string(),
-            append: Some(append_parts.join("\n\n")),
-        })
-    }
+    append_parts.push(SANDBOX_TOOLS_PROMPT.to_string());
+
+    Some(SystemPrompt::Preset {
+        prompt_type: "preset".to_string(),
+        preset: "claude_code".to_string(),
+        append: Some(append_parts.join("\n\n")),
+    })
 }
 
 /// Build plugin configs from config paths and cloned plugin repos.

@@ -1,7 +1,12 @@
 #![allow(clippy::print_stdout, clippy::print_stderr)]
-//! `moat` — Sandbox CLI for the Moatless backend API.
+//! `moat` — CLI for the Moatless backend API.
+//!
+//! Two modes selected at startup by the `USER_AUTH_TOKEN` env var:
+//! - **Sandbox** (inside a pod): no login/logout, adds `set-name` / `set-tags`
+//! - **Standalone** (human user): login/logout, no sandbox-only commands
 
 use clap::{Parser, Subcommand};
+use moatless_api_schemas::task::{SetTagsRequest, UpdateTaskMetadataRequest};
 
 use moatless_cli::auth;
 use moatless_cli::client::MoatClient;
@@ -10,12 +15,12 @@ use moatless_cli::config::Config;
 use moatless_cli::credentials;
 use moatless_cli::output;
 
-#[derive(Parser)]
-#[command(name = "moat", about = "Moatless sandbox CLI")]
-struct Cli {
-    #[command(subcommand)]
-    command: Commands,
+// ---------------------------------------------------------------------------
+// Global options (shared between both CLI modes)
+// ---------------------------------------------------------------------------
 
+#[derive(Parser, Clone)]
+struct GlobalOpts {
     /// Output raw JSON instead of human-readable tables
     #[arg(long, global = true)]
     json: bool,
@@ -25,12 +30,12 @@ struct Cli {
     verbose: bool,
 }
 
+// ---------------------------------------------------------------------------
+// Commands available in BOTH modes
+// ---------------------------------------------------------------------------
+
 #[derive(Subcommand)]
-enum Commands {
-    /// Authenticate with the Moatless API
-    Login,
-    /// Remove saved credentials
-    Logout,
+enum SharedCommands {
     /// Show current user info
     Whoami,
     /// Show current context (API URL, auth mode, profile)
@@ -82,98 +87,219 @@ enum Commands {
     Tags,
 }
 
+// ---------------------------------------------------------------------------
+// Sandbox mode CLI (inside a pod — no login/logout, adds task shortcuts)
+// ---------------------------------------------------------------------------
+
+#[derive(Parser)]
+#[command(name = "moat", about = "Moatless sandbox CLI")]
+struct SandboxCli {
+    #[command(subcommand)]
+    command: SandboxCommands,
+
+    #[command(flatten)]
+    opts: GlobalOpts,
+}
+
+#[derive(Subcommand)]
+enum SandboxCommands {
+    #[command(flatten)]
+    Shared(Box<SharedCommands>),
+
+    /// Set the name of the current task
+    SetName {
+        /// The new task name
+        name: String,
+    },
+
+    /// Set tags on the current task (replaces existing tags)
+    SetTags {
+        /// Tag names (space-separated)
+        tags: Vec<String>,
+    },
+}
+
+// ---------------------------------------------------------------------------
+// Standalone mode CLI (human user — has login/logout)
+// ---------------------------------------------------------------------------
+
+#[derive(Parser)]
+#[command(name = "moat", about = "Moatless CLI")]
+struct StandaloneCli {
+    #[command(subcommand)]
+    command: StandaloneCommands,
+
+    #[command(flatten)]
+    opts: GlobalOpts,
+}
+
+#[derive(Subcommand)]
+enum StandaloneCommands {
+    #[command(flatten)]
+    Shared(Box<SharedCommands>),
+
+    /// Authenticate with the Moatless API
+    Login,
+    /// Remove saved credentials
+    Logout,
+}
+
+// ---------------------------------------------------------------------------
+// Entry point — select CLI mode before parsing
+// ---------------------------------------------------------------------------
+
 #[tokio::main]
 async fn main() {
-    let cli = Cli::parse();
+    let is_sandbox = std::env::var("USER_AUTH_TOKEN").is_ok();
 
-    if let Err(e) = run(cli).await {
+    let result = if is_sandbox {
+        let cli = SandboxCli::parse();
+        run_sandbox(cli).await
+    } else {
+        let cli = StandaloneCli::parse();
+        run_standalone(cli).await
+    };
+
+    if let Err(e) = result {
         eprintln!("Error: {e}");
         std::process::exit(1);
     }
 }
 
-async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
-    let cfg = Config::from_env();
-    let mut moat = MoatClient::new(&cfg, cli.verbose);
+// ---------------------------------------------------------------------------
+// Sandbox dispatch
+// ---------------------------------------------------------------------------
 
-    // For commands that require auth (everything except Login, Logout, Status)
-    let needs_auth = !matches!(
-        cli.command,
-        Commands::Login | Commands::Logout | Commands::Status
-    );
+async fn run_sandbox(cli: SandboxCli) -> Result<(), Box<dyn std::error::Error>> {
+    let cfg = Config::from_env();
+    let mut moat = MoatClient::new(&cfg, cli.opts.verbose);
+
+    let needs_auth = !is_status_command_sandbox(&cli.command);
     if needs_auth {
         auth::ensure_auth(&mut moat, &cfg).await?;
     }
 
     match cli.command {
-        Commands::Login => {
-            if cfg.is_sandbox() {
-                auth::login_sandbox(&mut moat, &cfg).await?;
-                println!("Login successful.");
+        SandboxCommands::Shared(cmd) => run_shared(*cmd, &moat, &cfg, cli.opts.json).await?,
+        SandboxCommands::SetName { name } => {
+            let task_id = require_task_id(&cfg)?;
+            let req = UpdateTaskMetadataRequest {
+                name: Some(name.clone()),
+                description: None,
+            };
+            let task = moat.api().update_task_metadata(&task_id, &req).await?;
+            if cli.opts.json {
+                output::print_json_typed(&task);
             } else {
-                auth::login_browser(&cfg).await?;
+                println!("Task name set to: {name}");
             }
         }
-        Commands::Logout => {
-            if cfg.is_sandbox() {
-                // In sandbox mode, delete session file
-                let _ = std::fs::remove_file(&cfg.session_file);
-                println!("Session cleared.");
+        SandboxCommands::SetTags { tags } => {
+            let task_id = require_task_id(&cfg)?;
+            let req = SetTagsRequest { tags: tags.clone() };
+            moat.api().set_task_tags(&task_id, &req).await?;
+            if cli.opts.json {
+                output::print_json_typed(&tags);
             } else {
-                let host = cfg.host();
-                match credentials::delete_credential(&host) {
-                    Ok(true) => println!("Logged out from {host}."),
-                    Ok(false) => println!("No credentials found for {host}."),
-                    Err(e) => eprintln!("Error: {e}"),
-                }
+                println!("Tags set: {}", tags.join(", "));
             }
         }
-        Commands::Whoami => {
+    }
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Standalone dispatch
+// ---------------------------------------------------------------------------
+
+async fn run_standalone(cli: StandaloneCli) -> Result<(), Box<dyn std::error::Error>> {
+    let cfg = Config::from_env();
+    let mut moat = MoatClient::new(&cfg, cli.opts.verbose);
+
+    let needs_auth = !matches!(
+        &cli.command,
+        StandaloneCommands::Login | StandaloneCommands::Logout
+    ) && !is_status_command_standalone(&cli.command);
+    if needs_auth {
+        auth::ensure_auth(&mut moat, &cfg).await?;
+    }
+
+    match cli.command {
+        StandaloneCommands::Shared(cmd) => run_shared(*cmd, &moat, &cfg, cli.opts.json).await?,
+        StandaloneCommands::Login => {
+            auth::login_browser(&cfg).await?;
+        }
+        StandaloneCommands::Logout => {
+            let host = cfg.host();
+            match credentials::delete_credential(&host) {
+                Ok(true) => println!("Logged out from {host}."),
+                Ok(false) => println!("No credentials found for {host}."),
+                Err(e) => eprintln!("Error: {e}"),
+            }
+        }
+    }
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Shared command handler (called by both modes)
+// ---------------------------------------------------------------------------
+
+async fn run_shared(
+    cmd: SharedCommands,
+    moat: &MoatClient,
+    cfg: &Config,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match cmd {
+        SharedCommands::Whoami => {
             let session = moat.api().me().await?;
-            if cli.json {
+            if json {
                 output::print_json_typed(&session);
             } else {
                 commands::info::format_whoami(&session);
             }
         }
-        Commands::Status => {
-            commands::info::print_status(&cfg);
+        SharedCommands::Status => {
+            commands::info::print_status(cfg);
         }
-        Commands::Tasks { action } => {
-            commands::tasks::run(&moat, action, cli.json, &cfg).await?;
+        SharedCommands::Tasks { action } => {
+            commands::tasks::run(moat, action, json, cfg).await?;
         }
-        Commands::Repos { action } => {
-            commands::repos::run(&moat, action, cli.json).await?;
+        SharedCommands::Repos { action } => {
+            commands::repos::run(moat, action, json).await?;
         }
-        Commands::Messages { action } => {
-            commands::messages::run(&moat, action, cli.json).await?;
+        SharedCommands::Messages { action } => {
+            commands::messages::run(moat, action, json).await?;
         }
-        Commands::Channels { action } => {
-            commands::channels::run(&moat, action, cli.json).await?;
+        SharedCommands::Channels { action } => {
+            commands::channels::run(moat, action, json).await?;
         }
-        Commands::Events { action } => {
-            commands::events::run(&moat, action, cli.json).await?;
+        SharedCommands::Events { action } => {
+            commands::events::run(moat, action, json).await?;
         }
-        Commands::Teams { action } => {
-            commands::teams::run(&moat, action, cli.json).await?;
+        SharedCommands::Teams { action } => {
+            commands::teams::run(moat, action, json).await?;
         }
-        Commands::Settings { action } => {
-            commands::settings::run(&moat, action, cli.json).await?;
+        SharedCommands::Settings { action } => {
+            commands::settings::run(moat, action, json).await?;
         }
-        Commands::Plugins { action } => {
-            commands::plugins::run(&moat, action, cli.json).await?;
+        SharedCommands::Plugins { action } => {
+            commands::plugins::run(moat, action, json).await?;
         }
-        Commands::Cmds => {
+        SharedCommands::Cmds => {
             let cmds = moat.api().list_commands().await?;
-            if cli.json {
+            if json {
                 output::print_json_typed(&cmds);
             } else {
                 commands::misc::format_commands(&cmds);
             }
         }
-        Commands::Tags => {
+        SharedCommands::Tags => {
             let tags = moat.api().list_tags().await?;
-            if cli.json {
+            if json {
                 output::print_json_typed(&tags);
             } else {
                 commands::misc::format_tags(&tags);
@@ -182,4 +308,22 @@ async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+fn require_task_id(cfg: &Config) -> Result<String, Box<dyn std::error::Error>> {
+    cfg.task_id()
+        .map(String::from)
+        .ok_or_else(|| "TASK_ID environment variable is required for this command".into())
+}
+
+fn is_status_command_sandbox(cmd: &SandboxCommands) -> bool {
+    matches!(cmd, SandboxCommands::Shared(c) if matches!(**c, SharedCommands::Status))
+}
+
+fn is_status_command_standalone(cmd: &StandaloneCommands) -> bool {
+    matches!(cmd, StandaloneCommands::Shared(c) if matches!(**c, SharedCommands::Status))
 }
