@@ -3,7 +3,7 @@
 use axum::http::HeaderMap;
 use moka::future::Cache;
 use std::time::Duration;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 use crate::channel::error::ChannelError;
 use crate::channel::models::{AccessDecision, ChannelTrigger};
@@ -167,16 +167,36 @@ impl SlackProvider {
         }
 
         // 10. Resolve Slack user → system user
-        let Some(user_id) = self.resolve_user(user, db).await? else {
-            warn!(slack_user = %user, source_id = %channel, "Cannot process message: Slack user not mapped to system user");
-            // Reply in thread telling user they need to register
-            let reply_ts = thread_ts.unwrap_or(ts);
-            let _ = self.api.post_message(
-                channel,
-                "Sorry, I couldn't find your account. Please make sure you're registered in the system with the same email as your Slack profile.",
-                Some(reply_ts),
-            ).await;
-            return Ok(SlackWebhookResult::Ignore);
+        let user_id = match self.resolve_user(user, db).await? {
+            Some(uid) => uid,
+            None if thread_ts.is_some() => {
+                // Thread reply from unmapped user — fall back to config owner
+                // (user identity only matters for task creation)
+                info!(
+                    slack_user = %user,
+                    source_id = %channel,
+                    fallback_user = %config.created_by,
+                    "Slack user not mapped, using config owner for thread reply"
+                );
+                config.created_by.clone()
+            }
+            None => {
+                // Top-level message from unmapped user — block and notify
+                warn!(slack_user = %user, source_id = %channel, "Cannot process message: Slack user not mapped to system user");
+                let email = self.api.get_user_email(user).await.ok().flatten();
+                let error_msg = match email {
+                    Some(ref email) => format!(
+                        "Sorry, I couldn't find your account. Please make sure you're registered with the email address: {email}"
+                    ),
+                    None => "Sorry, I couldn't find your account. Please make sure you're registered in the system with the same email as your Slack profile.".to_string(),
+                };
+                let reply_ts = thread_ts.unwrap_or(ts);
+                let _ = self
+                    .api
+                    .post_message(channel, &error_msg, Some(reply_ts))
+                    .await;
+                return Ok(SlackWebhookResult::Ignore);
+            }
         };
 
         // Build thread properties
