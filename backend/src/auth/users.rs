@@ -65,7 +65,7 @@ impl UserRepository for PgUserRepository {
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             ON CONFLICT (id) DO UPDATE SET
                 login = EXCLUDED.login,
-                email = EXCLUDED.email,
+                email = COALESCE(users.email, EXCLUDED.email),
                 name = EXCLUDED.name,
                 avatar_url = EXCLUDED.avatar_url,
                 last_login_at = EXCLUDED.last_login_at
