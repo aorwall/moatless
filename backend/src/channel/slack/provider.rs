@@ -8,7 +8,7 @@ use tracing::{debug, info, warn};
 use crate::channel::error::ChannelError;
 use crate::channel::models::{AccessDecision, ChannelTrigger};
 use crate::channel::provider::{ChannelProvider, ChannelType};
-use crate::channel::models::{InboundMessage, MessageStatus, NewThreadInfo, OutboundReply};
+use crate::channel::models::{InboundMessage, NewThreadInfo, OutboundReply};
 use crate::channel::models::{ChannelConfig, ChannelThread};
 use crate::db::DbPool;
 
@@ -322,64 +322,6 @@ impl ChannelProvider for SlackProvider {
                 "thread_ts": ts,
             }),
         })
-    }
-
-    async fn set_status(
-        &self,
-        thread: &ChannelThread,
-        config: &ChannelConfig,
-        status: MessageStatus,
-    ) -> Result<(), ChannelError> {
-        let channel = thread
-            .properties
-            .get("channel")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let ts = thread
-            .properties
-            .get("ts")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-
-        if channel.is_empty() || ts.is_empty() {
-            return Ok(());
-        }
-
-        let slack_config = SlackProviderConfig::from_config(config);
-        let reactions = slack_config.reactions.as_ref();
-
-        let emoji = match (status, reactions) {
-            (MessageStatus::Processing, Some(r)) => {
-                r.get("processing").and_then(|v| v.as_str())
-            }
-            (MessageStatus::Completed, Some(r)) => {
-                r.get("completed").and_then(|v| v.as_str())
-            }
-            (MessageStatus::Error, Some(r)) => r.get("error").and_then(|v| v.as_str()),
-            (MessageStatus::PendingResponse, Some(r)) => {
-                r.get("pending").and_then(|v| v.as_str())
-            }
-            // Default reactions
-            (MessageStatus::Processing, None) => Some("eyes"),
-            (MessageStatus::Completed, None) => Some("white_check_mark"),
-            (MessageStatus::Error, None) => Some("x"),
-            (MessageStatus::PendingResponse, None) => Some("question"),
-        };
-
-        if let Some(emoji) = emoji {
-            // For completed/error/pending, first remove processing reaction
-            if !matches!(status, MessageStatus::Processing) {
-                let processing_emoji = reactions
-                    .and_then(|r| r.get("processing"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("eyes");
-                let _ = self.api.remove_reaction(channel, ts, processing_emoji).await;
-            }
-
-            self.api.add_reaction(channel, ts, emoji).await?;
-        }
-
-        Ok(())
     }
 
     async fn fetch_context(

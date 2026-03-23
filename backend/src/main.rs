@@ -253,7 +253,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if let Some(ref providers) = app_state.channel_providers {
             channel::cron::scheduler::spawn_cron_scheduler(
                 app_state.clone(),
-                providers.clone(),
                 cron_leader,
                 cancel.clone(),
             );

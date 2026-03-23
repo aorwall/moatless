@@ -222,39 +222,6 @@ impl TelegramApi {
         Ok(())
     }
 
-    /// Set a reaction emoji on a message (Bot API 7.0+). Best-effort.
-    pub async fn set_message_reaction(
-        &self,
-        chat_id: &str,
-        message_id: i64,
-        emoji: &str,
-    ) -> Result<(), ChannelError> {
-        let body = serde_json::json!({
-            "chat_id": chat_id,
-            "message_id": message_id,
-            "reaction": [{ "type": "emoji", "emoji": emoji }],
-        });
-
-        let resp = self
-            .client
-            .post(format!("{}/setMessageReaction", self.base_url))
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| {
-                ChannelError::ProviderApi(format!("Telegram setMessageReaction failed: {e}"))
-            })?;
-
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
-            // Best-effort — older bots or privacy settings may block reactions
-            warn!(status = %status, body = %text, "Telegram setMessageReaction error (ignored)");
-        }
-
-        Ok(())
-    }
-
     /// Get chat info (for validation/discovery).
     pub async fn get_chat(&self, chat_id: &str) -> Result<serde_json::Value, ChannelError> {
         let resp = self

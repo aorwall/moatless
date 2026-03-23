@@ -7,7 +7,7 @@ use tracing::{debug, info, warn};
 use crate::channel::error::ChannelError;
 use crate::channel::models::{
     AccessDecision, ChannelAccessPolicy, ChannelConfig, ChannelThread, InboundMessage,
-    MessageStatus, OutboundReply,
+    OutboundReply,
 };
 use crate::channel::provider::{ChannelProvider, ChannelType};
 use crate::db::DbPool;
@@ -343,39 +343,6 @@ impl ChannelProvider for TelegramProvider {
         Ok(None)
     }
 
-    async fn set_status(
-        &self,
-        thread: &ChannelThread,
-        _config: &ChannelConfig,
-        status: MessageStatus,
-    ) -> Result<(), ChannelError> {
-        let chat_id = match thread.properties.get("chat_id").and_then(|v| v.as_str()) {
-            Some(id) => id,
-            None => return Ok(()),
-        };
-
-        // Send typing indicator
-        if matches!(status, MessageStatus::Processing) {
-            let _ = self.api.send_chat_action(chat_id, "typing").await;
-        }
-
-        // Set reaction emoji (best-effort)
-        if let Some(message_id) = thread.properties.get("message_id").and_then(serde_json::Value::as_i64) {
-            let emoji = match status {
-                MessageStatus::Processing => "\u{1F440}",   // 👀
-                MessageStatus::Completed => "\u{2705}",     // ✅
-                MessageStatus::Error => "\u{274C}",         // ❌
-                MessageStatus::PendingResponse => return Ok(()),
-            };
-            let _ = self
-                .api
-                .set_message_reaction(chat_id, message_id, emoji)
-                .await;
-        }
-
-        Ok(())
-    }
-
     // fetch_context: default no-op (Bot API doesn't support fetching chat history)
 }
 
@@ -384,7 +351,6 @@ impl ChannelProvider for TelegramProvider {
 /// polling loop so the config-lookup + routing logic is not duplicated.
 pub async fn resolve_and_process_telegram_update(
     state: &crate::state::AppState,
-    providers: &std::sync::Arc<crate::channel::provider::ChannelProviders>,
     telegram_provider: &TelegramProvider,
     body: &[u8],
 ) -> Result<(), ChannelError> {
@@ -473,10 +439,9 @@ pub async fn resolve_and_process_telegram_update(
                 "Telegram message routed for processing"
             );
             let state_clone = state.clone();
-            let providers_clone = providers.clone();
             tokio::spawn(async move {
                 if let Err(e) =
-                    crate::channel::inbound::process_inbound(&state_clone, &providers_clone, *msg)
+                    crate::channel::inbound::process_inbound(&state_clone, *msg)
                         .await
                 {
                     warn!(error = %e, "Failed to process Telegram inbound message");

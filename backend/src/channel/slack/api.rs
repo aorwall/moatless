@@ -1,4 +1,4 @@
-//! Slack Web API client — chat.postMessage, reactions.add/remove, users.info, conversations.list/replies.
+//! Slack Web API client — chat.postMessage, users.info, conversations.list/replies.
 
 use serde::{Deserialize, Serialize};
 use tracing::warn;
@@ -10,12 +10,6 @@ use crate::channel::error::ChannelError;
 pub struct SlackApi {
     token: String,
     client: reqwest::Client,
-}
-
-#[derive(Deserialize)]
-struct SlackResponse {
-    ok: bool,
-    error: Option<String>,
 }
 
 /// Response from `chat.postMessage` — includes the posted message's `ts`.
@@ -135,78 +129,6 @@ impl SlackApi {
         }
 
         Ok(resp.ts)
-    }
-
-    /// Add an emoji reaction to a message.
-    pub async fn add_reaction(
-        &self,
-        channel: &str,
-        timestamp: &str,
-        emoji: &str,
-    ) -> Result<(), ChannelError> {
-        let body = serde_json::json!({
-            "channel": channel,
-            "timestamp": timestamp,
-            "name": emoji,
-        });
-
-        let resp: SlackResponse = self
-            .client
-            .post("https://slack.com/api/reactions.add")
-            .bearer_auth(&self.token)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| ChannelError::ProviderApi(format!("reactions.add failed: {e}")))?
-            .json()
-            .await
-            .map_err(|e| ChannelError::ProviderApi(format!("reactions.add parse: {e}")))?;
-
-        if !resp.ok {
-            let err = resp.error.unwrap_or_default();
-            // "already_reacted" is not a real error
-            if err != "already_reacted" {
-                warn!(error = %err, "Slack reactions.add failed");
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Remove an emoji reaction from a message.
-    pub async fn remove_reaction(
-        &self,
-        channel: &str,
-        timestamp: &str,
-        emoji: &str,
-    ) -> Result<(), ChannelError> {
-        let body = serde_json::json!({
-            "channel": channel,
-            "timestamp": timestamp,
-            "name": emoji,
-        });
-
-        let resp: SlackResponse = self
-            .client
-            .post("https://slack.com/api/reactions.remove")
-            .bearer_auth(&self.token)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| ChannelError::ProviderApi(format!("reactions.remove failed: {e}")))?
-            .json()
-            .await
-            .map_err(|e| ChannelError::ProviderApi(format!("reactions.remove parse: {e}")))?;
-
-        if !resp.ok {
-            let err = resp.error.unwrap_or_default();
-            // "no_reaction" is not a real error
-            if err != "no_reaction" {
-                warn!(error = %err, "Slack reactions.remove failed");
-            }
-        }
-
-        Ok(())
     }
 
     /// Get a user's email address from Slack.

@@ -9,16 +9,14 @@ use crate::task::models::{Task, TaskStatus, Visibility};
 use crate::state::AppState;
 
 use super::error::ChannelError;
-use super::provider::ChannelProviders;
 use super::router::{self, RoutingResult};
-use super::models::{InboundMessage, MessageStatus, RoutingMode};
+use super::models::{InboundMessage, RoutingMode};
 
 /// Process an inbound message through the routing → task creation pipeline.
 ///
 /// Returns the task_id that the message was routed to.
 pub async fn process_inbound(
     state: &AppState,
-    providers: &ChannelProviders,
     msg: InboundMessage,
 ) -> Result<String, ChannelError> {
     let routing_result = router::route_message(state, &msg).await?;
@@ -99,7 +97,7 @@ pub async fn process_inbound(
     // Create or update thread record.
     // For ongoing mode without a thread_id, reuse the existing thread for this
     // task+config to avoid duplicate outbound replies.
-    let thread = if let Some(existing) = thread {
+    let _thread = if let Some(existing) = thread {
         state.channel_threads.touch(existing.id, Some(&msg.thread_properties)).await?;
         existing
     } else if config.routing_mode == RoutingMode::Ongoing {
@@ -129,16 +127,6 @@ pub async fn process_inbound(
         .await?
     };
 
-    // Set processing status via provider
-    if let Some(provider) = providers.get_by_name(&config.provider) {
-        if let Err(e) = provider
-            .set_status(&thread, &config, MessageStatus::Processing)
-            .await
-        {
-            warn!(error = %e, "Failed to set processing status");
-        }
-    }
-
     // Apply prompt template and send the new message
     let message_text = apply_prompt_template(&config, &msg.text);
 
@@ -156,12 +144,6 @@ pub async fn process_inbound(
     .await
     {
         warn!(task_id = %task_id, provider = config.provider, source_id = %config.source_id, error = %e, "Failed to send channel message to task");
-        // Try to set error status
-        if let Some(provider) = providers.get_by_name(&config.provider) {
-            let _ = provider
-                .set_status(&thread, &config, MessageStatus::Error)
-                .await;
-        }
         return Err(ChannelError::Internal(format!(
             "Failed to send message: {e}"
         )));

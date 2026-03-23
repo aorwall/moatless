@@ -8,7 +8,6 @@ use cron::Schedule;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
-use crate::channel::provider::ChannelProviders;
 use crate::leader::LeaderGuard;
 use crate::state::AppState;
 
@@ -17,7 +16,6 @@ use crate::state::AppState;
 /// Checks active cron configs every 60 seconds and fires any overdue schedules.
 pub fn spawn_cron_scheduler(
     state: AppState,
-    providers: Arc<ChannelProviders>,
     leader: Option<Arc<dyn LeaderGuard>>,
     cancel: CancellationToken,
 ) {
@@ -49,7 +47,7 @@ pub fn spawn_cron_scheduler(
                         }
                     }
 
-                    if let Err(e) = tick(&state, &providers, &mut last_fired).await {
+                    if let Err(e) = tick(&state, &mut last_fired).await {
                         error!(error = %e, "Cron scheduler tick failed");
                     }
                 }
@@ -60,7 +58,6 @@ pub fn spawn_cron_scheduler(
 
 async fn tick(
     state: &AppState,
-    providers: &ChannelProviders,
     last_fired: &mut HashMap<String, chrono::DateTime<Utc>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Load active cron configs
@@ -121,12 +118,10 @@ async fn tick(
                     super::provider::CronProvider::generate_message(config);
 
                 let state_clone = state.clone();
-                let providers_clone = providers.clone();
                 tokio::spawn(async move {
                     if let Err(e) =
                         crate::channel::inbound::process_inbound(
                             &state_clone,
-                            &providers_clone,
                             msg,
                         )
                         .await

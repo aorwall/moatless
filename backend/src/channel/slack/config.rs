@@ -19,9 +19,6 @@ pub struct SlackProviderConfig {
     /// Slack user IDs allowed (when access_policy = Allowlist).
     #[serde(default)]
     pub user_allowlist: Vec<String>,
-    /// Custom emoji reactions for status indicators.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reactions: Option<serde_json::Value>,
     /// Max thread messages to fetch for agent context.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_context_limit: Option<u64>,
@@ -34,7 +31,6 @@ impl Default for SlackProviderConfig {
             access_policy: ChannelAccessPolicy::Open,
             channel_allowlist: Vec::new(),
             user_allowlist: Vec::new(),
-            reactions: None,
             thread_context_limit: None,
         }
     }
@@ -65,7 +61,6 @@ mod tests {
         assert_eq!(cfg.access_policy, ChannelAccessPolicy::Open);
         assert!(cfg.channel_allowlist.is_empty());
         assert!(cfg.user_allowlist.is_empty());
-        assert!(cfg.reactions.is_none());
         assert!(cfg.thread_context_limit.is_none());
     }
 
@@ -86,7 +81,6 @@ mod tests {
             "access_policy": "allowlist",
             "channel_allowlist": ["C123", "C456"],
             "user_allowlist": ["U789"],
-            "reactions": { "processing": "hourglass", "completed": "tada" },
             "thread_context_limit": 50
         });
         let cfg: SlackProviderConfig = serde_json::from_value(json).unwrap();
@@ -94,7 +88,6 @@ mod tests {
         assert_eq!(cfg.access_policy, ChannelAccessPolicy::Allowlist);
         assert_eq!(cfg.channel_allowlist, vec!["C123", "C456"]);
         assert_eq!(cfg.user_allowlist, vec!["U789"]);
-        assert!(cfg.reactions.is_some());
         assert_eq!(cfg.thread_context_limit, Some(50));
     }
 
@@ -122,6 +115,8 @@ mod tests {
             response_config_id: None,
             scope: crate::scope::Scope::User,
             team_id: None,
+            task_name: None,
+            tag_ids: vec![],
             created_by: "owner".into(),
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),

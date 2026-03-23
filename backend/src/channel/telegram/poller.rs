@@ -81,7 +81,6 @@ pub fn spawn_telegram_poller(
 
                         if let Err(e) = resolve_and_process_telegram_update(
                             &state,
-                            &providers,
                             telegram_provider,
                             &body,
                         )

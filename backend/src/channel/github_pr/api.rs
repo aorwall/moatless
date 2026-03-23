@@ -240,32 +240,4 @@ impl GithubPrApi {
         }
     }
 
-    /// Add a reaction to a comment.
-    pub async fn add_reaction(
-        &self,
-        owner: &str,
-        repo: &str,
-        comment_id: u64,
-        reaction: &str,
-    ) -> Result<(), ChannelError> {
-        let url = format!(
-            "https://api.github.com/repos/{owner}/{repo}/issues/comments/{comment_id}/reactions"
-        );
-
-        let resp = self
-            .request(reqwest::Method::POST, &url)
-            .json(&serde_json::json!({ "content": reaction }))
-            .send()
-            .await
-            .map_err(|e| ChannelError::ProviderApi(format!("GitHub add_reaction failed: {e}")))?;
-
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
-            // Best-effort — don't fail the whole flow for reactions
-            warn!(status = %status, body = %text, "GitHub add_reaction error (ignored)");
-        }
-
-        Ok(())
-    }
 }

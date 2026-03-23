@@ -6,7 +6,7 @@ use tracing::{debug, info, warn};
 use crate::event_handler::models::{AgentEvent, EventKey};
 use crate::state::AppState;
 
-use super::models::{ChannelConfig, ChannelThread, MessageStatus, OutboundReply};
+use super::models::{ChannelConfig, ChannelThread, OutboundReply};
 use super::provider::{ChannelProvider, ChannelProviders};
 
 /// Resolved outbound target for a channel notification.
@@ -101,7 +101,7 @@ pub async fn handle_channel_notification(
                     is_error: false,
                 };
 
-                send_outbound(state, &event.task_id, target, &reply, MessageStatus::Completed, message_id)
+                send_outbound(state, &event.task_id, target, &reply, message_id)
                     .await;
             }
 
@@ -119,7 +119,7 @@ pub async fn handle_channel_notification(
                     is_error: true,
                 };
 
-                send_outbound(state, &event.task_id, target, &reply, MessageStatus::Error, message_id).await;
+                send_outbound(state, &event.task_id, target, &reply, message_id).await;
             }
 
             _ => {
@@ -147,7 +147,6 @@ async fn send_outbound(
     task_id: &str,
     target: OutboundTarget<'_>,
     reply: &OutboundReply,
-    status: MessageStatus,
     message_id: Option<&str>,
 ) {
     match target {
@@ -168,9 +167,6 @@ async fn send_outbound(
                 Err(e) => {
                     warn!(task_id = %task_id, error = %e, "Failed to send channel reply");
                 }
-            }
-            if let Err(e) = provider.set_status(&thread, &config, status).await {
-                warn!(task_id = %task_id, error = %e, "Failed to set channel status");
             }
         }
         OutboundTarget::NewMessage {
@@ -203,17 +199,13 @@ async fn send_outbound(
                 )
                 .await
             {
-                Ok(thread) => {
+                Ok(_thread) => {
                     info!(
                         task_id = %task_id,
                         config_id = %config.id,
                         originating_config_id = %originating_config_id,
                         "Cross-channel message sent and thread created"
                     );
-                    // Set status on the newly created thread (e.g., add reaction)
-                    if let Err(e) = provider.set_status(&thread, &config, status).await {
-                        warn!(task_id = %task_id, error = %e, "Failed to set channel status");
-                    }
                 }
                 Err(e) => {
                     warn!(

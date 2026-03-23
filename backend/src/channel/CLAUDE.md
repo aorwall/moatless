@@ -11,7 +11,7 @@ External messaging integration (Slack, Email, Discord, etc.) that routes inbound
 - **Outbound** (trait-based): Replies back to channels, driven by Redis events. Lives in `outbound.rs`.
 
 ### ChannelProvider Trait (outbound only)
-The trait in `provider.rs` handles outbound operations: `resolve_user()`, `send_reply()`, `set_status()`, `fetch_context()`. Inbound parsing is NOT on the trait because ingress mechanisms vary per provider.
+The trait in `provider.rs` handles outbound operations: `resolve_user()`, `send_reply()`, `fetch_context()`. Inbound parsing is NOT on the trait because ingress mechanisms vary per provider.
 
 ### Routing Modes (in channel_configs.routing_mode)
 - `ongoing` — All messages → single long-lived task. Auto-creates new task when current one closes.
@@ -21,7 +21,6 @@ The trait in `provider.rs` handles outbound operations: `resolve_user()`, `send_
 ### Provider Config (channel_configs.provider_config JSONB)
 Provider-specific settings per channel config. Slack example:
 - `trigger`: `mention_only` | `all_messages`
-- `reactions`: emoji names for processing/completed/error/pending states
 - `thread_context_limit`: max thread messages to fetch for agent context
 
 ## Key Files
@@ -37,8 +36,8 @@ Provider-specific settings per channel config. Slack example:
 | `error.rs` | `ChannelError` enum (thiserror) |
 | `slack/provider.rs` | `SlackProvider` — trait impl + `parse_event()` ingress |
 | `slack/signature.rs` | HMAC-SHA256 webhook verification |
-| `slack/api.rs` | Slack Web API: chat.postMessage, reactions.add/remove, users.info |
-| `models.rs` | `ChannelConfig`, `ChannelThread` (sqlx row types) + `RoutingMode`, `InboundMessage`, `OutboundReply`, `MessageStatus` |
+| `slack/api.rs` | Slack Web API: chat.postMessage, users.info |
+| `models.rs` | `ChannelConfig`, `ChannelThread` (sqlx row types) + `RoutingMode`, `InboundMessage`, `OutboundReply` |
 | `config_dao.rs` | Channel config CRUD + `find_by_provider_source()`, `ChannelConfigPatch` |
 | `thread_dao.rs` | Thread tracking CRUD + `find_by_config_and_thread()`, `find_by_task_id()` |
 
@@ -48,7 +47,7 @@ Provider-specific settings per channel config. Slack example:
 
 ## Adding a New Provider
 1. Create `{provider}/mod.rs`, `{provider}/provider.rs`
-2. Implement `ChannelProvider` trait (outbound: send_reply, set_status, fetch_context, resolve_user)
+2. Implement `ChannelProvider` trait (outbound: send_reply, fetch_context, resolve_user)
 3. Implement provider-specific ingress (webhook handler, gateway, etc.) that produces `InboundMessage`
 4. Add `ChannelType` variant to enum
 5. Register in `ChannelProviders` in `main.rs`

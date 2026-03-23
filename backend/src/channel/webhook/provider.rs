@@ -15,7 +15,7 @@ use tracing::{debug, warn};
 
 use crate::channel::error::ChannelError;
 use crate::channel::models::{
-    ChannelConfig, ChannelThread, InboundMessage, MessageStatus, OutboundReply,
+    ChannelConfig, ChannelThread, InboundMessage, OutboundReply,
 };
 use crate::channel::provider::{ChannelProvider, ChannelType};
 use crate::db::DbPool;
@@ -197,15 +197,6 @@ impl ChannelProvider for WebhookProvider {
         }
     }
 
-    async fn set_status(
-        &self,
-        _thread: &ChannelThread,
-        _config: &ChannelConfig,
-        _status: MessageStatus,
-    ) -> Result<(), ChannelError> {
-        // Webhooks don't have status indicators
-        Ok(())
-    }
 }
 
 #[cfg(test)]

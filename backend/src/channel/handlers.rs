@@ -177,10 +177,9 @@ pub async fn slack_webhook(
         SlackWebhookResult::Message(msg) => {
             // Process in background (Slack requires <3s response)
             let state_clone = state.clone();
-            let providers_clone = providers.clone();
             tokio::spawn(async move {
                 if let Err(e) =
-                    inbound::process_inbound(&state_clone, &providers_clone, msg).await
+                    inbound::process_inbound(&state_clone, msg).await
                 {
                     warn!(error = %e, "Failed to process Slack inbound message");
                 }
@@ -288,7 +287,6 @@ pub async fn telegram_webhook(
     // Delegate config resolution + parsing + routing to shared helper
     if let Err(e) = super::telegram::provider::resolve_and_process_telegram_update(
         &state,
-        providers,
         telegram_provider,
         &body,
     )
@@ -461,7 +459,6 @@ pub async fn github_pr_webhook(
 
     if let Err(e) = super::github_pr::provider::resolve_and_process_github_webhook(
         &state,
-        providers,
         github_pr_provider,
         &headers,
         &body,
@@ -535,13 +532,7 @@ pub async fn webhook_inbound(
     let msg =
         super::webhook::provider::WebhookProvider::parse_inbound(&config, &body, signature)?;
 
-    let providers = state
-        .channel_providers
-        .as_ref()
-        .ok_or_else(|| ChannelError::ProviderNotConfigured("webhook".into()))?
-        .clone();
-
-    match inbound::process_inbound(&state, &providers, msg).await {
+    match inbound::process_inbound(&state, msg).await {
         Ok(task_id) => Ok(Json(serde_json::json!({ "taskId": task_id })).into_response()),
         Err(e) => {
             warn!(error = %e, "Failed to process webhook inbound message");

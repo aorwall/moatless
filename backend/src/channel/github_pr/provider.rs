@@ -1,7 +1,6 @@
 //! GitHub PR channel provider — ChannelProvider trait impl + webhook parsing.
 
 use std::fmt::Write;
-use std::sync::Arc;
 use std::time::Duration;
 
 use moka::future::Cache;
@@ -10,9 +9,9 @@ use tracing::{debug, info, warn};
 use crate::channel::error::ChannelError;
 use crate::channel::inbound;
 use crate::channel::models::{
-    ChannelConfig, ChannelThread, InboundMessage, MessageStatus, OutboundReply,
+    ChannelConfig, ChannelThread, InboundMessage, OutboundReply,
 };
-use crate::channel::provider::{ChannelProvider, ChannelProviders, ChannelType};
+use crate::channel::provider::{ChannelProvider, ChannelType};
 use crate::db::DbPool;
 use crate::state::AppState;
 
@@ -584,36 +583,6 @@ impl ChannelProvider for GithubPrProvider {
         Ok(None)
     }
 
-    async fn set_status(
-        &self,
-        thread: &ChannelThread,
-        config: &ChannelConfig,
-        status: MessageStatus,
-    ) -> Result<(), ChannelError> {
-        let comment_id = thread
-            .properties
-            .get("comment_id")
-            .and_then(serde_json::Value::as_u64);
-
-        // Only add reactions if there's a specific comment to react to
-        let Some(comment_id) = comment_id else {
-            return Ok(());
-        };
-
-        let (owner, repo, _) = Self::parse_thread_props(thread)?;
-        let token = self.resolve_token_outbound(config)?;
-        let api = GithubPrApi::new(&token);
-
-        let reaction = match status {
-            MessageStatus::Processing => "eyes",
-            MessageStatus::Completed => "rocket",
-            MessageStatus::Error => "confused",
-            MessageStatus::PendingResponse => "eyes",
-        };
-
-        api.add_reaction(&owner, &repo, comment_id, reaction).await
-    }
-
     async fn fetch_context(
         &self,
         thread: &ChannelThread,
@@ -666,7 +635,6 @@ impl ChannelProvider for GithubPrProvider {
 /// Called from the HTTP handler.
 pub async fn resolve_and_process_github_webhook(
     state: &AppState,
-    providers: &Arc<ChannelProviders>,
     github_provider: &GithubPrProvider,
     headers: &axum::http::HeaderMap,
     body: &[u8],
@@ -790,10 +758,9 @@ pub async fn resolve_and_process_github_webhook(
     match result {
         GithubPrWebhookResult::Message(msg) => {
             let state_clone = state.clone();
-            let providers_clone = providers.clone();
             tokio::spawn(async move {
                 if let Err(e) =
-                    inbound::process_inbound(&state_clone, &providers_clone, *msg).await
+                    inbound::process_inbound(&state_clone, *msg).await
                 {
                     warn!(error = %e, "Failed to process GitHub PR inbound message");
                 }

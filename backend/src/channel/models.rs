@@ -135,22 +135,3 @@ pub enum AccessDecision {
     PairingSent,
 }
 
-/// Status indicator for a message (e.g., Slack emoji reactions).
-#[derive(Debug, Clone, Copy)]
-pub enum MessageStatus {
-    Processing,
-    Completed,
-    Error,
-    PendingResponse,
-}
-
-impl MessageStatus {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Processing => "processing",
-            Self::Completed => "completed",
-            Self::Error => "error",
-            Self::PendingResponse => "pending",
-        }
-    }
-}

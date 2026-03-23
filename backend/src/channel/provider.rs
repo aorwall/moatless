@@ -9,7 +9,7 @@ use super::models::{ChannelConfig, ChannelThread};
 use crate::db::DbPool;
 
 use super::error::ChannelError;
-use super::models::{MessageStatus, NewThreadInfo, OutboundReply};
+use super::models::{NewThreadInfo, OutboundReply};
 
 pub use moatless_api_schemas::enums::ChannelType;
 
@@ -60,16 +60,6 @@ pub trait ChannelProvider: Send + Sync {
             "{:?} does not support send_message",
             self.channel_type()
         )))
-    }
-
-    /// Set a status indicator (e.g., Slack emoji reaction). Default: no-op.
-    async fn set_status(
-        &self,
-        _thread: &ChannelThread,
-        _config: &ChannelConfig,
-        _status: MessageStatus,
-    ) -> Result<(), ChannelError> {
-        Ok(())
     }
 
     /// Fetch thread context for enriching agent messages (e.g., Slack thread replies).
