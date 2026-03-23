@@ -9,6 +9,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
 use crate::channel::provider::ChannelProviders;
+use crate::leader::LeaderGuard;
 use crate::state::AppState;
 
 /// Spawn the cron scheduler background task.
@@ -17,6 +18,7 @@ use crate::state::AppState;
 pub fn spawn_cron_scheduler(
     state: AppState,
     providers: Arc<ChannelProviders>,
+    leader: Option<Arc<dyn LeaderGuard>>,
     cancel: CancellationToken,
 ) {
     tokio::spawn(async move {
@@ -32,6 +34,21 @@ pub fn spawn_cron_scheduler(
                     return;
                 }
                 () = tokio::time::sleep(std::time::Duration::from_secs(60)) => {
+                    // When a leader guard is present, only tick if we are the leader.
+                    if let Some(ref guard) = leader {
+                        match guard.try_acquire_or_renew().await {
+                            Ok(true) => { /* we are leader, proceed */ }
+                            Ok(false) => {
+                                debug!("Cron scheduler not leader, skipping tick");
+                                continue;
+                            }
+                            Err(e) => {
+                                warn!(error = %e, "Cron leader election error, skipping tick");
+                                continue;
+                            }
+                        }
+                    }
+
                     if let Err(e) = tick(&state, &providers, &mut last_fired).await {
                         error!(error = %e, "Cron scheduler tick failed");
                     }
@@ -57,6 +74,7 @@ async fn tick(
     }
 
     let now = Utc::now();
+    debug!(config_count = configs.len(), now = %now, "Cron scheduler tick");
 
     for config in &configs {
         let schedule_str = config
@@ -78,9 +96,22 @@ async fn tick(
             }
         };
 
-        // Check if schedule should have fired since last check
-        let last = last_fired.get(&config.id).copied().unwrap_or(now);
+        // Check if schedule should have fired since last check.
+        // For new configs, seed last_fired to now so the first fire happens
+        // at the next scheduled occurrence (not retroactively).
+        let last = *last_fired.entry(config.id.clone()).or_insert(now);
+        let is_new = last == now;
         let next = schedule.after(&last).next();
+
+        debug!(
+            config_id = %config.id,
+            schedule = %schedule_str,
+            is_new,
+            last = %last,
+            next = ?next.map(|t| t.to_string()),
+            now = %now,
+            "Cron schedule check"
+        );
 
         if let Some(next_fire) = next {
             if next_fire <= now {

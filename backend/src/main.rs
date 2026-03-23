@@ -16,6 +16,7 @@ use moatless_vibe_backend::channel;
 use moatless_vibe_backend::config::{Config, SandboxProviderType};
 use moatless_vibe_backend::event_handler;
 use moatless_vibe_backend::feature_flags;
+use moatless_vibe_backend::leader::{K8sLeaderGuard, LeaderGuard};
 use moatless_vibe_backend::sandbox;
 use moatless_vibe_backend::sse::routes::sse_router;
 use moatless_vibe_backend::startup;
@@ -229,6 +230,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Background workers
         spawn_event_handler(&config, &app_state, cancel.clone()).await;
+
+        // Build cron leader guard before reaper_k8s is moved
+        let cron_leader: Option<Arc<dyn LeaderGuard>> = reaper_k8s.as_ref().map(|k8s| {
+            let identity = std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".to_string());
+            let election = sandbox::k8s::leader_election::LeaderElection::new_with_name(
+                k8s,
+                identity,
+                "moatless-cron-scheduler".to_string(),
+            )
+            .with_lease_duration(120); // 2x the 60s tick interval
+            Arc::new(K8sLeaderGuard(election)) as Arc<dyn LeaderGuard>
+        });
+
         if let Some(k8s) = reaper_k8s {
             spawn_idle_reaper(&app_state, k8s, cancel.clone());
         } else {
@@ -240,6 +254,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             channel::cron::scheduler::spawn_cron_scheduler(
                 app_state.clone(),
                 providers.clone(),
+                cron_leader,
                 cancel.clone(),
             );
 

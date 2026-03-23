@@ -22,6 +22,7 @@ pub mod events;
 pub mod extractors;
 pub mod feature_flags;
 pub mod figma;
+pub mod leader;
 pub mod file_storage;
 pub mod message;
 pub mod metrics;
