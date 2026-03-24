@@ -3068,6 +3068,185 @@
         }
       }
     },
+    "/api/v1/tasks/{task_id}/channels": {
+      "get": {
+        "tags": [
+          "channels"
+        ],
+        "summary": "List channels connected to a task.",
+        "description": "Returns the channel configs linked to the task via channel threads.",
+        "operationId": "list_task_channels",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Channels for task",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TaskChannelResponse"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No channels for task",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/channels/send": {
+      "post": {
+        "tags": [
+          "channels"
+        ],
+        "summary": "Send a message to all channels connected to a task.",
+        "operationId": "send_to_task_channels",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendChannelMessageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Message sent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SendChannelMessageResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No channels for task",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "All providers failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/channels/{config_id}/send": {
+      "post": {
+        "tags": [
+          "channels"
+        ],
+        "summary": "Send a message to a specific channel connected to a task.",
+        "operationId": "send_to_task_channel",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "config_id",
+            "in": "path",
+            "description": "Channel config ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendChannelMessageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Message sent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SendChannelMessageResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Channel not found for task",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Provider failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tasks/{task_id}/close": {
       "post": {
         "tags": [
@@ -4591,6 +4770,7 @@
           "active",
           "scope",
           "createdBy",
+          "tagIds",
           "createdAt",
           "updatedAt"
         ],
@@ -4647,6 +4827,18 @@
             "type": "string"
           },
           "sourceName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tagIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "taskName": {
             "type": [
               "string",
               "null"
@@ -5072,6 +5264,21 @@
             "type": "string"
           },
           "sourceName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tagIds": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "taskName": {
             "type": [
               "string",
               "null"
@@ -7221,6 +7428,39 @@
           }
         }
       },
+      "SendChannelMessageRequest": {
+        "type": "object",
+        "description": "Request to send a message through channel(s) associated with a task.",
+        "required": [
+          "text"
+        ],
+        "properties": {
+          "text": {
+            "type": "string"
+          }
+        }
+      },
+      "SendChannelMessageResponse": {
+        "type": "object",
+        "description": "Response from sending a message through channel(s).",
+        "required": [
+          "sentCount",
+          "errors"
+        ],
+        "properties": {
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sentCount": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "SendMessageRequest": {
         "type": "object",
         "required": [
@@ -7615,6 +7855,21 @@
           "routingMode": {
             "$ref": "#/components/schemas/RoutingMode"
           },
+          "tagIds": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "taskName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "teamId": {
             "type": [
               "string",
@@ -7728,6 +7983,32 @@
           }
         }
       },
+      "TaskChannelResponse": {
+        "type": "object",
+        "description": "Channel connected to a task (via channel_threads).",
+        "required": [
+          "configId",
+          "provider",
+          "sourceId"
+        ],
+        "properties": {
+          "configId": {
+            "type": "string"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/ChannelType"
+          },
+          "sourceId": {
+            "type": "string"
+          },
+          "sourceName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "TaskEventPayload": {
         "type": "object",
         "description": "Task event payload — typed shape for `EventType::Task` events.",
@@ -7808,6 +8089,12 @@
           },
           "agentType": {
             "$ref": "#/components/schemas/AgentType"
+          },
+          "appendSystemPrompt": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "branch": {
             "type": [
@@ -8385,6 +8672,21 @@
             ]
           },
           "sourceName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tagIds": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "taskName": {
             "type": [
               "string",
               "null"

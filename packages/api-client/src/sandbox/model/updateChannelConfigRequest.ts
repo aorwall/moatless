@@ -22,4 +22,8 @@ export interface UpdateChannelConfigRequest {
   routingMode?: null | RoutingMode;
   /** @nullable */
   sourceName?: string | null;
+  /** @nullable */
+  tagIds?: string[] | null;
+  /** @nullable */
+  taskName?: string | null;
 }

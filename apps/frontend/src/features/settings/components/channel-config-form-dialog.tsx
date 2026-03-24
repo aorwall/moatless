@@ -8,6 +8,7 @@ import {
   useSlackChannels,
   useUpdateChannelConfig,
 } from '@/features/settings/hooks/use-channels'
+import { useTagsList } from '@/features/tags'
 import { Button } from '@/lib/components/ui/button'
 import {
   Dialog,
@@ -45,6 +46,8 @@ interface FormState {
   routingMode: string
   triggerMode: string
   promptTemplate: string
+  taskName: string
+  tagIds: string[]
   active: boolean
   secretToken: string
   botUsername: string
@@ -72,6 +75,8 @@ function makeInitialForm(defaultProvider: string): FormState {
     routingMode: 'thread_based',
     triggerMode: 'mention_only',
     promptTemplate: '',
+    taskName: '',
+    tagIds: [],
     active: true,
     secretToken: '',
     botUsername: '',
@@ -100,6 +105,8 @@ function formStateFromConfig(config: ChannelConfigResponse): FormState {
     routingMode: config.routingMode,
     triggerMode: (providerConfig?.trigger as string) ?? 'mention_only',
     promptTemplate: config.promptTemplate ?? '',
+    taskName: config.taskName ?? '',
+    tagIds: config.tagIds ?? [],
     active: config.active,
     secretToken: (providerConfig?.secret_token as string) ?? '',
     botUsername: (providerConfig?.bot_username as string) ?? '',
@@ -462,6 +469,9 @@ export function ChannelConfigFormDialog({
     enabled: open,
   })
 
+  // Tags for multi-select
+  const { data: availableTags } = useTagsList({ enabled: open })
+
   // Non-template repositories
   const nonTemplateRepos = repositories?.filter((r) => r.kind !== 'template') ?? []
 
@@ -496,6 +506,8 @@ export function ChannelConfigFormDialog({
             promptTemplate: form.promptTemplate || undefined,
             active: form.active,
             providerConfig,
+            taskName: form.taskName || null,
+            tagIds: form.tagIds,
           },
         },
         {
@@ -520,6 +532,8 @@ export function ChannelConfigFormDialog({
           routingMode: form.routingMode,
           promptTemplate: form.promptTemplate || undefined,
           providerConfig,
+          taskName: form.taskName || undefined,
+          tagIds: form.tagIds.length > 0 ? form.tagIds : undefined,
         },
         {
           onSuccess: () => {
@@ -712,6 +726,56 @@ export function ChannelConfigFormDialog({
               rows={3}
             />
           </div>
+
+          {/* Task Name */}
+          <div className="space-y-2">
+            <Label>
+              Task Name <span className="text-muted-foreground">(optional)</span>
+            </Label>
+            <Input
+              value={form.taskName}
+              onChange={(e) => setForm((prev) => ({ ...prev, taskName: e.target.value }))}
+              placeholder="Default name for tasks created from this channel"
+            />
+          </div>
+
+          {/* Tags */}
+          {availableTags && availableTags.length > 0 && (
+            <div className="space-y-2">
+              <Label>
+                Tags <span className="text-muted-foreground">(optional)</span>
+              </Label>
+              <div className="flex flex-wrap gap-2">
+                {availableTags.map((tag) => {
+                  const isSelected = form.tagIds.includes(tag.tagId)
+                  return (
+                    <button
+                      key={tag.tagId}
+                      type="button"
+                      className={`inline-flex items-center rounded-md border px-2.5 py-0.5 text-xs font-semibold transition-colors ${
+                        isSelected
+                          ? 'border-primary bg-primary text-primary-foreground'
+                          : 'border-border bg-background text-foreground hover:bg-accent'
+                      }`}
+                      onClick={() =>
+                        setForm((prev) => ({
+                          ...prev,
+                          tagIds: isSelected
+                            ? prev.tagIds.filter((id) => id !== tag.tagId)
+                            : [...prev.tagIds, tag.tagId],
+                        }))
+                      }
+                    >
+                      {tag.name}
+                    </button>
+                  )
+                })}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Tags will be automatically assigned to tasks created from this channel.
+              </p>
+            </div>
+          )}
 
           {/* Active Toggle */}
           <div className="flex items-center justify-between">

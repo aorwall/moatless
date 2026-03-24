@@ -19,6 +19,8 @@ pub struct CreateChannelConfigRequest {
     pub response_config_id: Option<String>,
     pub scope: Option<Scope>,
     pub team_id: Option<String>,
+    pub task_name: Option<String>,
+    pub tag_ids: Option<Vec<String>>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -33,6 +35,8 @@ pub struct UpdateChannelConfigRequest {
     #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
     pub provider_config: Option<serde_json::Value>,
     pub response_config_id: Option<Option<String>>,
+    pub task_name: Option<Option<String>>,
+    pub tag_ids: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -54,8 +58,38 @@ pub struct ChannelConfigResponse {
     pub scope: Scope,
     pub team_id: Option<String>,
     pub created_by: String,
+    pub task_name: Option<String>,
+    pub tag_ids: Vec<String>,
     pub created_at: String,
     pub updated_at: String,
+}
+
+/// Request to send a message through channel(s) associated with a task.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct SendChannelMessageRequest {
+    pub text: String,
+}
+
+/// Response from sending a message through channel(s).
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct SendChannelMessageResponse {
+    pub sent_count: u32,
+    pub errors: Vec<String>,
+}
+
+/// Channel connected to a task (via channel_threads).
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct TaskChannelResponse {
+    pub config_id: String,
+    pub provider: ChannelType,
+    pub source_id: String,
+    pub source_name: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -69,6 +103,8 @@ pub struct SetChannelDefaultsRequest {
     pub provider_config: Option<serde_json::Value>,
     pub response_config_id: Option<String>,
     pub team_id: Option<String>,
+    pub task_name: Option<String>,
+    pub tag_ids: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

@@ -179,7 +179,7 @@ pub async fn slack_webhook(
             let state_clone = state.clone();
             tokio::spawn(async move {
                 if let Err(e) =
-                    inbound::process_inbound(&state_clone, msg).await
+                    inbound::process_inbound(&state_clone, *msg).await
                 {
                     warn!(error = %e, "Failed to process Slack inbound message");
                 }
@@ -952,6 +952,116 @@ pub async fn delete_config(
     state.channel_configs.delete(&id).await?;
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+// =========================================================================
+// Task channel endpoints (list + send)
+// =========================================================================
+
+/// List channels connected to a task.
+///
+/// Returns the channel configs linked to the task via channel threads.
+#[utoipa::path(
+    get,
+    path = "/api/v1/tasks/{task_id}/channels",
+    tag = "channels",
+    params(
+        ("task_id" = String, Path, description = "Task ID")
+    ),
+    responses(
+        (status = 200, description = "Channels for task", body = Vec<TaskChannelResponse>),
+        (status = 404, description = "No channels for task", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn list_task_channels(
+    State(state): State<AppState>,
+    _auth: AuthUser,
+    Path(task_id): Path<String>,
+) -> Result<Json<Vec<TaskChannelResponse>>, ChannelError> {
+    let threads = state.channel_threads.find_by_task_id(&task_id).await?;
+
+    let mut channels = Vec::new();
+    for thread in &threads {
+        if let Ok(Some(config)) = state.channel_configs.find_by_id(&thread.config_id).await {
+            channels.push(super::schemas::task_channel_from_model(&config));
+        }
+    }
+
+    Ok(Json(channels))
+}
+
+/// Send a message to all channels connected to a task.
+#[utoipa::path(
+    post,
+    path = "/api/v1/tasks/{task_id}/channels/send",
+    tag = "channels",
+    params(
+        ("task_id" = String, Path, description = "Task ID")
+    ),
+    request_body = SendChannelMessageRequest,
+    responses(
+        (status = 200, description = "Message sent", body = SendChannelMessageResponse),
+        (status = 404, description = "No channels for task", body = crate::error::ErrorBody),
+        (status = 502, description = "All providers failed", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn send_to_task_channels(
+    State(state): State<AppState>,
+    _auth: AuthUser,
+    Path(task_id): Path<String>,
+    Json(req): Json<SendChannelMessageRequest>,
+) -> Result<Json<SendChannelMessageResponse>, ChannelError> {
+    let providers = state
+        .channel_providers
+        .as_ref()
+        .ok_or_else(|| ChannelError::ProviderNotConfigured("No channel providers configured".into()))?;
+
+    let (sent_count, errors) =
+        super::outbound::send_to_channels(&state, providers, &task_id, &req.text, None).await?;
+
+    if sent_count == 0 && !errors.is_empty() {
+        return Err(ChannelError::ProviderApi(errors.join("; ")));
+    }
+
+    Ok(Json(SendChannelMessageResponse { sent_count, errors }))
+}
+
+/// Send a message to a specific channel connected to a task.
+#[utoipa::path(
+    post,
+    path = "/api/v1/tasks/{task_id}/channels/{config_id}/send",
+    tag = "channels",
+    params(
+        ("task_id" = String, Path, description = "Task ID"),
+        ("config_id" = String, Path, description = "Channel config ID")
+    ),
+    request_body = SendChannelMessageRequest,
+    responses(
+        (status = 200, description = "Message sent", body = SendChannelMessageResponse),
+        (status = 404, description = "Channel not found for task", body = crate::error::ErrorBody),
+        (status = 502, description = "Provider failed", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn send_to_task_channel(
+    State(state): State<AppState>,
+    _auth: AuthUser,
+    Path((task_id, config_id)): Path<(String, String)>,
+    Json(req): Json<SendChannelMessageRequest>,
+) -> Result<Json<SendChannelMessageResponse>, ChannelError> {
+    let providers = state
+        .channel_providers
+        .as_ref()
+        .ok_or_else(|| ChannelError::ProviderNotConfigured("No channel providers configured".into()))?;
+
+    let (sent_count, errors) =
+        super::outbound::send_to_channels(&state, providers, &task_id, &req.text, Some(&config_id))
+            .await?;
+
+    if sent_count == 0 && !errors.is_empty() {
+        return Err(ChannelError::ProviderApi(errors.join("; ")));
+    }
+
+    Ok(Json(SendChannelMessageResponse { sent_count, errors }))
 }
 
 /// Validate cron schedule in provider_config if the provider is "cron".

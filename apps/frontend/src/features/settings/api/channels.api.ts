@@ -18,6 +18,8 @@ export interface ChannelConfigResponse {
   active: boolean
   providerConfig: Record<string, unknown> | null
   ongoingTaskId: string | null
+  taskName: string | null
+  tagIds: string[]
   createdBy: string
   createdAt: string
   updatedAt: string
@@ -31,6 +33,8 @@ export interface CreateChannelConfigRequest {
   routingMode: string
   promptTemplate?: string
   providerConfig?: Record<string, unknown>
+  taskName?: string
+  tagIds?: string[]
 }
 
 export interface UpdateChannelConfigRequest {
@@ -39,6 +43,8 @@ export interface UpdateChannelConfigRequest {
   promptTemplate?: string | null
   active?: boolean
   providerConfig?: Record<string, unknown>
+  taskName?: string | null
+  tagIds?: string[]
 }
 
 export interface PairingRequestResponse {

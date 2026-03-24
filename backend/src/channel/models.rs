@@ -75,6 +75,9 @@ pub struct InboundMessage {
     pub thread_properties: serde_json::Value,
     /// Provider-specific context.
     pub provider_context: serde_json::Value,
+    /// External message ID for dedup (e.g., Slack `ts`, Telegram `message_id`).
+    /// Must be unique per message — NOT the thread ID.
+    pub channel_external_id: Option<String>,
 }
 
 /// Outbound reply to send back to a channel.

@@ -30,6 +30,9 @@ export interface ChannelConfigResponse {
   sourceId: string;
   /** @nullable */
   sourceName?: string | null;
+  tagIds: string[];
+  /** @nullable */
+  taskName?: string | null;
   /** @nullable */
   teamId?: string | null;
   updatedAt: string;

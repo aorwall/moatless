@@ -28,6 +28,9 @@ use crate::state::AppState;
         handlers::delete_config,
         handlers::get_defaults,
         handlers::set_defaults,
+        handlers::list_task_channels,
+        handlers::send_to_task_channels,
+        handlers::send_to_task_channel,
     )
 )]
 pub struct ChannelApiDoc;
@@ -51,6 +54,9 @@ pub fn channel_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenAp
             handlers::delete_config
         ))
         .routes(routes!(handlers::get_defaults, handlers::set_defaults))
+        .routes(routes!(handlers::list_task_channels))
+        .routes(routes!(handlers::send_to_task_channels))
+        .routes(routes!(handlers::send_to_task_channel))
         .with_state(state)
         .split_for_parts();
 

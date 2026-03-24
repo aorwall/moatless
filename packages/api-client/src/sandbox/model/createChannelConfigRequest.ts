@@ -25,5 +25,9 @@ export interface CreateChannelConfigRequest {
   /** @nullable */
   sourceName?: string | null;
   /** @nullable */
+  tagIds?: string[] | null;
+  /** @nullable */
+  taskName?: string | null;
+  /** @nullable */
   teamId?: string | null;
 }

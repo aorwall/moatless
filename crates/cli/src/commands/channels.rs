@@ -2,7 +2,8 @@
 
 use clap::Subcommand;
 use moatless_api_schemas::channel::{
-    ChannelConfigResponse, CreateChannelConfigRequest, UpdateChannelConfigRequest,
+    ChannelConfigResponse, CreateChannelConfigRequest, SendChannelMessageRequest,
+    UpdateChannelConfigRequest,
 };
 use moatless_api_schemas::enums::{ChannelType, RoutingMode};
 
@@ -29,6 +30,12 @@ pub enum ChannelAction {
         /// System prompt template for the channel
         #[arg(long)]
         prompt_template: Option<String>,
+        /// Default task name for tasks created from this channel
+        #[arg(long)]
+        task_name: Option<String>,
+        /// Comma-separated tag IDs to auto-assign to tasks
+        #[arg(long, value_delimiter = ',')]
+        tag_ids: Option<Vec<String>>,
     },
     /// Update a channel config
     Update {
@@ -55,6 +62,24 @@ pub enum ChannelAction {
         /// Response config ID
         #[arg(long)]
         response_config_id: Option<String>,
+        /// Default task name for tasks created from this channel
+        #[arg(long)]
+        task_name: Option<String>,
+        /// Comma-separated tag IDs to auto-assign to tasks
+        #[arg(long, value_delimiter = ',')]
+        tag_ids: Option<Vec<String>>,
+    },
+    /// Send a message through the channel(s) associated with a task
+    Send {
+        /// Task ID (uses TASK_ID env var if omitted)
+        #[arg(long)]
+        task: Option<String>,
+        /// Channel config ID (sends to all channels if omitted)
+        #[arg(long)]
+        channel: Option<String>,
+        /// Message text (reads from stdin if omitted and stdin is piped)
+        #[arg(long)]
+        text: Option<String>,
     },
     /// Manage default settings for a channel provider
     Defaults {
@@ -84,6 +109,12 @@ pub enum ChannelDefaultsAction {
         /// Team ID to scope the defaults to
         #[arg(long)]
         team: Option<String>,
+        /// Default task name for tasks created from this channel
+        #[arg(long)]
+        task_name: Option<String>,
+        /// Comma-separated tag IDs to auto-assign to tasks
+        #[arg(long, value_delimiter = ',')]
+        tag_ids: Option<Vec<String>>,
     },
 }
 
@@ -108,6 +139,8 @@ pub async fn run(
             mode,
             provider_config,
             prompt_template,
+            task_name,
+            tag_ids,
         } => {
             let parsed_config = parse_provider_config(provider_config.as_deref())?
                 .map(serde_json::Value::Object);
@@ -123,6 +156,8 @@ pub async fn run(
                 scope: None,
                 source_name: None,
                 team_id: None,
+                task_name,
+                tag_ids,
             };
             let created = client.api().create_channel_config(&req).await?;
             if json {
@@ -140,6 +175,8 @@ pub async fn run(
             provider_config,
             prompt_template,
             response_config_id,
+            task_name,
+            tag_ids,
         } => {
             let parsed_config = parse_provider_config(provider_config.as_deref())?
                 .map(serde_json::Value::Object);
@@ -152,6 +189,8 @@ pub async fn run(
                 provider_config: parsed_config,
                 prompt_template: prompt_template.map(Some),
                 response_config_id: response_config_id.map(Some),
+                task_name: task_name.map(Some),
+                tag_ids,
             };
             let updated = client.api().update_channel_config(&id, &req).await?;
             if json {
@@ -159,6 +198,57 @@ pub async fn run(
             } else {
                 println!("Channel config updated: {}", updated.id);
                 format_channels(&[updated]);
+            }
+        }
+        ChannelAction::Send {
+            task,
+            channel,
+            text,
+        } => {
+            let task_id = task
+                .or_else(|| std::env::var("TASK_ID").ok())
+                .ok_or_else(|| {
+                    ClientError::Other(
+                        "Task ID required: use --task or set TASK_ID env var".into(),
+                    )
+                })?;
+
+            let message_text = if let Some(t) = text {
+                t
+            } else {
+                use std::io::{IsTerminal, Read};
+                if std::io::stdin().is_terminal() {
+                    return Err(ClientError::Other(
+                        "Provide --text or pipe message via stdin".into(),
+                    ));
+                }
+                let mut buf = String::new();
+                std::io::stdin()
+                    .read_to_string(&mut buf)
+                    .map_err(|e| ClientError::Other(format!("Failed to read stdin: {e}")))?;
+                buf.trim().to_string()
+            };
+
+            let req = SendChannelMessageRequest {
+                text: message_text,
+            };
+
+            let resp = if let Some(config_id) = channel {
+                client
+                    .api()
+                    .send_to_task_channel(&task_id, &config_id, &req)
+                    .await?
+            } else {
+                client.api().send_to_task_channels(&task_id, &req).await?
+            };
+
+            if json {
+                output::print_json_typed(&resp);
+            } else {
+                println!("Sent to {} channel(s).", resp.sent_count);
+                for err in &resp.errors {
+                    eprintln!("Warning: {err}");
+                }
             }
         }
         ChannelAction::Defaults { action: defaults } => {
@@ -190,6 +280,8 @@ async fn run_defaults(
             mode,
             provider_config,
             team,
+            task_name,
+            tag_ids,
         } => {
             let parsed_config = provider_config
                 .as_deref()
@@ -206,6 +298,8 @@ async fn run_defaults(
                 "routingMode": mode,
                 "providerConfig": parsed_config,
                 "teamId": team,
+                "taskName": task_name,
+                "tagIds": tag_ids,
             });
 
             let resp = client
@@ -268,6 +362,8 @@ fn parse_channel_type(s: &str) -> ChannelType {
         "email" => ChannelType::Email,
         "telegram" => ChannelType::Telegram,
         "github_pr" => ChannelType::GithubPr,
+        "webhook" => ChannelType::Webhook,
+        "cron" => ChannelType::Cron,
         _ => ChannelType::Slack,
     }
 }

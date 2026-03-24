@@ -1,4 +1,4 @@
-//! Outbound channel notifications — event-driven replies to channel threads.
+//! Outbound channel notifications — event-driven replies and explicit sends.
 
 use moatless_events::{AgentSubType, TaskTurnSubType};
 use tracing::{debug, info, warn};
@@ -6,11 +6,12 @@ use tracing::{debug, info, warn};
 use crate::event_handler::models::{AgentEvent, EventKey};
 use crate::state::AppState;
 
+use super::error::ChannelError;
 use super::models::{ChannelConfig, ChannelThread, OutboundReply};
 use super::provider::{ChannelProvider, ChannelProviders};
 
 /// Resolved outbound target for a channel notification.
-enum OutboundTarget<'a> {
+pub(crate) enum OutboundTarget<'a> {
     /// Thread exists — use `send_reply`.
     Reply {
         provider: &'a dyn ChannelProvider,
@@ -24,6 +25,74 @@ enum OutboundTarget<'a> {
         originating_config_id: String,
         task_id: String,
     },
+}
+
+/// Send a message to channel(s) for a task (explicit send from agent/CLI).
+///
+/// If `config_id` is `Some`, sends only to that channel; otherwise sends to all.
+/// Returns `(sent_count, errors)`.
+pub async fn send_to_channels(
+    state: &AppState,
+    providers: &ChannelProviders,
+    task_id: &str,
+    text: &str,
+    config_id: Option<&str>,
+) -> Result<(u32, Vec<String>), ChannelError> {
+    let threads = if let Some(cid) = config_id {
+        match state.channel_threads.find_by_task_id_and_config(task_id, cid).await? {
+            Some(t) => vec![t],
+            None => {
+                return Err(ChannelError::ConfigNotFound(format!(
+                    "No channel thread for task {task_id} and config {cid}"
+                )));
+            }
+        }
+    } else {
+        let t = state.channel_threads.find_by_task_id(task_id).await?;
+        if t.is_empty() {
+            return Err(ChannelError::ConfigNotFound(format!(
+                "No channel threads for task {task_id}"
+            )));
+        }
+        t
+    };
+
+    let reply = OutboundReply {
+        text: truncate_text(text, 4000),
+        task_url: None,
+        is_error: false,
+    };
+
+    let mut sent_count = 0u32;
+    let mut errors = Vec::new();
+
+    for thread in &threads {
+        let config = match state.channel_configs.find_by_id(&thread.config_id).await {
+            Ok(Some(c)) => c,
+            Ok(None) => {
+                errors.push(format!("Config {} not found", thread.config_id));
+                continue;
+            }
+            Err(e) => {
+                errors.push(format!("Failed to load config {}: {e}", thread.config_id));
+                continue;
+            }
+        };
+
+        let target = if let Some(t) = resolve_outbound_target(state, providers, &config, thread, task_id).await {
+            t
+        } else {
+            errors.push(format!("No provider for config {}", config.id));
+            continue;
+        };
+
+        match send_outbound_result(state, task_id, target, &reply).await {
+            Ok(()) => sent_count += 1,
+            Err(e) => errors.push(e),
+        }
+    }
+
+    Ok((sent_count, errors))
 }
 
 /// Handle a channel notification triggered by an agent event.
@@ -219,12 +288,73 @@ async fn send_outbound(
     }
 }
 
+/// Send an outbound reply and return `Ok(())` on success or an error string on failure.
+///
+/// Similar to [`send_outbound`] but returns errors instead of logging them.
+async fn send_outbound_result(
+    state: &AppState,
+    task_id: &str,
+    target: OutboundTarget<'_>,
+    reply: &OutboundReply,
+) -> Result<(), String> {
+    match target {
+        OutboundTarget::Reply {
+            provider,
+            config,
+            thread,
+        } => {
+            provider
+                .send_reply(&thread, &config, reply)
+                .await
+                .map(|_| ())
+                .map_err(|e| format!("Failed to send reply via {}: {e}", config.provider))
+        }
+        OutboundTarget::NewMessage {
+            provider,
+            config,
+            originating_config_id,
+            task_id: ref tid,
+        } => {
+            let thread_info = provider
+                .send_message(&config, reply)
+                .await
+                .map_err(|e| format!("Failed to send message via {}: {e}", config.provider))?;
+
+            // Persist the thread so future replies thread under this message
+            if let Err(e) = state
+                .channel_threads
+                .insert(
+                    &config.id,
+                    tid,
+                    &thread_info.external_thread_id,
+                    &thread_info.properties,
+                )
+                .await
+            {
+                warn!(
+                    task_id = %task_id,
+                    error = %e,
+                    "Failed to persist channel thread after send_message"
+                );
+            } else {
+                info!(
+                    task_id = %task_id,
+                    config_id = %config.id,
+                    originating_config_id = %originating_config_id,
+                    "Cross-channel message sent and thread created"
+                );
+            }
+            Ok(())
+        }
+    }
+}
+
 /// Resolve the outbound target: provider, config, and thread (or new-message intent).
 ///
 /// If the originating config has `response_config_id`, load the response config
 /// and use its provider for outbound. If a thread already exists under the response
 /// config, return `Reply`; otherwise return `NewMessage`.
-async fn resolve_outbound_target<'a>(
+pub(crate) async fn resolve_outbound_target<'a>(
     state: &AppState,
     providers: &'a ChannelProviders,
     config: &ChannelConfig,
@@ -320,12 +450,12 @@ fn resolve_direct<'a>(
 }
 
 /// Build the task URL for linking in channel replies.
-fn build_task_url(state: &AppState, task_id: &str) -> String {
+pub(crate) fn build_task_url(state: &AppState, task_id: &str) -> String {
     format!("{}/tasks/{}", state.config.auth.frontend_url, task_id)
 }
 
 /// Truncate text to a max length, appending "..." if truncated.
-fn truncate_text(text: &str, max: usize) -> String {
+pub(crate) fn truncate_text(text: &str, max: usize) -> String {
     if text.len() <= max {
         text.to_string()
     } else {

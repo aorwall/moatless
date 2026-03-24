@@ -24,9 +24,23 @@ pub fn channel_config_from_model(row: &super::models::ChannelConfig) -> ChannelC
         response_config_id: row.response_config_id.clone(),
         scope: row.scope,
         team_id: row.team_id.clone(),
+        task_name: row.task_name.clone(),
+        tag_ids: row.tag_ids.clone(),
         created_by: row.created_by.clone(),
         created_at: row.created_at.to_rfc3339(),
         updated_at: row.updated_at.to_rfc3339(),
+    }
+}
+
+pub fn task_channel_from_model(
+    config: &super::models::ChannelConfig,
+) -> TaskChannelResponse {
+    let provider = ChannelType::parse(&config.provider).unwrap_or(ChannelType::Slack);
+    TaskChannelResponse {
+        config_id: config.id.clone(),
+        provider,
+        source_id: config.source_id.clone(),
+        source_name: config.source_name.clone(),
     }
 }
 

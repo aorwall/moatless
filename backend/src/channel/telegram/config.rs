@@ -116,6 +116,8 @@ mod tests {
             response_config_id: None,
             scope: crate::scope::Scope::User,
             team_id: None,
+            task_name: None,
+            tag_ids: vec![],
             created_by: "owner".into(),
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),

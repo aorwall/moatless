@@ -58,6 +58,7 @@ impl CronProvider {
             file_ids: vec![],
             thread_properties: serde_json::json!({"trigger": "cron"}),
             provider_context: serde_json::json!({}),
+            channel_external_id: None,
         }
     }
 }

@@ -45,6 +45,8 @@ pub async fn create_config_from_wildcard(
         response_config_id: template.response_config_id.clone(),
         scope: template.scope,
         team_id: template.team_id.clone(),
+        task_name: template.task_name.clone(),
+        tag_ids: template.tag_ids.clone(),
         created_by: created_by.to_string(),
         created_at: now,
         updated_at: now,

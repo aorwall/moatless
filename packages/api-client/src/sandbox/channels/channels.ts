@@ -33,8 +33,11 @@ import type {
   ListConfigsParams,
   ListPairingRequestsParams,
   PairingRequestResponse,
+  SendChannelMessageRequest,
+  SendChannelMessageResponse,
   SetChannelDefaultsRequest,
   SlackChannelInfoResponse,
+  TaskChannelResponse,
   UpdateChannelConfigRequest,
   WebhookPayload
 } from '.././model';
@@ -1824,5 +1827,329 @@ export const useWebhookInbound = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getWebhookInboundMutationOptions(options), queryClient);
+    }
+    /**
+ * Returns the channel configs linked to the task via channel threads.
+ * @summary List channels connected to a task.
+ */
+export type listTaskChannelsResponse200 = {
+  data: TaskChannelResponse[]
+  status: 200
+}
+
+export type listTaskChannelsResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+    
+export type listTaskChannelsResponseSuccess = (listTaskChannelsResponse200) & {
+  headers: Headers;
+};
+export type listTaskChannelsResponseError = (listTaskChannelsResponse404) & {
+  headers: Headers;
+};
+
+export type listTaskChannelsResponse = (listTaskChannelsResponseSuccess | listTaskChannelsResponseError)
+
+export const getListTaskChannelsUrl = (taskId: string,) => {
+
+
+  
+
+  return `/api/v1/tasks/${taskId}/channels`
+}
+
+export const listTaskChannels = async (taskId: string, options?: RequestInit): Promise<listTaskChannelsResponse> => {
+  
+  return customInstance<listTaskChannelsResponse>(getListTaskChannelsUrl(taskId),
+  {      
+    ...options,
+    method: 'GET'
+    
+    
+  }
+);}
+
+
+
+
+
+export const getListTaskChannelsQueryKey = (taskId: string,) => {
+    return [
+    `/api/v1/tasks/${taskId}/channels`
+    ] as const;
+    }
+
+    
+export const getListTaskChannelsQueryOptions = <TData = Awaited<ReturnType<typeof listTaskChannels>>, TError = ErrorType<ErrorBody>>(taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listTaskChannels>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListTaskChannelsQueryKey(taskId);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listTaskChannels>>> = ({ signal }) => listTaskChannels(taskId, { signal, ...requestOptions });
+
+      
+
+      
+
+   return  { queryKey, queryFn, enabled: !!(taskId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listTaskChannels>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
+}
+
+export type ListTaskChannelsQueryResult = NonNullable<Awaited<ReturnType<typeof listTaskChannels>>>
+export type ListTaskChannelsQueryError = ErrorType<ErrorBody>
+
+
+export function useListTaskChannels<TData = Awaited<ReturnType<typeof listTaskChannels>>, TError = ErrorType<ErrorBody>>(
+ taskId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listTaskChannels>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listTaskChannels>>,
+          TError,
+          Awaited<ReturnType<typeof listTaskChannels>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useListTaskChannels<TData = Awaited<ReturnType<typeof listTaskChannels>>, TError = ErrorType<ErrorBody>>(
+ taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listTaskChannels>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listTaskChannels>>,
+          TError,
+          Awaited<ReturnType<typeof listTaskChannels>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useListTaskChannels<TData = Awaited<ReturnType<typeof listTaskChannels>>, TError = ErrorType<ErrorBody>>(
+ taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listTaskChannels>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+/**
+ * @summary List channels connected to a task.
+ */
+
+export function useListTaskChannels<TData = Awaited<ReturnType<typeof listTaskChannels>>, TError = ErrorType<ErrorBody>>(
+ taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listTaskChannels>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
+
+  const queryOptions = getListTaskChannelsQueryOptions(taskId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary List channels connected to a task.
+ */
+export const prefetchListTaskChannelsQuery = async <TData = Awaited<ReturnType<typeof listTaskChannels>>, TError = ErrorType<ErrorBody>>(
+ queryClient: QueryClient, taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listTaskChannels>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+
+  ): Promise<QueryClient> => {
+
+  const queryOptions = getListTaskChannelsQueryOptions(taskId,options)
+
+  await queryClient.prefetchQuery(queryOptions);
+
+  return queryClient;
+}
+
+
+
+/**
+ * @summary Send a message to all channels connected to a task.
+ */
+export type sendToTaskChannelsResponse200 = {
+  data: SendChannelMessageResponse
+  status: 200
+}
+
+export type sendToTaskChannelsResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+
+export type sendToTaskChannelsResponse502 = {
+  data: ErrorBody
+  status: 502
+}
+    
+export type sendToTaskChannelsResponseSuccess = (sendToTaskChannelsResponse200) & {
+  headers: Headers;
+};
+export type sendToTaskChannelsResponseError = (sendToTaskChannelsResponse404 | sendToTaskChannelsResponse502) & {
+  headers: Headers;
+};
+
+export type sendToTaskChannelsResponse = (sendToTaskChannelsResponseSuccess | sendToTaskChannelsResponseError)
+
+export const getSendToTaskChannelsUrl = (taskId: string,) => {
+
+
+  
+
+  return `/api/v1/tasks/${taskId}/channels/send`
+}
+
+export const sendToTaskChannels = async (taskId: string,
+    sendChannelMessageRequest: SendChannelMessageRequest, options?: RequestInit): Promise<sendToTaskChannelsResponse> => {
+  
+  return customInstance<sendToTaskChannelsResponse>(getSendToTaskChannelsUrl(taskId),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      sendChannelMessageRequest,)
+  }
+);}
+
+
+
+
+export const getSendToTaskChannelsMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendToTaskChannels>>, TError,{taskId: string;data: SendChannelMessageRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof sendToTaskChannels>>, TError,{taskId: string;data: SendChannelMessageRequest}, TContext> => {
+
+const mutationKey = ['sendToTaskChannels'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof sendToTaskChannels>>, {taskId: string;data: SendChannelMessageRequest}> = (props) => {
+          const {taskId,data} = props ?? {};
+
+          return  sendToTaskChannels(taskId,data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SendToTaskChannelsMutationResult = NonNullable<Awaited<ReturnType<typeof sendToTaskChannels>>>
+    export type SendToTaskChannelsMutationBody = SendChannelMessageRequest
+    export type SendToTaskChannelsMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Send a message to all channels connected to a task.
+ */
+export const useSendToTaskChannels = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendToTaskChannels>>, TError,{taskId: string;data: SendChannelMessageRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof sendToTaskChannels>>,
+        TError,
+        {taskId: string;data: SendChannelMessageRequest},
+        TContext
+      > => {
+      return useMutation(getSendToTaskChannelsMutationOptions(options), queryClient);
+    }
+    /**
+ * @summary Send a message to a specific channel connected to a task.
+ */
+export type sendToTaskChannelResponse200 = {
+  data: SendChannelMessageResponse
+  status: 200
+}
+
+export type sendToTaskChannelResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+
+export type sendToTaskChannelResponse502 = {
+  data: ErrorBody
+  status: 502
+}
+    
+export type sendToTaskChannelResponseSuccess = (sendToTaskChannelResponse200) & {
+  headers: Headers;
+};
+export type sendToTaskChannelResponseError = (sendToTaskChannelResponse404 | sendToTaskChannelResponse502) & {
+  headers: Headers;
+};
+
+export type sendToTaskChannelResponse = (sendToTaskChannelResponseSuccess | sendToTaskChannelResponseError)
+
+export const getSendToTaskChannelUrl = (taskId: string,
+    configId: string,) => {
+
+
+  
+
+  return `/api/v1/tasks/${taskId}/channels/${configId}/send`
+}
+
+export const sendToTaskChannel = async (taskId: string,
+    configId: string,
+    sendChannelMessageRequest: SendChannelMessageRequest, options?: RequestInit): Promise<sendToTaskChannelResponse> => {
+  
+  return customInstance<sendToTaskChannelResponse>(getSendToTaskChannelUrl(taskId,configId),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      sendChannelMessageRequest,)
+  }
+);}
+
+
+
+
+export const getSendToTaskChannelMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendToTaskChannel>>, TError,{taskId: string;configId: string;data: SendChannelMessageRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof sendToTaskChannel>>, TError,{taskId: string;configId: string;data: SendChannelMessageRequest}, TContext> => {
+
+const mutationKey = ['sendToTaskChannel'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof sendToTaskChannel>>, {taskId: string;configId: string;data: SendChannelMessageRequest}> = (props) => {
+          const {taskId,configId,data} = props ?? {};
+
+          return  sendToTaskChannel(taskId,configId,data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SendToTaskChannelMutationResult = NonNullable<Awaited<ReturnType<typeof sendToTaskChannel>>>
+    export type SendToTaskChannelMutationBody = SendChannelMessageRequest
+    export type SendToTaskChannelMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Send a message to a specific channel connected to a task.
+ */
+export const useSendToTaskChannel = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendToTaskChannel>>, TError,{taskId: string;configId: string;data: SendChannelMessageRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof sendToTaskChannel>>,
+        TError,
+        {taskId: string;configId: string;data: SendChannelMessageRequest},
+        TContext
+      > => {
+      return useMutation(getSendToTaskChannelMutationOptions(options), queryClient);
     }
     

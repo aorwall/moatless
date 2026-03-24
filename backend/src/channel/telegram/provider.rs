@@ -272,6 +272,7 @@ impl TelegramProvider {
             file_ids: vec![],
             thread_properties,
             provider_context: serde_json::json!({}),
+            channel_external_id: Some(message_id.to_string()),
         })))
     }
 }

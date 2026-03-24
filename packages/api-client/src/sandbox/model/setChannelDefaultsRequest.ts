@@ -18,5 +18,9 @@ export interface SetChannelDefaultsRequest {
   responseConfigId?: string | null;
   routingMode: RoutingMode;
   /** @nullable */
+  tagIds?: string[] | null;
+  /** @nullable */
+  taskName?: string | null;
+  /** @nullable */
   teamId?: string | null;
 }

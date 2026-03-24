@@ -524,6 +524,38 @@ impl ApiClient {
             .await
     }
 
+    /// GET /api/v1/tasks/{task_id}/channels
+    pub async fn list_task_channels(
+        &self,
+        task_id: &str,
+    ) -> Result<Vec<moatless_api_schemas::channel::TaskChannelResponse>, ApiError> {
+        self.get(&format!("/api/v1/tasks/{task_id}/channels")).await
+    }
+
+    /// POST /api/v1/tasks/{task_id}/channels/send
+    pub async fn send_to_task_channels(
+        &self,
+        task_id: &str,
+        req: &moatless_api_schemas::channel::SendChannelMessageRequest,
+    ) -> Result<moatless_api_schemas::channel::SendChannelMessageResponse, ApiError> {
+        self.post(&format!("/api/v1/tasks/{task_id}/channels/send"), req)
+            .await
+    }
+
+    /// POST /api/v1/tasks/{task_id}/channels/{config_id}/send
+    pub async fn send_to_task_channel(
+        &self,
+        task_id: &str,
+        config_id: &str,
+        req: &moatless_api_schemas::channel::SendChannelMessageRequest,
+    ) -> Result<moatless_api_schemas::channel::SendChannelMessageResponse, ApiError> {
+        self.post(
+            &format!("/api/v1/tasks/{task_id}/channels/{config_id}/send"),
+            req,
+        )
+        .await
+    }
+
     // ========================================================================
     // Teams
     // ========================================================================
