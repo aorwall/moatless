@@ -16,6 +16,8 @@ export interface TaskResponse {
   agentState?: string | null;
   agentType: AgentType;
   /** @nullable */
+  appendSystemPrompt?: string | null;
+  /** @nullable */
   branch?: string | null;
   createdAt: string;
   /** @nullable */

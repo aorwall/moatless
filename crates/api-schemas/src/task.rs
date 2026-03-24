@@ -142,6 +142,8 @@ pub struct TaskResponse {
     pub scope: Scope,
     pub team_id: Option<String>,
     pub parent_task_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub append_system_prompt: Option<String>,
     pub tags: Vec<TagResponse>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub environment_status: Option<String>,

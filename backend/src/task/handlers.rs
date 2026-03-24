@@ -126,6 +126,7 @@ pub async fn create_task(
         created_at_db: None,
         updated_at: None,
         parent_task_id: req.parent_task_id.clone(),
+        append_system_prompt: None,
     };
 
     insert_and_provision_task(
@@ -744,6 +745,7 @@ fn build_task_response(
         scope: row.scope,
         team_id: row.team_id.clone(),
         parent_task_id: row.parent_task_id.clone(),
+        append_system_prompt: row.append_system_prompt.clone(),
         tags,
         environment_status: None,
         agent_state: None,

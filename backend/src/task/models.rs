@@ -38,6 +38,7 @@ pub struct Task {
     pub created_at_db: Option<DateTime<Utc>>,
     pub updated_at: Option<DateTime<Utc>>,
     pub parent_task_id: Option<String>,
+    pub append_system_prompt: Option<String>,
 }
 
 #[cfg(test)]

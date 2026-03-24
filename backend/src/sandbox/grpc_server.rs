@@ -184,6 +184,18 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             }));
         };
 
+        // Look up the task's append_system_prompt to pass through PendingMessage
+        let task_system_prompt = if let Some(ref tasks) = self.tasks {
+            tasks
+                .find_by_id_internal(&req.task_id)
+                .await
+                .ok()
+                .flatten()
+                .and_then(|t| t.append_system_prompt)
+        } else {
+            None
+        };
+
         // Fetch pending user messages from DB
         let pending = messages.get_pending_user(&req.task_id)
             .await
@@ -236,7 +248,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
                 Some(sandbox_proto::PendingMessage {
                     content,
                     model: row.model.clone(),
-                    system_prompt: None,
+                    system_prompt: task_system_prompt.clone(),
                     resume,
                     agent_type: row.agent_mode.as_ref().map(|m| m.0.clone()),
                     is_error: None,

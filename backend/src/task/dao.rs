@@ -56,7 +56,7 @@ impl TaskRepository for PgTaskRepository {
                 repository_id, status, total_cost_usd, site_url, template_id,
                 vibe, name, description, site_id, site_provider, branch,
                 created_by, visibility, scope, team_id, created_at_db,
-                updated_at, parent_task_id
+                updated_at, parent_task_id, append_system_prompt
             FROM tasks WHERE task_id = $1"#,
         )
         .bind(task_id)
@@ -71,7 +71,7 @@ impl TaskRepository for PgTaskRepository {
                 repository_id, status, total_cost_usd, site_url, template_id,
                 vibe, name, description, site_id, site_provider, branch,
                 created_by, visibility, scope, team_id, created_at_db,
-                updated_at, parent_task_id
+                updated_at, parent_task_id, append_system_prompt
             FROM tasks
             WHERE task_id = $1
               AND ($2 OR scope = 'global'
@@ -94,11 +94,11 @@ impl TaskRepository for PgTaskRepository {
                 repository_id, status, total_cost_usd, site_url, template_id,
                 vibe, name, description, site_id, site_provider, branch,
                 created_by, visibility, scope, team_id, parent_task_id,
-                updated_at
+                append_system_prompt, updated_at
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
                 $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21,
-                NOW()
+                $22, NOW()
             )"#,
         )
         .bind(&row.task_id)
@@ -122,6 +122,7 @@ impl TaskRepository for PgTaskRepository {
         .bind(row.scope)
         .bind(&row.team_id)
         .bind(&row.parent_task_id)
+        .bind(&row.append_system_prompt)
         .execute(&self.0)
         .await?;
         Ok(())
@@ -157,6 +158,7 @@ impl TaskRepository for PgTaskRepository {
             created_at_db: Option<DateTime<Utc>>,
             updated_at: Option<DateTime<Utc>>,
             parent_task_id: Option<String>,
+            append_system_prompt: Option<String>,
             total_count: i64,
         }
 
@@ -166,7 +168,7 @@ impl TaskRepository for PgTaskRepository {
                 t.repository_id, t.status, t.total_cost_usd, t.site_url, t.template_id,
                 t.vibe, t.name, t.description, t.site_id, t.site_provider, t.branch,
                 t.created_by, t.visibility, t.scope, t.team_id, t.created_at_db,
-                t.updated_at, t.parent_task_id,
+                t.updated_at, t.parent_task_id, t.append_system_prompt,
                 COUNT(*) OVER() AS total_count
             FROM tasks t
             LEFT JOIN task_tags tt ON t.task_id = tt.task_id
@@ -224,6 +226,7 @@ impl TaskRepository for PgTaskRepository {
                 created_at_db: r.created_at_db,
                 updated_at: r.updated_at,
                 parent_task_id: r.parent_task_id,
+                append_system_prompt: r.append_system_prompt,
             })
             .collect();
 
@@ -296,6 +299,13 @@ impl TaskRepository for PgTaskRepository {
                 .execute(&self.0)
                 .await?;
         }
+        if let Some(ref append_system_prompt) = patch.append_system_prompt {
+            sqlx::query("UPDATE tasks SET append_system_prompt = $2, updated_at = NOW() WHERE task_id = $1")
+                .bind(task_id)
+                .bind(append_system_prompt)
+                .execute(&self.0)
+                .await?;
+        }
         Ok(())
     }
 
@@ -345,6 +355,7 @@ pub struct TaskPatch {
     pub site_url: Option<String>,
     pub visibility: Option<Visibility>,
     pub short_id: Option<String>,
+    pub append_system_prompt: Option<Option<String>>,
 }
 
 // =========================================================================
