@@ -7,6 +7,7 @@ import { toast } from 'sonner'
 import { useTaskEventSubscription } from '@/features/events/contexts/global-event-stream-provider'
 import { MinifiedEventItem } from '@/features/tasks/components/minified-event-viewer/minified-event-item'
 import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
+import { useSandboxStatus } from '@/features/tasks/hooks/use-sandbox-status'
 import { useCloseTask, useDeleteTask } from '@/features/tasks/hooks/use-tasks'
 import { formatRunningDuration } from '@/features/tasks/utils/format-duration'
 import { isTaskRunning } from '@/features/tasks/utils/task-status'
@@ -250,6 +251,9 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
   // Get task title (use name if available, otherwise first line of description)
   const taskTitle = task.name || task.description?.split('\n')[0] || 'Untitled'
 
+  // Fetch sandbox status for environment indicator
+  const { data: sandboxStatus } = useSandboxStatus(task.taskId, task)
+
   // Error formatting hook
   const { formatErrorForDisplay } = useApiError()
 
@@ -365,7 +369,7 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
         <CardHeader className="pb-3">
           <div className="flex items-start gap-2 min-w-0">
             <div className="flex-shrink-0">
-              <TaskStatusIcon task={task} showText={false} />
+              <TaskStatusIcon task={task} sandbox={sandboxStatus} showText={false} />
             </div>
             <div className="flex flex-col min-w-0 flex-1 gap-1">
               <h3 className="font-medium text-sm leading-tight line-clamp-2 pr-6">{taskTitle}</h3>

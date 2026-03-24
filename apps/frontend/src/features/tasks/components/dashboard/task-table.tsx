@@ -4,6 +4,7 @@ import { type ColumnDef, flexRender, getCoreRowModel, useReactTable } from '@tan
 import { ChevronLeft, ChevronRight, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
+import { useSandboxStatus } from '@/features/tasks/hooks/use-sandbox-status'
 import { useCloseTask, useDeleteTask } from '@/features/tasks/hooks/use-tasks'
 import { Badge } from '@/lib/components/ui/badge'
 import { Button } from '@/lib/components/ui/button'
@@ -32,6 +33,11 @@ function formatDate(date: Date | string): string {
     hour: '2-digit',
     minute: '2-digit',
   })
+}
+
+function TaskStatusCell({ task }: { task: TaskResponse }) {
+  const { data: sandboxStatus } = useSandboxStatus(task.taskId, task)
+  return <TaskStatusIcon task={task} sandbox={sandboxStatus} showText={true} />
 }
 
 function TaskActionCell({ task }: { task: TaskResponse }) {
@@ -90,7 +96,7 @@ const columns: ColumnDef<TaskResponse>[] = [
     id: 'status',
     header: 'Status',
     size: 120,
-    cell: ({ row }) => <TaskStatusIcon task={row.original} showText={true} />,
+    cell: ({ row }) => <TaskStatusCell task={row.original} />,
   },
   {
     id: 'title',
