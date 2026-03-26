@@ -63,12 +63,17 @@ impl SlackProvider {
     ///
     /// Handles: signature verification, url_verification challenge,
     /// trigger filtering, event deduplication, and user identity extraction.
+    ///
+    /// When `is_tracked_thread` is true, the trigger filter is bypassed for
+    /// `message` events — this allows thread replies to outbound-created threads
+    /// to be processed regardless of the config's trigger mode.
     pub async fn parse_event(
         &self,
         headers: &HeaderMap,
         body: &[u8],
         config: &ChannelConfig,
         db: &DbPool,
+        is_tracked_thread: bool,
     ) -> Result<SlackWebhookResult, ChannelError> {
         // 1. Verify signature
         let timestamp = headers
@@ -124,6 +129,10 @@ impl SlackProvider {
             (ChannelTrigger::MentionOnly, "app_mention") => {} // process
             (ChannelTrigger::AllMessages, "message") => {}     // process
             (ChannelTrigger::AllMessages, "app_mention") => {} // also process mentions in all_messages mode
+            // Always process thread replies to threads we're tracking (e.g. outbound-created)
+            (_, "message") if is_tracked_thread => {
+                debug!(event_id = %event_id, "Processing tracked thread reply (trigger bypass)");
+            }
             _ => return Ok(SlackWebhookResult::Ignore),
         }
 

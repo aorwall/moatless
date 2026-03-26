@@ -165,9 +165,24 @@ pub async fn slack_webhook(
         }
     };
 
+    // Check if this is a reply in a thread we're already tracking (e.g. outbound-created).
+    // If so, bypass the trigger filter so replies to our messages are always processed.
+    let thread_ts = payload.pointer("/event/thread_ts").and_then(|v| v.as_str());
+    let is_tracked_thread = if let Some(tts) = thread_ts {
+        state
+            .channel_threads
+            .find_by_config_and_thread(&config.id, tts)
+            .await
+            .ok()
+            .flatten()
+            .is_some()
+    } else {
+        false
+    };
+
     // Parse event with config context
     let result = slack_provider
-        .parse_event(&headers, &body, &config, &state.db)
+        .parse_event(&headers, &body, &config, &state.db, is_tracked_thread)
         .await?;
 
     match result {
