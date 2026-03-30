@@ -6,6 +6,7 @@
 //! - **Standalone** (human user): login/logout, no sandbox-only commands
 
 use clap::{Parser, Subcommand};
+use moatless_api_schemas::channel::SendChannelMessageRequest;
 use moatless_api_schemas::task::{SetTagsRequest, UpdateTaskMetadataRequest};
 
 use moatless_cli::auth;
@@ -48,12 +49,7 @@ enum SharedCommands {
     /// Repository management
     Repos {
         #[command(subcommand)]
-        action: commands::repos::RepoAction,
-    },
-    /// Message management
-    Messages {
-        #[command(subcommand)]
-        action: commands::messages::MessageAction,
+        action: Box<commands::repos::RepoAction>,
     },
     /// Channel management
     Channels {
@@ -117,6 +113,16 @@ enum SandboxCommands {
         /// Tag names (space-separated)
         tags: Vec<String>,
     },
+
+    /// Reply to the channel(s) that created this task
+    Reply {
+        /// Channel config ID (sends to all channels if omitted)
+        #[arg(long)]
+        channel: Option<String>,
+        /// Message text (reads from stdin if omitted and stdin is piped)
+        #[arg(long)]
+        text: Option<String>,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -142,6 +148,11 @@ enum StandaloneCommands {
     Login,
     /// Remove saved credentials
     Logout,
+    /// Message management
+    Messages {
+        #[command(subcommand)]
+        action: commands::messages::MessageAction,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -204,6 +215,28 @@ async fn run_sandbox(cli: SandboxCli) -> Result<(), Box<dyn std::error::Error>> 
                 println!("Tags set: {}", tags.join(", "));
             }
         }
+        SandboxCommands::Reply { channel, text } => {
+            let task_id = require_task_id(&cfg)?;
+            let message_text = read_text_or_stdin(text)?;
+            let req = SendChannelMessageRequest {
+                text: message_text,
+            };
+            let resp = if let Some(config_id) = channel {
+                moat.api()
+                    .send_to_task_channel(&task_id, &config_id, &req)
+                    .await?
+            } else {
+                moat.api().send_to_task_channels(&task_id, &req).await?
+            };
+            if cli.opts.json {
+                output::print_json_typed(&resp);
+            } else {
+                println!("Sent to {} channel(s).", resp.sent_count);
+                for err in &resp.errors {
+                    eprintln!("Warning: {err}");
+                }
+            }
+        }
     }
 
     Ok(())
@@ -238,6 +271,9 @@ async fn run_standalone(cli: StandaloneCli) -> Result<(), Box<dyn std::error::Er
                 Err(e) => eprintln!("Error: {e}"),
             }
         }
+        StandaloneCommands::Messages { action } => {
+            commands::messages::run(&moat, action, cli.opts.json).await?;
+        }
     }
 
     Ok(())
@@ -269,10 +305,7 @@ async fn run_shared(
             commands::tasks::run(moat, action, json, cfg).await?;
         }
         SharedCommands::Repos { action } => {
-            commands::repos::run(moat, action, json).await?;
-        }
-        SharedCommands::Messages { action } => {
-            commands::messages::run(moat, action, json).await?;
+            commands::repos::run(moat, *action, json).await?;
         }
         SharedCommands::Channels { action } => {
             commands::channels::run(moat, action, json).await?;
@@ -326,4 +359,17 @@ fn is_status_command_sandbox(cmd: &SandboxCommands) -> bool {
 
 fn is_status_command_standalone(cmd: &StandaloneCommands) -> bool {
     matches!(cmd, StandaloneCommands::Shared(c) if matches!(**c, SharedCommands::Status))
+}
+
+fn read_text_or_stdin(text: Option<String>) -> Result<String, Box<dyn std::error::Error>> {
+    if let Some(t) = text {
+        return Ok(t);
+    }
+    use std::io::{IsTerminal, Read};
+    if std::io::stdin().is_terminal() {
+        return Err("Provide --text or pipe message via stdin".into());
+    }
+    let mut buf = String::new();
+    std::io::stdin().read_to_string(&mut buf)?;
+    Ok(buf.trim().to_string())
 }

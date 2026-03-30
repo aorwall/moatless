@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use clap::Subcommand;
-use moatless_api_schemas::enums::{RepositoryKind, RepositoryProvider};
+use moatless_api_schemas::enums::{RepositoryKind, RepositoryProvider, Scope, Visibility};
 use moatless_api_schemas::repository::{
     CreateRepositoryRequest, RepositoryResponse, ResourceConfig, ServerConfig,
     UpdateRepositoryRequest,
@@ -46,6 +46,51 @@ pub enum RepoAction {
         /// Docker image for sandbox (e.g. "myregistry/my-sandbox:latest")
         #[arg(long)]
         docker_image: Option<String>,
+        /// Plugin references (repeatable, e.g. "name@url")
+        #[arg(long = "plugin")]
+        plugins: Vec<String>,
+        /// System prompt for the repository
+        #[arg(long)]
+        system_prompt: Option<String>,
+        /// Repository description
+        #[arg(long)]
+        description: Option<String>,
+        /// Visibility: public or private
+        #[arg(long)]
+        visibility: Option<String>,
+        /// Build command
+        #[arg(long)]
+        build_command: Option<String>,
+        /// Build output directory
+        #[arg(long)]
+        build_output_dir: Option<String>,
+        /// Enable inspector
+        #[arg(long)]
+        enable_inspector: Option<bool>,
+        /// Enable auto-reload
+        #[arg(long)]
+        auto_reload: Option<bool>,
+        /// Repo-level environment variables as KEY=VALUE (repeatable)
+        #[arg(long = "env-var")]
+        env_vars: Vec<String>,
+        /// Setup commands run before server starts (repeatable)
+        #[arg(long = "setup-command")]
+        setup_commands: Vec<String>,
+        /// Legacy server start commands (repeatable)
+        #[arg(long = "server-start-command")]
+        server_start_commands: Vec<String>,
+        /// Full servers config as JSON string
+        #[arg(long)]
+        servers_json: Option<String>,
+        /// Startup timeout in seconds
+        #[arg(long)]
+        startup_timeout: Option<i32>,
+        /// Team ID
+        #[arg(long)]
+        team_id: Option<String>,
+        /// Scope: global, team, or user
+        #[arg(long)]
+        scope: Option<String>,
     },
     /// Update a repository
     Update {
@@ -86,6 +131,30 @@ pub enum RepoAction {
         /// Full servers config as JSON string
         #[arg(long)]
         servers_json: Option<String>,
+        /// Plugin references (repeatable, e.g. "name@url")
+        #[arg(long = "plugin")]
+        plugins: Vec<String>,
+        /// System prompt for the repository
+        #[arg(long)]
+        system_prompt: Option<String>,
+        /// Repository description
+        #[arg(long)]
+        description: Option<String>,
+        /// Visibility: public or private
+        #[arg(long)]
+        visibility: Option<String>,
+        /// Build command
+        #[arg(long)]
+        build_command: Option<String>,
+        /// Build output directory
+        #[arg(long)]
+        build_output_dir: Option<String>,
+        /// Enable inspector
+        #[arg(long)]
+        enable_inspector: Option<bool>,
+        /// Enable auto-reload
+        #[arg(long)]
+        auto_reload: Option<bool>,
     },
     /// Sync .moatless/config.json from the remote repository
     SyncConfig { repo_id: String },
@@ -120,6 +189,21 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
             resource_memory_request,
             resource_memory_limit,
             docker_image,
+            plugins,
+            system_prompt,
+            description,
+            visibility,
+            build_command,
+            build_output_dir,
+            enable_inspector,
+            auto_reload,
+            env_vars,
+            setup_commands,
+            server_start_commands,
+            servers_json,
+            startup_timeout,
+            team_id,
+            scope,
         } => {
             let resources = build_resource_config(
                 resource_cpu_request,
@@ -127,28 +211,44 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
                 resource_memory_request,
                 resource_memory_limit,
             );
+            let servers = match servers_json {
+                Some(ref json_str) => {
+                    let parsed: Vec<ServerConfig> = serde_json::from_str(json_str)
+                        .map_err(|e| ClientError::Other(format!("Invalid --servers-json: {e}")))?;
+                    Some(parsed)
+                }
+                None => None,
+            };
             let req = CreateRepositoryRequest {
                 name,
                 kind: parse_repo_kind(&kind),
                 remote_url: Some(git_url),
                 default_branch: Some(branch),
                 provider: parse_repo_provider(&provider),
-                auto_reload: None,
-                build_command: None,
-                build_output_directory: None,
-                description: None,
+                auto_reload,
+                build_command,
+                build_output_directory: build_output_dir,
+                description,
                 docker_image,
-                enable_inspector: None,
-                env_vars: None,
-                plugins: None,
-                server_start_commands: None,
-                servers: None,
-                setup_commands: None,
-                startup_timeout_seconds: None,
-                scope: None,
-                system_prompt: None,
-                team_id: None,
-                visibility: None,
+                enable_inspector,
+                env_vars: parse_env_vars(&env_vars),
+                plugins: if plugins.is_empty() { None } else { Some(plugins) },
+                server_start_commands: if server_start_commands.is_empty() {
+                    None
+                } else {
+                    Some(server_start_commands)
+                },
+                servers,
+                setup_commands: if setup_commands.is_empty() {
+                    None
+                } else {
+                    Some(setup_commands)
+                },
+                startup_timeout_seconds: startup_timeout,
+                scope: scope.as_deref().and_then(parse_scope),
+                system_prompt,
+                team_id,
+                visibility: visibility.as_deref().and_then(parse_visibility),
                 resources,
             };
             let created = client.api().create_repository(&req).await?;
@@ -173,6 +273,14 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
             env_vars,
             startup_timeout,
             servers_json,
+            plugins,
+            system_prompt,
+            description,
+            visibility,
+            build_command,
+            build_output_dir,
+            enable_inspector,
+            auto_reload,
         } => {
             let resources = build_resource_config(
                 resource_cpu_request,
@@ -192,14 +300,14 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
                 name,
                 default_branch: branch,
                 remote_url: git_url,
-                auto_reload: None,
-                build_command: None,
-                build_output_directory: None,
-                description: None,
+                auto_reload,
+                build_command,
+                build_output_directory: build_output_dir,
+                description,
                 docker_image,
-                enable_inspector: None,
+                enable_inspector,
                 env_vars: parse_env_vars(&env_vars),
-                plugins: None,
+                plugins: if plugins.is_empty() { None } else { Some(plugins) },
                 server_start_commands: if server_start_commands.is_empty() {
                     None
                 } else {
@@ -212,8 +320,8 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
                     Some(setup_commands)
                 },
                 startup_timeout_seconds: startup_timeout,
-                system_prompt: None,
-                visibility: None,
+                system_prompt,
+                visibility: visibility.as_deref().and_then(parse_visibility),
                 resources,
             };
             let updated = client.api().update_repository(&repo_id, &req).await?;
@@ -295,6 +403,23 @@ fn parse_repo_provider(s: &str) -> Option<RepositoryProvider> {
         "github" => Some(RepositoryProvider::Github),
         "gitlab" => Some(RepositoryProvider::Gitlab),
         "gitness" => Some(RepositoryProvider::Gitness),
+        _ => None,
+    }
+}
+
+fn parse_visibility(s: &str) -> Option<Visibility> {
+    match s {
+        "public" => Some(Visibility::Public),
+        "private" => Some(Visibility::Private),
+        _ => None,
+    }
+}
+
+fn parse_scope(s: &str) -> Option<Scope> {
+    match s {
+        "global" => Some(Scope::Global),
+        "team" => Some(Scope::Team),
+        "user" => Some(Scope::User),
         _ => None,
     }
 }
@@ -408,5 +533,32 @@ fn format_repo_detail(r: &RepositoryResponse) {
     }
     if let Some(ref dir) = r.build_output_directory {
         println!("Build output dir: {dir}");
+    }
+    if let Some(ref desc) = r.description {
+        println!("Description: {desc}");
+    }
+    if let Some(ref prompt) = r.system_prompt {
+        let display = if prompt.len() > 120 {
+            format!("{}…", &prompt[..120])
+        } else {
+            prompt.clone()
+        };
+        println!("System prompt: {display}");
+    }
+    println!("Visibility: {}", r.visibility);
+    println!("Scope:      {}", r.scope);
+    if let Some(ref tid) = r.team_id {
+        println!("Team ID:    {tid}");
+    }
+    if let Some(ref plugins) = r.plugins {
+        if !plugins.is_empty() {
+            println!("Plugins: {}", plugins.join(", "));
+        }
+    }
+    if let Some(inspector) = r.enable_inspector {
+        println!("Inspector:   {inspector}");
+    }
+    if let Some(reload) = r.auto_reload {
+        println!("Auto-reload: {reload}");
     }
 }
