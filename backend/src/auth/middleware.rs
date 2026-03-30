@@ -45,13 +45,12 @@ fn is_exempt(path: &str) -> bool {
     }
 
     // Webhook endpoints use provider-specific verification (HMAC, secret token, etc.)
-    if path == "/api/v1/channels/slack/webhook"
-        || path.starts_with("/api/v1/channels/slack/webhook/")
-        || path == "/api/v1/channels/telegram/webhook"
-        || path.starts_with("/api/v1/channels/telegram/webhook/")
-        || path.starts_with("/api/v1/channels/webhook/")
-    {
-        return true;
+    // Match /api/v1/channels/{provider}/webhook and /api/v1/channels/webhook/{provider}
+    if let Some(rest) = path.strip_prefix("/api/v1/channels/") {
+        let segments: Vec<&str> = rest.split('/').filter(|s| !s.is_empty()).collect();
+        if segments.len() >= 2 && (segments[1] == "webhook" || segments[0] == "webhook") {
+            return true;
+        }
     }
 
     // Public endpoints
@@ -220,7 +219,11 @@ mod tests {
     fn exempt_webhook_routes() {
         assert!(is_exempt("/api/v1/channels/slack/webhook"));
         assert!(is_exempt("/api/v1/channels/slack/webhook/"));
+        assert!(is_exempt("/api/v1/channels/telegram/webhook"));
+        assert!(is_exempt("/api/v1/channels/github-pr/webhook"));
         assert!(is_exempt("/api/v1/channels/webhook/some-provider"));
+        // Non-webhook channel routes should NOT be exempt
+        assert!(!is_exempt("/api/v1/channels/configs"));
     }
 
     #[test]
