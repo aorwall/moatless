@@ -3,7 +3,7 @@
 use clap::Subcommand;
 use moatless_api_schemas::channel::{
     ChannelConfigResponse, CreateChannelConfigRequest, SendChannelMessageRequest,
-    UpdateChannelConfigRequest,
+    TriggerChannelRequest, UpdateChannelConfigRequest,
 };
 use moatless_api_schemas::enums::{ChannelType, RoutingMode};
 
@@ -80,6 +80,14 @@ pub enum ChannelAction {
         /// Message text (reads from stdin if omitted and stdin is piped)
         #[arg(long)]
         text: Option<String>,
+    },
+    /// Manually trigger a channel config, creating a task as if the provider fired
+    Trigger {
+        /// Channel config ID
+        id: String,
+        /// Optional message override (uses channel's configured message if omitted)
+        #[arg(long)]
+        message: Option<String>,
     },
     /// Manage default settings for a channel provider
     Defaults {
@@ -249,6 +257,15 @@ pub async fn run(
                 for err in &resp.errors {
                     eprintln!("Warning: {err}");
                 }
+            }
+        }
+        ChannelAction::Trigger { id, message } => {
+            let req = TriggerChannelRequest { message };
+            let resp = client.api().trigger_channel_config(&id, &req).await?;
+            if json {
+                output::print_json_typed(&resp);
+            } else {
+                println!("Task created: {} (short: {})", resp.task_id, resp.short_id);
             }
         }
         ChannelAction::Defaults { action: defaults } => {

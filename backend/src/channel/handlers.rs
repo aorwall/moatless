@@ -788,6 +788,59 @@ pub async fn update_config(
     Ok(Json(channel_config_from_model(&row)))
 }
 
+/// Manually trigger a channel config, creating a task exactly as if the provider fired.
+///
+/// Works for any provider type (cron, slack, github_pr, etc.) and does not require
+/// the channel to be active. The created task will have `responseConfigId` wired up
+/// so outbound replies flow back to the configured channel (e.g. Slack).
+#[utoipa::path(
+    post,
+    path = "/api/v1/channels/configs/{id}/trigger",
+    tag = "channels",
+    params(
+        ("id" = String, Path, description = "Channel config ID")
+    ),
+    request_body = TriggerChannelRequest,
+    responses(
+        (status = 200, description = "Task created", body = TriggerChannelResponse),
+        (status = 403, description = "Access denied", body = crate::error::ErrorBody),
+        (status = 404, description = "Config not found", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn trigger_channel(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(id): Path<String>,
+    Json(req): Json<TriggerChannelRequest>,
+) -> Result<Json<TriggerChannelResponse>, ChannelError> {
+    let config = state
+        .channel_configs
+        .find_by_id(&id)
+        .await?
+        .ok_or_else(|| ChannelError::ConfigNotFound(id.clone()))?;
+
+    // Only the config owner can trigger it manually
+    if config.created_by != auth.user_id {
+        return Err(ChannelError::AccessDenied(
+            "Only the channel config owner can trigger it".into(),
+        ));
+    }
+
+    let task_id = inbound::trigger_inbound(&state, &config, req.message.as_deref()).await?;
+
+    let task = state
+        .tasks
+        .find_by_id_internal(&task_id)
+        .await
+        .map_err(|e| ChannelError::Internal(format!("Failed to look up task: {e}")))?
+        .ok_or_else(|| ChannelError::Internal("Task not found after creation".into()))?;
+
+    Ok(Json(TriggerChannelResponse {
+        task_id,
+        short_id: task.short_id.unwrap_or_default(),
+    }))
+}
+
 // =========================================================================
 // Channel defaults (wildcard config) handlers
 // =========================================================================

@@ -26,6 +26,7 @@ use crate::state::AppState;
         handlers::get_config,
         handlers::update_config,
         handlers::delete_config,
+        handlers::trigger_channel,
         handlers::get_defaults,
         handlers::set_defaults,
         handlers::list_task_channels,
@@ -53,6 +54,7 @@ pub fn channel_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenAp
             handlers::update_config,
             handlers::delete_config
         ))
+        .routes(routes!(handlers::trigger_channel))
         .routes(routes!(handlers::get_defaults, handlers::set_defaults))
         .routes(routes!(handlers::list_task_channels))
         .routes(routes!(handlers::send_to_task_channels))

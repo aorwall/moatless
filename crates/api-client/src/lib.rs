@@ -518,6 +518,19 @@ impl ApiClient {
             .await
     }
 
+    /// POST /api/v1/channels/configs/{config_id}/trigger
+    pub async fn trigger_channel_config(
+        &self,
+        config_id: &str,
+        req: &moatless_api_schemas::channel::TriggerChannelRequest,
+    ) -> Result<moatless_api_schemas::channel::TriggerChannelResponse, ApiError> {
+        self.post(
+            &format!("/api/v1/channels/configs/{config_id}/trigger"),
+            req,
+        )
+        .await
+    }
+
     /// DELETE /api/v1/channels/configs/{config_id}
     pub async fn delete_channel_config(&self, config_id: &str) -> Result<(), ApiError> {
         self.delete_request(&format!("/api/v1/channels/configs/{config_id}"))

@@ -264,6 +264,128 @@ async fn create_task_for_channel(
     Ok(task_id)
 }
 
+/// Manually trigger a channel config, creating a task exactly as if the provider fired.
+///
+/// Bypasses the active-flag check so inactive channels can still be triggered manually.
+/// Always creates a new task (never reuses an ongoing task).
+///
+/// Returns the `task_id` of the created task.
+pub async fn trigger_inbound(
+    state: &AppState,
+    config: &ChannelConfig,
+    message_override: Option<&str>,
+) -> Result<String, ChannelError> {
+    let message = message_override
+        .or_else(|| {
+            config
+                .provider_config
+                .as_ref()
+                .and_then(|c| c.get("message"))
+                .and_then(|v| v.as_str())
+        })
+        .unwrap_or("Manual channel trigger");
+
+    let user_id = config
+        .provider_config
+        .as_ref()
+        .and_then(|c| c.get("user_id"))
+        .and_then(|v| v.as_str())
+        .map_or_else(|| config.created_by.clone(), String::from);
+
+    let provider_type = super::provider::ChannelType::parse(&config.provider)
+        .unwrap_or(super::provider::ChannelType::Cron);
+
+    let thread_id = uuid::Uuid::new_v4().to_string();
+
+    let msg = InboundMessage {
+        provider: provider_type,
+        source_id: config.source_id.clone(),
+        thread_id: None,
+        message_thread_id: thread_id,
+        user_id,
+        text: message.to_string(),
+        file_ids: vec![],
+        thread_properties: serde_json::json!({"trigger": "manual"}),
+        provider_context: serde_json::json!({}),
+        channel_external_id: None,
+    };
+
+    info!(
+        config_id = %config.id,
+        provider = %config.provider,
+        "Manually triggering channel"
+    );
+
+    let task_id = create_task_for_channel(state, config, &msg).await?;
+
+    // Provision sandbox (mirrors the natural channel fire path)
+    match crate::sandbox::auto_provision::build_provision_request(
+        state.tasks.as_ref(),
+        state.repositories.as_ref(),
+        state.provider_tokens.as_ref(),
+        state.plugin_repos.as_ref(),
+        &task_id,
+    )
+    .await
+    {
+        Ok(request) => {
+            match state.sandbox.provision(&task_id, &request).await {
+                Ok(_) => info!(task_id = %task_id, "Sandbox provisioning started for triggered channel task"),
+                Err(e) => warn!(task_id = %task_id, error = %e, "Failed to provision sandbox for triggered channel task"),
+            }
+        }
+        Err(e) => warn!(task_id = %task_id, error = %e, "Failed to build provision request for triggered channel task"),
+    }
+
+    // For ongoing mode, record the new task as the current ongoing task
+    if config.routing_mode == RoutingMode::Ongoing {
+        state
+            .channel_configs
+            .update(
+                &config.id,
+                &ChannelConfigPatch {
+                    ongoing_task_id: Some(Some(task_id.clone())),
+                    ..Default::default()
+                },
+            )
+            .await?;
+    }
+
+    // Create thread record
+    state
+        .channel_threads
+        .insert(
+            &config.id,
+            &task_id,
+            &msg.message_thread_id,
+            &msg.thread_properties,
+        )
+        .await?;
+
+    // Send message to task (sandbox will fetch on startup — is_new_task=true path)
+    if let Err(e) = crate::message::send::send_message_flow(
+        state,
+        &task_id,
+        &msg.text,
+        None,
+        None,
+        &msg.file_ids,
+        &[],
+        true,
+        None,
+    )
+    .await
+    {
+        warn!(task_id = %task_id, config_id = %config.id, error = %e, "Failed to send trigger message to task");
+        return Err(ChannelError::Internal(format!(
+            "Failed to send message: {e}"
+        )));
+    }
+
+    info!(task_id = %task_id, config_id = %config.id, "Channel manually triggered");
+    Ok(task_id)
+}
+
 /// Generate a unique short ID.
 async fn generate_short_id(state: &AppState) -> Result<String, ChannelError> {
     for _ in 0..10 {

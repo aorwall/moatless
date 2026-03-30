@@ -129,6 +129,24 @@ pub struct SlackChannelInfoResponse {
     pub name: String,
 }
 
+/// Request body for manually triggering a channel config.
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct TriggerChannelRequest {
+    /// Optional message override. If omitted, uses the channel's configured message.
+    pub message: Option<String>,
+}
+
+/// Response from manually triggering a channel config.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct TriggerChannelResponse {
+    pub task_id: String,
+    pub short_id: String,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PairingQuery {
