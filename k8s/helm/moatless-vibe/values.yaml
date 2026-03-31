@@ -260,6 +260,12 @@ auth:
   github:
     enabled: false
     callbackUrl: ""
+    # -- Required GitHub organization. When set, only members of this org can log in.
+    # Requires "read:org" in oauthScope.
+    requiredOrg: ""
+    # -- GitHub OAuth scopes (default: "user:email repo")
+    # Add "read:org" when using requiredOrg.
+    oauthScope: ""
   # -- Auth0 OAuth settings
   auth0:
     enabled: false

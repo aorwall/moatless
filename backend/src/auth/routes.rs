@@ -527,6 +527,25 @@ async fn handle_oauth_callback(
     // Get user info
     let user_info = provider.get_user_info(&tokens).await?;
 
+    // Check required GitHub org membership
+    if let Some(ref required_org) = state.config.auth.github_required_org {
+        let is_member = provider
+            .check_org_membership(&tokens.access_token, required_org)
+            .await?;
+        if !is_member {
+            warn!(
+                user_login = %user_info.login,
+                required_org = %required_org,
+                "User is not a member of required GitHub org"
+            );
+            let redirect = format!(
+                "{}?error=org_required",
+                state.config.auth.frontend_url
+            );
+            return Ok((StatusCode::FOUND, [("Location", redirect.as_str())]).into_response());
+        }
+    }
+
     // Extract group (optional)
     let group_id = provider.extract_user_group(&tokens).await;
 

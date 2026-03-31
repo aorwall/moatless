@@ -206,6 +206,8 @@ pub struct AuthConfig {
     pub github_callback_url: Option<String>,
     /// GitHub OAuth scopes (default: "user:email repo")
     pub github_oauth_scope: String,
+    /// Required GitHub organization login. When set, only members of this org can log in.
+    pub github_required_org: Option<String>,
     /// Auth0 domain (e.g., "myapp.us.auth0.com")
     pub auth0_domain: Option<String>,
     /// Auth0 client ID
@@ -502,6 +504,7 @@ impl Config {
                 github_client_secret: env_opt("GITHUB_CLIENT_SECRET"),
                 github_callback_url: env_opt("GITHUB_CALLBACK_URL"),
                 github_oauth_scope: env_str("GITHUB_OAUTH_SCOPE", "user:email repo"),
+                github_required_org: env_opt("GITHUB_REQUIRED_ORG"),
                 auth0_domain: env_opt("AUTH0_DOMAIN"),
                 auth0_client_id: env_opt("AUTH0_CLIENT_ID"),
                 auth0_client_secret: env_opt("AUTH0_CLIENT_SECRET"),
@@ -768,6 +771,7 @@ mod tests {
                 github_client_secret: None,
                 github_callback_url: None,
                 github_oauth_scope: "".into(),
+                github_required_org: None,
                 auth0_domain: None,
                 auth0_client_id: None,
                 auth0_client_secret: None,

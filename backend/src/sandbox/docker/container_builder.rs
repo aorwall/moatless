@@ -447,6 +447,7 @@ mod tests {
                 github_client_secret: None,
                 github_callback_url: None,
                 github_oauth_scope: "".into(),
+                github_required_org: None,
                 auth0_domain: None,
                 auth0_client_id: None,
                 auth0_client_secret: None,

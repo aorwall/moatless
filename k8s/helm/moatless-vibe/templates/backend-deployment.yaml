@@ -189,6 +189,14 @@ spec:
             - name: GITHUB_CALLBACK_URL
               value: {{ . | quote }}
             {{- end }}
+            {{- with .Values.auth.github.requiredOrg }}
+            - name: GITHUB_REQUIRED_ORG
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.auth.github.oauthScope }}
+            - name: GITHUB_OAUTH_SCOPE
+              value: {{ . | quote }}
+            {{- end }}
             {{- end }}
             {{- if .Values.auth.auth0.enabled }}
             - name: AUTH0_DOMAIN

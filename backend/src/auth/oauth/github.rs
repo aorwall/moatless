@@ -45,6 +45,11 @@ struct GitHubTokenResponse {
 }
 
 #[derive(serde::Deserialize)]
+struct GitHubOrg {
+    login: String,
+}
+
+#[derive(serde::Deserialize)]
 struct GitHubUser {
     id: u64,
     login: String,
@@ -134,5 +139,46 @@ impl OAuthProvider for GitHubOAuthProvider {
             name: user.name,
             avatar_url: user.avatar_url,
         })
+    }
+
+    async fn check_org_membership(&self, access_token: &str, org: &str) -> Result<bool, AuthError> {
+        let mut page = 1u32;
+        loop {
+            let resp = self
+                .http
+                .get(format!(
+                    "https://api.github.com/user/orgs?per_page=100&page={page}"
+                ))
+                .header("Authorization", format!("Bearer {access_token}"))
+                .header("User-Agent", "moatless-vibe-backend")
+                .header("Accept", "application/vnd.github+json")
+                .send()
+                .await
+                .map_err(|e| AuthError::OAuth(format!("GitHub orgs request failed: {e}")))?;
+
+            if !resp.status().is_success() {
+                let status = resp.status();
+                return Err(AuthError::OAuth(format!(
+                    "GitHub orgs endpoint returned {status}"
+                )));
+            }
+
+            let orgs: Vec<GitHubOrg> = resp
+                .json()
+                .await
+                .map_err(|e| AuthError::OAuth(format!("Failed to parse GitHub orgs response: {e}")))?;
+
+            if orgs.is_empty() {
+                break;
+            }
+
+            if orgs.iter().any(|o| o.login.eq_ignore_ascii_case(org)) {
+                return Ok(true);
+            }
+
+            page += 1;
+        }
+
+        Ok(false)
     }
 }
