@@ -84,7 +84,7 @@ impl WebhookProvider {
                     .and_then(|v| v.as_str())
                     .map(String::from)
             })
-            .unwrap_or_else(|| config.created_by.clone());
+            .unwrap_or_else(|| config.effective_user_id().to_string());
 
         // 4. Build message thread ID (use provided thread_id or generate one)
         let message_thread_id = payload
@@ -222,6 +222,7 @@ mod tests {
             team_id: None,
             task_name: None,
             tag_ids: vec![],
+            run_as_user_id: None,
             created_by: "default-user".into(),
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),

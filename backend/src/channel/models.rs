@@ -27,9 +27,18 @@ pub struct ChannelConfig {
     pub team_id: Option<String>,
     pub task_name: Option<String>,
     pub tag_ids: Vec<String>,
+    pub run_as_user_id: Option<String>,
     pub created_by: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+impl ChannelConfig {
+    /// The user ID to attribute tasks to when the actual sender cannot be resolved.
+    /// Falls back to `created_by` when `run_as_user_id` is not set.
+    pub fn effective_user_id(&self) -> &str {
+        self.run_as_user_id.as_deref().unwrap_or(&self.created_by)
+    }
 }
 
 // =============================================================================

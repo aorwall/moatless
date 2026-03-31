@@ -118,6 +118,7 @@ mod tests {
             team_id: None,
             task_name: None,
             tag_ids: vec![],
+            run_as_user_id: None,
             created_by: "owner".into(),
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),

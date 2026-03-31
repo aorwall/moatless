@@ -9,7 +9,7 @@ use crate::scope::ScopeContext;
 const CHANNEL_CONFIG_COLUMNS: &str = r#"id, provider, source_id, source_name, repository_id, routing_mode,
                       prompt_template, active, provider_config, ongoing_task_id,
                       response_config_id, scope, team_id, task_name, tag_ids,
-                      created_by, created_at, updated_at"#;
+                      run_as_user_id, created_by, created_at, updated_at"#;
 
 /// Updateable fields for a channel config.
 #[derive(Default)]
@@ -24,6 +24,7 @@ pub struct ChannelConfigPatch {
     pub response_config_id: Option<Option<String>>,
     pub task_name: Option<Option<String>>,
     pub tag_ids: Option<Vec<String>>,
+    pub run_as_user_id: Option<Option<String>>,
 }
 
 /// Repository trait for channel config persistence.
@@ -164,8 +165,9 @@ impl ChannelConfigRepository for PgChannelConfigRepository {
             r#"INSERT INTO channel_configs
                (id, provider, source_id, source_name, repository_id, routing_mode,
                 prompt_template, active, provider_config, ongoing_task_id,
-                response_config_id, scope, team_id, task_name, tag_ids, created_by)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)"#,
+                response_config_id, scope, team_id, task_name, tag_ids,
+                run_as_user_id, created_by)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)"#,
         )
         .bind(&row.id)
         .bind(&row.provider)
@@ -182,6 +184,7 @@ impl ChannelConfigRepository for PgChannelConfigRepository {
         .bind(&row.team_id)
         .bind(&row.task_name)
         .bind(&row.tag_ids)
+        .bind(&row.run_as_user_id)
         .bind(&row.created_by)
         .execute(&self.0)
         .await?;
@@ -232,6 +235,10 @@ impl ChannelConfigRepository for PgChannelConfigRepository {
             param_idx += 1;
             sets.push(format!("tag_ids = ${param_idx}"));
         }
+        if patch.run_as_user_id.is_some() {
+            param_idx += 1;
+            sets.push(format!("run_as_user_id = ${param_idx}"));
+        }
 
         if sets.is_empty() {
             return Ok(());
@@ -272,6 +279,9 @@ impl ChannelConfigRepository for PgChannelConfigRepository {
         }
         if let Some(ref v) = patch.tag_ids {
             query = query.bind(v);
+        }
+        if let Some(ref v) = patch.run_as_user_id {
+            query = query.bind(v.as_deref());
         }
 
         query.execute(&self.0).await?;

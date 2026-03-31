@@ -666,6 +666,7 @@ pub async fn create_config(
         team_id: req.team_id,
         task_name: req.task_name,
         tag_ids: req.tag_ids.unwrap_or_default(),
+        run_as_user_id: req.run_as_user_id,
         created_by: auth.user_id,
         created_at: now,
         updated_at: now,
@@ -776,6 +777,7 @@ pub async fn update_config(
         response_config_id: req.response_config_id,
         task_name: req.task_name,
         tag_ids: req.tag_ids,
+        run_as_user_id: req.run_as_user_id,
         ..Default::default()
     };
 
@@ -981,6 +983,7 @@ pub async fn set_defaults(
             team_id: team_id.map(str::to_string),
             task_name: req.task_name,
             tag_ids: req.tag_ids.unwrap_or_default(),
+            run_as_user_id: None,
             created_by: auth.user_id,
             created_at: now,
             updated_at: now,

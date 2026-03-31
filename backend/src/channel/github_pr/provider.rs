@@ -531,10 +531,10 @@ impl GithubPrProvider {
         } else {
             debug!(
                 github_login,
-                fallback = %config.created_by,
+                fallback = %config.effective_user_id(),
                 "GitHub user not mapped, using config owner"
             );
-            config.created_by.clone()
+            config.effective_user_id().to_string()
         }
     }
 }

@@ -196,10 +196,10 @@ impl TelegramProvider {
             info!(
                 telegram_user_id = from_id,
                 chat_id,
-                fallback_user = %config.created_by,
+                fallback_user = %config.effective_user_id(),
                 "Telegram user not mapped, using config owner as fallback"
             );
-            config.created_by.clone()
+            config.effective_user_id().to_string()
         };
 
         // 9. Extract forum/topic fields
@@ -543,6 +543,7 @@ async fn auto_create_config(
         team_id: None,
         task_name: None,
         tag_ids: vec![],
+        run_as_user_id: None,
         created_by: owner.unwrap_or_else(|| "system".to_string()),
         created_at: now,
         updated_at: now,
@@ -769,6 +770,7 @@ mod tests {
             team_id: None,
             task_name: None,
             tag_ids: vec![],
+            run_as_user_id: None,
             created_by: "system".into(),
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),

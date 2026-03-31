@@ -44,7 +44,7 @@ impl CronProvider {
             .as_ref()
             .and_then(|c| c.get("user_id"))
             .and_then(|v| v.as_str())
-            .map_or_else(|| config.created_by.clone(), String::from);
+            .map_or_else(|| config.effective_user_id().to_string(), String::from);
 
         let thread_id = uuid::Uuid::new_v4().to_string();
 
@@ -127,6 +127,7 @@ mod tests {
             team_id: None,
             task_name: None,
             tag_ids: vec![],
+            run_as_user_id: None,
             created_by: "admin".into(),
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
@@ -159,6 +160,7 @@ mod tests {
             team_id: None,
             task_name: None,
             tag_ids: vec![],
+            run_as_user_id: None,
             created_by: "fallback-user".into(),
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),

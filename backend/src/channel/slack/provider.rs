@@ -184,10 +184,10 @@ impl SlackProvider {
                 info!(
                     slack_user = %user,
                     source_id = %channel,
-                    fallback_user = %config.created_by,
+                    fallback_user = %config.effective_user_id(),
                     "Slack user not mapped, using config owner for thread reply"
                 );
-                config.created_by.clone()
+                config.effective_user_id().to_string()
             }
             None => {
                 // Top-level message from unmapped user — block and notify

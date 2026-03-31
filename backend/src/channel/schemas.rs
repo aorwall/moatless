@@ -26,6 +26,7 @@ pub fn channel_config_from_model(row: &super::models::ChannelConfig) -> ChannelC
         team_id: row.team_id.clone(),
         task_name: row.task_name.clone(),
         tag_ids: row.tag_ids.clone(),
+        run_as_user_id: row.run_as_user_id.clone(),
         created_by: row.created_by.clone(),
         created_at: row.created_at.to_rfc3339(),
         updated_at: row.updated_at.to_rfc3339(),

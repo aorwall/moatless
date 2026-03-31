@@ -310,7 +310,7 @@ pub async fn trigger_inbound(
         .as_ref()
         .and_then(|c| c.get("user_id"))
         .and_then(|v| v.as_str())
-        .map_or_else(|| config.created_by.clone(), String::from);
+        .map_or_else(|| config.effective_user_id().to_string(), String::from);
 
     let provider_type = super::provider::ChannelType::parse(&config.provider)
         .unwrap_or(super::provider::ChannelType::Cron);

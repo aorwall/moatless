@@ -36,6 +36,9 @@ pub enum ChannelAction {
         /// Comma-separated tag IDs to auto-assign to tasks
         #[arg(long, value_delimiter = ',')]
         tag_ids: Option<Vec<String>>,
+        /// User ID to run tasks on behalf of (defaults to channel creator)
+        #[arg(long)]
+        run_as_user_id: Option<String>,
     },
     /// Update a channel config
     Update {
@@ -68,6 +71,9 @@ pub enum ChannelAction {
         /// Comma-separated tag IDs to auto-assign to tasks
         #[arg(long, value_delimiter = ',')]
         tag_ids: Option<Vec<String>>,
+        /// User ID to run tasks on behalf of (defaults to channel creator)
+        #[arg(long)]
+        run_as_user_id: Option<String>,
     },
     /// Send a message through the channel(s) associated with a task
     Send {
@@ -149,6 +155,7 @@ pub async fn run(
             prompt_template,
             task_name,
             tag_ids,
+            run_as_user_id,
         } => {
             let parsed_config = parse_provider_config(provider_config.as_deref())?
                 .map(serde_json::Value::Object);
@@ -166,6 +173,7 @@ pub async fn run(
                 team_id: None,
                 task_name,
                 tag_ids,
+                run_as_user_id,
             };
             let created = client.api().create_channel_config(&req).await?;
             if json {
@@ -185,6 +193,7 @@ pub async fn run(
             response_config_id,
             task_name,
             tag_ids,
+            run_as_user_id,
         } => {
             let parsed_config = parse_provider_config(provider_config.as_deref())?
                 .map(serde_json::Value::Object);
@@ -199,6 +208,7 @@ pub async fn run(
                 response_config_id: response_config_id.map(Some),
                 task_name: task_name.map(Some),
                 tag_ids,
+                run_as_user_id: run_as_user_id.map(Some),
             };
             let updated = client.api().update_channel_config(&id, &req).await?;
             if json {

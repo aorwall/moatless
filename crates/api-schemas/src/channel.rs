@@ -21,6 +21,7 @@ pub struct CreateChannelConfigRequest {
     pub team_id: Option<String>,
     pub task_name: Option<String>,
     pub tag_ids: Option<Vec<String>>,
+    pub run_as_user_id: Option<String>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -37,6 +38,7 @@ pub struct UpdateChannelConfigRequest {
     pub response_config_id: Option<Option<String>>,
     pub task_name: Option<Option<String>>,
     pub tag_ids: Option<Vec<String>>,
+    pub run_as_user_id: Option<Option<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -60,6 +62,7 @@ pub struct ChannelConfigResponse {
     pub created_by: String,
     pub task_name: Option<String>,
     pub tag_ids: Vec<String>,
+    pub run_as_user_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
