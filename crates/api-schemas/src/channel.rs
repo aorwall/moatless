@@ -139,6 +139,9 @@ pub struct SlackChannelInfoResponse {
 pub struct TriggerChannelRequest {
     /// Optional message override. If omitted, uses the channel's configured message.
     pub message: Option<String>,
+    /// Optional thread properties for the created task. Required for `github_pr`
+    /// channels (must include `owner`, `repo`, and `pr_number`).
+    pub thread_properties: Option<serde_json::Value>,
 }
 
 /// Response from manually triggering a channel config.

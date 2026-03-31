@@ -294,6 +294,7 @@ pub async fn trigger_inbound(
     state: &AppState,
     config: &ChannelConfig,
     message_override: Option<&str>,
+    thread_properties: Option<serde_json::Value>,
 ) -> Result<String, ChannelError> {
     let message = message_override
         .or_else(|| {
@@ -315,6 +316,34 @@ pub async fn trigger_inbound(
     let provider_type = super::provider::ChannelType::parse(&config.provider)
         .unwrap_or(super::provider::ChannelType::Cron);
 
+    // For github_pr channels, thread_properties must include owner, repo, and pr_number
+    let resolved_thread_properties = if provider_type == super::provider::ChannelType::GithubPr {
+        let props = thread_properties.ok_or_else(|| {
+            ChannelError::BadRequest(
+                "github_pr channels require thread_properties with owner, repo, and pr_number"
+                    .into(),
+            )
+        })?;
+        if props.get("owner").and_then(|v| v.as_str()).is_none() {
+            return Err(ChannelError::BadRequest(
+                "thread_properties missing required field: owner".into(),
+            ));
+        }
+        if props.get("repo").and_then(|v| v.as_str()).is_none() {
+            return Err(ChannelError::BadRequest(
+                "thread_properties missing required field: repo".into(),
+            ));
+        }
+        if props.get("pr_number").and_then(|v| v.as_u64()).is_none() {
+            return Err(ChannelError::BadRequest(
+                "thread_properties missing required field: pr_number (must be a number)".into(),
+            ));
+        }
+        props
+    } else {
+        thread_properties.unwrap_or_else(|| serde_json::json!({"trigger": "manual"}))
+    };
+
     let thread_id = uuid::Uuid::new_v4().to_string();
 
     let msg = InboundMessage {
@@ -325,7 +354,7 @@ pub async fn trigger_inbound(
         user_id,
         text: message.to_string(),
         file_ids: vec![],
-        thread_properties: serde_json::json!({"trigger": "manual"}),
+        thread_properties: resolved_thread_properties,
         provider_context: serde_json::json!({}),
         channel_external_id: None,
     };

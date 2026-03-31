@@ -94,6 +94,9 @@ pub enum ChannelAction {
         /// Optional message override (uses channel's configured message if omitted)
         #[arg(long)]
         message: Option<String>,
+        /// Thread properties as JSON (required for github_pr: must include owner, repo, pr_number)
+        #[arg(long)]
+        thread_properties: Option<String>,
     },
     /// Manage default settings for a channel provider
     Defaults {
@@ -269,8 +272,21 @@ pub async fn run(
                 }
             }
         }
-        ChannelAction::Trigger { id, message } => {
-            let req = TriggerChannelRequest { message };
+        ChannelAction::Trigger {
+            id,
+            message,
+            thread_properties,
+        } => {
+            let thread_properties = thread_properties
+                .map(|s| serde_json::from_str::<serde_json::Value>(&s))
+                .transpose()
+                .map_err(|e| {
+                    ClientError::Other(format!("Invalid JSON for --thread-properties: {e}"))
+                })?;
+            let req = TriggerChannelRequest {
+                message,
+                thread_properties,
+            };
             let resp = client.api().trigger_channel_config(&id, &req).await?;
             if json {
                 output::print_json_typed(&resp);

@@ -828,7 +828,9 @@ pub async fn trigger_channel(
         ));
     }
 
-    let task_id = inbound::trigger_inbound(&state, &config, req.message.as_deref()).await?;
+    let task_id =
+        inbound::trigger_inbound(&state, &config, req.message.as_deref(), req.thread_properties)
+            .await?;
 
     let task = state
         .tasks
