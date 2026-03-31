@@ -85,6 +85,16 @@ impl ApiClient {
         self.parse_response(resp).await
     }
 
+    async fn patch<B: serde::Serialize, T: DeserializeOwned>(
+        &self,
+        path: &str,
+        body: &B,
+    ) -> Result<T, ApiError> {
+        let url = format!("{}{path}", self.base_url);
+        let resp = self.http.patch(&url).json(body).send().await?;
+        self.parse_response(resp).await
+    }
+
     async fn delete_request(&self, path: &str) -> Result<(), ApiError> {
         let url = format!("{}{path}", self.base_url);
         let resp = self.http.delete(&url).send().await?;
@@ -234,14 +244,13 @@ impl ApiClient {
             .await
     }
 
-    /// PUT /api/v1/tasks/{task_id}/metadata
+    /// PATCH /api/v1/tasks/{task_id}
     pub async fn update_task_metadata(
         &self,
         task_id: &str,
         req: &moatless_api_schemas::task::UpdateTaskMetadataRequest,
     ) -> Result<moatless_api_schemas::task::TaskResponse, ApiError> {
-        self.put(&format!("/api/v1/tasks/{task_id}/metadata"), req)
-            .await
+        self.patch(&format!("/api/v1/tasks/{task_id}"), req).await
     }
 
     /// PUT /api/v1/tasks/{task_id}/tags
