@@ -175,6 +175,16 @@ impl GithubPrProvider {
             }
         }
 
+        // Filter events from the run_as_user (prevents moat reply → webhook loop)
+        if !sender_login.is_empty() {
+            if let Ok(Some(sender_user_id)) = self.resolve_user(sender_login, db).await {
+                if sender_user_id == config.effective_user_id() {
+                    debug!(sender_login, run_as = %config.effective_user_id(), "Ignoring event from run_as user");
+                    return Ok(GithubPrWebhookResult::Ignore);
+                }
+            }
+        }
+
         // Extract repo full_name → owner/repo
         let repo_full_name = payload
             .pointer("/repository/full_name")
