@@ -6,6 +6,7 @@ use clap::Subcommand;
 use futures_util::StreamExt;
 use moatless_api_schemas::enums::TaskStatus;
 use moatless_api_schemas::sandbox::SandboxStatusFullResponse;
+use moatless_api_schemas::shared::AgentMode;
 use moatless_api_schemas::task::{CreateTaskRequest, ListTasksQuery, ListTasksResponse, TaskResponse};
 
 use crate::client::{ClientError, MoatClient};
@@ -38,6 +39,9 @@ pub enum TaskAction {
         message: Option<String>,
         #[arg(long)]
         branch: Option<String>,
+        /// Agent mode: "edit" or "plan"
+        #[arg(long)]
+        mode: Option<String>,
     },
     /// List child tasks
     Children {
@@ -156,6 +160,7 @@ pub async fn run(
             no_parent,
             message,
             branch,
+            mode,
         } => {
             let parent_task_id = if no_parent {
                 None
@@ -171,7 +176,7 @@ pub async fn run(
                 message,
                 branch,
                 parent_task_id,
-                agent_mode: None,
+                agent_mode: mode.map(AgentMode),
                 agent_type: None,
                 contexts: Vec::new(),
                 description: None,

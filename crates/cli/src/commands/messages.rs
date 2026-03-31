@@ -2,6 +2,7 @@
 
 use clap::Subcommand;
 use moatless_api_schemas::message::{SendMessageRequest, UiMessage};
+use moatless_api_schemas::shared::AgentMode;
 
 use crate::client::{ClientError, MoatClient};
 use crate::output;
@@ -15,6 +16,9 @@ pub enum MessageAction {
         task_id: String,
         #[arg(long)]
         text: String,
+        /// Agent mode: "edit" or "plan"
+        #[arg(long)]
+        mode: Option<String>,
     },
 }
 
@@ -32,10 +36,10 @@ pub async fn run(
                 format_messages(&messages.messages);
             }
         }
-        MessageAction::Send { task_id, text } => {
+        MessageAction::Send { task_id, text, mode } => {
             let req = SendMessageRequest {
                 message: text,
-                agent_mode: None,
+                agent_mode: mode.map(AgentMode),
                 command_name: None,
                 contexts: Vec::new(),
                 file_ids: Vec::new(),
