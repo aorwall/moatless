@@ -263,7 +263,7 @@ impl EventHandlerConsumer {
                 agent_handlers::handle_agent_completed(&self.state, event).await;
             }
             EventKey::TaskTurn(TaskTurnSubType::Completed) => {
-                self.notify_channels(event).await;
+                // Channel notification is handled by the agent via `moat reply`.
             }
             EventKey::Agent(AgentSubType::Message) => {
                 agent_handlers::handle_agent_message(&self.state, event).await;
@@ -281,14 +281,16 @@ impl EventHandlerConsumer {
                 agent_handlers::handle_agent_error(&self.state, event).await;
             }
             EventKey::TaskTurn(TaskTurnSubType::Error) => {
-                self.notify_channels(event).await;
+                // Channel notification is handled by the agent via `moat reply`.
             }
             EventKey::Task(TaskSubType::MetadataUpdated) => {
                 agent_handlers::handle_task_metadata_updated(&self.state, event).await;
             }
             // Sandbox error — pod watcher detected a fatal crash (OOM, crash loop, etc.)
+            // Agent is dead and cannot use `moat reply`, so auto-notify channels.
             EventKey::Sandbox(SandboxSubType::Error) => {
                 agent_handlers::handle_sandbox_fatal(&self.state, event).await;
+                self.notify_channels(event).await;
             }
             // Known SSE-only event types — forwarded to frontend but not processed here
             EventKey::Sandbox(_)

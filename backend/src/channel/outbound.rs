@@ -1,6 +1,6 @@
 //! Outbound channel notifications — event-driven replies and explicit sends.
 
-use moatless_events::{AgentSubType, TaskTurnSubType};
+use moatless_events::{AgentSubType, SandboxSubType, TaskTurnSubType};
 use tracing::{debug, info, warn};
 
 use crate::event_handler::models::{AgentEvent, EventKey};
@@ -175,7 +175,8 @@ pub async fn handle_channel_notification(
             }
 
             EventKey::Agent(AgentSubType::Error)
-            | EventKey::TaskTurn(TaskTurnSubType::Error) => {
+            | EventKey::TaskTurn(TaskTurnSubType::Error)
+            | EventKey::Sandbox(SandboxSubType::Error) => {
                 let error_msg = event
                     .payload
                     .get("error")

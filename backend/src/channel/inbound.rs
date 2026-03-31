@@ -12,6 +12,19 @@ use super::error::ChannelError;
 use super::router::{self, RoutingResult};
 use super::models::{InboundMessage, RoutingMode};
 
+/// Instructions appended to channel-originated tasks so the agent knows
+/// to explicitly reply via the `moat reply` CLI command.
+const CHANNEL_REPLY_INSTRUCTIONS: &str = "\
+# Channel Reply Instructions
+
+This task was created from a channel message. You MUST send your response back \
+to the channel using the `moat reply` command.
+
+- Use `moat reply --text \"<your response>\"` to send your response.
+- Always send a reply when done, even if you encountered an error.
+- Keep replies concise — the recipient is reading in a messaging app.
+- You may send multiple replies for progress updates on long-running tasks.";
+
 /// Process an inbound message through the routing → task creation pipeline.
 ///
 /// Returns the task_id that the message was routed to.
@@ -234,7 +247,14 @@ async fn create_task_for_channel(
         created_at_db: None,
         updated_at: None,
         parent_task_id: None,
-        append_system_prompt: config.prompt_template.clone(),
+        append_system_prompt: {
+            let mut parts = Vec::new();
+            if let Some(ref tpl) = config.prompt_template {
+                parts.push(tpl.as_str());
+            }
+            parts.push(CHANNEL_REPLY_INSTRUCTIONS);
+            Some(parts.join("\n\n"))
+        },
     };
 
     state.tasks.insert_task(&row)
