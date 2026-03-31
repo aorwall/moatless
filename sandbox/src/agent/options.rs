@@ -34,8 +34,11 @@ pub fn build_options(
     // Build plugin configs from paths
     let plugins = build_plugins(config);
 
+    // Detect plan mode from agent_type
+    let is_plan_mode = request.agent_type.as_deref() == Some("plan");
+
     // Build the permission handler for interactive prompts
-    let permission_handler = InteractivePermissionHandler::new(agent_state);
+    let permission_handler = InteractivePermissionHandler::with_plan_mode(agent_state, is_plan_mode);
 
     // Determine session resume
     let (resume, continue_conversation) = resolve_resume(request);
@@ -48,13 +51,18 @@ pub fn build_options(
         continue_conversation = ?continue_conversation,
         cli_path = %config.claude_cli_path,
         init_timeout_secs = init_timeout.as_secs(),
+        is_plan_mode,
         "Built agent options"
     );
 
     ClaudeOptions {
         model,
         system_prompt,
-        permission_mode: Some(PermissionMode::AcceptEdits),
+        permission_mode: Some(if is_plan_mode {
+            PermissionMode::Plan
+        } else {
+            PermissionMode::AcceptEdits
+        }),
         cwd: Some(config.workspace_dir.clone()),
         cli_path: Some(config.claude_cli_path.clone()),
         plugins: if plugins.is_empty() { None } else { Some(plugins) },
