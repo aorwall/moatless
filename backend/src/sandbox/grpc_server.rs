@@ -453,6 +453,11 @@ enum DbContentBlock {
         #[serde(default)]
         media_type: String,
     },
+    /// Tool result from AskUserQuestion / ExitPlanMode responses.
+    ToolResult {
+        #[serde(default)]
+        content: String,
+    },
     #[serde(other)]
     Other,
 }
@@ -484,6 +489,14 @@ fn parse_content_blocks(value: &Value) -> Vec<sandbox_proto::ContentBlock> {
                             )),
                         })
                     }
+                    Ok(DbContentBlock::ToolResult { content }) if !content.is_empty() => {
+                        Some(sandbox_proto::ContentBlock {
+                            block: Some(sandbox_proto::content_block::Block::Text(
+                                sandbox_proto::TextBlock { text: content },
+                            )),
+                        })
+                    }
+                    Ok(DbContentBlock::ToolResult { .. }) => None, // empty tool result
                     Ok(DbContentBlock::Other) => {
                         info!("Unknown content block type, skipping");
                         None
