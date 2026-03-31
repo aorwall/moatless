@@ -409,6 +409,29 @@ export class ApiClient {
 	}
 
 	/**
+	 * Send a tool response (for AskUserQuestion/ExitPlanMode interactive prompts).
+	 *
+	 * Mirrors the frontend's sendMessage with toolUseId/toolName/toolResponse fields.
+	 */
+	async sendToolResponse(
+		taskId: string,
+		toolUseId: string,
+		toolName: string,
+		toolResponse: unknown,
+	): Promise<void> {
+		await this.fetchJson(`${this.baseURL}/api/v1/tasks/${taskId}/messages`, {
+			method: "POST",
+			body: JSON.stringify({
+				message: "",
+				toolUseId,
+				toolName,
+				toolResponse,
+				resume: true,
+			}),
+		});
+	}
+
+	/**
 	 * TASK-07: List tasks with optional filters.
 	 */
 	async listTasks(filters?: ListTasksFilters): Promise<ListTasksResponse> {

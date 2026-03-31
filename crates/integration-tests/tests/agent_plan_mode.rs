@@ -8,8 +8,49 @@
 use std::time::Duration;
 
 use integration_tests::{ensure_template_repo, sandbox_helpers, test_client};
-use moatless_api_schemas::{task::CreateTaskRequest, message::SendMessageRequest};
+use moatless_api_schemas::{
+    message::SendMessageRequest,
+    shared::AgentMode,
+    task::CreateTaskRequest,
+};
 use moatless_cli::events::EventCollector;
+
+/// Extract the tool_use_id for a given tool name from the last assistant message.
+///
+/// Mirrors the frontend logic in `chat-container.tsx` that finds the pending
+/// tool call by scanning content blocks in reverse for an unresolved tool_use.
+fn extract_tool_use_id(
+    messages: &moatless_api_schemas::message::GetMessagesResponse,
+    tool_name: &str,
+) -> Option<String> {
+    // Find the last assistant message with has_pending_user_input
+    let last_assistant = messages.messages.iter().rev().find(|m| {
+        m.role == moatless_api_schemas::enums::MessageRole::Assistant
+            && m.has_pending_user_input == Some(true)
+    })?;
+
+    // Collect tool_use_ids that already have results
+    let result_ids: std::collections::HashSet<&str> = last_assistant
+        .tool_results
+        .iter()
+        .map(|tr| tr.tool_use_id.as_str())
+        .collect();
+
+    // Find the last tool_use content block matching the tool name without a result
+    last_assistant
+        .content
+        .iter()
+        .rev()
+        .find(|block| {
+            block.block_type == "tool_use"
+                && block.tool_name.as_deref() == Some(tool_name)
+                && block
+                    .tool_use_id
+                    .as_deref()
+                    .is_some_and(|id| !result_ids.contains(id))
+        })
+        .and_then(|block| block.tool_use_id.clone())
+}
 
 // =============================================================================
 // Chain: Agent Plan Mode (AGENT-03 through AGENT-03.2)
@@ -31,7 +72,7 @@ async fn agent_plan_mode() {
         .await
         .expect("Failed to start event collector");
 
-    // Create task with a message that will likely trigger a plan/pending response
+    // Create task with plan mode enabled
     let req = CreateTaskRequest {
         repository_id: repo_id.clone(),
         message: Some(
@@ -43,7 +84,7 @@ async fn agent_plan_mode() {
         branch: None,
         parent_task_id: None,
         description: None,
-        agent_mode: None,
+        agent_mode: Some(AgentMode("plan".into())),
         agent_type: None,
         contexts: vec![],
         file_ids: vec![],
@@ -58,10 +99,10 @@ async fn agent_plan_mode() {
         "Sandbox did not become ready"
     );
 
-    // AGENT-03: Wait for either pending_response or taskTurn.completed
-    // Use tokio::select! to race between the two outcomes
+    // AGENT-03: Wait for either pending_response (agent paused for approval) or
+    // taskTurn.completed (agent finished without pausing).
     let pending_event = collector.wait_for_event(
-        "message",
+        "agent",
         Some("pending_response"),
         task_id,
         Duration::from_secs(300),
@@ -76,19 +117,32 @@ async fn agent_plan_mode() {
     tokio::select! {
         pending = pending_event => {
             if pending.is_some() {
-                println!("AGENT-03: Got pending_response — sending approval");
-                // AGENT-03.1: Send approval message
+                println!("AGENT-03: Got pending_response — extracting tool_use_id from messages");
+
+                // Fetch messages to extract tool_use_id (same as frontend flow)
+                let messages = client
+                    .api()
+                    .get_messages(task_id)
+                    .await
+                    .unwrap();
+
+                let tool_use_id = extract_tool_use_id(&messages, "ExitPlanMode")
+                    .expect("Expected ExitPlanMode tool_use content block in assistant message");
+
+                println!("AGENT-03.1: Sending ExitPlanMode approval with tool_use_id={tool_use_id}");
+
+                // AGENT-03.1: Send proper tool response (mirrors frontend)
                 let approval = SendMessageRequest {
-                    message: "Looks good, proceed.".into(),
+                    message: String::new(),
                     agent_mode: None,
                     command_name: None,
                     contexts: vec![],
                     file_ids: vec![],
                     model: None,
-                    resume: None,
-                    tool_name: None,
-                    tool_response: None,
-                    tool_use_id: None,
+                    resume: Some(true),
+                    tool_name: Some("ExitPlanMode".into()),
+                    tool_response: Some(serde_json::json!({ "approved": true })),
+                    tool_use_id: Some(tool_use_id),
                 };
                 client.api().send_message(task_id, &approval).await.unwrap();
 
