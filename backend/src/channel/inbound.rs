@@ -240,7 +240,7 @@ async fn create_task_for_channel(
         site_id: None,
         site_provider: None,
         branch: None, // Will use repo default
-        created_by: Some(msg.user_id.clone()),
+        created_by: Some(config.effective_user_id().to_string()),
         visibility: Visibility::Private,
         scope: config.scope,
         team_id: config.team_id.clone(),
