@@ -176,9 +176,21 @@ pub async fn process_inbound(
     };
 
     // Use the raw message text — prompt_template is passed as append_system_prompt on the task
+    let has_cursor = thread
+        .properties
+        .get("last_channel_external_id")
+        .and_then(|v| v.as_str())
+        .is_some();
+
     let mut message_text = msg.text.clone();
     if let Some(ctx) = thread_context {
-        message_text = format!("Thread context (previous messages):\n\n{ctx}\n\n---\n\nNew message:\n\n{message_text}");
+        if has_cursor {
+            // Subsequent message — just prepend the new thread messages
+            message_text = format!("{ctx}\n\n---\n\n{message_text}");
+        } else {
+            // First message in a new session — label the context
+            message_text = format!("Thread context (previous messages):\n\n{ctx}\n\n---\n\nNew message:\n\n{message_text}");
+        }
     }
 
     if let Err(e) = crate::message::send::send_message_flow(
