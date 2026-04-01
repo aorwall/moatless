@@ -1,7 +1,9 @@
-//! Mock-based integration tests for the agent orchestrator loop.
+//! Integration tests for the agent dispatcher and handle.
 //!
-//! Tests `run_agent_inner` and `dispatch_pending_messages` with a mock
-//! `BackendClient` and `AgentExecutor` — no real gRPC or Claude CLI needed.
+//! Tests `dispatch_pending_messages` with a mock `BackendClient`.
+//! The agent handle spawns the actor loop, but since we don't have a real
+//! Claude CLI, we test the dispatcher routing, acknowledgment logic,
+//! and multi-send actor channel mechanics.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -9,31 +11,24 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use moatless_sandbox::agent::agent_state::AgentState;
-use moatless_sandbox::agent::executor::{AgentEvent, AgentExecutor};
+use moatless_sandbox::agent::handle::spawn_agent;
 use moatless_sandbox::agent::types::AgentStatus;
 use moatless_sandbox::backend_client::BackendClient;
 use moatless_sandbox::config::Config;
-use moatless_sandbox::error::SandboxError;
 use moatless_sandbox::events::GrpcEventPublisher;
 use moatless_sandbox::init::InitPhase;
 use moatless_sandbox::state::SandboxState;
 
 use sandbox_proto::{GetCredentialsResponse, PendingMessage, PublishEventRequest};
-use tokio::sync::{mpsc, RwLock};
-use tokio_util::sync::CancellationToken;
+use tokio::sync::RwLock;
 
 // =============================================================================
 // Mock BackendClient
 // =============================================================================
 
-/// A mock backend client that returns configurable pending messages.
 struct MockBackendClient {
-    /// Queue of message batches to return from `get_pending_messages`.
-    /// Each call pops the front batch; empty vec when exhausted.
     message_batches: Mutex<Vec<Vec<PendingMessage>>>,
-    /// Track how many times publish_event was called.
     publish_count: AtomicUsize,
-    /// Track how many times acknowledge was called.
     ack_count: AtomicUsize,
 }
 
@@ -46,11 +41,11 @@ impl MockBackendClient {
         }
     }
 
+    #[allow(dead_code)] // reason: used by some tests
     fn publish_count(&self) -> usize {
         self.publish_count.load(Ordering::SeqCst)
     }
 
-    #[allow(dead_code)]
     fn ack_count(&self) -> usize {
         self.ack_count.load(Ordering::SeqCst)
     }
@@ -95,47 +90,7 @@ impl BackendClient for MockBackendClient {
 }
 
 // =============================================================================
-// Mock AgentExecutor
-// =============================================================================
-
-/// A mock executor that sends predetermined events through the channel.
-struct MockExecutor {
-    /// If true, the executor will return an error.
-    should_fail: bool,
-}
-
-#[async_trait::async_trait]
-impl AgentExecutor for MockExecutor {
-    async fn execute(
-        &self,
-        _state: &SandboxState,
-        _request: moatless_sandbox::agent::types::AgentRunRequest,
-        _cancel_token: CancellationToken,
-        events_tx: mpsc::UnboundedSender<AgentEvent>,
-    ) -> Result<(), SandboxError> {
-        // Send a SessionInit event (simulates Claude CLI starting)
-        let _ = events_tx.send(AgentEvent::SessionInit {
-            session_id: "mock-session-1".to_string(),
-            model: "mock-model".to_string(),
-        });
-
-        if self.should_fail {
-            return Err(SandboxError::Sdk(claude_agent_sdk::SdkError::Cancelled));
-        }
-
-        // Send a Result event (simulates successful completion)
-        let _ = events_tx.send(AgentEvent::Result {
-            is_error: false,
-            sub_type: moatless_events::AgentSubType::Completed,
-            payload: serde_json::json!({"result": "done"}),
-        });
-
-        Ok(())
-    }
-}
-
-// =============================================================================
-// Helper: build a test SandboxState
+// Helpers
 // =============================================================================
 
 fn make_text_message(text: &str, uuid: Option<&str>) -> PendingMessage {
@@ -183,19 +138,28 @@ fn test_config() -> Config {
     }
 }
 
-fn test_state(
-    backend: Arc<dyn BackendClient>,
-    executor: Arc<dyn AgentExecutor>,
-) -> SandboxState {
+fn test_state(backend: Arc<dyn BackendClient>) -> SandboxState {
     let events = GrpcEventPublisher::new(Arc::clone(&backend));
+    let config = Arc::new(test_config());
+    let agent_state = Arc::new(AgentState::new());
+    let credentials = Arc::new(RwLock::new(HashMap::new()));
+
+    let agent_handle = spawn_agent(
+        Arc::clone(&config),
+        Arc::clone(&agent_state),
+        events.clone(),
+        Arc::clone(&credentials),
+        Arc::clone(&backend),
+    );
+
     SandboxState {
-        config: Arc::new(test_config()),
+        config,
         events,
-        agent: Arc::new(AgentState::new()),
-        executor,
+        agent: agent_state,
+        agent_handle,
         backend_client: backend,
         init_phase: Arc::new(RwLock::new(InitPhase::Ready)),
-        credentials: Arc::new(RwLock::new(HashMap::new())),
+        credentials,
     }
 }
 
@@ -204,115 +168,185 @@ fn test_state(
 // =============================================================================
 
 #[tokio::test]
-async fn run_agent_processes_messages_and_transitions_to_idle() {
+async fn dispatch_with_no_messages_does_nothing() {
+    let backend = Arc::new(MockBackendClient::new(vec![]));
+    let state = test_state(Arc::clone(&backend) as _);
+
+    moatless_sandbox::agent::dispatcher::dispatch_pending_messages(state.clone()).await;
+
+    // No messages → no ack, no events
+    assert_eq!(backend.ack_count(), 0);
+}
+
+#[tokio::test]
+async fn dispatch_does_not_ack_when_agent_fails_to_start() {
+    // Without a real CLI binary, the agent actor will fail to start a session.
+    // The ack oneshot is dropped on failure, so the dispatcher's spawned task
+    // gets RecvError and skips the acknowledge call.
     let backend = Arc::new(MockBackendClient::new(vec![
         vec![make_text_message("hello", Some("uuid-1"))],
     ]));
-    let executor = Arc::new(MockExecutor { should_fail: false });
-    let state = test_state(Arc::clone(&backend) as _, Arc::clone(&executor) as _);
+    let state = test_state(Arc::clone(&backend) as _);
 
-    // Trigger run_agent
-    moatless_sandbox::agent::executor::run_agent(state.clone());
+    moatless_sandbox::agent::dispatcher::dispatch_pending_messages(state.clone()).await;
 
-    // Wait for it to complete
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    // Give the actor time to attempt session start and fail
+    tokio::time::sleep(Duration::from_millis(500)).await;
 
-    // Agent should be idle after processing
+    assert_eq!(
+        backend.ack_count(),
+        0,
+        "Should not acknowledge when agent fails to start"
+    );
+}
+
+#[tokio::test]
+async fn agent_handle_send_triggers_actor() {
+    let backend = Arc::new(MockBackendClient::new(vec![]));
+    let state = test_state(Arc::clone(&backend) as _);
+
+    // Send directly to agent handle — actor will try to start a session.
+    // It will fail (no real CLI) but the send itself should not panic.
+    // Drop the ack receiver since we don't need it.
+    let _ack_rx = state.agent_handle.send("test message".to_string());
+
+    // Give the actor loop time to process
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Agent should have attempted to start and hit an error (no CLI binary).
+    // The handle should not have panicked.
+}
+
+#[tokio::test]
+async fn agent_handle_stop_exits_cleanly() {
+    let backend = Arc::new(MockBackendClient::new(vec![]));
+    let state = test_state(Arc::clone(&backend) as _);
+
+    state.agent_handle.stop();
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
     assert_eq!(
         state.agent.status().await,
-        AgentStatus::Idle,
-        "Agent should be idle after successful execution"
-    );
-
-    // Events should have been published (at minimum: started, session_init, completed, active)
-    assert!(
-        backend.publish_count() >= 3,
-        "Expected at least 3 published events, got {}",
-        backend.publish_count()
+        AgentStatus::Stopped,
+        "Agent should be stopped after handle.stop()"
     );
 }
 
-#[tokio::test]
-async fn run_agent_circuit_breaker_after_3_errors() {
-    // Each call to run_agent processes one batch then exits.
-    // Consecutive errors accumulate across calls. The 4th call
-    // should see 3 consecutive errors and trigger the circuit breaker.
-    let backend = Arc::new(MockBackendClient::new(vec![
-        vec![make_text_message("msg1", None)],
-        vec![make_text_message("msg2", None)],
-        vec![make_text_message("msg3", None)],
-        // 4th batch: should be skipped by circuit breaker
-        vec![make_text_message("msg4", None)],
-    ]));
-    let executor = Arc::new(MockExecutor { should_fail: true });
-    let state = test_state(Arc::clone(&backend) as _, Arc::clone(&executor) as _);
+// =============================================================================
+// Multi-send actor channel tests
+// =============================================================================
 
-    // Run agent 3 times — each run processes one batch, fails, exits
-    for i in 1..=3 {
-        moatless_sandbox::agent::executor::run_agent(state.clone());
-        tokio::time::sleep(Duration::from_millis(200)).await;
-        let errors = state.agent.consecutive_errors().await;
-        assert_eq!(
-            errors, i,
-            "Expected {i} consecutive errors after run {i}, got {errors}"
-        );
+#[tokio::test]
+async fn agent_handle_rapid_fire_send_no_panic() {
+    let backend = Arc::new(MockBackendClient::new(vec![]));
+    let state = test_state(Arc::clone(&backend) as _);
+
+    // Send 10 messages rapidly — actor processes them without panic or deadlock.
+    // Drop ack receivers since we only care about channel stability.
+    for i in 0..10 {
+        let _ack_rx = state.agent_handle.send(format!("rapid message {i}"));
     }
 
-    // 4th run should trigger circuit breaker and not execute
-    let initial_publish_count = backend.publish_count();
-    moatless_sandbox::agent::executor::run_agent(state.clone());
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    // Give the actor time to attempt processing
+    tokio::time::sleep(Duration::from_secs(1)).await;
 
-    // Circuit breaker publishes a sandbox.error event
-    assert!(
-        backend.publish_count() > initial_publish_count,
-        "Circuit breaker should have published sandbox.error event"
-    );
-
-    // Errors count should still be 3 (no new execution happened)
-    let errors = state.agent.consecutive_errors().await;
-    assert_eq!(errors, 3, "Should still be 3 consecutive errors");
-}
-
-#[tokio::test]
-async fn run_agent_skips_when_already_running() {
-    let backend = Arc::new(MockBackendClient::new(vec![]));
-    let executor = Arc::new(MockExecutor { should_fail: false });
-    let state = test_state(Arc::clone(&backend) as _, Arc::clone(&executor) as _);
-
-    // Set agent to Running manually
-    let token = CancellationToken::new();
-    state.agent.set_running(token).await;
-
-    // Try to run agent — should just flag messages pending and return
-    moatless_sandbox::agent::executor::run_agent(state.clone());
-
+    state.agent_handle.stop();
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    // Agent should still be running (not overridden)
-    assert_eq!(state.agent.status().await, AgentStatus::Running);
-
-    // Messages pending flag should be set
-    assert!(
-        state.agent.take_messages_pending().await,
-        "Messages pending should be flagged when agent is already running"
+    assert_eq!(
+        state.agent.status().await,
+        AgentStatus::Stopped,
+        "Agent should be stopped cleanly after rapid-fire sends"
     );
 }
 
 #[tokio::test]
-async fn run_agent_no_messages_exits_immediately() {
-    // Empty message batch — no messages to process
+async fn agent_handle_send_after_stop_does_not_panic() {
     let backend = Arc::new(MockBackendClient::new(vec![]));
-    let executor = Arc::new(MockExecutor { should_fail: false });
-    let state = test_state(Arc::clone(&backend) as _, Arc::clone(&executor) as _);
+    let state = test_state(Arc::clone(&backend) as _);
 
-    moatless_sandbox::agent::executor::run_agent(state.clone());
-
+    state.agent_handle.stop();
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    // Agent should remain idle — no work to do
-    assert_eq!(state.agent.status().await, AgentStatus::Idle);
+    // Sending after stop should be silently ignored (command channel closed,
+    // ack receiver will get RecvError immediately).
+    let ack1 = state.agent_handle.send("should be ignored".to_string());
+    let ack2 = state.agent_handle.send("also ignored".to_string());
 
-    // No events should have been published
-    assert_eq!(backend.publish_count(), 0);
+    // Ack receivers should resolve with error (sender dropped)
+    assert!(ack1.await.is_err(), "ack should fail after stop");
+    assert!(ack2.await.is_err(), "ack should fail after stop");
+
+    assert_eq!(
+        state.agent.status().await,
+        AgentStatus::Stopped,
+        "Agent should remain stopped after sends to closed channel"
+    );
+}
+
+#[tokio::test]
+async fn agent_handle_concurrent_send_from_multiple_tasks() {
+    let backend = Arc::new(MockBackendClient::new(vec![]));
+    let state = test_state(Arc::clone(&backend) as _);
+
+    // Spawn 5 tasks that all send concurrently
+    let mut join_handles = Vec::new();
+    for i in 0..5 {
+        let handle = state.agent_handle.clone();
+        join_handles.push(tokio::spawn(async move {
+            let _ack_rx = handle.send(format!("concurrent task {i}"));
+        }));
+    }
+
+    // Wait for all spawned tasks to complete
+    for jh in join_handles {
+        jh.await.unwrap();
+    }
+
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
+    state.agent_handle.stop();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    assert_eq!(
+        state.agent.status().await,
+        AgentStatus::Stopped,
+        "Agent should stop cleanly after concurrent sends"
+    );
+}
+
+#[tokio::test]
+async fn dispatch_does_not_ack_without_real_session() {
+    // Even with agent state set to Running, the actor has no real QueryHandle.
+    // The send goes through but the actor tries to inject into a non-existent
+    // session handle (handle is None in the actor), so it starts a new session
+    // which fails. The ack oneshot is dropped, and the dispatcher's spawned
+    // task gets RecvError — no ack fires.
+    let backend = Arc::new(MockBackendClient::new(vec![vec![
+        make_text_message("injected message", Some("uuid-inject")),
+    ]]));
+    let state = test_state(Arc::clone(&backend) as _);
+
+    // Simulate agent state as "running" — but the actor's internal handle is None
+    state
+        .agent
+        .set_running(tokio_util::sync::CancellationToken::new())
+        .await;
+    state
+        .agent
+        .set_session_id("session-active".to_string())
+        .await;
+
+    moatless_sandbox::agent::dispatcher::dispatch_pending_messages(state.clone()).await;
+
+    // Give the spawned ack task time to resolve
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // No real session → ack sender dropped → no acknowledge call
+    assert_eq!(
+        backend.ack_count(),
+        0,
+        "Should not acknowledge without a real session (ack sender dropped)"
+    );
 }
