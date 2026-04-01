@@ -1,5 +1,5 @@
 import { type HighlightToken, highlightLine, SyntaxToken } from '@moatless/diff-viewer'
-import { Code, Eye, GitCompareArrows } from 'lucide-react'
+import { Code, Eye, FileQuestion, GitCompareArrows } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Skeleton } from '@/lib/components/ui/skeleton'
 import { cn } from '@/lib/utils'
@@ -12,6 +12,10 @@ type ViewMode = 'code' | 'diff' | 'preview'
 function isMarkdownFile(filePath: string): boolean {
   const ext = filePath.split('.').pop()?.toLowerCase() || ''
   return ext === 'md' || ext === 'mdx'
+}
+
+function isImageMediaType(mediaType: string | undefined): boolean {
+  return mediaType?.startsWith('image/') ?? false
 }
 
 function getLanguageLabel(filePath: string): string {
@@ -69,6 +73,101 @@ function getHljsLanguage(filePath: string): string | undefined {
   return map[ext]
 }
 
+function BinaryFileView({
+  content,
+  mediaType,
+  filePath,
+}: {
+  content: string
+  mediaType?: string
+  filePath: string
+}) {
+  if (isImageMediaType(mediaType)) {
+    return (
+      <div className="flex items-center justify-center p-8">
+        <img
+          src={`data:${mediaType};base64,${content}`}
+          alt={filePath}
+          className="max-w-full max-h-full object-contain"
+        />
+      </div>
+    )
+  }
+
+  return (
+    <div className="h-full flex items-center justify-center text-muted-foreground">
+      <div className="text-center space-y-2">
+        <FileQuestion className="w-10 h-10 mx-auto opacity-40" />
+        <p className="text-sm">Binary file — cannot display</p>
+        {mediaType && <p className="text-xs text-muted-foreground">{mediaType}</p>}
+      </div>
+    </div>
+  )
+}
+
+function FileContentArea({
+  data,
+  filePath,
+  viewMode,
+  taskId,
+}: {
+  data: {
+    content: string
+    oldContent?: string
+    isBinary?: boolean
+    mediaType?: string
+    isModified?: boolean
+  }
+  filePath: string
+  viewMode: ViewMode
+  taskId: string
+}) {
+  const isMarkdown = isMarkdownFile(filePath)
+  const canDiff = data.isModified && data.oldContent !== undefined
+  const hljsLang = getHljsLanguage(filePath)
+  const lines = useMemo(() => data.content.split('\n'), [data.content])
+
+  if (data.isBinary) {
+    return <BinaryFileView content={data.content} mediaType={data.mediaType} filePath={filePath} />
+  }
+
+  if (viewMode === 'preview' && isMarkdown) {
+    return <MarkdownPreview content={data.content} taskId={taskId} filePath={filePath} />
+  }
+
+  if (viewMode === 'diff' && canDiff) {
+    return (
+      <DiffFileView
+        oldContent={data.oldContent ?? ''}
+        newContent={data.content}
+        filename={filePath}
+      />
+    )
+  }
+
+  return (
+    <pre className="text-sm leading-relaxed">
+      <code>
+        {lines.map((line, i) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: line number is the natural key
+          <div key={i} className="flex hover:bg-accent transition-colors">
+            <span className="select-none text-right pr-4 pl-4 shrink-0 text-muted-foreground w-16 min-w-16">
+              {i + 1}
+            </span>
+            <span className="pr-4 whitespace-pre">
+              {hljsLang && line
+                ? highlightLine(line, hljsLang).map((token: HighlightToken, j: number) => (
+                    <SyntaxToken key={`${token.type}-${j}`} token={token} />
+                  ))
+                : line || ' '}
+            </span>
+          </div>
+        ))}
+      </code>
+    </pre>
+  )
+}
+
 interface FileViewerProps {
   taskId: string
   filePath: string | undefined
@@ -88,8 +187,6 @@ export function FileViewer({ taskId, filePath }: FileViewerProps) {
       setViewMode('code')
     }
   }, [viewMode, canDiff, isMarkdown])
-
-  const lines = useMemo(() => data?.content.split('\n') ?? [], [data?.content])
 
   if (!filePath) {
     return (
@@ -138,7 +235,6 @@ export function FileViewer({ taskId, filePath }: FileViewerProps) {
   }
 
   const languageLabel = getLanguageLabel(filePath)
-  const hljsLang = getHljsLanguage(filePath)
   const showToggle = canDiff || isMarkdown
 
   return (
@@ -208,35 +304,7 @@ export function FileViewer({ taskId, filePath }: FileViewerProps) {
       </div>
 
       <div className="flex-1 overflow-auto">
-        {viewMode === 'preview' && isMarkdown ? (
-          <MarkdownPreview content={data.content} />
-        ) : viewMode === 'diff' && canDiff ? (
-          <DiffFileView
-            oldContent={data.oldContent ?? ''}
-            newContent={data.content}
-            filename={filePath}
-          />
-        ) : (
-          <pre className="text-sm leading-relaxed">
-            <code>
-              {lines.map((line, i) => (
-                // biome-ignore lint/suspicious/noArrayIndexKey: line number is the natural key
-                <div key={i} className="flex hover:bg-accent transition-colors">
-                  <span className="select-none text-right pr-4 pl-4 shrink-0 text-muted-foreground w-16 min-w-16">
-                    {i + 1}
-                  </span>
-                  <span className="pr-4 whitespace-pre">
-                    {hljsLang && line
-                      ? highlightLine(line, hljsLang).map((token: HighlightToken, j: number) => (
-                          <SyntaxToken key={`${token.type}-${j}`} token={token} />
-                        ))
-                      : line || ' '}
-                  </span>
-                </div>
-              ))}
-            </code>
-          </pre>
-        )}
+        <FileContentArea data={data} filePath={filePath} viewMode={viewMode} taskId={taskId} />
       </div>
     </div>
   )

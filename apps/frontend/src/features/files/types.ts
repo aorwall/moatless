@@ -31,6 +31,8 @@ export interface FileContentResponse {
   additions?: number
   deletions?: number
   isModified?: boolean
+  isBinary?: boolean
+  mediaType?: string
 }
 
 export interface SearchByNameResponse {

@@ -1,10 +1,14 @@
 import { type HighlightToken, highlightLine, SyntaxToken } from '@moatless/diff-viewer'
 import type React from 'react'
+import { useEffect, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { fetchFileContent } from '../api/files-api'
 
 interface MarkdownPreviewProps {
   content: string
+  taskId?: string
+  filePath?: string
 }
 
 function extractLanguage(className: string | undefined): string | undefined {
@@ -34,7 +38,72 @@ function HighlightedCode({ code, language }: { code: string; language?: string }
   )
 }
 
-export function MarkdownPreview({ content }: MarkdownPreviewProps) {
+function isRelativePath(src: string | undefined): boolean {
+  if (!src) {
+    return false
+  }
+  return !(src.startsWith('http://') || src.startsWith('https://') || src.startsWith('data:'))
+}
+
+function resolveRelativePath(src: string, markdownFilePath: string): string {
+  const dir = markdownFilePath.includes('/')
+    ? markdownFilePath.substring(0, markdownFilePath.lastIndexOf('/'))
+    : ''
+  const cleanSrc = src.startsWith('./') ? src.slice(2) : src
+  return dir ? `${dir}/${cleanSrc}` : cleanSrc
+}
+
+function MarkdownImage({
+  src,
+  alt,
+  taskId,
+  markdownFilePath,
+  ...props
+}: React.ImgHTMLAttributes<HTMLImageElement> & {
+  taskId?: string
+  markdownFilePath?: string
+}) {
+  const [resolvedSrc, setResolvedSrc] = useState(src)
+  const [error, setError] = useState(false)
+
+  useEffect(() => {
+    if (!(taskId && markdownFilePath && src && isRelativePath(src))) {
+      return
+    }
+
+    const imagePath = resolveRelativePath(src, markdownFilePath)
+    let cancelled = false
+
+    fetchFileContent(taskId, imagePath, false)
+      .then((response) => {
+        if (cancelled) {
+          return
+        }
+        if (response.isBinary && response.mediaType) {
+          setResolvedSrc(`data:${response.mediaType};base64,${response.content}`)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setError(true)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [taskId, markdownFilePath, src])
+
+  if (error) {
+    return (
+      <span className="text-muted-foreground text-sm italic">[Image not found: {alt || src}]</span>
+    )
+  }
+
+  return <img alt={alt} src={resolvedSrc} className="max-w-full h-auto" {...props} />
+}
+
+export function MarkdownPreview({ content, taskId, filePath }: MarkdownPreviewProps) {
   return (
     <div className="prose prose-sm dark:prose-invert max-w-full p-6 min-w-0 prose-p:my-2 prose-pre:bg-muted prose-pre:text-foreground prose-code:bg-muted prose-code:text-foreground prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:before:content-none prose-code:after:content-none prose-strong:text-current prose-a:text-primary prose-a:no-underline hover:prose-a:underline prose-ul:my-2 prose-ol:my-2 prose-li:my-0 prose-headings:scroll-mt-20 prose-table:overflow-x-auto prose-table:block prose-table:whitespace-nowrap">
       <ReactMarkdown
@@ -72,7 +141,13 @@ export function MarkdownPreview({ content }: MarkdownPreviewProps) {
             </div>
           ),
           img: ({ alt, src, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) => (
-            <img alt={alt} src={src} className="max-w-full h-auto" {...props} />
+            <MarkdownImage
+              alt={alt}
+              src={src}
+              taskId={taskId}
+              markdownFilePath={filePath}
+              {...props}
+            />
           ),
         }}
       >
