@@ -1,5 +1,7 @@
 //! Outbound channel notifications — event-driven replies and explicit sends.
 
+use std::collections::HashSet;
+
 use moatless_events::{AgentSubType, SandboxSubType, TaskTurnSubType};
 use tracing::{debug, info, warn};
 
@@ -18,12 +20,15 @@ pub(crate) enum OutboundTarget<'a> {
         config: ChannelConfig,
         thread: ChannelThread,
     },
-    /// No thread yet (cross-channel) — use `send_message` to create one.
+    /// No thread yet — use `send_message` to post a top-level message.
+    /// If `pending_thread_id` is set, update the existing pending thread
+    /// instead of inserting a new one.
     NewMessage {
         provider: &'a dyn ChannelProvider,
         config: ChannelConfig,
         originating_config_id: String,
         task_id: String,
+        pending_thread_id: Option<i32>,
     },
 }
 
@@ -65,6 +70,7 @@ pub async fn send_to_channels(
 
     let mut sent_count = 0u32;
     let mut errors = Vec::new();
+    let mut sent_config_ids: HashSet<String> = HashSet::new();
 
     for thread in &threads {
         let config = match state.channel_configs.find_by_id(&thread.config_id).await {
@@ -78,6 +84,23 @@ pub async fn send_to_channels(
                 continue;
             }
         };
+
+        // Deduplicate by effective target config: if a config has response_config_id,
+        // that's the actual target; otherwise the config itself is the target.
+        // This prevents duplicate sends when both a cross-channel thread (e.g. cron)
+        // and its response config's direct thread exist for the same task.
+        let effective_config_id = config
+            .response_config_id
+            .as_deref()
+            .unwrap_or(&config.id);
+        if !sent_config_ids.insert(effective_config_id.to_string()) {
+            debug!(
+                config_id = %config.id,
+                effective_config_id = %effective_config_id,
+                "Skipping duplicate send to already-targeted config"
+            );
+            continue;
+        }
 
         let target = if let Some(t) = resolve_outbound_target(state, providers, &config, thread, task_id).await {
             t
@@ -132,12 +155,29 @@ pub async fn handle_channel_notification(
         .flatten()
         .is_none();
 
+    let mut sent_config_ids: HashSet<String> = HashSet::new();
+
     for thread in &threads {
         // Load config for this thread
         let config = match state.channel_configs.find_by_id(&thread.config_id).await {
             Ok(Some(c)) => c,
             _ => continue,
         };
+
+        // Deduplicate by effective target config (see send_to_channels).
+        let effective_config_id = config
+            .response_config_id
+            .as_deref()
+            .unwrap_or(&config.id);
+        if !sent_config_ids.insert(effective_config_id.to_string()) {
+            debug!(
+                task_id = %event.task_id,
+                config_id = %config.id,
+                effective_config_id = %effective_config_id,
+                "Skipping duplicate notification to already-targeted config"
+            );
+            continue;
+        }
 
         let task_url = build_task_url(state, &event.task_id);
 
@@ -255,6 +295,7 @@ async fn send_outbound(
             config,
             originating_config_id,
             task_id: ref tid,
+            pending_thread_id,
         } => {
             let thread_info = match provider.send_message(&config, reply).await {
                 Ok(info) => info,
@@ -269,31 +310,61 @@ async fn send_outbound(
                 }
             };
 
-            // Persist the thread so future replies thread under this message
-            match state
-                .channel_threads
-                .insert(
-                    &config.id,
-                    tid,
-                    &thread_info.external_thread_id,
-                    &thread_info.properties,
-                )
-                .await
-            {
-                Ok(_thread) => {
-                    info!(
-                        task_id = %task_id,
-                        config_id = %config.id,
-                        originating_config_id = %originating_config_id,
-                        "Cross-channel message sent and thread created"
-                    );
+            // Persist the thread so future replies thread under this message.
+            // If a pending thread exists (created during inbound for non-replyable
+            // providers like cron), update it with the real thread info.
+            if let Some(thread_id) = pending_thread_id {
+                match state
+                    .channel_threads
+                    .update_thread_info(
+                        thread_id,
+                        &thread_info.external_thread_id,
+                        &thread_info.properties,
+                    )
+                    .await
+                {
+                    Ok(()) => {
+                        info!(
+                            task_id = %task_id,
+                            config_id = %config.id,
+                            originating_config_id = %originating_config_id,
+                            "Pending thread updated with real channel info"
+                        );
+                    }
+                    Err(e) => {
+                        warn!(
+                            task_id = %task_id,
+                            error = %e,
+                            "Failed to update pending thread after send_message"
+                        );
+                    }
                 }
-                Err(e) => {
-                    warn!(
-                        task_id = %task_id,
-                        error = %e,
-                        "Failed to persist channel thread after send_message"
-                    );
+            } else {
+                match state
+                    .channel_threads
+                    .insert(
+                        &config.id,
+                        tid,
+                        &thread_info.external_thread_id,
+                        &thread_info.properties,
+                    )
+                    .await
+                {
+                    Ok(_thread) => {
+                        info!(
+                            task_id = %task_id,
+                            config_id = %config.id,
+                            originating_config_id = %originating_config_id,
+                            "Channel message sent and thread created"
+                        );
+                    }
+                    Err(e) => {
+                        warn!(
+                            task_id = %task_id,
+                            error = %e,
+                            "Failed to persist channel thread after send_message"
+                        );
+                    }
                 }
             }
         }
@@ -341,6 +412,7 @@ async fn send_outbound_result(
             config,
             originating_config_id,
             task_id: ref tid,
+            pending_thread_id,
         } => {
             let thread_info = provider
                 .send_message(&config, reply)
@@ -348,7 +420,30 @@ async fn send_outbound_result(
                 .map_err(|e| format!("Failed to send message via {}: {e}", config.provider))?;
 
             // Persist the thread so future replies thread under this message
-            if let Err(e) = state
+            if let Some(thread_id) = pending_thread_id {
+                if let Err(e) = state
+                    .channel_threads
+                    .update_thread_info(
+                        thread_id,
+                        &thread_info.external_thread_id,
+                        &thread_info.properties,
+                    )
+                    .await
+                {
+                    warn!(
+                        task_id = %task_id,
+                        error = %e,
+                        "Failed to update pending thread after send_message"
+                    );
+                } else {
+                    info!(
+                        task_id = %task_id,
+                        config_id = %config.id,
+                        originating_config_id = %originating_config_id,
+                        "Pending thread updated with real channel info"
+                    );
+                }
+            } else if let Err(e) = state
                 .channel_threads
                 .insert(
                     &config.id,
@@ -368,7 +463,7 @@ async fn send_outbound_result(
                     task_id = %task_id,
                     config_id = %config.id,
                     originating_config_id = %originating_config_id,
-                    "Cross-channel message sent and thread created"
+                    "Channel message sent and thread created"
                 );
             }
             Ok(())
@@ -450,6 +545,7 @@ pub(crate) async fn resolve_outbound_target<'a>(
                     config: response_config,
                     originating_config_id: config.id.clone(),
                     task_id: task_id.to_string(),
+                    pending_thread_id: None,
                 })
             }
             Err(e) => {
@@ -463,17 +559,38 @@ pub(crate) async fn resolve_outbound_target<'a>(
 }
 
 /// Resolve direct outbound (no cross-channel routing).
+///
+/// If the thread is pending (created during inbound for a non-replyable provider
+/// like cron), returns `NewMessage` so the first outbound send creates a real
+/// channel message and updates the thread with real provider info.
 fn resolve_direct<'a>(
     providers: &'a ChannelProviders,
     config: &ChannelConfig,
     thread: &ChannelThread,
 ) -> Option<OutboundTarget<'a>> {
     let provider = providers.get_by_name(&config.provider)?;
-    Some(OutboundTarget::Reply {
-        provider: provider.as_ref(),
-        config: config.clone(),
-        thread: thread.clone(),
-    })
+
+    let is_pending = thread
+        .properties
+        .get("pending")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+
+    if is_pending {
+        Some(OutboundTarget::NewMessage {
+            provider: provider.as_ref(),
+            config: config.clone(),
+            originating_config_id: config.id.clone(),
+            task_id: thread.task_id.clone(),
+            pending_thread_id: Some(thread.id),
+        })
+    } else {
+        Some(OutboundTarget::Reply {
+            provider: provider.as_ref(),
+            config: config.clone(),
+            thread: thread.clone(),
+        })
+    }
 }
 
 /// Build the task URL for linking in channel replies.

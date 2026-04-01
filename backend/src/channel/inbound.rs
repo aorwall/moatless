@@ -112,32 +112,47 @@ pub async fn process_inbound(
     // Create or update thread record.
     // For ongoing mode without a thread_id, reuse the existing thread for this
     // task+config to avoid duplicate outbound replies.
+    //
+    // When the config has response_config_id (e.g. cron → Slack), create the
+    // thread under the response config so outbound replies go directly there.
+    // The thread is marked pending until the first outbound message is sent.
+    let thread_config_id = config.response_config_id.as_deref().unwrap_or(&config.id);
+    let thread_properties = if config.response_config_id.is_some() {
+        let mut props = msg.thread_properties.clone();
+        if let Some(obj) = props.as_object_mut() {
+            obj.insert("pending".into(), serde_json::json!(true));
+        }
+        props
+    } else {
+        msg.thread_properties.clone()
+    };
+
     let thread = if let Some(existing) = thread {
         state.channel_threads.touch(existing.id, Some(&msg.thread_properties)).await?;
         existing
     } else if config.routing_mode == RoutingMode::Ongoing {
         // Try to find an existing thread for this task+config before creating a new one
-        match state.channel_threads.find_by_task_id_and_config(&task_id, &config.id).await? {
+        match state.channel_threads.find_by_task_id_and_config(&task_id, thread_config_id).await? {
             Some(existing) => {
                 state.channel_threads.touch(existing.id, Some(&msg.thread_properties)).await?;
                 existing
             }
             None => {
                 state.channel_threads.insert(
-                    &config.id,
+                    thread_config_id,
                     &task_id,
                     &msg.message_thread_id,
-                    &msg.thread_properties,
+                    &thread_properties,
                 )
                 .await?
             }
         }
     } else {
         state.channel_threads.insert(
-            &config.id,
+            thread_config_id,
             &task_id,
             &msg.message_thread_id,
-            &msg.thread_properties,
+            &thread_properties,
         )
         .await?
     };
@@ -426,14 +441,24 @@ pub async fn trigger_inbound(
             .await?;
     }
 
-    // Create thread record
+    // Create thread record — use response config if set (e.g. cron → Slack)
+    let thread_config_id = config.response_config_id.as_deref().unwrap_or(&config.id);
+    let thread_properties = if config.response_config_id.is_some() {
+        let mut props = msg.thread_properties.clone();
+        if let Some(obj) = props.as_object_mut() {
+            obj.insert("pending".into(), serde_json::json!(true));
+        }
+        props
+    } else {
+        msg.thread_properties.clone()
+    };
     state
         .channel_threads
         .insert(
-            &config.id,
+            thread_config_id,
             &task_id,
             &msg.message_thread_id,
-            &msg.thread_properties,
+            &thread_properties,
         )
         .await?;
 

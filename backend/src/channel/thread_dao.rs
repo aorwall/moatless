@@ -39,6 +39,15 @@ pub trait ChannelThreadRepository: Send + Sync {
 
     /// Update last_message_at and optionally merge properties.
     async fn touch(&self, id: i32, properties: Option<&serde_json::Value>) -> Result<(), sqlx::Error>;
+
+    /// Replace external_thread_id and properties for a pending thread
+    /// after the first outbound message has been sent.
+    async fn update_thread_info(
+        &self,
+        id: i32,
+        external_thread_id: &str,
+        properties: &serde_json::Value,
+    ) -> Result<(), sqlx::Error>;
 }
 
 /// PostgreSQL implementation of [`ChannelThreadRepository`].
@@ -128,6 +137,25 @@ impl ChannelThreadRepository for PgChannelThreadRepository {
                 .execute(&self.0)
                 .await?;
         }
+        Ok(())
+    }
+
+    async fn update_thread_info(
+        &self,
+        id: i32,
+        external_thread_id: &str,
+        properties: &serde_json::Value,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"UPDATE channel_threads
+               SET external_thread_id = $2, properties = $3, last_message_at = now()
+               WHERE id = $1"#,
+        )
+        .bind(id)
+        .bind(external_thread_id)
+        .bind(properties)
+        .execute(&self.0)
+        .await?;
         Ok(())
     }
 }
