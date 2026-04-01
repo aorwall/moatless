@@ -282,6 +282,21 @@ pub enum AssistantMessageError {
 
 // ---------- User ----------
 
+/// Priority for injected user messages.
+///
+/// Controls when a mid-loop message gets processed by the CLI:
+/// - `Now` — process immediately, even interrupting current tool execution.
+/// - `Next` — queue for the next API round-trip (default).
+/// - `Later` — wait for current turn to finish, then process as a new query.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum MessagePriority {
+    Now,
+    #[default]
+    Next,
+    Later,
+}
+
 /// A user message.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserMessage {
@@ -315,6 +330,8 @@ pub struct UserMessage {
     pub source_tool_use_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", rename = "permissionMode")]
     pub permission_mode: Option<String>,
+    #[serde(default)]
+    pub priority: MessagePriority,
 }
 
 /// A replayed user message (from session resume).

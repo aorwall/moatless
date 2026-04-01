@@ -60,6 +60,6 @@ pub use types::agents::AgentDefinition;
 pub use types::content::{ApiMessage, ContentBlock};
 pub use types::hooks::{HookDefinition, HookEvent, HookHandler, HookOutput, SyncHookOutput};
 pub use types::mcp::{McpConnectionStatus, McpServerConfig, McpServerStatus, McpSetServersResult};
-pub use types::messages::SdkMessage;
+pub use types::messages::{MessagePriority, SdkMessage};
 pub use types::options::ClaudeOptions;
 pub use types::permissions::{PermissionHandler, PermissionMode, PermissionResult};
