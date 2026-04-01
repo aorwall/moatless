@@ -209,8 +209,8 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             .await
             .unwrap_or(None);
 
-        // Check will_not_resume on the last result — if the previous session
-        // ended with an unrecoverable error, don't pass a resume session ID.
+        // Check will_not_resume on the last result — if explicitly set (e.g.
+        // by a command like "compact"), don't pass a resume session ID.
         let resume_session_id = if resume_session_id.is_some() {
             match messages.get_last_result(&req.task_id).await {
                 Ok(Some(last_result)) if last_result.will_not_resume == Some(true) => {

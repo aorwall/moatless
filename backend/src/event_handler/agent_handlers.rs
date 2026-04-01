@@ -59,11 +59,15 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
             }
         };
 
-    let (result_message_type, will_not_resume, task_status) = match &sdk_result {
-        Some(r) if r.is_error.unwrap_or(false) => (MessageType::Error, true, TaskStatus::Error),
-        Some(_) => (MessageType::Result, false, TaskStatus::Open),
-        None => (MessageType::Error, true, TaskStatus::Error),
+    let (result_message_type, task_status) = match &sdk_result {
+        Some(r) if r.is_error.unwrap_or(false) => (MessageType::Error, TaskStatus::Error),
+        Some(_) => (MessageType::Result, TaskStatus::Open),
+        None => (MessageType::Error, TaskStatus::Error),
     };
+    // Never set will_not_resume on agent results — even error results don't
+    // invalidate the Claude session. The conversation history is still valid
+    // and the session can be resumed for the next message.
+    let will_not_resume = false;
 
     // Build result text
     let result_text = build_result_text(&sdk_result);
@@ -304,7 +308,9 @@ pub async fn handle_agent_error(state: &AppState, event: &AgentEvent) {
         _ => None,
     };
 
-    let msg_row = build_result_message_row(&event.task_id, &msg_uuid, &now, content, MessageType::Error, true, None, agent_mode, None);
+    // will_not_resume=false: harness-level errors (sandbox crash, pod eviction)
+    // should not prevent session resumption. The Claude session is still valid.
+    let msg_row = build_result_message_row(&event.task_id, &msg_uuid, &now, content, MessageType::Error, false, None, agent_mode, None);
     let contexts: Vec<TaskMessageContext> = vec![];
     let blocks = vec![TaskMessageContentBlock {
         id: 0,
