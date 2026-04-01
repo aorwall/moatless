@@ -176,7 +176,7 @@ impl AgentExecutor for ClaudeCodeExecutor {
 }
 
 /// Extract result info: (is_error, session_id, sub_type, payload).
-fn extract_result_info(
+pub fn extract_result_info(
     result: &claude_agent_sdk::types::messages::ResultMessage,
 ) -> (bool, String, AgentSubType, serde_json::Value) {
     match result {
@@ -231,7 +231,7 @@ fn extract_result_info(
 }
 
 /// Extract a human-readable error text from a result message.
-fn extract_error_text(result: &claude_agent_sdk::types::messages::ResultMessage) -> String {
+pub fn extract_error_text(result: &claude_agent_sdk::types::messages::ResultMessage) -> String {
     match result {
         claude_agent_sdk::types::messages::ResultMessage::Success(s) => {
             truncate(&s.result, 500).to_string()

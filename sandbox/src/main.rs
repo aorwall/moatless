@@ -18,7 +18,7 @@ use tracing::info;
 use tracing_subscriber::EnvFilter;
 
 use moatless_sandbox::agent;
-use moatless_sandbox::agent::claude_code::ClaudeCodeExecutor;
+use moatless_sandbox::agent::handle::spawn_agent;
 use moatless_sandbox::backend_client::BackendGrpcClient;
 use moatless_sandbox::config::Config;
 use moatless_sandbox::events::GrpcEventPublisher;
@@ -61,14 +61,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let event_publisher = GrpcEventPublisher::new(Arc::clone(&backend_client));
 
     // Build shared state with init phase tracking
+    let agent_state = Arc::new(agent::agent_state::AgentState::new());
+    let config_arc = Arc::new(config.clone());
+    let credentials = Arc::new(RwLock::new(std::collections::HashMap::new()));
+
+    let agent_handle = spawn_agent(
+        Arc::clone(&config_arc),
+        Arc::clone(&agent_state),
+        event_publisher.clone(),
+        Arc::clone(&credentials),
+        Arc::clone(&backend_client),
+    );
+
     let state = SandboxState {
-        config: Arc::new(config.clone()),
+        config: config_arc,
         events: event_publisher,
-        agent: Arc::new(agent::agent_state::AgentState::new()),
-        executor: Arc::new(ClaudeCodeExecutor),
+        agent: agent_state,
+        agent_handle,
         backend_client,
         init_phase: Arc::new(RwLock::new(InitPhase::Starting)),
-        credentials: Arc::new(RwLock::new(std::collections::HashMap::new())),
+        credentials,
     };
 
     // Start gRPC server for sandbox service (receives commands from backend)

@@ -18,7 +18,6 @@ use sandbox_proto::{
 
 use moatless_events::AgentSubType;
 
-use crate::agent::executor::run_agent;
 use crate::agent::types::AgentStatus;
 use crate::files;
 use crate::state::SandboxState;
@@ -35,16 +34,14 @@ impl SandboxService for SandboxServiceImpl {
         &self,
         _request: Request<ExecuteAgentRequest>,
     ) -> Result<Response<ExecuteAgentResponse>, Status> {
-        // Check if agent is already running
-        if self.state.agent.status().await == AgentStatus::Running {
-            return Err(Status::already_exists("Agent is already running"));
-        }
+        // Fetch pending messages and send to the agent actor.
+        // The actor handles whether to start a new session or inject into a running one.
+        let state = self.state.clone();
+        tokio::spawn(async move {
+            crate::agent::dispatcher::dispatch_pending_messages(state).await;
+        });
 
-        // run_agent fetches its own messages from the backend.
-        // The backend must store content as a pending message before calling ExecuteAgent.
-        run_agent(self.state.clone());
-
-        info!("Agent execution started via gRPC");
+        info!("Agent execution triggered via gRPC");
         Ok(Response::new(ExecuteAgentResponse {}))
     }
 
@@ -191,17 +188,21 @@ impl SandboxService for SandboxServiceImpl {
                 additions: result.additions,
                 deletions: result.deletions,
                 is_modified: result.is_modified,
+                is_binary: if result.is_binary { Some(true) } else { None },
+                media_type: result.media_type,
             }))
         } else {
-            let content = files::read_write::read_file(workspace_dir, &req.path)
+            let result = files::read_write::read_file(workspace_dir, &req.path)
                 .await
                 .map_err(file_error_to_status)?;
             Ok(Response::new(ReadFileResponse {
-                content,
+                content: result.content,
                 old_content: None,
                 additions: None,
                 deletions: None,
                 is_modified: None,
+                is_binary: if result.is_binary { Some(true) } else { None },
+                media_type: result.media_type,
             }))
         }
     }

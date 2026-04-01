@@ -1,27 +1,27 @@
 //! Message dispatcher — routes incoming message notifications.
 //!
 //! Invoked from:
-//! - `init::run_init()` after `InitPhase::Ready` is set
+//! - `grpc_server::execute_agent()` when backend requests execution
 //! - `grpc_server::notify_messages()` when backend signals new messages
+//! - `init::run_init()` after `InitPhase::Ready` is set
 //!
-//! The dispatcher is a thin router — it does NOT check or modify agent state.
-//! It only routes incoming message notifications to the right handler:
-//! 1. Pending prompt exists → fetch messages, resolve prompt via oneshot
-//! 2. Otherwise → call `run_agent()` which handles everything else
+//! The dispatcher fetches pending messages from the backend, sends text to
+//! the agent actor via `agent_handle.send()`, and acknowledges the messages.
+//! The agent handles whether to start a new session or inject mid-turn.
+
+use std::sync::Arc;
 
 use tracing::{info, warn};
 
 use crate::state::SandboxState;
 
-use super::executor::run_agent;
 use super::prompt::PromptResponse;
-use super::types::ContentBlock;
+use super::types::{content_blocks_from_proto, ContentBlock};
 
-/// Dispatch pending messages to the right handler (single cycle).
+/// Dispatch pending messages to the agent.
 ///
-/// If the agent is waiting for user input, resolves the pending prompt.
-/// Otherwise hands off to `run_agent()` which handles guard logic,
-/// fetching, executing, and looping.
+/// If the agent is waiting for user input (AskUserQuestion/ExitPlanMode),
+/// resolves the pending prompt. Otherwise sends text to the agent actor.
 pub async fn dispatch_pending_messages(state: SandboxState) {
     // If agent is waiting for user input, resolve the prompt
     if state.agent.has_pending_prompt().await {
@@ -29,16 +29,63 @@ pub async fn dispatch_pending_messages(state: SandboxState) {
         return;
     }
 
-    // Otherwise hand off to run_agent — it handles the guard,
-    // fetching, executing, and looping.
-    run_agent(state);
+    // Fetch pending messages from backend
+    let task_id = &state.config.task_id;
+    let messages = match state.backend_client.get_pending_messages(task_id).await {
+        Ok(msgs) => msgs,
+        Err(e) => {
+            warn!(error = %e, "Failed to fetch pending messages");
+            return;
+        }
+    };
+
+    if messages.is_empty() {
+        return;
+    }
+
+    // Extract UUIDs and text content
+    let uuids: Vec<String> = messages.iter().filter_map(|m| m.uuid.clone()).collect();
+    let text = extract_text_from_messages(&messages);
+
+    if text.is_empty() {
+        return;
+    }
+
+    info!(
+        message_count = messages.len(),
+        text_len = text.len(),
+        "Dispatching messages to agent"
+    );
+
+    // Send to agent actor — it handles injection vs new session.
+    // Ack is deferred until the agent confirms it processed the message.
+    let ack_rx = state.agent_handle.send(text);
+
+    if !uuids.is_empty() {
+        let task_id = task_id.to_string();
+        let backend = Arc::clone(&state.backend_client);
+        tokio::spawn(async move {
+            match ack_rx.await {
+                Ok(session_id) => {
+                    if let Err(e) = backend
+                        .acknowledge_messages(&task_id, uuids, &session_id)
+                        .await
+                    {
+                        warn!(error = %e, "Failed to acknowledge messages");
+                    }
+                }
+                Err(_) => {
+                    warn!("Agent ack channel dropped — messages not acknowledged");
+                }
+            }
+        });
+    }
 }
 
 /// Resolve a pending interactive prompt with the first pending message.
 async fn resolve_pending_prompt(state: &SandboxState) {
     let task_id = &state.config.task_id;
 
-    // Fetch pending messages from backend via gRPC
     let proto_messages = match state.backend_client.get_pending_messages(task_id).await {
         Ok(msgs) => msgs,
         Err(e) => {
@@ -52,16 +99,16 @@ async fn resolve_pending_prompt(state: &SandboxState) {
     }
 
     let Some(prompt) = state.agent.take_pending_prompt().await else {
-        // Prompt was already consumed between our check and take
-        info!("Pending prompt was already consumed, handing off to run_agent");
-        run_agent(state.clone());
+        // Prompt was already consumed between our check and take —
+        // fall through to normal dispatch
+        info!("Pending prompt was already consumed, dispatching normally");
+        let text = extract_text_from_messages(&proto_messages);
+        // Drop the ack receiver — no UUIDs to acknowledge in this race path
+        let _ = state.agent_handle.send(text);
         return;
     };
 
-    // Convert first message to content blocks and extract text
-    let first_msg = &proto_messages[0];
-    let content = super::types::content_blocks_from_proto(first_msg.content.clone());
-    let text = extract_text_from_content(&content);
+    let text = extract_text_from_messages(&proto_messages);
 
     info!(tool = ?prompt.tool_name, "Resolving interactive prompt with pending message");
 
@@ -81,13 +128,16 @@ async fn resolve_pending_prompt(state: &SandboxState) {
     let _ = prompt.sender.send(response);
 }
 
-/// Extract text from content blocks.
-fn extract_text_from_content(content: &[ContentBlock]) -> String {
-    content
+/// Extract text from proto pending messages.
+fn extract_text_from_messages(messages: &[sandbox_proto::PendingMessage]) -> String {
+    messages
         .iter()
-        .filter_map(|block| match block {
-            ContentBlock::Text { text } => Some(text.as_str()),
-            _ => None,
+        .flat_map(|m| {
+            let blocks = content_blocks_from_proto(m.content.clone());
+            blocks.into_iter().filter_map(|b| match b {
+                ContentBlock::Text { text } => Some(text),
+                _ => None,
+            })
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -96,51 +146,36 @@ fn extract_text_from_content(content: &[ContentBlock]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::types::{ImageSource, ImageSourceType};
 
     #[test]
-    fn extract_text_joins_text_blocks() {
-        let content = vec![
-            ContentBlock::Text {
-                text: "hello".to_string(),
+    fn extract_text_joins_message_content() {
+        let messages = vec![
+            sandbox_proto::PendingMessage {
+                content: vec![sandbox_proto::ContentBlock {
+                    block: Some(sandbox_proto::content_block::Block::Text(
+                        sandbox_proto::TextBlock {
+                            text: "hello".to_string(),
+                        },
+                    )),
+                }],
+                ..Default::default()
             },
-            ContentBlock::Text {
-                text: "world".to_string(),
+            sandbox_proto::PendingMessage {
+                content: vec![sandbox_proto::ContentBlock {
+                    block: Some(sandbox_proto::content_block::Block::Text(
+                        sandbox_proto::TextBlock {
+                            text: "world".to_string(),
+                        },
+                    )),
+                }],
+                ..Default::default()
             },
         ];
-        assert_eq!(extract_text_from_content(&content), "hello\nworld");
+        assert_eq!(extract_text_from_messages(&messages), "hello\nworld");
     }
 
     #[test]
-    fn extract_text_skips_non_text_blocks() {
-        let content = vec![
-            ContentBlock::Text {
-                text: "before".to_string(),
-            },
-            ContentBlock::Image {
-                source: ImageSource {
-                    source_type: ImageSourceType::Base64,
-                    media_type: "image/png".to_string(),
-                    data: "abc".to_string(),
-                },
-            },
-            ContentBlock::Text {
-                text: "after".to_string(),
-            },
-        ];
-        assert_eq!(extract_text_from_content(&content), "before\nafter");
-    }
-
-    #[test]
-    fn extract_text_empty_content() {
-        assert_eq!(extract_text_from_content(&[]), "");
-    }
-
-    #[test]
-    fn extract_text_single_block() {
-        let content = vec![ContentBlock::Text {
-            text: "only".to_string(),
-        }];
-        assert_eq!(extract_text_from_content(&content), "only");
+    fn extract_text_empty_messages() {
+        assert_eq!(extract_text_from_messages(&[]), "");
     }
 }

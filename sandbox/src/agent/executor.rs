@@ -1,20 +1,16 @@
-//! Generic agent executor trait and orchestrator.
+//! Agent executor types.
 //!
-//! The `AgentExecutor` trait defines a pure streaming interface: request in,
-//! `AgentEvent`s out via channel. The `run_agent()` orchestrator consumes that
-//! channel and handles everything else: state transitions, message acknowledgment,
-//! and ALL event publishing to the backend. Zero state mutations or publishing
-//! inside the executor.
+//! The `AgentExecutor` trait and `AgentEvent` enum are retained for the
+//! `ClaudeCodeExecutor` implementation. The orchestrator loop has moved
+//! to `handle.rs` (actor-style agent).
 
-use moatless_events::{AgentSubType, SandboxSubType, TaskTurnSubType};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, info, warn};
 
 use crate::error::SandboxError;
 use crate::state::SandboxState;
 
-use super::types::{AgentRunRequest, AgentStatus, ContentBlock, ResumeSession};
+use super::types::AgentRunRequest;
 
 /// Events emitted by an agent executor during a run.
 ///
