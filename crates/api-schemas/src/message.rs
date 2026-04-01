@@ -24,7 +24,7 @@ pub struct UiMessage {
     /// Content blocks for this message.
     pub content: Vec<UiContentBlock>,
     /// Inline tool results (for assistant messages).
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tool_results: Vec<UiToolResult>,
     /// Whether this assistant message has pending user input.
     #[serde(skip_serializing_if = "Option::is_none")]
