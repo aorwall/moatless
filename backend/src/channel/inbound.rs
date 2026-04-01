@@ -200,6 +200,20 @@ pub async fn process_inbound(
         )));
     }
 
+    // Advance the cursor so future fetch_context calls only return newer messages.
+    if let Some(ref ext_id) = msg.channel_external_id {
+        if let Err(e) = state
+            .channel_threads
+            .touch(
+                thread.id,
+                Some(&serde_json::json!({"last_channel_external_id": ext_id})),
+            )
+            .await
+        {
+            warn!(task_id = %task_id, error = %e, "Failed to update last_channel_external_id on thread");
+        }
+    }
+
     // Notify sandbox that a new message is available (fire-and-forget).
     // Skip for new tasks — the sandbox pod is still starting and will fetch
     // pending messages on startup.
@@ -334,7 +348,7 @@ pub async fn trigger_inbound(
                 "thread_properties missing required field: repo".into(),
             ));
         }
-        if props.get("pr_number").and_then(|v| v.as_u64()).is_none() {
+        if props.get("pr_number").and_then(serde_json::Value::as_u64).is_none() {
             return Err(ChannelError::BadRequest(
                 "thread_properties missing required field: pr_number (must be a number)".into(),
             ));

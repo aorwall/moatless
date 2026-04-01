@@ -339,7 +339,7 @@ impl ChannelProvider for SlackProvider {
         thread: &ChannelThread,
         config: &ChannelConfig,
         limit: usize,
-        exclude_external_ids: &[String],
+        _exclude_external_ids: &[String],
     ) -> Result<Option<String>, ChannelError> {
         let channel = thread
             .properties
@@ -361,6 +361,12 @@ impl ChannelProvider for SlackProvider {
             .thread_context_limit
             .unwrap_or(limit as u64) as usize;
 
+        // Use last_channel_external_id as cursor — only fetch messages after it
+        let oldest = thread
+            .properties
+            .get("last_channel_external_id")
+            .and_then(|v| v.as_str());
+
         let replies = self
             .api
             .get_thread_replies(
@@ -368,6 +374,7 @@ impl ChannelProvider for SlackProvider {
                 thread_ts,
                 config_limit,
                 self.bot_user_id.as_deref(),
+                oldest,
             )
             .await?;
 
@@ -375,15 +382,7 @@ impl ChannelProvider for SlackProvider {
             return Ok(None);
         }
 
-        // Filter out messages already delivered to the task
-        let messages: Vec<&str> = replies
-            .iter()
-            .filter(|r| {
-                r.ts.as_ref()
-                    .is_none_or(|ts| !exclude_external_ids.contains(ts))
-            })
-            .map(|r| r.text.as_str())
-            .collect();
+        let messages: Vec<&str> = replies.iter().map(|r| r.text.as_str()).collect();
 
         if messages.is_empty() {
             return Ok(None);

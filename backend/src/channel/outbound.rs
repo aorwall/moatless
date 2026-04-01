@@ -232,6 +232,17 @@ async fn send_outbound(
                             warn!(task_id = %task_id, error = %e, "Failed to store outbound external ID");
                         }
                     }
+                    // Advance cursor so future context fetches skip this reply
+                    if let Err(e) = state
+                        .channel_threads
+                        .touch(
+                            thread.id,
+                            Some(&serde_json::json!({"last_channel_external_id": external_id})),
+                        )
+                        .await
+                    {
+                        warn!(task_id = %task_id, error = %e, "Failed to update last_channel_external_id on thread");
+                    }
                 }
                 Ok(None) => {}
                 Err(e) => {
@@ -304,11 +315,26 @@ async fn send_outbound_result(
             config,
             thread,
         } => {
-            provider
+            let external_id = provider
                 .send_reply(&thread, &config, reply)
                 .await
-                .map(|_| ())
-                .map_err(|e| format!("Failed to send reply via {}: {e}", config.provider))
+                .map_err(|e| format!("Failed to send reply via {}: {e}", config.provider))?;
+
+            // Advance cursor so future context fetches skip this reply
+            if let Some(ref ext_id) = external_id {
+                if let Err(e) = state
+                    .channel_threads
+                    .touch(
+                        thread.id,
+                        Some(&serde_json::json!({"last_channel_external_id": ext_id})),
+                    )
+                    .await
+                {
+                    warn!(task_id = %task_id, error = %e, "Failed to update last_channel_external_id on thread");
+                }
+            }
+
+            Ok(())
         }
         OutboundTarget::NewMessage {
             provider,

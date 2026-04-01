@@ -231,22 +231,30 @@ impl SlackApi {
     /// Fetch thread replies for context enrichment.
     ///
     /// Returns structured replies with Slack `ts` for filtering already-delivered messages.
+    /// When `oldest` is provided, only messages with `ts` strictly greater than it are returned.
     pub async fn get_thread_replies(
         &self,
         channel: &str,
         thread_ts: &str,
         limit: usize,
         bot_user_id: Option<&str>,
+        oldest: Option<&str>,
     ) -> Result<Vec<ThreadReply>, ChannelError> {
+        let limit_str = limit.to_string();
+        let mut query: Vec<(&str, &str)> = vec![
+            ("channel", channel),
+            ("ts", thread_ts),
+            ("limit", &limit_str),
+        ];
+        if let Some(oldest_ts) = oldest {
+            query.push(("oldest", oldest_ts));
+        }
+
         let resp: ConversationsRepliesResponse = self
             .client
             .get("https://slack.com/api/conversations.replies")
             .bearer_auth(&self.token)
-            .query(&[
-                ("channel", channel),
-                ("ts", thread_ts),
-                ("limit", &limit.to_string()),
-            ])
+            .query(&query)
             .send()
             .await
             .map_err(|e| {
