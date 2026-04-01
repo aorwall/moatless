@@ -6012,9 +6012,21 @@
             ],
             "format": "int32"
           },
+          "isBinary": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
           "isModified": {
             "type": [
               "boolean",
+              "null"
+            ]
+          },
+          "mediaType": {
+            "type": [
+              "string",
               "null"
             ]
           },

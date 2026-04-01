@@ -192,6 +192,8 @@ message ReadFileResponse {
   optional int32 additions = 3;
   optional int32 deletions = 4;
   optional bool is_modified = 5;
+  optional bool is_binary = 6;
+  optional string media_type = 7;
 }
 
 message WriteFileRequest {

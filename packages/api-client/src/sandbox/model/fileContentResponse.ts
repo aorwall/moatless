@@ -16,7 +16,11 @@ export interface FileContentResponse {
   /** @nullable */
   deletions?: number | null;
   /** @nullable */
+  isBinary?: boolean | null;
+  /** @nullable */
   isModified?: boolean | null;
+  /** @nullable */
+  mediaType?: string | null;
   /** @nullable */
   oldContent?: string | null;
 }

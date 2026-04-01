@@ -644,6 +644,17 @@ pub enum ChannelType {
 }
 
 impl ChannelType {
+    /// Whether this channel type supports outbound replies.
+    ///
+    /// Non-replyable channels (e.g. cron) must use `response_config_id`
+    /// to route replies to a different channel.
+    pub fn is_replyable(&self) -> bool {
+        match self {
+            Self::Cron => false,
+            Self::Slack | Self::Email | Self::Webhook | Self::Telegram | Self::GithubPr => true,
+        }
+    }
+
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Slack => "slack",
