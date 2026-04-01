@@ -57,6 +57,42 @@ CLAUDE_SDK_E2E=1 cargo test -p moatless-sandbox --test agent_e2e -- --ignored --
 CLAUDE_SDK_E2E=1 cargo test -p claude-agent-sdk -- --ignored
 ```
 
+### Integration Tests (Taskfile + Docker Compose)
+```bash
+# Requires: https://taskfile.dev, Docker
+
+# Run DB-tier tests (API CRUD, auth, channels — no sandbox needed, fastest)
+task test:compose:db
+
+# Run sandbox-tier tests (file ops, lifecycle — builds sandbox image)
+task test:compose:sandbox
+
+# Run all tiers including agent tests (requires CLAUDE_CODE_OAUTH_TOKEN in .env)
+task test:compose:all
+
+# Run a single test file
+task test:compose -- --test message_acknowledgment
+
+# Reuse existing images (skip rebuild)
+task test:compose -- --skip-build --tier agent
+
+# Keep containers running after tests (for debugging)
+task test:compose -- --keep-running --test message_acknowledgment
+```
+
+The test runner (`docker-compose/test-runner.sh`) handles the full lifecycle:
+build images → start Postgres/Redis/backend → reset DB → run tests → tear down.
+
+Test tiers:
+- **db**: Non-ignored tests — task CRUD, repo CRUD, auth, channels (no sandbox)
+- **sandbox**: `SANDBOX_E2E=1` — file operations, sandbox lifecycle
+- **agent**: `CLAUDE_SDK_E2E=1` — agent execution, multi-message, plan mode (requires Claude CLI + API key)
+- **all**: Runs db first, then all ignored tests
+
+> **Apple Silicon**: Use `docker/build-sandbox.sh --local --only base` to build
+> native arm64 sandbox images. The build script cross-compiles the sandbox binary
+> and installs the Claude CLI via npm for the correct architecture.
+
 ### Docker Build Commands
 ```bash
 # Build Docker images
@@ -493,6 +529,22 @@ Backend tests use standard Rust test conventions with `cargo test`:
 - **Unit Tests**: Inline `#[cfg(test)] mod tests` within source files
 - **Integration Tests**: `tests/` directory at crate root
 - **E2E Tests**: Gated behind environment variables (e.g., `CLAUDE_SDK_E2E=1`)
+
+### Integration Tests (`crates/integration-tests/`)
+End-to-end tests exercising the full backend API with real database and sandbox.
+Run via Taskfile (`task test:compose:db`, `task test:compose:all`) — see [Integration Tests](#integration-tests-taskfile--docker-compose) above.
+
+Test tiers:
+- **db** (no `#[ignore]`): Task CRUD, repo CRUD, auth, channels, messages — backend + DB only
+- **sandbox** (`#[ignore]`, `SANDBOX_E2E=1`): File operations, sandbox lifecycle — needs sandbox container
+- **agent** (`#[ignore]`, `CLAUDE_SDK_E2E=1`): Agent execution, multi-message same-session, plan mode, stop/recovery — needs sandbox + Claude CLI
+
+Test infrastructure (`crates/integration-tests/src/`):
+- `test_client()`, `client_as_user()` — API clients with ForwardAuth headers
+- `ensure_template_repo()` — creates or finds template repository
+- `EventCollector` — SSE stream collector with `wait_for_event()`, `wait_for_nth_event()`, `count_events()`
+- `sandbox_helpers::wait_for_sandbox_ready()`, `wait_for_agent_idle()` — polling helpers
+- `callback_server` — in-process HTTP server for webhook tests
 
 ### Test Performance Tiers
 **FAST Tests (<200ms)** - Run on every push:
