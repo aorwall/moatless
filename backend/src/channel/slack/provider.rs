@@ -382,7 +382,16 @@ impl ChannelProvider for SlackProvider {
             return Ok(None);
         }
 
-        let messages: Vec<&str> = replies.iter().map(|r| r.text.as_str()).collect();
+        // Slack always returns the parent message regardless of `oldest`,
+        // so filter client-side to only include messages strictly after the cursor.
+        let messages: Vec<&str> = replies
+            .iter()
+            .filter(|r| match (&r.ts, oldest) {
+                (Some(ts), Some(cursor)) => ts.as_str() > cursor,
+                _ => true,
+            })
+            .map(|r| r.text.as_str())
+            .collect();
 
         if messages.is_empty() {
             return Ok(None);
