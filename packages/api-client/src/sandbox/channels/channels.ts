@@ -38,6 +38,8 @@ import type {
   SetChannelDefaultsRequest,
   SlackChannelInfoResponse,
   TaskChannelResponse,
+  TriggerChannelRequest,
+  TriggerChannelResponse,
   UpdateChannelConfigRequest,
   WebhookPayload
 } from '.././model';
@@ -587,6 +589,104 @@ export const useDeleteConfig = <TError = ErrorType<ErrorBody>,
         TContext
       > => {
       return useMutation(getDeleteConfigMutationOptions(options), queryClient);
+    }
+    /**
+ * Works for any provider type (cron, slack, github_pr, etc.) and does not require
+the channel to be active. The created task will have `responseConfigId` wired up
+so outbound replies flow back to the configured channel (e.g. Slack).
+ * @summary Manually trigger a channel config, creating a task exactly as if the provider fired.
+ */
+export type triggerChannelResponse200 = {
+  data: TriggerChannelResponse
+  status: 200
+}
+
+export type triggerChannelResponse403 = {
+  data: ErrorBody
+  status: 403
+}
+
+export type triggerChannelResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+    
+export type triggerChannelResponseSuccess = (triggerChannelResponse200) & {
+  headers: Headers;
+};
+export type triggerChannelResponseError = (triggerChannelResponse403 | triggerChannelResponse404) & {
+  headers: Headers;
+};
+
+export type triggerChannelResponse = (triggerChannelResponseSuccess | triggerChannelResponseError)
+
+export const getTriggerChannelUrl = (id: string,) => {
+
+
+  
+
+  return `/api/v1/channels/configs/${id}/trigger`
+}
+
+export const triggerChannel = async (id: string,
+    triggerChannelRequest: TriggerChannelRequest, options?: RequestInit): Promise<triggerChannelResponse> => {
+  
+  return customInstance<triggerChannelResponse>(getTriggerChannelUrl(id),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      triggerChannelRequest,)
+  }
+);}
+
+
+
+
+export const getTriggerChannelMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof triggerChannel>>, TError,{id: string;data: TriggerChannelRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof triggerChannel>>, TError,{id: string;data: TriggerChannelRequest}, TContext> => {
+
+const mutationKey = ['triggerChannel'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof triggerChannel>>, {id: string;data: TriggerChannelRequest}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  triggerChannel(id,data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type TriggerChannelMutationResult = NonNullable<Awaited<ReturnType<typeof triggerChannel>>>
+    export type TriggerChannelMutationBody = TriggerChannelRequest
+    export type TriggerChannelMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Manually trigger a channel config, creating a task exactly as if the provider fired.
+ */
+export const useTriggerChannel = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof triggerChannel>>, TError,{id: string;data: TriggerChannelRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof triggerChannel>>,
+        TError,
+        {id: string;data: TriggerChannelRequest},
+        TContext
+      > => {
+      return useMutation(getTriggerChannelMutationOptions(options), queryClient);
     }
     /**
  * Returns the wildcard (`source_id="*"`) config that serves as the default

@@ -20,6 +20,8 @@ export interface CreateChannelConfigRequest {
   /** @nullable */
   responseConfigId?: string | null;
   routingMode: RoutingMode;
+  /** @nullable */
+  runAsUserId?: string | null;
   scope?: null | Scope;
   sourceId: string;
   /** @nullable */

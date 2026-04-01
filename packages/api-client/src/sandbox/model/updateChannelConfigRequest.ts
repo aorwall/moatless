@@ -21,6 +21,8 @@ export interface UpdateChannelConfigRequest {
   responseConfigId?: string | null;
   routingMode?: null | RoutingMode;
   /** @nullable */
+  runAsUserId?: string | null;
+  /** @nullable */
   sourceName?: string | null;
   /** @nullable */
   tagIds?: string[] | null;

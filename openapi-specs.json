@@ -1305,6 +1305,69 @@
         }
       }
     },
+    "/api/v1/channels/configs/{id}/trigger": {
+      "post": {
+        "tags": [
+          "channels"
+        ],
+        "summary": "Manually trigger a channel config, creating a task exactly as if the provider fired.",
+        "description": "Works for any provider type (cron, slack, github_pr, etc.) and does not require\nthe channel to be active. The created task will have `responseConfigId` wired up\nso outbound replies flow back to the configured channel (e.g. Slack).",
+        "operationId": "trigger_channel",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Channel config ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TriggerChannelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Task created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TriggerChannelResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Config not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/channels/defaults/{provider}": {
       "get": {
         "tags": [
@@ -4820,6 +4883,12 @@
           "routingMode": {
             "$ref": "#/components/schemas/RoutingMode"
           },
+          "runAsUserId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "scope": {
             "$ref": "#/components/schemas/Scope"
           },
@@ -5249,6 +5318,12 @@
           },
           "routingMode": {
             "$ref": "#/components/schemas/RoutingMode"
+          },
+          "runAsUserId": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "scope": {
             "oneOf": [
@@ -8356,6 +8431,38 @@
           }
         }
       },
+      "TriggerChannelRequest": {
+        "type": "object",
+        "description": "Request body for manually triggering a channel config.",
+        "properties": {
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional message override. If omitted, uses the channel's configured message."
+          },
+          "threadProperties": {
+            "description": "Optional thread properties for the created task. Required for `github_pr`\nchannels (must include `owner`, `repo`, and `pr_number`)."
+          }
+        }
+      },
+      "TriggerChannelResponse": {
+        "type": "object",
+        "description": "Response from manually triggering a channel config.",
+        "required": [
+          "taskId",
+          "shortId"
+        ],
+        "properties": {
+          "shortId": {
+            "type": "string"
+          },
+          "taskId": {
+            "type": "string"
+          }
+        }
+      },
       "UiAssistantMeta": {
         "type": "object",
         "description": "Assistant message metadata.",
@@ -8669,6 +8776,12 @@
               {
                 "$ref": "#/components/schemas/RoutingMode"
               }
+            ]
+          },
+          "runAsUserId": {
+            "type": [
+              "string",
+              "null"
             ]
           },
           "sourceName": {

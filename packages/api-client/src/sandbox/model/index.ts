@@ -185,6 +185,8 @@ export * from './teamCredentialResponse';
 export * from './teamMemberResponse';
 export * from './teamResponse';
 export * from './tokenSessionResponse';
+export * from './triggerChannelRequest';
+export * from './triggerChannelResponse';
 export * from './uiAssistantMeta';
 export * from './uiContentBlock';
 export * from './uiContentBlockToolInput';

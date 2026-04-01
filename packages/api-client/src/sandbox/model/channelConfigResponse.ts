@@ -26,6 +26,8 @@ export interface ChannelConfigResponse {
   /** @nullable */
   responseConfigId?: string | null;
   routingMode: RoutingMode;
+  /** @nullable */
+  runAsUserId?: string | null;
   scope: Scope;
   sourceId: string;
   /** @nullable */

@@ -15,10 +15,7 @@ export interface TriggerChannelRequest {
    * @nullable
    */
   message?: string | null;
-  /**
-   * Optional thread properties for the created task. Required for `github_pr`
-   * channels (must include `owner`, `repo`, and `pr_number`).
-   * @nullable
-   */
-  threadProperties?: Record<string, unknown> | null;
+  /** Optional thread properties for the created task. Required for `github_pr`
+channels (must include `owner`, `repo`, and `pr_number`). */
+  threadProperties?: unknown;
 }

@@ -3,7 +3,10 @@
 use axum::extract::{Path, Query, State};
 use axum::Json;
 
-use moatless_events::{SandboxEventPayload, SandboxSubType, TaskSubType};
+use moatless_events::{SandboxEventPayload, SandboxStatus, SandboxSubType, TaskSubType};
+
+use crate::sandbox::auto_provision::get_server_configs_for_task;
+use crate::sandbox::models::AgentState;
 
 use super::dao::{TaskFilter, TaskPatch};
 use super::models::Task;
@@ -710,7 +713,25 @@ async fn enrich_task(
         None
     };
 
-    Ok(build_task_response(row, tag_responses, display_name, repo_name))
+    let mut resp = build_task_response(row, tag_responses, display_name, repo_name);
+
+    // Resolve live sandbox status (best-effort — leave None on failure)
+    let server_configs = get_server_configs_for_task(
+        state.tasks.as_ref(),
+        state.repositories.as_ref(),
+        &row.task_id,
+    ).await;
+    if let Ok(status) = state.sandbox.sandbox_status(&row.task_id, &server_configs).await {
+        resp.environment_status = Some(status.environment_status.as_str().to_string());
+        resp.agent_state = Some(match status.agent_state {
+            AgentState::Idle => "idle",
+            AgentState::Running => "running",
+            AgentState::None => "none",
+        }.to_string());
+        resp.is_running = Some(status.environment_status == SandboxStatus::Ready);
+    }
+
+    Ok(resp)
 }
 
 /// Build a TaskResponse from a row + pre-resolved tags/names.
