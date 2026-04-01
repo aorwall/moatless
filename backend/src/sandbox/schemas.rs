@@ -181,6 +181,10 @@ pub struct FileContentResponse {
     pub deletions: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_modified: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_binary: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub media_type: Option<String>,
 }
 
 /// Request body for writing a file.
@@ -307,6 +311,8 @@ impl From<sandbox_proto::ReadFileResponse> for FileContentResponse {
             additions: r.additions,
             deletions: r.deletions,
             is_modified: r.is_modified,
+            is_binary: r.is_binary,
+            media_type: r.media_type,
         }
     }
 }
