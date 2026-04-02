@@ -43,9 +43,10 @@ pub async fn dispatch_pending_messages(state: SandboxState) {
         return;
     }
 
-    // Extract UUIDs and text content
+    // Extract UUIDs, text content, and system_prompt
     let uuids: Vec<String> = messages.iter().filter_map(|m| m.uuid.clone()).collect();
     let text = extract_text_from_messages(&messages);
+    let system_prompt = extract_system_prompt(&messages);
 
     if text.is_empty() {
         return;
@@ -54,12 +55,13 @@ pub async fn dispatch_pending_messages(state: SandboxState) {
     info!(
         message_count = messages.len(),
         text_len = text.len(),
+        has_system_prompt = system_prompt.is_some(),
         "Dispatching messages to agent"
     );
 
     // Send to agent actor — it handles injection vs new session.
     // Ack is deferred until the agent confirms it processed the message.
-    let ack_rx = state.agent_handle.send(text);
+    let ack_rx = state.agent_handle.send(text, system_prompt);
 
     if !uuids.is_empty() {
         let task_id = task_id.to_string();
@@ -104,7 +106,7 @@ async fn resolve_pending_prompt(state: &SandboxState) {
         info!("Pending prompt was already consumed, dispatching normally");
         let text = extract_text_from_messages(&proto_messages);
         // Drop the ack receiver — no UUIDs to acknowledge in this race path
-        let _ = state.agent_handle.send(text);
+        let _ = state.agent_handle.send(text, None);
         return;
     };
 
@@ -126,6 +128,11 @@ async fn resolve_pending_prompt(state: &SandboxState) {
     };
 
     let _ = prompt.sender.send(response);
+}
+
+/// Extract the system_prompt from proto pending messages (first non-None wins).
+fn extract_system_prompt(messages: &[sandbox_proto::PendingMessage]) -> Option<String> {
+    messages.iter().find_map(|m| m.system_prompt.clone())
 }
 
 /// Extract text from proto pending messages.

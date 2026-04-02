@@ -33,6 +33,7 @@ enum AgentCommand {
     /// the agent confirms it processed the message.
     Send {
         text: String,
+        system_prompt: Option<String>,
         ack: oneshot::Sender<String>,
     },
     /// Stop the agent and shut down the actor loop.
@@ -52,9 +53,9 @@ impl AgentHandle {
     /// has processed the message:
     /// - **Injection** (session active): resolves immediately after successful stdin write.
     /// - **New session**: resolves on `SessionInit` with the real session ID.
-    pub fn send(&self, text: String) -> oneshot::Receiver<String> {
+    pub fn send(&self, text: String, system_prompt: Option<String>) -> oneshot::Receiver<String> {
         let (ack_tx, ack_rx) = oneshot::channel();
-        let _ = self.command_tx.send(AgentCommand::Send { text, ack: ack_tx });
+        let _ = self.command_tx.send(AgentCommand::Send { text, system_prompt, ack: ack_tx });
         ack_rx
     }
 
@@ -103,6 +104,7 @@ async fn agent_loop(
     let mut session_id = String::new();
     let mut consecutive_errors: u32 = 0;
     let mut pending_acks: VecDeque<oneshot::Sender<String>> = VecDeque::new();
+    let mut last_system_prompt: Option<String> = None;
 
     info!(task_id = %task_id, "Agent actor started");
 
@@ -150,7 +152,11 @@ async fn agent_loop(
             // ── Handle commands ────────────────────────────────────
             cmd = command_rx.recv() => {
                 match cmd {
-                    Some(AgentCommand::Send { text, ack }) => {
+                    Some(AgentCommand::Send { text, system_prompt, ack }) => {
+                        // Store the latest system_prompt for use in start_session
+                        if system_prompt.is_some() {
+                            last_system_prompt = system_prompt;
+                        }
                         // Circuit breaker
                         const MAX_CONSECUTIVE_ERRORS: u32 = 3;
                         if consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
@@ -196,6 +202,7 @@ async fn agent_loop(
                                 &*backend_client,
                                 &task_id,
                                 &session_id,
+                                last_system_prompt.as_deref(),
                             ).await {
                                 Ok(h) => {
                                     handle = Some(h);
@@ -239,6 +246,7 @@ async fn agent_loop(
 }
 
 /// Start a new CLI session.
+#[allow(clippy::too_many_arguments)] // reason: actor internals, will refactor to a struct later
 async fn start_session(
     prompt: &str,
     config: &Config,
@@ -248,6 +256,7 @@ async fn start_session(
     backend_client: &dyn BackendClient,
     task_id: &str,
     previous_session_id: &str,
+    system_prompt: Option<&str>,
 ) -> Result<QueryHandle, claude_agent_sdk::SdkError> {
     // Re-fetch credentials before each run to pick up rotated tokens.
     // Best-effort — fall back to cached credentials on failure.
@@ -272,7 +281,7 @@ async fn start_session(
     let request = AgentRunRequest {
         content: Vec::new(),
         model: None,
-        system_prompt: None,
+        system_prompt: system_prompt.map(ToString::to_string),
         resume: if previous_session_id.is_empty() {
             None
         } else {
