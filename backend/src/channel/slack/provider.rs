@@ -122,23 +122,11 @@ impl SlackProvider {
             self.dedup_cache.insert(event_id.to_string(), ()).await;
         }
 
-        // 6. Parse typed provider config and apply trigger filter
-        let slack_config = SlackProviderConfig::from_config(config);
-
-        match (slack_config.trigger, event_type) {
-            (ChannelTrigger::MentionOnly, "app_mention") => {} // process
-            (ChannelTrigger::AllMessages, "message") => {}     // process
-            (ChannelTrigger::AllMessages, "app_mention") => {} // also process mentions in all_messages mode
-            // Always process thread replies to threads we're tracking (e.g. outbound-created)
-            (_, "message") if is_tracked_thread => {
-                debug!(event_id = %event_id, "Processing tracked thread reply (trigger bypass)");
-            }
-            _ => return Ok(SlackWebhookResult::Ignore),
-        }
-
-        // 7. Ignore bot's own messages
+        // 6. Extract user + channel early (needed for bot filter, DM detection, and access policy)
         let user = event.get("user").and_then(|v| v.as_str()).unwrap_or("");
         let channel = event.get("channel").and_then(|v| v.as_str()).unwrap_or("");
+
+        // 7. Ignore bot's own messages
         if let Some(ref bot_id) = self.bot_user_id {
             if user == bot_id {
                 return Ok(SlackWebhookResult::Ignore);
@@ -149,7 +137,29 @@ impl SlackProvider {
             return Ok(SlackWebhookResult::Ignore);
         }
 
-        // 7.5. Enforce access policy
+        // 8. Parse typed provider config and apply trigger filter
+        let slack_config = SlackProviderConfig::from_config(config);
+
+        // DM channels (starting with "D") are always directed at the bot —
+        // bypass trigger filter for them.
+        let is_dm = channel.starts_with('D');
+
+        match (slack_config.trigger, event_type) {
+            (ChannelTrigger::MentionOnly, "app_mention") => {} // process
+            (ChannelTrigger::AllMessages, "message") => {}     // process
+            (ChannelTrigger::AllMessages, "app_mention") => {} // also process mentions in all_messages mode
+            // Always process thread replies to threads we're tracking (e.g. outbound-created)
+            (_, "message") if is_tracked_thread => {
+                debug!(event_id = %event_id, "Processing tracked thread reply (trigger bypass)");
+            }
+            // DMs are inherently directed at the bot — always process
+            (_, "message") if is_dm => {
+                debug!(event_id = %event_id, channel = %channel, "Processing DM (trigger bypass)");
+            }
+            _ => return Ok(SlackWebhookResult::Ignore),
+        }
+
+        // 9. Enforce access policy
         match enforce_slack_access(&slack_config, channel, user) {
             AccessDecision::Allowed => {}
             AccessDecision::Blocked | AccessDecision::PairingSent => {
