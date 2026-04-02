@@ -12,10 +12,13 @@ use futures::stream::Stream;
 use serde::Deserialize;
 use tracing::{error, info, warn};
 
+use chrono::Utc;
+
 use super::error::SandboxError;
 use super::routes::SandboxApiState;
 use super::models::*;
 use super::schemas::*;
+use crate::task::dao::TaskPatch;
 
 /// Provision a new sandbox for a task.
 ///
@@ -49,6 +52,7 @@ pub async fn provision_handler(
     match state.provider.provision(&task_id, &request).await {
         Ok(response) => {
             info!(task_id = %task_id, "Provision succeeded");
+            record_sandbox_started(&state, &task_id).await;
             Ok(Json(response))
         }
         Err(e) => {
@@ -151,6 +155,7 @@ pub async fn restart_handler(
     match state.provider.restart(&task_id).await {
         Ok(()) => {
             info!(task_id = %task_id, "Restart succeeded");
+            record_sandbox_started(&state, &task_id).await;
             Ok(StatusCode::NO_CONTENT)
         }
         Err(e) => {
@@ -191,6 +196,7 @@ pub async fn redeploy_handler(
     match state.provider.redeploy(&task_id, &request).await {
         Ok(response) => {
             info!(task_id = %task_id, "Redeploy succeeded");
+            record_sandbox_started(&state, &task_id).await;
             Ok(Json(response))
         }
         Err(e) => {
@@ -310,6 +316,20 @@ pub async fn server_logs_handler(
 // =============================================================================
 // Private helpers
 // =============================================================================
+
+/// Update `sandbox_started_at` to prevent the idle reaper from killing
+/// a just-started sandbox based on stale message timestamps.
+async fn record_sandbox_started(state: &SandboxApiState, task_id: &str) {
+    if let Some(ref tasks) = state.tasks {
+        let patch = TaskPatch {
+            sandbox_started_at: Some(Utc::now()),
+            ..Default::default()
+        };
+        if let Err(e) = tasks.update_task(task_id, &patch).await {
+            warn!(task_id = %task_id, error = %e, "Failed to update sandbox_started_at");
+        }
+    }
+}
 
 /// Resolve server configs from DB via the SandboxApiState repositories.
 async fn resolve_server_configs(state: &SandboxApiState, task_id: &str) -> Vec<ServerConfig> {

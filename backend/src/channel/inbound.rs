@@ -320,6 +320,7 @@ async fn create_task_for_channel(
             parts.push(CHANNEL_REPLY_INSTRUCTIONS);
             Some(parts.join("\n\n"))
         },
+        sandbox_started_at: None,
     };
 
     state.tasks.insert_task(&row)

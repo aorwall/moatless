@@ -115,6 +115,25 @@ async fn reap_idle_sandboxes(
     // Batch-query latest message timestamps
     let mut latest_times = messages.get_latest_message_times(&task_ids).await?;
 
+    // Overlay sandbox_started_at — prevents killing just-restarted sandboxes
+    match tasks.get_sandbox_started_times(&task_ids).await {
+        Ok(started_times) => {
+            for (task_id, started_at) in started_times {
+                latest_times
+                    .entry(task_id)
+                    .and_modify(|existing| {
+                        if started_at > *existing {
+                            *existing = started_at;
+                        }
+                    })
+                    .or_insert(started_at);
+            }
+        }
+        Err(e) => {
+            warn!(error = %e, "Failed to fetch sandbox start times, using message times only");
+        }
+    }
+
     // Fill creation times for tasks with no messages (prevents killing new tasks)
     let no_message_ids: Vec<String> = task_ids
         .iter()

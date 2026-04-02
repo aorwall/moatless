@@ -42,6 +42,7 @@ pub trait TaskRepository: Send + Sync {
     async fn delete_task(&self, task_id: &str) -> Result<(), sqlx::Error>;
     async fn exists_by_short_id(&self, short_id: &str) -> Result<bool, sqlx::Error>;
     async fn get_created_times(&self, task_ids: &[String]) -> Result<HashMap<String, DateTime<Utc>>, sqlx::Error>;
+    async fn get_sandbox_started_times(&self, task_ids: &[String]) -> Result<HashMap<String, DateTime<Utc>>, sqlx::Error>;
 }
 
 /// PostgreSQL implementation of [`TaskRepository`].
@@ -56,7 +57,8 @@ impl TaskRepository for PgTaskRepository {
                 repository_id, status, total_cost_usd, site_url, template_id,
                 vibe, name, description, site_id, site_provider, branch,
                 created_by, visibility, scope, team_id, created_at_db,
-                updated_at, parent_task_id, append_system_prompt
+                updated_at, parent_task_id, append_system_prompt,
+                sandbox_started_at
             FROM tasks WHERE task_id = $1"#,
         )
         .bind(task_id)
@@ -71,7 +73,8 @@ impl TaskRepository for PgTaskRepository {
                 repository_id, status, total_cost_usd, site_url, template_id,
                 vibe, name, description, site_id, site_provider, branch,
                 created_by, visibility, scope, team_id, created_at_db,
-                updated_at, parent_task_id, append_system_prompt
+                updated_at, parent_task_id, append_system_prompt,
+                sandbox_started_at
             FROM tasks
             WHERE task_id = $1
               AND ($2 OR scope = 'global'
@@ -94,11 +97,11 @@ impl TaskRepository for PgTaskRepository {
                 repository_id, status, total_cost_usd, site_url, template_id,
                 vibe, name, description, site_id, site_provider, branch,
                 created_by, visibility, scope, team_id, parent_task_id,
-                append_system_prompt, updated_at
+                append_system_prompt, updated_at, sandbox_started_at
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
                 $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21,
-                $22, NOW()
+                $22, NOW(), $23
             )"#,
         )
         .bind(&row.task_id)
@@ -123,6 +126,7 @@ impl TaskRepository for PgTaskRepository {
         .bind(&row.team_id)
         .bind(&row.parent_task_id)
         .bind(&row.append_system_prompt)
+        .bind(row.sandbox_started_at)
         .execute(&self.0)
         .await?;
         Ok(())
@@ -159,6 +163,7 @@ impl TaskRepository for PgTaskRepository {
             updated_at: Option<DateTime<Utc>>,
             parent_task_id: Option<String>,
             append_system_prompt: Option<String>,
+            sandbox_started_at: Option<DateTime<Utc>>,
             total_count: i64,
         }
 
@@ -169,6 +174,7 @@ impl TaskRepository for PgTaskRepository {
                 t.vibe, t.name, t.description, t.site_id, t.site_provider, t.branch,
                 t.created_by, t.visibility, t.scope, t.team_id, t.created_at_db,
                 t.updated_at, t.parent_task_id, t.append_system_prompt,
+                t.sandbox_started_at,
                 COUNT(*) OVER() AS total_count
             FROM tasks t
             LEFT JOIN task_tags tt ON t.task_id = tt.task_id
@@ -227,6 +233,7 @@ impl TaskRepository for PgTaskRepository {
                 updated_at: r.updated_at,
                 parent_task_id: r.parent_task_id,
                 append_system_prompt: r.append_system_prompt,
+                sandbox_started_at: r.sandbox_started_at,
             })
             .collect();
 
@@ -306,6 +313,13 @@ impl TaskRepository for PgTaskRepository {
                 .execute(&self.0)
                 .await?;
         }
+        if let Some(ref sandbox_started_at) = patch.sandbox_started_at {
+            sqlx::query("UPDATE tasks SET sandbox_started_at = $2, updated_at = NOW() WHERE task_id = $1")
+                .bind(task_id)
+                .bind(sandbox_started_at)
+                .execute(&self.0)
+                .await?;
+        }
         Ok(())
     }
 
@@ -341,6 +355,23 @@ impl TaskRepository for PgTaskRepository {
 
         Ok(rows.into_iter().collect())
     }
+
+    async fn get_sandbox_started_times(&self, task_ids: &[String]) -> Result<HashMap<String, DateTime<Utc>>, sqlx::Error> {
+        if task_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let rows: Vec<(String, DateTime<Utc>)> = sqlx::query_as(
+            r#"SELECT task_id, sandbox_started_at
+               FROM tasks
+               WHERE task_id = ANY($1) AND sandbox_started_at IS NOT NULL"#,
+        )
+        .bind(task_ids)
+        .fetch_all(&self.0)
+        .await?;
+
+        Ok(rows.into_iter().collect())
+    }
 }
 /// Patch struct for partial task updates.
 #[derive(Default)]
@@ -356,6 +387,7 @@ pub struct TaskPatch {
     pub visibility: Option<Visibility>,
     pub short_id: Option<String>,
     pub append_system_prompt: Option<Option<String>>,
+    pub sandbox_started_at: Option<DateTime<Utc>>,
 }
 
 // =========================================================================

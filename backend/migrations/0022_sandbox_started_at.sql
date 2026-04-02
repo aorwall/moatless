@@ -1,0 +1,1 @@
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS sandbox_started_at TIMESTAMPTZ;

@@ -39,6 +39,7 @@ pub struct Task {
     pub updated_at: Option<DateTime<Utc>>,
     pub parent_task_id: Option<String>,
     pub append_system_prompt: Option<String>,
+    pub sandbox_started_at: Option<DateTime<Utc>>,
 }
 
 #[cfg(test)]

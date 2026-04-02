@@ -130,6 +130,7 @@ pub async fn create_task(
         updated_at: None,
         parent_task_id: req.parent_task_id.clone(),
         append_system_prompt: None,
+        sandbox_started_at: None,
     };
 
     insert_and_provision_task(
