@@ -196,48 +196,4 @@ impl GithubPrApi {
             .map_err(|e| ChannelError::ProviderApi(format!("GitHub get_pr parse error: {e}")))
     }
 
-    /// Get PR diff as plain text.
-    pub async fn get_pr_diff(
-        &self,
-        owner: &str,
-        repo: &str,
-        pr_number: u64,
-        max_size: usize,
-    ) -> Result<String, ChannelError> {
-        let url = format!("https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}");
-
-        let resp = self
-            .client
-            .get(&url)
-            .header("Authorization", format!("Bearer {}", self.token))
-            .header("User-Agent", "moatless-vibe")
-            .header("Accept", "application/vnd.github.diff")
-            .header("X-GitHub-Api-Version", "2022-11-28")
-            .send()
-            .await
-            .map_err(|e| ChannelError::ProviderApi(format!("GitHub get_pr_diff failed: {e}")))?;
-
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
-            return Err(ChannelError::ProviderApi(format!(
-                "GitHub get_pr_diff returned {status}: {text}"
-            )));
-        }
-
-        let diff = resp
-            .text()
-            .await
-            .map_err(|e| ChannelError::ProviderApi(format!("GitHub get_pr_diff read error: {e}")))?;
-
-        if diff.len() > max_size {
-            let truncated = &diff[..max_size];
-            // Try to truncate at a newline boundary
-            let cut = truncated.rfind('\n').unwrap_or(max_size);
-            Ok(format!("{}\n\n... (diff truncated)", &diff[..cut]))
-        } else {
-            Ok(diff)
-        }
-    }
-
 }

@@ -402,16 +402,12 @@ moat channels create --provider telegram --source '*' --repo <repo-id> --mode on
 Source ID is the repository in `owner/repo` format. Each PR becomes a separate thread. Recommended routing mode: `thread_based`.
 
 ```bash
-# Basic — includes PR diff on open (default)
+# Basic
 moat channels create --provider github_pr --source aorwall/my-repo --repo <repo-id> --mode thread_based
 
 # With bot token and webhook secret
 moat channels create --provider github_pr --source aorwall/my-repo --repo <repo-id> --mode thread_based \
   --provider-config '{"bot_token":"ghp_abc123","webhook_secret":"whsec_xyz","bot_username":"my-bot[bot]"}'
-
-# Disable diff inclusion
-moat channels create --provider github_pr --source aorwall/my-repo --repo <repo-id> --mode thread_based \
-  --provider-config '{"include_diff":false}'
 ```
 
 **Provider config fields** (`--provider-config` JSON):
@@ -421,8 +417,6 @@ moat channels create --provider github_pr --source aorwall/my-repo --repo <repo-
 | `webhook_secret` | string | — | Per-channel webhook secret (overrides `GITHUB_CHANNEL_WEBHOOK_SECRET` env) |
 | `bot_token` | string | — | GitHub token for API calls (overrides `GITHUB_CHANNEL_TOKEN` env, falls back to owner's linked GitHub token) |
 | `bot_username` | string | — | Bot's GitHub login (filters self-replies from webhooks) |
-| `include_diff` | bool | `true` | Include PR diff when a new PR is opened |
-| `max_diff_size` | number | `10000` | Max diff characters to include |
 | `events_filter` | string[] | `[]` (all) | Filter event types: `"pull_request"`, `"issue_comment"`, `"pull_request_review_comment"`, `"pull_request_review"` |
 
 **Webhook URL**: Configure your GitHub repository webhook to point to `{API_URL}/api/v1/channels/github-pr/webhook` with content type `application/json`.

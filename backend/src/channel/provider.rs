@@ -100,7 +100,7 @@ impl ChannelProviders {
     /// Build channel providers from application config.
     ///
     /// Returns `None` when no providers are configured.
-    pub fn from_config(config: &crate::config::Config) -> Option<Self> {
+    pub fn from_config(config: &crate::config::Config, db: DbPool) -> Option<Self> {
         let mut providers = Self::new();
 
         if let (Some(ref token), Some(ref secret)) =
@@ -134,6 +134,7 @@ impl ChannelProviders {
             let github_pr = super::github_pr::provider::GithubPrProvider::new(
                 config.github_pr.webhook_secret.clone(),
                 config.github_pr.bot_token.clone(),
+                db,
             );
             providers.register(Arc::new(github_pr));
             tracing::info!("GitHub PR channel provider configured");

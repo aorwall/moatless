@@ -4,16 +4,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::channel::models::ChannelConfig;
 
-fn default_true() -> bool {
-    true
-}
-
-fn default_max_diff_size() -> usize {
-    10_000
-}
-
 /// Typed representation of `provider_config` JSONB for GitHub PR channels.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct GithubPrProviderConfig {
     /// Per-config webhook secret override (takes precedence over global env var).
     pub webhook_secret: Option<String>,
@@ -26,29 +18,9 @@ pub struct GithubPrProviderConfig {
     /// Possible values: "pull_request", "issue_comment", "pull_request_review_comment", "pull_request_review"
     #[serde(default)]
     pub events_filter: Vec<String>,
-    /// Whether to include the PR diff in the initial message to the agent.
-    #[serde(default = "default_true")]
-    pub include_diff: bool,
-    /// Max diff size in characters to include. Defaults to 10000.
-    #[serde(default = "default_max_diff_size")]
-    pub max_diff_size: usize,
     /// Whether to auto-create channel configs for unconfigured repos from this wildcard template.
     #[serde(default)]
     pub auto_create: bool,
-}
-
-impl Default for GithubPrProviderConfig {
-    fn default() -> Self {
-        Self {
-            webhook_secret: None,
-            bot_token: None,
-            bot_username: None,
-            events_filter: vec![],
-            include_diff: true,
-            max_diff_size: 10_000,
-            auto_create: false,
-        }
-    }
 }
 
 impl GithubPrProviderConfig {
@@ -76,8 +48,6 @@ mod tests {
         assert!(cfg.bot_token.is_none());
         assert!(cfg.bot_username.is_none());
         assert!(cfg.events_filter.is_empty());
-        assert!(cfg.include_diff);
-        assert_eq!(cfg.max_diff_size, 10_000);
     }
 
     #[test]
@@ -87,8 +57,6 @@ mod tests {
             "bot_token": "ghp_abc",
             "bot_username": "my-bot[bot]",
             "events_filter": ["pull_request", "issue_comment"],
-            "include_diff": false,
-            "max_diff_size": 5000,
         });
         let cfg: GithubPrProviderConfig = serde_json::from_value(json).unwrap();
 
@@ -96,8 +64,6 @@ mod tests {
         assert_eq!(cfg.bot_token.as_deref(), Some("ghp_abc"));
         assert_eq!(cfg.bot_username.as_deref(), Some("my-bot[bot]"));
         assert_eq!(cfg.events_filter, vec!["pull_request", "issue_comment"]);
-        assert!(!cfg.include_diff);
-        assert_eq!(cfg.max_diff_size, 5000);
     }
 
     #[test]
@@ -125,7 +91,6 @@ mod tests {
         };
 
         let cfg = GithubPrProviderConfig::from_config(&config);
-        assert!(cfg.include_diff);
         assert!(cfg.bot_username.is_none());
     }
 }

@@ -44,15 +44,22 @@ pub struct GithubPrProvider {
     global_webhook_secret: Option<String>,
     /// Global bot token from env (`GITHUB_CHANNEL_TOKEN`).
     global_bot_token: Option<String>,
+    /// Database pool for looking up provider tokens.
+    db: DbPool,
     /// Deduplication cache: delivery_id → () with 5-minute TTL.
     dedup_cache: Cache<String, ()>,
 }
 
 impl GithubPrProvider {
-    pub fn new(global_webhook_secret: Option<String>, global_bot_token: Option<String>) -> Self {
+    pub fn new(
+        global_webhook_secret: Option<String>,
+        global_bot_token: Option<String>,
+        db: DbPool,
+    ) -> Self {
         Self {
             global_webhook_secret,
             global_bot_token,
+            db,
             dedup_cache: Cache::builder()
                 .time_to_live(Duration::from_secs(300))
                 .max_capacity(10_000)
@@ -62,17 +69,21 @@ impl GithubPrProvider {
 
     /// Resolve a GitHub token for API calls.
     ///
-    /// Order: per-config bot_token → global env → config owner's provider_token.
-    async fn resolve_token(
-        &self,
-        config: &ChannelConfig,
-        db: &DbPool,
-    ) -> Result<String, ChannelError> {
-        let provider_config = GithubPrProviderConfig::from_config(config);
+    /// Order: effective user's provider_token → global env.
+    async fn resolve_token(&self, config: &ChannelConfig) -> Result<String, ChannelError> {
+        // 1. Effective user's provider_token for "github"
+        //    (run_as_user_id if set, otherwise created_by)
+        let user_id = config.effective_user_id();
+        let row = sqlx::query_scalar::<_, String>(
+            "SELECT access_token FROM provider_tokens WHERE user_id = $1 AND provider = 'github' LIMIT 1",
+        )
+        .bind(user_id)
+        .fetch_optional(&self.db)
+        .await
+        .map_err(|e| ChannelError::ProviderApi(format!("Failed to fetch provider token: {e}")))?;
 
-        // 1. Per-config bot_token
-        if let Some(ref token) = provider_config.bot_token {
-            return Ok(token.clone());
+        if let Some(token) = row {
+            return Ok(token);
         }
 
         // 2. Global env token
@@ -80,35 +91,9 @@ impl GithubPrProvider {
             return Ok(token.clone());
         }
 
-        // 3. Config owner's provider_token for "github"
-        let row = sqlx::query_scalar::<_, String>(
-            "SELECT access_token FROM provider_tokens WHERE user_id = $1 AND provider = 'github' LIMIT 1",
-        )
-        .bind(&config.created_by)
-        .fetch_optional(db)
-        .await
-        .map_err(|e| ChannelError::ProviderApi(format!("Failed to fetch provider token: {e}")))?;
-
-        row.ok_or_else(|| {
-            ChannelError::ProviderApi(
-                "No GitHub token available: set bot_token in provider_config, GITHUB_CHANNEL_TOKEN env, or connect a GitHub account".into(),
-            )
-        })
-    }
-
-    /// Resolve token for outbound calls where DB pool is not available via trait.
-    /// Falls back to global token or per-config token only.
-    fn resolve_token_outbound(&self, config: &ChannelConfig) -> Result<String, ChannelError> {
-        let provider_config = GithubPrProviderConfig::from_config(config);
-
-        provider_config
-            .bot_token
-            .or_else(|| self.global_bot_token.clone())
-            .ok_or_else(|| {
-                ChannelError::ProviderApi(
-                    "No GitHub token available for outbound (set bot_token in provider_config or GITHUB_CHANNEL_TOKEN env)".into(),
-                )
-            })
+        Err(ChannelError::ProviderApi(format!(
+            "No GitHub token available: user {user_id} has no GitHub provider token and GITHUB_CHANNEL_TOKEN env is not set"
+        )))
     }
 
     /// Extract owner, repo, and PR number from thread properties.
@@ -204,10 +189,7 @@ impl GithubPrProvider {
         };
 
         match event_type {
-            "pull_request" => {
-                self.handle_pull_request_event(payload, &provider_config, &ctx)
-                    .await
-            }
+            "pull_request" => self.handle_pull_request_event(payload, &ctx).await,
             "issue_comment" => self.handle_issue_comment_event(payload, &ctx).await,
             "pull_request_review_comment" => {
                 self.handle_review_comment_event(payload, &ctx).await
@@ -223,7 +205,6 @@ impl GithubPrProvider {
     async fn handle_pull_request_event(
         &self,
         payload: &serde_json::Value,
-        provider_config: &GithubPrProviderConfig,
         ctx: &EventContext<'_>,
     ) -> Result<GithubPrWebhookResult, ChannelError> {
         let action = payload
@@ -246,6 +227,10 @@ impl GithubPrProvider {
             .ok_or_else(|| ChannelError::BadRequest("Missing PR number".into()))?;
         let title = pr.get("title").and_then(serde_json::Value::as_str).unwrap_or("");
         let body = pr.get("body").and_then(serde_json::Value::as_str).unwrap_or("");
+        let html_url = pr
+            .get("html_url")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
         let head_ref = pr
             .pointer("/head/ref")
             .and_then(serde_json::Value::as_str)
@@ -264,31 +249,12 @@ impl GithubPrProvider {
             ctx.sender_login,
         );
 
-        if !body.is_empty() {
-            let _ = write!(text, "\n### Description\n{body}\n");
+        if !html_url.is_empty() {
+            let _ = writeln!(text, "**Link:** {html_url}");
         }
 
-        // Optionally include diff
-        if provider_config.include_diff {
-            match self.resolve_token(ctx.config, ctx.db).await {
-                Ok(token) => {
-                    let api = GithubPrApi::new(&token);
-                    match api
-                        .get_pr_diff(ctx.owner, ctx.repo, pr_number, provider_config.max_diff_size)
-                        .await
-                    {
-                        Ok(diff) => {
-                            let _ = write!(text, "\n### Diff\n```diff\n{diff}\n```\n");
-                        }
-                        Err(e) => {
-                            warn!(error = %e, "Failed to fetch PR diff, continuing without it");
-                        }
-                    }
-                }
-                Err(e) => {
-                    warn!(error = %e, "No token available for PR diff, continuing without it");
-                }
-            }
+        if !body.is_empty() {
+            let _ = write!(text, "\n### Description\n{body}\n");
         }
 
         let user_id = self
@@ -366,7 +332,7 @@ impl GithubPrProvider {
             thread_id: Some(pr_number.to_string()),
             message_thread_id: pr_number.to_string(),
             user_id,
-            text: comment_body.to_string(),
+            text: format!("**@{}** commented:\n\n{}", ctx.sender_login, comment_body),
             file_ids: vec![],
             thread_properties: serde_json::json!({
                 "owner": ctx.owner,
@@ -418,20 +384,50 @@ impl GithubPrProvider {
             .get("path")
             .and_then(serde_json::Value::as_str)
             .unwrap_or("");
+        let line = comment.get("line").and_then(serde_json::Value::as_u64);
+        let start_line = comment
+            .get("start_line")
+            .and_then(serde_json::Value::as_u64);
+        let html_url = comment
+            .get("html_url")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        let in_reply_to_id = comment
+            .get("in_reply_to_id")
+            .and_then(serde_json::Value::as_u64);
 
         // Filter comments with agent marker
         if comment_body.contains(AGENT_MARKER) {
             return Ok(GithubPrWebhookResult::Ignore);
         }
 
-        // Include diff context in the message
-        let text = if diff_hunk.is_empty() {
-            comment_body.to_string()
-        } else {
-            format!(
-                "**Review comment on `{path}`:**\n\n```diff\n{diff_hunk}\n```\n\n{comment_body}"
-            )
-        };
+        // Build rich message text with author, file, line info
+        let mut text = format!("**@{}** commented on `{path}`", ctx.sender_login);
+
+        match (start_line, line) {
+            (Some(start), Some(end)) if start != end => {
+                let _ = write!(text, " (lines {start}-{end})");
+            }
+            (_, Some(ln)) => {
+                let _ = write!(text, " (line {ln})");
+            }
+            _ => {}
+        }
+        text.push_str(":\n");
+
+        if !html_url.is_empty() {
+            let _ = writeln!(text, "{html_url}");
+        }
+
+        if let Some(reply_id) = in_reply_to_id {
+            let _ = write!(text, "\n> In reply to comment {reply_id}\n");
+        }
+
+        if !diff_hunk.is_empty() {
+            let _ = write!(text, "\n```diff\n{diff_hunk}\n```\n");
+        }
+
+        let _ = write!(text, "\n{comment_body}");
 
         let user_id = self
             .resolve_user_or_fallback(ctx.sender_login, ctx.config, ctx.db)
@@ -450,6 +446,7 @@ impl GithubPrProvider {
                 "repo": ctx.repo,
                 "pr_number": pr_number,
                 "comment_id": comment_id,
+                "in_reply_to_id": in_reply_to_id,
             }),
             provider_context: serde_json::json!({}),
             channel_external_id: Some(comment_id.to_string()),
@@ -505,7 +502,10 @@ impl GithubPrProvider {
             _ => "Review",
         };
 
-        let text = format!("**{state_label}:**\n\n{review_body}");
+        let text = format!(
+            "**@{}** — {state_label}:\n\n{review_body}",
+            ctx.sender_login
+        );
 
         let user_id = self
             .resolve_user_or_fallback(ctx.sender_login, ctx.config, ctx.db)
@@ -583,7 +583,7 @@ impl ChannelProvider for GithubPrProvider {
         message: &OutboundReply,
     ) -> Result<Option<String>, ChannelError> {
         let (owner, repo, pr_number) = Self::parse_thread_props(thread)?;
-        let token = self.resolve_token_outbound(config)?;
+        let token = self.resolve_token(config).await?;
         let api = GithubPrApi::new(&token);
 
         // Add agent marker and optional task URL
@@ -606,7 +606,7 @@ impl ChannelProvider for GithubPrProvider {
     ) -> Result<Option<String>, ChannelError> {
         let (owner, repo, pr_number) = Self::parse_thread_props(thread)?;
 
-        let token = match self.resolve_token_outbound(config) {
+        let token = match self.resolve_token(config).await {
             Ok(t) => t,
             Err(_) => return Ok(None),
         };

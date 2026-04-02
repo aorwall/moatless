@@ -56,8 +56,6 @@ interface FormState {
   githubWebhookSecret: string
   githubBotToken: string
   githubBotUsername: string
-  githubIncludeDiff: boolean
-  githubMaxDiffSize: string
 }
 
 const PROVIDER_LABELS: Record<string, string> = {
@@ -84,8 +82,6 @@ function makeInitialForm(defaultProvider: string): FormState {
     githubWebhookSecret: '',
     githubBotToken: '',
     githubBotUsername: '',
-    githubIncludeDiff: true,
-    githubMaxDiffSize: '10000',
   }
 }
 
@@ -114,15 +110,11 @@ function formStateFromConfig(config: ChannelConfigResponse): FormState {
     githubWebhookSecret: '',
     githubBotToken: '',
     githubBotUsername: '',
-    githubIncludeDiff: true,
-    githubMaxDiffSize: '10000',
   }
   if (config.provider === 'github_pr' && providerConfig) {
     base.githubWebhookSecret = (providerConfig.webhook_secret as string) ?? ''
     base.githubBotToken = (providerConfig.bot_token as string) ?? ''
     base.githubBotUsername = (providerConfig.bot_username as string) ?? ''
-    base.githubIncludeDiff = (providerConfig.include_diff as boolean) ?? true
-    base.githubMaxDiffSize = String(providerConfig.max_diff_size ?? 10000)
   }
   return base
 }
@@ -186,10 +178,7 @@ function SlackChannelField({
 }
 
 function buildGithubPrPayload(form: FormState): Record<string, unknown> {
-  const providerConfig: Record<string, unknown> = {
-    include_diff: form.githubIncludeDiff,
-    max_diff_size: Number.parseInt(form.githubMaxDiffSize, 10) || 10000,
-  }
+  const providerConfig: Record<string, unknown> = {}
   if (form.githubWebhookSecret) {
     providerConfig.webhook_secret = form.githubWebhookSecret
   }
@@ -336,14 +325,10 @@ interface GitHubPrFieldsProps {
   webhookSecret: string
   botToken: string
   botUsername: string
-  includeDiff: boolean
-  maxDiffSize: string
   onSourceIdChange: (value: string) => void
   onWebhookSecretChange: (value: string) => void
   onBotTokenChange: (value: string) => void
   onBotUsernameChange: (value: string) => void
-  onIncludeDiffChange: (value: boolean) => void
-  onMaxDiffSizeChange: (value: string) => void
   disabled: boolean
 }
 
@@ -352,14 +337,10 @@ function GitHubPrFields({
   webhookSecret,
   botToken,
   botUsername,
-  includeDiff,
-  maxDiffSize,
   onSourceIdChange,
   onWebhookSecretChange,
   onBotTokenChange,
   onBotUsernameChange,
-  onIncludeDiffChange,
-  onMaxDiffSizeChange,
   disabled,
 }: GitHubPrFieldsProps) {
   return (
@@ -416,27 +397,6 @@ function GitHubPrFields({
         />
         <p className="text-xs text-muted-foreground">
           The bot's GitHub login. Used to filter out self-replies from webhooks.
-        </p>
-      </div>
-      <div className="flex items-center justify-between">
-        <div>
-          <Label>Include PR Diff</Label>
-          <p className="text-xs text-muted-foreground">
-            Include the PR diff when a new PR is opened.
-          </p>
-        </div>
-        <Switch checked={includeDiff} onCheckedChange={onIncludeDiffChange} />
-      </div>
-      <div className="space-y-2">
-        <Label>Max Diff Size</Label>
-        <Input
-          type="number"
-          value={maxDiffSize}
-          onChange={(e) => onMaxDiffSizeChange(e.target.value)}
-          placeholder="10000"
-        />
-        <p className="text-xs text-muted-foreground">
-          Maximum diff size in characters to include (default 10000).
         </p>
       </div>
     </>
@@ -578,8 +538,6 @@ export function ChannelConfigFormDialog({
                   githubWebhookSecret: '',
                   githubBotToken: '',
                   githubBotUsername: '',
-                  githubIncludeDiff: true,
-                  githubMaxDiffSize: '10000',
                 }))
               }
               disabled={isEditing}
@@ -627,16 +585,12 @@ export function ChannelConfigFormDialog({
               webhookSecret={form.githubWebhookSecret}
               botToken={form.githubBotToken}
               botUsername={form.githubBotUsername}
-              includeDiff={form.githubIncludeDiff}
-              maxDiffSize={form.githubMaxDiffSize}
               onSourceIdChange={(v) => setForm((prev) => ({ ...prev, sourceId: v }))}
               onWebhookSecretChange={(v) =>
                 setForm((prev) => ({ ...prev, githubWebhookSecret: v }))
               }
               onBotTokenChange={(v) => setForm((prev) => ({ ...prev, githubBotToken: v }))}
               onBotUsernameChange={(v) => setForm((prev) => ({ ...prev, githubBotUsername: v }))}
-              onIncludeDiffChange={(v) => setForm((prev) => ({ ...prev, githubIncludeDiff: v }))}
-              onMaxDiffSizeChange={(v) => setForm((prev) => ({ ...prev, githubMaxDiffSize: v }))}
               disabled={isEditing}
             />
           )}
