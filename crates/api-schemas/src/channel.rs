@@ -73,6 +73,9 @@ pub struct ChannelConfigResponse {
 #[serde(rename_all = "camelCase")]
 pub struct SendChannelMessageRequest {
     pub text: String,
+    /// File IDs (from `/api/v1/uploads`) to attach to the message.
+    #[serde(default)]
+    pub file_ids: Vec<String>,
 }
 
 /// Response from sending a message through channel(s).

@@ -309,4 +309,127 @@ impl SlackApi {
         Ok(filtered)
     }
 
+    /// Upload a file to a Slack channel/thread using the V2 upload flow.
+    ///
+    /// 1. `files.getUploadURLExternal` — get a presigned upload URL from Slack
+    /// 2. Upload file bytes to that URL
+    /// 3. `files.completeUploadExternal` — finalize, associating with channel + thread
+    pub async fn upload_file(
+        &self,
+        channel: &str,
+        thread_ts: Option<&str>,
+        filename: &str,
+        content: Vec<u8>,
+    ) -> Result<(), ChannelError> {
+        let length_str = content.len().to_string();
+
+        // Step 1: Get presigned upload URL
+        let resp: GetUploadUrlResponse = self
+            .client
+            .get("https://slack.com/api/files.getUploadURLExternal")
+            .bearer_auth(&self.token)
+            .query(&[("filename", filename), ("length", &length_str)])
+            .send()
+            .await
+            .map_err(|e| {
+                ChannelError::ProviderApi(format!(
+                    "files.getUploadURLExternal failed: {e}"
+                ))
+            })?
+            .json()
+            .await
+            .map_err(|e| {
+                ChannelError::ProviderApi(format!(
+                    "files.getUploadURLExternal parse failed: {e}"
+                ))
+            })?;
+
+        if !resp.ok {
+            let err = resp.error.unwrap_or_default();
+            return Err(ChannelError::ProviderApi(format!(
+                "files.getUploadURLExternal: {err}"
+            )));
+        }
+
+        let upload_url = resp.upload_url.ok_or_else(|| {
+            ChannelError::ProviderApi("files.getUploadURLExternal: no upload_url".into())
+        })?;
+        let slack_file_id = resp.file_id.ok_or_else(|| {
+            ChannelError::ProviderApi("files.getUploadURLExternal: no file_id".into())
+        })?;
+
+        // Step 2: Upload file content to presigned URL
+        let upload_status = self
+            .client
+            .post(&upload_url)
+            .body(content)
+            .send()
+            .await
+            .map_err(|e| {
+                ChannelError::ProviderApi(format!("File upload to presigned URL failed: {e}"))
+            })?
+            .status();
+
+        if !upload_status.is_success() {
+            return Err(ChannelError::ProviderApi(format!(
+                "File upload returned HTTP {upload_status}"
+            )));
+        }
+
+        // Step 3: Complete the upload, associating with channel + thread
+        let mut complete_body = serde_json::json!({
+            "files": [{ "id": slack_file_id, "title": filename }],
+            "channel_id": channel,
+        });
+        if let Some(ts) = thread_ts {
+            complete_body["thread_ts"] = serde_json::Value::String(ts.to_string());
+        }
+
+        let complete_resp: CompleteUploadResponse = self
+            .client
+            .post("https://slack.com/api/files.completeUploadExternal")
+            .bearer_auth(&self.token)
+            .json(&complete_body)
+            .send()
+            .await
+            .map_err(|e| {
+                ChannelError::ProviderApi(format!(
+                    "files.completeUploadExternal failed: {e}"
+                ))
+            })?
+            .json()
+            .await
+            .map_err(|e| {
+                ChannelError::ProviderApi(format!(
+                    "files.completeUploadExternal parse failed: {e}"
+                ))
+            })?;
+
+        if !complete_resp.ok {
+            let err = complete_resp.error.unwrap_or_default();
+            return Err(ChannelError::ProviderApi(format!(
+                "files.completeUploadExternal: {err}"
+            )));
+        }
+
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Response types for file upload V2 flow
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+struct GetUploadUrlResponse {
+    ok: bool,
+    error: Option<String>,
+    upload_url: Option<String>,
+    file_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct CompleteUploadResponse {
+    ok: bool,
+    error: Option<String>,
 }

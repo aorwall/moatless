@@ -17,6 +17,22 @@ use super::api::SlackApi;
 use super::config::SlackProviderConfig;
 use super::signature;
 
+/// Slack-specific reply instructions appended to the system prompt for tasks
+/// created from Slack messages.
+const SLACK_REPLY_INSTRUCTIONS: &str = "\
+## Slack-specific instructions
+
+### Mentioning users
+The message includes the sender's identity (e.g. \"Name (login, Slack: U12345): ...\"). \
+To mention them in your reply, use their Slack user ID with the format `<@U12345>`.
+
+### Attaching files
+To include files (screenshots, logs, generated artifacts) in your reply, use the `--file` flag:
+- `moat reply --text \"Here are the results\" --file screenshot.png`
+- `moat reply --text \"Logs attached\" --file output.log --file error.log`
+- Multiple `--file` flags can be used to attach several files at once.
+- Images will render inline in the Slack thread.";
+
 /// Result of parsing a Slack webhook event.
 pub enum SlackWebhookResult {
     /// URL verification challenge — return the challenge string immediately.
@@ -253,6 +269,14 @@ impl ChannelProvider for SlackProvider {
         self
     }
 
+    fn supports_files(&self) -> bool {
+        true
+    }
+
+    fn reply_instructions(&self) -> Option<&'static str> {
+        Some(SLACK_REPLY_INSTRUCTIONS)
+    }
+
     async fn resolve_user(
         &self,
         identity: &str,
@@ -311,6 +335,22 @@ impl ChannelProvider for SlackProvider {
             .api
             .post_message(channel, &text, Some(thread_ts))
             .await?;
+
+        // Upload file attachments (best-effort: log failures, don't fail the reply)
+        for file in &message.files {
+            if let Err(e) = self
+                .api
+                .upload_file(channel, Some(thread_ts), &file.filename, file.data.clone())
+                .await
+            {
+                warn!(
+                    filename = %file.filename,
+                    error = %e,
+                    "Failed to upload file attachment to Slack"
+                );
+            }
+        }
+
         Ok(ts)
     }
 
@@ -334,6 +374,21 @@ impl ChannelProvider for SlackProvider {
             .ok_or_else(|| {
                 ChannelError::Internal("Slack did not return message ts".into())
             })?;
+
+        // Upload file attachments (best-effort: log failures, don't fail the message)
+        for file in &message.files {
+            if let Err(e) = self
+                .api
+                .upload_file(channel, Some(&ts), &file.filename, file.data.clone())
+                .await
+            {
+                warn!(
+                    filename = %file.filename,
+                    error = %e,
+                    "Failed to upload file attachment to Slack"
+                );
+            }
+        }
 
         Ok(NewThreadInfo {
             external_thread_id: ts.clone(),

@@ -252,6 +252,7 @@ pub async fn run(
 
             let req = SendChannelMessageRequest {
                 text: message_text,
+                file_ids: vec![],
             };
 
             let resp = if let Some(config_id) = channel {

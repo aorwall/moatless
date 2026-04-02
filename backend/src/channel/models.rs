@@ -89,12 +89,21 @@ pub struct InboundMessage {
     pub channel_external_id: Option<String>,
 }
 
+/// Resolved file attachment for outbound channel messages.
+#[derive(Debug)]
+pub struct OutboundFile {
+    pub filename: String,
+    pub mime_type: String,
+    pub data: Vec<u8>,
+}
+
 /// Outbound reply to send back to a channel.
 #[derive(Debug)]
 pub struct OutboundReply {
     pub text: String,
     pub task_url: Option<String>,
     pub is_error: bool,
+    pub files: Vec<OutboundFile>,
 }
 
 /// Info returned by `send_message` to create a new `ChannelThread`.

@@ -579,6 +579,27 @@ impl ApiClient {
     }
 
     // ========================================================================
+    // File uploads
+    // ========================================================================
+
+    /// POST /api/v1/uploads (multipart)
+    pub async fn upload_file(
+        &self,
+        filename: &str,
+        mime_type: &str,
+        data: Vec<u8>,
+    ) -> Result<moatless_api_schemas::file_storage::UploadResponse, ApiError> {
+        let url = format!("{}/api/v1/uploads", self.base_url);
+        let part = reqwest::multipart::Part::bytes(data)
+            .file_name(filename.to_string())
+            .mime_str(mime_type)
+            .map_err(ApiError::Http)?;
+        let form = reqwest::multipart::Form::new().part("file", part);
+        let resp = self.http.post(&url).multipart(form).send().await?;
+        self.parse_response(resp).await
+    }
+
+    // ========================================================================
     // Teams
     // ========================================================================
 

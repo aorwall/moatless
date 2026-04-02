@@ -9,7 +9,7 @@ use crate::event_handler::models::{AgentEvent, EventKey};
 use crate::state::AppState;
 
 use super::error::ChannelError;
-use super::models::{ChannelConfig, ChannelThread, OutboundReply};
+use super::models::{ChannelConfig, ChannelThread, OutboundFile, OutboundReply};
 use super::provider::{ChannelProvider, ChannelProviders};
 
 /// Resolved outbound target for a channel notification.
@@ -35,12 +35,15 @@ pub(crate) enum OutboundTarget<'a> {
 /// Send a message to channel(s) for a task (explicit send from agent/CLI).
 ///
 /// If `config_id` is `Some`, sends only to that channel; otherwise sends to all.
+/// When `file_ids` is non-empty, files are resolved from S3 and included in the reply.
+/// Providers that don't support files will receive an error.
 /// Returns `(sent_count, errors)`.
 pub async fn send_to_channels(
     state: &AppState,
     providers: &ChannelProviders,
     task_id: &str,
     text: &str,
+    file_ids: &[String],
     config_id: Option<&str>,
 ) -> Result<(u32, Vec<String>), ChannelError> {
     let threads = if let Some(cid) = config_id {
@@ -62,10 +65,13 @@ pub async fn send_to_channels(
         t
     };
 
+    let files = resolve_files(state, file_ids).await;
+
     let reply = OutboundReply {
         text: truncate_text(text, 4000),
         task_url: None,
         is_error: false,
+        files,
     };
 
     let mut sent_count = 0u32;
@@ -108,6 +114,15 @@ pub async fn send_to_channels(
             errors.push(format!("No provider for config {}", config.id));
             continue;
         };
+
+        // Reject if files are attached but the provider doesn't support them.
+        if !reply.files.is_empty() && !target_supports_files(&target) {
+            let provider_name = target_provider_type(&target);
+            errors.push(format!(
+                "Provider {provider_name:?} does not support file attachments"
+            ));
+            continue;
+        }
 
         match send_outbound_result(state, task_id, target, &reply).await {
             Ok(()) => sent_count += 1,
@@ -208,6 +223,7 @@ pub async fn handle_channel_notification(
                     text: truncate_text(result_text, 2000),
                     task_url: if is_first_reply { Some(task_url) } else { None },
                     is_error: false,
+                    files: vec![],
                 };
 
                 send_outbound(state, &event.task_id, target, &reply, message_id)
@@ -227,6 +243,7 @@ pub async fn handle_channel_notification(
                     text: format!("Error: {}", truncate_text(error_msg, 1900)),
                     task_url: if is_first_reply { Some(task_url) } else { None },
                     is_error: true,
+                    files: vec![],
                 };
 
                 send_outbound(state, &event.task_id, target, &reply, message_id).await;
@@ -604,5 +621,76 @@ pub(crate) fn truncate_text(text: &str, max: usize) -> String {
         text.to_string()
     } else {
         format!("{}...", &text[..max.saturating_sub(3)])
+    }
+}
+
+// ---------------------------------------------------------------------------
+// File attachment helpers
+// ---------------------------------------------------------------------------
+
+/// Resolve file IDs to [`OutboundFile`] structs by loading metadata + data from S3.
+///
+/// Failures for individual files are logged as warnings and skipped.
+async fn resolve_files(state: &AppState, file_ids: &[String]) -> Vec<OutboundFile> {
+    if file_ids.is_empty() {
+        return vec![];
+    }
+
+    let Some(s3_client) = state.s3.as_ref() else {
+        warn!("S3 not configured, cannot resolve file attachments");
+        return vec![];
+    };
+    let Some(bucket) = state.config.s3.bucket_name.as_ref() else {
+        warn!("S3 bucket not configured, cannot resolve file attachments");
+        return vec![];
+    };
+
+    let mut files = Vec::with_capacity(file_ids.len());
+    for file_id in file_ids {
+        let meta = match state.files.find_by_id(file_id).await {
+            Ok(Some(m)) => m,
+            Ok(None) => {
+                warn!(file_id = %file_id, "File metadata not found for outbound attachment");
+                continue;
+            }
+            Err(e) => {
+                warn!(file_id = %file_id, error = %e, "Failed to load file metadata");
+                continue;
+            }
+        };
+
+        let s3_key = format!("{}/{}", state.config.s3.key_prefix, file_id);
+        match crate::file_storage::s3::get_object(s3_client, bucket, &s3_key).await {
+            Ok((data, _content_type)) => {
+                files.push(OutboundFile {
+                    filename: meta.filename,
+                    mime_type: meta.mime_type,
+                    data,
+                });
+            }
+            Err(e) => {
+                warn!(file_id = %file_id, error = %e, "Failed to download file from S3");
+            }
+        }
+    }
+
+    files
+}
+
+/// Check whether the resolved outbound target's provider supports file attachments.
+fn target_supports_files(target: &OutboundTarget<'_>) -> bool {
+    match target {
+        OutboundTarget::Reply { provider, .. } | OutboundTarget::NewMessage { provider, .. } => {
+            provider.supports_files()
+        }
+    }
+}
+
+/// Get the channel type of the resolved outbound target's provider (for error messages).
+fn target_provider_type(target: &OutboundTarget<'_>) -> super::provider::ChannelType {
+    match target {
+        OutboundTarget::Reply { provider, .. } | OutboundTarget::NewMessage { provider, .. } => {
+            provider.channel_type()
+        }
     }
 }

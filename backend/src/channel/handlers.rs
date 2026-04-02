@@ -1090,7 +1090,7 @@ pub async fn send_to_task_channels(
         .ok_or_else(|| ChannelError::ProviderNotConfigured("No channel providers configured".into()))?;
 
     let (sent_count, errors) =
-        super::outbound::send_to_channels(&state, providers, &task_id, &req.text, None).await?;
+        super::outbound::send_to_channels(&state, providers, &task_id, &req.text, &req.file_ids, None).await?;
 
     if sent_count == 0 && !errors.is_empty() {
         return Err(ChannelError::ProviderApi(errors.join("; ")));
@@ -1127,7 +1127,7 @@ pub async fn send_to_task_channel(
         .ok_or_else(|| ChannelError::ProviderNotConfigured("No channel providers configured".into()))?;
 
     let (sent_count, errors) =
-        super::outbound::send_to_channels(&state, providers, &task_id, &req.text, Some(&config_id))
+        super::outbound::send_to_channels(&state, providers, &task_id, &req.text, &req.file_ids, Some(&config_id))
             .await?;
 
     if sent_count == 0 && !errors.is_empty() {

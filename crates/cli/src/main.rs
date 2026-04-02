@@ -122,6 +122,9 @@ enum SandboxCommands {
         /// Message text (reads from stdin if omitted and stdin is piped)
         #[arg(long)]
         text: Option<String>,
+        /// File(s) to attach (can be specified multiple times)
+        #[arg(long = "file")]
+        files: Vec<String>,
     },
 }
 
@@ -215,11 +218,42 @@ async fn run_sandbox(cli: SandboxCli) -> Result<(), Box<dyn std::error::Error>> 
                 println!("Tags set: {}", tags.join(", "));
             }
         }
-        SandboxCommands::Reply { channel, text } => {
+        SandboxCommands::Reply {
+            channel,
+            text,
+            files,
+        } => {
             let task_id = require_task_id(&cfg)?;
             let message_text = read_text_or_stdin(text)?;
+
+            // Upload files first, collect file_ids
+            let mut file_ids = Vec::new();
+            for path_str in &files {
+                let path = std::path::Path::new(path_str);
+                if !path.exists() {
+                    return Err(format!("File not found: {path_str}").into());
+                }
+                let data = std::fs::read(path)
+                    .map_err(|e| format!("Failed to read {path_str}: {e}"))?;
+                let filename = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("unnamed");
+                let mime_type = mime_guess::from_path(path)
+                    .first_or_octet_stream()
+                    .to_string();
+
+                let upload_resp = moat
+                    .api()
+                    .upload_file(filename, &mime_type, data)
+                    .await
+                    .map_err(|e| format!("Failed to upload {path_str}: {e}"))?;
+                file_ids.push(upload_resp.file_id);
+            }
+
             let req = SendChannelMessageRequest {
                 text: message_text,
+                file_ids,
             };
             let resp = if let Some(config_id) = channel {
                 moat.api()
