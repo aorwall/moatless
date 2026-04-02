@@ -301,6 +301,10 @@ impl GithubPrProvider {
             .get("html_url")
             .and_then(serde_json::Value::as_str)
             .unwrap_or("");
+        let head_ref = pr
+            .pointer("/head/ref")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
 
         let before = payload
             .get("before")
@@ -312,7 +316,7 @@ impl GithubPrProvider {
             .unwrap_or("");
 
         let mut text = format!(
-            "**@{}** pushed new commits to PR #{pr_number}\n",
+            "**@{}** pushed new commits to PR #{pr_number} (`{head_ref}`)\n",
             ctx.sender_login,
         );
 
@@ -320,52 +324,10 @@ impl GithubPrProvider {
             let _ = writeln!(text, "{html_url}");
         }
 
-        // Fetch commit details and changed files via compare API
         if !before.is_empty() && !after.is_empty() {
-            match self.resolve_token(ctx.config).await {
-                Ok(token) => {
-                    let api = GithubPrApi::new(&token);
-                    match api.compare_commits(ctx.owner, ctx.repo, before, after).await {
-                        Ok((commits, files)) => {
-                            if !commits.is_empty() {
-                                let _ = writeln!(text, "\n### Commits");
-                                for c in &commits {
-                                    let short_sha = &c.sha[..7.min(c.sha.len())];
-                                    let first_line = c
-                                        .commit
-                                        .message
-                                        .lines()
-                                        .next()
-                                        .unwrap_or("");
-                                    let _ = writeln!(text, "- `{short_sha}` {first_line}");
-                                }
-                            }
-                            if !files.is_empty() {
-                                let _ = writeln!(text, "\n### Changed files");
-                                for f in &files {
-                                    let _ = writeln!(text, "- {} `{}`", f.status, f.filename);
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            warn!(error = %e, "Failed to fetch commit comparison, continuing without details");
-                            if !before.is_empty() && !after.is_empty() {
-                                let short_before = &before[..7.min(before.len())];
-                                let short_after = &after[..7.min(after.len())];
-                                let _ = writeln!(text, "\n`{short_before}` → `{short_after}`");
-                            }
-                        }
-                    }
-                }
-                Err(e) => {
-                    warn!(error = %e, "No token available for commit comparison");
-                    if !before.is_empty() && !after.is_empty() {
-                        let short_before = &before[..7.min(before.len())];
-                        let short_after = &after[..7.min(after.len())];
-                        let _ = writeln!(text, "\n`{short_before}` → `{short_after}`");
-                    }
-                }
-            }
+            let short_before = &before[..7.min(before.len())];
+            let short_after = &after[..7.min(after.len())];
+            let _ = writeln!(text, "\n`{short_before}` → `{short_after}`");
         }
 
         let user_id = self

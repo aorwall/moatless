@@ -236,6 +236,7 @@ impl SlackProvider {
             thread_properties,
             provider_context: serde_json::json!({
                 "team_id": payload.get("team_id").and_then(|v| v.as_str()).unwrap_or(""),
+                "user_id": user,
             }),
             channel_external_id: Some(ts.to_string()),
         })))

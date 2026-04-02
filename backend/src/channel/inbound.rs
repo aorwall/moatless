@@ -197,7 +197,31 @@ pub async fn process_inbound(
         .and_then(|v| v.as_str())
         .is_some();
 
+    // Look up sender identity for agent context
     let mut message_text = msg.text.clone();
+    let sender_label = match state.users.get_user(&msg.user_id).await {
+        Ok(Some(user)) => {
+            let display = user.name.as_deref().unwrap_or(&user.login);
+            let provider_user_id = msg
+                .provider_context
+                .get("user_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if provider_user_id.is_empty() {
+                Some(format!("{display} ({login})", login = user.login))
+            } else {
+                Some(format!(
+                    "{display} ({login}, Slack: {provider_user_id})",
+                    login = user.login
+                ))
+            }
+        }
+        _ => None,
+    };
+    if let Some(label) = sender_label {
+        message_text = format!("{label}: {message_text}");
+    }
+
     if let Some(ctx) = thread_context {
         if has_cursor {
             // Subsequent message — just prepend the new thread messages

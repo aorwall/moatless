@@ -63,25 +63,6 @@ pub struct PrRef {
     pub ref_name: String,
 }
 
-/// A commit from the compare API.
-#[derive(Debug, Clone, Deserialize)]
-pub struct CompareCommit {
-    pub sha: String,
-    pub commit: CompareCommitInner,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct CompareCommitInner {
-    pub message: String,
-}
-
-/// A changed file from the compare API.
-#[derive(Debug, Clone, Deserialize)]
-pub struct CompareFile {
-    pub filename: String,
-    pub status: String,
-}
-
 /// GitHub REST API client for PR operations.
 pub struct GithubPrApi {
     client: Client,
@@ -185,50 +166,6 @@ impl GithubPrApi {
             .map_err(|e| ChannelError::ProviderApi(format!("GitHub list_comments parse error: {e}")))?;
 
         Ok(comments)
-    }
-
-    /// Compare two commits and return the commits and changed files.
-    pub async fn compare_commits(
-        &self,
-        owner: &str,
-        repo: &str,
-        base: &str,
-        head: &str,
-    ) -> Result<(Vec<CompareCommit>, Vec<CompareFile>), ChannelError> {
-        let url = format!(
-            "https://api.github.com/repos/{owner}/{repo}/compare/{base}...{head}"
-        );
-
-        let resp = self
-            .request(reqwest::Method::GET, &url)
-            .send()
-            .await
-            .map_err(|e| ChannelError::ProviderApi(format!("GitHub compare_commits failed: {e}")))?;
-
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
-            return Err(ChannelError::ProviderApi(format!(
-                "GitHub compare_commits returned {status}: {text}"
-            )));
-        }
-
-        let data: serde_json::Value = resp
-            .json()
-            .await
-            .map_err(|e| ChannelError::ProviderApi(format!("GitHub compare_commits parse error: {e}")))?;
-
-        let commits: Vec<CompareCommit> = data
-            .get("commits")
-            .and_then(|v| serde_json::from_value(v.clone()).ok())
-            .unwrap_or_default();
-
-        let files: Vec<CompareFile> = data
-            .get("files")
-            .and_then(|v| serde_json::from_value(v.clone()).ok())
-            .unwrap_or_default();
-
-        Ok((commits, files))
     }
 
     /// Get PR metadata (title, body, author, state, branches).
