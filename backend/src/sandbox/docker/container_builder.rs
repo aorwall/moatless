@@ -79,6 +79,12 @@ pub fn build_container_config(
         env.push(format!("REPO_CONFIG={repo_config_json}"));
     }
 
+    // Proxy domain and protocol for constructing preview URLs
+    if let Some(ref domain) = config.proxy.domain {
+        env.push(format!("PROXY_DOMAIN={domain}"));
+        env.push(format!("PROXY_PROTOCOL={}", config.proxy.protocol));
+    }
+
     // Custom env vars from repo config
     if let Some(ref env_vars) = plan.env_vars {
         for (key, value) in env_vars {

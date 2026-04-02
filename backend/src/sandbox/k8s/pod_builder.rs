@@ -201,6 +201,12 @@ fn build_sandbox_container(
         env.push(env_var("REPO_CONFIG", &repo_config_json));
     }
 
+    // Proxy domain and protocol for constructing preview URLs
+    if let Some(ref domain) = config.proxy.domain {
+        env.push(env_var("PROXY_DOMAIN", domain));
+        env.push(env_var("PROXY_PROTOCOL", &config.proxy.protocol));
+    }
+
     if let Some(token) = user_auth_token {
         env.push(env_var("USER_AUTH_TOKEN", token));
     }
@@ -462,10 +468,22 @@ fn build_repo_config_json(plan: &ProvisionPlan) -> Option<String> {
         map.insert("previewConfig".into(), pc.clone());
     }
     if let Some(ref servers) = rc.servers {
-        // Pass server names and ports (no startCommands — handled by K8s)
         let server_entries: Vec<serde_json::Value> = servers
             .iter()
-            .map(|s| serde_json::json!({"name": s.name, "port": s.port}))
+            .map(|s| {
+                let mut entry = serde_json::json!({
+                    "name": s.name,
+                    "port": s.port,
+                    "autoReload": s.auto_reload,
+                });
+                if let Some(ref label) = s.label {
+                    entry["label"] = serde_json::json!(label);
+                }
+                if let Some(ref cmds) = s.start_commands {
+                    entry["startCommands"] = serde_json::json!(cmds);
+                }
+                entry
+            })
             .collect();
         map.insert("servers".into(), serde_json::json!(server_entries));
     }

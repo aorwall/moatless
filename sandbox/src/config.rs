@@ -27,6 +27,39 @@ pub struct CodeExecutionConfig {
     pub setup_commands: Vec<String>,
 }
 
+/// Proxy configuration for constructing preview URLs.
+#[derive(Debug, Clone)]
+pub struct ProxyConfig {
+    /// Proxy domain (e.g., "preview.moatless.xyz")
+    pub domain: Option<String>,
+    /// Protocol (default: "https")
+    pub protocol: String,
+}
+
+impl Default for ProxyConfig {
+    fn default() -> Self {
+        Self {
+            domain: None,
+            protocol: "https".to_string(),
+        }
+    }
+}
+
+/// Server info parsed from REPO_CONFIG, used for system prompt.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerInfo {
+    pub name: String,
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub port: u16,
+    #[serde(default)]
+    pub start_commands: Option<Vec<String>>,
+    #[serde(default)]
+    pub auto_reload: bool,
+}
+
 /// Partial REPO_CONFIG JSON structure — we only parse the fields we need.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -39,6 +72,8 @@ struct RepoConfigFile {
     plugin_ids: Option<Vec<String>>,
     #[serde(default)]
     plugin_repos: Option<Vec<String>>,
+    #[serde(default)]
+    servers: Option<Vec<ServerInfo>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -62,6 +97,7 @@ struct ParsedRepoConfig {
     setup_commands: Vec<String>,
     plugin_ids: Vec<String>,
     plugin_repos: Vec<String>,
+    servers: Vec<ServerInfo>,
 }
 
 /// Main sandbox configuration.
@@ -92,6 +128,10 @@ pub struct Config {
     pub agent_config: AgentConfig,
     /// Path to the Claude CLI binary
     pub claude_cli_path: String,
+    /// Proxy configuration for preview URLs
+    pub proxy: ProxyConfig,
+    /// Server configurations parsed from REPO_CONFIG
+    pub servers: Vec<ServerInfo>,
 
     // ── Init-related fields ────────────────────────────────────────
     /// Home directory (default: "/home/moatless")
@@ -163,6 +203,13 @@ impl Config {
             claude_cli_path: env::var("SANDBOX_CLAUDE_EXECUTABLE_PATH")
                 .unwrap_or_else(|_| "/usr/local/bin/claude".to_string()),
 
+            proxy: ProxyConfig {
+                domain: env::var("PROXY_DOMAIN").ok(),
+                protocol: env::var("PROXY_PROTOCOL")
+                    .unwrap_or_else(|_| "https".to_string()),
+            },
+            servers: parsed.servers,
+
             home_dir,
             claude_config_dir,
             git_clone_url: env::var("GIT_CLONE_URL").ok(),
@@ -186,6 +233,7 @@ fn parse_repo_config() -> ParsedRepoConfig {
                 setup_commands: Vec::new(),
                 plugin_ids: Vec::new(),
                 plugin_repos: Vec::new(),
+                servers: Vec::new(),
             };
         }
     };
@@ -199,6 +247,7 @@ fn parse_repo_config() -> ParsedRepoConfig {
                 setup_commands: Vec::new(),
                 plugin_ids: Vec::new(),
                 plugin_repos: Vec::new(),
+                servers: Vec::new(),
             };
         }
     };
@@ -221,11 +270,13 @@ fn parse_repo_config() -> ParsedRepoConfig {
 
     let plugin_ids = repo_config.plugin_ids.unwrap_or_default();
     let plugin_repos = repo_config.plugin_repos.unwrap_or_default();
+    let servers = repo_config.servers.unwrap_or_default();
 
     ParsedRepoConfig {
         agent_config,
         setup_commands,
         plugin_ids,
         plugin_repos,
+        servers,
     }
 }

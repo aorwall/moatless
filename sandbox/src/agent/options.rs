@@ -84,7 +84,11 @@ const SANDBOX_TOOLS_PROMPT: &str = "\
 
 You have access to the `moat` CLI for managing this task:
 - `moat set-name \"<name>\"` — Set a short, descriptive name for this task (do this early, based on the user's request)
-- `moat set-tags <tag1> <tag2> ...` — Set tags on this task";
+- `moat set-tags <tag1> <tag2> ...` — Set tags on this task
+- `moat tasks status $TASK_ID` — Show sandbox status including server states
+- `moat tasks restart $TASK_ID` — Restart the sandbox (restarts all servers)
+- `moat tasks logs $TASK_ID --server <name>` — Stream server logs (e.g., `--server preview`)
+- `moat tasks redeploy $TASK_ID` — Recreate sandbox with fresh repo config";
 
 /// Build the system prompt configuration.
 #[allow(clippy::unnecessary_wraps)] // Option for caller API consistency
@@ -100,6 +104,11 @@ fn build_system_prompt(config: &Config, request: &AgentRunRequest) -> Option<Sys
         append_parts.push(sp.clone());
     }
 
+    // Add preview server instructions if servers are configured
+    if let Some(server_prompt) = build_server_prompt(config) {
+        append_parts.push(server_prompt);
+    }
+
     append_parts.push(SANDBOX_TOOLS_PROMPT.to_string());
 
     Some(SystemPrompt::Preset {
@@ -107,6 +116,61 @@ fn build_system_prompt(config: &Config, request: &AgentRunRequest) -> Option<Sys
         preset: "claude_code".to_string(),
         append: Some(append_parts.join("\n\n")),
     })
+}
+
+/// Build a system prompt section describing configured preview servers.
+///
+/// Returns `None` if no servers are configured.
+fn build_server_prompt(config: &Config) -> Option<String> {
+    if config.servers.is_empty() {
+        return None;
+    }
+
+    let mut lines = vec![
+        "# Preview Servers".to_string(),
+        String::new(),
+        "The following preview servers are running as sidecars in this sandbox environment. \
+         They start automatically when the workspace is ready — you do not need to start them manually."
+            .to_string(),
+    ];
+
+    for server in &config.servers {
+        lines.push(String::new());
+        let label = server.label.as_deref().unwrap_or(&server.name);
+        lines.push(format!("## {label} (port {port})", port = server.port));
+
+        // Local URL — agent can access directly via same-pod networking
+        lines.push(format!(
+            "- **Local URL**: http://localhost:{} (use this to curl/verify the server — no auth needed)",
+            server.port
+        ));
+
+        // External URL — for the user's browser (they are already authenticated)
+        if let Some(ref domain) = config.proxy.domain {
+            let url = format!(
+                "{}://{}--{}.{}",
+                config.proxy.protocol, config.task_id, server.port, domain
+            );
+            lines.push(format!(
+                "- **External URL**: {url} (share with the user to open in their browser — they are already authenticated)"
+            ));
+        }
+
+        if let Some(ref cmds) = server.start_commands {
+            let joined = cmds.join(" && ");
+            lines.push(format!(
+                "- **Configured start command**: `{joined}` (runs automatically, configured in the repository)"
+            ));
+        }
+
+        if server.auto_reload {
+            lines.push(
+                "- **Auto-reload**: enabled (file changes are reflected automatically)".to_string(),
+            );
+        }
+    }
+
+    Some(lines.join("\n"))
 }
 
 /// Build plugin configs from config paths and cloned plugin repos.
