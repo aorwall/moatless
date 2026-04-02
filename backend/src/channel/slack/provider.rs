@@ -350,7 +350,7 @@ impl ChannelProvider for SlackProvider {
         thread: &ChannelThread,
         config: &ChannelConfig,
         limit: usize,
-        _exclude_external_ids: &[String],
+        exclude_external_ids: &[String],
     ) -> Result<Option<String>, ChannelError> {
         let channel = thread
             .properties
@@ -395,11 +395,17 @@ impl ChannelProvider for SlackProvider {
 
         // Slack always returns the parent message regardless of `oldest`,
         // so filter client-side to only include messages strictly after the cursor.
+        // Also exclude messages already delivered to the task (e.g. the current
+        // message being processed) to avoid duplicates in the context.
         let messages: Vec<&str> = replies
             .iter()
             .filter(|r| match (&r.ts, oldest) {
                 (Some(ts), Some(cursor)) => ts.as_str() > cursor,
                 _ => true,
+            })
+            .filter(|r| match &r.ts {
+                Some(ts) => !exclude_external_ids.contains(ts),
+                None => true,
             })
             .map(|r| r.text.as_str())
             .collect();
