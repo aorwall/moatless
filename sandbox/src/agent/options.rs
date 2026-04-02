@@ -111,10 +111,19 @@ fn build_system_prompt(config: &Config, request: &AgentRunRequest) -> Option<Sys
 
     append_parts.push(SANDBOX_TOOLS_PROMPT.to_string());
 
+    let append = append_parts.join("\n\n");
+    info!(
+        append_system_prompt_len = append.len(),
+        parts = append_parts.len(),
+        has_config_prompt = config.agent_config.system_prompt.is_some(),
+        has_request_prompt = request.system_prompt.is_some(),
+        "Assembled system prompt"
+    );
+
     Some(SystemPrompt::Preset {
         prompt_type: "preset".to_string(),
         preset: "claude_code".to_string(),
-        append: Some(append_parts.join("\n\n")),
+        append: Some(append),
     })
 }
 

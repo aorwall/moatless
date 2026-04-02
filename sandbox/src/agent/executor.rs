@@ -268,6 +268,16 @@ async fn fetch_pending_batch(state: &SandboxState) -> Option<(AgentRunRequest, V
 
     let uuids: Vec<String> = internal.iter().filter_map(|m| m.uuid.clone()).collect();
     let request = batch_messages(internal);
+
+    // Log whether a system_prompt was received for troubleshooting
+    if let Some(ref sp) = request.system_prompt {
+        info!(
+            system_prompt_len = sp.len(),
+            system_prompt_preview = %truncate_for_log(sp, 200),
+            "Pending messages include system_prompt"
+        );
+    }
+
     Some((request, uuids))
 }
 
@@ -542,5 +552,14 @@ mod tests {
         assert!(internal.resume.is_none());
         assert!(internal.agent_type.is_none());
         assert!(internal.uuid.is_none());
+    }
+}
+
+/// Truncate a string for log output, appending "..." if it exceeds `max_len`.
+fn truncate_for_log(s: &str, max_len: usize) -> String {
+    if s.len() <= max_len {
+        s.to_string()
+    } else {
+        format!("{}...", &s[..max_len.saturating_sub(3)])
     }
 }

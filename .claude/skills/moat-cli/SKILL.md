@@ -195,6 +195,16 @@ moat tasks files <task-id> tree
 moat tasks files <task-id> read --path CLAUDE.md
 ```
 
+### Troubleshoot system prompt delivery
+
+```bash
+# Check what system prompt was stored on the task
+moat tasks get <task-id> --json | jq -r '.appendSystemPrompt'
+
+# Check sandbox logs for prompt delivery
+kubectl logs deployment/moatless-ws-<task-id> -c sandbox | grep -E "system_prompt|Assembled system"
+```
+
 ### Multi-environment usage
 
 ```bash
