@@ -212,6 +212,10 @@ impl GithubPrProvider {
             .and_then(serde_json::Value::as_str)
             .unwrap_or("");
 
+        if action == "synchronize" {
+            return self.handle_pull_request_sync(payload, ctx).await;
+        }
+
         if action != "opened" && action != "reopened" {
             debug!(action, "Ignoring pull_request action");
             return Ok(GithubPrWebhookResult::Ignore);
@@ -265,6 +269,113 @@ impl GithubPrProvider {
             provider: ChannelType::GithubPr,
             source_id: ctx.config.source_id.clone(),
             thread_id: None, // New thread
+            message_thread_id: pr_number.to_string(),
+            user_id,
+            text,
+            file_ids: vec![],
+            thread_properties: serde_json::json!({
+                "owner": ctx.owner,
+                "repo": ctx.repo,
+                "pr_number": pr_number,
+            }),
+            provider_context: serde_json::json!({}),
+            channel_external_id: None,
+        })))
+    }
+
+    /// Handle `pull_request` `synchronize` action (new commits pushed).
+    async fn handle_pull_request_sync(
+        &self,
+        payload: &serde_json::Value,
+        ctx: &EventContext<'_>,
+    ) -> Result<GithubPrWebhookResult, ChannelError> {
+        let pr = payload.get("pull_request").ok_or_else(|| {
+            ChannelError::BadRequest("Missing pull_request in payload".into())
+        })?;
+
+        let pr_number = pr
+            .get("number")
+            .and_then(serde_json::Value::as_u64)
+            .ok_or_else(|| ChannelError::BadRequest("Missing PR number".into()))?;
+        let html_url = pr
+            .get("html_url")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+
+        let before = payload
+            .get("before")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        let after = payload
+            .get("after")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+
+        let mut text = format!(
+            "**@{}** pushed new commits to PR #{pr_number}\n",
+            ctx.sender_login,
+        );
+
+        if !html_url.is_empty() {
+            let _ = writeln!(text, "{html_url}");
+        }
+
+        // Fetch commit details and changed files via compare API
+        if !before.is_empty() && !after.is_empty() {
+            match self.resolve_token(ctx.config).await {
+                Ok(token) => {
+                    let api = GithubPrApi::new(&token);
+                    match api.compare_commits(ctx.owner, ctx.repo, before, after).await {
+                        Ok((commits, files)) => {
+                            if !commits.is_empty() {
+                                let _ = writeln!(text, "\n### Commits");
+                                for c in &commits {
+                                    let short_sha = &c.sha[..7.min(c.sha.len())];
+                                    let first_line = c
+                                        .commit
+                                        .message
+                                        .lines()
+                                        .next()
+                                        .unwrap_or("");
+                                    let _ = writeln!(text, "- `{short_sha}` {first_line}");
+                                }
+                            }
+                            if !files.is_empty() {
+                                let _ = writeln!(text, "\n### Changed files");
+                                for f in &files {
+                                    let _ = writeln!(text, "- {} `{}`", f.status, f.filename);
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            warn!(error = %e, "Failed to fetch commit comparison, continuing without details");
+                            if !before.is_empty() && !after.is_empty() {
+                                let short_before = &before[..7.min(before.len())];
+                                let short_after = &after[..7.min(after.len())];
+                                let _ = writeln!(text, "\n`{short_before}` → `{short_after}`");
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!(error = %e, "No token available for commit comparison");
+                    if !before.is_empty() && !after.is_empty() {
+                        let short_before = &before[..7.min(before.len())];
+                        let short_after = &after[..7.min(after.len())];
+                        let _ = writeln!(text, "\n`{short_before}` → `{short_after}`");
+                    }
+                }
+            }
+        }
+
+        let user_id = self
+            .resolve_user_or_fallback(ctx.sender_login, ctx.config, ctx.db)
+            .await;
+
+        Ok(GithubPrWebhookResult::Message(Box::new(InboundMessage {
+            provider: ChannelType::GithubPr,
+            source_id: ctx.config.source_id.clone(),
+            thread_id: Some(pr_number.to_string()),
             message_thread_id: pr_number.to_string(),
             user_id,
             text,
