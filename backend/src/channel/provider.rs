@@ -23,6 +23,14 @@ pub trait ChannelProvider: Send + Sync {
     /// Channel type identifier.
     fn channel_type(&self) -> ChannelType;
 
+    /// Whether this provider supports file attachments in outbound messages.
+    ///
+    /// Providers that return `false` will cause an error when files are
+    /// included in an outbound reply targeting them.
+    fn supports_files(&self) -> bool {
+        false
+    }
+
     /// Downcast support for provider-specific operations.
     fn as_any(&self) -> &dyn Any;
 
@@ -60,6 +68,18 @@ pub trait ChannelProvider: Send + Sync {
             "{:?} does not support send_message",
             self.channel_type()
         )))
+    }
+
+    /// Provider-specific reply instructions appended to the system prompt for
+    /// channel-originated tasks.
+    ///
+    /// These are appended after the generic `CHANNEL_REPLY_INSTRUCTIONS` and the
+    /// optional per-config `prompt_template`. Use this to document provider-specific
+    /// features like mention syntax, file attachments, or formatting.
+    ///
+    /// Default: no provider-specific instructions.
+    fn reply_instructions(&self) -> Option<&'static str> {
+        None
     }
 
     /// Fetch thread context for enriching agent messages (e.g., Slack thread replies).

@@ -12,8 +12,11 @@ use super::error::ChannelError;
 use super::router::{self, RoutingResult};
 use super::models::{InboundMessage, RoutingMode};
 
-/// Instructions appended to channel-originated tasks so the agent knows
-/// to explicitly reply via the `moat reply` CLI command.
+/// Generic instructions appended to all channel-originated tasks so the agent
+/// knows to explicitly reply via the `moat reply` CLI command.
+///
+/// Provider-specific instructions (e.g. Slack mention syntax, file attachments)
+/// are appended separately via [`ChannelProvider::reply_instructions`].
 const CHANNEL_REPLY_INSTRUCTIONS: &str = "\
 # Channel Reply Instructions
 
@@ -315,9 +318,17 @@ async fn create_task_for_channel(
         append_system_prompt: {
             let mut parts = Vec::new();
             if let Some(ref tpl) = config.prompt_template {
-                parts.push(tpl.as_str());
+                parts.push(tpl.to_string());
             }
-            parts.push(CHANNEL_REPLY_INSTRUCTIONS);
+            parts.push(CHANNEL_REPLY_INSTRUCTIONS.to_string());
+            // Append provider-specific reply instructions (e.g. Slack mention syntax)
+            if let Some(providers) = state.channel_providers.as_ref() {
+                if let Some(provider) = providers.get_by_name(&config.provider) {
+                    if let Some(extra) = provider.reply_instructions() {
+                        parts.push(extra.to_string());
+                    }
+                }
+            }
             Some(parts.join("\n\n"))
         },
         sandbox_started_at: None,
