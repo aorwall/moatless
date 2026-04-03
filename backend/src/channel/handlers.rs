@@ -139,11 +139,12 @@ pub async fn slack_webhook(
         }
         None => {
             // Try to auto-create from wildcard config
+            let source_name = slack_provider.get_channel_name(source_id).await.unwrap_or(None);
             match super::defaults::create_config_from_wildcard(
                 &*state.channel_configs,
                 "slack",
                 source_id,
-                None, // source_name not available from webhook payload
+                source_name,
                 None, // team_id not available
                 "system",
             )
@@ -645,6 +646,12 @@ pub async fn create_config(
         )));
     }
 
+    // Auto-resolve channel name from provider if not supplied
+    let source_name = match req.source_name {
+        Some(name) => Some(name),
+        None => resolve_channel_name(&state, req.provider, &req.source_id).await,
+    };
+
     let id = nanoid::nanoid!(21);
     let now = chrono::Utc::now();
 
@@ -654,7 +661,7 @@ pub async fn create_config(
         id: id.clone(),
         provider: req.provider.as_str().to_string(),
         source_id: req.source_id,
-        source_name: req.source_name,
+        source_name,
         repository_id: req.repository_id,
         routing_mode: req.routing_mode,
         prompt_template: req.prompt_template,
@@ -1139,6 +1146,33 @@ pub async fn send_to_task_channel(
 
 /// Validate cron schedule in provider_config if the provider is "cron".
 ///
+/// Best-effort channel name resolution from the provider API.
+///
+/// Currently only Slack is supported. Returns `None` for other providers or on error.
+async fn resolve_channel_name(
+    state: &AppState,
+    provider: ChannelType,
+    source_id: &str,
+) -> Option<String> {
+    if provider != ChannelType::Slack {
+        return None;
+    }
+
+    let providers = state.channel_providers.as_ref()?;
+    let slack = providers.get(ChannelType::Slack)?;
+    let slack_provider = slack
+        .as_any()
+        .downcast_ref::<super::slack::provider::SlackProvider>()?;
+
+    match slack_provider.get_channel_name(source_id).await {
+        Ok(name) => name,
+        Err(e) => {
+            warn!(source_id, error = %e, "Failed to resolve Slack channel name");
+            None
+        }
+    }
+}
+
 /// The `cron` crate expects 7-field expressions: `sec min hour dom month dow year`.
 /// Returns `BadRequest` if the schedule field is present but cannot be parsed.
 fn validate_cron_schedule(

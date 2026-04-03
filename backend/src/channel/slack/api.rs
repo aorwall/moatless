@@ -414,6 +414,48 @@ impl SlackApi {
 
         Ok(())
     }
+
+    /// Fetch info for a single Slack channel by ID.
+    ///
+    /// Returns `Ok(None)` when the API call fails (best-effort name resolution).
+    pub async fn get_channel_info(
+        &self,
+        channel_id: &str,
+    ) -> Result<Option<SlackChannelInfo>, ChannelError> {
+        let resp: ConversationsInfoResponse = self
+            .client
+            .get("https://slack.com/api/conversations.info")
+            .bearer_auth(&self.token)
+            .query(&[("channel", channel_id)])
+            .send()
+            .await
+            .map_err(|e| {
+                ChannelError::ProviderApi(format!("conversations.info failed: {e}"))
+            })?
+            .json()
+            .await
+            .map_err(|e| {
+                ChannelError::ProviderApi(format!("conversations.info parse: {e}"))
+            })?;
+
+        if !resp.ok {
+            let err = resp.error.unwrap_or_default();
+            warn!(error = %err, channel_id, "Slack conversations.info failed");
+            return Ok(None);
+        }
+
+        Ok(resp.channel.map(|ch| SlackChannelInfo {
+            id: ch.id,
+            name: ch.name.unwrap_or_default(),
+        }))
+    }
+}
+
+#[derive(Deserialize)]
+struct ConversationsInfoResponse {
+    ok: bool,
+    error: Option<String>,
+    channel: Option<SlackChannelItem>,
 }
 
 // ---------------------------------------------------------------------------

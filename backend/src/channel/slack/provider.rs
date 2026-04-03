@@ -75,6 +75,15 @@ impl SlackProvider {
         self.api.list_conversations().await
     }
 
+    /// Resolve a Slack channel ID to its human-readable name (best-effort).
+    pub async fn get_channel_name(&self, channel_id: &str) -> Result<Option<String>, ChannelError> {
+        Ok(self
+            .api
+            .get_channel_info(channel_id)
+            .await?
+            .map(|ch| ch.name))
+    }
+
     /// Parse a Slack Events API webhook into an InboundMessage.
     ///
     /// Handles: signature verification, url_verification challenge,
