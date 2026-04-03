@@ -1,6 +1,5 @@
 import type { UiMessage } from '@moatless/api-client'
 import { Clock, GitPullRequest, Hash, Mail, Radio, Send, Zap } from 'lucide-react'
-import { Response } from '@/lib/components/ai-elements/response'
 
 interface ChannelMessageProps {
   message: UiMessage
@@ -64,9 +63,9 @@ export function ChannelMessageComponent({ message }: ChannelMessageProps) {
         <span className="font-medium">via {getProviderLabel(provider)}</span>
         {sourceName && <span className="text-muted-foreground/70">{sourceName}</span>}
       </div>
-      <div className="px-3 py-2 text-sm">
-        <Response>{textContent}</Response>
-      </div>
+      <pre className="px-3 py-2 text-sm font-mono whitespace-pre-wrap break-words overflow-x-auto text-foreground/90">
+        {textContent}
+      </pre>
     </div>
   )
 }
