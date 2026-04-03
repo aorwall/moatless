@@ -50,6 +50,35 @@ pub trait ChannelThreadRepository: Send + Sync {
     ) -> Result<(), sqlx::Error>;
 }
 
+/// Flat row returned by the batch channel query (joins threads + configs).
+#[derive(sqlx::FromRow, Debug)]
+pub struct TaskChannelInfo {
+    pub task_id: String,
+    pub config_id: String,
+    pub provider: String,
+    pub source_id: String,
+    pub source_name: Option<String>,
+}
+
+/// Batch-fetch channel info for multiple tasks in a single query.
+pub async fn get_channels_for_tasks(
+    pool: &crate::db::DbPool,
+    task_ids: &[String],
+) -> Result<Vec<TaskChannelInfo>, sqlx::Error> {
+    if task_ids.is_empty() {
+        return Ok(vec![]);
+    }
+    sqlx::query_as::<_, TaskChannelInfo>(
+        r#"SELECT ct.task_id, cc.id AS config_id, cc.provider, cc.source_id, cc.source_name
+           FROM channel_threads ct
+           JOIN channel_configs cc ON ct.config_id = cc.id
+           WHERE ct.task_id = ANY($1)"#,
+    )
+    .bind(task_ids)
+    .fetch_all(pool)
+    .await
+}
+
 /// PostgreSQL implementation of [`ChannelThreadRepository`].
 pub struct PgChannelThreadRepository(pub DbPool);
 

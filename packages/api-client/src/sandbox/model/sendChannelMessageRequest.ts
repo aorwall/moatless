@@ -10,5 +10,7 @@
  * Request to send a message through channel(s) associated with a task.
  */
 export interface SendChannelMessageRequest {
+  /** File IDs (from `/api/v1/uploads`) to attach to the message. */
+  fileIds?: string[];
   text: string;
 }

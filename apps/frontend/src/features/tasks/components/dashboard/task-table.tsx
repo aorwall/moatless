@@ -18,6 +18,15 @@ import {
 } from '@/lib/components/ui/table'
 import { useApiError } from '@/lib/hooks/use-api-error'
 
+const channelLabels: Record<string, string> = {
+  slack: 'Slack',
+  email: 'Email',
+  webhook: 'Webhook',
+  cron: 'Cron',
+  telegram: 'Telegram',
+  github_pr: 'GitHub PR',
+}
+
 function formatCost(cost?: number): string {
   if (cost === undefined || cost === null || cost === 0) {
     return '-'
@@ -144,6 +153,32 @@ const columns: ColumnDef<TaskResponse>[] = [
           {overflow > 0 && (
             <Badge variant="outline" className="text-xs">
               +{overflow}
+            </Badge>
+          )}
+        </div>
+      )
+    },
+  },
+  {
+    id: 'channel',
+    header: 'Channel',
+    cell: ({ row }) => {
+      const channels = row.original.channels
+      if (!channels || channels.length === 0) {
+        return null
+      }
+      const first = channels[0]
+      const label = first.sourceName
+        ? `${channelLabels[first.provider] ?? first.provider}: ${first.sourceName}`
+        : (channelLabels[first.provider] ?? first.provider)
+      return (
+        <div className="flex gap-1 items-center">
+          <Badge variant="secondary" className="text-xs">
+            {label}
+          </Badge>
+          {channels.length > 1 && (
+            <Badge variant="outline" className="text-xs">
+              +{channels.length - 1}
             </Badge>
           )}
         </div>

@@ -7522,6 +7522,13 @@
           "text"
         ],
         "properties": {
+          "fileIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "File IDs (from `/api/v1/uploads`) to attach to the message."
+          },
           "text": {
             "type": "string"
           }
@@ -8188,6 +8195,12 @@
               "string",
               "null"
             ]
+          },
+          "channels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TaskChannelResponse"
+            }
           },
           "createdAt": {
             "type": "string"

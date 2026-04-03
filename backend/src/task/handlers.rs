@@ -17,6 +17,10 @@ use crate::task::models::{TaskStatus, Visibility};
 
 use crate::repository::models::{RepositoryKind, RepositoryProvider};
 
+use crate::channel::provider::ChannelType;
+use crate::channel::schemas::TaskChannelResponse;
+use crate::channel::thread_dao::get_channels_for_tasks;
+
 use super::error::TaskError;
 use super::schemas::*;
 
@@ -293,6 +297,14 @@ pub async fn list_tasks(
         .collect();
     let repo_names = resolve_repo_names_batch(&state, &repo_ids).await;
 
+    // Batch resolve channels for tasks (single query instead of N+1)
+    let all_channels = get_channels_for_tasks(&state.db, &task_ids)
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!(error = %e, "Failed to batch resolve task channels");
+            vec![]
+        });
+
     let items: Vec<TaskResponse> = rows
         .iter()
         .map(|row| {
@@ -313,7 +325,18 @@ pub async fn list_tasks(
 
             let repo_name = repo_names.get(&row.repository_id).cloned();
 
-            build_task_response(row, tags, display_name, repo_name)
+            let channels: Vec<TaskChannelResponse> = all_channels
+                .iter()
+                .filter(|c| c.task_id == row.task_id)
+                .map(|c| TaskChannelResponse {
+                    config_id: c.config_id.clone(),
+                    provider: ChannelType::parse(&c.provider).unwrap_or(ChannelType::Slack),
+                    source_id: c.source_id.clone(),
+                    source_name: c.source_name.clone(),
+                })
+                .collect();
+
+            build_task_response(row, tags, display_name, repo_name, channels)
         })
         .collect();
 
@@ -711,7 +734,10 @@ async fn enrich_task(
         None
     };
 
-    let mut resp = build_task_response(row, tag_responses, display_name, repo_name);
+    // Resolve channels for this task
+    let channels = resolve_task_channels(state, &row.task_id).await;
+
+    let mut resp = build_task_response(row, tag_responses, display_name, repo_name, channels);
 
     // Resolve live sandbox status (best-effort — leave None on failure)
     let server_configs = get_server_configs_for_task(
@@ -732,12 +758,13 @@ async fn enrich_task(
     Ok(resp)
 }
 
-/// Build a TaskResponse from a row + pre-resolved tags/names.
+/// Build a TaskResponse from a row + pre-resolved tags/names/channels.
 fn build_task_response(
     row: &Task,
     tags: Vec<TagResponse>,
     display_name: Option<String>,
     repo_name: Option<String>,
+    channels: Vec<TaskChannelResponse>,
 ) -> TaskResponse {
     let title = derive_title(row);
 
@@ -766,6 +793,7 @@ fn build_task_response(
         parent_task_id: row.parent_task_id.clone(),
         append_system_prompt: row.append_system_prompt.clone(),
         tags,
+        channels,
         environment_status: None,
         agent_state: None,
         is_running: None,
@@ -838,6 +866,24 @@ async fn resolve_single_user_display_name(state: &AppState, user_id: &str) -> Op
         Ok(Some(user)) => Some(user.name.unwrap_or(user.login)),
         _ => None,
     }
+}
+
+/// Resolve channels for a single task (used by enrich_task).
+async fn resolve_task_channels(state: &AppState, task_id: &str) -> Vec<TaskChannelResponse> {
+    let threads = match state.channel_threads.find_by_task_id(task_id).await {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::warn!(error = %e, task_id = %task_id, "Failed to resolve task channels");
+            return vec![];
+        }
+    };
+    let mut channels = Vec::new();
+    for thread in &threads {
+        if let Ok(Some(config)) = state.channel_configs.find_by_id(&thread.config_id).await {
+            channels.push(crate::channel::schemas::task_channel_from_model(&config));
+        }
+    }
+    channels
 }
 
 /// Resolve repository names for multiple repo IDs in a single batch query.
