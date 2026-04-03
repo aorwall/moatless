@@ -82,8 +82,12 @@ pub fn build_options(
 const SANDBOX_TOOLS_PROMPT: &str = "\
 # Sandbox Tools
 
-You have access to the `moat` CLI for managing this task:
-- `moat set-name \"<name>\"` — Set a short, descriptive name for this task (do this early, based on the user's request)
+## IMPORTANT: Set a task name
+You MUST set a short, descriptive name for this task early in the conversation using:
+  `moat set-name \"<name>\"`
+Base the name on the user's request. Keep it under 50 characters.
+
+## Available CLI commands
 - `moat set-tags <tag1> <tag2> ...` — Set tags on this task
 - `moat tasks status $TASK_ID` — Show sandbox status including server states
 - `moat tasks restart $TASK_ID` — Restart the sandbox (restarts all servers)
