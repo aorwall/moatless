@@ -277,23 +277,30 @@ async fn start_session(
     };
     drop(creds);
 
-    // Build a request for options (resume previous session if we have one)
+    // Resume strategy:
+    // - If we have a previous_session_id (within same pod lifetime) → resume by ID
+    // - Otherwise → try --continue (resumes latest session from disk)
+    // - If --continue fails (no session files) → fall back to new session
+    let resume = if previous_session_id.is_empty() {
+        Some(super::types::ResumeSession::Last)
+    } else {
+        Some(super::types::ResumeSession::WithId(
+            previous_session_id.to_string(),
+        ))
+    };
+
     let request = AgentRunRequest {
         content: Vec::new(),
         model: None,
         system_prompt: system_prompt.map(ToString::to_string),
-        resume: if previous_session_id.is_empty() {
-            None
-        } else {
-            Some(super::types::ResumeSession::WithId(previous_session_id.to_string()))
-        },
+        resume,
         agent_type: None,
     };
 
     let cancel_token = CancellationToken::new();
     agent_state.set_running(cancel_token.clone()).await;
 
-    let options = build_options(config, &request, cancel_token, agent_state, env);
+    let options = build_options(config, &request, cancel_token.clone(), Arc::clone(&agent_state), env.clone());
 
     // Publish lifecycle events
     events
@@ -303,9 +310,23 @@ async fn start_session(
         .publish_task_turn_event(task_id, TaskTurnSubType::Active, serde_json::json!({}))
         .await;
 
-    info!(task_id = %task_id, "Starting new agent session");
+    info!(task_id = %task_id, resume = ?request.resume, "Starting agent session");
 
-    claude_agent_sdk::query(prompt, options).await
+    match claude_agent_sdk::query(prompt, options).await {
+        Ok(handle) => Ok(handle),
+        Err(e) if request.resume == Some(super::types::ResumeSession::Last) => {
+            // --continue failed (e.g. no prior session on disk) — retry as new session
+            warn!(error = %e, "Resume with --continue failed, starting fresh session");
+            let fresh_request = AgentRunRequest {
+                resume: None,
+                ..request
+            };
+            let fresh_options =
+                build_options(config, &fresh_request, cancel_token, agent_state, env);
+            claude_agent_sdk::query(prompt, fresh_options).await
+        }
+        Err(e) => Err(e),
+    }
 }
 
 /// Process an SDK message from the active session.
