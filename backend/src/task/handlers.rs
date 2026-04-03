@@ -259,11 +259,8 @@ pub async fn list_tasks(
     let limit = query.limit.unwrap_or(50).min(200);
     let offset = query.offset.unwrap_or(0);
 
-    let scope_ctx = auth.scope_context();
     let filter = TaskFilter {
-        user_id: scope_ctx.user_id.clone(),
-        team_ids: scope_ctx.team_ids.clone(),
-        is_admin: scope_ctx.is_admin,
+        scope: auth.scope_context(),
         limit,
         offset,
         status: query.status,

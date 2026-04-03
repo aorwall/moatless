@@ -63,12 +63,11 @@ impl ChannelConfigRepository for PgChannelConfigRepository {
     }
 
     async fn find_by_id_scoped(&self, id: &str, ctx: &ScopeContext) -> Result<Option<ChannelConfig>, sqlx::Error> {
+        let access = ctx.sql_filter("", 2, false);
         let sql = format!(
             "SELECT {CHANNEL_CONFIG_COLUMNS} FROM channel_configs \
              WHERE id = $1 \
-             AND ($2 OR scope = 'global' \
-                  OR (scope = 'team' AND team_id = ANY($3)) \
-                  OR (scope = 'user' AND created_by = $4))"
+             AND {access}"
         );
         sqlx::query_as::<_, ChannelConfig>(&sql)
             .bind(id)
@@ -123,11 +122,10 @@ impl ChannelConfigRepository for PgChannelConfigRepository {
     }
 
     async fn list_scoped(&self, provider: Option<&str>, repository_id: Option<&str>, active_only: bool, ctx: &ScopeContext) -> Result<Vec<ChannelConfig>, sqlx::Error> {
+        let access = ctx.sql_filter("", 1, false);
         let mut sql = format!(
             "SELECT {CHANNEL_CONFIG_COLUMNS} FROM channel_configs \
-             WHERE ($1 OR scope = 'global' \
-                    OR (scope = 'team' AND team_id = ANY($2)) \
-                    OR (scope = 'user' AND created_by = $3))"
+             WHERE {access}"
         );
         let mut param_idx = 3u32;
         let mut binds: Vec<String> = Vec::new();

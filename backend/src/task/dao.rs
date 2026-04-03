@@ -11,11 +11,8 @@ use crate::scope::{Scope, ScopeContext};
 use crate::shared_models::AgentType;
 
 /// Filter struct for task listing queries.
-#[derive(Default)]
 pub struct TaskFilter {
-    pub user_id: String,
-    pub team_ids: Vec<String>,
-    pub is_admin: bool,
+    pub scope: ScopeContext,
     pub limit: i64,
     pub offset: i64,
     pub status: Option<TaskStatus>,
@@ -67,7 +64,8 @@ impl TaskRepository for PgTaskRepository {
     }
 
     async fn find_by_id(&self, task_id: &str, ctx: &ScopeContext) -> Result<Option<Task>, sqlx::Error> {
-        sqlx::query_as::<_, Task>(
+        let access = ctx.sql_filter("", 2, true);
+        let sql = format!(
             r#"SELECT
                 task_id, short_id, created_at, last_message_at, agent_type,
                 repository_id, status, total_cost_usd, site_url, template_id,
@@ -77,17 +75,15 @@ impl TaskRepository for PgTaskRepository {
                 sandbox_started_at
             FROM tasks
             WHERE task_id = $1
-              AND ($2 OR scope = 'global'
-                   OR (scope = 'team' AND team_id = ANY($3))
-                   OR (scope = 'user' AND created_by = $4))
-              AND (visibility = 'public' OR created_by = $4 OR $2)"#,
-        )
-        .bind(task_id)
-        .bind(ctx.is_admin)
-        .bind(&ctx.team_ids)
-        .bind(&ctx.user_id)
-        .fetch_optional(&self.0)
-        .await
+              AND {access}"#,
+        );
+        sqlx::query_as::<_, Task>(&sql)
+            .bind(task_id)
+            .bind(ctx.is_admin)
+            .bind(&ctx.team_ids)
+            .bind(&ctx.user_id)
+            .fetch_optional(&self.0)
+            .await
     }
 
     async fn insert_task(&self, row: &Task) -> Result<(), sqlx::Error> {
@@ -167,7 +163,8 @@ impl TaskRepository for PgTaskRepository {
             total_count: i64,
         }
 
-        let rows = sqlx::query_as::<_, TaskWithCount>(
+        let access = filter.scope.sql_filter("t.", 1, true);
+        let sql = format!(
             r#"SELECT DISTINCT
                 t.task_id, t.short_id, t.created_at, t.last_message_at, t.agent_type,
                 t.repository_id, t.status, t.total_cost_usd, t.site_url, t.template_id,
@@ -179,10 +176,7 @@ impl TaskRepository for PgTaskRepository {
             FROM tasks t
             LEFT JOIN task_tags tt ON t.task_id = tt.task_id
             LEFT JOIN tags tg ON tt.tag_id = tg.tag_id
-            WHERE ($1 OR t.scope = 'global'
-                   OR (t.scope = 'team' AND t.team_id = ANY($2))
-                   OR (t.scope = 'user' AND t.created_by = $3))
-              AND (t.visibility = 'public' OR t.created_by = $3 OR $1)
+            WHERE {access}
               AND ($4::text IS NULL OR t.status = $4)
               AND ($5::text IS NULL OR t.repository_id = $5)
               AND ($6::text IS NULL OR t.created_by = $6)
@@ -190,19 +184,20 @@ impl TaskRepository for PgTaskRepository {
               AND ($8::text IS NULL OR t.parent_task_id = $8)
             ORDER BY t.updated_at DESC NULLS LAST
             LIMIT $9 OFFSET $10"#,
-        )
-        .bind(filter.is_admin)
-        .bind(&filter.team_ids)
-        .bind(&filter.user_id)
-        .bind(filter.status)
-        .bind(&filter.repository_id)
-        .bind(&filter.created_by)
-        .bind(&filter.tag)
-        .bind(&filter.parent_task_id)
-        .bind(filter.limit)
-        .bind(filter.offset)
-        .fetch_all(&self.0)
-        .await?;
+        );
+        let rows = sqlx::query_as::<_, TaskWithCount>(&sql)
+            .bind(filter.scope.is_admin)
+            .bind(&filter.scope.team_ids)
+            .bind(&filter.scope.user_id)
+            .bind(filter.status)
+            .bind(&filter.repository_id)
+            .bind(&filter.created_by)
+            .bind(&filter.tag)
+            .bind(&filter.parent_task_id)
+            .bind(filter.limit)
+            .bind(filter.offset)
+            .fetch_all(&self.0)
+            .await?;
 
         let total = rows.first().map_or(0, |r| r.total_count);
 
@@ -426,9 +421,7 @@ pub async fn list_tasks(
     parent_task_id: Option<&str>,
 ) -> Result<(Vec<Task>, i64), sqlx::Error> {
     let filter = TaskFilter {
-        user_id: ctx.user_id.clone(),
-        team_ids: ctx.team_ids.clone(),
-        is_admin: ctx.is_admin,
+        scope: ctx.clone(),
         limit,
         offset,
         status,

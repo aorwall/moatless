@@ -79,13 +79,12 @@ impl RepoRepository for PgRepoRepository {
     }
 
     async fn find_by_id(&self, id: &str, ctx: &ScopeContext) -> Result<Option<Repository>, sqlx::Error> {
+        let access = ctx.sql_filter("", 2, false);
         let query = format!(
             "SELECT {REPO_COLUMNS} FROM repositories \
              WHERE id = $1 \
              AND (deleted IS NULL OR deleted = false) \
-             AND ($2 OR scope = 'global' \
-                  OR (scope = 'team' AND team_id = ANY($3)) \
-                  OR (scope = 'user' AND created_by = $4))"
+             AND {access}"
         );
         sqlx::query_as::<_, Repository>(&query)
             .bind(id)
@@ -97,12 +96,11 @@ impl RepoRepository for PgRepoRepository {
     }
 
     async fn list_all(&self, ctx: &ScopeContext) -> Result<Vec<Repository>, sqlx::Error> {
+        let access = ctx.sql_filter("", 1, false);
         let query = format!(
             "SELECT {REPO_COLUMNS} FROM repositories \
              WHERE (deleted IS NULL OR deleted = false) \
-             AND ($1 OR scope = 'global' \
-                  OR (scope = 'team' AND team_id = ANY($2)) \
-                  OR (scope = 'user' AND created_by = $3)) \
+             AND {access} \
              ORDER BY name ASC"
         );
         sqlx::query_as::<_, Repository>(&query)
