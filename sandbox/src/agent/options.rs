@@ -77,17 +77,21 @@ pub fn build_options(
     }
 }
 
-/// Instructions appended to every sandbox agent run so the agent knows
-/// about the `moat` CLI tools available inside the pod.
-const SANDBOX_TOOLS_PROMPT: &str = "\
-# Sandbox Tools
+/// Behavioral directive prepended before all other appended prompt content
+/// so it is never buried under reference material.
+const REQUIRED_FIRST_ACTIONS: &str = "\
+# Required First Actions
 
-## IMPORTANT: Set a task name
-You MUST set a short, descriptive name for this task early in the conversation using:
+Before responding to the user's first message, you MUST run:
   `moat set-name \"<name>\"`
-Base the name on the user's request. Keep it under 50 characters.
+Choose a short, descriptive name based on the user's request (under 50 characters).";
 
-## Available CLI commands
+/// CLI reference appended at the end of the system prompt.
+const SANDBOX_TOOLS_PROMPT: &str = "\
+# Sandbox CLI Reference
+
+Available `moat` commands:
+- `moat set-name \"<name>\"` — Update the task name
 - `moat set-tags <tag1> <tag2> ...` — Set tags on this task
 - `moat tasks status $TASK_ID` — Show sandbox status including server states
 - `moat tasks restart $TASK_ID` — Restart the sandbox (restarts all servers)
@@ -97,8 +101,9 @@ Base the name on the user's request. Keep it under 50 characters.
 /// Build the system prompt configuration.
 #[allow(clippy::unnecessary_wraps)] // Option for caller API consistency
 fn build_system_prompt(config: &Config, request: &AgentRunRequest) -> Option<SystemPrompt> {
-    // Combine config system prompt + request system prompt + sandbox tools
+    // Behavioral directives first — these must not get buried under reference material
     let mut append_parts = Vec::new();
+    append_parts.push(REQUIRED_FIRST_ACTIONS.to_string());
 
     if let Some(ref sp) = config.agent_config.system_prompt {
         append_parts.push(sp.clone());
@@ -113,6 +118,7 @@ fn build_system_prompt(config: &Config, request: &AgentRunRequest) -> Option<Sys
         append_parts.push(server_prompt);
     }
 
+    // CLI reference last
     append_parts.push(SANDBOX_TOOLS_PROMPT.to_string());
 
     let append = append_parts.join("\n\n");
