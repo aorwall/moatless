@@ -245,6 +245,8 @@ pub async fn process_inbound(
         &[],
         true,
         msg.channel_external_id.as_deref(),
+        Some(&config.provider),
+        config.source_name.as_deref(),
     )
     .await
     {
@@ -509,6 +511,8 @@ pub async fn trigger_inbound(
         &[],
         true,
         None,
+        Some(&config.provider),
+        config.source_name.as_deref(),
     )
     .await
     {

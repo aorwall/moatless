@@ -8599,6 +8599,17 @@
               }
             ]
           },
+          "channel": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/UiMessageChannel",
+                "description": "Channel source metadata (present only for channel-originated messages)."
+              }
+            ]
+          },
           "content": {
             "type": "array",
             "items": {
@@ -8674,6 +8685,26 @@
           },
           "uuid": {
             "type": "string"
+          }
+        }
+      },
+      "UiMessageChannel": {
+        "type": "object",
+        "description": "Channel source metadata for messages originating from external channels.",
+        "required": [
+          "provider"
+        ],
+        "properties": {
+          "provider": {
+            "type": "string",
+            "description": "Channel provider type (e.g. \"slack\", \"cron\", \"webhook\", \"github_pr\")."
+          },
+          "sourceName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Human-readable channel name (e.g. \"#engineering\")."
           }
         }
       },

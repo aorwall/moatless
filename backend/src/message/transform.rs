@@ -171,6 +171,7 @@ fn transform_assistant(
         }),
         result: None,
         sdk_metadata: msg.sdk_metadata.clone(),
+        channel: None,
     }
 }
 
@@ -198,6 +199,11 @@ fn transform_user(msg: &TaskMessage, blocks: &[&TaskMessageContentBlock]) -> UiM
             .collect()
     };
 
+    let channel = msg.channel_provider.as_ref().map(|provider| UiMessageChannel {
+        provider: provider.clone(),
+        source_name: msg.channel_source_name.clone(),
+    });
+
     UiMessage {
         uuid: msg.uuid.clone(),
         message_type: msg.message_type,
@@ -214,6 +220,7 @@ fn transform_user(msg: &TaskMessage, blocks: &[&TaskMessageContentBlock]) -> UiM
         assistant: None,
         result: None,
         sdk_metadata: msg.sdk_metadata.clone(),
+        channel,
     }
 }
 
@@ -254,6 +261,7 @@ fn transform_result(msg: &TaskMessage, blocks: &[&TaskMessageContentBlock]) -> U
             run_metrics: msg.run_metrics.clone(),
         }),
         sdk_metadata: msg.sdk_metadata.clone(),
+        channel: None,
     }
 }
 

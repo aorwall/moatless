@@ -64,6 +64,8 @@ pub async fn send_message(
             &[],
             req.resume.unwrap_or(true),
             None,
+            None,
+            None,
         )
         .await?;
     } else {
@@ -77,6 +79,8 @@ pub async fn send_message(
             &req.file_ids,
             &req.contexts,
             req.resume.unwrap_or(true),
+            None,
+            None,
             None,
         )
         .await?;

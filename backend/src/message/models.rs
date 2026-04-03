@@ -119,6 +119,8 @@ pub struct TaskMessage {
     pub sent_at: Option<DateTime<Utc>>,
     pub created_at: Option<DateTime<Utc>>,
     pub channel_external_id: Option<String>,
+    pub channel_provider: Option<String>,
+    pub channel_source_name: Option<String>,
 }
 
 impl TaskMessage {
@@ -162,6 +164,8 @@ impl TaskMessage {
             sent_at: None,
             created_at: None,
             channel_external_id: None,
+            channel_provider: None,
+            channel_source_name: None,
         }
     }
 }

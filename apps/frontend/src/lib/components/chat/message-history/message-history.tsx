@@ -7,6 +7,7 @@ import { Button } from '@/lib/components/ui/button.tsx'
 import { cn } from '@/lib/utils'
 import { getErrorMessage } from '@/lib/utils/error.ts'
 import { AssistantMessageComponent } from './assistant-message.tsx'
+import { ChannelMessageComponent } from './channel-message.tsx'
 import { EnvironmentIndicator } from './environment-indicator.tsx'
 import { MessageHistorySkeleton } from './message-history-skeleton.tsx'
 import { ResultMessageComponent } from './result-message.tsx'
@@ -280,6 +281,9 @@ function MessageHistoryComponent({
                 }
                 if (item.messageType === 'result') {
                   return <ResultMessageComponent key={item.uuid} message={item} />
+                }
+                if (item.role === 'user' && item.channel) {
+                  return <ChannelMessageComponent key={item.uuid} message={item} />
                 }
                 if (item.role === 'user') {
                   return (

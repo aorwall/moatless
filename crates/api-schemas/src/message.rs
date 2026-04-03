@@ -39,6 +39,21 @@ pub struct UiMessage {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
     pub sdk_metadata: Option<serde_json::Value>,
+    /// Channel source metadata (present only for channel-originated messages).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub channel: Option<UiMessageChannel>,
+}
+
+/// Channel source metadata for messages originating from external channels.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct UiMessageChannel {
+    /// Channel provider type (e.g. "slack", "cron", "webhook", "github_pr").
+    pub provider: String,
+    /// Human-readable channel name (e.g. "#engineering").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_name: Option<String>,
 }
 
 /// Content block within a message.

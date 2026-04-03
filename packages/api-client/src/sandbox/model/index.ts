@@ -191,6 +191,7 @@ export * from './uiAssistantMeta';
 export * from './uiContentBlock';
 export * from './uiContentBlockToolInput';
 export * from './uiMessage';
+export * from './uiMessageChannel';
 export * from './uiMessageSdkMetadata';
 export * from './uiResultMeta';
 export * from './uiResultMetaRunMetrics';

@@ -518,6 +518,8 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
         sent_at: None,
         created_at: None,
         channel_external_id: None,
+        channel_provider: None,
+        channel_source_name: None,
     };
 
     // 6. Build content blocks from the content array
@@ -731,6 +733,8 @@ fn build_result_message_row(
         sent_at: None,
         created_at: None,
         channel_external_id: None,
+        channel_provider: None,
+        channel_source_name: None,
     }
 }
 

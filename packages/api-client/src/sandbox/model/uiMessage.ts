@@ -10,6 +10,7 @@ import type { MessageRole } from './messageRole';
 import type { MessageType } from './messageType';
 import type { UiAssistantMeta } from './uiAssistantMeta';
 import type { UiContentBlock } from './uiContentBlock';
+import type { UiMessageChannel } from './uiMessageChannel';
 import type { UiMessageSdkMetadata } from './uiMessageSdkMetadata';
 import type { UiResultMeta } from './uiResultMeta';
 import type { UiToolResult } from './uiToolResult';
@@ -20,6 +21,7 @@ import type { UiToolResult } from './uiToolResult';
 export interface UiMessage {
   agentMode?: null | AgentMode;
   assistant?: null | UiAssistantMeta;
+  channel?: null | UiMessageChannel;
   /** Content blocks for this message. */
   content: UiContentBlock[];
   /**
