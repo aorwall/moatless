@@ -67,6 +67,9 @@ async fn webhook_outbound_callback() {
         response_config_id: None,
         scope: None,
         team_id: None,
+        task_name: None,
+        tag_ids: None,
+        run_as_user_id: None,
     };
     let config = client
         .api()

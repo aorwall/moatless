@@ -184,7 +184,7 @@ echo -n "Waiting for backend health check"
 MAX_WAIT=60
 ELAPSED=0
 while [ $ELAPSED -lt $MAX_WAIT ]; do
-  if curl -sf http://localhost:8080/health &>/dev/null; then
+  if curl -sf http://localhost:${BACKEND_PORT:-8080}/health &>/dev/null; then
     echo ""
     echo -e "${GREEN}Backend is healthy!${NC}"
     break
@@ -230,7 +230,7 @@ echo -e "${BLUE}=========================================="
 echo "Running tests (tier: $TIER)"
 echo -e "==========================================${NC}"
 
-export MOATLESS_API_URL="http://localhost:8080"
+export MOATLESS_API_URL="http://localhost:${BACKEND_PORT:-8080}"
 TEST_EXIT_CODE=0
 
 run_tests() {

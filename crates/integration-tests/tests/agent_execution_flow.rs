@@ -76,6 +76,18 @@ async fn agent_execution_and_multi_turn() {
         "Agent should be idle after turn completion"
     );
 
+    // AGENT-01.2b: Verify cost was recorded on the task
+    let task = client.api().get_task(task_id).await.unwrap();
+    println!(
+        "AGENT-01.2b: total_cost_usd = {}",
+        task.total_cost_usd
+    );
+    assert!(
+        task.total_cost_usd > 0.0,
+        "Expected non-zero total_cost_usd after agent execution, got: {}",
+        task.total_cost_usd
+    );
+
     // AGENT-01.3: Verify SSE events were received
     let agent_started = collector
         .wait_for_event("agent", Some("started"), task_id, Duration::from_secs(5))

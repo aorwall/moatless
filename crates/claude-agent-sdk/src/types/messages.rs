@@ -1,12 +1,30 @@
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
+use tracing::warn;
 
 use super::content::{ApiMessage, ModelUsage, PermissionDenial, Usage};
 use super::hooks::HookEvent;
 use super::mcp::McpServerEntry;
 use super::options::PluginEntry;
 use super::permissions::PermissionMode;
+
+/// Attempt to deserialize a JSON value, logging a warning on failure instead of
+/// silently discarding the error (which `.ok()` would do).
+fn try_deser<T: DeserializeOwned>(value: Value, label: &str) -> Option<T> {
+    match serde_json::from_value::<T>(value) {
+        Ok(v) => Some(v),
+        Err(e) => {
+            warn!(
+                error = %e,
+                message_type = label,
+                "Failed to deserialize SDK message"
+            );
+            None
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -168,79 +186,84 @@ impl SdkMessage {
         let msg_type = value.get("type")?.as_str()?;
 
         match msg_type {
-            "assistant" => serde_json::from_value::<AssistantMessage>(value)
-                .ok()
-                .map(SdkMessage::Assistant),
+            "assistant" => {
+                try_deser::<AssistantMessage>(value, "assistant").map(SdkMessage::Assistant)
+            }
             "user" => {
                 let is_replay = value
                     .get("isReplay")
                     .and_then(serde_json::Value::as_bool)
                     .unwrap_or(false);
                 if is_replay {
-                    serde_json::from_value::<UserMessageReplay>(value)
-                        .ok()
+                    try_deser::<UserMessageReplay>(value, "user/replay")
                         .map(SdkMessage::UserReplay)
                 } else {
-                    serde_json::from_value::<UserMessage>(value)
-                        .ok()
-                        .map(SdkMessage::User)
+                    try_deser::<UserMessage>(value, "user").map(SdkMessage::User)
                 }
             }
             "result" => {
                 let subtype = value.get("subtype").and_then(|v| v.as_str());
                 match subtype {
-                    Some("success") => serde_json::from_value::<ResultSuccess>(value)
-                        .ok()
+                    Some("success") => try_deser::<ResultSuccess>(value, "result/success")
                         .map(|r| SdkMessage::Result(ResultMessage::Success(r))),
-                    _ => serde_json::from_value::<ResultError>(value)
-                        .ok()
+                    _ => try_deser::<ResultError>(value, "result/error")
                         .map(|r| SdkMessage::Result(ResultMessage::Error(r))),
                 }
             }
             "system" => {
                 let subtype = value.get("subtype").and_then(|v| v.as_str())?;
                 match subtype {
-                    "init" => serde_json::from_value::<SystemInitMessage>(value)
-                        .ok()
-                        .map(SdkMessage::System),
-                    "compact_boundary" => serde_json::from_value::<CompactBoundaryMessage>(value)
-                        .ok()
-                        .map(SdkMessage::CompactBoundary),
-                    "status" => serde_json::from_value::<StatusMessage>(value)
-                        .ok()
-                        .map(SdkMessage::Status),
-                    "hook_started" => serde_json::from_value::<HookStartedMessage>(value)
-                        .ok()
-                        .map(SdkMessage::HookStarted),
-                    "hook_progress" => serde_json::from_value::<HookProgressMessage>(value)
-                        .ok()
-                        .map(SdkMessage::HookProgress),
-                    "hook_response" => serde_json::from_value::<HookResponseMessage>(value)
-                        .ok()
-                        .map(SdkMessage::HookResponse),
+                    "init" => {
+                        try_deser::<SystemInitMessage>(value, "system/init")
+                            .map(SdkMessage::System)
+                    }
+                    "compact_boundary" => {
+                        try_deser::<CompactBoundaryMessage>(value, "system/compact_boundary")
+                            .map(SdkMessage::CompactBoundary)
+                    }
+                    "status" => {
+                        try_deser::<StatusMessage>(value, "system/status")
+                            .map(SdkMessage::Status)
+                    }
+                    "hook_started" => {
+                        try_deser::<HookStartedMessage>(value, "system/hook_started")
+                            .map(SdkMessage::HookStarted)
+                    }
+                    "hook_progress" => {
+                        try_deser::<HookProgressMessage>(value, "system/hook_progress")
+                            .map(SdkMessage::HookProgress)
+                    }
+                    "hook_response" => {
+                        try_deser::<HookResponseMessage>(value, "system/hook_response")
+                            .map(SdkMessage::HookResponse)
+                    }
                     "task_notification" => {
-                        serde_json::from_value::<TaskNotificationMessage>(value)
-                            .ok()
+                        try_deser::<TaskNotificationMessage>(value, "system/task_notification")
                             .map(SdkMessage::TaskNotification)
                     }
-                    "files_persisted" => serde_json::from_value::<FilesPersistedMessage>(value)
-                        .ok()
-                        .map(SdkMessage::FilesPersisted),
+                    "files_persisted" => {
+                        try_deser::<FilesPersistedMessage>(value, "system/files_persisted")
+                            .map(SdkMessage::FilesPersisted)
+                    }
                     _ => None,
                 }
             }
-            "stream_event" => serde_json::from_value::<PartialAssistantMessage>(value)
-                .ok()
-                .map(SdkMessage::StreamEvent),
-            "tool_progress" => serde_json::from_value::<ToolProgressMessage>(value)
-                .ok()
-                .map(SdkMessage::ToolProgress),
-            "auth_status" => serde_json::from_value::<AuthStatusMessage>(value)
-                .ok()
-                .map(SdkMessage::AuthStatus),
-            "tool_use_summary" => serde_json::from_value::<ToolUseSummaryMessage>(value)
-                .ok()
-                .map(SdkMessage::ToolUseSummary),
+            "stream_event" => {
+                try_deser::<PartialAssistantMessage>(value, "stream_event")
+                    .map(SdkMessage::StreamEvent)
+            }
+            "tool_progress" => {
+                try_deser::<ToolProgressMessage>(value, "tool_progress")
+                    .map(SdkMessage::ToolProgress)
+            }
+            "auth_status" => {
+                try_deser::<AuthStatusMessage>(value, "auth_status")
+                    .map(SdkMessage::AuthStatus)
+            }
+            "tool_use_summary" => {
+                try_deser::<ToolUseSummaryMessage>(value, "tool_use_summary")
+                    .map(SdkMessage::ToolUseSummary)
+            }
             _ => None,
         }
     }

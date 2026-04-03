@@ -35,6 +35,9 @@ async fn create_webhook_config(
         response_config_id: None,
         scope: None,
         team_id: None,
+        task_name: None,
+        tag_ids: None,
+        run_as_user_id: None,
     };
     client
         .api()
@@ -141,6 +144,9 @@ async fn channel_create_nonexistent_repo() {
         response_config_id: None,
         scope: None,
         team_id: None,
+        task_name: None,
+        tag_ids: None,
+        run_as_user_id: None,
     };
     let err = client.api().create_channel_config(&req).await.unwrap_err();
     match &err {

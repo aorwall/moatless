@@ -40,6 +40,9 @@ async fn cross_channel_response_routing() {
         response_config_id: None,
         scope: None,
         team_id: None,
+        task_name: None,
+        tag_ids: None,
+        run_as_user_id: None,
     };
     let trigger = client
         .api()
@@ -60,6 +63,9 @@ async fn cross_channel_response_routing() {
         response_config_id: None,
         scope: None,
         team_id: None,
+        task_name: None,
+        tag_ids: None,
+        run_as_user_id: None,
     };
     let response_config = client
         .api()

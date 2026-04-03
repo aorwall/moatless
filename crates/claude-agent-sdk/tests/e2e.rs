@@ -1117,3 +1117,90 @@ async fn test_subagent_fields_captured() {
 
     result.expect("Test timed out");
 }
+
+// ===========================================================================
+// Diagnostic: Cost field visibility
+// ===========================================================================
+
+/// Diagnostic test to troubleshoot missing cost data.
+/// Prints detailed cost/usage information from the CLI result message.
+#[tokio::test]
+#[ignore]
+async fn test_diagnose_cost_fields() {
+    skip_unless_e2e!();
+    init_tracing();
+
+    let result = timeout(TEST_TIMEOUT, async {
+        let mut handle = query("Say hi.", e2e_options())
+            .await
+            .expect("Failed to start query");
+
+        let messages = collect_messages(&mut handle.messages).await;
+
+        // Check if we received a Result at all
+        let has_result = messages.iter().any(|m| matches!(m, SdkMessage::Result(_)));
+        eprintln!("\n=== COST DIAGNOSTIC ===");
+        eprintln!("Total messages received: {}", messages.len());
+        eprintln!("Has Result message: {has_result}");
+
+        if !has_result {
+            eprintln!("WARNING: No Result message received!");
+            eprintln!("This likely means ResultSuccess deserialization failed.");
+            eprintln!("Check warn-level logs above for 'Failed to deserialize SDK message'.");
+            panic!("No Result message received — deserialization likely failed");
+        }
+
+        match messages.iter().find(|m| matches!(m, SdkMessage::Result(_))) {
+            Some(SdkMessage::Result(ResultMessage::Success(s))) => {
+                eprintln!("Result type: Success");
+                eprintln!("  total_cost_usd: {}", s.total_cost_usd);
+                eprintln!("  num_turns: {}", s.num_turns);
+                eprintln!("  duration_ms: {}", s.duration_ms);
+                eprintln!("  is_error: {}", s.is_error);
+                eprintln!("  usage.input_tokens: {}", s.usage.input_tokens);
+                eprintln!("  usage.output_tokens: {}", s.usage.output_tokens);
+                eprintln!(
+                    "  usage.cache_read_input_tokens: {:?}",
+                    s.usage.cache_read_input_tokens
+                );
+                eprintln!(
+                    "  usage.cache_creation_input_tokens: {:?}",
+                    s.usage.cache_creation_input_tokens
+                );
+                eprintln!("  model_usage entries: {}", s.model_usage.len());
+                for (model, mu) in &s.model_usage {
+                    eprintln!(
+                        "    {model}: cost_usd={} in={} out={}",
+                        mu.cost_usd, mu.input_tokens, mu.output_tokens
+                    );
+                }
+
+                // Serialize back to JSON to see what the payload looks like downstream
+                let payload = serde_json::to_value(s).unwrap();
+                eprintln!(
+                    "  payload.total_cost_usd: {:?}",
+                    payload.get("total_cost_usd")
+                );
+
+                assert!(
+                    s.total_cost_usd > 0.0,
+                    "Expected non-zero cost, got: {}",
+                    s.total_cost_usd
+                );
+            }
+            Some(SdkMessage::Result(ResultMessage::Error(e))) => {
+                eprintln!("Result type: Error");
+                eprintln!("  subtype: {}", e.subtype);
+                eprintln!("  total_cost_usd: {}", e.total_cost_usd);
+                eprintln!("  errors: {:?}", e.errors);
+                panic!("Got ResultError instead of ResultSuccess");
+            }
+            _ => unreachable!(),
+        }
+
+        eprintln!("=== END DIAGNOSTIC ===\n");
+    })
+    .await;
+
+    result.expect("Test timed out");
+}

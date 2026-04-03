@@ -889,6 +889,7 @@ mod tests {
             usage: None,
             num_turns: None,
             duration_ms: None,
+            duration_api_ms: None,
         };
         assert_eq!(build_result_text(&Some(r)), "All tasks done");
     }
@@ -904,6 +905,7 @@ mod tests {
             usage: None,
             num_turns: None,
             duration_ms: None,
+            duration_api_ms: None,
         };
         assert_eq!(build_result_text(&Some(r)), "");
     }
@@ -919,6 +921,7 @@ mod tests {
             usage: None,
             num_turns: None,
             duration_ms: None,
+            duration_api_ms: None,
         };
         assert_eq!(build_result_text(&Some(r)), "OOM");
     }

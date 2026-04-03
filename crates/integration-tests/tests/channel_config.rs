@@ -38,6 +38,9 @@ async fn channel_config_crud_chain() {
         response_config_id: None,
         scope: None,
         team_id: None,
+        task_name: None,
+        tag_ids: None,
+        run_as_user_id: None,
     };
     let config = client.api().create_channel_config(&req).await.unwrap();
     assert!(config.active);

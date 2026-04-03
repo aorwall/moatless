@@ -54,23 +54,27 @@ impl AgentEvent {
 /// SDK result message payload (embedded in agent.completed events).
 ///
 /// Note: The sandbox serializes Rust structs with snake_case field names,
-/// so `session_id` comes as `"session_id"` (not camelCase). We use an
-/// explicit rename for it.
+/// so multi-word fields need `#[serde(alias = "snake_case")]` to accept
+/// both camelCase (from `rename_all`) and snake_case (from the sandbox).
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SdkResultMessage {
     #[serde(alias = "session_id")]
     pub session_id: Option<String>,
+    #[serde(alias = "is_error")]
     pub is_error: Option<bool>,
     pub subtype: Option<String>,
     #[serde(default, deserialize_with = "deserialize_value_as_string")]
     pub result: Option<String>,
+    #[serde(alias = "total_cost_usd")]
     pub total_cost_usd: Option<f64>,
     pub usage: Option<UsageInfo>,
     #[serde(alias = "num_turns")]
     pub num_turns: Option<u32>,
     #[serde(alias = "duration_ms")]
     pub duration_ms: Option<u64>,
+    #[serde(alias = "duration_api_ms")]
+    pub duration_api_ms: Option<u64>,
 }
 
 /// Deserialize any JSON value into `Option<String>`.
@@ -90,12 +94,19 @@ where
 }
 
 /// Usage info from SDK result.
+///
+/// The sandbox sends snake_case field names, so each multi-word field needs
+/// an alias to accept both camelCase and snake_case.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageInfo {
+    #[serde(alias = "input_tokens")]
     pub input_tokens: Option<i64>,
+    #[serde(alias = "output_tokens")]
     pub output_tokens: Option<i64>,
+    #[serde(alias = "cache_creation_input_tokens")]
     pub cache_creation_input_tokens: Option<i64>,
+    #[serde(alias = "cache_read_input_tokens")]
     pub cache_read_input_tokens: Option<i64>,
 }
 
@@ -201,14 +212,30 @@ mod tests {
             "session_id": "sess-123",
             "is_error": false,
             "result": "done",
+            "total_cost_usd": 0.0538,
             "num_turns": 5,
-            "duration_ms": 3200
+            "duration_ms": 3200,
+            "duration_api_ms": 2800,
+            "usage": {
+                "input_tokens": 100,
+                "output_tokens": 50,
+                "cache_read_input_tokens": 10,
+                "cache_creation_input_tokens": 20
+            }
         });
         let r: SdkResultMessage = serde_json::from_value(v).unwrap();
         assert_eq!(r.session_id.as_deref(), Some("sess-123"));
+        assert_eq!(r.is_error, Some(false));
         assert_eq!(r.result.as_deref(), Some("done"));
+        assert_eq!(r.total_cost_usd, Some(0.0538));
         assert_eq!(r.num_turns, Some(5));
         assert_eq!(r.duration_ms, Some(3200));
+        assert_eq!(r.duration_api_ms, Some(2800));
+        let usage = r.usage.unwrap();
+        assert_eq!(usage.input_tokens, Some(100));
+        assert_eq!(usage.output_tokens, Some(50));
+        assert_eq!(usage.cache_read_input_tokens, Some(10));
+        assert_eq!(usage.cache_creation_input_tokens, Some(20));
     }
 
     #[test]
