@@ -1,7 +1,8 @@
 //! Message HTTP handlers.
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::Json;
+use serde::Deserialize;
 
 use crate::extractors::AuthUser;
 use crate::state::AppState;
@@ -138,13 +139,23 @@ pub async fn send_message(
     }))
 }
 
+/// Query parameters for GET /messages.
+#[derive(Debug, Deserialize)]
+pub struct GetMessagesQuery {
+    /// When true, strip heavy fields (tool_input, typed_result, sdk_metadata)
+    /// and truncate tool result content. Useful for CLI/summary views.
+    #[serde(default)]
+    pub summary: bool,
+}
+
 /// Get all messages for a task.
 #[utoipa::path(
     get,
     path = "/api/v1/tasks/{task_id}/messages",
     tag = "messages",
     params(
-        ("task_id" = String, Path, description = "Task identifier")
+        ("task_id" = String, Path, description = "Task identifier"),
+        ("summary" = Option<bool>, Query, description = "Strip heavy fields for summary view")
     ),
     responses(
         (status = 200, description = "List of messages", body = GetMessagesResponse),
@@ -155,6 +166,7 @@ pub async fn get_messages(
     State(state): State<AppState>,
     _auth: AuthUser,
     Path(task_id): Path<String>,
+    Query(query): Query<GetMessagesQuery>,
 ) -> Result<Json<GetMessagesResponse>, MessageError> {
     let (messages, contexts, blocks) = state.messages.get_all(&task_id).await?;
     let ui_messages: Vec<UiMessage> = transform::transform_to_ui(&messages, &contexts, &blocks)
@@ -165,6 +177,7 @@ pub async fn get_messages(
                 || m.result.is_some()
                 || m.has_pending_user_input == Some(true)
         })
+        .map(|m| if query.summary { strip_heavy_fields(m) } else { m })
         .collect();
     let total_count = ui_messages.len();
 
@@ -172,6 +185,26 @@ pub async fn get_messages(
         messages: ui_messages,
         total_count,
     }))
+}
+
+/// Strip heavy fields from a message for summary/CLI consumption.
+fn strip_heavy_fields(mut msg: UiMessage) -> UiMessage {
+    // Remove tool_input from content blocks
+    for block in &mut msg.content {
+        block.tool_input = None;
+    }
+    // Truncate tool result content and remove typed_result
+    for tr in &mut msg.tool_results {
+        tr.typed_result = None;
+        if let Some(ref content) = tr.content {
+            if content.len() > 200 {
+                tr.content = Some(format!("{}…", &content[..200]));
+            }
+        }
+    }
+    // Remove SDK metadata
+    msg.sdk_metadata = None;
+    msg
 }
 
 /// Get pending messages for a task.

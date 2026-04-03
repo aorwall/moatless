@@ -126,7 +126,15 @@ impl ApiClient {
                 body,
             });
         }
-        serde_json::from_str(&body).map_err(|e| ApiError::InvalidJson(format!("{e}: {body}")))
+        serde_json::from_str(&body).map_err(|e| {
+            // Truncate the response body in the error to avoid dumping megabytes of JSON
+            let preview: &str = if body.len() > 200 {
+                &body[..200]
+            } else {
+                &body
+            };
+            ApiError::InvalidJson(format!("{e} (response preview: {preview}…)"))
+        })
     }
 
     async fn check_status(&self, resp: reqwest::Response) -> Result<(), ApiError> {
@@ -463,6 +471,18 @@ impl ApiClient {
         task_id: &str,
     ) -> Result<moatless_api_schemas::message::GetMessagesResponse, ApiError> {
         self.get(&format!("/api/v1/tasks/{task_id}/messages")).await
+    }
+
+    /// GET /api/v1/tasks/{task_id}/messages?summary=true
+    ///
+    /// Returns messages with heavy fields stripped (tool_input, typed_result,
+    /// sdk_metadata) and tool result content truncated. Ideal for CLI display.
+    pub async fn get_messages_summary(
+        &self,
+        task_id: &str,
+    ) -> Result<moatless_api_schemas::message::GetMessagesResponse, ApiError> {
+        self.get(&format!("/api/v1/tasks/{task_id}/messages?summary=true"))
+            .await
     }
 
     /// POST /api/v1/tasks/{task_id}/messages
