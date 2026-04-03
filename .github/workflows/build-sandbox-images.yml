@@ -41,6 +41,7 @@ jobs:
               - 'docker/Dockerfile.sandbox*'
               - 'docker/docker-entrypoint-sandbox.sh'
               - 'docker/sync-plugins.sh'
+              - '.github/workflows/build-sandbox-images.yml'
 
   # ── Build sandbox + CLI Rust binaries ──
   build-binaries:
