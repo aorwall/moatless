@@ -20,6 +20,7 @@ pub struct ChannelConfig {
     pub routing_mode: RoutingMode,
     pub prompt_template: Option<String>,
     pub active: bool,
+    pub allow_direct_send: bool,
     pub provider_config: Option<serde_json::Value>,
     pub ongoing_task_id: Option<String>,
     pub response_config_id: Option<String>,

@@ -266,6 +266,15 @@ auth:
     # -- GitHub OAuth scopes (default: "user:email repo")
     # Add "read:org" when using requiredOrg.
     oauthScope: ""
+  # -- GitHub App settings (fine-grained permissions, refresh tokens)
+  # Use instead of github OAuth when you need workflow, actions, packages, etc.
+  githubApp:
+    enabled: false
+    callbackUrl: ""
+    # -- GitHub App numeric ID (from App settings page)
+    appId: ""
+    # -- Default installation ID for server-to-server operations
+    defaultInstallationId: ""
   # -- Auth0 OAuth settings
   auth0:
     enabled: false

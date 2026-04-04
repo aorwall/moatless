@@ -40,6 +40,7 @@ pub async fn create_config_from_wildcard(
         routing_mode: template.routing_mode,
         prompt_template: template.prompt_template.clone(),
         active: true,
+        allow_direct_send: template.allow_direct_send,
         provider_config: template.provider_config.clone(),
         ongoing_task_id: None,
         response_config_id: template.response_config_id.clone(),

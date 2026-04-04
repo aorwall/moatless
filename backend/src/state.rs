@@ -5,6 +5,7 @@
 
 use std::sync::Arc;
 
+use crate::auth::github_app_service::GitHubAppService;
 use crate::auth::provider_token_dao::{PgProviderTokenRepository, ProviderTokenRepository};
 use crate::auth::users::{PgUserRepository, UserRepository};
 use crate::channel::config_dao::{ChannelConfigRepository, PgChannelConfigRepository};
@@ -44,6 +45,8 @@ pub struct AppState {
     pub s3: Option<aws_sdk_s3::Client>,
     /// Optional channel providers for Slack/Email integrations.
     pub channel_providers: Option<Arc<ChannelProviders>>,
+    /// Optional GitHub App service for installation tokens and user token refresh.
+    pub github_app_service: Option<Arc<GitHubAppService>>,
 
     // =========================================================================
     // Repository trait objects
@@ -77,6 +80,7 @@ impl AppState {
         s3: Option<aws_sdk_s3::Client>,
         channel_providers: Option<Arc<ChannelProviders>>,
     ) -> Self {
+        let github_app_service = GitHubAppService::from_config(&config).map(Arc::new);
         Self {
             tasks: Arc::new(PgTaskRepository(pool.clone())),
             messages: Arc::new(PgMessageRepository(pool.clone())),
@@ -98,6 +102,7 @@ impl AppState {
             events,
             s3,
             channel_providers,
+            github_app_service,
         }
     }
 }

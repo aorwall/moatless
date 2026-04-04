@@ -174,6 +174,13 @@ pub fn test_config() -> Config {
             cache_ttl_secs: 0,
             session_jwt_secret: None,
             test_api_key: None,
+            default_team_slug: None,
+            github_app_client_id: None,
+            github_app_client_secret: None,
+            github_app_callback_url: None,
+            github_app_id: None,
+            github_app_private_key: None,
+            github_app_default_installation_id: None,
         },
         s3: S3Config {
             bucket_name: None,

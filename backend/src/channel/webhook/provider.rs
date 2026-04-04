@@ -215,6 +215,7 @@ mod tests {
             routing_mode: RoutingMode::PerMessage,
             prompt_template: None,
             active: true,
+            allow_direct_send: false,
             provider_config,
             ongoing_task_id: None,
             response_config_id: None,

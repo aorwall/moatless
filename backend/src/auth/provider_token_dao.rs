@@ -93,7 +93,7 @@ impl ProviderTokenRepository for PgProviderTokenRepository {
     ) -> Result<Option<ProviderToken>, sqlx::Error> {
         sqlx::query_as::<_, ProviderToken>(
             r#"SELECT user_id, provider, access_token, refresh_token, token_type,
-                      metadata, created_at, updated_at
+                      auth_method, expires_at, metadata, created_at, updated_at
                FROM provider_tokens
                WHERE user_id = $1 AND provider = $2"#,
         )
@@ -190,7 +190,7 @@ impl ProviderTokenRepository for PgProviderTokenRepository {
     async fn list_by_team(&self, team_id: &str) -> Result<Vec<ProviderToken>, sqlx::Error> {
         sqlx::query_as::<_, ProviderToken>(
             r#"SELECT COALESCE(user_id, '') AS user_id, provider, access_token, refresh_token,
-                      token_type, metadata, created_at, updated_at
+                      token_type, auth_method, expires_at, metadata, created_at, updated_at
                FROM provider_tokens
                WHERE team_id = $1 AND user_id IS NULL"#,
         )

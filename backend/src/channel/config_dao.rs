@@ -7,7 +7,7 @@ use crate::db::DbPool;
 use crate::scope::ScopeContext;
 
 const CHANNEL_CONFIG_COLUMNS: &str = r#"id, provider, source_id, source_name, repository_id, routing_mode,
-                      prompt_template, active, provider_config, ongoing_task_id,
+                      prompt_template, active, allow_direct_send, provider_config, ongoing_task_id,
                       response_config_id, scope, team_id, task_name, tag_ids,
                       run_as_user_id, created_by, created_at, updated_at"#;
 
@@ -25,6 +25,7 @@ pub struct ChannelConfigPatch {
     pub task_name: Option<Option<String>>,
     pub tag_ids: Option<Vec<String>>,
     pub run_as_user_id: Option<Option<String>>,
+    pub allow_direct_send: Option<bool>,
 }
 
 /// Repository trait for channel config persistence.
@@ -162,10 +163,10 @@ impl ChannelConfigRepository for PgChannelConfigRepository {
         sqlx::query(
             r#"INSERT INTO channel_configs
                (id, provider, source_id, source_name, repository_id, routing_mode,
-                prompt_template, active, provider_config, ongoing_task_id,
+                prompt_template, active, allow_direct_send, provider_config, ongoing_task_id,
                 response_config_id, scope, team_id, task_name, tag_ids,
                 run_as_user_id, created_by)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)"#,
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)"#,
         )
         .bind(&row.id)
         .bind(&row.provider)
@@ -175,6 +176,7 @@ impl ChannelConfigRepository for PgChannelConfigRepository {
         .bind(row.routing_mode)
         .bind(&row.prompt_template)
         .bind(row.active)
+        .bind(row.allow_direct_send)
         .bind(&row.provider_config)
         .bind(&row.ongoing_task_id)
         .bind(&row.response_config_id)
@@ -237,6 +239,10 @@ impl ChannelConfigRepository for PgChannelConfigRepository {
             param_idx += 1;
             sets.push(format!("run_as_user_id = ${param_idx}"));
         }
+        if patch.allow_direct_send.is_some() {
+            param_idx += 1;
+            sets.push(format!("allow_direct_send = ${param_idx}"));
+        }
 
         if sets.is_empty() {
             return Ok(());
@@ -280,6 +286,9 @@ impl ChannelConfigRepository for PgChannelConfigRepository {
         }
         if let Some(ref v) = patch.run_as_user_id {
             query = query.bind(v.as_deref());
+        }
+        if let Some(v) = patch.allow_direct_send {
+            query = query.bind(v);
         }
 
         query.execute(&self.0).await?;

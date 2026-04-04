@@ -121,6 +121,9 @@ impl OAuthProvider for Auth0OAuthProvider {
             token_type: data.token_type,
             scope: data.scope,
             id_token: data.id_token,
+            refresh_token: None,
+            expires_in: None,
+            refresh_token_expires_in: None,
         })
     }
 

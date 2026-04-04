@@ -116,6 +116,7 @@ mod tests {
             routing_mode: RoutingMode::PerMessage,
             prompt_template: None,
             active: true,
+            allow_direct_send: false,
             provider_config: Some(serde_json::json!({
                 "schedule": "0 0 9 * * MON-FRI *",
                 "message": "Run daily status check",
@@ -153,6 +154,7 @@ mod tests {
             routing_mode: RoutingMode::PerMessage,
             prompt_template: None,
             active: true,
+            allow_direct_send: false,
             provider_config: None,
             ongoing_task_id: None,
             response_config_id: None,

@@ -198,6 +198,38 @@ spec:
               value: {{ . | quote }}
             {{- end }}
             {{- end }}
+            {{- if .Values.auth.githubApp.enabled }}
+            - name: GITHUB_APP_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "moatless-vibe.secretsName" . }}
+                  key: GITHUB_APP_CLIENT_ID
+                  optional: true
+            - name: GITHUB_APP_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "moatless-vibe.secretsName" . }}
+                  key: GITHUB_APP_CLIENT_SECRET
+                  optional: true
+            - name: GITHUB_APP_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "moatless-vibe.secretsName" . }}
+                  key: GITHUB_APP_PRIVATE_KEY
+                  optional: true
+            {{- with .Values.auth.githubApp.callbackUrl }}
+            - name: GITHUB_APP_CALLBACK_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.auth.githubApp.appId }}
+            - name: GITHUB_APP_ID
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.auth.githubApp.defaultInstallationId }}
+            - name: GITHUB_APP_DEFAULT_INSTALLATION_ID
+              value: {{ . | quote }}
+            {{- end }}
+            {{- end }}
             {{- if .Values.auth.auth0.enabled }}
             - name: AUTH0_DOMAIN
               valueFrom:

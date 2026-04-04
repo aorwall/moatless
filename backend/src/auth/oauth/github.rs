@@ -106,6 +106,9 @@ impl OAuthProvider for GitHubOAuthProvider {
             token_type: data.token_type,
             scope: data.scope,
             id_token: None,
+            refresh_token: None,
+            expires_in: None,
+            refresh_token_expires_in: None,
         })
     }
 

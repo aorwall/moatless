@@ -2,8 +2,8 @@
 
 use clap::Subcommand;
 use moatless_api_schemas::channel::{
-    ChannelConfigResponse, CreateChannelConfigRequest, SendChannelMessageRequest,
-    TriggerChannelRequest, UpdateChannelConfigRequest,
+    ChannelConfigResponse, CreateChannelConfigRequest, DirectSendRequest,
+    SendChannelMessageRequest, TriggerChannelRequest, UpdateChannelConfigRequest,
 };
 use moatless_api_schemas::enums::{ChannelType, RoutingMode};
 
@@ -39,6 +39,9 @@ pub enum ChannelAction {
         /// User ID to run tasks on behalf of (defaults to channel creator)
         #[arg(long)]
         run_as_user_id: Option<String>,
+        /// Allow direct sending to this channel without a task
+        #[arg(long)]
+        allow_direct_send: bool,
     },
     /// Update a channel config
     Update {
@@ -74,18 +77,27 @@ pub enum ChannelAction {
         /// User ID to run tasks on behalf of (defaults to channel creator)
         #[arg(long)]
         run_as_user_id: Option<String>,
+        /// Allow direct sending to this channel without a task (true/false)
+        #[arg(long)]
+        allow_direct_send: Option<bool>,
     },
     /// Send a message through the channel(s) associated with a task
     Send {
-        /// Task ID (uses TASK_ID env var if omitted)
+        /// Task ID (uses TASK_ID env var if omitted). Required unless --direct is set.
         #[arg(long)]
         task: Option<String>,
-        /// Channel config ID (sends to all channels if omitted)
+        /// Channel config ID (sends to all task channels if omitted)
         #[arg(long)]
         channel: Option<String>,
         /// Message text (reads from stdin if omitted and stdin is piped)
         #[arg(long)]
         text: Option<String>,
+        /// File(s) to attach to the message
+        #[arg(long = "file")]
+        files: Vec<String>,
+        /// Send directly to a channel config without a task (fire-and-forget)
+        #[arg(long)]
+        direct: bool,
     },
     /// Manually trigger a channel config, creating a task as if the provider fired
     Trigger {
@@ -159,6 +171,7 @@ pub async fn run(
             task_name,
             tag_ids,
             run_as_user_id,
+            allow_direct_send,
         } => {
             let parsed_config = parse_provider_config(provider_config.as_deref())?
                 .map(serde_json::Value::Object);
@@ -177,6 +190,7 @@ pub async fn run(
                 task_name,
                 tag_ids,
                 run_as_user_id,
+                allow_direct_send: if allow_direct_send { Some(true) } else { None },
             };
             let created = client.api().create_channel_config(&req).await?;
             if json {
@@ -197,6 +211,7 @@ pub async fn run(
             task_name,
             tag_ids,
             run_as_user_id,
+            allow_direct_send,
         } => {
             let parsed_config = parse_provider_config(provider_config.as_deref())?
                 .map(serde_json::Value::Object);
@@ -212,6 +227,7 @@ pub async fn run(
                 task_name: task_name.map(Some),
                 tag_ids,
                 run_as_user_id: run_as_user_id.map(Some),
+                allow_direct_send,
             };
             let updated = client.api().update_channel_config(&id, &req).await?;
             if json {
@@ -225,15 +241,9 @@ pub async fn run(
             task,
             channel,
             text,
+            files,
+            direct,
         } => {
-            let task_id = task
-                .or_else(|| std::env::var("TASK_ID").ok())
-                .ok_or_else(|| {
-                    ClientError::Other(
-                        "Task ID required: use --task or set TASK_ID env var".into(),
-                    )
-                })?;
-
             let message_text = if let Some(t) = text {
                 t
             } else {
@@ -250,26 +260,84 @@ pub async fn run(
                 buf.trim().to_string()
             };
 
-            let req = SendChannelMessageRequest {
-                text: message_text,
-                file_ids: vec![],
-            };
+            // Upload files, collect file_ids
+            let mut file_ids = Vec::new();
+            for path_str in &files {
+                let path = std::path::Path::new(path_str);
+                if !path.exists() {
+                    return Err(ClientError::Other(format!("File not found: {path_str}")));
+                }
+                let data = std::fs::read(path)
+                    .map_err(|e| ClientError::Other(format!("Failed to read {path_str}: {e}")))?;
+                let filename = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("unnamed");
+                let mime_type = mime_guess::from_path(path)
+                    .first_or_octet_stream()
+                    .to_string();
 
-            let resp = if let Some(config_id) = channel {
-                client
+                let upload_resp = client
                     .api()
-                    .send_to_task_channel(&task_id, &config_id, &req)
-                    .await?
-            } else {
-                client.api().send_to_task_channels(&task_id, &req).await?
-            };
+                    .upload_file(filename, &mime_type, data)
+                    .await
+                    .map_err(|e| ClientError::Other(format!("Failed to upload {path_str}: {e}")))?;
+                file_ids.push(upload_resp.file_id);
+            }
 
-            if json {
-                output::print_json_typed(&resp);
+            if direct {
+                let config_id = channel.ok_or_else(|| {
+                    ClientError::Other("--channel is required for --direct send".into())
+                })?;
+                // Use task_id if provided (or from env) so the thread is tracked.
+                let task_id = task.or_else(|| std::env::var("TASK_ID").ok());
+                let req = DirectSendRequest {
+                    text: message_text,
+                    file_ids,
+                    task_id,
+                };
+                let resp = client
+                    .api()
+                    .direct_send_to_channel(&config_id, &req)
+                    .await?;
+                if json {
+                    output::print_json_typed(&resp);
+                } else {
+                    println!("Message sent directly to channel config {config_id}.");
+                    if let Some(ext_id) = &resp.external_message_id {
+                        println!("External message ID: {ext_id}");
+                    }
+                }
             } else {
-                println!("Sent to {} channel(s).", resp.sent_count);
-                for err in &resp.errors {
-                    eprintln!("Warning: {err}");
+                let task_id = task
+                    .or_else(|| std::env::var("TASK_ID").ok())
+                    .ok_or_else(|| {
+                        ClientError::Other(
+                            "Task ID required: use --task or set TASK_ID env var".into(),
+                        )
+                    })?;
+
+                let req = SendChannelMessageRequest {
+                    text: message_text,
+                    file_ids,
+                };
+
+                let resp = if let Some(config_id) = channel {
+                    client
+                        .api()
+                        .send_to_task_channel(&task_id, &config_id, &req)
+                        .await?
+                } else {
+                    client.api().send_to_task_channels(&task_id, &req).await?
+                };
+
+                if json {
+                    output::print_json_typed(&resp);
+                } else {
+                    println!("Sent to {} channel(s).", resp.sent_count);
+                    for err in &resp.errors {
+                        eprintln!("Warning: {err}");
+                    }
                 }
             }
         }
@@ -429,9 +497,14 @@ fn format_channels(configs: &[ChannelConfigResponse]) {
                 c.provider.to_string(),
                 c.source_id.clone(),
                 c.routing_mode.to_string(),
+                if c.allow_direct_send {
+                    "yes".to_string()
+                } else {
+                    "-".to_string()
+                },
             ]
         })
         .collect();
 
-    output::print_table(&["ID", "PROVIDER", "SOURCE", "MODE"], &rows);
+    output::print_table(&["ID", "PROVIDER", "SOURCE", "MODE", "SENDABLE"], &rows);
 }

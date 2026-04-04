@@ -41,6 +41,7 @@ use super::users::UserRepository;
 #[derive(Clone, Default)]
 pub struct OAuthProviders {
     pub github: Option<Arc<dyn OAuthProvider>>,
+    pub github_app: Option<Arc<dyn OAuthProvider>>,
     pub auth0: Option<Arc<dyn OAuthProvider>>,
 }
 
@@ -53,17 +54,27 @@ impl OAuthProviders {
             tracing::info!("GitHub OAuth provider configured");
             Arc::new(p) as Arc<dyn OAuthProvider>
         });
+        let github_app =
+            super::oauth::github_app::GitHubAppOAuthProvider::from_config(config).map(|p| {
+                tracing::info!("GitHub App OAuth provider configured");
+                Arc::new(p) as Arc<dyn OAuthProvider>
+            });
         let auth0 = super::oauth::auth0::Auth0OAuthProvider::from_config(config).map(|p| {
             tracing::info!("Auth0 OAuth provider configured");
             Arc::new(p) as Arc<dyn OAuthProvider>
         });
-        Self { github, auth0 }
+        Self {
+            github,
+            github_app,
+            auth0,
+        }
     }
 
     /// Look up a provider by AuthProvider enum.
     pub fn get(&self, provider: AuthProvider) -> Option<&Arc<dyn OAuthProvider>> {
         match provider {
             AuthProvider::GitHub => self.github.as_ref(),
+            AuthProvider::GitHubApp => self.github_app.as_ref(),
             AuthProvider::Auth0 => self.auth0.as_ref(),
         }
     }
@@ -156,6 +167,11 @@ pub fn auth_router(state: AuthState) -> (axum::Router, utoipa::openapi::OpenApi)
         .route("/api/v1/auth/cli/login", get(cli_login_handler))
         .route("/api/v1/auth/github", get(oauth_init_handler))
         .route("/api/v1/auth/github/callback", get(github_callback_handler))
+        .route("/api/v1/auth/github-app", get(github_app_init_handler))
+        .route(
+            "/api/v1/auth/github-app/callback",
+            get(github_app_callback_handler),
+        )
         .route("/api/v1/auth/auth0", get(auth0_init_handler))
         .route("/api/v1/auth/auth0/callback", get(auth0_callback_handler))
         .route("/api/v1/auth/logout", get(logout_get_handler))
@@ -422,6 +438,9 @@ async fn login_handler(State(state): State<AuthState>) -> Result<Response, AuthE
     match state.config.auth.provider {
         None => Ok(Redirect::to(&state.config.auth.frontend_url).into_response()),
         Some(AuthProvider::GitHub) => Ok(Redirect::to("/api/v1/auth/github").into_response()),
+        Some(AuthProvider::GitHubApp) => {
+            Ok(Redirect::to("/api/v1/auth/github-app").into_response())
+        }
         Some(AuthProvider::Auth0) => Ok(Redirect::to("/api/v1/auth/auth0").into_response()),
     }
 }
@@ -660,6 +679,29 @@ async fn github_callback_handler(
     axum::extract::Query(query): axum::extract::Query<OAuthCallbackQuery>,
 ) -> Result<Response, AuthError> {
     handle_oauth_callback(&state, AuthProvider::GitHub, &query.code, query.state.as_deref(), &headers).await
+}
+
+// ============================================================================
+// GitHub App OAuth
+// ============================================================================
+
+async fn github_app_init_handler(State(state): State<AuthState>) -> Result<Response, AuthError> {
+    initiate_oauth(&state, AuthProvider::GitHubApp).await
+}
+
+async fn github_app_callback_handler(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    axum::extract::Query(query): axum::extract::Query<OAuthCallbackQuery>,
+) -> Result<Response, AuthError> {
+    handle_oauth_callback(
+        &state,
+        AuthProvider::GitHubApp,
+        &query.code,
+        query.state.as_deref(),
+        &headers,
+    )
+    .await
 }
 
 // ============================================================================

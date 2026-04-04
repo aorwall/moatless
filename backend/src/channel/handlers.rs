@@ -666,6 +666,7 @@ pub async fn create_config(
         routing_mode: req.routing_mode,
         prompt_template: req.prompt_template,
         active: true,
+        allow_direct_send: req.allow_direct_send.unwrap_or(false),
         provider_config: req.provider_config,
         ongoing_task_id: None,
         response_config_id: req.response_config_id,
@@ -785,6 +786,7 @@ pub async fn update_config(
         task_name: req.task_name,
         tag_ids: req.tag_ids,
         run_as_user_id: req.run_as_user_id,
+        allow_direct_send: req.allow_direct_send,
         ..Default::default()
     };
 
@@ -795,6 +797,60 @@ pub async fn update_config(
         .ok_or_else(|| ChannelError::ConfigNotFound(id))?;
 
     Ok(Json(channel_config_from_model(&row)))
+}
+
+/// Send a message directly to a channel config.
+///
+/// The channel config must have `allow_direct_send = true` and the provider
+/// must support outbound messaging.
+///
+/// When `task_id` is provided (in the request body), the first send creates a
+/// thread linked to the task; subsequent sends reply in that thread. This lets
+/// `moat reply` and `moat channels send` continue the conversation.
+///
+/// When `task_id` is omitted the send is fire-and-forget.
+#[utoipa::path(
+    post,
+    path = "/api/v1/channels/configs/{id}/send",
+    tag = "channels",
+    params(
+        ("id" = String, Path, description = "Channel config ID")
+    ),
+    request_body = DirectSendRequest,
+    responses(
+        (status = 200, description = "Message sent", body = DirectSendResponse),
+        (status = 400, description = "Direct send not allowed or config inactive", body = crate::error::ErrorBody),
+        (status = 404, description = "Config not found", body = crate::error::ErrorBody),
+        (status = 502, description = "Provider failed", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn direct_send_to_channel(
+    State(state): State<AppState>,
+    _auth: AuthUser,
+    Path(id): Path<String>,
+    Json(req): Json<DirectSendRequest>,
+) -> Result<Json<DirectSendResponse>, ChannelError> {
+    let providers = state
+        .channel_providers
+        .as_ref()
+        .ok_or_else(|| {
+            ChannelError::ProviderNotConfigured("No channel providers configured".into())
+        })?;
+
+    let external_id = super::outbound::direct_send_to_channel(
+        &state,
+        providers,
+        &id,
+        req.task_id.as_deref(),
+        &req.text,
+        &req.file_ids,
+    )
+    .await?;
+
+    Ok(Json(DirectSendResponse {
+        success: true,
+        external_message_id: external_id,
+    }))
 }
 
 /// Manually trigger a channel config, creating a task exactly as if the provider fired.
@@ -985,6 +1041,7 @@ pub async fn set_defaults(
             routing_mode: req.routing_mode,
             prompt_template: req.prompt_template,
             active: true,
+            allow_direct_send: false,
             provider_config: req.provider_config,
             ongoing_task_id: None,
             response_config_id: req.response_config_id,

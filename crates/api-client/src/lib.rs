@@ -598,6 +598,19 @@ impl ApiClient {
         .await
     }
 
+    /// POST /api/v1/channels/configs/{config_id}/send
+    pub async fn direct_send_to_channel(
+        &self,
+        config_id: &str,
+        req: &moatless_api_schemas::channel::DirectSendRequest,
+    ) -> Result<moatless_api_schemas::channel::DirectSendResponse, ApiError> {
+        self.post(
+            &format!("/api/v1/channels/configs/{config_id}/send"),
+            req,
+        )
+        .await
+    }
+
     // ========================================================================
     // File uploads
     // ========================================================================

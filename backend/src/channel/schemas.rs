@@ -19,6 +19,7 @@ pub fn channel_config_from_model(row: &super::models::ChannelConfig) -> ChannelC
         routing_mode: row.routing_mode,
         prompt_template: row.prompt_template.clone(),
         active: row.active,
+        allow_direct_send: row.allow_direct_send,
         provider_config: row.provider_config.clone(),
         ongoing_task_id: row.ongoing_task_id.clone(),
         response_config_id: row.response_config_id.clone(),

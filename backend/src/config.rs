@@ -40,6 +40,7 @@ impl FromStr for SandboxProviderType {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AuthProvider {
     GitHub,
+    GitHubApp,
     Auth0,
 }
 
@@ -47,6 +48,7 @@ impl fmt::Display for AuthProvider {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::GitHub => write!(f, "github"),
+            Self::GitHubApp => write!(f, "github_app"),
             Self::Auth0 => write!(f, "auth0"),
         }
     }
@@ -58,6 +60,7 @@ impl FromStr for AuthProvider {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "github" => Ok(Self::GitHub),
+            "github_app" | "github-app" => Ok(Self::GitHubApp),
             "auth0" => Ok(Self::Auth0),
             _ => Err(format!("unknown auth provider: {s}")),
         }
@@ -241,6 +244,22 @@ pub struct AuthConfig {
     pub test_api_key: Option<String>,
     /// Default team slug. On login, if a user has no teams and a default team exists, they are added to it.
     pub default_team_slug: Option<String>,
+
+    // --- GitHub App (user authorization flow) ---
+    /// GitHub App client ID (from App settings, different from OAuth App).
+    pub github_app_client_id: Option<String>,
+    /// GitHub App client secret.
+    pub github_app_client_secret: Option<String>,
+    /// GitHub App OAuth callback URL.
+    pub github_app_callback_url: Option<String>,
+
+    // --- GitHub App (installation token flow) ---
+    /// GitHub App numeric ID.
+    pub github_app_id: Option<u64>,
+    /// PEM-encoded private key for signing App JWTs.
+    pub github_app_private_key: Option<String>,
+    /// Default installation ID for server-to-server operations.
+    pub github_app_default_installation_id: Option<u64>,
 }
 
 #[allow(clippy::missing_fields_in_debug)]
@@ -261,6 +280,12 @@ impl fmt::Debug for AuthConfig {
             .field("is_production", &self.is_production)
             .field("session_jwt_secret", &self.session_jwt_secret.as_ref().map(|_| "[REDACTED]"))
             .field("test_api_key", &self.test_api_key.as_ref().map(|_| "[REDACTED]"))
+            .field("github_app_client_id", &self.github_app_client_id)
+            .field("github_app_client_secret", &self.github_app_client_secret.as_ref().map(|_| "[REDACTED]"))
+            .field("github_app_callback_url", &self.github_app_callback_url)
+            .field("github_app_id", &self.github_app_id)
+            .field("github_app_private_key", &self.github_app_private_key.as_ref().map(|_| "[REDACTED]"))
+            .field("github_app_default_installation_id", &self.github_app_default_installation_id)
             .finish()
     }
 }
@@ -523,6 +548,15 @@ impl Config {
                 session_jwt_secret: env_opt("SESSION_JWT_SECRET"),
                 test_api_key: env_opt("TEST_API_KEY").map(|s| s.trim().to_string()),
                 default_team_slug: env_opt("DEFAULT_TEAM_SLUG"),
+
+                github_app_client_id: env_opt("GITHUB_APP_CLIENT_ID"),
+                github_app_client_secret: env_opt("GITHUB_APP_CLIENT_SECRET"),
+                github_app_callback_url: env_opt("GITHUB_APP_CALLBACK_URL"),
+                github_app_id: env_opt("GITHUB_APP_ID").and_then(|v| v.parse().ok()),
+                github_app_private_key: env_opt("GITHUB_APP_PRIVATE_KEY")
+                    .map(|s| s.replace("\\n", "\n")),
+                github_app_default_installation_id: env_opt("GITHUB_APP_DEFAULT_INSTALLATION_ID")
+                    .and_then(|v| v.parse().ok()),
             },
 
             s3: S3Config {
@@ -566,6 +600,18 @@ impl Config {
             if self.auth.github_client_secret.is_none() {
                 return Err(ConfigError::Invalid(
                     "GITHUB_CLIENT_SECRET required when AUTH_PROVIDER=github".into(),
+                ));
+            }
+        }
+        if let Some(AuthProvider::GitHubApp) = self.auth.provider {
+            if self.auth.github_app_client_id.is_none() {
+                return Err(ConfigError::Invalid(
+                    "GITHUB_APP_CLIENT_ID required when AUTH_PROVIDER=github_app".into(),
+                ));
+            }
+            if self.auth.github_app_client_secret.is_none() {
+                return Err(ConfigError::Invalid(
+                    "GITHUB_APP_CLIENT_SECRET required when AUTH_PROVIDER=github_app".into(),
                 ));
             }
         }
@@ -787,6 +833,12 @@ mod tests {
                 session_jwt_secret: None,
                 test_api_key: None,
                 default_team_slug: None,
+                github_app_client_id: None,
+                github_app_client_secret: None,
+                github_app_callback_url: None,
+                github_app_id: None,
+                github_app_private_key: None,
+                github_app_default_installation_id: None,
             },
             s3: S3Config { bucket_name: None, key_prefix: "test".into(), region: "us-east-1".into() },
             slack: SlackConfig { bot_token: None, signing_secret: None, bot_user_id: None },

@@ -32,6 +32,8 @@ pub struct ProviderToken {
     pub access_token: String,
     pub refresh_token: Option<String>,
     pub token_type: Option<String>,
+    pub auth_method: Option<String>,
+    pub expires_at: Option<DateTime<Utc>>,
     pub metadata: Option<serde_json::Value>,
     pub created_at: Option<DateTime<Utc>>,
     pub updated_at: Option<DateTime<Utc>>,
@@ -47,6 +49,12 @@ pub struct OAuthTokens {
     pub token_type: String,
     pub scope: Option<String>,
     pub id_token: Option<String>,
+    /// Refresh token (GitHub App user tokens support refresh).
+    pub refresh_token: Option<String>,
+    /// Token TTL in seconds (GitHub App user tokens expire).
+    pub expires_in: Option<u64>,
+    /// Refresh token TTL in seconds.
+    pub refresh_token_expires_in: Option<u64>,
 }
 
 /// Normalized user info from an OAuth provider.

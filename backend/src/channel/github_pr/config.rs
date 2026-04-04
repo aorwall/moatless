@@ -77,6 +77,7 @@ mod tests {
             routing_mode: crate::channel::models::RoutingMode::ThreadBased,
             prompt_template: None,
             active: true,
+            allow_direct_send: false,
             provider_config: None,
             ongoing_task_id: None,
             response_config_id: None,

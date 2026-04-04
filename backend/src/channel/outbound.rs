@@ -133,6 +133,152 @@ pub async fn send_to_channels(
     Ok((sent_count, errors))
 }
 
+/// Send a message directly to a channel config.
+///
+/// The config must have `allow_direct_send = true` and the provider must support
+/// `send_message()`.
+///
+/// When `task_id` is provided, the thread is tracked: the first send creates a
+/// top-level message and persists a `channel_thread` record; subsequent sends
+/// from the same task reply in that thread. This allows `moat reply` and
+/// `moat channels send` to continue the conversation.
+///
+/// When `task_id` is `None`, the send is fire-and-forget with no persistent state.
+///
+/// Returns the provider-specific external message ID.
+pub async fn direct_send_to_channel(
+    state: &AppState,
+    providers: &ChannelProviders,
+    config_id: &str,
+    task_id: Option<&str>,
+    text: &str,
+    file_ids: &[String],
+) -> Result<Option<String>, ChannelError> {
+    let config = state
+        .channel_configs
+        .find_by_id(config_id)
+        .await?
+        .ok_or_else(|| ChannelError::ConfigNotFound(config_id.to_string()))?;
+
+    if !config.allow_direct_send {
+        return Err(ChannelError::BadRequest(format!(
+            "Channel config {config_id} does not allow direct send"
+        )));
+    }
+
+    if !config.active {
+        return Err(ChannelError::BadRequest(format!(
+            "Channel config {config_id} is not active"
+        )));
+    }
+
+    let provider = providers
+        .get_by_name(&config.provider)
+        .ok_or_else(|| ChannelError::ProviderNotConfigured(config.provider.clone()))?;
+
+    let files = resolve_files(state, file_ids).await;
+
+    if !files.is_empty() && !provider.supports_files() {
+        return Err(ChannelError::BadRequest(format!(
+            "Provider {:?} does not support file attachments",
+            provider.channel_type()
+        )));
+    }
+
+    let reply = OutboundReply {
+        text: truncate_text(text, 4000),
+        task_url: None,
+        is_error: false,
+        files,
+    };
+
+    // If we have a task_id, check for an existing thread to reply into.
+    if let Some(tid) = task_id {
+        if let Some(thread) = state
+            .channel_threads
+            .find_by_task_id_and_config(tid, config_id)
+            .await?
+        {
+            // Existing thread — reply into it.
+            let external_id = provider
+                .send_reply(&thread, &config, &reply)
+                .await
+                .map_err(|e| {
+                    ChannelError::ProviderApi(format!(
+                        "Failed to send reply via {}: {e}",
+                        config.provider
+                    ))
+                })?;
+
+            // Advance cursor for context fetching.
+            if let Some(ref ext_id) = external_id {
+                if let Err(e) = state
+                    .channel_threads
+                    .touch(
+                        thread.id,
+                        Some(&serde_json::json!({"last_channel_external_id": ext_id})),
+                    )
+                    .await
+                {
+                    warn!(task_id = %tid, error = %e, "Failed to update last_channel_external_id");
+                }
+            }
+
+            info!(
+                config_id = %config_id,
+                task_id = %tid,
+                "Direct reply sent to existing channel thread"
+            );
+            return Ok(external_id);
+        }
+    }
+
+    // No existing thread (or no task_id) — send a new top-level message.
+    let thread_info = provider
+        .send_message(&config, &reply)
+        .await
+        .map_err(|e| {
+            ChannelError::ProviderApi(format!(
+                "Failed to send message via {}: {e}",
+                config.provider
+            ))
+        })?;
+
+    // Persist the thread so future sends from this task reply in it.
+    if let Some(tid) = task_id {
+        if let Err(e) = state
+            .channel_threads
+            .insert(
+                config_id,
+                tid,
+                &thread_info.external_thread_id,
+                &thread_info.properties,
+            )
+            .await
+        {
+            warn!(
+                task_id = %tid,
+                config_id = %config_id,
+                error = %e,
+                "Failed to persist channel thread after direct send"
+            );
+        } else {
+            info!(
+                config_id = %config_id,
+                task_id = %tid,
+                "Direct send: new channel thread created"
+            );
+        }
+    } else {
+        info!(
+            config_id = %config_id,
+            "Direct message sent (fire-and-forget, no task)"
+        );
+    }
+
+    Ok(Some(thread_info.external_thread_id))
+}
+
 /// Handle a channel notification triggered by an agent event.
 ///
 /// Called from `event_handler/consumer.rs` after standard event processing.

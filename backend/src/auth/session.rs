@@ -93,9 +93,10 @@ pub async fn create_session(
     };
     sessions.insert_session(&session).await?;
 
-    // For GitHub OAuth, also persist to provider_tokens for cross-context access.
+    // For GitHub providers, also persist to provider_tokens for cross-context access.
     // If a PAT override is active, update the stashed OAuth token instead of overwriting.
-    if provider_id == "github" && !tokens.access_token.is_empty() {
+    let is_github_provider = provider_id == "github" || provider_id == "github_app";
+    if is_github_provider && !tokens.access_token.is_empty() {
         let existing_token_type = provider_tokens
             .find_token_type(&user_info.id, "github")
             .await
@@ -120,30 +121,38 @@ pub async fn create_session(
                 );
             }
         } else {
+            let auth_method = if provider_id == "github_app" {
+                "github_app"
+            } else {
+                "oauth"
+            };
             let pt = ProviderToken {
                 user_id: user_info.id.clone(),
                 provider: "github".to_string(),
-                auth_method: "oauth".to_string(),
+                auth_method: auth_method.to_string(),
                 access_token: tokens.access_token.clone(),
-                refresh_token: None,
+                refresh_token: tokens.refresh_token.clone(),
                 token_type: Some(tokens.token_type.clone()),
                 scope: tokens.scope.clone(),
                 provider_user_id: Some(user_info.id.clone()),
                 provider_login: Some(user_info.login.clone()),
                 connected_at: now,
-                expires_at: None,
+                expires_at: tokens
+                    .expires_in
+                    .map(|secs| now + chrono::Duration::seconds(secs as i64)),
             };
             if let Err(e) = provider_tokens.upsert_provider_token(&pt).await {
                 warn!(
                     error = %e,
                     user_id = %user_info.id,
-                    "Failed to persist GitHub OAuth token to provider_tokens"
+                    "Failed to persist GitHub token to provider_tokens"
                 );
             } else {
                 info!(
                     user_id = %user_info.id,
                     login = %user_info.login,
-                    "Persisted GitHub OAuth token to provider_tokens"
+                    auth_method = %auth_method,
+                    "Persisted GitHub token to provider_tokens"
                 );
             }
         }

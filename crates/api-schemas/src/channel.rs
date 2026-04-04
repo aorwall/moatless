@@ -22,6 +22,7 @@ pub struct CreateChannelConfigRequest {
     pub task_name: Option<String>,
     pub tag_ids: Option<Vec<String>>,
     pub run_as_user_id: Option<String>,
+    pub allow_direct_send: Option<bool>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -39,6 +40,7 @@ pub struct UpdateChannelConfigRequest {
     pub task_name: Option<Option<String>>,
     pub tag_ids: Option<Vec<String>>,
     pub run_as_user_id: Option<Option<String>>,
+    pub allow_direct_send: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -53,6 +55,7 @@ pub struct ChannelConfigResponse {
     pub routing_mode: RoutingMode,
     pub prompt_template: Option<String>,
     pub active: bool,
+    pub allow_direct_send: bool,
     #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
     pub provider_config: Option<serde_json::Value>,
     pub ongoing_task_id: Option<String>,
@@ -85,6 +88,31 @@ pub struct SendChannelMessageRequest {
 pub struct SendChannelMessageResponse {
     pub sent_count: u32,
     pub errors: Vec<String>,
+}
+
+/// Request to send a message directly to a channel config.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct DirectSendRequest {
+    pub text: String,
+    /// File IDs (from `/api/v1/uploads`) to attach to the message.
+    #[serde(default)]
+    pub file_ids: Vec<String>,
+    /// Optional task ID. When set, the first send creates a thread linked to
+    /// this task; subsequent sends reply in that thread.
+    pub task_id: Option<String>,
+}
+
+/// Response from sending a message directly to a channel config.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct DirectSendResponse {
+    /// Whether the message was sent successfully.
+    pub success: bool,
+    /// Provider-specific external message ID (e.g. Slack message ts), if available.
+    pub external_message_id: Option<String>,
 }
 
 /// Channel connected to a task (via channel_threads).
