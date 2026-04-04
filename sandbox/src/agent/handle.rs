@@ -34,6 +34,8 @@ enum AgentCommand {
     Send {
         text: String,
         system_prompt: Option<String>,
+        /// Session ID from the backend for resuming after pod restart.
+        resume_session_id: Option<String>,
         ack: oneshot::Sender<String>,
     },
     /// Stop the agent and shut down the actor loop.
@@ -49,13 +51,27 @@ pub struct AgentHandle {
 impl AgentHandle {
     /// Send a message to the agent.
     ///
+    /// `resume_session_id` is the backend-tracked session ID for resuming after
+    /// pod restart. Pass `None` when injecting into an active session or when
+    /// no prior session is known.
+    ///
     /// Returns a receiver that resolves with the session ID once the agent
     /// has processed the message:
     /// - **Injection** (session active): resolves immediately after successful stdin write.
     /// - **New session**: resolves on `SessionInit` with the real session ID.
-    pub fn send(&self, text: String, system_prompt: Option<String>) -> oneshot::Receiver<String> {
+    pub fn send(
+        &self,
+        text: String,
+        system_prompt: Option<String>,
+        resume_session_id: Option<String>,
+    ) -> oneshot::Receiver<String> {
         let (ack_tx, ack_rx) = oneshot::channel();
-        let _ = self.command_tx.send(AgentCommand::Send { text, system_prompt, ack: ack_tx });
+        let _ = self.command_tx.send(AgentCommand::Send {
+            text,
+            system_prompt,
+            resume_session_id,
+            ack: ack_tx,
+        });
         ack_rx
     }
 
@@ -152,7 +168,7 @@ async fn agent_loop(
             // ── Handle commands ────────────────────────────────────
             cmd = command_rx.recv() => {
                 match cmd {
-                    Some(AgentCommand::Send { text, system_prompt, ack }) => {
+                    Some(AgentCommand::Send { text, system_prompt, resume_session_id, ack }) => {
                         // Store the latest system_prompt for use in start_session
                         if system_prompt.is_some() {
                             last_system_prompt = system_prompt;
@@ -203,6 +219,7 @@ async fn agent_loop(
                                 &task_id,
                                 &session_id,
                                 last_system_prompt.as_deref(),
+                                resume_session_id,
                             ).await {
                                 Ok(h) => {
                                     handle = Some(h);
@@ -257,6 +274,7 @@ async fn start_session(
     task_id: &str,
     previous_session_id: &str,
     system_prompt: Option<&str>,
+    resume_session_id: Option<String>,
 ) -> Result<QueryHandle, claude_agent_sdk::SdkError> {
     // Re-fetch credentials before each run to pick up rotated tokens.
     // Best-effort — fall back to cached credentials on failure.
@@ -277,17 +295,21 @@ async fn start_session(
     };
     drop(creds);
 
-    // Resume strategy:
-    // - If we have a previous_session_id (within same pod lifetime) → resume by ID
-    // - Otherwise → try --continue (resumes latest session from disk)
-    // - If --continue fails (no session files) → fall back to new session
+    // Resume strategy (in priority order):
+    // 1. In-memory previous_session_id (within same pod lifetime) → --resume <id>
+    // 2. Backend-provided resume_session_id (survives pod restarts) → --resume <id>
+    // 3. Fall back to --continue (resumes latest session from disk)
+    // 4. If --continue fails → start a fresh session
     let is_first_session = previous_session_id.is_empty();
-    let resume = if is_first_session {
-        Some(super::types::ResumeSession::Last)
-    } else {
+    let resume = if !previous_session_id.is_empty() {
         Some(super::types::ResumeSession::WithId(
             previous_session_id.to_string(),
         ))
+    } else if let Some(ref sid) = resume_session_id {
+        info!(resume_session_id = %sid, "Using backend-provided session ID for resume");
+        Some(super::types::ResumeSession::WithId(sid.clone()))
+    } else {
+        Some(super::types::ResumeSession::Last)
     };
 
     let request = AgentRunRequest {
@@ -332,6 +354,7 @@ async fn start_session(
 }
 
 /// Process an SDK message from the active session.
+#[allow(clippy::too_many_arguments)] // reason: actor internals, will refactor to a struct later
 async fn process_sdk_message(
     msg: SdkMessage,
     agent_state: &AgentState,

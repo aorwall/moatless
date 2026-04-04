@@ -43,10 +43,13 @@ pub async fn dispatch_pending_messages(state: SandboxState) {
         return;
     }
 
-    // Extract UUIDs, text content, and system_prompt
+    // Extract UUIDs, text content, system_prompt, and resume_session_id
     let uuids: Vec<String> = messages.iter().filter_map(|m| m.uuid.clone()).collect();
     let text = extract_text_from_messages(&messages);
     let system_prompt = extract_system_prompt(&messages);
+    let resume_session_id = messages
+        .iter()
+        .find_map(|m| m.resume_session_id.clone());
 
     if text.is_empty() {
         return;
@@ -56,12 +59,13 @@ pub async fn dispatch_pending_messages(state: SandboxState) {
         message_count = messages.len(),
         text_len = text.len(),
         has_system_prompt = system_prompt.is_some(),
+        resume_session_id = ?resume_session_id,
         "Dispatching messages to agent"
     );
 
     // Send to agent actor — it handles injection vs new session.
     // Ack is deferred until the agent confirms it processed the message.
-    let ack_rx = state.agent_handle.send(text, system_prompt);
+    let ack_rx = state.agent_handle.send(text, system_prompt, resume_session_id);
 
     if !uuids.is_empty() {
         let task_id = task_id.to_string();
@@ -106,7 +110,7 @@ async fn resolve_pending_prompt(state: &SandboxState) {
         info!("Pending prompt was already consumed, dispatching normally");
         let text = extract_text_from_messages(&proto_messages);
         // Drop the ack receiver — no UUIDs to acknowledge in this race path
-        let _ = state.agent_handle.send(text, None);
+        drop(state.agent_handle.send(text, None, None));
         return;
     };
 
