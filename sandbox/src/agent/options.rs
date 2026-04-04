@@ -101,9 +101,12 @@ Available `moat` commands:
 /// Build the system prompt configuration.
 #[allow(clippy::unnecessary_wraps)] // Option for caller API consistency
 fn build_system_prompt(config: &Config, request: &AgentRunRequest) -> Option<SystemPrompt> {
-    // Behavioral directives first — these must not get buried under reference material
     let mut append_parts = Vec::new();
-    append_parts.push(REQUIRED_FIRST_ACTIONS.to_string());
+
+    // Only ask the agent to set a task name on fresh sessions (not resumes)
+    if request.resume.is_none() {
+        append_parts.push(REQUIRED_FIRST_ACTIONS.to_string());
+    }
 
     if let Some(ref sp) = config.agent_config.system_prompt {
         append_parts.push(sp.clone());
