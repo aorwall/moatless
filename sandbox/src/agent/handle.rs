@@ -281,7 +281,8 @@ async fn start_session(
     // - If we have a previous_session_id (within same pod lifetime) → resume by ID
     // - Otherwise → try --continue (resumes latest session from disk)
     // - If --continue fails (no session files) → fall back to new session
-    let resume = if previous_session_id.is_empty() {
+    let is_first_session = previous_session_id.is_empty();
+    let resume = if is_first_session {
         Some(super::types::ResumeSession::Last)
     } else {
         Some(super::types::ResumeSession::WithId(
@@ -295,6 +296,7 @@ async fn start_session(
         system_prompt: system_prompt.map(ToString::to_string),
         resume,
         agent_type: None,
+        is_first_session,
     };
 
     let cancel_token = CancellationToken::new();

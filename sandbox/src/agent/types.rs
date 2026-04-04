@@ -90,6 +90,10 @@ pub struct AgentRunRequest {
     /// Agent type identifier.
     #[serde(default)]
     pub agent_type: Option<String>,
+    /// True when this is the first session in the pod's lifetime (no prior session).
+    /// Used to decide whether to inject one-time directives like set-name.
+    #[serde(default)]
+    pub is_first_session: bool,
 }
 
 impl AgentRunRequest {
@@ -198,6 +202,7 @@ mod tests {
             system_prompt: None,
             resume: None,
             agent_type: None,
+            is_first_session: false,
         };
         assert_eq!(req.extract_text(), "line one\nline two");
     }
@@ -210,6 +215,7 @@ mod tests {
             system_prompt: None,
             resume: None,
             agent_type: None,
+            is_first_session: false,
         };
         assert_eq!(req.extract_text(), "");
     }

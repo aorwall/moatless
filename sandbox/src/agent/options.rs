@@ -103,8 +103,8 @@ Available `moat` commands:
 fn build_system_prompt(config: &Config, request: &AgentRunRequest) -> Option<SystemPrompt> {
     let mut append_parts = Vec::new();
 
-    // Only ask the agent to set a task name on fresh sessions (not resumes)
-    if request.resume.is_none() {
+    // Only ask the agent to set a task name on the first session in this pod's lifetime.
+    if request.is_first_session {
         append_parts.push(REQUIRED_FIRST_ACTIONS.to_string());
     }
 

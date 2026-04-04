@@ -364,6 +364,7 @@ fn batch_messages(messages: Vec<InternalPendingMessage>) -> AgentRunRequest {
         system_prompt,
         resume,
         agent_type,
+        is_first_session: false,
     }
 }
 
