@@ -15,7 +15,8 @@ pub struct GithubPrProviderConfig {
     /// Bot's GitHub login (used to filter self-replies).
     pub bot_username: Option<String>,
     /// Filter which events to process. Empty means all supported events.
-    /// Possible values: "pull_request", "issue_comment", "pull_request_review_comment", "pull_request_review"
+    /// Possible values: "pull_request", "issue_comment", "pull_request_review_comment",
+    ///   "pull_request_review", "check_run"
     #[serde(default)]
     pub events_filter: Vec<String>,
     /// Whether to auto-create channel configs for unconfigured repos from this wildcard template.

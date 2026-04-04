@@ -195,6 +195,7 @@ impl GithubPrProvider {
                 self.handle_review_comment_event(payload, &ctx).await
             }
             "pull_request_review" => self.handle_review_event(payload, &ctx).await,
+            "check_run" => self.handle_check_run_event(payload, &ctx).await,
             _ => {
                 debug!(event_type, "Unsupported GitHub event type");
                 Ok(GithubPrWebhookResult::Ignore)
@@ -579,6 +580,129 @@ impl GithubPrProvider {
             "**@{}** — {state_label}:\n\n{review_body}",
             ctx.sender_login
         );
+
+        let user_id = self
+            .resolve_user_or_fallback(ctx.sender_login, ctx.config, ctx.db)
+            .await;
+
+        Ok(GithubPrWebhookResult::Message(Box::new(InboundMessage {
+            provider: ChannelType::GithubPr,
+            source_id: ctx.config.source_id.clone(),
+            thread_id: Some(pr_number.to_string()),
+            message_thread_id: pr_number.to_string(),
+            user_id,
+            text,
+            file_ids: vec![],
+            thread_properties: serde_json::json!({
+                "owner": ctx.owner,
+                "repo": ctx.repo,
+                "pr_number": pr_number,
+            }),
+            provider_context: serde_json::json!({}),
+            channel_external_id: None,
+        })))
+    }
+
+    /// Failure-class conclusions for check_run events.
+    const CHECK_RUN_FAILURE_CONCLUSIONS: &[&str] =
+        &["failure", "timed_out", "cancelled", "action_required"];
+
+    /// Maximum length for check_run output summary in the message.
+    const CHECK_RUN_SUMMARY_MAX_LEN: usize = 2000;
+
+    /// Handle `check_run` `completed` events with failure conclusions.
+    async fn handle_check_run_event(
+        &self,
+        payload: &serde_json::Value,
+        ctx: &EventContext<'_>,
+    ) -> Result<GithubPrWebhookResult, ChannelError> {
+        let action = payload
+            .get("action")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+
+        if action != "completed" {
+            debug!(action, "Ignoring check_run action (not completed)");
+            return Ok(GithubPrWebhookResult::Ignore);
+        }
+
+        let check_run = payload.get("check_run").ok_or_else(|| {
+            ChannelError::BadRequest("Missing check_run in payload".into())
+        })?;
+
+        let conclusion = check_run
+            .get("conclusion")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+
+        if !Self::CHECK_RUN_FAILURE_CONCLUSIONS.contains(&conclusion) {
+            debug!(conclusion, "Ignoring check_run with non-failure conclusion");
+            return Ok(GithubPrWebhookResult::Ignore);
+        }
+
+        // Extract PR number — ignore if not PR-related
+        let pr_number = check_run
+            .pointer("/pull_requests/0/number")
+            .and_then(serde_json::Value::as_u64);
+
+        let Some(pr_number) = pr_number else {
+            debug!("Ignoring check_run: no associated pull request");
+            return Ok(GithubPrWebhookResult::Ignore);
+        };
+
+        let name = check_run
+            .get("name")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("unknown");
+        let html_url = check_run
+            .get("html_url")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        let head_sha = check_run
+            .get("head_sha")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        let short_sha = &head_sha[..7.min(head_sha.len())];
+        let app_name = check_run
+            .pointer("/app/name")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("CI");
+
+        let output_title = check_run
+            .pointer("/output/title")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        let output_summary = check_run
+            .pointer("/output/summary")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+
+        // Build rich message
+        let mut text = format!(
+            "## CI Check Failed: {name}\n\n\
+             **Conclusion:** {conclusion}\n\
+             **CI:** {app_name}\n\
+             **Commit:** `{short_sha}`\n",
+        );
+
+        if !html_url.is_empty() {
+            let _ = writeln!(text, "**Link:** {html_url}");
+        }
+
+        if !output_title.is_empty() || !output_summary.is_empty() {
+            text.push_str("\n### Output\n");
+            if !output_title.is_empty() {
+                let _ = writeln!(text, "**{output_title}**");
+            }
+            if !output_summary.is_empty() {
+                if output_summary.len() > Self::CHECK_RUN_SUMMARY_MAX_LEN {
+                    let truncated = &output_summary[..Self::CHECK_RUN_SUMMARY_MAX_LEN];
+                    let _ = write!(text, "{truncated}...");
+                } else {
+                    let _ = write!(text, "{output_summary}");
+                }
+            }
+        }
 
         let user_id = self
             .resolve_user_or_fallback(ctx.sender_login, ctx.config, ctx.db)
