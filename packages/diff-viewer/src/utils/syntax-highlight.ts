@@ -78,24 +78,52 @@ export function isLanguageSupported(language: string): boolean {
 }
 
 /**
- * Parse highlight.js HTML output into tokens
+ * Parse highlight.js HTML output into tokens, handling nested spans.
  * Input: '<span class="hljs-keyword">const</span> x = <span class="hljs-number">1</span>'
  * Output: [{ type: 'keyword', content: 'const' }, { type: 'plain', content: ' x = ' }, ...]
  */
 function parseHljsHtml(html: string): HighlightToken[] {
   const tokens: HighlightToken[] = []
-  // Match span tags with hljs class OR plain text between tags
-  const regex = /<span class="hljs-([^"]+)">([^<]*)<\/span>|([^<]+)/g
+  const typeStack: string[] = []
+  const openTagRegex = /^<span class="hljs-([^"]+)">/
+  const closeTag = '</span>'
+  let i = 0
 
-  // Use for loop to avoid assignment in while condition
-  for (let match = regex.exec(html); match !== null; match = regex.exec(html)) {
-    if (match[1] && match[2] !== undefined) {
-      // Matched a span with class
-      tokens.push({ type: match[1], content: decodeHtml(match[2]) })
-    } else if (match[3]) {
-      // Matched plain text
-      tokens.push({ type: 'plain', content: decodeHtml(match[3]) })
+  while (i < html.length) {
+    if (html[i] === '<') {
+      // Check for closing </span>
+      if (html.startsWith(closeTag, i)) {
+        typeStack.pop()
+        i += closeTag.length
+        continue
+      }
+
+      // Check for opening <span class="hljs-...">
+      const openMatch = openTagRegex.exec(html.slice(i))
+      if (openMatch?.[1]) {
+        typeStack.push(openMatch[1])
+        i += openMatch[0].length
+        continue
+      }
+
+      // Stray '<' — emit as text
+      const currentType = typeStack[typeStack.length - 1] ?? 'plain'
+      tokens.push({ type: currentType, content: '<' })
+      i++
+      continue
     }
+
+    // Collect text until next '<'
+    let end = html.indexOf('<', i)
+    if (end === -1) {
+      end = html.length
+    }
+    const text = html.slice(i, end)
+    if (text) {
+      const currentType = typeStack[typeStack.length - 1] ?? 'plain'
+      tokens.push({ type: currentType, content: decodeHtml(text) })
+    }
+    i = end
   }
 
   return tokens.length > 0 ? tokens : [{ type: 'plain', content: html }]
