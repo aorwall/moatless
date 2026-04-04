@@ -5,6 +5,62 @@
 
 pub use moatless_api_schemas::enums::Scope;
 
+// ---------------------------------------------------------------------------
+// ScopedEntity — declares per-entity schema facts
+// ---------------------------------------------------------------------------
+
+/// Declares access-control schema properties for each entity type.
+///
+/// The entity determines whether `visibility = 'public'` bypasses scope checks —
+/// callers never choose this themselves, eliminating a class of bugs.
+#[derive(Debug, Clone, Copy)]
+pub enum ScopedEntity {
+    /// `tasks` table — has a `visibility` column.
+    Task,
+    /// `repositories` table — has a `visibility` column.
+    Repository,
+    /// `channel_configs` table — no `visibility` column.
+    ChannelConfig,
+}
+
+impl ScopedEntity {
+    fn has_visibility(self) -> bool {
+        match self {
+            Self::Task | Self::Repository => true,
+            Self::ChannelConfig => false,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// AccessFilter — encapsulates a SQL fragment + parameter tracking
+// ---------------------------------------------------------------------------
+
+/// Access-control WHERE clause fragment with parameter tracking.
+///
+/// Created via [`ScopeContext::access_filter()`]. Contains the SQL fragment
+/// and tracks the next available positional parameter index.
+pub struct AccessFilter {
+    sql: String,
+    next_param: usize,
+}
+
+impl AccessFilter {
+    /// The SQL WHERE clause fragment (e.g. `($1 OR visibility = 'public' OR ...)`).
+    pub fn sql(&self) -> &str {
+        &self.sql
+    }
+
+    /// Next available positional parameter index after this filter's params.
+    pub fn next_param(&self) -> usize {
+        self.next_param
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ScopeContext
+// ---------------------------------------------------------------------------
+
 /// Access context derived from the authenticated user.
 ///
 /// Used by DAO methods to filter queries by scope.
@@ -16,7 +72,7 @@ pub struct ScopeContext {
 }
 
 impl ScopeContext {
-    /// Generate a SQL WHERE clause fragment for access control.
+    /// Build an access-control SQL filter for the given entity.
     ///
     /// Uses 3 positional parameters starting at `start`:
     ///   - `$start`: `is_admin` (bool)
@@ -26,19 +82,23 @@ impl ScopeContext {
     /// Caller must `.bind()` these from `self.is_admin`, `self.team_ids`, `self.user_id`.
     ///
     /// `prefix` is the table alias (e.g. `""` or `"t."`).
-    /// `with_visibility` adds `OR visibility = 'public'` so public resources bypass scope.
-    pub fn sql_filter(&self, prefix: &str, start: usize, with_visibility: bool) -> String {
+    /// The entity determines whether `visibility = 'public'` is included.
+    pub fn access_filter(&self, entity: ScopedEntity, prefix: &str, start: usize) -> AccessFilter {
         let (p1, p2, p3) = (start, start + 1, start + 2);
-        let vis = if with_visibility {
+        let vis = if entity.has_visibility() {
             format!(" OR {prefix}visibility = 'public'")
         } else {
             String::new()
         };
-        format!(
+        let sql = format!(
             "(${p1}{vis} OR {prefix}scope = 'global' \
              OR ({prefix}scope = 'team' AND {prefix}team_id = ANY(${p2})) \
              OR ({prefix}scope = 'user' AND {prefix}created_by = ${p3}))"
-        )
+        );
+        AccessFilter {
+            sql,
+            next_param: start + 3,
+        }
     }
 
     /// Check if this context has access to a resource with the given scope.
@@ -127,35 +187,60 @@ mod tests {
         assert!(ctx.can_access(Scope::Team, Some("t99"), None));
     }
 
-    #[test]
-    fn sql_filter_without_visibility() {
-        let ctx = ScopeContext {
+    // -- access_filter tests --
+
+    fn test_ctx() -> ScopeContext {
+        ScopeContext {
             user_id: "u1".into(),
             team_ids: vec![],
             is_admin: false,
-        };
-        let sql = ctx.sql_filter("", 1, false);
+        }
+    }
+
+    #[test]
+    fn access_filter_task_includes_visibility() {
+        let f = test_ctx().access_filter(ScopedEntity::Task, "", 1);
         assert_eq!(
-            sql,
+            f.sql(),
+            "($1 OR visibility = 'public' OR scope = 'global' \
+             OR (scope = 'team' AND team_id = ANY($2)) \
+             OR (scope = 'user' AND created_by = $3))"
+        );
+        assert_eq!(f.next_param(), 4);
+    }
+
+    #[test]
+    fn access_filter_repository_includes_visibility() {
+        let f = test_ctx().access_filter(ScopedEntity::Repository, "", 2);
+        assert_eq!(
+            f.sql(),
+            "($2 OR visibility = 'public' OR scope = 'global' \
+             OR (scope = 'team' AND team_id = ANY($3)) \
+             OR (scope = 'user' AND created_by = $4))"
+        );
+        assert_eq!(f.next_param(), 5);
+    }
+
+    #[test]
+    fn access_filter_channel_config_no_visibility() {
+        let f = test_ctx().access_filter(ScopedEntity::ChannelConfig, "", 1);
+        assert_eq!(
+            f.sql(),
             "($1 OR scope = 'global' \
              OR (scope = 'team' AND team_id = ANY($2)) \
              OR (scope = 'user' AND created_by = $3))"
         );
+        assert_eq!(f.next_param(), 4);
     }
 
     #[test]
-    fn sql_filter_with_visibility() {
-        let ctx = ScopeContext {
-            user_id: "u1".into(),
-            team_ids: vec![],
-            is_admin: false,
-        };
-        let sql = ctx.sql_filter("t.", 2, true);
+    fn access_filter_with_table_prefix() {
+        let f = test_ctx().access_filter(ScopedEntity::Task, "t.", 1);
         assert_eq!(
-            sql,
-            "($2 OR t.visibility = 'public' OR t.scope = 'global' \
-             OR (t.scope = 'team' AND t.team_id = ANY($3)) \
-             OR (t.scope = 'user' AND t.created_by = $4))"
+            f.sql(),
+            "($1 OR t.visibility = 'public' OR t.scope = 'global' \
+             OR (t.scope = 'team' AND t.team_id = ANY($2)) \
+             OR (t.scope = 'user' AND t.created_by = $3))"
         );
     }
 }

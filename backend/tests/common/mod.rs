@@ -238,7 +238,10 @@ pub fn make_task_row(task_id: &str, user_id: &str) -> Task {
         scope: moatless_vibe_backend::scope::Scope::User,
         team_id: None,
         created_at_db: None,
+        updated_at: None,
         parent_task_id: None,
+        append_system_prompt: None,
+        sandbox_started_at: None,
     }
 }
 
@@ -267,7 +270,10 @@ pub fn make_repository_row(id: &str, user_id: &str) -> Repository {
         description: None,
         provider: Some(RepositoryProvider::Github),
         visibility: Some(Visibility::Public),
+        scope: moatless_vibe_backend::scope::Scope::User,
+        team_id: None,
         created_by: Some(user_id.to_string()),
+        resources: None,
         deleted: Some(false),
         created_at: Some(now),
         updated_at: Some(now),

@@ -5,10 +5,20 @@
 mod common;
 
 use moatless_vibe_backend::repository::dao::{self as repository_dao, RepositoryPatch};
+use moatless_vibe_backend::scope::ScopeContext;
 use moatless_vibe_backend::task::models::Visibility;
 use sqlx::PgPool;
 
 use common::make_repository_row;
+
+/// Helper to create a non-admin ScopeContext for a given user.
+fn scope_ctx(user_id: &str) -> ScopeContext {
+    ScopeContext {
+        user_id: user_id.into(),
+        team_ids: vec![],
+        is_admin: false,
+    }
+}
 
 #[sqlx::test]
 async fn insert_and_find_by_id(pool: PgPool) {
@@ -16,7 +26,7 @@ async fn insert_and_find_by_id(pool: PgPool) {
     let row = make_repository_row("repo-abc", user);
     repository_dao::insert(&pool, &row).await.unwrap();
 
-    let found = repository_dao::find_by_id(&pool, "repo-abc", user)
+    let found = repository_dao::find_by_id(&pool, "repo-abc", &scope_ctx(user))
         .await
         .unwrap();
     assert!(found.is_some());
@@ -33,13 +43,13 @@ async fn find_by_id_access_control(pool: PgPool) {
     repository_dao::insert(&pool, &row).await.unwrap();
 
     // Owner can see it
-    let found = repository_dao::find_by_id(&pool, "repo-priv", "user-1")
+    let found = repository_dao::find_by_id(&pool, "repo-priv", &scope_ctx("user-1"))
         .await
         .unwrap();
     assert!(found.is_some());
 
     // Other user cannot
-    let found = repository_dao::find_by_id(&pool, "repo-priv", "user-2")
+    let found = repository_dao::find_by_id(&pool, "repo-priv", &scope_ctx("user-2"))
         .await
         .unwrap();
     assert!(found.is_none());
@@ -56,11 +66,11 @@ async fn list_all_visibility_scoping(pool: PgPool) {
     repository_dao::insert(&pool, &public_repo).await.unwrap();
 
     // user-1 sees own private + other's public
-    let list = repository_dao::list_all(&pool, "user-1").await.unwrap();
+    let list = repository_dao::list_all(&pool, &scope_ctx("user-1")).await.unwrap();
     assert_eq!(list.len(), 2);
 
     // user-2 sees own public but not user-1's private
-    let list = repository_dao::list_all(&pool, "user-2").await.unwrap();
+    let list = repository_dao::list_all(&pool, &scope_ctx("user-2")).await.unwrap();
     assert_eq!(list.len(), 1);
     assert_eq!(list[0].id, "repo-pub");
 }
@@ -83,7 +93,7 @@ async fn update_partial(pool: PgPool) {
     .unwrap();
     assert!(updated);
 
-    let found = repository_dao::find_by_id(&pool, "repo-upd", "user-1")
+    let found = repository_dao::find_by_id(&pool, "repo-upd", &scope_ctx("user-1"))
         .await
         .unwrap()
         .unwrap();
@@ -101,7 +111,7 @@ async fn soft_delete(pool: PgPool) {
     assert!(deleted);
 
     // Should not be findable anymore
-    let found = repository_dao::find_by_id(&pool, "repo-del", "user-1")
+    let found = repository_dao::find_by_id(&pool, "repo-del", &scope_ctx("user-1"))
         .await
         .unwrap();
     assert!(found.is_none());
@@ -147,7 +157,7 @@ async fn update_jsonb_fields(pool: PgPool) {
     .await
     .unwrap();
 
-    let found = repository_dao::find_by_id(&pool, "repo-json", "user-1")
+    let found = repository_dao::find_by_id(&pool, "repo-json", &scope_ctx("user-1"))
         .await
         .unwrap()
         .unwrap();

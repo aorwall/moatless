@@ -7,7 +7,7 @@ use chrono::{DateTime, Utc};
 
 use super::models::{Task, TaskStatus, Visibility};
 use crate::db::DbPool;
-use crate::scope::{Scope, ScopeContext};
+use crate::scope::{Scope, ScopeContext, ScopedEntity};
 use crate::shared_models::AgentType;
 
 /// Filter struct for task listing queries.
@@ -64,7 +64,7 @@ impl TaskRepository for PgTaskRepository {
     }
 
     async fn find_by_id(&self, task_id: &str, ctx: &ScopeContext) -> Result<Option<Task>, sqlx::Error> {
-        let access = ctx.sql_filter("", 2, true);
+        let access = ctx.access_filter(ScopedEntity::Task, "", 2);
         let sql = format!(
             r#"SELECT
                 task_id, short_id, created_at, last_message_at, agent_type,
@@ -75,7 +75,7 @@ impl TaskRepository for PgTaskRepository {
                 sandbox_started_at
             FROM tasks
             WHERE task_id = $1
-              AND {access}"#,
+              AND {}"#, access.sql(),
         );
         sqlx::query_as::<_, Task>(&sql)
             .bind(task_id)
@@ -163,7 +163,7 @@ impl TaskRepository for PgTaskRepository {
             total_count: i64,
         }
 
-        let access = filter.scope.sql_filter("t.", 1, true);
+        let access = filter.scope.access_filter(ScopedEntity::Task, "t.", 1);
         let sql = format!(
             r#"SELECT DISTINCT
                 t.task_id, t.short_id, t.created_at, t.last_message_at, t.agent_type,
@@ -176,7 +176,7 @@ impl TaskRepository for PgTaskRepository {
             FROM tasks t
             LEFT JOIN task_tags tt ON t.task_id = tt.task_id
             LEFT JOIN tags tg ON tt.tag_id = tg.tag_id
-            WHERE {access}
+            WHERE {}
               AND ($4::text IS NULL OR t.status = $4)
               AND ($5::text IS NULL OR t.repository_id = $5)
               AND ($6::text IS NULL OR t.created_by = $6)
@@ -184,6 +184,7 @@ impl TaskRepository for PgTaskRepository {
               AND ($8::text IS NULL OR t.parent_task_id = $8)
             ORDER BY t.updated_at DESC NULLS LAST
             LIMIT $9 OFFSET $10"#,
+            access.sql(),
         );
         let rows = sqlx::query_as::<_, TaskWithCount>(&sql)
             .bind(filter.scope.is_admin)

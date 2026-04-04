@@ -4,7 +4,7 @@ use async_trait::async_trait;
 
 use super::models::{ChannelConfig, RoutingMode};
 use crate::db::DbPool;
-use crate::scope::ScopeContext;
+use crate::scope::{ScopeContext, ScopedEntity};
 
 const CHANNEL_CONFIG_COLUMNS: &str = r#"id, provider, source_id, source_name, repository_id, routing_mode,
                       prompt_template, active, allow_direct_send, provider_config, ongoing_task_id,
@@ -64,11 +64,11 @@ impl ChannelConfigRepository for PgChannelConfigRepository {
     }
 
     async fn find_by_id_scoped(&self, id: &str, ctx: &ScopeContext) -> Result<Option<ChannelConfig>, sqlx::Error> {
-        let access = ctx.sql_filter("", 2, false);
+        let access = ctx.access_filter(ScopedEntity::ChannelConfig, "", 2);
         let sql = format!(
             "SELECT {CHANNEL_CONFIG_COLUMNS} FROM channel_configs \
              WHERE id = $1 \
-             AND {access}"
+             AND {}", access.sql()
         );
         sqlx::query_as::<_, ChannelConfig>(&sql)
             .bind(id)
@@ -123,10 +123,10 @@ impl ChannelConfigRepository for PgChannelConfigRepository {
     }
 
     async fn list_scoped(&self, provider: Option<&str>, repository_id: Option<&str>, active_only: bool, ctx: &ScopeContext) -> Result<Vec<ChannelConfig>, sqlx::Error> {
-        let access = ctx.sql_filter("", 1, false);
+        let access = ctx.access_filter(ScopedEntity::ChannelConfig, "", 1);
         let mut sql = format!(
             "SELECT {CHANNEL_CONFIG_COLUMNS} FROM channel_configs \
-             WHERE {access}"
+             WHERE {}", access.sql()
         );
         let mut param_idx = 3u32;
         let mut binds: Vec<String> = Vec::new();

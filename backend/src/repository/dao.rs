@@ -4,7 +4,7 @@ use async_trait::async_trait;
 
 use super::models::{Repository, RepositoryKind, RepositoryProvider};
 use crate::db::DbPool;
-use crate::scope::ScopeContext;
+use crate::scope::{ScopeContext, ScopedEntity};
 use crate::task::models::Visibility;
 
 /// Columns selected for repository queries.
@@ -79,12 +79,12 @@ impl RepoRepository for PgRepoRepository {
     }
 
     async fn find_by_id(&self, id: &str, ctx: &ScopeContext) -> Result<Option<Repository>, sqlx::Error> {
-        let access = ctx.sql_filter("", 2, false);
+        let access = ctx.access_filter(ScopedEntity::Repository, "", 2);
         let query = format!(
             "SELECT {REPO_COLUMNS} FROM repositories \
              WHERE id = $1 \
              AND (deleted IS NULL OR deleted = false) \
-             AND {access}"
+             AND {}", access.sql()
         );
         sqlx::query_as::<_, Repository>(&query)
             .bind(id)
@@ -96,12 +96,12 @@ impl RepoRepository for PgRepoRepository {
     }
 
     async fn list_all(&self, ctx: &ScopeContext) -> Result<Vec<Repository>, sqlx::Error> {
-        let access = ctx.sql_filter("", 1, false);
+        let access = ctx.access_filter(ScopedEntity::Repository, "", 1);
         let query = format!(
             "SELECT {REPO_COLUMNS} FROM repositories \
              WHERE (deleted IS NULL OR deleted = false) \
-             AND {access} \
-             ORDER BY name ASC"
+             AND {} \
+             ORDER BY name ASC", access.sql()
         );
         sqlx::query_as::<_, Repository>(&query)
             .bind(ctx.is_admin)
