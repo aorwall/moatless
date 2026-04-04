@@ -78,7 +78,7 @@ pub trait ChannelProvider: Send + Sync {
     /// features like mention syntax, file attachments, or formatting.
     ///
     /// Default: no provider-specific instructions.
-    fn reply_instructions(&self) -> Option<&'static str> {
+    fn reply_instructions(&self) -> Option<String> {
         None
     }
 

@@ -20,11 +20,13 @@ use super::models::{InboundMessage, RoutingMode};
 const CHANNEL_REPLY_INSTRUCTIONS: &str = "\
 # Channel Reply Instructions
 
-This task was created from a channel message. You MUST send your response back \
+This task was created from a channel message. Send your responses back \
 to the channel using the `moat reply` command.
 
 - Use `moat reply --text \"<your response>\"` to send your response.
-- Always send a reply when done, even if you encountered an error.
+- For the initial message that created this task, always send a reply.
+- For follow-up thread messages, reply if you are mentioned or have useful information. \
+If the message is not directed at you and you have nothing to add, stay silent (do not send a reply).
 - Keep replies concise — the recipient is reading in a messaging app.
 - You may send multiple replies for progress updates on long-running tasks.";
 
@@ -225,6 +227,21 @@ pub async fn process_inbound(
         message_text = format!("{label}: {message_text}");
     }
 
+    // For thread replies where the bot was not mentioned, prepend a hint so the
+    // agent knows it can stay silent.
+    if msg.thread_id.is_some() {
+        let is_bot_mentioned = msg
+            .provider_context
+            .get("is_bot_mentioned")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        if !is_bot_mentioned {
+            message_text = format!(
+                "[Thread message — you were not mentioned. Only respond if you have relevant information to add.]\n\n{message_text}"
+            );
+        }
+    }
+
     if let Some(ctx) = thread_context {
         if has_cursor {
             // Subsequent message — just prepend the new thread messages
@@ -329,7 +346,7 @@ async fn create_task_for_channel(
             if let Some(providers) = state.channel_providers.as_ref() {
                 if let Some(provider) = providers.get_by_name(&config.provider) {
                     if let Some(extra) = provider.reply_instructions() {
-                        parts.push(extra.to_string());
+                        parts.push(extra);
                     }
                 }
             }

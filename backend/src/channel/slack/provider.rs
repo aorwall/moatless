@@ -2,6 +2,7 @@
 
 use axum::http::HeaderMap;
 use moka::future::Cache;
+use std::fmt::Write as _;
 use std::time::Duration;
 use tracing::{debug, info, warn};
 
@@ -17,9 +18,10 @@ use super::api::SlackApi;
 use super::config::SlackProviderConfig;
 use super::signature;
 
-/// Slack-specific reply instructions appended to the system prompt for tasks
-/// created from Slack messages.
-const SLACK_REPLY_INSTRUCTIONS: &str = "\
+/// Build Slack-specific reply instructions, optionally including the bot's own
+/// Slack user ID so the agent can detect mentions and decide when to respond.
+fn build_slack_reply_instructions(bot_user_id: Option<&str>) -> String {
+    let mut s = String::from("\
 ## Slack-specific instructions
 
 ### Mentioning users
@@ -31,7 +33,23 @@ To include files (screenshots, logs, generated artifacts) in your reply, use the
 - `moat reply --text \"Here are the results\" --file screenshot.png`
 - `moat reply --text \"Logs attached\" --file output.log --file error.log`
 - Multiple `--file` flags can be used to attach several files at once.
-- Images will render inline in the Slack thread.";
+- Images will render inline in the Slack thread.");
+
+    if let Some(bot_id) = bot_user_id {
+        let _ = write!(s, "\n\n\
+### When to respond in thread conversations\n\
+Your Slack user ID is `{bot_id}`.\n\
+You will receive ALL messages in the thread, not just ones directed at you.\n\
+- **Always respond** if you are mentioned (the message contains `<@{bot_id}>`)\n\
+- **Always respond** if someone asks a question or requests help you can provide\n\
+- **Stay silent** if people are talking to each other and the conversation doesn't involve you\n\
+- **Stay silent** for simple acknowledgments, reactions, or off-topic chat\n\
+- When in doubt, stay silent rather than interjecting\n\
+- To stay silent, simply do nothing — do NOT send a `moat reply`");
+    }
+
+    s
+}
 
 /// Result of parsing a Slack webhook event.
 pub enum SlackWebhookResult {
@@ -202,7 +220,14 @@ impl SlackProvider {
             return Ok(SlackWebhookResult::Ignore);
         }
 
-        // 9. Strip bot mention and convert Slack mrkdwn to readable text
+        // 9. Detect bot mention BEFORE stripping (needed for selective reply logic)
+        let is_bot_mentioned = event_type == "app_mention"
+            || self
+                .bot_user_id
+                .as_ref()
+                .is_some_and(|bid| text.contains(&format!("<@{bid}>")));
+
+        // Strip bot mention and convert Slack mrkdwn to readable text
         let clean_text = strip_bot_mention(text, self.bot_user_id.as_deref());
         let clean_text = super::format::format_slack_text(&clean_text);
 
@@ -262,6 +287,7 @@ impl SlackProvider {
             provider_context: serde_json::json!({
                 "team_id": payload.get("team_id").and_then(|v| v.as_str()).unwrap_or(""),
                 "user_id": user,
+                "is_bot_mentioned": is_bot_mentioned,
             }),
             channel_external_id: Some(ts.to_string()),
         })))
@@ -282,8 +308,8 @@ impl ChannelProvider for SlackProvider {
         true
     }
 
-    fn reply_instructions(&self) -> Option<&'static str> {
-        Some(SLACK_REPLY_INSTRUCTIONS)
+    fn reply_instructions(&self) -> Option<String> {
+        Some(build_slack_reply_instructions(self.bot_user_id.as_deref()))
     }
 
     async fn resolve_user(
