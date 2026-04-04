@@ -1,4 +1,5 @@
-import { FolderGit2, LogOut, Settings, User } from 'lucide-react'
+import { Link } from '@tanstack/react-router'
+import { Box, FolderGit2, LogOut, Settings, User } from 'lucide-react'
 import { useState } from 'react'
 import { useAuth } from '@/features/auth'
 import { Button } from '@/lib/components/ui/button'
@@ -42,6 +43,12 @@ export function TopBar({ onRepositoriesClick, onSettingsClick }: TopBarProps) {
             </PopoverTrigger>
             <PopoverContent align="end" className="w-48 p-1">
               <div className="space-y-1">
+                <Link to="/sandbox" onClick={() => setIsMenuOpen(false)}>
+                  <Button variant="ghost" className="w-full justify-start h-8 px-2">
+                    <Box className="mr-2 h-4 w-4" />
+                    Sandbox
+                  </Button>
+                </Link>
                 <Button
                   variant="ghost"
                   className="w-full justify-start h-8 px-2"

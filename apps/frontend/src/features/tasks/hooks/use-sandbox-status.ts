@@ -1,6 +1,8 @@
-import type { TaskResponse, WorkspaceStatusFullResponse } from '@moatless/api-client'
+import type { SandboxStatusFullResponse, TaskResponse } from '@moatless/api-client'
 import {
+  cleanupHandler,
   provisionHandler,
+  redeployHandler,
   restartHandler,
   stopHandler,
 } from '@moatless/api-client/sandbox/sandbox/sandbox'
@@ -10,7 +12,7 @@ import { queryKeys } from '@/lib/api/query-keys'
 import { useTaskSandboxStatusQuery } from './use-task-queries'
 
 interface UseSandboxStatusOptions
-  extends Omit<UseQueryOptions<WorkspaceStatusFullResponse>, 'queryKey' | 'queryFn'> {
+  extends Omit<UseQueryOptions<SandboxStatusFullResponse>, 'queryKey' | 'queryFn'> {
   enabled?: boolean
 }
 
@@ -70,6 +72,33 @@ export function useSandboxStop(taskId: string) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: () => stopHandler(taskId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.sandboxStatus(taskId) })
+    },
+  })
+}
+
+/**
+ * Hook to redeploy sandbox (delete Deployment/Service/IngressRoutes, recreate with fresh config)
+ * Preserves workspace data (PVC)
+ */
+export function useSandboxRedeploy(taskId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => redeployHandler(taskId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.sandboxStatus(taskId) })
+    },
+  })
+}
+
+/**
+ * Hook to clean up sandbox and all associated resources
+ */
+export function useSandboxCleanup(taskId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => cleanupHandler(taskId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.tasks.sandboxStatus(taskId) })
     },

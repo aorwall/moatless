@@ -1,8 +1,4 @@
-import type {
-  ResourceMetrics,
-  ServerEntry,
-  WorkspaceStatusFullResponse,
-} from '@moatless/api-client'
+import type { ResourceMetrics, SandboxStatusFullResponse, ServerEntry } from '@moatless/api-client'
 import { useQueryClient } from '@tanstack/react-query'
 import type React from 'react'
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
@@ -60,14 +56,14 @@ export function GlobalEventStreamProvider({
   const updateSandboxStatus = useCallback(
     (
       event: Event,
-      old: WorkspaceStatusFullResponse | undefined,
-    ): WorkspaceStatusFullResponse | undefined => {
-      const current: WorkspaceStatusFullResponse = old ?? {
-        workspaceState: 'missing',
+      old: SandboxStatusFullResponse | undefined,
+    ): SandboxStatusFullResponse | undefined => {
+      const current: SandboxStatusFullResponse = old ?? {
+        sandboxState: 'missing',
         environmentStatus: 'not_created',
         agentState: 'none',
         servers: [],
-        workspaceReady: false,
+        sandboxReady: false,
         canExecute: false,
       }
 
@@ -106,14 +102,14 @@ export function GlobalEventStreamProvider({
                 | 'removing'
                 | 'removed'
                 | 'error',
-              workspaceReady: event.subType === 'ready',
+              sandboxReady: event.subType === 'ready',
               canExecute: event.subType === 'ready' && current.agentState === 'idle',
             }
           }
           // Handle workspace state updates (exists/missing)
           const validStates = ['exists', 'missing']
           if (validStates.includes(event.subType || '')) {
-            return { ...current, workspaceState: event.subType as 'exists' | 'missing' }
+            return { ...current, sandboxState: event.subType as 'exists' | 'missing' }
           }
           return current
         }
@@ -141,7 +137,7 @@ export function GlobalEventStreamProvider({
       // Apply optimistic updates for sandbox status events
       if (event.type === 'agent' || event.type === 'sandbox') {
         const queryKey = queryKeys.tasks.sandboxStatus(event.taskId)
-        queryClient.setQueryData(queryKey, (old: WorkspaceStatusFullResponse | undefined) =>
+        queryClient.setQueryData(queryKey, (old: SandboxStatusFullResponse | undefined) =>
           updateSandboxStatus(event, old),
         )
       }
@@ -150,7 +146,7 @@ export function GlobalEventStreamProvider({
       // entry inside the sandbox status `servers` array by serverName
       if (event.type === 'server') {
         const wsKey = queryKeys.tasks.sandboxStatus(event.taskId)
-        queryClient.setQueryData(wsKey, (old: WorkspaceStatusFullResponse | undefined) => {
+        queryClient.setQueryData(wsKey, (old: SandboxStatusFullResponse | undefined) => {
           if (!old) {
             return old
           }
@@ -170,7 +166,7 @@ export function GlobalEventStreamProvider({
       // Apply optimistic updates for resource metrics events
       if (event.type === 'resources') {
         const wsKey = queryKeys.tasks.sandboxStatus(event.taskId)
-        queryClient.setQueryData(wsKey, (old: WorkspaceStatusFullResponse | undefined) => {
+        queryClient.setQueryData(wsKey, (old: SandboxStatusFullResponse | undefined) => {
           if (!old) {
             return old
           }

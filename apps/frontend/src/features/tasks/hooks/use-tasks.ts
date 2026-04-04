@@ -4,10 +4,10 @@ import type {
   CreateTaskResponse,
   ListTasksResponse,
   MessageContextInput,
+  SandboxStatusFullResponse,
   SendMessageResponse,
   TaskResponse,
   UiMessage,
-  WorkspaceStatusFullResponse,
 } from '@moatless/api-client'
 import { unwrapResponse } from '@moatless/api-client/custom-instance'
 import { sandboxStatusHandler } from '@moatless/api-client/sandbox/sandbox/sandbox'
@@ -96,14 +96,14 @@ export function useCreateTask(
         }
 
         // Seed sandbox status cache with initializing state for instant feedback
-        queryClient.setQueryData<WorkspaceStatusFullResponse>(
+        queryClient.setQueryData<SandboxStatusFullResponse>(
           queryKeys.tasks.sandboxStatus(response.taskId),
           {
-            workspaceState: 'missing',
+            sandboxState: 'missing',
             environmentStatus: 'initializing',
             agentState: 'none',
             servers: [],
-            workspaceReady: false,
+            sandboxReady: false,
             canExecute: false,
           },
         )
@@ -112,7 +112,7 @@ export function useCreateTask(
         queryClient.prefetchQuery({
           queryKey: queryKeys.tasks.sandboxStatus(response.taskId),
           queryFn: () =>
-            unwrapResponse<WorkspaceStatusFullResponse>(sandboxStatusHandler(response.taskId)),
+            unwrapResponse<SandboxStatusFullResponse>(sandboxStatusHandler(response.taskId)),
           staleTime: 0,
         })
       } else {
@@ -181,7 +181,7 @@ export function useSendMessage(
 
       // Create optimistic message — mark as queued when the agent is already running,
       // since the backend will save it with agentSessionId = NULL
-      const sandboxStatus = queryClient.getQueryData<WorkspaceStatusFullResponse>(
+      const sandboxStatus = queryClient.getQueryData<SandboxStatusFullResponse>(
         queryKeys.tasks.sandboxStatus(taskId),
       )
       const isQueued = sandboxStatus?.agentState === 'running'

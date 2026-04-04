@@ -3483,6 +3483,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "summary",
+            "in": "query",
+            "description": "Strip heavy fields for summary view",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {

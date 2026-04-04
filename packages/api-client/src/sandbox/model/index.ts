@@ -69,6 +69,7 @@ export * from './fileTreeHandlerParams';
 export * from './fileTreeNodeDto';
 export * from './fileTreeResponse';
 export * from './getDefaultsParams';
+export * from './getMessagesParams';
 export * from './getMessagesResponse';
 export * from './getPendingMessagesResponse';
 export * from './getPendingMessagesResponseMessagesItem';

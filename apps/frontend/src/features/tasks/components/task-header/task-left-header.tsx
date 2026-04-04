@@ -1,5 +1,7 @@
-import { Globe, Lock, MoreVertical, Pencil, RefreshCw } from 'lucide-react'
+import { useNavigate } from '@tanstack/react-router'
+import { Globe, Lock, MoreVertical, Pencil, RefreshCw, XCircle } from 'lucide-react'
 import { useState } from 'react'
+import { toast } from 'sonner'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
 import { useSandboxRestart, useSandboxStatus } from '@/features/tasks'
 import { MobileViewToggle } from '@/features/tasks/components/mobile-view-toggle'
@@ -7,7 +9,11 @@ import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
 import { useTaskId } from '@/features/tasks/contexts/task-providers'
 import { useTaskDetailQuery } from '@/features/tasks/hooks/use-task-queries'
 import { useTaskView } from '@/features/tasks/hooks/use-task-view'
-import { useUpdateTaskMetadata, useUpdateTaskVisibility } from '@/features/tasks/hooks/use-tasks'
+import {
+  useCloseTask,
+  useUpdateTaskMetadata,
+  useUpdateTaskVisibility,
+} from '@/features/tasks/hooks/use-tasks'
 import { Button } from '@/lib/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/lib/components/ui/popover'
 import { SidebarTrigger } from '@/lib/components/ui/sidebar'
@@ -26,6 +32,11 @@ export function TaskLeftHeader() {
     onSuccess: () => setIsEditDialogOpen(false),
   })
   const sandboxRestart = useSandboxRestart(taskId)
+  const navigate = useNavigate()
+  const closeTask = useCloseTask(taskId, {
+    onSuccess: () => navigate({ to: '/' }),
+    onError: (err) => toast.error('Failed to close task', { description: err.message }),
+  })
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const task = taskQuery.data
@@ -140,6 +151,19 @@ export function TaskLeftHeader() {
             >
               <RefreshCw className={`h-4 w-4 ${sandboxRestart.isPending ? 'animate-spin' : ''}`} />
               Restart Sandbox
+            </Button>
+            <div className="my-1 border-t" />
+            <Button
+              variant="ghost"
+              className="w-full justify-start gap-2 h-8 px-2 text-destructive hover:text-destructive"
+              disabled={closeTask.isPending}
+              onClick={() => {
+                closeTask.mutate()
+                setIsMenuOpen(false)
+              }}
+            >
+              <XCircle className="h-4 w-4" />
+              Close Task
             </Button>
           </PopoverContent>
         </Popover>

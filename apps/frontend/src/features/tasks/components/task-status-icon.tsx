@@ -1,4 +1,4 @@
-import type { TaskResponse, WorkspaceStatusFullResponse } from '@moatless/api-client'
+import type { SandboxStatusFullResponse, TaskResponse } from '@moatless/api-client'
 import { AlertCircle, CheckCircle, Clock, XCircle } from 'lucide-react'
 import { getTaskStatusConfig } from '@/features/tasks/utils/task-status'
 import { Badge } from '@/lib/components/ui/badge'
@@ -6,7 +6,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/lib/components/ui/pop
 
 interface SandboxStatusPopupProps {
   totalCostUsd: number
-  sandbox?: WorkspaceStatusFullResponse
+  sandbox?: SandboxStatusFullResponse
 }
 
 function SandboxStatusPopup({ totalCostUsd, sandbox }: SandboxStatusPopupProps) {
@@ -49,10 +49,10 @@ function SandboxStatusPopup({ totalCostUsd, sandbox }: SandboxStatusPopupProps) 
             <div className="flex justify-between">
               <span className="text-muted-foreground">Sandbox:</span>
               <Badge
-                variant={sandbox.workspaceState === 'exists' ? 'default' : 'destructive'}
+                variant={sandbox.sandboxState === 'exists' ? 'default' : 'destructive'}
                 className="h-5 text-xs"
               >
-                {sandbox.workspaceState}
+                {sandbox.sandboxState}
               </Badge>
             </div>
           </div>
@@ -73,7 +73,7 @@ function SandboxStatusPopup({ totalCostUsd, sandbox }: SandboxStatusPopupProps) 
 
 interface TaskStatusIconProps {
   task: Pick<TaskResponse, 'status' | 'totalCostUsd'>
-  sandbox?: WorkspaceStatusFullResponse
+  sandbox?: SandboxStatusFullResponse
   showText?: boolean
   className?: string
 }

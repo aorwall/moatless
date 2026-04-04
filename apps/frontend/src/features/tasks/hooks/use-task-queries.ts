@@ -1,4 +1,4 @@
-import type { TaskResponse, WorkspaceStatusFullResponse } from '@moatless/api-client'
+import type { SandboxStatusFullResponse, TaskResponse } from '@moatless/api-client'
 import { unwrapResponse } from '@moatless/api-client/custom-instance'
 import { sandboxStatusHandler } from '@moatless/api-client/sandbox/sandbox/sandbox'
 import { type UseQueryOptions, useQuery } from '@tanstack/react-query'
@@ -27,9 +27,9 @@ export function useTaskDetailQuery(taskId: string, options?: TaskDetailQueryOpti
 
 type TaskSandboxStatusQueryOptions = Omit<
   UseQueryOptions<
-    WorkspaceStatusFullResponse,
+    SandboxStatusFullResponse,
     Error,
-    WorkspaceStatusFullResponse,
+    SandboxStatusFullResponse,
     ReturnType<typeof queryKeys.tasks.sandboxStatus>
   >,
   'queryKey' | 'queryFn'
@@ -48,7 +48,7 @@ export function useTaskSandboxStatusQuery(taskId: string, options?: TaskSandboxS
 
   return useQuery({
     queryKey: queryKeys.tasks.sandboxStatus(taskId),
-    queryFn: () => unwrapResponse<WorkspaceStatusFullResponse>(sandboxStatusHandler(taskId)),
+    queryFn: () => unwrapResponse<SandboxStatusFullResponse>(sandboxStatusHandler(taskId)),
     enabled: enabled && !!taskId,
     staleTime,
     refetchInterval,

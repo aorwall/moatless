@@ -27,6 +27,7 @@ import type {
 import type {
   DeleteMessageResponse,
   ErrorBody,
+  GetMessagesParams,
   GetMessagesResponse,
   GetPendingMessagesResponse,
   SendMessageRequest,
@@ -67,17 +68,26 @@ export type getMessagesResponseError = (getMessagesResponse404) & {
 
 export type getMessagesResponse = (getMessagesResponseSuccess | getMessagesResponseError)
 
-export const getGetMessagesUrl = (taskId: string,) => {
+export const getGetMessagesUrl = (taskId: string,
+    params?: GetMessagesParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
+    
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
 
-  
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/v1/tasks/${taskId}/messages`
+  return stringifiedParams.length > 0 ? `/api/v1/tasks/${taskId}/messages?${stringifiedParams}` : `/api/v1/tasks/${taskId}/messages`
 }
 
-export const getMessages = async (taskId: string, options?: RequestInit): Promise<getMessagesResponse> => {
+export const getMessages = async (taskId: string,
+    params?: GetMessagesParams, options?: RequestInit): Promise<getMessagesResponse> => {
   
-  return customInstance<getMessagesResponse>(getGetMessagesUrl(taskId),
+  return customInstance<getMessagesResponse>(getGetMessagesUrl(taskId,params),
   {      
     ...options,
     method: 'GET'
@@ -90,23 +100,25 @@ export const getMessages = async (taskId: string, options?: RequestInit): Promis
 
 
 
-export const getGetMessagesQueryKey = (taskId: string,) => {
+export const getGetMessagesQueryKey = (taskId: string,
+    params?: GetMessagesParams,) => {
     return [
-    `/api/v1/tasks/${taskId}/messages`
+    `/api/v1/tasks/${taskId}/messages`, ...(params ? [params] : [])
     ] as const;
     }
 
     
-export const getGetMessagesQueryOptions = <TData = Awaited<ReturnType<typeof getMessages>>, TError = ErrorType<ErrorBody>>(taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getMessages>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+export const getGetMessagesQueryOptions = <TData = Awaited<ReturnType<typeof getMessages>>, TError = ErrorType<ErrorBody>>(taskId: string,
+    params?: GetMessagesParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getMessages>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getGetMessagesQueryKey(taskId);
+  const queryKey =  queryOptions?.queryKey ?? getGetMessagesQueryKey(taskId,params);
 
   
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof getMessages>>> = ({ signal }) => getMessages(taskId, { signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getMessages>>> = ({ signal }) => getMessages(taskId,params, { signal, ...requestOptions });
 
       
 
@@ -120,7 +132,8 @@ export type GetMessagesQueryError = ErrorType<ErrorBody>
 
 
 export function useGetMessages<TData = Awaited<ReturnType<typeof getMessages>>, TError = ErrorType<ErrorBody>>(
- taskId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getMessages>>, TError, TData>> & Pick<
+ taskId: string,
+    params: undefined |  GetMessagesParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getMessages>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
           Awaited<ReturnType<typeof getMessages>>,
           TError,
@@ -130,7 +143,8 @@ export function useGetMessages<TData = Awaited<ReturnType<typeof getMessages>>, 
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
 export function useGetMessages<TData = Awaited<ReturnType<typeof getMessages>>, TError = ErrorType<ErrorBody>>(
- taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getMessages>>, TError, TData>> & Pick<
+ taskId: string,
+    params?: GetMessagesParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getMessages>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
           Awaited<ReturnType<typeof getMessages>>,
           TError,
@@ -140,7 +154,8 @@ export function useGetMessages<TData = Awaited<ReturnType<typeof getMessages>>, 
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
 export function useGetMessages<TData = Awaited<ReturnType<typeof getMessages>>, TError = ErrorType<ErrorBody>>(
- taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getMessages>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ taskId: string,
+    params?: GetMessagesParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getMessages>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
 /**
@@ -148,11 +163,12 @@ export function useGetMessages<TData = Awaited<ReturnType<typeof getMessages>>, 
  */
 
 export function useGetMessages<TData = Awaited<ReturnType<typeof getMessages>>, TError = ErrorType<ErrorBody>>(
- taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getMessages>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ taskId: string,
+    params?: GetMessagesParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getMessages>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient 
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
 
-  const queryOptions = getGetMessagesQueryOptions(taskId,options)
+  const queryOptions = getGetMessagesQueryOptions(taskId,params,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
 
@@ -163,11 +179,12 @@ export function useGetMessages<TData = Awaited<ReturnType<typeof getMessages>>, 
  * @summary Get all messages for a task.
  */
 export const prefetchGetMessagesQuery = async <TData = Awaited<ReturnType<typeof getMessages>>, TError = ErrorType<ErrorBody>>(
- queryClient: QueryClient, taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getMessages>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ queryClient: QueryClient, taskId: string,
+    params?: GetMessagesParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getMessages>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 
   ): Promise<QueryClient> => {
 
-  const queryOptions = getGetMessagesQueryOptions(taskId,options)
+  const queryOptions = getGetMessagesQueryOptions(taskId,params,options)
 
   await queryClient.prefetchQuery(queryOptions);
 
