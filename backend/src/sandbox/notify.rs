@@ -1,6 +1,7 @@
-//! Fire-and-forget notification to sandbox pods/containers via gRPC.
+//! Sandbox notification and wake-up helpers.
 
 use super::client::SandboxClient;
+use super::models::EnvironmentStatus;
 use crate::config::SandboxProviderType;
 use crate::state::AppState;
 
@@ -37,6 +38,43 @@ pub async fn notify_sandbox_for_task(state: &AppState, task_id: &str) {
     };
 
     client.notify_messages().await;
+}
+
+/// Ensure the sandbox for `task_id` is running, then notify it about new messages.
+///
+/// - If already running (`Ready`): sends a gRPC notification.
+/// - If stopped or not yet created: provisions/starts it. The sandbox will
+///   fetch pending messages on startup, so no notification is needed.
+/// - On failure: logs the error and returns `Err(String)` with a human-readable
+///   message so callers can decide whether to persist it.
+pub async fn ensure_sandbox_and_notify(state: &AppState, task_id: &str) -> Result<(), String> {
+    let request = super::auto_provision::build_provision_request(
+        state.tasks.as_ref(),
+        state.repositories.as_ref(),
+        state.provider_tokens.as_ref(),
+        state.plugin_repos.as_ref(),
+        task_id,
+    )
+    .await
+    .map_err(|e| {
+        tracing::warn!(task_id = %task_id, error = %e, "Failed to build provision request for message delivery");
+        format!("Failed to build provision request: {e}")
+    })?;
+
+    match state.sandbox.provision(task_id, &request).await {
+        Ok(resp) if resp.status == EnvironmentStatus::Ready => {
+            notify_sandbox_for_task(state, task_id).await;
+        }
+        Ok(_) => {
+            tracing::info!(task_id = %task_id, "Sandbox starting, skipping notification");
+        }
+        Err(e) => {
+            tracing::warn!(task_id = %task_id, error = %e, "Failed to provision sandbox for message delivery");
+            return Err(format!("Failed to provision sandbox: {e}"));
+        }
+    }
+
+    Ok(())
 }
 
 /// Notify a sandbox pod that new messages are available (K8s-specific).

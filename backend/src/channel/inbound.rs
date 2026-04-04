@@ -270,11 +270,13 @@ pub async fn process_inbound(
         }
     }
 
-    // Notify sandbox that a new message is available (fire-and-forget).
-    // Skip for new tasks — the sandbox pod is still starting and will fetch
-    // pending messages on startup.
+    // Ensure sandbox is running and notify about the new message.
+    // Skip for new tasks — the sandbox was just provisioned above and will
+    // fetch pending messages on startup.
     if !is_new_task {
-        crate::sandbox::notify::notify_sandbox_for_task(state, &task_id).await;
+        if let Err(e) = crate::sandbox::notify::ensure_sandbox_and_notify(state, &task_id).await {
+            warn!(task_id = %task_id, error = %e, "Failed to ensure sandbox for channel message");
+        }
     }
 
     info!(task_id = %task_id, provider = config.provider, "Channel message routed to task");

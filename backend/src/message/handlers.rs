@@ -87,47 +87,9 @@ pub async fn send_message(
         .await?;
     }
 
-    // Ensure the sandbox is running (auto-provisions if needed).
-    // Only notify if already running — a starting sandbox fetches pending messages on startup.
-    match crate::sandbox::auto_provision::build_provision_request(
-        state.tasks.as_ref(),
-        state.repositories.as_ref(),
-        state.provider_tokens.as_ref(),
-        state.plugin_repos.as_ref(),
-        &task_id,
-    )
-    .await
-    {
-        Ok(request) => {
-            match state.sandbox.provision(&task_id, &request).await {
-                Ok(resp) if resp.status == crate::sandbox::models::EnvironmentStatus::Ready => {
-                    // Sandbox was already running — notify it about the new message.
-                    crate::sandbox::notify::notify_sandbox_for_task(&state, &task_id).await;
-                }
-                Ok(_) => {
-                    // Sandbox is starting — it will fetch pending messages on startup.
-                    tracing::info!(task_id = %task_id, "Sandbox starting, skipping notification");
-                }
-                Err(e) => {
-                    tracing::warn!(task_id = %task_id, error = %e, "Failed to provision sandbox for message delivery");
-                    send::persist_error_result(
-                        &state,
-                        &task_id,
-                        &format!("Failed to provision sandbox: {e}"),
-                    )
-                    .await;
-                }
-            }
-        }
-        Err(e) => {
-            tracing::warn!(task_id = %task_id, error = %e, "Failed to build provision request for message delivery");
-            send::persist_error_result(
-                &state,
-                &task_id,
-                &format!("Failed to build provision request: {e}"),
-            )
-            .await;
-        }
+    // Ensure the sandbox is running (auto-provisions if needed) and notify it.
+    if let Err(error_msg) = crate::sandbox::notify::ensure_sandbox_and_notify(&state, &task_id).await {
+        send::persist_error_result(&state, &task_id, &error_msg).await;
     }
 
     tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Message sent to agent");
