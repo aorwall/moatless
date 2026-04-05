@@ -114,6 +114,12 @@ enum SandboxCommands {
         tags: Vec<String>,
     },
 
+    /// Message management
+    Messages {
+        #[command(subcommand)]
+        action: commands::messages::MessageAction,
+    },
+
     /// Reply to the channel(s) that created this task
     Reply {
         /// Channel config ID (sends to all channels if omitted)
@@ -217,6 +223,9 @@ async fn run_sandbox(cli: SandboxCli) -> Result<(), Box<dyn std::error::Error>> 
             } else {
                 println!("Tags set: {}", tags.join(", "));
             }
+        }
+        SandboxCommands::Messages { action } => {
+            commands::messages::run(&moat, action, cli.opts.json).await?;
         }
         SandboxCommands::Reply {
             channel,
