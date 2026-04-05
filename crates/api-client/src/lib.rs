@@ -598,6 +598,14 @@ impl ApiClient {
         .await
     }
 
+    /// POST /api/v1/channels/connect
+    pub async fn connect_channel(
+        &self,
+        req: &moatless_api_schemas::channel::ConnectChannelRequest,
+    ) -> Result<moatless_api_schemas::channel::ConnectChannelResponse, ApiError> {
+        self.post("/api/v1/channels/connect", req).await
+    }
+
     /// POST /api/v1/channels/configs/{config_id}/send
     pub async fn direct_send_to_channel(
         &self,

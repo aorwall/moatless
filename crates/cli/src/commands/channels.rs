@@ -2,7 +2,7 @@
 
 use clap::Subcommand;
 use moatless_api_schemas::channel::{
-    ChannelConfigResponse, CreateChannelConfigRequest, DirectSendRequest,
+    ChannelConfigResponse, ConnectChannelRequest, CreateChannelConfigRequest, DirectSendRequest,
     SendChannelMessageRequest, TriggerChannelRequest, UpdateChannelConfigRequest,
 };
 use moatless_api_schemas::enums::{ChannelType, RoutingMode};
@@ -109,6 +109,21 @@ pub enum ChannelAction {
         /// Thread properties as JSON (required for github_pr: must include owner, repo, pr_number)
         #[arg(long)]
         thread_properties: Option<String>,
+    },
+    /// Connect a task to an existing external thread (e.g. a GitHub PR)
+    Connect {
+        /// PR number to connect to
+        #[arg(long)]
+        pr: u64,
+        /// Repository in owner/repo format (resolved from task if omitted)
+        #[arg(long)]
+        repo: Option<String>,
+        /// Task ID (uses TASK_ID env var if omitted)
+        #[arg(long)]
+        task: Option<String>,
+        /// System user ID to filter out (prevents echoing agent's own comments)
+        #[arg(long)]
+        filter_user: Option<String>,
     },
     /// Manage default settings for a channel provider
     Defaults {
@@ -361,6 +376,61 @@ pub async fn run(
                 output::print_json_typed(&resp);
             } else {
                 println!("Task created: {} (short: {})", resp.task_id, resp.short_id);
+            }
+        }
+        ChannelAction::Connect {
+            pr,
+            repo,
+            task,
+            filter_user,
+        } => {
+            let task_id = task
+                .or_else(|| std::env::var("TASK_ID").ok())
+                .ok_or_else(|| {
+                    ClientError::Other(
+                        "Task ID required: use --task or set TASK_ID env var".into(),
+                    )
+                })?;
+
+            // Build thread_properties from owner/repo if provided
+            let (source_id, thread_properties) = if let Some(ref repo_str) = repo {
+                let parts: Vec<&str> = repo_str.splitn(2, '/').collect();
+                if parts.len() != 2 {
+                    return Err(ClientError::Other(
+                        "--repo must be in owner/repo format".into(),
+                    ));
+                }
+                let (owner, repo_name) = (parts[0], parts[1]);
+                (
+                    Some(repo_str.clone()),
+                    Some(serde_json::json!({
+                        "owner": owner,
+                        "repo": repo_name,
+                        "pr_number": pr,
+                    })),
+                )
+            } else {
+                // Server resolves source_id from task's repository
+                (None, None)
+            };
+
+            let req = ConnectChannelRequest {
+                task_id: task_id.clone(),
+                provider: ChannelType::GithubPr,
+                source_id,
+                external_thread_id: pr.to_string(),
+                thread_properties,
+                filter_user_id: filter_user,
+            };
+
+            let resp = client.api().connect_channel(&req).await?;
+            if json {
+                output::print_json_typed(&resp);
+            } else {
+                println!(
+                    "Connected task {} to PR #{} (config: {}, thread: {})",
+                    task_id, pr, resp.config_id, resp.thread_id
+                );
             }
         }
         ChannelAction::Defaults { action: defaults } => {

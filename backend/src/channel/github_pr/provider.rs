@@ -973,12 +973,30 @@ pub async fn resolve_and_process_github_webhook(
 
     match result {
         GithubPrWebhookResult::Message(msg) => {
+            let config_id = config.id.clone();
             let state_clone = state.clone();
             tokio::spawn(async move {
-                if let Err(e) =
-                    inbound::process_inbound(&state_clone, *msg).await
-                {
-                    warn!(error = %e, "Failed to process GitHub PR inbound message");
+                // Extract the external_thread_id before process_inbound consumes the msg
+                let external_thread_id = msg.thread_id.clone();
+                let msg_clone_for_fanout = (*msg).clone();
+
+                match inbound::process_inbound(&state_clone, *msg).await {
+                    Ok(primary_task_id) => {
+                        // Fan out to additional tasks connected to the same PR
+                        if let Some(ref ext_tid) = external_thread_id {
+                            super::super::listen::deliver_to_connected_threads(
+                                &state_clone,
+                                &config_id,
+                                ext_tid,
+                                &primary_task_id,
+                                &msg_clone_for_fanout,
+                            )
+                            .await;
+                        }
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "Failed to process GitHub PR inbound message");
+                    }
                 }
             });
         }

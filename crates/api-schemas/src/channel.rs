@@ -184,6 +184,39 @@ pub struct TriggerChannelResponse {
     pub short_id: String,
 }
 
+/// Request to connect a task to an existing external thread (e.g. a GitHub PR).
+///
+/// Creates a channel thread linking the task to the external thread so that
+/// inbound messages (webhooks) are delivered and the agent can reply.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectChannelRequest {
+    pub task_id: String,
+    pub provider: ChannelType,
+    /// Source identifier, e.g. `"owner/repo"` for GitHub PR.
+    /// Resolved from the task's repository if omitted.
+    pub source_id: Option<String>,
+    /// External thread identifier, e.g. PR number `"42"`.
+    pub external_thread_id: String,
+    /// Provider-specific properties (e.g. `{"owner","repo","pr_number"}`).
+    /// Auto-generated from source_id + external_thread_id for github_pr if omitted.
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
+    pub thread_properties: Option<serde_json::Value>,
+    /// System user ID whose messages should be filtered out on this thread
+    /// (prevents echoing the agent's own PR comments back to it).
+    pub filter_user_id: Option<String>,
+}
+
+/// Response from connecting a task to a channel thread.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectChannelResponse {
+    pub config_id: String,
+    pub thread_id: i32,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PairingQuery {

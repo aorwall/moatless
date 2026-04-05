@@ -11,12 +11,21 @@ use crate::db::DbPool;
 /// correct lifetimes for `Option<&serde_json::Value>` in `touch`.
 #[async_trait]
 pub trait ChannelThreadRepository: Send + Sync {
-    /// Find a thread by config_id + external_thread_id (unique index).
+    /// Find a thread by config_id + external_thread_id.
+    /// With the relaxed unique constraint (multi-task), returns the first match.
     async fn find_by_config_and_thread(
         &self,
         config_id: &str,
         external_thread_id: &str,
     ) -> Result<Option<ChannelThread>, sqlx::Error>;
+
+    /// Find ALL threads for a given (config_id, external_thread_id).
+    /// Used by webhook fan-out to deliver to every connected task.
+    async fn find_all_by_config_and_thread(
+        &self,
+        config_id: &str,
+        external_thread_id: &str,
+    ) -> Result<Vec<ChannelThread>, sqlx::Error>;
 
     /// Find threads by task_id.
     async fn find_by_task_id(&self, task_id: &str) -> Result<Vec<ChannelThread>, sqlx::Error>;
@@ -98,6 +107,23 @@ impl ChannelThreadRepository for PgChannelThreadRepository {
         .bind(config_id)
         .bind(external_thread_id)
         .fetch_optional(&self.0)
+        .await
+    }
+
+    async fn find_all_by_config_and_thread(
+        &self,
+        config_id: &str,
+        external_thread_id: &str,
+    ) -> Result<Vec<ChannelThread>, sqlx::Error> {
+        sqlx::query_as::<_, ChannelThread>(
+            r#"SELECT id, config_id, task_id, external_thread_id, properties,
+                      last_message_at, created_at
+               FROM channel_threads
+               WHERE config_id = $1 AND external_thread_id = $2"#,
+        )
+        .bind(config_id)
+        .bind(external_thread_id)
+        .fetch_all(&self.0)
         .await
     }
 

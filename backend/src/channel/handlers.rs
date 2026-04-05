@@ -1201,6 +1201,153 @@ pub async fn send_to_task_channel(
     Ok(Json(SendChannelMessageResponse { sent_count, errors }))
 }
 
+// =========================================================================
+// Connect task to external thread
+// =========================================================================
+
+/// Connect a task to an existing external thread (e.g. a GitHub PR).
+///
+/// Creates a channel thread linking the task to the external thread so that
+/// inbound webhooks are delivered and the agent can reply via `moat reply`.
+/// Idempotent: connecting twice returns the existing thread.
+#[utoipa::path(
+    post,
+    path = "/api/v1/channels/connect",
+    tag = "channels",
+    request_body = ConnectChannelRequest,
+    responses(
+        (status = 200, description = "Thread connected", body = ConnectChannelResponse),
+        (status = 400, description = "Invalid request", body = crate::error::ErrorBody),
+        (status = 404, description = "Task not found", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn connect_channel(
+    State(state): State<AppState>,
+    _auth: AuthUser,
+    Json(req): Json<ConnectChannelRequest>,
+) -> Result<Json<ConnectChannelResponse>, ChannelError> {
+    // Resolve source_id from the task's repository when not provided
+    let source_id = match req.source_id {
+        Some(s) => s,
+        None => {
+            resolve_source_id_from_task(&state, &req.task_id, req.provider).await?
+        }
+    };
+
+    // Build thread_properties if not provided (github_pr convenience)
+    let thread_properties = req.thread_properties.unwrap_or_else(|| {
+        if req.provider == ChannelType::GithubPr {
+            let parts: Vec<&str> = source_id.splitn(2, '/').collect();
+            let (owner, repo) = if parts.len() == 2 {
+                (parts[0], parts[1])
+            } else {
+                (source_id.as_str(), "")
+            };
+            serde_json::json!({
+                "owner": owner,
+                "repo": repo,
+                "pr_number": req.external_thread_id.parse::<u64>().unwrap_or(0),
+            })
+        } else {
+            serde_json::json!({})
+        }
+    });
+
+    info!(
+        task_id = %req.task_id,
+        provider = ?req.provider,
+        source_id = %source_id,
+        external_thread_id = %req.external_thread_id,
+        "Connecting task to channel thread"
+    );
+
+    let (config_id, thread) = super::listen::connect(
+        &state,
+        req.provider,
+        &source_id,
+        &req.task_id,
+        &req.external_thread_id,
+        thread_properties,
+        req.filter_user_id.as_deref(),
+    )
+    .await?;
+
+    Ok(Json(ConnectChannelResponse {
+        config_id,
+        thread_id: thread.id,
+    }))
+}
+
+/// Resolve the channel source_id from the task's repository remote URL.
+///
+/// For github_pr, extracts `owner/repo` from the git remote URL.
+async fn resolve_source_id_from_task(
+    state: &AppState,
+    task_id: &str,
+    provider: ChannelType,
+) -> Result<String, ChannelError> {
+    let task = state
+        .tasks
+        .find_by_id_internal(task_id)
+        .await
+        .map_err(|e| ChannelError::Internal(format!("Failed to look up task: {e}")))?
+        .ok_or_else(|| ChannelError::BadRequest(format!("Task not found: {task_id}")))?;
+
+    let repo = state
+        .repositories
+        .find_repository_by_id(&task.repository_id)
+        .await
+        .map_err(|e| ChannelError::Internal(format!("Failed to look up repository: {e}")))?
+        .ok_or_else(|| {
+            ChannelError::Internal(format!("Repository not found: {}", task.repository_id))
+        })?;
+
+    match provider {
+        ChannelType::GithubPr => {
+            let remote_url = repo.remote_url.as_deref().ok_or_else(|| {
+                ChannelError::BadRequest(
+                    "Repository has no remote URL; provide --repo explicitly".into(),
+                )
+            })?;
+            extract_github_owner_repo(remote_url).ok_or_else(|| {
+                ChannelError::BadRequest(format!(
+                    "Cannot extract owner/repo from remote URL: {remote_url}"
+                ))
+            })
+        }
+        _ => Err(ChannelError::BadRequest(
+            "source_id is required for non-github_pr providers".into(),
+        )),
+    }
+}
+
+/// Extract `owner/repo` from a GitHub remote URL.
+///
+/// Handles HTTPS (`https://github.com/owner/repo.git`) and
+/// SSH (`git@github.com:owner/repo.git`) formats.
+fn extract_github_owner_repo(url: &str) -> Option<String> {
+    // HTTPS: https://github.com/owner/repo.git
+    if let Some(rest) = url
+        .strip_prefix("https://github.com/")
+        .or_else(|| url.strip_prefix("http://github.com/"))
+    {
+        let trimmed = rest.trim_end_matches(".git").trim_end_matches('/');
+        if trimmed.contains('/') {
+            return Some(trimmed.to_string());
+        }
+    }
+
+    // SSH: git@github.com:owner/repo.git
+    if let Some(rest) = url.strip_prefix("git@github.com:") {
+        let trimmed = rest.trim_end_matches(".git").trim_end_matches('/');
+        if trimmed.contains('/') {
+            return Some(trimmed.to_string());
+        }
+    }
+
+    None
+}
+
 /// Validate cron schedule in provider_config if the provider is "cron".
 ///
 /// Best-effort channel name resolution from the provider API.
