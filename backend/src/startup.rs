@@ -13,7 +13,9 @@ use tokio_util::sync::CancellationToken;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
+use crate::auth::github_app_service::GitHubAppService;
 use crate::auth::provider_token_dao::{PgProviderTokenRepository, ProviderTokenRepository};
+use crate::auth::provider_tokens::{PgProviderTokenAuthRepository, ProviderTokenAuthRepository};
 use crate::config::Config;
 use crate::db::{self, DbPool};
 use crate::events::{EventPublisher, RedisEventPublisher};
@@ -177,6 +179,9 @@ pub fn spawn_grpc_server(
         db_pool.map(|pool| Arc::new(PgTaskRepository(pool.clone())) as _);
     let port = config.server.grpc_port;
     let token_secret = config.sandbox.task_token_secret.clone();
+    let github_app_service = GitHubAppService::from_config(config).map(Arc::new);
+    let provider_token_auth: Option<Arc<dyn ProviderTokenAuthRepository>> =
+        db_pool.map(|pool| Arc::new(PgProviderTokenAuthRepository(pool.clone())) as _);
 
     tokio::spawn(async move {
         let svc = BackendSandboxServiceImpl {
@@ -185,6 +190,8 @@ pub fn spawn_grpc_server(
             provider_tokens,
             tasks,
             task_token_secret: token_secret,
+            github_app_service,
+            provider_token_auth,
         };
         let addr = SocketAddr::from(([0, 0, 0, 0], port));
         info!(port, "Starting backend gRPC server");

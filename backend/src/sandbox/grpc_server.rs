@@ -18,7 +18,10 @@ use sandbox_proto::{
     PublishEventRequest, PublishEventResponse,
 };
 
+use crate::auth::github_app_service::GitHubAppService;
 use crate::auth::provider_token_dao::ProviderTokenRepository;
+use crate::auth::provider_tokens::ProviderTokenAuthRepository;
+use crate::auth::token_refresh::ensure_fresh_token;
 use crate::message::dao::MessageRepository;
 use crate::task::dao::TaskRepository;
 use crate::events::EventPublisher;
@@ -45,6 +48,10 @@ pub struct BackendSandboxServiceImpl {
     pub tasks: Option<Arc<dyn TaskRepository>>,
     /// JWT signing key for verifying sandbox auth tokens.
     pub task_token_secret: Option<String>,
+    /// GitHub App service for refreshing expired user access tokens.
+    pub github_app_service: Option<Arc<GitHubAppService>>,
+    /// Provider token auth persistence for persisting refreshed tokens.
+    pub provider_token_auth: Option<Arc<dyn ProviderTokenAuthRepository>>,
 }
 
 impl BackendSandboxServiceImpl {
@@ -387,8 +394,50 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
 
         // Step 3: User-level provider_tokens (fills remaining gaps)
         if let Some(ref provider_tokens) = self.provider_tokens {
+            // GitHub: refresh expired GitHub App tokens before returning
+            if !credentials.contains_key(CredentialKey::GITHUB_TOKEN) {
+                let resolved = if let (Some(ref github_app), Some(ref token_auth)) =
+                    (&self.github_app_service, &self.provider_token_auth)
+                {
+                    match ensure_fresh_token(
+                        provider_tokens.as_ref(),
+                        token_auth.as_ref(),
+                        github_app,
+                        &claims.user_id,
+                    )
+                    .await
+                    {
+                        Ok(token) => Some(token),
+                        Err(e) => {
+                            warn!(
+                                error = %e,
+                                user_id = %claims.user_id,
+                                "GitHub App token refresh failed, falling back to raw token"
+                            );
+                            provider_tokens
+                                .find_provider_token(&claims.user_id, "github")
+                                .await
+                                .ok()
+                                .flatten()
+                                .map(|row| row.access_token)
+                        }
+                    }
+                } else {
+                    provider_tokens
+                        .find_provider_token(&claims.user_id, "github")
+                        .await
+                        .ok()
+                        .flatten()
+                        .map(|row| row.access_token)
+                };
+
+                if let Some(token) = resolved {
+                    credentials.insert(CredentialKey::GITHUB_TOKEN.to_string(), token);
+                }
+            }
+
+            // GitLab + Gitness: raw token lookup (PATs, no refresh needed)
             for (provider, cred_key) in [
-                ("github", CredentialKey::GITHUB_TOKEN),
                 ("gitlab", CredentialKey::GITLAB_TOKEN),
                 ("gitness", CredentialKey::GITNESS_TOKEN),
             ] {
