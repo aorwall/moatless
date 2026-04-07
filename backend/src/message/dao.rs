@@ -241,7 +241,8 @@ impl MessageRepository for PgMessageRepository {
                 tool_use_result, sdk_metadata, attachments, agent_session_id,
                 will_not_resume, run_metrics,
                 agent_mode, model, resume, sent_at, created_at,
-                    channel_external_id, channel_provider, channel_source_name
+                    channel_external_id, channel_provider, channel_source_name,
+                    command_name
             FROM task_messages
             WHERE task_id = $1
               AND agent_session_id IS NULL
@@ -267,7 +268,8 @@ impl MessageRepository for PgMessageRepository {
                 tool_use_result, sdk_metadata, attachments, agent_session_id,
                 will_not_resume, run_metrics,
                 agent_mode, model, resume, sent_at, created_at,
-                    channel_external_id, channel_provider, channel_source_name
+                    channel_external_id, channel_provider, channel_source_name,
+                    command_name
             FROM task_messages
             WHERE task_id = $1 AND message_type IN ('result', 'error')
             ORDER BY timestamp DESC
@@ -292,7 +294,8 @@ impl MessageRepository for PgMessageRepository {
                 tool_use_result, sdk_metadata, attachments, agent_session_id,
                 will_not_resume, run_metrics,
                 agent_mode, model, resume, sent_at, created_at,
-                    channel_external_id, channel_provider, channel_source_name
+                    channel_external_id, channel_provider, channel_source_name,
+                    command_name
             FROM task_messages
             WHERE task_id = $1 AND message_type = 'user'
             ORDER BY timestamp DESC
