@@ -614,6 +614,11 @@ impl Config {
                     "GITHUB_APP_CLIENT_SECRET required when AUTH_PROVIDER=github_app".into(),
                 ));
             }
+            if self.auth.github_app_callback_url.is_none() {
+                return Err(ConfigError::Invalid(
+                    "GITHUB_APP_CALLBACK_URL required when AUTH_PROVIDER=github_app".into(),
+                ));
+            }
         }
         if let Some(AuthProvider::Auth0) = self.auth.provider {
             if self.auth.auth0_domain.is_none() {
@@ -879,6 +884,27 @@ mod tests {
         config.auth.provider = Some(AuthProvider::GitHub);
         config.auth.github_client_id = Some("id".into());
         config.auth.github_client_secret = Some("secret".into());
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_github_app_missing_callback_url_fails() {
+        let mut config = minimal_config();
+        config.auth.provider = Some(AuthProvider::GitHubApp);
+        config.auth.github_app_client_id = Some("id".into());
+        config.auth.github_app_client_secret = Some("secret".into());
+        config.auth.github_app_callback_url = None;
+        let err = config.validate().unwrap_err();
+        assert!(err.to_string().contains("GITHUB_APP_CALLBACK_URL"));
+    }
+
+    #[test]
+    fn validate_github_app_complete_passes() {
+        let mut config = minimal_config();
+        config.auth.provider = Some(AuthProvider::GitHubApp);
+        config.auth.github_app_client_id = Some("id".into());
+        config.auth.github_app_client_secret = Some("secret".into());
+        config.auth.github_app_callback_url = Some("https://example.com/callback".into());
         assert!(config.validate().is_ok());
     }
 

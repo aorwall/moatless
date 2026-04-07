@@ -59,6 +59,12 @@ impl OAuthProviders {
                 tracing::info!("GitHub App OAuth provider configured");
                 Arc::new(p) as Arc<dyn OAuthProvider>
             });
+        if config.auth.provider == Some(AuthProvider::GitHubApp) && github_app.is_none() {
+            tracing::warn!(
+                "AUTH_PROVIDER=github_app but GitHubAppOAuthProvider failed to initialize \
+                 — check GITHUB_APP_CLIENT_ID, GITHUB_APP_CLIENT_SECRET, GITHUB_APP_CALLBACK_URL"
+            );
+        }
         let auth0 = super::oauth::auth0::Auth0OAuthProvider::from_config(config).map(|p| {
             tracing::info!("Auth0 OAuth provider configured");
             Arc::new(p) as Arc<dyn OAuthProvider>
