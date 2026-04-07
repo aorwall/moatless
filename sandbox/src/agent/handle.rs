@@ -403,7 +403,7 @@ async fn process_sdk_message(
                 .await;
         }
         SdkMessage::Result(result) => {
-            let (is_error, sid, sub_type, payload) = extract_result_info(&result);
+            let (is_error, sid, sub_type, payload) = extract_result_info(&result, task_id);
             *session_id = sid;
             agent_state.set_session_id(session_id.clone()).await;
 
@@ -419,8 +419,6 @@ async fn process_sdk_message(
             events
                 .publish_agent_event(task_id, sub_type, payload)
                 .await;
-
-            info!(is_error, "Agent execution completed");
 
             // Session is done — drop the handle so next Send starts a new one
             *handle = None;
@@ -479,27 +477,30 @@ fn make_user_message(text: &str, session_id: &str) -> UserMessage {
 /// Extract result info: (is_error, session_id, sub_type, payload).
 fn extract_result_info(
     result: &ResultMessage,
+    task_id: &str,
 ) -> (bool, String, AgentSubType, serde_json::Value) {
     match result {
         ResultMessage::Success(s) => {
             if s.is_error {
                 warn!(
+                    task_id,
                     session_id = %s.session_id,
                     num_turns = s.num_turns,
                     duration_ms = s.duration_ms,
                     cost_usd = s.total_cost_usd,
-                    "Agent completed with is_error=true"
+                    output = %truncate(&s.result, 500),
+                    "Agent completed with error output"
                 );
-                warn!(output = %truncate(&s.result, 500), "Agent error output");
             } else {
                 info!(
+                    task_id,
                     session_id = %s.session_id,
                     num_turns = s.num_turns,
                     duration_ms = s.duration_ms,
                     cost_usd = s.total_cost_usd,
+                    output = %truncate(&s.result, 500),
                     "Agent completed successfully"
                 );
-                info!(output = %truncate(&s.result, 500), "Agent output");
             }
             (
                 s.is_error,
@@ -510,15 +511,14 @@ fn extract_result_info(
         }
         ResultMessage::Error(e) => {
             warn!(
+                task_id,
                 session_id = %e.session_id,
                 num_turns = e.num_turns,
                 duration_ms = e.duration_ms,
                 subtype = %e.subtype,
+                errors = ?e.errors,
                 "Agent completed with error"
             );
-            for err in &e.errors {
-                warn!(error = %err, "Agent error detail");
-            }
             (
                 true,
                 e.session_id.clone(),

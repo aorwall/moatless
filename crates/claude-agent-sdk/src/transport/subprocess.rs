@@ -526,20 +526,33 @@ fn log_exit_status(status: std::process::ExitStatus, stderr_lines: &[String]) {
             "CLI process terminated by signal (expected during shutdown)"
         );
     } else {
-        // Non-zero exit code — the process failed on its own
-        warn!(
-            code = status.code(),
-            signal = signal,
-            stderr_lines = stderr_lines.len(),
-            "CLI process exited with non-zero code"
-        );
-        let tail = if stderr_lines.len() > 20 {
-            &stderr_lines[stderr_lines.len() - 20..]
+        let code = status.code().unwrap_or(-1);
+        // Exit codes 128+N mean the process caught signal N and exited.
+        // This is expected when we send SIGTERM during graceful shutdown.
+        let is_signal_exit = (128..=159).contains(&code);
+
+        if is_signal_exit {
+            debug!(
+                code = status.code(),
+                signal = signal,
+                "CLI process exited after signal (expected during shutdown)"
+            );
         } else {
-            stderr_lines
-        };
-        for line in tail {
-            warn!(line = %line, "CLI stderr");
+            // Genuinely unexpected non-zero exit code
+            warn!(
+                code = status.code(),
+                signal = signal,
+                stderr_lines = stderr_lines.len(),
+                "CLI process exited with non-zero code"
+            );
+            let tail = if stderr_lines.len() > 20 {
+                &stderr_lines[stderr_lines.len() - 20..]
+            } else {
+                stderr_lines
+            };
+            for line in tail {
+                warn!(line = %line, "CLI stderr");
+            }
         }
     }
 }
@@ -569,7 +582,7 @@ fn log_stdout_message(msg: &RawStdoutMessage) {
             SdkMessage::Result(ResultMessage::Success(r)) => {
                 let dur = r.duration_ms as f64 / 1000.0;
                 let text = indent(&r.result, "  ");
-                info!(
+                debug!(
                     "CLI stdout: result success turns={} duration={:.1}s cost=${:.4}\n{}",
                     r.num_turns, dur, r.total_cost_usd, text
                 );
@@ -577,7 +590,7 @@ fn log_stdout_message(msg: &RawStdoutMessage) {
             SdkMessage::Result(ResultMessage::Error(r)) => {
                 let dur = r.duration_ms as f64 / 1000.0;
                 let errors = r.errors.join("; ");
-                warn!(
+                debug!(
                     "CLI stdout: result error subtype={} turns={} duration={:.1}s cost=${:.4} errors={}",
                     r.subtype, r.num_turns, dur, r.total_cost_usd, errors
                 );
