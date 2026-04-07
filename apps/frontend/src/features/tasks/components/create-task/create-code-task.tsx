@@ -198,6 +198,7 @@ export function CreateCodeTask({
         contexts: taskInputs.contextItems.length > 0 ? taskInputs.contextItems : undefined,
         branch: branchSelector.value,
         agentMode: submitAgentMode,
+        commandName: selectedCommand?.name,
       },
       {
         onSuccess: () => {

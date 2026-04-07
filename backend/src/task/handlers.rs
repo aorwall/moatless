@@ -146,6 +146,7 @@ pub async fn create_task(
         req.agent_mode.as_ref(),
         &req.file_ids,
         &req.contexts,
+        req.command_name.as_deref(),
     )
     .await
 }
@@ -161,6 +162,7 @@ async fn insert_and_provision_task(
     agent_mode: Option<&AgentMode>,
     file_ids: &[String],
     contexts: &[MessageContextInput],
+    command_name: Option<&str>,
 ) -> Result<Json<CreateTaskResponse>, TaskError> {
     let task_id = &row.task_id;
 
@@ -228,7 +230,7 @@ async fn insert_and_provision_task(
     // If a message was provided, send it to the agent
     if let Some(msg) = message {
         if let Err(e) = crate::message::send::send_message_flow(
-            state, task_id, msg, model, agent_mode, file_ids, contexts, true, None, None, None, None,
+            state, task_id, msg, model, agent_mode, file_ids, contexts, true, None, None, None, command_name,
         )
         .await
         {
