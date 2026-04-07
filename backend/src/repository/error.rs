@@ -2,7 +2,7 @@
 
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use tracing::error;
+use tracing::{error, warn};
 
 use crate::error::error_response;
 
@@ -37,7 +37,10 @@ impl IntoResponse for RepositoryError {
                     "Internal server error".to_string(),
                 )
             }
-            RepositoryError::ProviderError(_) => (StatusCode::BAD_GATEWAY, self.to_string()),
+            RepositoryError::ProviderError(msg) => {
+                warn!(error = %msg, "Repository provider API error");
+                (StatusCode::BAD_GATEWAY, self.to_string())
+            }
         };
 
         error_response(status, message)

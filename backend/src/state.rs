@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use crate::auth::github_app_service::GitHubAppService;
 use crate::auth::provider_token_dao::{PgProviderTokenRepository, ProviderTokenRepository};
+use crate::auth::provider_tokens::{PgProviderTokenAuthRepository, ProviderTokenAuthRepository};
 use crate::auth::users::{PgUserRepository, UserRepository};
 use crate::channel::config_dao::{ChannelConfigRepository, PgChannelConfigRepository};
 use crate::channel::provider::ChannelProviders;
@@ -62,6 +63,7 @@ pub struct AppState {
     pub channel_threads: Arc<dyn ChannelThreadRepository>,
     pub users: Arc<dyn UserRepository>,
     pub provider_tokens: Arc<dyn ProviderTokenRepository>,
+    pub provider_token_auth: Arc<dyn ProviderTokenAuthRepository>,
     pub teams: Arc<dyn TeamRepository>,
     pub task_events: Arc<dyn TaskEventRepository>,
     pub plugin_repos: Arc<dyn PluginRepoRepository>,
@@ -93,6 +95,7 @@ impl AppState {
             channel_threads: Arc::new(PgChannelThreadRepository(pool.clone())),
             users: Arc::new(PgUserRepository(pool.clone())),
             provider_tokens: Arc::new(PgProviderTokenRepository(pool.clone())),
+            provider_token_auth: Arc::new(PgProviderTokenAuthRepository(pool.clone())),
             teams: Arc::new(PgTeamRepository(pool.clone())),
             task_events: Arc::new(PgTaskEventRepository(pool.clone())),
             plugin_repos: Arc::new(PgPluginRepoRepository(pool.clone())),

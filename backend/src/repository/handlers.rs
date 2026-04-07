@@ -355,20 +355,25 @@ pub async fn get_branches(
     let provider = repo.provider.unwrap_or(RepositoryProvider::Github);
     let provider_str = provider.as_str();
 
-    // Get user's provider token
-    let token = state.provider_tokens.find_provider_token(&auth.user_id, provider_str)
-        .await
-        .map_err(RepositoryError::Db)?
-        .ok_or_else(|| {
-            RepositoryError::BadRequest(format!(
-                "No {provider_str} token configured. Please connect your {provider_str} account."
-            ))
-        })?;
+    // Get user's provider token (refresh expired GitHub App tokens)
+    let access_token = if provider == RepositoryProvider::Github {
+        resolve_github_token(&state, &auth.user_id).await?
+    } else {
+        state.provider_tokens.find_provider_token(&auth.user_id, provider_str)
+            .await
+            .map_err(RepositoryError::Db)?
+            .ok_or_else(|| {
+                RepositoryError::BadRequest(format!(
+                    "No {provider_str} token configured. Please connect your {provider_str} account."
+                ))
+            })?
+            .access_token
+    };
 
     // For Gitness, we also need the base URL from provider_tokens metadata
     let result = match provider {
-        RepositoryProvider::Github => fetch_github_branches(remote_url, &token.access_token).await?,
-        RepositoryProvider::Gitlab => fetch_gitlab_branches(remote_url, &token.access_token).await?,
+        RepositoryProvider::Github => fetch_github_branches(remote_url, &access_token).await?,
+        RepositoryProvider::Gitlab => fetch_gitlab_branches(remote_url, &access_token).await?,
         RepositoryProvider::Gitness => {
             let full_token = state.provider_tokens.find_provider_token_full(&auth.user_id, "gitness")
                 .await
@@ -384,7 +389,7 @@ pub async fn get_branches(
                     )
                 })?
                 .to_string();
-            fetch_gitness_branches(remote_url, &token.access_token, &base_url).await?
+            fetch_gitness_branches(remote_url, &access_token, &base_url).await?
         }
     };
 
@@ -430,6 +435,38 @@ pub async fn get_branches(
         branches: entries,
         default_branch,
     }))
+}
+
+// =============================================================================
+// Token helpers
+// =============================================================================
+
+/// Resolve a fresh GitHub token for the user, refreshing expired GitHub App tokens.
+///
+/// Falls back to the raw stored token when no GitHub App service is configured.
+async fn resolve_github_token(state: &AppState, user_id: &str) -> Result<String, RepositoryError> {
+    if let Some(ref app_svc) = state.github_app_service {
+        crate::auth::token_refresh::ensure_fresh_token(
+            state.provider_tokens.as_ref(),
+            state.provider_token_auth.as_ref(),
+            app_svc,
+            user_id,
+        )
+        .await
+        .map_err(|e| RepositoryError::ProviderError(format!("GitHub token refresh failed: {e}")))
+    } else {
+        state
+            .provider_tokens
+            .find_provider_token(user_id, "github")
+            .await
+            .map_err(RepositoryError::Db)?
+            .map(|t| t.access_token)
+            .ok_or_else(|| {
+                RepositoryError::BadRequest(
+                    "No github token configured. Please connect your github account.".into(),
+                )
+            })
+    }
 }
 
 // =============================================================================
