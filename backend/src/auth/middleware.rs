@@ -44,11 +44,16 @@ fn is_exempt(path: &str) -> bool {
         return true;
     }
 
-    // Webhook endpoints use provider-specific verification (HMAC, secret token, etc.)
-    // Match /api/v1/channels/{provider}/webhook and /api/v1/channels/webhook/{provider}
+    // Webhook and slash-command endpoints use provider-specific verification (HMAC, secret token, etc.)
+    // Match /api/v1/channels/{provider}/webhook, /api/v1/channels/webhook/{provider},
+    // and /api/v1/channels/{provider}/slash
     if let Some(rest) = path.strip_prefix("/api/v1/channels/") {
         let segments: Vec<&str> = rest.split('/').filter(|s| !s.is_empty()).collect();
-        if segments.len() >= 2 && (segments[1] == "webhook" || segments[0] == "webhook") {
+        if segments.len() >= 2
+            && (segments[1] == "webhook"
+                || segments[1] == "slash"
+                || segments[0] == "webhook")
+        {
             return true;
         }
     }

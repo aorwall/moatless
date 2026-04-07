@@ -50,7 +50,7 @@ spec:
   entryPoints:
     - {{ $entryPoint }}
   routes:
-    - match: "Host(`{{ $host }}`) && PathPrefix(`/api/v1/channels/`) && PathRegexp(`/api/v1/channels/[^/]+/webhook.*`)"
+    - match: "Host(`{{ $host }}`) && PathPrefix(`/api/v1/channels/`) && PathRegexp(`/api/v1/channels/[^/]+/(webhook|slash).*`)"
       kind: Rule
       services:
         - name: {{ $fullname }}-backend

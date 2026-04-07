@@ -442,7 +442,7 @@ pub async fn resolve_and_process_telegram_update(
             let state_clone = state.clone();
             tokio::spawn(async move {
                 if let Err(e) =
-                    crate::channel::inbound::process_inbound(&state_clone, *msg)
+                    crate::channel::inbound::process_inbound(&state_clone, *msg, None)
                         .await
                 {
                     warn!(error = %e, "Failed to process Telegram inbound message");

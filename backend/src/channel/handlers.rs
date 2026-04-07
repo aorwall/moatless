@@ -195,7 +195,7 @@ pub async fn slack_webhook(
             let state_clone = state.clone();
             tokio::spawn(async move {
                 if let Err(e) =
-                    inbound::process_inbound(&state_clone, *msg).await
+                    inbound::process_inbound(&state_clone, *msg, None).await
                 {
                     warn!(error = %e, "Failed to process Slack inbound message");
                 }
@@ -207,6 +207,271 @@ pub async fn slack_webhook(
             Ok(StatusCode::OK.into_response())
         }
     }
+}
+
+// =========================================================================
+// Slack slash command handler
+// =========================================================================
+
+/// Handle Slack slash command.
+///
+/// Slack sends a POST with `application/x-www-form-urlencoded` body when a user
+/// invokes a registered slash command (e.g., `/moat commit fix auth bug`).
+/// The handler must respond within 3 seconds, so processing happens in background.
+#[utoipa::path(
+    post,
+    path = "/api/v1/channels/slack/slash",
+    tag = "channels",
+    request_body(content = String, description = "Slack slash command form payload"),
+    responses(
+        (status = 200, description = "Command acknowledged"),
+        (status = 401, description = "Invalid signature")
+    )
+)]
+pub async fn slack_slash_command(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<serde_json::Value>, ChannelError> {
+    // 1. Get Slack provider
+    let providers = state
+        .channel_providers
+        .as_ref()
+        .ok_or_else(|| ChannelError::ProviderNotConfigured("slack".into()))?;
+
+    let slack = providers
+        .get(ChannelType::Slack)
+        .ok_or_else(|| ChannelError::ProviderNotConfigured("slack".into()))?;
+
+    let slack_provider = slack
+        .as_any()
+        .downcast_ref::<super::slack::provider::SlackProvider>()
+        .ok_or_else(|| ChannelError::Internal("Provider type mismatch".into()))?;
+
+    // 2. Verify HMAC signature (same mechanism as Events API)
+    let timestamp = headers
+        .get("x-slack-request-timestamp")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    let sig = headers
+        .get("x-slack-signature")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    super::slack::signature::verify_signature(
+        slack_provider.signing_secret(),
+        timestamp,
+        &body,
+        sig,
+    )?;
+
+    // 3. Parse form data
+    let payload: super::slack::command::SlackSlashCommandPayload =
+        serde_urlencoded::from_bytes(&body)
+            .map_err(|e| ChannelError::BadRequest(format!("Invalid form data: {e}")))?;
+
+    info!(
+        command = %payload.command,
+        channel_id = %payload.channel_id,
+        user_id = %payload.user_id,
+        text = %payload.text,
+        "Slack slash command received"
+    );
+
+    // 4. Parse system command from payload
+    let parsed = payload.parse_command(&["moat"]);
+    let Some(parsed) = parsed else {
+        return Ok(Json(serde_json::json!({
+            "response_type": "ephemeral",
+            "text": "Usage: /moat <command> [context]\nExample: /moat commit fix auth bug"
+        })));
+    };
+
+    // 5. Look up command in DB (fast, within 3s budget)
+    let command = state
+        .commands
+        .find_by_name(&parsed.command_name)
+        .await
+        .map_err(|e| ChannelError::Internal(format!("Command lookup failed: {e}")))?;
+
+    let Some(command) = command else {
+        return Ok(Json(serde_json::json!({
+            "response_type": "ephemeral",
+            "text": format!("Unknown command: `{}`. Use a valid system command.", parsed.command_name)
+        })));
+    };
+
+    if command.active == Some(false) {
+        return Ok(Json(serde_json::json!({
+            "response_type": "ephemeral",
+            "text": format!("Command `{}` is currently disabled.", parsed.command_name)
+        })));
+    }
+
+    // 6. Build CommandInfo and spawn background processing
+    let command_info = inbound::CommandInfo {
+        name: command.name.clone(),
+        resume: !command.will_not_resume.unwrap_or(false),
+        agent_mode: command.agent_mode.clone(),
+    };
+
+    let state_clone = state.clone();
+    let slack_arc = std::sync::Arc::clone(slack);
+    let channel_id = payload.channel_id.clone();
+    let slack_user_id = payload.user_id.clone();
+    let user_text = parsed.user_text.clone();
+    let command_name_display = parsed.command_name.clone();
+    let command_name_ack = command_name_display.clone();
+
+    tokio::spawn(async move {
+        if let Err(e) = process_slash_command_background(
+            &state_clone,
+            &slack_arc,
+            &channel_id,
+            &slack_user_id,
+            &command_name_display,
+            &user_text,
+            command_info,
+        )
+        .await
+        {
+            warn!(
+                error = %e,
+                channel = %channel_id,
+                command = %command_name_display,
+                "Failed to process slash command"
+            );
+            // Best-effort: post error to channel
+            if let Some(slack_p) = slack_arc
+                .as_any()
+                .downcast_ref::<super::slack::provider::SlackProvider>()
+            {
+                let _ = slack_p
+                    .post_message(
+                        &channel_id,
+                        &format!("Failed to process /{command_name_display}: {e}"),
+                        None,
+                    )
+                    .await;
+            }
+        }
+    });
+
+    Ok(Json(serde_json::json!({
+        "response_type": "ephemeral",
+        "text": format!("Processing /{command_name_ack}...")
+    })))
+}
+
+/// Background processing for a slash command.
+///
+/// 1. Look up channel config for the Slack channel
+/// 2. Resolve Slack user → system user
+/// 3. Post visible message to channel (creates thread anchor)
+/// 4. Build [`InboundMessage`] with the message `ts` as thread properties
+/// 5. Call [`inbound::process_inbound`] with [`CommandInfo`](inbound::CommandInfo)
+async fn process_slash_command_background(
+    state: &AppState,
+    slack_arc: &std::sync::Arc<dyn super::provider::ChannelProvider>,
+    channel_id: &str,
+    slack_user_id: &str,
+    command_name: &str,
+    user_text: &str,
+    command_info: inbound::CommandInfo,
+) -> Result<(), ChannelError> {
+    use super::models::InboundMessage;
+
+    let slack_provider = slack_arc
+        .as_any()
+        .downcast_ref::<super::slack::provider::SlackProvider>()
+        .ok_or_else(|| ChannelError::Internal("Provider type mismatch".into()))?;
+
+    // 1. Look up channel config
+    let config = state
+        .channel_configs
+        .find_by_provider_source("slack", channel_id)
+        .await?;
+
+    // Validate that a config exists and is active (process_inbound will re-fetch it)
+    match config {
+        Some(c) if c.active => {}
+        Some(_) => {
+            return Err(ChannelError::BadRequest(
+                "Channel config is inactive".into(),
+            ));
+        }
+        None => {
+            // Try wildcard auto-create (same as Events API handler)
+            let source_name = slack_provider
+                .get_channel_name(channel_id)
+                .await
+                .unwrap_or(None);
+            super::defaults::create_config_from_wildcard(
+                &*state.channel_configs,
+                "slack",
+                channel_id,
+                source_name,
+                None,
+                "system",
+            )
+            .await?
+            .ok_or_else(|| {
+                ChannelError::ConfigNotFound(format!(
+                    "No Slack config for channel {channel_id}"
+                ))
+            })?;
+        }
+    }
+
+    // 2. Resolve Slack user → system user
+    let user_id: String = slack_arc
+        .resolve_user(slack_user_id, &state.db)
+        .await?
+        .ok_or_else(|| {
+            ChannelError::BadRequest(format!(
+                "Slack user {slack_user_id} not mapped to system user"
+            ))
+        })?;
+
+    // 3. Post visible message to channel (thread anchor)
+    let display_text = if user_text.is_empty() {
+        format!("/{command_name}")
+    } else {
+        format!("/{command_name} {user_text}")
+    };
+
+    let ts = slack_provider
+        .post_message(channel_id, &display_text, None)
+        .await?
+        .ok_or_else(|| ChannelError::Internal("Slack did not return message ts".into()))?;
+
+    // 4. Build InboundMessage
+    let thread_properties = serde_json::json!({
+        "channel": channel_id,
+        "ts": ts,
+        "thread_ts": ts,
+    });
+
+    let msg = InboundMessage {
+        provider: ChannelType::Slack,
+        source_id: channel_id.to_string(),
+        thread_id: None,
+        message_thread_id: ts.clone(),
+        user_id,
+        text: user_text.to_string(),
+        file_ids: vec![],
+        thread_properties,
+        provider_context: serde_json::json!({
+            "user_id": slack_user_id,
+            "is_bot_mentioned": true,
+            "slash_command": true,
+        }),
+        channel_external_id: Some(ts),
+    };
+
+    // 5. Route through standard inbound pipeline with command info
+    inbound::process_inbound(state, msg, Some(command_info)).await?;
+
+    Ok(())
 }
 
 // =========================================================================
@@ -548,7 +813,7 @@ pub async fn webhook_inbound(
     let msg =
         super::webhook::provider::WebhookProvider::parse_inbound(&config, &body, signature)?;
 
-    match inbound::process_inbound(&state, msg).await {
+    match inbound::process_inbound(&state, msg, None).await {
         Ok(task_id) => Ok(Json(serde_json::json!({ "taskId": task_id })).into_response()),
         Err(e) => {
             warn!(error = %e, "Failed to process webhook inbound message");

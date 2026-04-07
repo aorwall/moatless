@@ -14,6 +14,7 @@ use crate::state::AppState;
     paths(
         handlers::list_providers,
         handlers::slack_webhook,
+        handlers::slack_slash_command,
         handlers::telegram_webhook,
         handlers::github_pr_webhook,
         handlers::list_pairing_requests,
@@ -43,6 +44,7 @@ pub fn channel_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenAp
     let (router, api) = OpenApiRouter::with_openapi(ChannelApiDoc::openapi())
         .routes(routes!(handlers::list_providers))
         .routes(routes!(handlers::slack_webhook))
+        .routes(routes!(handlers::slack_slash_command))
         .routes(routes!(handlers::telegram_webhook))
         .routes(routes!(handlers::github_pr_webhook))
         .routes(routes!(handlers::list_pairing_requests))

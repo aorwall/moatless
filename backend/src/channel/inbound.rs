@@ -1,16 +1,31 @@
 //! Inbound message processing — unified message → task flow.
 
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use super::config_dao::ChannelConfigPatch;
 use super::models::ChannelConfig;
-use crate::shared_models::AgentType;
+use crate::shared_models::{AgentMode, AgentType};
 use crate::task::models::{Task, TaskStatus, Visibility};
 use crate::state::AppState;
 
 use super::error::ChannelError;
 use super::router::{self, RoutingResult};
 use super::models::{InboundMessage, RoutingMode};
+
+/// Pre-resolved command information passed from provider-specific ingress
+/// (e.g., Slack slash commands) or detected from message text.
+///
+/// When present, [`process_inbound`] uses this to pass command metadata through
+/// to `send_message_flow` instead of the default `command_name: None`.
+#[derive(Debug, Clone)]
+pub struct CommandInfo {
+    /// System command name (e.g., "commit", "create-pr").
+    pub name: String,
+    /// Whether to resume the agent session (`false` when `will_not_resume` is set).
+    pub resume: bool,
+    /// Agent mode override from the command definition.
+    pub agent_mode: Option<AgentMode>,
+}
 
 /// Generic instructions appended to all channel-originated tasks so the agent
 /// knows to explicitly reply via the `moat reply` CLI command.
@@ -32,12 +47,32 @@ If the message is not directed at you and you have nothing to add, stay silent (
 
 /// Process an inbound message through the routing → task creation pipeline.
 ///
+/// When `command` is `Some`, the command metadata is passed through to
+/// `send_message_flow` (name, resume flag, agent_mode). When `None`, the
+/// function attempts to detect a `/command` prefix from `msg.text` before
+/// sender-label enrichment.
+///
 /// Returns the task_id that the message was routed to.
 pub async fn process_inbound(
     state: &AppState,
     msg: InboundMessage,
+    command: Option<CommandInfo>,
 ) -> Result<String, ChannelError> {
     let routing_result = router::route_message(state, &msg).await?;
+
+    // Resolve command: use provided CommandInfo or detect /command from message text.
+    let effective_command = match command {
+        Some(cmd) => {
+            info!(
+                command = %cmd.name,
+                provider = msg.provider.as_str(),
+                source_id = %msg.source_id,
+                "Using provided command for channel message"
+            );
+            Some(cmd)
+        }
+        None => detect_command_from_text(&msg.text, state.commands.as_ref()).await,
+    };
 
     let mut is_new_task = false;
     let (task_id, config, thread) = match routing_result {
@@ -76,7 +111,7 @@ pub async fn process_inbound(
                 routing_mode = ?config.routing_mode,
                 "Creating new task for channel message"
             );
-            let task_id = create_task_for_channel(state, &config, &msg).await?;
+            let task_id = create_task_for_channel(state, &config, &msg, effective_command.as_ref()).await?;
 
             // Provision sandbox (mirrors task/handlers.rs)
             match crate::sandbox::auto_provision::build_provision_request(
@@ -202,8 +237,24 @@ pub async fn process_inbound(
         .and_then(|v| v.as_str())
         .is_some();
 
+    // When a command is detected, strip the /command prefix from the text used
+    // for sender-label enrichment. The command name is passed separately to
+    // send_message_flow.
+    let base_text = match &effective_command {
+        Some(cmd) => {
+            let prefix = format!("/{}", cmd.name);
+            msg.text
+                .trim()
+                .strip_prefix(&prefix)
+                .unwrap_or(&msg.text)
+                .trim()
+                .to_string()
+        }
+        None => msg.text.clone(),
+    };
+
     // Look up sender identity for agent context
-    let mut message_text = msg.text.clone();
+    let mut message_text = base_text;
     let sender_label = match state.users.get_user(&msg.user_id).await {
         Ok(Some(user)) => {
             let display = user.name.as_deref().unwrap_or(&user.login);
@@ -252,19 +303,24 @@ pub async fn process_inbound(
         }
     }
 
+    let (cmd_resume, cmd_agent_mode, cmd_name) = match &effective_command {
+        Some(cmd) => (cmd.resume, cmd.agent_mode.as_ref(), Some(cmd.name.as_str())),
+        None => (true, None, None),
+    };
+
     if let Err(e) = crate::message::send::send_message_flow(
         state,
         &task_id,
         &message_text,
         None,
-        None,
+        cmd_agent_mode,
         &msg.file_ids,
         &[],
-        true,
+        cmd_resume,
         msg.channel_external_id.as_deref(),
         Some(&config.provider),
         config.source_name.as_deref(),
-        None,
+        cmd_name,
     )
     .await
     {
@@ -306,6 +362,7 @@ async fn create_task_for_channel(
     state: &AppState,
     config: &ChannelConfig,
     msg: &InboundMessage,
+    command: Option<&CommandInfo>,
 ) -> Result<String, ChannelError> {
     let task_id = uuid::Uuid::new_v4().to_string();
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
@@ -326,7 +383,18 @@ async fn create_task_for_channel(
         template_id: None,
         vibe: None,
         name: config.task_name.clone(),
-        description: Some(truncate(&msg.text, 200)),
+        description: Some(match command {
+            Some(cmd) => {
+                let stripped = msg.text.trim().strip_prefix(&format!("/{}", cmd.name))
+                    .unwrap_or(&msg.text).trim();
+                if stripped.is_empty() {
+                    truncate(&format!("/{}", cmd.name), 200)
+                } else {
+                    truncate(stripped, 200)
+                }
+            }
+            None => truncate(&msg.text, 200),
+        }),
         site_id: None,
         site_provider: None,
         branch: None, // Will use repo default
@@ -464,7 +532,7 @@ pub async fn trigger_inbound(
         "Manually triggering channel"
     );
 
-    let task_id = create_task_for_channel(state, config, &msg).await?;
+    let task_id = create_task_for_channel(state, config, &msg, None).await?;
 
     // Provision sandbox (mirrors the natural channel fire path)
     match crate::sandbox::auto_provision::build_provision_request(
@@ -569,6 +637,34 @@ fn truncate(s: &str, max: usize) -> String {
         s.to_string()
     } else {
         format!("{}...", &s[..max.saturating_sub(3)])
+    }
+}
+
+/// Detect a `/command` prefix from raw message text and look it up in the DB.
+///
+/// Returns `Some(CommandInfo)` if the text starts with `/word` and that word
+/// matches a known, active system command.
+async fn detect_command_from_text(
+    text: &str,
+    commands: &dyn crate::command::dao::CommandRepository,
+) -> Option<CommandInfo> {
+    let trimmed = text.trim();
+    if !trimmed.starts_with('/') {
+        return None;
+    }
+    let without_slash = &trimmed[1..];
+    let candidate = without_slash.split_whitespace().next()?;
+
+    match commands.find_by_name(candidate).await {
+        Ok(Some(cmd)) if cmd.active != Some(false) => {
+            debug!(command_name = %candidate, "Detected command from channel message text");
+            Some(CommandInfo {
+                name: cmd.name,
+                resume: !cmd.will_not_resume.unwrap_or(false),
+                agent_mode: cmd.agent_mode,
+            })
+        }
+        _ => None,
     }
 }
 

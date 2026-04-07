@@ -980,7 +980,7 @@ pub async fn resolve_and_process_github_webhook(
                 let external_thread_id = msg.thread_id.clone();
                 let msg_clone_for_fanout = (*msg).clone();
 
-                match inbound::process_inbound(&state_clone, *msg).await {
+                match inbound::process_inbound(&state_clone, *msg, None).await {
                     Ok(primary_task_id) => {
                         // Fan out to additional tasks connected to the same PR
                         if let Some(ref ext_tid) = external_thread_id {

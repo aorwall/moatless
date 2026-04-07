@@ -93,6 +93,19 @@ impl SlackProvider {
         self.api.list_conversations().await
     }
 
+    /// Post a message to a Slack channel, returning the message `ts`.
+    ///
+    /// Thin wrapper around [`SlackApi::post_message`] for use by the slash
+    /// command handler (which needs to post a visible thread anchor).
+    pub async fn post_message(
+        &self,
+        channel: &str,
+        text: &str,
+        thread_ts: Option<&str>,
+    ) -> Result<Option<String>, ChannelError> {
+        self.api.post_message(channel, text, thread_ts).await
+    }
+
     /// Resolve a Slack channel ID to its human-readable name (best-effort).
     pub async fn get_channel_name(&self, channel_id: &str) -> Result<Option<String>, ChannelError> {
         Ok(self
