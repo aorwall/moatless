@@ -49,37 +49,9 @@ pub async fn send_message(
             req.tool_response.as_ref(),
         )
         .await?;
-    } else if let Some(ref command_name) = req.command_name {
-        // Named command — look up prompt and agent_mode from DB
-        let command = state.commands.find_by_name(command_name)
-            .await?
-            .ok_or_else(|| MessageError::CommandNotFound(command_name.clone()))?;
-
-        tracing::info!(
-            task_id = %task_id,
-            command_name = %command_name,
-            prompt_len = command.prompt.len(),
-            agent_mode = ?command.agent_mode,
-            "Executing command"
-        );
-
-        send::send_message_flow(
-            &state,
-            &task_id,
-            &command.prompt,
-            req.model.as_deref(),
-            command.agent_mode.as_ref(),
-            &req.file_ids,
-            &[],
-            req.resume.unwrap_or(true),
-            None,
-            None,
-            None,
-            Some(command_name),
-        )
-        .await?;
     } else {
-        // Regular message
+        // Regular message or command — frontend sends the prompt text directly.
+        // command_name is stored on the message for display purposes only.
         send::send_message_flow(
             &state,
             &task_id,
@@ -92,7 +64,7 @@ pub async fn send_message(
             None,
             None,
             None,
-            None,
+            req.command_name.as_deref(),
         )
         .await?;
     }
