@@ -55,6 +55,14 @@ pub async fn send_message(
             .await?
             .ok_or_else(|| MessageError::CommandNotFound(command_name.clone()))?;
 
+        tracing::info!(
+            task_id = %task_id,
+            command_name = %command_name,
+            prompt_len = command.prompt.len(),
+            agent_mode = ?command.agent_mode,
+            "Executing command"
+        );
+
         send::send_message_flow(
             &state,
             &task_id,

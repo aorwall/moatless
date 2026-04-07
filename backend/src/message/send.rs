@@ -123,7 +123,7 @@ pub async fn send_message_flow(
         .await
         .map_err(|e| MessageError::Internal(format!("Failed to persist message: {e}")))?;
 
-    tracing::info!(task_id = %task_id, "Message persisted");
+    tracing::info!(task_id = %task_id, command_name = ?command_name, "Message persisted");
 
     // Update task last_message_at (running state is derived on frontend)
     state.tasks.update_task(
