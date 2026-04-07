@@ -10,6 +10,54 @@ use crate::task::schemas::MessageContextInput;
 use super::enricher;
 use super::error::MessageError;
 
+/// Detect a `/command` prefix in the message text and resolve it.
+///
+/// If `command_name` is already set (from frontend autocomplete), returns it unchanged.
+/// Otherwise parses `/word ...` from the message, looks it up in `CommandRepository`,
+/// and if found returns the command name + remaining user text.
+async fn resolve_command_from_message(
+    message: &str,
+    command_name: Option<&str>,
+    commands: &dyn crate::command::dao::CommandRepository,
+) -> (String, Option<String>) {
+    // Frontend already identified the command — pass through
+    if let Some(name) = command_name {
+        return (message.to_string(), Some(name.to_string()));
+    }
+
+    // Try to detect /command prefix
+    let trimmed = message.trim();
+    if !trimmed.starts_with('/') {
+        return (message.to_string(), None);
+    }
+
+    // Extract candidate command name (first word after `/`)
+    let without_slash = &trimmed[1..];
+    let candidate = match without_slash.split_whitespace().next() {
+        Some(word) => word,
+        None => return (message.to_string(), None),
+    };
+
+    // Look up in DB
+    match commands.find_by_name(candidate).await {
+        Ok(Some(_cmd)) => {
+            // Strip the `/command` prefix, keep the rest as user text
+            let prefix_len = 1 + candidate.len(); // `/` + command name
+            let user_text = trimmed[prefix_len..].trim().to_string();
+            tracing::debug!(command_name = %candidate, "Detected command from message text");
+            (user_text, Some(candidate.to_string()))
+        }
+        Ok(None) => {
+            // Not a known command — treat as regular text
+            (message.to_string(), None)
+        }
+        Err(e) => {
+            tracing::warn!(candidate = %candidate, error = %e, "Failed to look up command, treating as regular text");
+            (message.to_string(), None)
+        }
+    }
+}
+
 /// The main message flow — called by message handlers, task creation, and channel inbound.
 #[allow(clippy::too_many_arguments)]
 pub async fn send_message_flow(
@@ -40,6 +88,10 @@ pub async fn send_message_flow(
         }
     }
 
+    // Detect /command prefix in message text if command_name wasn't set by frontend
+    let (effective_message, effective_command_name) =
+        resolve_command_from_message(message, command_name, state.commands.as_ref()).await;
+
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let msg_uuid = uuid::Uuid::new_v4().to_string();
 
@@ -49,13 +101,13 @@ pub async fn send_message_flow(
             state.figma_imports.as_ref(),
             state.files.as_ref(),
             &state.config,
-            message,
+            &effective_message,
             contexts,
             file_ids,
         )
         .await;
     let content = serde_json::to_value(&enriched_blocks).unwrap_or_else(|_| {
-        serde_json::json!([{ "type": "text", "text": message }])
+        serde_json::json!([{ "type": "text", "text": effective_message }])
     });
 
     let msg_row = TaskMessage {
@@ -98,7 +150,7 @@ pub async fn send_message_flow(
         channel_external_id: channel_external_id.map(std::string::ToString::to_string),
         channel_provider: channel_provider.map(std::string::ToString::to_string),
         channel_source_name: channel_source_name.map(std::string::ToString::to_string),
-        command_name: command_name.map(std::string::ToString::to_string),
+        command_name: effective_command_name,
     };
 
     // Build content blocks for the showInUI=true user text
@@ -108,7 +160,7 @@ pub async fn send_message_flow(
         sort_order: 0,
         block_type: ContentBlockType::Text,
         show_in_ui: true,
-        text_content: Some(message.to_string()),
+        text_content: Some(effective_message),
         tool_use_id: None,
         tool_result_content: None,
         tool_result_is_error: None,
@@ -123,7 +175,7 @@ pub async fn send_message_flow(
         .await
         .map_err(|e| MessageError::Internal(format!("Failed to persist message: {e}")))?;
 
-    tracing::info!(task_id = %task_id, command_name = ?command_name, "Message persisted");
+    tracing::info!(task_id = %task_id, command_name = ?msg_row.command_name, "Message persisted");
 
     // Update task last_message_at (running state is derived on frontend)
     state.tasks.update_task(
