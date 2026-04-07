@@ -137,6 +137,7 @@ fn test_config() -> Config {
         setup_commands: vec![],
         plugin_ids: vec![],
         plugin_repos: vec![],
+        frontend_url: None,
     }
 }
 

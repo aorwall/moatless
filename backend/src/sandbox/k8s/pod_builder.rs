@@ -207,6 +207,9 @@ fn build_sandbox_container(
         env.push(env_var("PROXY_PROTOCOL", &config.proxy.protocol));
     }
 
+    // Frontend URL for constructing task URLs in the agent system prompt
+    env.push(env_var("FRONTEND_URL", &config.auth.frontend_url));
+
     if let Some(token) = user_auth_token {
         env.push(env_var("USER_AUTH_TOKEN", token));
     }

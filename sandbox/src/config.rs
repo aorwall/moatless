@@ -132,6 +132,8 @@ pub struct Config {
     pub proxy: ProxyConfig,
     /// Server configurations parsed from REPO_CONFIG
     pub servers: Vec<ServerInfo>,
+    /// Frontend URL for constructing task URLs (e.g., "https://moatless.io")
+    pub frontend_url: Option<String>,
 
     // ── Init-related fields ────────────────────────────────────────
     /// Home directory (default: "/home/moatless")
@@ -209,6 +211,7 @@ impl Config {
                     .unwrap_or_else(|_| "https".to_string()),
             },
             servers: parsed.servers,
+            frontend_url: env::var("FRONTEND_URL").ok(),
 
             home_dir,
             claude_config_dir,

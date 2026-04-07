@@ -76,6 +76,7 @@ tests/
 | USER_AUTH_TOKEN | (optional) | Auth token for backend calls |
 | REPO_CONFIG | (optional) | JSON repository configuration |
 | SANDBOX_CLAUDE_EXECUTABLE_PATH | /opt/moatless/bin/claude | Claude CLI path |
+| FRONTEND_URL | (optional) | Frontend URL for constructing task URLs in agent system prompt |
 
 ## Key Patterns
 

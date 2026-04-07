@@ -85,6 +85,9 @@ pub fn build_container_config(
         env.push(format!("PROXY_PROTOCOL={}", config.proxy.protocol));
     }
 
+    // Frontend URL for constructing task URLs in the agent system prompt
+    env.push(format!("FRONTEND_URL={}", config.auth.frontend_url));
+
     // Custom env vars from repo config
     if let Some(ref env_vars) = plan.env_vars {
         for (key, value) in env_vars {

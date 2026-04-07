@@ -121,6 +121,15 @@ fn build_system_prompt(config: &Config, request: &AgentRunRequest) -> Option<Sys
         append_parts.push(server_prompt);
     }
 
+    // Add task URL so the agent can reference it
+    if let Some(ref frontend_url) = config.frontend_url {
+        append_parts.push(format!(
+            "# Task URL\n\nThis task is available at: {}/tasks/{}",
+            frontend_url.trim_end_matches('/'),
+            config.task_id
+        ));
+    }
+
     // CLI reference last
     append_parts.push(SANDBOX_TOOLS_PROMPT.to_string());
 
