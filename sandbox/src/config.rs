@@ -134,6 +134,8 @@ pub struct Config {
     pub servers: Vec<ServerInfo>,
     /// Frontend URL for constructing task URLs (e.g., "https://moatless.io")
     pub frontend_url: Option<String>,
+    /// Global default model (env: DEFAULT_MODEL), used when neither request nor repo config set one
+    pub default_model: Option<String>,
 
     // ── Init-related fields ────────────────────────────────────────
     /// Home directory (default: "/home/moatless")
@@ -212,6 +214,7 @@ impl Config {
             },
             servers: parsed.servers,
             frontend_url: env::var("FRONTEND_URL").ok(),
+            default_model: env::var("DEFAULT_MODEL").ok(),
 
             home_dir,
             claude_config_dir,

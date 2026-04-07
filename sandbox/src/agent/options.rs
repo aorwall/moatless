@@ -22,11 +22,12 @@ pub fn build_options(
     agent_state: Arc<AgentState>,
     env: Option<HashMap<String, String>>,
 ) -> ClaudeOptions {
-    // Determine model: request > agentConfig > default
+    // Determine model: request > agentConfig > DEFAULT_MODEL env
     let model = request
         .model
         .clone()
-        .or_else(|| config.agent_config.model.clone());
+        .or_else(|| config.agent_config.model.clone())
+        .or_else(|| config.default_model.clone());
 
     // Build system prompt
     let system_prompt = build_system_prompt(config, request);
