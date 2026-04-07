@@ -49,14 +49,7 @@ pub struct PgTaskRepository(pub DbPool);
 impl TaskRepository for PgTaskRepository {
     async fn find_by_id_internal(&self, task_id: &str) -> Result<Option<Task>, sqlx::Error> {
         sqlx::query_as::<_, Task>(
-            r#"SELECT
-                task_id, short_id, created_at, last_message_at, agent_type,
-                repository_id, status, total_cost_usd, site_url, template_id,
-                vibe, name, description, site_id, site_provider, branch,
-                created_by, visibility, scope, team_id, created_at_db,
-                updated_at, parent_task_id, append_system_prompt,
-                sandbox_started_at
-            FROM tasks WHERE task_id = $1"#,
+            "SELECT * FROM tasks WHERE task_id = $1",
         )
         .bind(task_id)
         .fetch_optional(&self.0)
@@ -66,16 +59,7 @@ impl TaskRepository for PgTaskRepository {
     async fn find_by_id(&self, task_id: &str, ctx: &ScopeContext) -> Result<Option<Task>, sqlx::Error> {
         let access = ctx.access_filter(ScopedEntity::Task, "", 2);
         let sql = format!(
-            r#"SELECT
-                task_id, short_id, created_at, last_message_at, agent_type,
-                repository_id, status, total_cost_usd, site_url, template_id,
-                vibe, name, description, site_id, site_provider, branch,
-                created_by, visibility, scope, team_id, created_at_db,
-                updated_at, parent_task_id, append_system_prompt,
-                sandbox_started_at
-            FROM tasks
-            WHERE task_id = $1
-              AND {}"#, access.sql(),
+            "SELECT * FROM tasks WHERE task_id = $1 AND {}", access.sql(),
         );
         sqlx::query_as::<_, Task>(&sql)
             .bind(task_id)

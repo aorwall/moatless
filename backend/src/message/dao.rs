@@ -63,21 +63,7 @@ impl MessageRepository for PgMessageRepository {
     ) -> Result<(Vec<TaskMessage>, Vec<TaskMessageContext>, Vec<TaskMessageContentBlock>), sqlx::Error> {
         let (messages, contexts, blocks) = tokio::try_join!(
             sqlx::query_as::<_, TaskMessage>(
-                r#"SELECT
-                    id, task_id, uuid, message_type, user_type, parent_uuid,
-                    is_sidechain, cwd, session_id, turn_number, version,
-                    git_branch, request_id, timestamp, message_role, message_content,
-                    assistant_message_id, assistant_message_type, assistant_message_model,
-                    assistant_stop_reason, assistant_stop_sequence,
-                    assistant_usage_input_tokens, assistant_usage_output_tokens,
-                    assistant_usage_cache_creation_input_tokens,
-                    assistant_usage_cache_read_input_tokens,
-                    tool_use_result, sdk_metadata, attachments, agent_session_id,
-                    will_not_resume, run_metrics,
-                    agent_mode, model, resume, sent_at, created_at,
-                    channel_external_id, channel_provider, channel_source_name,
-                    command_name
-                FROM task_messages
+                r#"SELECT * FROM task_messages
                 WHERE task_id = $1
                 ORDER BY timestamp, id"#,
             )
@@ -229,21 +215,7 @@ impl MessageRepository for PgMessageRepository {
 
     async fn get_pending_user(&self, task_id: &str) -> Result<Vec<TaskMessage>, sqlx::Error> {
         sqlx::query_as::<_, TaskMessage>(
-            r#"SELECT
-                id, task_id, uuid, message_type, user_type, parent_uuid,
-                is_sidechain, cwd, session_id, turn_number, version,
-                git_branch, request_id, timestamp, message_role, message_content,
-                assistant_message_id, assistant_message_type, assistant_message_model,
-                assistant_stop_reason, assistant_stop_sequence,
-                assistant_usage_input_tokens, assistant_usage_output_tokens,
-                assistant_usage_cache_creation_input_tokens,
-                assistant_usage_cache_read_input_tokens,
-                tool_use_result, sdk_metadata, attachments, agent_session_id,
-                will_not_resume, run_metrics,
-                agent_mode, model, resume, sent_at, created_at,
-                    channel_external_id, channel_provider, channel_source_name,
-                    command_name
-            FROM task_messages
+            r#"SELECT * FROM task_messages
             WHERE task_id = $1
               AND agent_session_id IS NULL
               AND message_type = 'user'
@@ -256,21 +228,7 @@ impl MessageRepository for PgMessageRepository {
 
     async fn get_last_result(&self, task_id: &str) -> Result<Option<TaskMessage>, sqlx::Error> {
         sqlx::query_as::<_, TaskMessage>(
-            r#"SELECT
-                id, task_id, uuid, message_type, user_type, parent_uuid,
-                is_sidechain, cwd, session_id, turn_number, version,
-                git_branch, request_id, timestamp, message_role, message_content,
-                assistant_message_id, assistant_message_type, assistant_message_model,
-                assistant_stop_reason, assistant_stop_sequence,
-                assistant_usage_input_tokens, assistant_usage_output_tokens,
-                assistant_usage_cache_creation_input_tokens,
-                assistant_usage_cache_read_input_tokens,
-                tool_use_result, sdk_metadata, attachments, agent_session_id,
-                will_not_resume, run_metrics,
-                agent_mode, model, resume, sent_at, created_at,
-                    channel_external_id, channel_provider, channel_source_name,
-                    command_name
-            FROM task_messages
+            r#"SELECT * FROM task_messages
             WHERE task_id = $1 AND message_type IN ('result', 'error')
             ORDER BY timestamp DESC
             LIMIT 1"#,
@@ -282,21 +240,7 @@ impl MessageRepository for PgMessageRepository {
 
     async fn get_last_user_message(&self, task_id: &str) -> Result<Option<TaskMessage>, sqlx::Error> {
         sqlx::query_as::<_, TaskMessage>(
-            r#"SELECT
-                id, task_id, uuid, message_type, user_type, parent_uuid,
-                is_sidechain, cwd, session_id, turn_number, version,
-                git_branch, request_id, timestamp, message_role, message_content,
-                assistant_message_id, assistant_message_type, assistant_message_model,
-                assistant_stop_reason, assistant_stop_sequence,
-                assistant_usage_input_tokens, assistant_usage_output_tokens,
-                assistant_usage_cache_creation_input_tokens,
-                assistant_usage_cache_read_input_tokens,
-                tool_use_result, sdk_metadata, attachments, agent_session_id,
-                will_not_resume, run_metrics,
-                agent_mode, model, resume, sent_at, created_at,
-                    channel_external_id, channel_provider, channel_source_name,
-                    command_name
-            FROM task_messages
+            r#"SELECT * FROM task_messages
             WHERE task_id = $1 AND message_type = 'user'
             ORDER BY timestamp DESC
             LIMIT 1"#,

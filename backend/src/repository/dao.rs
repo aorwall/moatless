@@ -7,19 +7,6 @@ use crate::db::DbPool;
 use crate::scope::{ScopeContext, ScopedEntity};
 use crate::task::models::Visibility;
 
-/// Columns selected for repository queries.
-const REPO_COLUMNS: &str = r#"
-    id, name, kind, remote_url, default_branch,
-    docker_image, system_prompt, setup_commands, env_vars,
-    servers, plugins,
-    server_start_commands, startup_timeout_seconds,
-    build_command, build_output_directory,
-    enable_inspector, auto_reload,
-    description, provider, visibility, scope, team_id, created_by,
-    resources,
-    deleted, created_at, updated_at
-"#;
-
 /// Patch struct for partial updates.
 #[derive(Default)]
 pub struct RepositoryPatch {
@@ -69,10 +56,9 @@ pub struct PgRepoRepository(pub DbPool);
 #[async_trait]
 impl RepoRepository for PgRepoRepository {
     async fn find_repository_by_id(&self, id: &str) -> Result<Option<Repository>, sqlx::Error> {
-        let query = format!(
-            "SELECT {REPO_COLUMNS} FROM repositories WHERE id = $1 AND (deleted IS NULL OR deleted = false)"
-        );
-        sqlx::query_as::<_, Repository>(&query)
+        sqlx::query_as::<_, Repository>(
+            "SELECT * FROM repositories WHERE id = $1 AND (deleted IS NULL OR deleted = false)",
+        )
             .bind(id)
             .fetch_optional(&self.0)
             .await
@@ -80,13 +66,13 @@ impl RepoRepository for PgRepoRepository {
 
     async fn find_by_id(&self, id: &str, ctx: &ScopeContext) -> Result<Option<Repository>, sqlx::Error> {
         let access = ctx.access_filter(ScopedEntity::Repository, "", 2);
-        let query = format!(
-            "SELECT {REPO_COLUMNS} FROM repositories \
+        let sql = format!(
+            "SELECT * FROM repositories \
              WHERE id = $1 \
              AND (deleted IS NULL OR deleted = false) \
              AND {}", access.sql()
         );
-        sqlx::query_as::<_, Repository>(&query)
+        sqlx::query_as::<_, Repository>(&sql)
             .bind(id)
             .bind(ctx.is_admin)
             .bind(&ctx.team_ids)
@@ -97,13 +83,13 @@ impl RepoRepository for PgRepoRepository {
 
     async fn list_all(&self, ctx: &ScopeContext) -> Result<Vec<Repository>, sqlx::Error> {
         let access = ctx.access_filter(ScopedEntity::Repository, "", 1);
-        let query = format!(
-            "SELECT {REPO_COLUMNS} FROM repositories \
+        let sql = format!(
+            "SELECT * FROM repositories \
              WHERE (deleted IS NULL OR deleted = false) \
              AND {} \
              ORDER BY name ASC", access.sql()
         );
-        sqlx::query_as::<_, Repository>(&query)
+        sqlx::query_as::<_, Repository>(&sql)
             .bind(ctx.is_admin)
             .bind(&ctx.team_ids)
             .bind(&ctx.user_id)
@@ -263,12 +249,11 @@ impl RepoRepository for PgRepoRepository {
     }
 
     async fn find_by_name_and_user(&self, name: &str, user_id: &str) -> Result<Option<Repository>, sqlx::Error> {
-        let query = format!(
-            "SELECT {REPO_COLUMNS} FROM repositories \
+        sqlx::query_as::<_, Repository>(
+            "SELECT * FROM repositories \
              WHERE name = $1 AND created_by = $2 \
-             AND (deleted IS NULL OR deleted = false)"
-        );
-        sqlx::query_as::<_, Repository>(&query)
+             AND (deleted IS NULL OR deleted = false)",
+        )
             .bind(name)
             .bind(user_id)
             .fetch_optional(&self.0)

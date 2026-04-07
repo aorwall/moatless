@@ -44,9 +44,7 @@ impl FigmaRepository for PgFigmaRepository {
 
     async fn find_by_id(&self, import_id: &str) -> Result<Option<FigmaImport>, sqlx::Error> {
         sqlx::query_as::<_, FigmaImport>(
-            r#"SELECT import_id, file_id, file_key, node_id, file_name, node_name,
-                      node_metadata, has_image, include_image_in_prompt, created_by, created_at
-               FROM figma_imports WHERE import_id = $1"#,
+            "SELECT * FROM figma_imports WHERE import_id = $1",
         )
         .bind(import_id)
         .fetch_optional(&self.0)

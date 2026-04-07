@@ -25,7 +25,7 @@ pub struct PgPluginRepoRepository(pub DbPool);
 impl PluginRepoRepository for PgPluginRepoRepository {
     async fn list_all(&self) -> Result<Vec<PluginRepo>, sqlx::Error> {
         sqlx::query_as::<_, PluginRepo>(
-            "SELECT id, name, git_url, created_at, updated_at FROM plugin_repos ORDER BY name ASC",
+            "SELECT * FROM plugin_repos ORDER BY name ASC",
         )
         .fetch_all(&self.0)
         .await
@@ -33,7 +33,7 @@ impl PluginRepoRepository for PgPluginRepoRepository {
 
     async fn find_by_id(&self, id: &str) -> Result<Option<PluginRepo>, sqlx::Error> {
         sqlx::query_as::<_, PluginRepo>(
-            "SELECT id, name, git_url, created_at, updated_at FROM plugin_repos WHERE id = $1",
+            "SELECT * FROM plugin_repos WHERE id = $1",
         )
         .bind(id)
         .fetch_optional(&self.0)

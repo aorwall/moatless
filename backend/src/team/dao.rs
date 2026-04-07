@@ -40,7 +40,7 @@ pub struct PgTeamRepository(pub DbPool);
 impl TeamRepository for PgTeamRepository {
     async fn find_by_id(&self, id: &str) -> Result<Option<Team>, sqlx::Error> {
         sqlx::query_as::<_, Team>(
-            "SELECT id, name, slug, description, external_id, external_provider, is_default, settings, created_at, updated_at FROM teams WHERE id = $1",
+            "SELECT * FROM teams WHERE id = $1",
         )
         .bind(id)
         .fetch_optional(&self.0)
@@ -49,7 +49,7 @@ impl TeamRepository for PgTeamRepository {
 
     async fn find_by_slug(&self, slug: &str) -> Result<Option<Team>, sqlx::Error> {
         sqlx::query_as::<_, Team>(
-            "SELECT id, name, slug, description, external_id, external_provider, is_default, settings, created_at, updated_at FROM teams WHERE slug = $1",
+            "SELECT * FROM teams WHERE slug = $1",
         )
         .bind(slug)
         .fetch_optional(&self.0)
@@ -58,7 +58,7 @@ impl TeamRepository for PgTeamRepository {
 
     async fn find_by_external_id(&self, external_id: &str, provider: &str) -> Result<Option<Team>, sqlx::Error> {
         sqlx::query_as::<_, Team>(
-            "SELECT id, name, slug, description, external_id, external_provider, is_default, settings, created_at, updated_at FROM teams WHERE external_id = $1 AND external_provider = $2",
+            "SELECT * FROM teams WHERE external_id = $1 AND external_provider = $2",
         )
         .bind(external_id)
         .bind(provider)
@@ -68,7 +68,7 @@ impl TeamRepository for PgTeamRepository {
 
     async fn list_all(&self) -> Result<Vec<Team>, sqlx::Error> {
         sqlx::query_as::<_, Team>(
-            "SELECT id, name, slug, description, external_id, external_provider, is_default, settings, created_at, updated_at FROM teams ORDER BY name ASC",
+            "SELECT * FROM teams ORDER BY name ASC",
         )
         .fetch_all(&self.0)
         .await
@@ -139,7 +139,7 @@ impl TeamRepository for PgTeamRepository {
 
     async fn find_members(&self, team_id: &str) -> Result<Vec<TeamMember>, sqlx::Error> {
         sqlx::query_as::<_, TeamMember>(
-            "SELECT team_id, user_id, role, created_at FROM team_members WHERE team_id = $1 ORDER BY created_at ASC",
+            "SELECT * FROM team_members WHERE team_id = $1 ORDER BY created_at ASC",
         )
         .bind(team_id)
         .fetch_all(&self.0)
@@ -208,7 +208,7 @@ impl TeamRepository for PgTeamRepository {
 
         // Fetch the actual row (may be existing or newly created)
         let team = sqlx::query_as::<_, Team>(
-            "SELECT id, name, slug, description, external_id, external_provider, is_default, settings, created_at, updated_at FROM teams WHERE external_id = $1 AND external_provider = $2",
+            "SELECT * FROM teams WHERE external_id = $1 AND external_provider = $2",
         )
         .bind(external_id)
         .bind(provider)

@@ -24,7 +24,7 @@ pub struct PgTagRepository(pub DbPool);
 impl TagRepository for PgTagRepository {
     async fn list_all(&self) -> Result<Vec<Tag>, sqlx::Error> {
         sqlx::query_as::<_, Tag>(
-            "SELECT id, tag_id, name, description, created_at FROM tags ORDER BY name ASC",
+            "SELECT * FROM tags ORDER BY name ASC",
         )
         .fetch_all(&self.0)
         .await
@@ -62,7 +62,7 @@ impl TagRepository for PgTagRepository {
             .await?;
 
             let row = sqlx::query_as::<_, Tag>(
-                "SELECT id, tag_id, name, description, created_at FROM tags WHERE name = $1",
+                "SELECT * FROM tags WHERE name = $1",
             )
             .bind(name)
             .fetch_one(&self.0)

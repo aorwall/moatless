@@ -99,10 +99,7 @@ impl ChannelThreadRepository for PgChannelThreadRepository {
         external_thread_id: &str,
     ) -> Result<Option<ChannelThread>, sqlx::Error> {
         sqlx::query_as::<_, ChannelThread>(
-            r#"SELECT id, config_id, task_id, external_thread_id, properties,
-                      last_message_at, created_at
-               FROM channel_threads
-               WHERE config_id = $1 AND external_thread_id = $2"#,
+            "SELECT * FROM channel_threads WHERE config_id = $1 AND external_thread_id = $2",
         )
         .bind(config_id)
         .bind(external_thread_id)
@@ -116,10 +113,7 @@ impl ChannelThreadRepository for PgChannelThreadRepository {
         external_thread_id: &str,
     ) -> Result<Vec<ChannelThread>, sqlx::Error> {
         sqlx::query_as::<_, ChannelThread>(
-            r#"SELECT id, config_id, task_id, external_thread_id, properties,
-                      last_message_at, created_at
-               FROM channel_threads
-               WHERE config_id = $1 AND external_thread_id = $2"#,
+            "SELECT * FROM channel_threads WHERE config_id = $1 AND external_thread_id = $2",
         )
         .bind(config_id)
         .bind(external_thread_id)
@@ -129,9 +123,7 @@ impl ChannelThreadRepository for PgChannelThreadRepository {
 
     async fn find_by_task_id(&self, task_id: &str) -> Result<Vec<ChannelThread>, sqlx::Error> {
         sqlx::query_as::<_, ChannelThread>(
-            r#"SELECT id, config_id, task_id, external_thread_id, properties,
-                      last_message_at, created_at
-               FROM channel_threads WHERE task_id = $1"#,
+            "SELECT * FROM channel_threads WHERE task_id = $1",
         )
         .bind(task_id)
         .fetch_all(&self.0)
@@ -144,9 +136,7 @@ impl ChannelThreadRepository for PgChannelThreadRepository {
         config_id: &str,
     ) -> Result<Option<ChannelThread>, sqlx::Error> {
         sqlx::query_as::<_, ChannelThread>(
-            r#"SELECT id, config_id, task_id, external_thread_id, properties,
-                      last_message_at, created_at
-               FROM channel_threads WHERE task_id = $1 AND config_id = $2"#,
+            "SELECT * FROM channel_threads WHERE task_id = $1 AND config_id = $2",
         )
         .bind(task_id)
         .bind(config_id)
@@ -164,8 +154,7 @@ impl ChannelThreadRepository for PgChannelThreadRepository {
         sqlx::query_as::<_, ChannelThread>(
             r#"INSERT INTO channel_threads (config_id, task_id, external_thread_id, properties)
                VALUES ($1, $2, $3, $4)
-               RETURNING id, config_id, task_id, external_thread_id, properties,
-                         last_message_at, created_at"#,
+               RETURNING *"#,
         )
         .bind(config_id)
         .bind(task_id)

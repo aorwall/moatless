@@ -67,8 +67,7 @@ impl CommandRepository for PgCommandRepository {
 
     async fn find_by_name(&self, name: &str) -> Result<Option<Command>, sqlx::Error> {
         sqlx::query_as::<_, Command>(
-            r#"SELECT name, description, prompt, conditions, icon, variant, active, will_not_resume, agent_mode
-               FROM commands WHERE name = $1"#,
+            "SELECT * FROM commands WHERE name = $1",
         )
         .bind(name)
         .fetch_optional(&self.0)
@@ -77,8 +76,7 @@ impl CommandRepository for PgCommandRepository {
 
     async fn list_all(&self) -> Result<Vec<Command>, sqlx::Error> {
         sqlx::query_as::<_, Command>(
-            r#"SELECT name, description, prompt, conditions, icon, variant, active, will_not_resume, agent_mode
-               FROM commands ORDER BY name"#,
+            "SELECT * FROM commands ORDER BY name",
         )
         .fetch_all(&self.0)
         .await

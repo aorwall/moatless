@@ -36,7 +36,7 @@ impl FileRepository for PgFileRepository {
 
     async fn find_by_id(&self, file_id: &str) -> Result<Option<FileMetadata>, sqlx::Error> {
         sqlx::query_as::<_, FileMetadata>(
-            "SELECT file_id, filename, mime_type, size, uploaded_at FROM file_metadata WHERE file_id = $1",
+            "SELECT * FROM file_metadata WHERE file_id = $1",
         )
         .bind(file_id)
         .fetch_optional(&self.0)
