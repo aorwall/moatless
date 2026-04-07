@@ -12,6 +12,7 @@ import type { Scope } from './scope';
 
 export interface ChannelConfigResponse {
   active: boolean;
+  allowDirectSend: boolean;
   createdAt: string;
   createdBy: string;
   id: string;

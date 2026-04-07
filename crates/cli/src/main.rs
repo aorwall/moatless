@@ -76,9 +76,12 @@ enum SharedCommands {
         #[command(subcommand)]
         action: commands::settings::SettingsAction,
     },
-    /// List available commands
+    /// Command management
     #[command(name = "commands")]
-    Cmds,
+    Commands {
+        #[command(subcommand)]
+        action: commands::command_mgmt::CommandAction,
+    },
     /// List tags
     Tags,
 }
@@ -365,13 +368,8 @@ async fn run_shared(
         SharedCommands::Plugins { action } => {
             commands::plugins::run(moat, action, json).await?;
         }
-        SharedCommands::Cmds => {
-            let cmds = moat.api().list_commands().await?;
-            if json {
-                output::print_json_typed(&cmds);
-            } else {
-                commands::misc::format_commands(&cmds);
-            }
+        SharedCommands::Commands { action } => {
+            commands::command_mgmt::run(moat, action, json).await?;
         }
         SharedCommands::Tags => {
             let tags = moat.api().list_tags().await?;

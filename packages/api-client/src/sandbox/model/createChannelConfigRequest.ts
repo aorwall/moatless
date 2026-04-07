@@ -12,6 +12,8 @@ import type { Scope } from './scope';
 
 export interface CreateChannelConfigRequest {
   /** @nullable */
+  allowDirectSend?: boolean | null;
+  /** @nullable */
   promptTemplate?: string | null;
   provider: ChannelType;
   /** @nullable */

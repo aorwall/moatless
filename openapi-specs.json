@@ -1305,6 +1305,79 @@
         }
       }
     },
+    "/api/v1/channels/configs/{id}/send": {
+      "post": {
+        "tags": [
+          "channels"
+        ],
+        "summary": "Send a message directly to a channel config.",
+        "description": "The channel config must have `allow_direct_send = true` and the provider\nmust support outbound messaging.\n\nWhen `task_id` is provided (in the request body), the first send creates a\nthread linked to the task; subsequent sends reply in that thread. This lets\n`moat reply` and `moat channels send` continue the conversation.\n\nWhen `task_id` is omitted the send is fire-and-forget.",
+        "operationId": "direct_send_to_channel",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Channel config ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DirectSendRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Message sent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectSendResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Direct send not allowed or config inactive",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Config not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Provider failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/channels/configs/{id}/trigger": {
       "post": {
         "tags": [
@@ -1357,6 +1430,58 @@
           },
           "404": {
             "description": "Config not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/channels/connect": {
+      "post": {
+        "tags": [
+          "channels"
+        ],
+        "summary": "Connect a task to an existing external thread (e.g. a GitHub PR).",
+        "description": "Creates a channel thread linking the task to the external thread so that\ninbound webhooks are delivered and the agent can reply via `moat reply`.\nIdempotent: connecting twice returns the existing thread.",
+        "operationId": "connect_channel",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectChannelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Thread connected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectChannelResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -4840,6 +4965,7 @@
           "repositoryId",
           "routingMode",
           "active",
+          "allowDirectSend",
           "scope",
           "createdBy",
           "tagIds",
@@ -4848,6 +4974,9 @@
         ],
         "properties": {
           "active": {
+            "type": "boolean"
+          },
+          "allowDirectSend": {
             "type": "boolean"
           },
           "createdAt": {
@@ -5001,6 +5130,65 @@
               "boolean",
               "null"
             ]
+          }
+        }
+      },
+      "ConnectChannelRequest": {
+        "type": "object",
+        "description": "Request to connect a task to an existing external thread (e.g. a GitHub PR).\n\nCreates a channel thread linking the task to the external thread so that\ninbound messages (webhooks) are delivered and the agent can reply.",
+        "required": [
+          "taskId",
+          "provider",
+          "externalThreadId"
+        ],
+        "properties": {
+          "externalThreadId": {
+            "type": "string",
+            "description": "External thread identifier, e.g. PR number `\"42\"`."
+          },
+          "filterUserId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "System user ID whose messages should be filtered out on this thread\n(prevents echoing the agent's own PR comments back to it)."
+          },
+          "provider": {
+            "$ref": "#/components/schemas/ChannelType"
+          },
+          "sourceId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Source identifier, e.g. `\"owner/repo\"` for GitHub PR.\nResolved from the task's repository if omitted."
+          },
+          "taskId": {
+            "type": "string"
+          },
+          "threadProperties": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Provider-specific properties (e.g. `{\"owner\",\"repo\",\"pr_number\"}`).\nAuto-generated from source_id + external_thread_id for github_pr if omitted."
+          }
+        }
+      },
+      "ConnectChannelResponse": {
+        "type": "object",
+        "description": "Response from connecting a task to a channel thread.",
+        "required": [
+          "configId",
+          "threadId"
+        ],
+        "properties": {
+          "configId": {
+            "type": "string"
+          },
+          "threadId": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },
@@ -5301,6 +5489,12 @@
           "routingMode"
         ],
         "properties": {
+          "allowDirectSend": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
           "promptTemplate": {
             "type": [
               "string",
@@ -5733,6 +5927,52 @@
         "properties": {
           "status": {
             "type": "string"
+          }
+        }
+      },
+      "DirectSendRequest": {
+        "type": "object",
+        "description": "Request to send a message directly to a channel config.",
+        "required": [
+          "text"
+        ],
+        "properties": {
+          "fileIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "File IDs (from `/api/v1/uploads`) to attach to the message."
+          },
+          "taskId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional task ID. When set, the first send creates a thread linked to\nthis task; subsequent sends reply in that thread."
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      },
+      "DirectSendResponse": {
+        "type": "object",
+        "description": "Response from sending a message directly to a channel config.",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "externalMessageId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Provider-specific external message ID (e.g. Slack message ts), if available."
+          },
+          "success": {
+            "type": "boolean",
+            "description": "Whether the message was sent successfully."
           }
         }
       },
@@ -8804,6 +9044,12 @@
         "type": "object",
         "properties": {
           "active": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "allowDirectSend": {
             "type": [
               "boolean",
               "null"

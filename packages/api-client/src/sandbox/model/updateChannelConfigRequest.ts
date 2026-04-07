@@ -12,6 +12,8 @@ export interface UpdateChannelConfigRequest {
   /** @nullable */
   active?: boolean | null;
   /** @nullable */
+  allowDirectSend?: boolean | null;
+  /** @nullable */
   promptTemplate?: string | null;
   /** @nullable */
   providerConfig?: UpdateChannelConfigRequestProviderConfig;

@@ -760,6 +760,37 @@ impl ApiClient {
         self.get("/api/v1/commands").await
     }
 
+    /// GET /api/v1/commands/{name}
+    pub async fn get_command(
+        &self,
+        name: &str,
+    ) -> Result<moatless_api_schemas::command::CommandResponse, ApiError> {
+        self.get(&format!("/api/v1/commands/{name}")).await
+    }
+
+    /// POST /api/v1/commands
+    pub async fn create_command(
+        &self,
+        req: &moatless_api_schemas::command::CreateCommandRequest,
+    ) -> Result<moatless_api_schemas::command::CommandResponse, ApiError> {
+        self.post("/api/v1/commands", req).await
+    }
+
+    /// PATCH /api/v1/commands/{name}
+    pub async fn update_command(
+        &self,
+        name: &str,
+        req: &moatless_api_schemas::command::UpdateCommandRequest,
+    ) -> Result<moatless_api_schemas::command::CommandResponse, ApiError> {
+        self.patch(&format!("/api/v1/commands/{name}"), req).await
+    }
+
+    /// DELETE /api/v1/commands/{name}
+    pub async fn delete_command(&self, name: &str) -> Result<(), ApiError> {
+        self.delete_request(&format!("/api/v1/commands/{name}"))
+            .await
+    }
+
     /// GET /api/v1/tags
     pub async fn list_tags(
         &self,

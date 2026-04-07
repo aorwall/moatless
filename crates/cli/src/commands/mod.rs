@@ -1,4 +1,5 @@
 pub mod channels;
+pub mod command_mgmt;
 pub mod events;
 pub mod info;
 pub mod messages;

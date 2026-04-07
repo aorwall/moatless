@@ -27,7 +27,11 @@ import type {
 import type {
   ApprovePairingRequest,
   ChannelConfigResponse,
+  ConnectChannelRequest,
+  ConnectChannelResponse,
   CreateChannelConfigRequest,
+  DirectSendRequest,
+  DirectSendResponse,
   ErrorBody,
   GetDefaultsParams,
   ListConfigsParams,
@@ -591,6 +595,114 @@ export const useDeleteConfig = <TError = ErrorType<ErrorBody>,
       return useMutation(getDeleteConfigMutationOptions(options), queryClient);
     }
     /**
+ * The channel config must have `allow_direct_send = true` and the provider
+must support outbound messaging.
+
+When `task_id` is provided (in the request body), the first send creates a
+thread linked to the task; subsequent sends reply in that thread. This lets
+`moat reply` and `moat channels send` continue the conversation.
+
+When `task_id` is omitted the send is fire-and-forget.
+ * @summary Send a message directly to a channel config.
+ */
+export type directSendToChannelResponse200 = {
+  data: DirectSendResponse
+  status: 200
+}
+
+export type directSendToChannelResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
+export type directSendToChannelResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+
+export type directSendToChannelResponse502 = {
+  data: ErrorBody
+  status: 502
+}
+    
+export type directSendToChannelResponseSuccess = (directSendToChannelResponse200) & {
+  headers: Headers;
+};
+export type directSendToChannelResponseError = (directSendToChannelResponse400 | directSendToChannelResponse404 | directSendToChannelResponse502) & {
+  headers: Headers;
+};
+
+export type directSendToChannelResponse = (directSendToChannelResponseSuccess | directSendToChannelResponseError)
+
+export const getDirectSendToChannelUrl = (id: string,) => {
+
+
+  
+
+  return `/api/v1/channels/configs/${id}/send`
+}
+
+export const directSendToChannel = async (id: string,
+    directSendRequest: DirectSendRequest, options?: RequestInit): Promise<directSendToChannelResponse> => {
+  
+  return customInstance<directSendToChannelResponse>(getDirectSendToChannelUrl(id),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      directSendRequest,)
+  }
+);}
+
+
+
+
+export const getDirectSendToChannelMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof directSendToChannel>>, TError,{id: string;data: DirectSendRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof directSendToChannel>>, TError,{id: string;data: DirectSendRequest}, TContext> => {
+
+const mutationKey = ['directSendToChannel'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof directSendToChannel>>, {id: string;data: DirectSendRequest}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  directSendToChannel(id,data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DirectSendToChannelMutationResult = NonNullable<Awaited<ReturnType<typeof directSendToChannel>>>
+    export type DirectSendToChannelMutationBody = DirectSendRequest
+    export type DirectSendToChannelMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Send a message directly to a channel config.
+ */
+export const useDirectSendToChannel = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof directSendToChannel>>, TError,{id: string;data: DirectSendRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof directSendToChannel>>,
+        TError,
+        {id: string;data: DirectSendRequest},
+        TContext
+      > => {
+      return useMutation(getDirectSendToChannelMutationOptions(options), queryClient);
+    }
+    /**
  * Works for any provider type (cron, slack, github_pr, etc.) and does not require
 the channel to be active. The created task will have `responseConfigId` wired up
 so outbound replies flow back to the configured channel (e.g. Slack).
@@ -687,6 +799,103 @@ export const useTriggerChannel = <TError = ErrorType<ErrorBody>,
         TContext
       > => {
       return useMutation(getTriggerChannelMutationOptions(options), queryClient);
+    }
+    /**
+ * Creates a channel thread linking the task to the external thread so that
+inbound webhooks are delivered and the agent can reply via `moat reply`.
+Idempotent: connecting twice returns the existing thread.
+ * @summary Connect a task to an existing external thread (e.g. a GitHub PR).
+ */
+export type connectChannelResponse200 = {
+  data: ConnectChannelResponse
+  status: 200
+}
+
+export type connectChannelResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
+export type connectChannelResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+    
+export type connectChannelResponseSuccess = (connectChannelResponse200) & {
+  headers: Headers;
+};
+export type connectChannelResponseError = (connectChannelResponse400 | connectChannelResponse404) & {
+  headers: Headers;
+};
+
+export type connectChannelResponse = (connectChannelResponseSuccess | connectChannelResponseError)
+
+export const getConnectChannelUrl = () => {
+
+
+  
+
+  return `/api/v1/channels/connect`
+}
+
+export const connectChannel = async (connectChannelRequest: ConnectChannelRequest, options?: RequestInit): Promise<connectChannelResponse> => {
+  
+  return customInstance<connectChannelResponse>(getConnectChannelUrl(),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      connectChannelRequest,)
+  }
+);}
+
+
+
+
+export const getConnectChannelMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof connectChannel>>, TError,{data: ConnectChannelRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof connectChannel>>, TError,{data: ConnectChannelRequest}, TContext> => {
+
+const mutationKey = ['connectChannel'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof connectChannel>>, {data: ConnectChannelRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  connectChannel(data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ConnectChannelMutationResult = NonNullable<Awaited<ReturnType<typeof connectChannel>>>
+    export type ConnectChannelMutationBody = ConnectChannelRequest
+    export type ConnectChannelMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Connect a task to an existing external thread (e.g. a GitHub PR).
+ */
+export const useConnectChannel = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof connectChannel>>, TError,{data: ConnectChannelRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof connectChannel>>,
+        TError,
+        {data: ConnectChannelRequest},
+        TContext
+      > => {
+      return useMutation(getConnectChannelMutationOptions(options), queryClient);
     }
     /**
  * Returns the wildcard (`source_id="*"`) config that serves as the default

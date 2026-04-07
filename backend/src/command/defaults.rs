@@ -8,7 +8,9 @@ pub fn default_commands() -> Vec<Command> {
         Command {
             name: "commit".to_string(),
             description: "Commit changes".to_string(),
-            prompt: "commit the relevant changes".to_string(),
+            prompt: "Review the changes with git diff, then commit them to a new branch with a clear, \
+conventional commit message (e.g. feat:, fix:, refactor:). Push the branch to the remote."
+                .to_string(),
             conditions: None,
             icon: Some("git-commit".to_string()),
             variant: None,
@@ -30,7 +32,10 @@ pub fn default_commands() -> Vec<Command> {
         Command {
             name: "create-pr".to_string(),
             description: "Create pull request".to_string(),
-            prompt: "create a pull request with the changes".to_string(),
+            prompt: "Create a pull request for the current branch. Write a short title (under 70 chars) \
+and a description body with a summary (bullet points) and a test plan. Push the branch if needed, \
+then use `gh pr create`."
+                .to_string(),
             conditions: None,
             icon: Some("git-pull-request".to_string()),
             variant: None,
