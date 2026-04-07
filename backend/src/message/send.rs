@@ -24,6 +24,7 @@ pub async fn send_message_flow(
     channel_external_id: Option<&str>,
     channel_provider: Option<&str>,
     channel_source_name: Option<&str>,
+    command_name: Option<&str>,
 ) -> Result<(), MessageError> {
     // Dedup: if this channel message was already persisted, skip the insert entirely.
     // Prevents duplicates from Slack retries or re-delivered webhooks.
@@ -97,6 +98,7 @@ pub async fn send_message_flow(
         channel_external_id: channel_external_id.map(std::string::ToString::to_string),
         channel_provider: channel_provider.map(std::string::ToString::to_string),
         channel_source_name: channel_source_name.map(std::string::ToString::to_string),
+        command_name: command_name.map(std::string::ToString::to_string),
     };
 
     // Build content blocks for the showInUI=true user text
@@ -193,6 +195,7 @@ pub async fn persist_error_result(
         channel_external_id: None,
         channel_provider: None,
         channel_source_name: None,
+        command_name: None,
     };
 
     let blocks = vec![TaskMessageContentBlock {
@@ -276,6 +279,7 @@ pub async fn send_tool_response_flow(
         channel_external_id: None,
         channel_provider: None,
         channel_source_name: None,
+        command_name: None,
     };
 
     let contexts: Vec<TaskMessageContext> = vec![];

@@ -15,7 +15,7 @@ interface CommandButtonsProps {
   disabled?: boolean
 }
 
-function getCommandIcon(iconName?: string) {
+export function getCommandIcon(iconName?: string) {
   switch (iconName) {
     case 'GitCommit':
       return GitCommit

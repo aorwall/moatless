@@ -67,6 +67,7 @@ pub async fn send_message(
             None,
             None,
             None,
+            Some(command_name),
         )
         .await?;
     } else {
@@ -80,6 +81,7 @@ pub async fn send_message(
             &req.file_ids,
             &req.contexts,
             req.resume.unwrap_or(true),
+            None,
             None,
             None,
             None,

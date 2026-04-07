@@ -1,7 +1,8 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
+import { useCommandsList } from '@/features/commands/hooks/use-commands'
 import { FigmaImportDialog } from '@/features/figma/components/figma-import-dialog'
 import {
   RepositoriesConfigurationDialog,
@@ -29,6 +30,10 @@ import {
   useModelSelector,
   useRepositorySelector,
 } from '@/lib/components/chat/chat-input/selectors'
+import {
+  CommandAutocomplete,
+  useCommandAutocomplete,
+} from '@/lib/components/chat/command-autocomplete'
 import { useFeatureFlag } from '@/lib/hooks/use-feature-flag'
 import { type ClaudeModel, DEFAULT_CLAUDE_MODEL, modelToApiValue } from '@/lib/types/claude-models'
 import { getErrorMessage } from '@/lib/utils/error'
@@ -69,6 +74,26 @@ export function CreateCodeTask({
   const [message, setMessage] = useState(defaultMessage || '')
   const [branch, setBranch] = useState('')
   const [repoDialogOpen, setRepoDialogOpen] = useState(false)
+
+  // Fetch global commands for slash command autocomplete
+  const { data: commands = [] } = useCommandsList()
+
+  // Command autocomplete hook
+  const {
+    inputRef: textareaRef,
+    isOpen: isCommandAutocompleteOpen,
+    filteredCommands,
+    selectedIndex: commandSelectedIndex,
+    selectedCommand,
+    handleInputChange: handleCommandInputChange,
+    handleKeyDown: handleCommandKeyDown,
+    selectCommand,
+    clearSelectedCommand,
+  } = useCommandAutocomplete({
+    onValueChange: setMessage,
+    commands,
+    enabled: true,
+  })
 
   // Check if model selector should be shown
   const isModelSelectorEnabled = useFeatureFlag('SHOW_MODEL_SELECTOR')
@@ -134,25 +159,50 @@ export function CreateCodeTask({
     },
   })
 
+  // Handle message changes with command autocomplete
+  const handleMessageChange = useCallback(
+    (newMessage: string) => {
+      setMessage(newMessage)
+      if (textareaRef.current) {
+        const cursorPosition = textareaRef.current.selectionStart || 0
+        handleCommandInputChange(newMessage, cursorPosition)
+      }
+    },
+    [handleCommandInputChange, textareaRef],
+  )
+
   const handleSubmit = () => {
     if (!repositoryId) {
       return
     }
 
+    // If a command was selected, use its prompt and agentMode
+    let submitMessage = message.trim() || undefined
+    let submitAgentMode = agentMode
+    if (selectedCommand) {
+      const prefix = `/${selectedCommand.name} `
+      const userText = message.startsWith(prefix) ? message.slice(prefix.length).trim() : ''
+      submitMessage = userText || selectedCommand.prompt
+      if (selectedCommand.agentMode) {
+        submitAgentMode = selectedCommand.agentMode as 'edit' | 'plan'
+      }
+    }
+
     createTask.mutate(
       {
         agentType: 'claude-code',
-        message: message.trim() || undefined,
+        message: submitMessage,
         repositoryId,
         model: isModelSelectorEnabled ? modelToApiValue(model) : undefined,
         fileIds: taskInputs.getFileIds(),
         contexts: taskInputs.contextItems.length > 0 ? taskInputs.contextItems : undefined,
         branch: branchSelector.value,
-        agentMode,
+        agentMode: submitAgentMode,
       },
       {
         onSuccess: () => {
           setMessage('')
+          clearSelectedCommand()
           taskInputs.clearAll()
           setBranch('')
           onSuccess?.()
@@ -189,12 +239,24 @@ export function CreateCodeTask({
       <div className={showTitle ? 'max-w-2xl mx-auto' : ''}>
         <ChatInput
           message={message}
-          onMessageChange={setMessage}
+          onMessageChange={handleMessageChange}
           onSubmit={handleSubmit}
           placeholder={placeholder}
           className={chatInputClassName}
           canSubmit={canSubmit}
+          textareaRef={textareaRef}
+          onKeyDownCapture={handleCommandKeyDown}
           onPaste={taskInputs.handlePaste}
+          autocompleteSlot={
+            isCommandAutocompleteOpen && (
+              <CommandAutocomplete
+                commands={filteredCommands}
+                selectedIndex={commandSelectedIndex}
+                onSelect={selectCommand}
+                position="above"
+              />
+            )
+          }
         >
           {(taskInputs.contextItems.length > 0 || taskInputs.figmaImportPending) && (
             <ContextItems

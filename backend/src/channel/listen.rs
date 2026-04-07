@@ -184,6 +184,7 @@ pub async fn deliver_to_connected_threads(
             msg.channel_external_id.as_deref(),
             Some(msg.provider.as_str()),
             None,
+            None,
         )
         .await
         {

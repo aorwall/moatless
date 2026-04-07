@@ -172,6 +172,7 @@ fn transform_assistant(
         result: None,
         sdk_metadata: msg.sdk_metadata.clone(),
         channel: None,
+        command_name: msg.command_name.clone(),
     }
 }
 
@@ -221,6 +222,7 @@ fn transform_user(msg: &TaskMessage, blocks: &[&TaskMessageContentBlock]) -> UiM
         result: None,
         sdk_metadata: msg.sdk_metadata.clone(),
         channel,
+        command_name: msg.command_name.clone(),
     }
 }
 
@@ -262,6 +264,7 @@ fn transform_result(msg: &TaskMessage, blocks: &[&TaskMessageContentBlock]) -> U
         }),
         sdk_metadata: msg.sdk_metadata.clone(),
         channel: None,
+        command_name: msg.command_name.clone(),
     }
 }
 

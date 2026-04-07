@@ -42,6 +42,9 @@ pub struct UiMessage {
     /// Channel source metadata (present only for channel-originated messages).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub channel: Option<UiMessageChannel>,
+    /// Command name if this message was sent via a slash command.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command_name: Option<String>,
 }
 
 /// Channel source metadata for messages originating from external channels.

@@ -49,4 +49,6 @@ export interface UiMessage {
   /** @nullable */
   turnNumber?: number | null;
   uuid: string;
+  /** Command name if this message was sent via a slash command. */
+  commandName?: string | null;
 }

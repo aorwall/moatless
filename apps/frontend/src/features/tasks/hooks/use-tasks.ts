@@ -192,6 +192,7 @@ export function useSendMessage(
         timestamp: new Date().toISOString(),
         messageType: 'user',
         ...(isQueued ? { isQueued: true } : {}),
+        ...(variables.commandName ? { commandName: variables.commandName } : {}),
       }
 
       // Update cache with new message (running state is derived from messages + envStatus)

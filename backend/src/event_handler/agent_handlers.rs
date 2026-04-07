@@ -520,6 +520,7 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
         channel_external_id: None,
         channel_provider: None,
         channel_source_name: None,
+        command_name: None,
     };
 
     // 6. Build content blocks from the content array
@@ -735,6 +736,7 @@ fn build_result_message_row(
         channel_external_id: None,
         channel_provider: None,
         channel_source_name: None,
+        command_name: None,
     }
 }
 

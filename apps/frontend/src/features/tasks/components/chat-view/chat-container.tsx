@@ -1,5 +1,6 @@
 import type { CommandResponse, MessageContextInput, UiMessage } from '@moatless/api-client'
 import { Loader2 } from 'lucide-react'
+import type React from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { FigmaImportDialog } from '@/features/figma/components/figma-import-dialog'
@@ -34,6 +35,10 @@ import {
   useModelSelector,
 } from '@/lib/components/chat/chat-input/selectors'
 import { ChatView } from '@/lib/components/chat/chat-view'
+import {
+  CommandAutocomplete,
+  useCommandAutocomplete,
+} from '@/lib/components/chat/command-autocomplete'
 import { FileAutocomplete, useFileAutocomplete } from '@/lib/components/chat/file-autocomplete'
 import { MessageHistory } from '@/lib/components/chat/message-history'
 import { QueuedMessages } from '@/lib/components/chat/queued-messages'
@@ -167,6 +172,22 @@ function ChatContainer({
       })) || [],
     isLoading: fileSearchMutation.isPending,
     error: fileSearchMutation.error,
+  })
+
+  // Command autocomplete hook (client-side filtering, no extra API call)
+  const {
+    isOpen: isCommandAutocompleteOpen,
+    filteredCommands,
+    selectedIndex: commandSelectedIndex,
+    selectedCommand,
+    handleInputChange: handleCommandInputChange,
+    handleKeyDown: handleCommandKeyDown,
+    selectCommand,
+    clearSelectedCommand,
+  } = useCommandAutocomplete({
+    onValueChange: setMessage,
+    commands: availableCommands,
+    enabled: !isTaskRunning,
   })
 
   // State for controlled selectors with defaults
@@ -311,6 +332,32 @@ function ChatContainer({
       return
     }
 
+    // If a command was selected from the autocomplete, send as command
+    if (selectedCommand) {
+      // Extract user text after `/{commandName} `
+      const prefix = `/${selectedCommand.name} `
+      const userText = message.startsWith(prefix) ? message.slice(prefix.length).trim() : ''
+
+      const commandData = {
+        message: userText || selectedCommand.prompt,
+        commandName: selectedCommand.name,
+        resume: selectedCommand.willNotResume !== true,
+        model: isModelSelectorEnabled ? modelToApiValue(selectedModel) : undefined,
+        agentMode: selectedCommand.agentMode || selectedAgentMode,
+        fileIds: taskInputs.getFileIds(),
+        contexts: taskInputs.contextItems.length > 0 ? taskInputs.contextItems : undefined,
+      }
+
+      sendMessage.mutate(commandData, {
+        onSuccess: () => {
+          setMessage('')
+          clearSelectedCommand()
+          taskInputs.clearAll()
+        },
+      })
+      return
+    }
+
     const messageData = {
       message: trimmedMessage,
       resume: resumeConversation,
@@ -332,6 +379,8 @@ function ChatContainer({
     resumeConversation,
     selectedModel,
     selectedAgentMode,
+    selectedCommand,
+    clearSelectedCommand,
     taskInputs,
     isModelSelectorEnabled,
   ])
@@ -388,7 +437,8 @@ function ChatContainer({
 
   // Determine if we can submit based on conditions
   const canSubmit =
-    !sendMessage.isPending && (!!message.trim() || taskInputs.contextItems.length > 0)
+    !sendMessage.isPending &&
+    (!!message.trim() || taskInputs.contextItems.length > 0 || !!selectedCommand)
 
   // Handle message changes with autocomplete
   const handleMessageChange = useCallback(
@@ -397,10 +447,22 @@ function ChatContainer({
       // Update autocomplete state based on cursor position
       if (textareaRef.current) {
         const cursorPosition = textareaRef.current.selectionStart || 0
+        handleCommandInputChange(newMessage, cursorPosition)
         handleInputChange(newMessage, cursorPosition)
       }
     },
-    [handleInputChange, textareaRef],
+    [handleCommandInputChange, handleInputChange, textareaRef],
+  )
+
+  // Compose key handlers: command autocomplete first, then file autocomplete
+  const handleCombinedKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      handleCommandKeyDown(e)
+      if (!e.defaultPrevented) {
+        handleAutocompleteKeyDown(e)
+      }
+    },
+    [handleCommandKeyDown, handleAutocompleteKeyDown],
   )
 
   // Handle Figma import click - check config and open appropriate dialog
@@ -491,19 +553,28 @@ function ChatContainer({
           placeholder={placeholderText}
           canSubmit={canSubmit}
           textareaRef={textareaRef}
-          onKeyDownCapture={handleAutocompleteKeyDown}
+          onKeyDownCapture={handleCombinedKeyDown}
           onPaste={taskInputs.handlePaste}
           positioned={true}
           autocompleteSlot={
-            isAutocompleteOpen && (
-              <FileAutocomplete
-                results={autocompleteResults}
-                selectedIndex={autocompleteSelectedIndex}
-                onSelect={selectFile}
-                isLoading={isAutocompleteLoading}
-                error={autocompleteError}
+            isCommandAutocompleteOpen ? (
+              <CommandAutocomplete
+                commands={filteredCommands}
+                selectedIndex={commandSelectedIndex}
+                onSelect={selectCommand}
                 position="above"
               />
+            ) : (
+              isAutocompleteOpen && (
+                <FileAutocomplete
+                  results={autocompleteResults}
+                  selectedIndex={autocompleteSelectedIndex}
+                  onSelect={selectFile}
+                  isLoading={isAutocompleteLoading}
+                  error={autocompleteError}
+                  position="above"
+                />
+              )
             )
           }
         >
