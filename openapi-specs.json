@@ -5831,6 +5831,12 @@
               "null"
             ]
           },
+          "commandName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "contexts": {
             "type": "array",
             "items": {
@@ -8858,6 +8864,13 @@
                 "description": "Channel source metadata (present only for channel-originated messages)."
               }
             ]
+          },
+          "commandName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Command name if this message was sent via a slash command."
           },
           "content": {
             "type": "array",

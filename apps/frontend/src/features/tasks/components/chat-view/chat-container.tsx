@@ -339,7 +339,7 @@ function ChatContainer({
       const userText = message.startsWith(prefix) ? message.slice(prefix.length).trim() : ''
 
       const commandData = {
-        message: userText || selectedCommand.prompt,
+        message: userText,
         commandName: selectedCommand.name,
         resume: selectedCommand.willNotResume !== true,
         model: isModelSelectorEnabled ? modelToApiValue(selectedModel) : undefined,
@@ -389,7 +389,7 @@ function ChatContainer({
   const handleCommandClick = useCallback(
     (command: CommandResponse) => {
       const commandData = {
-        message: command.prompt,
+        message: '',
         commandName: command.name,
         resume: command.willNotResume !== true,
         model: isModelSelectorEnabled ? modelToApiValue(selectedModel) : undefined,
@@ -416,7 +416,7 @@ function ChatContainer({
       }
 
       const commandData = {
-        message: command.prompt,
+        message: '',
         commandName: command.name,
         resume: command.willNotResume !== true,
         model: isModelSelectorEnabled ? modelToApiValue(selectedModel) : undefined,

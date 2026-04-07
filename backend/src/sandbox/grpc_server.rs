@@ -22,7 +22,9 @@ use crate::auth::github_app_service::GitHubAppService;
 use crate::auth::provider_token_dao::ProviderTokenRepository;
 use crate::auth::provider_tokens::ProviderTokenAuthRepository;
 use crate::auth::token_refresh::ensure_fresh_token;
+use crate::command::dao::CommandRepository;
 use crate::message::dao::MessageRepository;
+use crate::message::send::enrich_pending_with_commands;
 use crate::task::dao::TaskRepository;
 use crate::events::EventPublisher;
 use crate::sandbox::jwt;
@@ -46,6 +48,7 @@ pub struct BackendSandboxServiceImpl {
     pub messages: Option<Arc<dyn MessageRepository>>,
     pub provider_tokens: Option<Arc<dyn ProviderTokenRepository>>,
     pub tasks: Option<Arc<dyn TaskRepository>>,
+    pub commands: Option<Arc<dyn CommandRepository>>,
     /// JWT signing key for verifying sandbox auth tokens.
     pub task_token_secret: Option<String>,
     /// GitHub App service for refreshing expired user access tokens.
@@ -204,12 +207,17 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         };
 
         // Fetch pending user messages from DB
-        let pending = messages.get_pending_user(&req.task_id)
+        let mut pending = messages.get_pending_user(&req.task_id)
             .await
             .map_err(|e| {
                 warn!(error = %e, task_id = %req.task_id, "Failed to fetch pending messages");
                 Status::internal("Failed to fetch pending messages")
             })?;
+
+        // Enrich messages that carry a command_name with the command's prompt
+        if let Some(ref commands) = self.commands {
+            pending = enrich_pending_with_commands(pending, commands.as_ref()).await;
+        }
 
         // Look up latest agent_session_id for --resume <id>
         let resume_session_id = messages.get_latest_agent_session_id(&req.task_id)

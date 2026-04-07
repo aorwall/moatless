@@ -22,6 +22,11 @@ export interface UiMessage {
   agentMode?: null | AgentMode;
   assistant?: null | UiAssistantMeta;
   channel?: null | UiMessageChannel;
+  /**
+   * Command name if this message was sent via a slash command.
+   * @nullable
+   */
+  commandName?: string | null;
   /** Content blocks for this message. */
   content: UiContentBlock[];
   /**
@@ -49,6 +54,4 @@ export interface UiMessage {
   /** @nullable */
   turnNumber?: number | null;
   uuid: string;
-  /** Command name if this message was sent via a slash command. */
-  commandName?: string | null;
 }

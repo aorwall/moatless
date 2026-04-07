@@ -218,6 +218,79 @@ pub async fn persist_error_result(
     }
 }
 
+// =========================================================================
+// Command prompt enrichment (used by gRPC server when serving pending messages)
+// =========================================================================
+
+use crate::command::dao::CommandRepository;
+
+/// Enrich pending messages by resolving `command_name` into the command's prompt.
+///
+/// For each message that carries a `command_name`, looks up the command in the DB,
+/// then rewrites `message_content` so the agent sees a structured message with
+/// the command instruction separated from any user-provided context.
+///
+/// Messages without `command_name` are passed through unchanged.
+pub async fn enrich_pending_with_commands(
+    mut messages: Vec<super::models::TaskMessage>,
+    commands: &dyn CommandRepository,
+) -> Vec<super::models::TaskMessage> {
+    for msg in &mut messages {
+        let Some(ref cmd_name) = msg.command_name else {
+            continue;
+        };
+
+        let prompt = match commands.find_by_name(cmd_name).await {
+            Ok(Some(cmd)) => cmd.prompt,
+            Ok(None) => {
+                tracing::warn!(command_name = %cmd_name, "Command not found, passing message through unchanged");
+                continue;
+            }
+            Err(e) => {
+                tracing::warn!(command_name = %cmd_name, error = %e, "Failed to look up command, passing message through unchanged");
+                continue;
+            }
+        };
+
+        let user_text = extract_text_from_content(&msg.message_content);
+        let enriched = build_command_message(cmd_name, &prompt, user_text.as_deref());
+
+        msg.message_content =
+            serde_json::json!([{ "type": "text", "text": enriched }]);
+    }
+    messages
+}
+
+/// Extract the first text string from a `[{"type":"text","text":"..."}]` JSON array.
+fn extract_text_from_content(content: &serde_json::Value) -> Option<String> {
+    let items = content.as_array()?;
+    for item in items {
+        if item.get("type").and_then(|t| t.as_str()) == Some("text") {
+            if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
+                let trimmed = text.trim();
+                if !trimmed.is_empty() {
+                    return Some(trimmed.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Build the structured markdown message combining command prompt and optional user text.
+fn build_command_message(command_name: &str, prompt: &str, user_text: Option<&str>) -> String {
+    let mut out = format!("## Command: /{command_name}\n\n{prompt}");
+
+    if let Some(text) = user_text {
+        if !text.is_empty() {
+            out.push_str("\n\n## Additional context from user\n\n");
+            out.push_str(text);
+        }
+    }
+
+    out
+}
+
 /// Send a tool response (AskUserQuestion / ExitPlanMode).
 pub async fn send_tool_response_flow(
     state: &AppState,

@@ -14,6 +14,8 @@ export interface CreateTaskRequest {
   agentType?: null | AgentType;
   /** @nullable */
   branch?: string | null;
+  /** @nullable */
+  commandName?: string | null;
   contexts?: MessageContextInput[];
   /** @nullable */
   description?: string | null;
@@ -27,6 +29,4 @@ export interface CreateTaskRequest {
   /** @nullable */
   parentTaskId?: string | null;
   repositoryId: string;
-  /** @nullable */
-  commandName?: string | null;
 }

@@ -176,13 +176,13 @@ export function CreateCodeTask({
       return
     }
 
-    // If a command was selected, use its prompt and agentMode
+    // If a command was selected, send user text only (backend populates prompt)
     let submitMessage = message.trim() || undefined
     let submitAgentMode = agentMode
     if (selectedCommand) {
       const prefix = `/${selectedCommand.name} `
       const userText = message.startsWith(prefix) ? message.slice(prefix.length).trim() : ''
-      submitMessage = userText || selectedCommand.prompt
+      submitMessage = userText || undefined
       if (selectedCommand.agentMode) {
         submitAgentMode = selectedCommand.agentMode as 'edit' | 'plan'
       }

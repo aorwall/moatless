@@ -237,7 +237,7 @@ pub async fn process_inbound(
             .unwrap_or(false);
         if !is_bot_mentioned {
             message_text = format!(
-                "[Thread message — you were not mentioned. Only respond if you have relevant information to add.]\n\n{message_text}"
+"[New message in Slack thread]\n\n{message_text}"
             );
         }
     }

@@ -16,6 +16,7 @@ use tracing_subscriber::EnvFilter;
 use crate::auth::github_app_service::GitHubAppService;
 use crate::auth::provider_token_dao::{PgProviderTokenRepository, ProviderTokenRepository};
 use crate::auth::provider_tokens::{PgProviderTokenAuthRepository, ProviderTokenAuthRepository};
+use crate::command::dao::{CommandRepository, PgCommandRepository};
 use crate::config::Config;
 use crate::db::{self, DbPool};
 use crate::events::{EventPublisher, RedisEventPublisher};
@@ -173,6 +174,8 @@ pub fn spawn_grpc_server(
 ) {
     let messages: Option<Arc<dyn MessageRepository>> =
         db_pool.map(|pool| Arc::new(PgMessageRepository(pool.clone())) as _);
+    let commands: Option<Arc<dyn CommandRepository>> =
+        db_pool.map(|pool| Arc::new(PgCommandRepository(pool.clone())) as _);
     let provider_tokens: Option<Arc<dyn ProviderTokenRepository>> =
         db_pool.map(|pool| Arc::new(PgProviderTokenRepository(pool.clone())) as _);
     let tasks: Option<Arc<dyn TaskRepository>> =
@@ -187,6 +190,7 @@ pub fn spawn_grpc_server(
         let svc = BackendSandboxServiceImpl {
             events: event_publisher,
             messages,
+            commands,
             provider_tokens,
             tasks,
             task_token_secret: token_secret,
