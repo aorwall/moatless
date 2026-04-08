@@ -104,6 +104,14 @@ impl AgentState {
         inner.consecutive_errors += 1;
     }
 
+    /// Undo one error increment (saturating). Called when a retryable error
+    /// will be retried, so it doesn't count toward the circuit breaker until
+    /// retries are exhausted.
+    pub async fn undo_error_increment(&self) {
+        let mut inner = self.inner.write().await;
+        inner.consecutive_errors = inner.consecutive_errors.saturating_sub(1);
+    }
+
     /// Number of consecutive errors without a successful idle transition.
     pub async fn consecutive_errors(&self) -> u32 {
         self.inner.read().await.consecutive_errors

@@ -295,7 +295,7 @@ impl EventHandlerConsumer {
             // Known SSE-only event types — forwarded to frontend but not processed here
             EventKey::Sandbox(_)
             | EventKey::Server(_)
-            | EventKey::Agent(AgentSubType::Started | AgentSubType::PendingResponse)
+            | EventKey::Agent(AgentSubType::Started | AgentSubType::PendingResponse | AgentSubType::Retrying)
             | EventKey::Task(
                 TaskSubType::Open
                 | TaskSubType::Created
