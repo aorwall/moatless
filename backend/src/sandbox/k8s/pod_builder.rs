@@ -212,7 +212,7 @@ fn build_sandbox_container(
 
     // Default model for agent sessions
     if let Some(ref model) = config.sandbox.default_model {
-        env.push(env_var("DEFAULT_CLAUDE_CODE_MODEL", model));
+        env.push(env_var("CLAUDE_DEFAULT_MODEL", model));
     }
 
     if let Some(token) = user_auth_token {

@@ -128,18 +128,22 @@ pub struct Config {
     pub agent_config: AgentConfig,
     /// Path to the Claude CLI binary
     pub claude_cli_path: String,
+    /// Path to the Codex CLI binary
+    pub codex_cli_path: String,
     /// Proxy configuration for preview URLs
     pub proxy: ProxyConfig,
     /// Server configurations parsed from REPO_CONFIG
     pub servers: Vec<ServerInfo>,
     /// Frontend URL for constructing task URLs (e.g., "https://moatless.io")
     pub frontend_url: Option<String>,
-    /// Global default model (env: DEFAULT_CLAUDE_CODE_MODEL), used when neither request nor repo config set one
+    /// Global default model (env: CLAUDE_DEFAULT_MODEL), used when neither request nor repo config set one
     pub default_model: Option<String>,
 
     // ── Init-related fields ────────────────────────────────────────
     /// Home directory (default: "/home/moatless")
     pub home_dir: String,
+    /// Codex home directory (default: "$HOME/.codex")
+    pub codex_home_dir: String,
     /// Claude config directory (default: "$HOME/.claude")
     pub claude_config_dir: String,
     /// Git clone URL (from pod env)
@@ -168,6 +172,8 @@ impl Config {
 
         let claude_config_dir = env::var("CLAUDE_CONFIG_DIR")
             .unwrap_or_else(|_| format!("{home_dir}/.claude"));
+        let codex_home_dir = env::var("CODEX_HOME")
+            .unwrap_or_else(|_| format!("{home_dir}/.codex"));
 
         Self {
             port: env::var("PORT")
@@ -206,6 +212,8 @@ impl Config {
 
             claude_cli_path: env::var("SANDBOX_CLAUDE_EXECUTABLE_PATH")
                 .unwrap_or_else(|_| "/usr/local/bin/claude".to_string()),
+            codex_cli_path: env::var("SANDBOX_CODEX_EXECUTABLE_PATH")
+                .unwrap_or_else(|_| "/usr/local/bin/codex".to_string()),
 
             proxy: ProxyConfig {
                 domain: env::var("PROXY_DOMAIN").ok(),
@@ -214,9 +222,10 @@ impl Config {
             },
             servers: parsed.servers,
             frontend_url: env::var("FRONTEND_URL").ok(),
-            default_model: env::var("DEFAULT_CLAUDE_CODE_MODEL").ok(),
+            default_model: env::var("CLAUDE_DEFAULT_MODEL").ok(),
 
             home_dir,
+            codex_home_dir,
             claude_config_dir,
             git_clone_url: env::var("GIT_CLONE_URL").ok(),
             git_branch: env::var("GIT_BRANCH").ok(),

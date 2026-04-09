@@ -1,10 +1,16 @@
 //! Build `ClaudeOptions` from sandbox config + per-request overrides.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use claude_agent_sdk::{ClaudeOptions, PermissionMode};
 use claude_agent_sdk::types::options::{PluginConfig, SystemPrompt};
+use codex_sdk::{
+    AskForApproval as CodexAskForApproval, AutoApproveHandler, CodexOptions,
+    SandboxMode as CodexSandboxMode,
+};
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
@@ -22,7 +28,7 @@ pub fn build_options(
     agent_state: Arc<AgentState>,
     env: Option<HashMap<String, String>>,
 ) -> ClaudeOptions {
-    // Determine model: request > agentConfig > DEFAULT_CLAUDE_CODE_MODEL env
+    // Determine model: request > agentConfig > CLAUDE_DEFAULT_MODEL env
     let model = request
         .model
         .clone()
@@ -36,7 +42,7 @@ pub fn build_options(
     let plugins = build_plugins(config);
 
     // Detect plan mode from agent_type
-    let is_plan_mode = request.agent_type.as_deref() == Some("plan");
+    let is_plan_mode = request.agent_mode.as_deref() == Some("plan");
 
     // Build the permission handler for interactive prompts
     let permission_handler = InteractivePermissionHandler::with_plan_mode(agent_state, is_plan_mode);
@@ -78,6 +84,38 @@ pub fn build_options(
     }
 }
 
+/// Build CodexOptions from config + per-request overrides.
+pub fn build_codex_options(
+    config: &Config,
+    request: &AgentRunRequest,
+    cancel_token: CancellationToken,
+) -> CodexOptions {
+    let model = request.model.clone();
+    let developer_instructions = Some(build_prompt_append(config, request));
+    let init_timeout = Duration::from_secs(120);
+
+    info!(
+        task_id = %config.task_id,
+        model = ?model,
+        resume = ?request.resume,
+        init_timeout_secs = init_timeout.as_secs(),
+        "Built Codex options"
+    );
+
+    CodexOptions {
+        model,
+        developer_instructions,
+        approval_policy: Some(CodexAskForApproval::OnRequest),
+        sandbox_mode: Some(CodexSandboxMode::WorkspaceWrite),
+        cwd: Some(PathBuf::from(&config.workspace_dir)),
+        resume_thread_id: resolve_resume_thread_id(request),
+        approval_handler: Some(Arc::new(AutoApproveHandler)),
+        cancellation_token: Some(cancel_token),
+        init_timeout: Some(init_timeout),
+        ..CodexOptions::default()
+    }
+}
+
 /// Behavioral directive prepended before all other appended prompt content
 /// so it is never buried under reference material.
 const REQUIRED_FIRST_ACTIONS: &str = "\
@@ -102,6 +140,15 @@ Available `moat` commands:
 /// Build the system prompt configuration.
 #[allow(clippy::unnecessary_wraps)] // Option for caller API consistency
 fn build_system_prompt(config: &Config, request: &AgentRunRequest) -> Option<SystemPrompt> {
+    Some(SystemPrompt::Preset {
+        prompt_type: "preset".to_string(),
+        preset: "claude_code".to_string(),
+        append: Some(build_prompt_append(config, request)),
+    })
+}
+
+/// Build the shared prompt appendix used by both Claude and Codex.
+pub fn build_prompt_append(config: &Config, request: &AgentRunRequest) -> String {
     let mut append_parts = Vec::new();
 
     // Only ask the agent to set a task name on the first session in this pod's lifetime.
@@ -143,11 +190,7 @@ fn build_system_prompt(config: &Config, request: &AgentRunRequest) -> Option<Sys
         "Assembled system prompt"
     );
 
-    Some(SystemPrompt::Preset {
-        prompt_type: "preset".to_string(),
-        preset: "claude_code".to_string(),
-        append: Some(append),
-    })
+    append
 }
 
 /// Build a system prompt section describing configured preview servers.
@@ -247,5 +290,13 @@ fn resolve_resume(request: &AgentRunRequest) -> (Option<String>, Option<bool>) {
         Some(ResumeSession::WithId(session_id)) => (Some(session_id.clone()), None),
         Some(ResumeSession::Last) => (None, Some(true)),
         None => (None, None),
+    }
+}
+
+fn resolve_resume_thread_id(request: &AgentRunRequest) -> Option<String> {
+    use super::types::ResumeSession;
+    match &request.resume {
+        Some(ResumeSession::WithId(session_id)) => Some(session_id.clone()),
+        Some(ResumeSession::Last) | None => None,
     }
 }
