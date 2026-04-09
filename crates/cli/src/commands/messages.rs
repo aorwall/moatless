@@ -37,7 +37,11 @@ pub async fn run(
                 format_messages(&messages.messages);
             }
         }
-        MessageAction::Send { task_id, text, mode } => {
+        MessageAction::Send {
+            task_id,
+            text,
+            mode,
+        } => {
             let req = SendMessageRequest {
                 message: text,
                 agent_mode: mode.map(AgentMode),
@@ -67,10 +71,10 @@ fn format_messages(messages: &[UiMessage]) {
         .map(|m| {
             let role = m.role.to_string();
             let preview = message_preview(m);
-            let session = m
-                .session_id
-                .as_deref()
-                .map_or_else(|| "-".to_string(), |s| s.chars().take(8).collect::<String>());
+            let session = m.session_id.as_deref().map_or_else(
+                || "-".to_string(),
+                |s| s.chars().take(8).collect::<String>(),
+            );
             let created = m.timestamp.clone();
             vec![role, preview, session, created]
         })
@@ -97,9 +101,17 @@ fn message_preview(msg: &UiMessage) -> String {
     }
     // Show tool result summary
     if !msg.tool_results.is_empty() {
-        let errors = msg.tool_results.iter().filter(|r| r.is_error == Some(true)).count();
+        let errors = msg
+            .tool_results
+            .iter()
+            .filter(|r| r.is_error == Some(true))
+            .count();
         if errors > 0 {
-            return format!("[{} tool result(s), {} error(s)]", msg.tool_results.len(), errors);
+            return format!(
+                "[{} tool result(s), {} error(s)]",
+                msg.tool_results.len(),
+                errors
+            );
         }
         return format!("[{} tool result(s)]", msg.tool_results.len());
     }

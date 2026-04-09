@@ -81,10 +81,7 @@ pub async fn fetch_all_container_statuses(
 /// Uses the K8s Event API with a field selector on the pod name,
 /// mapping K8s events into provider-agnostic `RuntimeEvent` structs.
 /// Returns an empty vec if no pod or events are found.
-pub async fn fetch_pod_runtime_events(
-    k8s: &K8sClient,
-    task_id: &str,
-) -> Vec<RuntimeEvent> {
+pub async fn fetch_pod_runtime_events(k8s: &K8sClient, task_id: &str) -> Vec<RuntimeEvent> {
     let pods_api: Api<Pod> = Api::namespaced(k8s.client.clone(), k8s.namespace());
     let lp = ListParams::default().labels(&format!("moatless.io/task-id={task_id}"));
 
@@ -98,9 +95,7 @@ pub async fn fetch_pod_runtime_events(
 
     let events_api: Api<k8s_openapi::api::core::v1::Event> =
         Api::namespaced(k8s.client.clone(), k8s.namespace());
-    let field_selector = format!(
-        "involvedObject.name={pod_name},involvedObject.kind=Pod"
-    );
+    let field_selector = format!("involvedObject.name={pod_name},involvedObject.kind=Pod");
     let ep = ListParams::default().fields(&field_selector);
 
     match events_api.list(&ep).await {
@@ -108,10 +103,7 @@ pub async fn fetch_pod_runtime_events(
             .items
             .into_iter()
             .map(|e| {
-                let last_ts = e
-                    .last_timestamp
-                    .as_ref()
-                    .map(|t| t.0.to_string());
+                let last_ts = e.last_timestamp.as_ref().map(|t| t.0.to_string());
 
                 RuntimeEvent {
                     reason: e.reason.unwrap_or_default(),
@@ -166,9 +158,7 @@ pub async fn stream_container_logs_k8s(
         let prev_stream = pods_api
             .log_stream(&pod_name, &prev_params)
             .await
-            .map_err(|e| {
-                LogStreamError::Other(format!("Failed to fetch previous logs: {e}"))
-            })?;
+            .map_err(|e| LogStreamError::Other(format!("Failed to fetch previous logs: {e}")))?;
 
         let event_stream = async_stream::stream! {
             use futures::AsyncBufReadExt;

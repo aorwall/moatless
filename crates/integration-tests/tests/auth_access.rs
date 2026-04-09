@@ -55,50 +55,33 @@ async fn repository_scope_filtering() {
         .await
         .unwrap();
 
-    let alice_with_team =
-        client_as_user_with_teams("alice-test", "alice", "user", &[&team_id]);
+    let alice_with_team = client_as_user_with_teams("alice-test", "alice", "user", &[&team_id]);
 
     let mut repo_ids = Vec::new();
 
     // AUTH-20: Create global-scoped repository
     let mut req = create_repo_request(&format!("Global Repo {suffix}"), RepositoryKind::Template);
     req.scope = Some(Scope::Global);
-    let global_repo = alice_with_team
-        .api()
-        .create_repository(&req)
-        .await
-        .unwrap();
+    let global_repo = alice_with_team.api().create_repository(&req).await.unwrap();
     assert_eq!(global_repo.scope, Scope::Global);
     repo_ids.push(global_repo.id.clone());
 
     // AUTH-20.1: Other user can see global repository
     let bob_with_team = client_as_user_with_teams("bob-test", "bob", "user", &[&team_id]);
-    let bob_repos = bob_with_team
-        .api()
-        .list_repositories()
-        .await
-        .unwrap();
+    let bob_repos = bob_with_team.api().list_repositories().await.unwrap();
     assert!(bob_repos.iter().any(|r| r.id == global_repo.id));
 
     // AUTH-21: Create team-scoped repository
     let mut req = create_repo_request(&format!("Team Repo {suffix}"), RepositoryKind::Template);
     req.scope = Some(Scope::Team);
     req.team_id = Some(team_id.clone());
-    let team_repo = alice_with_team
-        .api()
-        .create_repository(&req)
-        .await
-        .unwrap();
+    let team_repo = alice_with_team.api().create_repository(&req).await.unwrap();
     assert_eq!(team_repo.scope, Scope::Team);
     assert_eq!(team_repo.team_id.as_deref(), Some(team_id.as_str()));
     repo_ids.push(team_repo.id.clone());
 
     // AUTH-21.1: Team member can see team repository
-    let bob_repos = bob_with_team
-        .api()
-        .list_repositories()
-        .await
-        .unwrap();
+    let bob_repos = bob_with_team.api().list_repositories().await.unwrap();
     assert!(bob_repos.iter().any(|r| r.id == team_repo.id));
 
     // AUTH-21.2: Non-member cannot see team repository
@@ -163,18 +146,15 @@ async fn task_scope_inheritance() {
         .await
         .unwrap();
 
-    let alice_with_team =
-        client_as_user_with_teams("alice-test", "alice", "user", &[&team_id]);
+    let alice_with_team = client_as_user_with_teams("alice-test", "alice", "user", &[&team_id]);
 
-    let mut req =
-        create_repo_request(&format!("Task Scope Repo {suffix}"), RepositoryKind::Template);
+    let mut req = create_repo_request(
+        &format!("Task Scope Repo {suffix}"),
+        RepositoryKind::Template,
+    );
     req.scope = Some(Scope::Team);
     req.team_id = Some(team_id.clone());
-    let team_repo = alice_with_team
-        .api()
-        .create_repository(&req)
-        .await
-        .unwrap();
+    let team_repo = alice_with_team.api().create_repository(&req).await.unwrap();
 
     // AUTH-23: Create task under team-scoped repository
     let task = alice_with_team
@@ -191,17 +171,14 @@ async fn task_scope_inheritance() {
             contexts: vec![],
             file_ids: vec![],
             model: None,
+            command_name: None,
         })
         .await
         .unwrap();
     assert!(!task.task_id.is_empty());
 
     // AUTH-23.1: Task inherits team scope
-    let fetched = alice_with_team
-        .api()
-        .get_task(&task.task_id)
-        .await
-        .unwrap();
+    let fetched = alice_with_team.api().get_task(&task.task_id).await.unwrap();
     assert_eq!(fetched.scope, Scope::Team);
     assert_eq!(fetched.team_id.as_deref(), Some(team_id.as_str()));
 
@@ -256,12 +233,10 @@ async fn admin_bypass() {
         .unwrap();
     let team_id = team.id.clone();
 
-    let alice_with_team =
-        client_as_user_with_teams("alice-test", "alice", "user", &[&team_id]);
+    let alice_with_team = client_as_user_with_teams("alice-test", "alice", "user", &[&team_id]);
 
     // User-scoped repo (owned by alice)
-    let mut req =
-        create_repo_request(&format!("Alice Private {suffix}"), RepositoryKind::Template);
+    let mut req = create_repo_request(&format!("Alice Private {suffix}"), RepositoryKind::Template);
     req.scope = Some(Scope::User);
     let user_repo = alice.api().create_repository(&req).await.unwrap();
 
@@ -269,11 +244,7 @@ async fn admin_bypass() {
     let mut req = create_repo_request(&format!("Team Only {suffix}"), RepositoryKind::Template);
     req.scope = Some(Scope::Team);
     req.team_id = Some(team_id.clone());
-    let team_repo = alice_with_team
-        .api()
-        .create_repository(&req)
-        .await
-        .unwrap();
+    let team_repo = alice_with_team.api().create_repository(&req).await.unwrap();
 
     // AUTH-24: Admin can see all scoped resources
     let carol_repos = carol.api().list_repositories().await.unwrap();
@@ -281,11 +252,7 @@ async fn admin_bypass() {
     assert!(carol_repos.iter().any(|r| r.id == team_repo.id));
 
     // AUTH-24.1: Admin can fetch user-scoped repository by ID
-    let repo = carol
-        .api()
-        .get_repository(&user_repo.id)
-        .await
-        .unwrap();
+    let repo = carol.api().get_repository(&user_repo.id).await.unwrap();
     assert_eq!(repo.id, user_repo.id);
     assert!(repo.name.contains("Alice Private"));
 
@@ -318,26 +285,17 @@ async fn listing_repos_filters_by_scope() {
         .await
         .unwrap();
 
-    let alice_with_team =
-        client_as_user_with_teams("alice-test", "alice", "user", &[&team.id]);
+    let alice_with_team = client_as_user_with_teams("alice-test", "alice", "user", &[&team.id]);
 
     // Create repos with different scopes
     let mut req = create_repo_request(&format!("Global {suffix}"), RepositoryKind::Template);
     req.scope = Some(Scope::Global);
-    let global_repo = alice_with_team
-        .api()
-        .create_repository(&req)
-        .await
-        .unwrap();
+    let global_repo = alice_with_team.api().create_repository(&req).await.unwrap();
 
     let mut req = create_repo_request(&format!("Team {suffix}"), RepositoryKind::Template);
     req.scope = Some(Scope::Team);
     req.team_id = Some(team.id.clone());
-    let team_repo = alice_with_team
-        .api()
-        .create_repository(&req)
-        .await
-        .unwrap();
+    let team_repo = alice_with_team.api().create_repository(&req).await.unwrap();
 
     let mut req = create_repo_request(&format!("User {suffix}"), RepositoryKind::Template);
     req.scope = Some(Scope::User);
@@ -351,11 +309,7 @@ async fn listing_repos_filters_by_scope() {
 
     // Bob WITH team membership — should also see team repo
     let bob_with_team = client_as_user_with_teams("bob-test", "bob", "user", &[&team.id]);
-    let bob_team_repos = bob_with_team
-        .api()
-        .list_repositories()
-        .await
-        .unwrap();
+    let bob_team_repos = bob_with_team.api().list_repositories().await.unwrap();
     assert!(bob_team_repos.iter().any(|r| r.id == global_repo.id));
     assert!(bob_team_repos.iter().any(|r| r.id == team_repo.id));
     assert!(!bob_team_repos.iter().any(|r| r.id == user_repo.id));
@@ -389,19 +343,16 @@ async fn listing_tasks_filters_by_scope() {
         .await
         .unwrap();
 
-    let alice_with_team =
-        client_as_user_with_teams("alice-test", "alice", "user", &[&team.id]);
+    let alice_with_team = client_as_user_with_teams("alice-test", "alice", "user", &[&team.id]);
 
     // Create a team-scoped repo + task
-    let mut req =
-        create_repo_request(&format!("Task Filter Repo {suffix}"), RepositoryKind::Template);
+    let mut req = create_repo_request(
+        &format!("Task Filter Repo {suffix}"),
+        RepositoryKind::Template,
+    );
     req.scope = Some(Scope::Team);
     req.team_id = Some(team.id.clone());
-    let team_repo = alice_with_team
-        .api()
-        .create_repository(&req)
-        .await
-        .unwrap();
+    let team_repo = alice_with_team.api().create_repository(&req).await.unwrap();
 
     let task = alice_with_team
         .api()
@@ -417,6 +368,7 @@ async fn listing_tasks_filters_by_scope() {
             contexts: vec![],
             file_ids: vec![],
             model: None,
+            command_name: None,
         })
         .await
         .unwrap();
@@ -439,10 +391,7 @@ async fn listing_tasks_filters_by_scope() {
         .list_tasks(&Default::default())
         .await
         .unwrap();
-    assert!(member_tasks
-        .items
-        .iter()
-        .any(|t| t.task_id == task.task_id));
+    assert!(member_tasks.items.iter().any(|t| t.task_id == task.task_id));
 
     // Cleanup
     let _ = alice.api().delete_task(&task.task_id).await;

@@ -24,15 +24,14 @@ pub async fn create_sandbox_deployment(
     task_id: &str,
     pod: Pod,
 ) -> Result<String, SandboxError> {
-    let deployments: Api<Deployment> =
-        Api::namespaced(k8s.client.clone(), k8s.namespace());
+    let deployments: Api<Deployment> = Api::namespaced(k8s.client.clone(), k8s.namespace());
 
     let deployment_name = generate_deployment_name(task_id);
     let pod_labels = pod.metadata.labels.clone().unwrap_or_default();
     let pod_annotations = pod.metadata.annotations.clone().unwrap_or_default();
-    let pod_spec = pod.spec.ok_or_else(|| {
-        SandboxError::PodBuildError("Pod has no spec".to_string())
-    })?;
+    let pod_spec = pod
+        .spec
+        .ok_or_else(|| SandboxError::PodBuildError("Pod has no spec".to_string()))?;
 
     // Deployments only support restartPolicy "Always"
     if let Some(ref policy) = pod_spec.restart_policy {
@@ -63,8 +62,8 @@ pub async fn create_sandbox_deployment(
         labels.entry(k.clone()).or_insert_with(|| v.clone());
     }
 
-    let pod_spec_value = serde_json::to_value(&pod_spec)
-        .map_err(|e| SandboxError::PodBuildError(e.to_string()))?;
+    let pod_spec_value =
+        serde_json::to_value(&pod_spec).map_err(|e| SandboxError::PodBuildError(e.to_string()))?;
 
     let deployment: Deployment = serde_json::from_value(serde_json::json!({
         "apiVersion": "apps/v1",
@@ -94,7 +93,10 @@ pub async fn create_sandbox_deployment(
     }))
     .map_err(|e| SandboxError::PodBuildError(e.to_string()))?;
 
-    match deployments.create(&PostParams::default(), &deployment).await {
+    match deployments
+        .create(&PostParams::default(), &deployment)
+        .await
+    {
         Ok(_) => {
             info!(task_id, deployment_name = %deployment_name, "Deployment created");
         }
@@ -115,8 +117,7 @@ pub async fn scale_deployment(
     task_id: &str,
     replicas: u32,
 ) -> Result<(), kube::Error> {
-    let deployments: Api<Deployment> =
-        Api::namespaced(k8s.client.clone(), k8s.namespace());
+    let deployments: Api<Deployment> = Api::namespaced(k8s.client.clone(), k8s.namespace());
     let deployment_name = generate_deployment_name(task_id);
 
     let patch = serde_json::json!({
@@ -138,12 +139,8 @@ pub async fn scale_deployment(
 }
 
 /// Delete a Deployment for a task. Handles 404 gracefully.
-pub async fn delete_deployment(
-    k8s: &K8sClient,
-    task_id: &str,
-) -> Result<(), kube::Error> {
-    let deployments: Api<Deployment> =
-        Api::namespaced(k8s.client.clone(), k8s.namespace());
+pub async fn delete_deployment(k8s: &K8sClient, task_id: &str) -> Result<(), kube::Error> {
+    let deployments: Api<Deployment> = Api::namespaced(k8s.client.clone(), k8s.namespace());
     let deployment_name = generate_deployment_name(task_id);
 
     match deployments
@@ -168,12 +165,8 @@ pub async fn delete_deployment(
 /// Restart a Deployment by deleting all its pods.
 ///
 /// The Deployment controller will automatically recreate them.
-pub async fn restart_deployment(
-    k8s: &K8sClient,
-    task_id: &str,
-) -> Result<(), kube::Error> {
-    let pods_api: Api<Pod> =
-        Api::namespaced(k8s.client.clone(), k8s.namespace());
+pub async fn restart_deployment(k8s: &K8sClient, task_id: &str) -> Result<(), kube::Error> {
+    let pods_api: Api<Pod> = Api::namespaced(k8s.client.clone(), k8s.namespace());
     let lp = ListParams::default().labels(&format!("moatless.io/task-id={task_id}"));
 
     let list = pods_api.list(&lp).await?;
@@ -192,8 +185,7 @@ pub async fn find_deployment(
     k8s: &K8sClient,
     task_id: &str,
 ) -> Result<Option<Deployment>, kube::Error> {
-    let deployments: Api<Deployment> =
-        Api::namespaced(k8s.client.clone(), k8s.namespace());
+    let deployments: Api<Deployment> = Api::namespaced(k8s.client.clone(), k8s.namespace());
     let lp = ListParams::default().labels(&format!("moatless.io/task-id={task_id}"));
 
     let list = deployments.list(&lp).await?;
@@ -206,16 +198,11 @@ pub async fn get_deployment_replicas(
     task_id: &str,
 ) -> Result<(i32, i32), kube::Error> {
     let deployment_name = generate_deployment_name(task_id);
-    let deployments: Api<Deployment> =
-        Api::namespaced(k8s.client.clone(), k8s.namespace());
+    let deployments: Api<Deployment> = Api::namespaced(k8s.client.clone(), k8s.namespace());
 
     match deployments.get(&deployment_name).await {
         Ok(dep) => {
-            let desired = dep
-                .spec
-                .as_ref()
-                .and_then(|s| s.replicas)
-                .unwrap_or(1);
+            let desired = dep.spec.as_ref().and_then(|s| s.replicas).unwrap_or(1);
             let ready = dep
                 .status
                 .as_ref()
@@ -232,7 +219,6 @@ pub async fn get_deployment_replicas(
 ///
 /// Uses the same base as the service name for consistency.
 fn generate_deployment_name(task_id: &str) -> String {
-    
     // Service name is already "moatless-ws-{task_id}", reuse it for the deployment
     generate_service_name(task_id)
 }

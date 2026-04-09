@@ -123,7 +123,10 @@ impl EventCollector {
         let deadline = tokio::time::Instant::now() + timeout;
         loop {
             {
-                let guard = self.events.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                let guard = self
+                    .events
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 if let Some(evt) = guard.iter().rev().find(|e| {
                     e.event_type == event_type
                         && e.task_id.as_deref() == Some(task_id)
@@ -155,7 +158,10 @@ impl EventCollector {
         let deadline = tokio::time::Instant::now() + timeout;
         loop {
             {
-                let guard = self.events.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                let guard = self
+                    .events
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 let matches: Vec<_> = guard
                     .iter()
                     .filter(|e| {
@@ -205,7 +211,10 @@ impl EventCollector {
         let deadline = tokio::time::Instant::now() + timeout;
         loop {
             {
-                let guard = self.events.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                let guard = self
+                    .events
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 if let Some(evt) = guard.iter().rev().find(|e| {
                     e.event_type == event_type
                         && e.task_id.as_deref() == Some(task_id)
@@ -213,9 +222,7 @@ impl EventCollector {
                             Some(st) => e.sub_type.as_deref() == Some(st),
                             None => true,
                         }
-                        && e.payload
-                            .get(payload_key)
-                            .and_then(|v| v.as_str())
+                        && e.payload.get(payload_key).and_then(|v| v.as_str())
                             == Some(payload_value)
                 }) {
                     return Some(evt.clone());
@@ -232,9 +239,15 @@ impl EventCollector {
     ///
     /// Useful for test diagnostics.
     pub fn event_summary(&self, task_id: &str) -> Vec<(String, usize)> {
-        let guard = self.events.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let guard = self
+            .events
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
-        for e in guard.iter().filter(|e| e.task_id.as_deref() == Some(task_id)) {
+        for e in guard
+            .iter()
+            .filter(|e| e.task_id.as_deref() == Some(task_id))
+        {
             let key = match &e.sub_type {
                 Some(st) => format!("{}.{}", e.event_type, st),
                 None => e.event_type.clone(),

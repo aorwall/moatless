@@ -111,7 +111,7 @@ impl GitHubAppService {
         let now = Utc::now().timestamp();
         let claims = AppJwtClaims {
             iss: self.app_id.to_string(),
-            iat: now - 60, // clock skew buffer
+            iat: now - 60,  // clock skew buffer
             exp: now + 600, // 10 minutes max per GitHub docs
         };
 
@@ -121,10 +121,7 @@ impl GitHubAppService {
     }
 
     /// Get an installation access token, using cache when available.
-    pub async fn get_installation_token(
-        &self,
-        installation_id: u64,
-    ) -> Result<String, AuthError> {
+    pub async fn get_installation_token(&self, installation_id: u64) -> Result<String, AuthError> {
         // Check cache first
         {
             let cache = self.token_cache.read().await;
@@ -163,14 +160,11 @@ impl GitHubAppService {
             )));
         }
 
-        let data: InstallationTokenResponse = resp
-            .json()
-            .await
-            .map_err(|e| {
-                AuthError::OAuth(format!(
-                    "Failed to parse GitHub installation token response: {e}"
-                ))
-            })?;
+        let data: InstallationTokenResponse = resp.json().await.map_err(|e| {
+            AuthError::OAuth(format!(
+                "Failed to parse GitHub installation token response: {e}"
+            ))
+        })?;
 
         let expires_at = data
             .expires_at
@@ -232,10 +226,7 @@ impl GitHubAppService {
     }
 
     /// Refresh a GitHub App user access token using a refresh token.
-    pub async fn refresh_user_token(
-        &self,
-        refresh_token: &str,
-    ) -> Result<OAuthTokens, AuthError> {
+    pub async fn refresh_user_token(&self, refresh_token: &str) -> Result<OAuthTokens, AuthError> {
         let client_id = self.client_id.as_deref().ok_or_else(|| {
             AuthError::Config("GitHub App client_id required for token refresh".to_string())
         })?;
@@ -266,14 +257,9 @@ impl GitHubAppService {
             )));
         }
 
-        let data: RefreshTokenResponse = resp
-            .json()
-            .await
-            .map_err(|e| {
-                AuthError::OAuth(format!(
-                    "Failed to parse GitHub App refresh response: {e}"
-                ))
-            })?;
+        let data: RefreshTokenResponse = resp.json().await.map_err(|e| {
+            AuthError::OAuth(format!("Failed to parse GitHub App refresh response: {e}"))
+        })?;
 
         if let Some(err) = data.error {
             let desc = data.error_description.unwrap_or_default();

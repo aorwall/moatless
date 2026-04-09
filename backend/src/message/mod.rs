@@ -6,6 +6,6 @@ pub mod error;
 pub mod handlers;
 pub mod models;
 pub mod routes;
+pub mod schemas;
 pub mod send;
 pub mod transform;
-pub mod schemas;

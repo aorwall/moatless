@@ -53,7 +53,10 @@ async fn plugin_repos_e2e_chain() {
         plugins.iter().any(|p| p.id == *plugin_id),
         "New plugin repo should appear in list"
     );
-    println!("PLUGIN-01.1: Plugin appears in list ({} total)", plugins.len());
+    println!(
+        "PLUGIN-01.1: Plugin appears in list ({} total)",
+        plugins.len()
+    );
 
     // PLUGIN-02: Link plugin to repository
     client
@@ -73,7 +76,10 @@ async fn plugin_repos_e2e_chain() {
         repo_plugins.iter().any(|p| p.id == *plugin_id),
         "Plugin should appear in repo plugins"
     );
-    println!("PLUGIN-02.1: Plugin linked ({} plugins)", repo_plugins.len());
+    println!(
+        "PLUGIN-02.1: Plugin linked ({} plugins)",
+        repo_plugins.len()
+    );
 
     // TASK-01: Create task with message
     let task_req = CreateTaskRequest {
@@ -88,6 +94,7 @@ async fn plugin_repos_e2e_chain() {
         contexts: vec![],
         file_ids: vec![],
         model: None,
+        command_name: None,
     };
     let created = client.api().create_task(&task_req).await.unwrap();
     let task_id = &created.task_id;
@@ -102,12 +109,14 @@ async fn plugin_repos_e2e_chain() {
 
     // AGENT-01: Wait for agent turn to complete
     let turn_completed = collector
-        .wait_for_event("taskTurn", Some("completed"), task_id, Duration::from_secs(300))
+        .wait_for_event(
+            "taskTurn",
+            Some("completed"),
+            task_id,
+            Duration::from_secs(300),
+        )
         .await;
-    assert!(
-        turn_completed.is_some(),
-        "Agent turn should complete"
-    );
+    assert!(turn_completed.is_some(), "Agent turn should complete");
     println!("AGENT-01: Agent turn completed");
 
     // AGENT-01.1: Get messages, verify agent responded
@@ -121,10 +130,7 @@ async fn plugin_repos_e2e_chain() {
         "Should have at least user + assistant messages, got {}",
         messages.messages.len()
     );
-    println!(
-        "AGENT-01.1: Got {} messages",
-        messages.messages.len()
-    );
+    println!("AGENT-01.1: Got {} messages", messages.messages.len());
 
     // Print event summary for diagnostics
     let summary = collector.event_summary(task_id);

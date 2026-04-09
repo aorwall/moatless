@@ -35,9 +35,7 @@ impl sqlx::Type<sqlx::Postgres> for AgentType {
 
 #[cfg(feature = "database")]
 impl<'r> sqlx::Decode<'r, sqlx::Postgres> for AgentType {
-    fn decode(
-        value: sqlx::postgres::PgValueRef<'r>,
-    ) -> Result<Self, sqlx::error::BoxDynError> {
+    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
         let s = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
         Ok(Self(s))
     }
@@ -84,9 +82,7 @@ impl sqlx::Type<sqlx::Postgres> for AgentMode {
 
 #[cfg(feature = "database")]
 impl<'r> sqlx::Decode<'r, sqlx::Postgres> for AgentMode {
-    fn decode(
-        value: sqlx::postgres::PgValueRef<'r>,
-    ) -> Result<Self, sqlx::error::BoxDynError> {
+    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
         let s = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
         Ok(Self(s))
     }

@@ -40,8 +40,10 @@ pub async fn create_repository(
     Json(req): Json<CreateRepositoryRequest>,
 ) -> Result<(StatusCode, Json<RepositoryResponse>), RepositoryError> {
     // Check for name uniqueness
-    if let Some(_existing) =
-        state.repositories.find_by_name_and_user(&req.name, &auth.user_id).await?
+    if let Some(_existing) = state
+        .repositories
+        .find_by_name_and_user(&req.name, &auth.user_id)
+        .await?
     {
         return Err(RepositoryError::Conflict(format!(
             "Repository '{}' already exists",
@@ -185,7 +187,9 @@ pub async fn get_repository(
     auth: AuthUser,
     Path(repository_id): Path<String>,
 ) -> Result<Json<RepositoryResponse>, RepositoryError> {
-    let row = state.repositories.find_by_id(&repository_id, &auth.scope_context())
+    let row = state
+        .repositories
+        .find_by_id(&repository_id, &auth.scope_context())
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id))?;
 
@@ -213,7 +217,9 @@ pub async fn update_repository(
     Json(req): Json<UpdateRepositoryRequest>,
 ) -> Result<Json<RepositoryResponse>, RepositoryError> {
     // Verify ownership
-    let _existing = state.repositories.find_by_id(&repository_id, &auth.scope_context())
+    let _existing = state
+        .repositories
+        .find_by_id(&repository_id, &auth.scope_context())
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id.clone()))?;
 
@@ -229,7 +235,11 @@ pub async fn update_repository(
         plugins: req.plugins.map(to_json).transpose()?.map(Some),
         env_vars: req.env_vars.map(to_json).transpose()?.map(Some),
         setup_commands: req.setup_commands.map(to_json).transpose()?.map(Some),
-        server_start_commands: req.server_start_commands.map(to_json).transpose()?.map(Some),
+        server_start_commands: req
+            .server_start_commands
+            .map(to_json)
+            .transpose()?
+            .map(Some),
         startup_timeout_seconds: req.startup_timeout_seconds.map(Some),
         build_command: req.build_command.map(Some),
         build_output_directory: req.build_output_directory.map(Some),
@@ -242,7 +252,9 @@ pub async fn update_repository(
     state.repositories.update(&repository_id, &patch).await?;
 
     // Re-fetch updated row
-    let updated = state.repositories.find_by_id(&repository_id, &auth.scope_context())
+    let updated = state
+        .repositories
+        .find_by_id(&repository_id, &auth.scope_context())
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id))?;
 
@@ -268,7 +280,9 @@ pub async fn delete_repository(
     Path(repository_id): Path<String>,
 ) -> Result<StatusCode, RepositoryError> {
     // Verify ownership
-    let _existing = state.repositories.find_by_id(&repository_id, &auth.scope_context())
+    let _existing = state
+        .repositories
+        .find_by_id(&repository_id, &auth.scope_context())
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id.clone()))?;
 
@@ -296,7 +310,9 @@ pub async fn convert_to_template(
     auth: AuthUser,
     Path(repository_id): Path<String>,
 ) -> Result<Json<RepositoryResponse>, RepositoryError> {
-    let existing = state.repositories.find_by_id(&repository_id, &auth.scope_context())
+    let existing = state
+        .repositories
+        .find_by_id(&repository_id, &auth.scope_context())
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id.clone()))?;
 
@@ -314,7 +330,9 @@ pub async fn convert_to_template(
 
     state.repositories.update(&repository_id, &patch).await?;
 
-    let updated = state.repositories.find_by_id(&repository_id, &auth.scope_context())
+    let updated = state
+        .repositories
+        .find_by_id(&repository_id, &auth.scope_context())
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id))?;
 
@@ -340,7 +358,9 @@ pub async fn get_branches(
     auth: AuthUser,
     Path(repository_id): Path<String>,
 ) -> Result<Json<BranchListResponse>, RepositoryError> {
-    let repo = state.repositories.find_by_id(&repository_id, &auth.scope_context())
+    let repo = state
+        .repositories
+        .find_by_id(&repository_id, &auth.scope_context())
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id.clone()))?;
 
@@ -348,9 +368,10 @@ pub async fn get_branches(
         info!(repository_id = %repository_id, "No default branch set, fetching from provider");
     }
 
-    let remote_url = repo.remote_url.as_deref().ok_or_else(|| {
-        RepositoryError::BadRequest("Repository has no remote URL".to_string())
-    })?;
+    let remote_url = repo
+        .remote_url
+        .as_deref()
+        .ok_or_else(|| RepositoryError::BadRequest("Repository has no remote URL".to_string()))?;
 
     let provider = repo.provider.unwrap_or(RepositoryProvider::Github);
     let provider_str = provider.as_str();
@@ -375,7 +396,9 @@ pub async fn get_branches(
         RepositoryProvider::Github => fetch_github_branches(remote_url, &access_token).await?,
         RepositoryProvider::Gitlab => fetch_gitlab_branches(remote_url, &access_token).await?,
         RepositoryProvider::Gitness => {
-            let full_token = state.provider_tokens.find_provider_token_full(&auth.user_id, "gitness")
+            let full_token = state
+                .provider_tokens
+                .find_provider_token_full(&auth.user_id, "gitness")
                 .await
                 .map_err(RepositoryError::Db)?;
             let base_url = full_token
@@ -482,9 +505,7 @@ struct BranchFetchResult {
 /// Parse a GitHub remote URL into owner/repo.
 pub(crate) fn parse_github_owner_repo(remote_url: &str) -> Option<(String, String)> {
     // Handles: https://github.com/owner/repo.git or https://github.com/owner/repo
-    let url = remote_url
-        .trim_end_matches('/')
-        .trim_end_matches(".git");
+    let url = remote_url.trim_end_matches('/').trim_end_matches(".git");
     let parts: Vec<&str> = url.split('/').collect();
     if parts.len() >= 2 {
         let repo = parts[parts.len() - 1].to_string();
@@ -603,9 +624,7 @@ async fn fetch_gitlab_branches(
 ) -> Result<BranchFetchResult, RepositoryError> {
     // For GitLab we need the project ID (URL-encoded path)
     // https://gitlab.com/owner/repo → owner%2Frepo
-    let url = remote_url
-        .trim_end_matches('/')
-        .trim_end_matches(".git");
+    let url = remote_url.trim_end_matches('/').trim_end_matches(".git");
 
     let project_path = url
         .strip_prefix("https://gitlab.com/")
@@ -684,9 +703,7 @@ async fn fetch_gitness_branches(
     base_url: &str,
 ) -> Result<BranchFetchResult, RepositoryError> {
     // Extract the repo path by stripping the base URL prefix
-    let url = remote_url
-        .trim_end_matches('/')
-        .trim_end_matches(".git");
+    let url = remote_url.trim_end_matches('/').trim_end_matches(".git");
     let base = base_url.trim_end_matches('/');
 
     // Try stripping the base URL to get the repo path (e.g. "org/repo")
@@ -822,9 +839,10 @@ pub async fn sync_config(
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id.clone()))?;
 
-    let remote_url = repo.remote_url.as_deref().ok_or_else(|| {
-        RepositoryError::BadRequest("Repository has no remote URL".to_string())
-    })?;
+    let remote_url = repo
+        .remote_url
+        .as_deref()
+        .ok_or_else(|| RepositoryError::BadRequest("Repository has no remote URL".to_string()))?;
 
     let provider = repo.provider.unwrap_or(RepositoryProvider::Github);
     let provider_str = provider.as_str();
@@ -837,13 +855,10 @@ pub async fn sync_config(
 
     let token_str = token.as_ref().map(|t| t.access_token.as_str());
     let branch = repo.default_branch.as_deref();
-    let config =
-        fetch_moatless_config(remote_url, branch, token_str, provider).await?;
+    let config = fetch_moatless_config(remote_url, branch, token_str, provider).await?;
 
     let config = config.ok_or_else(|| {
-        RepositoryError::NotFound(
-            "No .moatless/config.json found in the repository".to_string(),
-        )
+        RepositoryError::NotFound("No .moatless/config.json found in the repository".to_string())
     })?;
 
     let patch = config_to_patch(&config)?;

@@ -8,9 +8,9 @@ use crate::extractors::AuthUser;
 use crate::state::AppState;
 
 use super::error::MessageError;
+use super::schemas::*;
 use super::send;
 use super::transform;
-use super::schemas::*;
 
 /// Send a message to the agent for a task.
 ///
@@ -35,7 +35,9 @@ pub async fn send_message(
     Json(req): Json<SendMessageRequest>,
 ) -> Result<Json<SendMessageResponse>, MessageError> {
     // Verify task exists and user has access
-    let _task = state.tasks.find_by_id(&task_id, &auth.scope_context())
+    let _task = state
+        .tasks
+        .find_by_id(&task_id, &auth.scope_context())
         .await?
         .ok_or_else(|| MessageError::NotFound(task_id.clone()))?;
 
@@ -70,7 +72,9 @@ pub async fn send_message(
     }
 
     // Ensure the sandbox is running (auto-provisions if needed) and notify it.
-    if let Err(error_msg) = crate::sandbox::notify::ensure_sandbox_and_notify(&state, &task_id).await {
+    if let Err(error_msg) =
+        crate::sandbox::notify::ensure_sandbox_and_notify(&state, &task_id).await
+    {
         send::persist_error_result(&state, &task_id, &error_msg).await;
     }
 
@@ -121,7 +125,13 @@ pub async fn get_messages(
                 || m.result.is_some()
                 || m.has_pending_user_input == Some(true)
         })
-        .map(|m| if query.summary { strip_heavy_fields(m) } else { m })
+        .map(|m| {
+            if query.summary {
+                strip_heavy_fields(m)
+            } else {
+                m
+            }
+        })
         .collect();
     let total_count = ui_messages.len();
 

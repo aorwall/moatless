@@ -4,16 +4,14 @@ use axum::Json;
 use serde::Serialize;
 
 /// Slack workspace configuration.
-#[derive(Serialize)]
-#[derive(utoipa::ToSchema)]
+#[derive(Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SlackConfig {
     pub team_id: String,
 }
 
 /// Response shape for GET /api/v1/feature-flags.
-#[derive(Serialize)]
-#[derive(utoipa::ToSchema)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct FeatureFlagsResponse {
     pub netlify_publish: bool,
     pub show_claude_settings: bool,

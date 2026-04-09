@@ -10,16 +10,26 @@ use crate::db::DbPool;
 pub trait TeamRepository: Send + Sync {
     async fn find_by_id(&self, id: &str) -> Result<Option<Team>, sqlx::Error>;
     async fn find_by_slug(&self, slug: &str) -> Result<Option<Team>, sqlx::Error>;
-    async fn find_by_external_id(&self, external_id: &str, provider: &str) -> Result<Option<Team>, sqlx::Error>;
+    async fn find_by_external_id(
+        &self,
+        external_id: &str,
+        provider: &str,
+    ) -> Result<Option<Team>, sqlx::Error>;
     async fn list_all(&self) -> Result<Vec<Team>, sqlx::Error>;
     async fn insert(&self, team: &Team) -> Result<(), sqlx::Error>;
-    async fn update(&self, id: &str, name: &str, description: Option<&str>) -> Result<(), sqlx::Error>;
+    async fn update(
+        &self,
+        id: &str,
+        name: &str,
+        description: Option<&str>,
+    ) -> Result<(), sqlx::Error>;
     async fn delete(&self, id: &str) -> Result<(), sqlx::Error>;
 
     async fn find_teams_for_user(&self, user_id: &str) -> Result<Vec<Team>, sqlx::Error>;
     async fn find_team_ids_for_user(&self, user_id: &str) -> Result<Vec<String>, sqlx::Error>;
     async fn find_members(&self, team_id: &str) -> Result<Vec<TeamMember>, sqlx::Error>;
-    async fn add_member(&self, team_id: &str, user_id: &str, role: &str) -> Result<(), sqlx::Error>;
+    async fn add_member(&self, team_id: &str, user_id: &str, role: &str)
+        -> Result<(), sqlx::Error>;
     async fn remove_member(&self, team_id: &str, user_id: &str) -> Result<(), sqlx::Error>;
     async fn is_member(&self, team_id: &str, user_id: &str) -> Result<bool, sqlx::Error>;
 
@@ -39,24 +49,24 @@ pub struct PgTeamRepository(pub DbPool);
 #[async_trait]
 impl TeamRepository for PgTeamRepository {
     async fn find_by_id(&self, id: &str) -> Result<Option<Team>, sqlx::Error> {
-        sqlx::query_as::<_, Team>(
-            "SELECT * FROM teams WHERE id = $1",
-        )
-        .bind(id)
-        .fetch_optional(&self.0)
-        .await
+        sqlx::query_as::<_, Team>("SELECT * FROM teams WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&self.0)
+            .await
     }
 
     async fn find_by_slug(&self, slug: &str) -> Result<Option<Team>, sqlx::Error> {
-        sqlx::query_as::<_, Team>(
-            "SELECT * FROM teams WHERE slug = $1",
-        )
-        .bind(slug)
-        .fetch_optional(&self.0)
-        .await
+        sqlx::query_as::<_, Team>("SELECT * FROM teams WHERE slug = $1")
+            .bind(slug)
+            .fetch_optional(&self.0)
+            .await
     }
 
-    async fn find_by_external_id(&self, external_id: &str, provider: &str) -> Result<Option<Team>, sqlx::Error> {
+    async fn find_by_external_id(
+        &self,
+        external_id: &str,
+        provider: &str,
+    ) -> Result<Option<Team>, sqlx::Error> {
         sqlx::query_as::<_, Team>(
             "SELECT * FROM teams WHERE external_id = $1 AND external_provider = $2",
         )
@@ -67,11 +77,9 @@ impl TeamRepository for PgTeamRepository {
     }
 
     async fn list_all(&self) -> Result<Vec<Team>, sqlx::Error> {
-        sqlx::query_as::<_, Team>(
-            "SELECT * FROM teams ORDER BY name ASC",
-        )
-        .fetch_all(&self.0)
-        .await
+        sqlx::query_as::<_, Team>("SELECT * FROM teams ORDER BY name ASC")
+            .fetch_all(&self.0)
+            .await
     }
 
     async fn insert(&self, team: &Team) -> Result<(), sqlx::Error> {
@@ -94,7 +102,12 @@ impl TeamRepository for PgTeamRepository {
         Ok(())
     }
 
-    async fn update(&self, id: &str, name: &str, description: Option<&str>) -> Result<(), sqlx::Error> {
+    async fn update(
+        &self,
+        id: &str,
+        name: &str,
+        description: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
         sqlx::query(
             "UPDATE teams SET name = $2, description = $3, updated_at = now() WHERE id = $1",
         )
@@ -128,12 +141,11 @@ impl TeamRepository for PgTeamRepository {
     }
 
     async fn find_team_ids_for_user(&self, user_id: &str) -> Result<Vec<String>, sqlx::Error> {
-        let rows: Vec<(String,)> = sqlx::query_as(
-            "SELECT team_id FROM team_members WHERE user_id = $1",
-        )
-        .bind(user_id)
-        .fetch_all(&self.0)
-        .await?;
+        let rows: Vec<(String,)> =
+            sqlx::query_as("SELECT team_id FROM team_members WHERE user_id = $1")
+                .bind(user_id)
+                .fetch_all(&self.0)
+                .await?;
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
@@ -146,7 +158,12 @@ impl TeamRepository for PgTeamRepository {
         .await
     }
 
-    async fn add_member(&self, team_id: &str, user_id: &str, role: &str) -> Result<(), sqlx::Error> {
+    async fn add_member(
+        &self,
+        team_id: &str,
+        user_id: &str,
+        role: &str,
+    ) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"INSERT INTO team_members (team_id, user_id, role)
                VALUES ($1, $2, $3)

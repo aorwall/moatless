@@ -50,9 +50,7 @@ fn is_exempt(path: &str) -> bool {
     if let Some(rest) = path.strip_prefix("/api/v1/channels/") {
         let segments: Vec<&str> = rest.split('/').filter(|s| !s.is_empty()).collect();
         if segments.len() >= 2
-            && (segments[1] == "webhook"
-                || segments[1] == "slash"
-                || segments[0] == "webhook")
+            && (segments[1] == "webhook" || segments[1] == "slash" || segments[0] == "webhook")
         {
             return true;
         }
@@ -82,10 +80,7 @@ fn strip_user_headers(req: &mut Request<Body>) {
 
 /// Axum middleware function that validates auth and injects user headers.
 pub async fn auth_middleware(mut req: Request<Body>, next: Next) -> Response {
-    let state = req
-        .extensions()
-        .get::<AuthMiddlewareState>()
-        .cloned();
+    let state = req.extensions().get::<AuthMiddlewareState>().cloned();
 
     let Some(state) = state else {
         // No middleware state — pass through (shouldn't happen in practice)
@@ -153,8 +148,7 @@ pub async fn auth_middleware(mut req: Request<Body>, next: Next) -> Response {
         return unauthorized_response();
     };
 
-    let tokens =
-        get_all_cookie_values(req.headers(), &state.config.auth.session_cookie_name);
+    let tokens = get_all_cookie_values(req.headers(), &state.config.auth.session_cookie_name);
 
     for token in &tokens {
         match jwt::verify_session_jwt(token, jwt_secret) {

@@ -107,9 +107,7 @@ impl claude_agent_sdk::PermissionHandler for InteractivePermissionHandler {
                     }
                 }
             }
-        } else if self.plan_mode_active.load(Ordering::SeqCst)
-            && WRITE_TOOLS.contains(&tool_name)
-        {
+        } else if self.plan_mode_active.load(Ordering::SeqCst) && WRITE_TOOLS.contains(&tool_name) {
             // In plan mode, deny write tools until ExitPlanMode is approved
             claude_agent_sdk::PermissionResult::Deny {
                 message: "Plan mode: use ExitPlanMode to get plan approval before making changes."
@@ -194,10 +192,7 @@ mod tests {
             .can_use_tool("Read", &empty_input(), test_context())
             .await;
         assert!(
-            matches!(
-                result,
-                claude_agent_sdk::PermissionResult::Allow { .. }
-            ),
+            matches!(result, claude_agent_sdk::PermissionResult::Allow { .. }),
             "Read should be allowed even in plan mode"
         );
     }

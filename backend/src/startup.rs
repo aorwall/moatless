@@ -21,12 +21,12 @@ use crate::config::Config;
 use crate::db::{self, DbPool};
 use crate::events::{EventPublisher, RedisEventPublisher};
 use crate::message::dao::{MessageRepository, PgMessageRepository};
-use crate::task::dao::{PgTaskRepository, TaskRepository};
 use crate::metrics;
-use crate::sandbox::k8s::client::K8sClient;
 use crate::sandbox::grpc_server::BackendSandboxServiceImpl;
+use crate::sandbox::k8s::client::K8sClient;
 use crate::sse::consumer::RedisStreamConsumer;
 use crate::sse::routes::SseState;
+use crate::task::dao::{PgTaskRepository, TaskRepository};
 
 // =========================================================================
 // Logging
@@ -72,7 +72,9 @@ pub fn spawn_metrics_server(port: u16) {
 ///
 /// Returns `None` when `DATABASE_URL` is unset or connection fails.
 pub async fn init_database(database_url: Option<&str>, max_connections: u32) -> Option<DbPool> {
-    let url = if let Some(u) = database_url { u } else {
+    let url = if let Some(u) = database_url {
+        u
+    } else {
         info!("DATABASE_URL not set — database features disabled");
         return None;
     };
@@ -100,9 +102,11 @@ pub async fn init_database(database_url: Option<&str>, max_connections: u32) -> 
 
 /// Optionally connect a Redis-backed event publisher.
 pub async fn init_event_publisher(config: &Config) -> Option<Arc<dyn EventPublisher>> {
-    if let Some(ref url) = config.redis.url { RedisEventPublisher::connect(url, config.redis.max_stream_length)
-    .await
-    .map(|p| Arc::new(p) as Arc<dyn EventPublisher>) } else {
+    if let Some(ref url) = config.redis.url {
+        RedisEventPublisher::connect(url, config.redis.max_stream_length)
+            .await
+            .map(|p| Arc::new(p) as Arc<dyn EventPublisher>)
+    } else {
         info!("REDIS_URL not set — event publishing disabled");
         None
     }
@@ -242,10 +246,7 @@ pub fn build_sandbox_provider(
     use crate::sandbox::k8s::provider::K8sSandboxProvider;
     use crate::sandbox::k8s::status_resolver::StatusResolver;
 
-    let status_resolver = StatusResolver::new(
-        k8s.clone(),
-        Arc::new(config.clone()),
-    );
+    let status_resolver = StatusResolver::new(k8s.clone(), Arc::new(config.clone()));
 
     Arc::new(K8sSandboxProvider {
         config: Arc::new(config.clone()),
@@ -266,10 +267,7 @@ pub fn build_docker_sandbox_provider(
     use crate::sandbox::docker::provider::DockerSandboxProvider;
     use crate::sandbox::docker::status_resolver::DockerStatusResolver;
 
-    let status_resolver = DockerStatusResolver::new(
-        client.clone(),
-        Arc::new(config.clone()),
-    );
+    let status_resolver = DockerStatusResolver::new(client.clone(), Arc::new(config.clone()));
 
     Arc::new(DockerSandboxProvider {
         config: Arc::new(config.clone()),

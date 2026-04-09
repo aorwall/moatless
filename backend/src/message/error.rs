@@ -27,11 +27,17 @@ impl IntoResponse for MessageError {
             MessageError::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             MessageError::Db(e) => {
                 tracing::error!(error = %e, "Database error in message handler");
-                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal server error".to_string(),
+                )
             }
             MessageError::Internal(ref msg) => {
                 tracing::error!(error = %msg, "Internal error in message handler");
-                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal server error".to_string(),
+                )
             }
         };
 

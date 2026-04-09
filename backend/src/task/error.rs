@@ -34,11 +34,17 @@ impl IntoResponse for TaskError {
             TaskError::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             TaskError::Db(e) => {
                 tracing::error!(error = %e, "Database error in task handler");
-                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal server error".to_string(),
+                )
             }
             TaskError::Internal(ref msg) => {
                 tracing::error!(error = %msg, "Internal error in task handler");
-                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal server error".to_string(),
+                )
             }
             TaskError::Forbidden(_) => (StatusCode::FORBIDDEN, self.to_string()),
         };

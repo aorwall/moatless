@@ -295,7 +295,9 @@ impl EventHandlerConsumer {
             // Known SSE-only event types — forwarded to frontend but not processed here
             EventKey::Sandbox(_)
             | EventKey::Server(_)
-            | EventKey::Agent(AgentSubType::Started | AgentSubType::PendingResponse | AgentSubType::Retrying)
+            | EventKey::Agent(
+                AgentSubType::Started | AgentSubType::PendingResponse | AgentSubType::Retrying,
+            )
             | EventKey::Task(
                 TaskSubType::Open
                 | TaskSubType::Created
@@ -324,12 +326,8 @@ impl EventHandlerConsumer {
     /// Notify channel providers about task events (if any channels are configured).
     async fn notify_channels(&self, event: &AgentEvent) {
         if let Some(ref providers) = self.state.channel_providers {
-            crate::channel::outbound::handle_channel_notification(
-                &self.state,
-                providers,
-                event,
-            )
-            .await;
+            crate::channel::outbound::handle_channel_notification(&self.state, providers, event)
+                .await;
         }
     }
 }

@@ -92,10 +92,7 @@ async fn repo_create_missing_fields() {
         .unwrap();
 
     let status = resp.status().as_u16();
-    assert!(
-        (400..500).contains(&status),
-        "expected 4xx, got {status}"
-    );
+    assert!((400..500).contains(&status), "expected 4xx, got {status}");
 }
 
 // REPO-07: Get non-existent repository (404)

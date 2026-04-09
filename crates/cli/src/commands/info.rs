@@ -7,14 +7,8 @@ use crate::config::{AuthMode, Config};
 pub fn format_whoami(resp: &SessionResponse) {
     if let Some(ref user) = resp.user {
         println!("User:  {}", user.login);
-        println!(
-            "Name:  {}",
-            user.name.as_deref().unwrap_or("(not set)")
-        );
-        println!(
-            "Email: {}",
-            user.email.as_deref().unwrap_or("(not set)")
-        );
+        println!("Name:  {}", user.name.as_deref().unwrap_or("(not set)"));
+        println!("Email: {}", user.email.as_deref().unwrap_or("(not set)"));
         println!("ID:    {}", user.id);
         println!("Role:  {}", user.role);
     } else {

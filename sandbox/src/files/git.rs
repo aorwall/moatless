@@ -140,13 +140,9 @@ async fn get_best_compare_reference(workspace_dir: &str) -> CompareRef {
     let origin_branch = format!("origin/{base}");
 
     // Try origin/<base>
-    if run_git(
-        workspace_dir,
-        &["rev-parse", "--verify", &origin_branch],
-        5,
-    )
-    .await
-    .is_ok()
+    if run_git(workspace_dir, &["rev-parse", "--verify", &origin_branch], 5)
+        .await
+        .is_ok()
     {
         return CompareRef {
             reference: origin_branch,
@@ -204,16 +200,8 @@ async fn get_git_status(
 }
 
 /// Get numstat data for a compare reference.
-async fn get_numstat(
-    workspace_dir: &str,
-    compare_base: &str,
-) -> HashMap<String, (i32, i32, bool)> {
-    let output = run_git_quiet(
-        workspace_dir,
-        &["diff", "--numstat", compare_base],
-        10,
-    )
-    .await;
+async fn get_numstat(workspace_dir: &str, compare_base: &str) -> HashMap<String, (i32, i32, bool)> {
+    let output = run_git_quiet(workspace_dir, &["diff", "--numstat", compare_base], 10).await;
 
     let mut map = HashMap::new();
     for line in output.lines() {
@@ -242,12 +230,7 @@ async fn get_diff_string(workspace_dir: &str) -> (String, String) {
     let compare_ref = get_best_compare_reference(workspace_dir).await;
     let compare_base = compare_ref.reference;
 
-    let diff_output = run_git_quiet(
-        workspace_dir,
-        &["diff", &compare_base],
-        30,
-    )
-    .await;
+    let diff_output = run_git_quiet(workspace_dir, &["diff", &compare_base], 30).await;
 
     // Get untracked files diff
     let untracked_diff = get_untracked_files_diff(workspace_dir).await;
@@ -347,9 +330,7 @@ fn parse_diff_files(
 
 fn extract_filename(first_line: &str) -> Option<String> {
     // Pattern: "a/path b/path" or full "diff --git a/path b/path"
-    let line = first_line
-        .strip_prefix("diff --git ")
-        .unwrap_or(first_line);
+    let line = first_line.strip_prefix("diff --git ").unwrap_or(first_line);
     let parts: Vec<&str> = line.splitn(2, " b/").collect();
     if parts.len() == 2 {
         Some(parts[1].to_string())
@@ -444,10 +425,7 @@ pub async fn get_git_diff_detailed(workspace_dir: &str) -> GitDiffResponse {
 }
 
 /// Get change info for a specific file (used by read-file-with-changes).
-pub async fn get_file_change_info(
-    workspace_dir: &str,
-    file_path: &str,
-) -> FileChangeInfo {
+pub async fn get_file_change_info(workspace_dir: &str, file_path: &str) -> FileChangeInfo {
     if !is_git_repository(workspace_dir).await {
         return FileChangeInfo::default();
     }
@@ -468,8 +446,14 @@ pub async fn get_file_change_info(
     }
 
     let parts: Vec<&str> = numstat_output.trim().split('\t').collect();
-    let additions = parts.first().and_then(|s| s.parse::<i32>().ok()).unwrap_or(0);
-    let deletions = parts.get(1).and_then(|s| s.parse::<i32>().ok()).unwrap_or(0);
+    let additions = parts
+        .first()
+        .and_then(|s| s.parse::<i32>().ok())
+        .unwrap_or(0);
+    let deletions = parts
+        .get(1)
+        .and_then(|s| s.parse::<i32>().ok())
+        .unwrap_or(0);
 
     // Get status
     let status_output = run_git_quiet(
@@ -489,9 +473,7 @@ pub async fn get_file_change_info(
     // Get old content for modified/deleted files
     let old_content = if status_code.starts_with('M') || status_code.starts_with('D') {
         let show_ref = format!("{compare_base}:{file_path}");
-        run_git(workspace_dir, &["show", &show_ref], 5)
-            .await
-            .ok()
+        run_git(workspace_dir, &["show", &show_ref], 5).await.ok()
     } else {
         None
     };
@@ -540,7 +522,8 @@ mod tests {
 
     #[test]
     fn count_changes_basic() {
-        let chunk = "header\n--- a/f\n+++ b/f\n+added line\n-removed line\n context\n+another add\n";
+        let chunk =
+            "header\n--- a/f\n+++ b/f\n+added line\n-removed line\n context\n+another add\n";
         let (add, del) = count_changes(chunk);
         assert_eq!(add, 2);
         assert_eq!(del, 1);

@@ -191,4 +191,3 @@ pub async fn run_setup_command(config: &Config, cmd: &str) -> Result<(), String>
 
     Ok(())
 }
-

@@ -47,12 +47,7 @@ pub async fn list_task_events(
 
     let events = state
         .task_events
-        .list_events(
-            &task_id,
-            &event_types,
-            limit,
-            offset,
-        )
+        .list_events(&task_id, &event_types, limit, offset)
         .await?;
 
     let items = events

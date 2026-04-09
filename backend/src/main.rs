@@ -21,7 +21,10 @@ use moatless_vibe_backend::sandbox;
 use moatless_vibe_backend::sse::routes::sse_router;
 use moatless_vibe_backend::startup;
 use moatless_vibe_backend::state::AppState;
-use moatless_vibe_backend::{command, figma, file_storage, message, plugin_repo, provider_settings, repository, tag, task, task_event, team};
+use moatless_vibe_backend::{
+    command, figma, file_storage, message, plugin_repo, provider_settings, repository, tag, task,
+    task_event, team,
+};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -36,7 +39,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Install rustls crypto provider (required before any TLS operations)
-    #[allow(clippy::expect_used)] // fail-fast: TLS provider must be installed before any networking
+    #[allow(clippy::expect_used)]
+    // fail-fast: TLS provider must be installed before any networking
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
         .expect("Failed to install rustls crypto provider");
@@ -48,7 +52,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Infrastructure services
     startup::spawn_metrics_server(config.server.metrics_port);
-    let db_pool = startup::init_database(config.database_url.as_deref(), config.database.max_connections).await;
+    let db_pool = startup::init_database(
+        config.database_url.as_deref(),
+        config.database.max_connections,
+    )
+    .await;
     let event_publisher = startup::init_event_publisher(&config).await;
     let cancel = CancellationToken::new();
     let sse_state = startup::init_sse(&config, cancel.clone()).await?;
@@ -62,15 +70,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match config.sandbox_provider {
         SandboxProviderType::Kubernetes => {
-            let k8s = sandbox::k8s::client::K8sClient::new(config.sandbox.namespace.clone()).await?;
+            let k8s =
+                sandbox::k8s::client::K8sClient::new(config.sandbox.namespace.clone()).await?;
             info!("K8s client initialized");
 
             reaper_k8s = Some(k8s.clone());
-            sandbox_provider = startup::build_sandbox_provider(
-                &config,
-                k8s.clone(),
-                event_publisher.clone(),
-            );
+            sandbox_provider =
+                startup::build_sandbox_provider(&config, k8s.clone(), event_publisher.clone());
 
             // Spawn pod lifecycle watcher
             if let Some(ref publisher) = event_publisher {
@@ -126,24 +132,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Build optional repos for SandboxApiState (server config resolution in handlers)
     let sandbox_tasks: Option<Arc<dyn moatless_vibe_backend::task::dao::TaskRepository>> =
         db_pool.as_ref().map(|p| {
-            Arc::new(moatless_vibe_backend::task::dao::PgTaskRepository(p.clone()))
-                as Arc<dyn moatless_vibe_backend::task::dao::TaskRepository>
+            Arc::new(moatless_vibe_backend::task::dao::PgTaskRepository(
+                p.clone(),
+            )) as Arc<dyn moatless_vibe_backend::task::dao::TaskRepository>
         });
     let sandbox_repos: Option<Arc<dyn moatless_vibe_backend::repository::dao::RepoRepository>> =
         db_pool.as_ref().map(|p| {
-            Arc::new(moatless_vibe_backend::repository::dao::PgRepoRepository(p.clone()))
-                as Arc<dyn moatless_vibe_backend::repository::dao::RepoRepository>
+            Arc::new(moatless_vibe_backend::repository::dao::PgRepoRepository(
+                p.clone(),
+            )) as Arc<dyn moatless_vibe_backend::repository::dao::RepoRepository>
         });
-    let sandbox_provider_tokens: Option<Arc<dyn moatless_vibe_backend::auth::provider_token_dao::ProviderTokenRepository>> =
-        db_pool.as_ref().map(|p| {
-            Arc::new(moatless_vibe_backend::auth::provider_token_dao::PgProviderTokenRepository(p.clone()))
-                as Arc<dyn moatless_vibe_backend::auth::provider_token_dao::ProviderTokenRepository>
-        });
-    let sandbox_plugin_repos: Option<Arc<dyn moatless_vibe_backend::plugin_repo::dao::PluginRepoRepository>> =
-        db_pool.as_ref().map(|p| {
-            Arc::new(moatless_vibe_backend::plugin_repo::dao::PgPluginRepoRepository(p.clone()))
-                as Arc<dyn moatless_vibe_backend::plugin_repo::dao::PluginRepoRepository>
-        });
+    let sandbox_provider_tokens: Option<
+        Arc<dyn moatless_vibe_backend::auth::provider_token_dao::ProviderTokenRepository>,
+    > = db_pool.as_ref().map(|p| {
+        Arc::new(
+            moatless_vibe_backend::auth::provider_token_dao::PgProviderTokenRepository(p.clone()),
+        )
+            as Arc<dyn moatless_vibe_backend::auth::provider_token_dao::ProviderTokenRepository>
+    });
+    let sandbox_plugin_repos: Option<
+        Arc<dyn moatless_vibe_backend::plugin_repo::dao::PluginRepoRepository>,
+    > = db_pool.as_ref().map(|p| {
+        Arc::new(moatless_vibe_backend::plugin_repo::dao::PgPluginRepoRepository(p.clone()))
+            as Arc<dyn moatless_vibe_backend::plugin_repo::dao::PluginRepoRepository>
+    });
 
     let sandbox_state = sandbox::routes::SandboxApiState {
         provider: Arc::clone(&sandbox_provider),
@@ -177,7 +189,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Domain routes (need DB)
     if let Some(pool) = db_pool {
-        let channel_providers = channel::provider::ChannelProviders::from_config(&config, pool.clone());
+        let channel_providers =
+            channel::provider::ChannelProviders::from_config(&config, pool.clone());
         let app_state = AppState::new(
             pool,
             Arc::new(config.clone()),
@@ -217,15 +230,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Ensure test API user + key (if configured)
         if let Some(ref key) = config.auth.test_api_key {
-            let api_keys = moatless_vibe_backend::auth::api_keys::PgApiKeyRepository(
-                app_state.db.clone(),
-            );
-            auth::test_user::ensure_test_user(
-                app_state.users.as_ref(),
-                &api_keys,
-                key,
-            )
-            .await;
+            let api_keys =
+                moatless_vibe_backend::auth::api_keys::PgApiKeyRepository(app_state.db.clone());
+            auth::test_user::ensure_test_user(app_state.users.as_ref(), &api_keys, key).await;
         }
 
         // Background workers
@@ -288,9 +295,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let router = if let Some(mw_state) = auth_middleware_state {
         info!("Auth middleware enabled");
         router
-            .layer(axum::middleware::from_fn(
-                auth::middleware::auth_middleware,
-            ))
+            .layer(axum::middleware::from_fn(auth::middleware::auth_middleware))
             .layer(axum::Extension(mw_state))
     } else {
         info!("Auth middleware disabled (no database)");
@@ -311,12 +316,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 // =========================================================================
 
 /// Spawn the Redis event-handler consumer if Redis is configured.
-async fn spawn_event_handler(
-    config: &Config,
-    app_state: &AppState,
-    cancel: CancellationToken,
-) {
-    let Some(ref redis_url) = config.redis.url else { return };
+async fn spawn_event_handler(config: &Config, app_state: &AppState, cancel: CancellationToken) {
+    let Some(ref redis_url) = config.redis.url else {
+        return;
+    };
 
     let client = match redis::Client::open(redis_url.as_str()) {
         Ok(c) => c,

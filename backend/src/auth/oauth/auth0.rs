@@ -5,10 +5,10 @@ use std::time::Duration;
 use async_trait::async_trait;
 use tracing::{debug, info, warn};
 
+use super::provider::OAuthProvider;
 use crate::auth::error::AuthError;
 use crate::auth::models::{OAuthTokens, ProviderUserInfo};
 use crate::config::Config;
-use super::provider::OAuthProvider;
 
 pub struct Auth0OAuthProvider {
     domain: String,

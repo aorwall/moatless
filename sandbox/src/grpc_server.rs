@@ -22,7 +22,6 @@ use crate::agent::types::AgentStatus;
 use crate::files;
 use crate::state::SandboxState;
 
-
 /// gRPC server for sandbox commands.
 pub struct SandboxServiceImpl {
     pub state: SandboxState,
@@ -122,7 +121,12 @@ impl SandboxService for SandboxServiceImpl {
                         // Ensure resolved path is within workspace directory
                         p.canonicalize()
                             .ok()
-                            .and_then(|canonical| workspace_path.canonicalize().ok().map(|ws| canonical.starts_with(ws)))
+                            .and_then(|canonical| {
+                                workspace_path
+                                    .canonicalize()
+                                    .ok()
+                                    .map(|ws| canonical.starts_with(ws))
+                            })
                             .unwrap_or(false)
                     })
                     .take(req.limit.max(1) as usize)
@@ -152,10 +156,9 @@ impl SandboxService for SandboxServiceImpl {
             &req.root_path
         };
 
-        let (tree, summary) =
-            files::tree::get_file_tree_with_changes(workspace_dir, root_path)
-                .await
-                .map_err(|e| Status::internal(format!("Failed to build file tree: {e}")))?;
+        let (tree, summary) = files::tree::get_file_tree_with_changes(workspace_dir, root_path)
+            .await
+            .map_err(|e| Status::internal(format!("Failed to build file tree: {e}")))?;
 
         Ok(Response::new(GetFileTreeResponse {
             tree: tree.into_iter().map(tree_node_to_proto).collect(),

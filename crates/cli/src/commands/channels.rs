@@ -188,8 +188,8 @@ pub async fn run(
             run_as_user_id,
             allow_direct_send,
         } => {
-            let parsed_config = parse_provider_config(provider_config.as_deref())?
-                .map(serde_json::Value::Object);
+            let parsed_config =
+                parse_provider_config(provider_config.as_deref())?.map(serde_json::Value::Object);
 
             let req = CreateChannelConfigRequest {
                 provider: parse_channel_type(&provider),
@@ -228,8 +228,8 @@ pub async fn run(
             run_as_user_id,
             allow_direct_send,
         } => {
-            let parsed_config = parse_provider_config(provider_config.as_deref())?
-                .map(serde_json::Value::Object);
+            let parsed_config =
+                parse_provider_config(provider_config.as_deref())?.map(serde_json::Value::Object);
 
             let req = UpdateChannelConfigRequest {
                 repository_id: repo,
@@ -387,9 +387,7 @@ pub async fn run(
             let task_id = task
                 .or_else(|| std::env::var("TASK_ID").ok())
                 .ok_or_else(|| {
-                    ClientError::Other(
-                        "Task ID required: use --task or set TASK_ID env var".into(),
-                    )
+                    ClientError::Other("Task ID required: use --task or set TASK_ID env var".into())
                 })?;
 
             // Build thread_properties from owner/repo if provided
@@ -508,9 +506,7 @@ fn format_defaults(provider: &str, v: &serde_json::Value) {
     );
     println!(
         "Routing mode:   {}",
-        v.get("routingMode")
-            .and_then(|v| v.as_str())
-            .unwrap_or("-")
+        v.get("routingMode").and_then(|v| v.as_str()).unwrap_or("-")
     );
     if let Some(pc) = v.get("providerConfig") {
         if !pc.is_null() {
@@ -523,11 +519,10 @@ fn parse_provider_config(
     s: Option<&str>,
 ) -> Result<Option<serde_json::Map<String, serde_json::Value>>, ClientError> {
     s.map(|s| {
-        let v: serde_json::Value =
-            serde_json::from_str(s).map_err(|e| ClientError::Api {
-                status: 0,
-                body: format!("Invalid --provider-config JSON: {e}"),
-            })?;
+        let v: serde_json::Value = serde_json::from_str(s).map_err(|e| ClientError::Api {
+            status: 0,
+            body: format!("Invalid --provider-config JSON: {e}"),
+        })?;
         match v {
             serde_json::Value::Object(map) => Ok(map),
             _ => Err(ClientError::Api {

@@ -1,4 +1,9 @@
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::print_stdout, clippy::print_stderr)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 //! End-to-end integration tests for the sandbox agent module.
 //!
 //! Test 1 (`test_agent_state_transitions`) is a pure state-machine test —
@@ -58,7 +63,11 @@ fn auth_env() -> Option<HashMap<String, String>> {
     if let Ok(key) = std::env::var("ANTHROPIC_API_KEY") {
         env.insert("ANTHROPIC_API_KEY".to_string(), key);
     }
-    if env.is_empty() { None } else { Some(env) }
+    if env.is_empty() {
+        None
+    } else {
+        Some(env)
+    }
 }
 
 /// Initialize tracing for test output (idempotent).
@@ -208,10 +217,7 @@ async fn test_agent_state_transitions() {
     let fresh = AgentState::new();
     let result = fresh.stop().await;
     assert!(result.is_err());
-    assert!(matches!(
-        result.unwrap_err(),
-        SandboxError::AgentNotRunning
-    ));
+    assert!(matches!(result.unwrap_err(), SandboxError::AgentNotRunning));
 
     // stop() cancels token when running
     let cancel = CancellationToken::new();
@@ -220,7 +226,6 @@ async fn test_agent_state_transitions() {
     assert!(!cancel_clone.is_cancelled());
     fresh.stop().await.expect("stop should succeed");
     assert!(cancel_clone.is_cancelled());
-
 }
 
 // ===========================================================================
@@ -323,15 +328,12 @@ async fn test_ask_user_question_flow() {
                        Use exactly one question with two options: Blue and Red. \
                        After the user answers, respond with 'Your favorite color is: <answer>'.";
 
-        let mut handle = query(prompt, options)
-            .await
-            .expect("Failed to start query");
+        let mut handle = query(prompt, options).await.expect("Failed to start query");
 
         // Spawn a task to resolve the prompt
         let state_for_resolver = agent_state.clone();
         let resolver = tokio::spawn(async move {
-            let found =
-                wait_for_pending_prompt(&state_for_resolver, Duration::from_secs(60)).await;
+            let found = wait_for_pending_prompt(&state_for_resolver, Duration::from_secs(60)).await;
             assert!(found, "Timed out waiting for pending prompt");
 
             // Verify it's AskUserQuestion
@@ -418,9 +420,7 @@ async fn test_exit_plan_mode_flow() {
 
         let prompt = "Write a simple hello world Python script and save it to hello.py";
 
-        let mut handle = query(prompt, options)
-            .await
-            .expect("Failed to start query");
+        let mut handle = query(prompt, options).await.expect("Failed to start query");
 
         // Track whether the ExitPlanMode flow was exercised
         let plan_approved = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -429,8 +429,7 @@ async fn test_exit_plan_mode_flow() {
         // Spawn a task to approve the plan
         let state_for_resolver = agent_state.clone();
         let resolver = tokio::spawn(async move {
-            let found =
-                wait_for_pending_prompt(&state_for_resolver, Duration::from_secs(60)).await;
+            let found = wait_for_pending_prompt(&state_for_resolver, Duration::from_secs(60)).await;
             assert!(found, "Timed out waiting for pending prompt (ExitPlanMode)");
 
             let tool_name = state_for_resolver
@@ -525,19 +524,14 @@ async fn test_cancel_during_pending_prompt() {
                        what their favorite color is. Use exactly one question \
                        with two options: Blue and Red.";
 
-        let mut handle = query(prompt, options)
-            .await
-            .expect("Failed to start query");
+        let mut handle = query(prompt, options).await.expect("Failed to start query");
 
         // Wait for the pending prompt, then cancel instead of resolving
         let state_for_canceller = agent_state.clone();
         let canceller = tokio::spawn(async move {
             let found =
                 wait_for_pending_prompt(&state_for_canceller, Duration::from_secs(60)).await;
-            assert!(
-                found,
-                "Timed out waiting for pending prompt before cancel"
-            );
+            assert!(found, "Timed out waiting for pending prompt before cancel");
 
             eprintln!("Pending prompt detected, cancelling agent...");
 
@@ -555,10 +549,7 @@ async fn test_cancel_during_pending_prompt() {
 
         // The agent should have terminated — either with a Result or
         // the channel just closed. Both are acceptable.
-        eprintln!(
-            "Messages received after cancel: {}",
-            messages.len()
-        );
+        eprintln!("Messages received after cancel: {}", messages.len());
 
         // Verify agent state is Stopped
         assert_eq!(

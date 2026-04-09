@@ -39,15 +39,28 @@ pub trait RepoRepository: Send + Sync {
     /// Find by id (internal, no access control).
     async fn find_repository_by_id(&self, id: &str) -> Result<Option<Repository>, sqlx::Error>;
     /// Find by id, scoped to access control.
-    async fn find_by_id(&self, id: &str, ctx: &ScopeContext) -> Result<Option<Repository>, sqlx::Error>;
+    async fn find_by_id(
+        &self,
+        id: &str,
+        ctx: &ScopeContext,
+    ) -> Result<Option<Repository>, sqlx::Error>;
     async fn list_all(&self, ctx: &ScopeContext) -> Result<Vec<Repository>, sqlx::Error>;
     async fn insert(&self, row: &Repository) -> Result<(), sqlx::Error>;
     async fn update(&self, id: &str, patch: &RepositoryPatch) -> Result<bool, sqlx::Error>;
     async fn soft_delete(&self, id: &str) -> Result<bool, sqlx::Error>;
-    async fn find_by_name_and_user(&self, name: &str, user_id: &str) -> Result<Option<Repository>, sqlx::Error>;
-    async fn find_names_by_ids(&self, ids: &[String]) -> Result<Vec<(String, String)>, sqlx::Error>;
+    async fn find_by_name_and_user(
+        &self,
+        name: &str,
+        user_id: &str,
+    ) -> Result<Option<Repository>, sqlx::Error>;
+    async fn find_names_by_ids(&self, ids: &[String])
+        -> Result<Vec<(String, String)>, sqlx::Error>;
     /// Check if a repository exists by name and creator, **including** soft-deleted rows.
-    async fn exists_by_name_including_deleted(&self, name: &str, created_by: &str) -> Result<bool, sqlx::Error>;
+    async fn exists_by_name_including_deleted(
+        &self,
+        name: &str,
+        created_by: &str,
+    ) -> Result<bool, sqlx::Error>;
 }
 
 /// PostgreSQL implementation of [`RepoRepository`].
@@ -59,18 +72,23 @@ impl RepoRepository for PgRepoRepository {
         sqlx::query_as::<_, Repository>(
             "SELECT * FROM repositories WHERE id = $1 AND (deleted IS NULL OR deleted = false)",
         )
-            .bind(id)
-            .fetch_optional(&self.0)
-            .await
+        .bind(id)
+        .fetch_optional(&self.0)
+        .await
     }
 
-    async fn find_by_id(&self, id: &str, ctx: &ScopeContext) -> Result<Option<Repository>, sqlx::Error> {
+    async fn find_by_id(
+        &self,
+        id: &str,
+        ctx: &ScopeContext,
+    ) -> Result<Option<Repository>, sqlx::Error> {
         let access = ctx.access_filter(ScopedEntity::Repository, "", 2);
         let sql = format!(
             "SELECT * FROM repositories \
              WHERE id = $1 \
              AND (deleted IS NULL OR deleted = false) \
-             AND {}", access.sql()
+             AND {}",
+            access.sql()
         );
         sqlx::query_as::<_, Repository>(&sql)
             .bind(id)
@@ -87,7 +105,8 @@ impl RepoRepository for PgRepoRepository {
             "SELECT * FROM repositories \
              WHERE (deleted IS NULL OR deleted = false) \
              AND {} \
-             ORDER BY name ASC", access.sql()
+             ORDER BY name ASC",
+            access.sql()
         );
         sqlx::query_as::<_, Repository>(&sql)
             .bind(ctx.is_admin)
@@ -248,19 +267,26 @@ impl RepoRepository for PgRepoRepository {
         Ok(result.rows_affected() > 0)
     }
 
-    async fn find_by_name_and_user(&self, name: &str, user_id: &str) -> Result<Option<Repository>, sqlx::Error> {
+    async fn find_by_name_and_user(
+        &self,
+        name: &str,
+        user_id: &str,
+    ) -> Result<Option<Repository>, sqlx::Error> {
         sqlx::query_as::<_, Repository>(
             "SELECT * FROM repositories \
              WHERE name = $1 AND created_by = $2 \
              AND (deleted IS NULL OR deleted = false)",
         )
-            .bind(name)
-            .bind(user_id)
-            .fetch_optional(&self.0)
-            .await
+        .bind(name)
+        .bind(user_id)
+        .fetch_optional(&self.0)
+        .await
     }
 
-    async fn find_names_by_ids(&self, ids: &[String]) -> Result<Vec<(String, String)>, sqlx::Error> {
+    async fn find_names_by_ids(
+        &self,
+        ids: &[String],
+    ) -> Result<Vec<(String, String)>, sqlx::Error> {
         if ids.is_empty() {
             return Ok(Vec::new());
         }
@@ -272,9 +298,13 @@ impl RepoRepository for PgRepoRepository {
         .await
     }
 
-    async fn exists_by_name_including_deleted(&self, name: &str, created_by: &str) -> Result<bool, sqlx::Error> {
+    async fn exists_by_name_including_deleted(
+        &self,
+        name: &str,
+        created_by: &str,
+    ) -> Result<bool, sqlx::Error> {
         let row: Option<(i32,)> = sqlx::query_as(
-            "SELECT 1 FROM repositories WHERE name = $1 AND created_by = $2 LIMIT 1"
+            "SELECT 1 FROM repositories WHERE name = $1 AND created_by = $2 LIMIT 1",
         )
         .bind(name)
         .bind(created_by)
@@ -294,7 +324,11 @@ pub async fn insert(pool: &DbPool, row: &Repository) -> Result<(), sqlx::Error> 
 }
 
 /// Find by id scoped to access control (convenience wrapper).
-pub async fn find_by_id(pool: &DbPool, id: &str, ctx: &ScopeContext) -> Result<Option<Repository>, sqlx::Error> {
+pub async fn find_by_id(
+    pool: &DbPool,
+    id: &str,
+    ctx: &ScopeContext,
+) -> Result<Option<Repository>, sqlx::Error> {
     PgRepoRepository(pool.clone()).find_by_id(id, ctx).await
 }
 
@@ -314,6 +348,12 @@ pub async fn soft_delete(pool: &DbPool, id: &str) -> Result<bool, sqlx::Error> {
 }
 
 /// Find by name and user (convenience wrapper).
-pub async fn find_by_name_and_user(pool: &DbPool, name: &str, user_id: &str) -> Result<Option<Repository>, sqlx::Error> {
-    PgRepoRepository(pool.clone()).find_by_name_and_user(name, user_id).await
+pub async fn find_by_name_and_user(
+    pool: &DbPool,
+    name: &str,
+    user_id: &str,
+) -> Result<Option<Repository>, sqlx::Error> {
+    PgRepoRepository(pool.clone())
+        .find_by_name_and_user(name, user_id)
+        .await
 }

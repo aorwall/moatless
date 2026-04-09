@@ -47,7 +47,11 @@ pub trait ChannelThreadRepository: Send + Sync {
     ) -> Result<ChannelThread, sqlx::Error>;
 
     /// Update last_message_at and optionally merge properties.
-    async fn touch(&self, id: i32, properties: Option<&serde_json::Value>) -> Result<(), sqlx::Error>;
+    async fn touch(
+        &self,
+        id: i32,
+        properties: Option<&serde_json::Value>,
+    ) -> Result<(), sqlx::Error>;
 
     /// Replace external_thread_id and properties for a pending thread
     /// after the first outbound message has been sent.
@@ -122,12 +126,10 @@ impl ChannelThreadRepository for PgChannelThreadRepository {
     }
 
     async fn find_by_task_id(&self, task_id: &str) -> Result<Vec<ChannelThread>, sqlx::Error> {
-        sqlx::query_as::<_, ChannelThread>(
-            "SELECT * FROM channel_threads WHERE task_id = $1",
-        )
-        .bind(task_id)
-        .fetch_all(&self.0)
-        .await
+        sqlx::query_as::<_, ChannelThread>("SELECT * FROM channel_threads WHERE task_id = $1")
+            .bind(task_id)
+            .fetch_all(&self.0)
+            .await
     }
 
     async fn find_by_task_id_and_config(
@@ -164,7 +166,11 @@ impl ChannelThreadRepository for PgChannelThreadRepository {
         .await
     }
 
-    async fn touch(&self, id: i32, properties: Option<&serde_json::Value>) -> Result<(), sqlx::Error> {
+    async fn touch(
+        &self,
+        id: i32,
+        properties: Option<&serde_json::Value>,
+    ) -> Result<(), sqlx::Error> {
         if let Some(props) = properties {
             sqlx::query(
                 r#"UPDATE channel_threads

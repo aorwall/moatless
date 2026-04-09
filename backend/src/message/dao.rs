@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
-use super::models::{TaskMessageContentBlock, TaskMessageContext, TaskMessage};
+use super::models::{TaskMessage, TaskMessageContentBlock, TaskMessageContext};
 use crate::db::DbPool;
 
 /// Repository trait for message persistence.
@@ -15,7 +15,14 @@ pub trait MessageRepository: Send + Sync {
     async fn get_all(
         &self,
         task_id: &str,
-    ) -> Result<(Vec<TaskMessage>, Vec<TaskMessageContext>, Vec<TaskMessageContentBlock>), sqlx::Error>;
+    ) -> Result<
+        (
+            Vec<TaskMessage>,
+            Vec<TaskMessageContext>,
+            Vec<TaskMessageContentBlock>,
+        ),
+        sqlx::Error,
+    >;
 
     async fn append(
         &self,
@@ -26,14 +33,35 @@ pub trait MessageRepository: Send + Sync {
 
     async fn get_pending_user(&self, task_id: &str) -> Result<Vec<TaskMessage>, sqlx::Error>;
     async fn get_last_result(&self, task_id: &str) -> Result<Option<TaskMessage>, sqlx::Error>;
-    async fn get_last_user_message(&self, task_id: &str) -> Result<Option<TaskMessage>, sqlx::Error>;
+    async fn get_last_user_message(
+        &self,
+        task_id: &str,
+    ) -> Result<Option<TaskMessage>, sqlx::Error>;
     async fn get_latest_session_id(&self, task_id: &str) -> Result<Option<String>, sqlx::Error>;
-    async fn get_latest_agent_session_id(&self, task_id: &str) -> Result<Option<String>, sqlx::Error>;
-    async fn set_session_id_for_task(&self, task_id: &str, session_id: &str) -> Result<u64, sqlx::Error>;
-    async fn acknowledge_messages(&self, task_id: &str, uuids: &[String], session_id: &str) -> Result<u64, sqlx::Error>;
+    async fn get_latest_agent_session_id(
+        &self,
+        task_id: &str,
+    ) -> Result<Option<String>, sqlx::Error>;
+    async fn set_session_id_for_task(
+        &self,
+        task_id: &str,
+        session_id: &str,
+    ) -> Result<u64, sqlx::Error>;
+    async fn acknowledge_messages(
+        &self,
+        task_id: &str,
+        uuids: &[String],
+        session_id: &str,
+    ) -> Result<u64, sqlx::Error>;
     async fn delete_queued(&self, task_id: &str, message_uuid: &str) -> Result<bool, sqlx::Error>;
-    async fn get_last_message_type(&self, task_id: &str) -> Result<Option<super::models::MessageType>, sqlx::Error>;
-    async fn get_latest_message_times(&self, task_ids: &[String]) -> Result<HashMap<String, DateTime<Utc>>, sqlx::Error>;
+    async fn get_last_message_type(
+        &self,
+        task_id: &str,
+    ) -> Result<Option<super::models::MessageType>, sqlx::Error>;
+    async fn get_latest_message_times(
+        &self,
+        task_ids: &[String],
+    ) -> Result<HashMap<String, DateTime<Utc>>, sqlx::Error>;
     async fn set_channel_external_id(
         &self,
         message_uuid: &str,
@@ -46,10 +74,7 @@ pub trait MessageRepository: Send + Sync {
         external_id: &str,
     ) -> Result<bool, sqlx::Error>;
 
-    async fn get_channel_external_ids(
-        &self,
-        task_id: &str,
-    ) -> Result<Vec<String>, sqlx::Error>;
+    async fn get_channel_external_ids(&self, task_id: &str) -> Result<Vec<String>, sqlx::Error>;
 }
 
 /// PostgreSQL implementation of [`MessageRepository`].
@@ -60,7 +85,14 @@ impl MessageRepository for PgMessageRepository {
     async fn get_all(
         &self,
         task_id: &str,
-    ) -> Result<(Vec<TaskMessage>, Vec<TaskMessageContext>, Vec<TaskMessageContentBlock>), sqlx::Error> {
+    ) -> Result<
+        (
+            Vec<TaskMessage>,
+            Vec<TaskMessageContext>,
+            Vec<TaskMessageContentBlock>,
+        ),
+        sqlx::Error,
+    > {
         let (messages, contexts, blocks) = tokio::try_join!(
             sqlx::query_as::<_, TaskMessage>(
                 r#"SELECT * FROM task_messages
@@ -238,7 +270,10 @@ impl MessageRepository for PgMessageRepository {
         .await
     }
 
-    async fn get_last_user_message(&self, task_id: &str) -> Result<Option<TaskMessage>, sqlx::Error> {
+    async fn get_last_user_message(
+        &self,
+        task_id: &str,
+    ) -> Result<Option<TaskMessage>, sqlx::Error> {
         sqlx::query_as::<_, TaskMessage>(
             r#"SELECT * FROM task_messages
             WHERE task_id = $1 AND message_type = 'user'
@@ -264,7 +299,10 @@ impl MessageRepository for PgMessageRepository {
         Ok(row.and_then(|r| r.0))
     }
 
-    async fn get_latest_agent_session_id(&self, task_id: &str) -> Result<Option<String>, sqlx::Error> {
+    async fn get_latest_agent_session_id(
+        &self,
+        task_id: &str,
+    ) -> Result<Option<String>, sqlx::Error> {
         let row: Option<(Option<String>,)> = sqlx::query_as(
             r#"SELECT agent_session_id FROM task_messages
                WHERE task_id = $1 AND agent_session_id IS NOT NULL
@@ -278,7 +316,11 @@ impl MessageRepository for PgMessageRepository {
         Ok(row.and_then(|r| r.0))
     }
 
-    async fn set_session_id_for_task(&self, task_id: &str, session_id: &str) -> Result<u64, sqlx::Error> {
+    async fn set_session_id_for_task(
+        &self,
+        task_id: &str,
+        session_id: &str,
+    ) -> Result<u64, sqlx::Error> {
         let result = sqlx::query(
             r#"UPDATE task_messages
                SET session_id = $2, agent_session_id = $2, sent_at = NOW()
@@ -294,7 +336,12 @@ impl MessageRepository for PgMessageRepository {
         Ok(result.rows_affected())
     }
 
-    async fn acknowledge_messages(&self, task_id: &str, uuids: &[String], session_id: &str) -> Result<u64, sqlx::Error> {
+    async fn acknowledge_messages(
+        &self,
+        task_id: &str,
+        uuids: &[String],
+        session_id: &str,
+    ) -> Result<u64, sqlx::Error> {
         let result = sqlx::query(
             r#"UPDATE task_messages
                SET sent_at = NOW(), session_id = $3, agent_session_id = $3
@@ -324,7 +371,10 @@ impl MessageRepository for PgMessageRepository {
         Ok(result.rows_affected() > 0)
     }
 
-    async fn get_last_message_type(&self, task_id: &str) -> Result<Option<super::models::MessageType>, sqlx::Error> {
+    async fn get_last_message_type(
+        &self,
+        task_id: &str,
+    ) -> Result<Option<super::models::MessageType>, sqlx::Error> {
         let row: Option<(super::models::MessageType,)> = sqlx::query_as(
             r#"SELECT message_type FROM task_messages
                WHERE task_id = $1
@@ -337,7 +387,10 @@ impl MessageRepository for PgMessageRepository {
         Ok(row.map(|r| r.0))
     }
 
-    async fn get_latest_message_times(&self, task_ids: &[String]) -> Result<HashMap<String, DateTime<Utc>>, sqlx::Error> {
+    async fn get_latest_message_times(
+        &self,
+        task_ids: &[String],
+    ) -> Result<HashMap<String, DateTime<Utc>>, sqlx::Error> {
         if task_ids.is_empty() {
             return Ok(HashMap::new());
         }
@@ -392,10 +445,7 @@ impl MessageRepository for PgMessageRepository {
         Ok(row.0)
     }
 
-    async fn get_channel_external_ids(
-        &self,
-        task_id: &str,
-    ) -> Result<Vec<String>, sqlx::Error> {
+    async fn get_channel_external_ids(&self, task_id: &str) -> Result<Vec<String>, sqlx::Error> {
         let rows: Vec<(String,)> = sqlx::query_as(
             r#"SELECT channel_external_id FROM task_messages
                WHERE task_id = $1 AND channel_external_id IS NOT NULL"#,
@@ -419,38 +469,76 @@ pub async fn append(
     contexts: &[TaskMessageContext],
     content_blocks: &[TaskMessageContentBlock],
 ) -> Result<i32, sqlx::Error> {
-    PgMessageRepository(pool.clone()).append(msg, contexts, content_blocks).await
+    PgMessageRepository(pool.clone())
+        .append(msg, contexts, content_blocks)
+        .await
 }
 
 /// Get all messages, contexts, and content blocks for a task (convenience wrapper).
 pub async fn get_all(
     pool: &DbPool,
     task_id: &str,
-) -> Result<(Vec<TaskMessage>, Vec<TaskMessageContext>, Vec<TaskMessageContentBlock>), sqlx::Error> {
+) -> Result<
+    (
+        Vec<TaskMessage>,
+        Vec<TaskMessageContext>,
+        Vec<TaskMessageContentBlock>,
+    ),
+    sqlx::Error,
+> {
     PgMessageRepository(pool.clone()).get_all(task_id).await
 }
 
 /// Get pending user messages (convenience wrapper).
-pub async fn get_pending_user(pool: &DbPool, task_id: &str) -> Result<Vec<TaskMessage>, sqlx::Error> {
-    PgMessageRepository(pool.clone()).get_pending_user(task_id).await
+pub async fn get_pending_user(
+    pool: &DbPool,
+    task_id: &str,
+) -> Result<Vec<TaskMessage>, sqlx::Error> {
+    PgMessageRepository(pool.clone())
+        .get_pending_user(task_id)
+        .await
 }
 
 /// Set session_id for all pending messages (convenience wrapper).
-pub async fn set_session_id_for_task(pool: &DbPool, task_id: &str, session_id: &str) -> Result<u64, sqlx::Error> {
-    PgMessageRepository(pool.clone()).set_session_id_for_task(task_id, session_id).await
+pub async fn set_session_id_for_task(
+    pool: &DbPool,
+    task_id: &str,
+    session_id: &str,
+) -> Result<u64, sqlx::Error> {
+    PgMessageRepository(pool.clone())
+        .set_session_id_for_task(task_id, session_id)
+        .await
 }
 
 /// Get the last result message (convenience wrapper).
-pub async fn get_last_result(pool: &DbPool, task_id: &str) -> Result<Option<TaskMessage>, sqlx::Error> {
-    PgMessageRepository(pool.clone()).get_last_result(task_id).await
+pub async fn get_last_result(
+    pool: &DbPool,
+    task_id: &str,
+) -> Result<Option<TaskMessage>, sqlx::Error> {
+    PgMessageRepository(pool.clone())
+        .get_last_result(task_id)
+        .await
 }
 
 /// Acknowledge messages with a session_id (convenience wrapper).
-pub async fn acknowledge_messages(pool: &DbPool, task_id: &str, uuids: &[String], session_id: &str) -> Result<u64, sqlx::Error> {
-    PgMessageRepository(pool.clone()).acknowledge_messages(task_id, uuids, session_id).await
+pub async fn acknowledge_messages(
+    pool: &DbPool,
+    task_id: &str,
+    uuids: &[String],
+    session_id: &str,
+) -> Result<u64, sqlx::Error> {
+    PgMessageRepository(pool.clone())
+        .acknowledge_messages(task_id, uuids, session_id)
+        .await
 }
 
 /// Delete a queued message (convenience wrapper).
-pub async fn delete_queued(pool: &DbPool, task_id: &str, message_uuid: &str) -> Result<bool, sqlx::Error> {
-    PgMessageRepository(pool.clone()).delete_queued(task_id, message_uuid).await
+pub async fn delete_queued(
+    pool: &DbPool,
+    task_id: &str,
+    message_uuid: &str,
+) -> Result<bool, sqlx::Error> {
+    PgMessageRepository(pool.clone())
+        .delete_queued(task_id, message_uuid)
+        .await
 }

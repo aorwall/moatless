@@ -14,9 +14,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
 use crate::channel::error::ChannelError;
-use crate::channel::models::{
-    ChannelConfig, ChannelThread, InboundMessage, OutboundReply,
-};
+use crate::channel::models::{ChannelConfig, ChannelThread, InboundMessage, OutboundReply};
 use crate::channel::provider::{ChannelProvider, ChannelType};
 use crate::db::DbPool;
 
@@ -197,7 +195,6 @@ impl ChannelProvider for WebhookProvider {
             }
         }
     }
-
 }
 
 #[cfg(test)]

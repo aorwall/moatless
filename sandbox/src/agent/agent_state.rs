@@ -7,8 +7,8 @@ use tokio_util::sync::CancellationToken;
 
 use super::prompt::PendingPrompt;
 
-use crate::error::SandboxError;
 use super::types::AgentStatus;
+use crate::error::SandboxError;
 
 /// Shared agent execution state, protected by RwLock for concurrent reads.
 pub struct AgentState {
@@ -310,5 +310,4 @@ mod tests {
         state.set_running(token).await;
         assert!(!state.has_pending_prompt().await);
     }
-
 }

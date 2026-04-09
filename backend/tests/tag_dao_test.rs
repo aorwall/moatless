@@ -1,5 +1,10 @@
 #![cfg(feature = "db-tests")]
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::print_stdout, clippy::print_stderr)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 //! Integration tests for tag_dao.
 
 mod common;
@@ -51,12 +56,9 @@ async fn find_or_create_existing_tags(pool: PgPool) {
 async fn set_task_tags(pool: PgPool) {
     seed_task(&pool, "task-tags", "user-1").await;
 
-    let tags = tag_dao::find_or_create_tags(
-        &pool,
-        &["alpha".to_string(), "beta".to_string()],
-    )
-    .await
-    .unwrap();
+    let tags = tag_dao::find_or_create_tags(&pool, &["alpha".to_string(), "beta".to_string()])
+        .await
+        .unwrap();
     let tag_ids: Vec<String> = tags.iter().map(|t| t.tag_id.clone()).collect();
 
     tag_dao::set_task_tags(&pool, "task-tags", &tag_ids)
@@ -77,24 +79,18 @@ async fn set_task_tags_replaces(pool: PgPool) {
     seed_task(&pool, "task-replace", "user-1").await;
 
     // Set tags A, B
-    let tags_ab = tag_dao::find_or_create_tags(
-        &pool,
-        &["A".to_string(), "B".to_string()],
-    )
-    .await
-    .unwrap();
+    let tags_ab = tag_dao::find_or_create_tags(&pool, &["A".to_string(), "B".to_string()])
+        .await
+        .unwrap();
     let ids_ab: Vec<String> = tags_ab.iter().map(|t| t.tag_id.clone()).collect();
     tag_dao::set_task_tags(&pool, "task-replace", &ids_ab)
         .await
         .unwrap();
 
     // Replace with B, C
-    let tags_bc = tag_dao::find_or_create_tags(
-        &pool,
-        &["B".to_string(), "C".to_string()],
-    )
-    .await
-    .unwrap();
+    let tags_bc = tag_dao::find_or_create_tags(&pool, &["B".to_string(), "C".to_string()])
+        .await
+        .unwrap();
     let ids_bc: Vec<String> = tags_bc.iter().map(|t| t.tag_id.clone()).collect();
     tag_dao::set_task_tags(&pool, "task-replace", &ids_bc)
         .await
@@ -126,12 +122,9 @@ async fn get_tags_for_tasks_batch(pool: PgPool) {
         .await
         .unwrap();
 
-    let tags = tag_dao::find_or_create_tags(
-        &pool,
-        &["x".to_string(), "y".to_string()],
-    )
-    .await
-    .unwrap();
+    let tags = tag_dao::find_or_create_tags(&pool, &["x".to_string(), "y".to_string()])
+        .await
+        .unwrap();
     let x_id = &tags.iter().find(|t| t.name == "x").unwrap().tag_id;
     let y_id = &tags.iter().find(|t| t.name == "y").unwrap().tag_id;
 

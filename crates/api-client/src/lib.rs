@@ -157,9 +157,7 @@ impl ApiClient {
     // ========================================================================
 
     /// GET /api/v1/auth/me
-    pub async fn me(
-        &self,
-    ) -> Result<moatless_api_schemas::auth::SessionResponse, ApiError> {
+    pub async fn me(&self) -> Result<moatless_api_schemas::auth::SessionResponse, ApiError> {
         self.get("/api/v1/auth/me").await
     }
 
@@ -311,10 +309,8 @@ impl ApiClient {
         &self,
         task_id: &str,
     ) -> Result<moatless_api_schemas::sandbox::ProvisionResponse, ApiError> {
-        self.post_no_body(&format!(
-            "/api/sandbox/v1/tasks/{task_id}/provision"
-        ))
-        .await
+        self.post_no_body(&format!("/api/sandbox/v1/tasks/{task_id}/provision"))
+            .await
     }
 
     /// POST /api/sandbox/v1/tasks/{task_id}/redeploy
@@ -322,10 +318,8 @@ impl ApiClient {
         &self,
         task_id: &str,
     ) -> Result<moatless_api_schemas::sandbox::ProvisionResponse, ApiError> {
-        self.post_no_body(&format!(
-            "/api/sandbox/v1/tasks/{task_id}/redeploy"
-        ))
-        .await
+        self.post_no_body(&format!("/api/sandbox/v1/tasks/{task_id}/redeploy"))
+            .await
     }
 
     /// POST /api/sandbox/v1/tasks/{task_id}/cleanup
@@ -334,23 +328,23 @@ impl ApiClient {
             .await
     }
 
-    /// GET /api/sandbox/v1/tasks/{task_id}/files
+    /// GET /api/sandbox/v1/tasks/{task_id}/files/list
     pub async fn list_files(
         &self,
         task_id: &str,
     ) -> Result<moatless_api_schemas::sandbox::ListFilesResponse, ApiError> {
-        self.get(&format!("/api/sandbox/v1/tasks/{task_id}/files"))
+        self.get(&format!("/api/sandbox/v1/tasks/{task_id}/files/list"))
             .await
     }
 
-    /// GET /api/sandbox/v1/tasks/{task_id}/files/content?path={path}
+    /// GET /api/sandbox/v1/tasks/{task_id}/files/read?path={path}
     pub async fn read_file(
         &self,
         task_id: &str,
         path: &str,
     ) -> Result<moatless_api_schemas::sandbox::FileContentResponse, ApiError> {
         self.get(&format!(
-            "/api/sandbox/v1/tasks/{task_id}/files/content?path={}",
+            "/api/sandbox/v1/tasks/{task_id}/files/read?path={}",
             urlenc(path)
         ))
         .await
@@ -375,10 +369,8 @@ impl ApiClient {
         &self,
         task_id: &str,
     ) -> Result<moatless_api_schemas::sandbox::FileTreeResponse, ApiError> {
-        self.get(&format!(
-            "/api/sandbox/v1/tasks/{task_id}/files/tree"
-        ))
-        .await
+        self.get(&format!("/api/sandbox/v1/tasks/{task_id}/files/tree"))
+            .await
     }
 
     /// POST /api/sandbox/v1/tasks/{task_id}/files/search-by-name
@@ -455,10 +447,8 @@ impl ApiClient {
         &self,
         repo_id: &str,
     ) -> Result<moatless_api_schemas::repository::RepositoryResponse, ApiError> {
-        self.post_no_body(&format!(
-            "/api/v1/repositories/{repo_id}/sync-config"
-        ))
-        .await
+        self.post_no_body(&format!("/api/v1/repositories/{repo_id}/sync-config"))
+            .await
     }
 
     // ========================================================================
@@ -612,11 +602,8 @@ impl ApiClient {
         config_id: &str,
         req: &moatless_api_schemas::channel::DirectSendRequest,
     ) -> Result<moatless_api_schemas::channel::DirectSendResponse, ApiError> {
-        self.post(
-            &format!("/api/v1/channels/configs/{config_id}/send"),
-            req,
-        )
-        .await
+        self.post(&format!("/api/v1/channels/configs/{config_id}/send"), req)
+            .await
     }
 
     // ========================================================================
@@ -702,15 +689,9 @@ impl ApiClient {
     }
 
     /// DELETE /api/v1/teams/{team_id}/members/{user_id}
-    pub async fn remove_member(
-        &self,
-        team_id: &str,
-        user_id: &str,
-    ) -> Result<(), ApiError> {
-        self.delete_request(&format!(
-            "/api/v1/teams/{team_id}/members/{user_id}"
-        ))
-        .await
+    pub async fn remove_member(&self, team_id: &str, user_id: &str) -> Result<(), ApiError> {
+        self.delete_request(&format!("/api/v1/teams/{team_id}/members/{user_id}"))
+            .await
     }
 
     /// PUT /api/v1/teams/{team_id}/credentials/{provider}
@@ -738,15 +719,9 @@ impl ApiClient {
     }
 
     /// DELETE /api/v1/teams/{team_id}/credentials/{provider}
-    pub async fn delete_credential(
-        &self,
-        team_id: &str,
-        provider: &str,
-    ) -> Result<(), ApiError> {
-        self.delete_request(&format!(
-            "/api/v1/teams/{team_id}/credentials/{provider}"
-        ))
-        .await
+    pub async fn delete_credential(&self, team_id: &str, provider: &str) -> Result<(), ApiError> {
+        self.delete_request(&format!("/api/v1/teams/{team_id}/credentials/{provider}"))
+            .await
     }
 
     // ========================================================================
@@ -792,9 +767,7 @@ impl ApiClient {
     }
 
     /// GET /api/v1/tags
-    pub async fn list_tags(
-        &self,
-    ) -> Result<Vec<moatless_api_schemas::tag::TagResponse>, ApiError> {
+    pub async fn list_tags(&self) -> Result<Vec<moatless_api_schemas::tag::TagResponse>, ApiError> {
         self.get("/api/v1/tags").await
     }
 

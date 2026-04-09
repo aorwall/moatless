@@ -71,10 +71,14 @@ impl FromStr for AuthProvider {
 /// Logs a warning if the env var is set but cannot be parsed.
 fn env_or<T: FromStr>(key: &str, default: T) -> T {
     match env::var(key) {
-        Ok(v) => if let Ok(parsed) = v.parse() { parsed } else {
-            tracing::warn!(key, value = %v, "Failed to parse env var, using default");
-            default
-        },
+        Ok(v) => {
+            if let Ok(parsed) = v.parse() {
+                parsed
+            } else {
+                tracing::warn!(key, value = %v, "Failed to parse env var, using default");
+                default
+            }
+        }
         Err(_) => default,
     }
 }
@@ -270,24 +274,45 @@ impl fmt::Debug for AuthConfig {
         f.debug_struct("AuthConfig")
             .field("provider", &self.provider)
             .field("github_client_id", &self.github_client_id)
-            .field("github_client_secret", &self.github_client_secret.as_ref().map(|_| "[REDACTED]"))
+            .field(
+                "github_client_secret",
+                &self.github_client_secret.as_ref().map(|_| "[REDACTED]"),
+            )
             .field("github_callback_url", &self.github_callback_url)
             .field("auth0_domain", &self.auth0_domain)
             .field("auth0_client_id", &self.auth0_client_id)
-            .field("auth0_client_secret", &self.auth0_client_secret.as_ref().map(|_| "[REDACTED]"))
+            .field(
+                "auth0_client_secret",
+                &self.auth0_client_secret.as_ref().map(|_| "[REDACTED]"),
+            )
             .field("auth0_callback_url", &self.auth0_callback_url)
             .field("session_max_age_secs", &self.session_max_age_secs)
             .field("frontend_url", &self.frontend_url)
             .field("cookie_domain", &self.cookie_domain)
             .field("is_production", &self.is_production)
-            .field("session_jwt_secret", &self.session_jwt_secret.as_ref().map(|_| "[REDACTED]"))
-            .field("test_api_key", &self.test_api_key.as_ref().map(|_| "[REDACTED]"))
+            .field(
+                "session_jwt_secret",
+                &self.session_jwt_secret.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field(
+                "test_api_key",
+                &self.test_api_key.as_ref().map(|_| "[REDACTED]"),
+            )
             .field("github_app_client_id", &self.github_app_client_id)
-            .field("github_app_client_secret", &self.github_app_client_secret.as_ref().map(|_| "[REDACTED]"))
+            .field(
+                "github_app_client_secret",
+                &self.github_app_client_secret.as_ref().map(|_| "[REDACTED]"),
+            )
             .field("github_app_callback_url", &self.github_app_callback_url)
             .field("github_app_id", &self.github_app_id)
-            .field("github_app_private_key", &self.github_app_private_key.as_ref().map(|_| "[REDACTED]"))
-            .field("github_app_default_installation_id", &self.github_app_default_installation_id)
+            .field(
+                "github_app_private_key",
+                &self.github_app_private_key.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field(
+                "github_app_default_installation_id",
+                &self.github_app_default_installation_id,
+            )
             .finish()
     }
 }
@@ -321,7 +346,10 @@ impl fmt::Debug for SlackConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SlackConfig")
             .field("bot_token", &self.bot_token.as_ref().map(|_| "[REDACTED]"))
-            .field("signing_secret", &self.signing_secret.as_ref().map(|_| "[REDACTED]"))
+            .field(
+                "signing_secret",
+                &self.signing_secret.as_ref().map(|_| "[REDACTED]"),
+            )
             .field("bot_user_id", &self.bot_user_id)
             .finish()
     }
@@ -363,7 +391,10 @@ pub struct GithubPrConfig {
 impl fmt::Debug for GithubPrConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("GithubPrConfig")
-            .field("webhook_secret", &self.webhook_secret.as_ref().map(|_| "[REDACTED]"))
+            .field(
+                "webhook_secret",
+                &self.webhook_secret.as_ref().map(|_| "[REDACTED]"),
+            )
             .field("bot_token", &self.bot_token.as_ref().map(|_| "[REDACTED]"))
             .finish()
     }
@@ -482,7 +513,10 @@ impl Config {
             proxy: ProxyConfig {
                 domain: env_opt("PROXY_DOMAIN"),
                 protocol: env_str("PROXY_PROTOCOL", "https"),
-                traefik_auth_middleware_name: env_str("TRAEFIK_AUTH_MIDDLEWARE_NAME", "preview-auth"),
+                traefik_auth_middleware_name: env_str(
+                    "TRAEFIK_AUTH_MIDDLEWARE_NAME",
+                    "preview-auth",
+                ),
                 traefik_auth_middleware_namespace: env::var("TRAEFIK_AUTH_MIDDLEWARE_NAMESPACE")
                     .unwrap_or(sandbox_namespace),
                 traefik_entry_point: env_str("TRAEFIK_ENTRY_POINT", "websecure"),
@@ -500,7 +534,12 @@ impl Config {
                 enable_socket_mount: env_bool("DOCKER_ENABLE_SOCKET_MOUNT", false),
                 socket_path: env_str("DOCKER_SOCKET_PATH", "/var/run/docker.sock"),
                 extra_networks: env_opt("DOCKER_EXTRA_NETWORKS")
-                    .map(|s| s.split(',').map(|n| n.trim().to_string()).filter(|n| !n.is_empty()).collect())
+                    .map(|s| {
+                        s.split(',')
+                            .map(|n| n.trim().to_string())
+                            .filter(|n| !n.is_empty())
+                            .collect()
+                    })
                     .unwrap_or_default(),
             },
 
@@ -692,15 +731,30 @@ mod tests {
 
     #[test]
     fn auth_provider_from_str_github() {
-        assert_eq!("github".parse::<AuthProvider>().unwrap(), AuthProvider::GitHub);
-        assert_eq!("GitHub".parse::<AuthProvider>().unwrap(), AuthProvider::GitHub);
-        assert_eq!("GITHUB".parse::<AuthProvider>().unwrap(), AuthProvider::GitHub);
+        assert_eq!(
+            "github".parse::<AuthProvider>().unwrap(),
+            AuthProvider::GitHub
+        );
+        assert_eq!(
+            "GitHub".parse::<AuthProvider>().unwrap(),
+            AuthProvider::GitHub
+        );
+        assert_eq!(
+            "GITHUB".parse::<AuthProvider>().unwrap(),
+            AuthProvider::GitHub
+        );
     }
 
     #[test]
     fn auth_provider_from_str_auth0() {
-        assert_eq!("auth0".parse::<AuthProvider>().unwrap(), AuthProvider::Auth0);
-        assert_eq!("Auth0".parse::<AuthProvider>().unwrap(), AuthProvider::Auth0);
+        assert_eq!(
+            "auth0".parse::<AuthProvider>().unwrap(),
+            AuthProvider::Auth0
+        );
+        assert_eq!(
+            "Auth0".parse::<AuthProvider>().unwrap(),
+            AuthProvider::Auth0
+        );
     }
 
     #[test]
@@ -739,7 +793,12 @@ mod tests {
         assert!(!env_bool("_TEST_BOOL_MISSING", false));
 
         // Cleanup
-        for k in ["_TEST_BOOL_1", "_TEST_BOOL_2", "_TEST_BOOL_3", "_TEST_BOOL_4"] {
+        for k in [
+            "_TEST_BOOL_1",
+            "_TEST_BOOL_2",
+            "_TEST_BOOL_3",
+            "_TEST_BOOL_4",
+        ] {
             std::env::remove_var(k);
         }
     }
@@ -773,7 +832,11 @@ mod tests {
     /// Helper to build a minimal valid Config for testing.
     fn minimal_config() -> Config {
         Config {
-            server: ServerConfig { port: 8080, metrics_port: 9090, grpc_port: 50051 },
+            server: ServerConfig {
+                port: 8080,
+                metrics_port: 9090,
+                grpc_port: 50051,
+            },
             sandbox_provider: SandboxProviderType::Kubernetes,
             sandbox: SandboxConfig {
                 namespace: "test".into(),
@@ -817,9 +880,18 @@ mod tests {
                 extra_networks: vec![],
             },
             database_url: None,
-            database: DatabaseConfig { url: None, max_connections: 5 },
-            redis: RedisConfig { url: None, max_stream_length: 100 },
-            sse: SseConfig { broadcast_capacity: 16, consumer_id: "test".into() },
+            database: DatabaseConfig {
+                url: None,
+                max_connections: 5,
+            },
+            redis: RedisConfig {
+                url: None,
+                max_stream_length: 100,
+            },
+            sse: SseConfig {
+                broadcast_capacity: 16,
+                consumer_id: "test".into(),
+            },
             auth: AuthConfig {
                 provider: None,
                 github_client_id: None,
@@ -849,10 +921,24 @@ mod tests {
                 github_app_private_key: None,
                 github_app_default_installation_id: None,
             },
-            s3: S3Config { bucket_name: None, key_prefix: "test".into(), region: "us-east-1".into() },
-            slack: SlackConfig { bot_token: None, signing_secret: None, bot_user_id: None },
-            telegram: TelegramConfig { bot_token: None, mode: "webhook".into() },
-            github_pr: GithubPrConfig { webhook_secret: None, bot_token: None },
+            s3: S3Config {
+                bucket_name: None,
+                key_prefix: "test".into(),
+                region: "us-east-1".into(),
+            },
+            slack: SlackConfig {
+                bot_token: None,
+                signing_secret: None,
+                bot_user_id: None,
+            },
+            telegram: TelegramConfig {
+                bot_token: None,
+                mode: "webhook".into(),
+            },
+            github_pr: GithubPrConfig {
+                webhook_secret: None,
+                bot_token: None,
+            },
         }
     }
 

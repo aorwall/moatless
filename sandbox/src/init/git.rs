@@ -80,8 +80,16 @@ pub async fn configure_git(config: &Config) -> Result<(), String> {
 
     // For non-GitHub providers, set a fallback user if nothing was configured
     if !is_github && user_name.is_none() && user_email.is_none() {
-        let _ = run_command("git", &["config", "--global", "user.name", "Moatless Agent"]).await;
-        let _ = run_command("git", &["config", "--global", "user.email", "agent@moatless.ai"]).await;
+        let _ = run_command(
+            "git",
+            &["config", "--global", "user.name", "Moatless Agent"],
+        )
+        .await;
+        let _ = run_command(
+            "git",
+            &["config", "--global", "user.email", "agent@moatless.ai"],
+        )
+        .await;
     }
 
     info!(provider = %config.git_provider, "Git authentication configured");
@@ -178,9 +186,7 @@ pub async fn clone_repository(config: &Config) -> Result<(), String> {
             info!("Repository cloned successfully (plain git clone)");
             Ok(())
         }
-        Err(e) => {
-            Err(format!("All clone methods failed. Last error: {e}"))
-        }
+        Err(e) => Err(format!("All clone methods failed. Last error: {e}")),
     }
 }
 

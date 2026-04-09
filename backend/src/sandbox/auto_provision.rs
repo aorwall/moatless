@@ -42,9 +42,7 @@ pub async fn build_provision_request(
         .find_by_id_internal(task_id)
         .await
         .map_err(|e| SandboxError::Internal(format!("DB error reading task: {e}")))?
-        .ok_or_else(|| {
-            SandboxError::Internal(format!("Task '{task_id}' not found in database"))
-        })?;
+        .ok_or_else(|| SandboxError::Internal(format!("Task '{task_id}' not found in database")))?;
 
     info!(
         task_id = %task_id,
@@ -66,8 +64,14 @@ pub async fn build_provision_request(
 
     // 3. Resolve credentials
     let git_provider = repo.provider.unwrap_or(RepositoryProvider::Github);
-    let (git_provider_token, anthropic_api_key, claude_oauth_token) =
-        resolve_credentials(task_id, provider_tokens, task.created_by.as_deref(), task.team_id.as_deref(), git_provider).await;
+    let (git_provider_token, anthropic_api_key, claude_oauth_token) = resolve_credentials(
+        task_id,
+        provider_tokens,
+        task.created_by.as_deref(),
+        task.team_id.as_deref(),
+        git_provider,
+    )
+    .await;
 
     // Ensure we have at least some auth
     if anthropic_api_key.is_none() && claude_oauth_token.is_none() {
@@ -85,7 +89,10 @@ pub async fn build_provision_request(
     let env_vars = crate::sandbox::k8s::auto_provision::parse_env_vars(&repo);
 
     // Resolve plugin git repos from the join table
-    match plugin_repos.find_by_repository_id(&task.repository_id).await {
+    match plugin_repos
+        .find_by_repository_id(&task.repository_id)
+        .await
+    {
         Ok(plugins) if !plugins.is_empty() => {
             let urls: Vec<String> = plugins.into_iter().map(|p| p.git_url).collect();
             info!(

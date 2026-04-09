@@ -78,7 +78,7 @@ jobs:
     # Build inside Debian 12 (bookworm) container so the binary links against
     # GLIBC 2.36, matching the distroless/cc-debian12 runtime image.
     container:
-      image: rust:1.88-bookworm
+      image: rust:1.91-bookworm
     steps:
       - uses: actions/checkout@v4
 

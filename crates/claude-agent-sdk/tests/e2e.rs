@@ -1,4 +1,9 @@
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::print_stdout, clippy::print_stderr)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 //! End-to-end integration tests for claude-agent-sdk.
 //!
 //! These tests spawn the real `claude` CLI binary and make actual API calls.
@@ -75,7 +80,11 @@ fn auth_env() -> Option<HashMap<String, String>> {
     if let Ok(key) = std::env::var("ANTHROPIC_API_KEY") {
         env.insert("ANTHROPIC_API_KEY".to_string(), key);
     }
-    if env.is_empty() { None } else { Some(env) }
+    if env.is_empty() {
+        None
+    } else {
+        Some(env)
+    }
 }
 
 /// Default options for E2E tests: haiku model, 1 turn, skip permissions.
@@ -167,9 +176,7 @@ async fn test_simple_query() {
             "Expected Assistant message"
         );
         assert!(
-            messages
-                .iter()
-                .any(|m| matches!(m, SdkMessage::Result(_))),
+            messages.iter().any(|m| matches!(m, SdkMessage::Result(_))),
             "Expected Result message"
         );
 
@@ -470,7 +477,8 @@ async fn test_permission_handler_deny_blocks_tool() {
                     has_denials || text_mentions_denial,
                     "Expected permission denials or denial mention in result. \
                      Denials: {:?}, Result: {}",
-                    success.permission_denials, success.result
+                    success.permission_denials,
+                    success.result
                 );
             }
             SdkMessage::Result(ResultMessage::Error(error)) => {
@@ -544,9 +552,7 @@ async fn test_hook_handler_is_invoked() {
         let messages = collect_messages(&mut handle.messages).await;
 
         assert!(
-            messages
-                .iter()
-                .any(|m| matches!(m, SdkMessage::Result(_))),
+            messages.iter().any(|m| matches!(m, SdkMessage::Result(_))),
             "Expected Result message"
         );
 
@@ -630,13 +636,27 @@ async fn test_sdk_mcp_tool_is_called() {
             match msg {
                 SdkMessage::System(_) => eprintln!("  [System]"),
                 SdkMessage::Assistant(a) => {
-                    let text: String = a.message.content.iter().filter_map(|b| {
-                        if let ContentBlock::Text { text } = b { Some(text.as_str()) } else { None }
-                    }).collect();
+                    let text: String = a
+                        .message
+                        .content
+                        .iter()
+                        .filter_map(|b| {
+                            if let ContentBlock::Text { text } = b {
+                                Some(text.as_str())
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
                     eprintln!("  [Assistant] {}", &text[..text.len().min(200)]);
                 }
                 SdkMessage::Result(ResultMessage::Success(s)) => {
-                    eprintln!("  [Result:Success] turns={} cost=${:.4} text={}", s.num_turns, s.total_cost_usd, &s.result[..s.result.len().min(200)]);
+                    eprintln!(
+                        "  [Result:Success] turns={} cost=${:.4} text={}",
+                        s.num_turns,
+                        s.total_cost_usd,
+                        &s.result[..s.result.len().min(200)]
+                    );
                 }
                 SdkMessage::Result(ResultMessage::Error(e)) => {
                     eprintln!("  [Result:Error] {:?}", e.errors);
@@ -646,9 +666,7 @@ async fn test_sdk_mcp_tool_is_called() {
         }
 
         assert!(
-            messages
-                .iter()
-                .any(|m| matches!(m, SdkMessage::Result(_))),
+            messages.iter().any(|m| matches!(m, SdkMessage::Result(_))),
             "Expected Result message"
         );
 
@@ -703,7 +721,10 @@ async fn test_streaming_client_multi_turn() {
 
         // Turn 1: Ask to remember a number
         client
-            .send("Remember the number 42. Just confirm you've noted it. Be very brief.", "")
+            .send(
+                "Remember the number 42. Just confirm you've noted it. Be very brief.",
+                "",
+            )
             .await
             .expect("Failed to send first message");
 
@@ -748,7 +769,10 @@ async fn test_streaming_client_multi_turn() {
         // which means multi-turn via ClaudeClient may not work yet. This test
         // verifies the current behavior and will pass once multi-turn is fixed.
         match client
-            .send("What number did I ask you to remember? Reply with just the number.", &session_id)
+            .send(
+                "What number did I ask you to remember? Reply with just the number.",
+                &session_id,
+            )
             .await
         {
             Ok(()) => {}

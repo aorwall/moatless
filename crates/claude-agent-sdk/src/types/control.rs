@@ -57,10 +57,7 @@ pub enum IncomingControlRequestInner {
     },
     /// MCP message forwarded from the CLI.
     #[serde(rename = "mcp_message")]
-    McpMessage {
-        server_name: String,
-        message: Value,
-    },
+    McpMessage { server_name: String, message: Value },
 }
 
 /// Outgoing control requests from SDK → CLI (12 subtypes).
@@ -254,10 +251,17 @@ mod tests {
 
         let msg = RawStdoutMessage::from_value(json);
         match msg {
-            RawStdoutMessage::IncomingControlRequest { request_id, request } => {
+            RawStdoutMessage::IncomingControlRequest {
+                request_id,
+                request,
+            } => {
                 assert_eq!(request_id, "req-1");
                 match request {
-                    IncomingControlRequestInner::CanUseTool { tool_name, tool_use_id, .. } => {
+                    IncomingControlRequestInner::CanUseTool {
+                        tool_name,
+                        tool_use_id,
+                        ..
+                    } => {
                         assert_eq!(tool_name, "Bash");
                         assert_eq!(tool_use_id, "tu-1");
                     }
@@ -283,10 +287,17 @@ mod tests {
 
         let msg = RawStdoutMessage::from_value(json);
         match msg {
-            RawStdoutMessage::IncomingControlRequest { request_id, request } => {
+            RawStdoutMessage::IncomingControlRequest {
+                request_id,
+                request,
+            } => {
                 assert_eq!(request_id, "req-2");
                 match request {
-                    IncomingControlRequestInner::HookCallback { callback_id, input, tool_use_id } => {
+                    IncomingControlRequestInner::HookCallback {
+                        callback_id,
+                        input,
+                        tool_use_id,
+                    } => {
                         assert_eq!(callback_id, "cb-1");
                         assert_eq!(input["hookEventName"], "PreToolUse");
                         assert_eq!(tool_use_id, Some("tu-2".to_string()));
@@ -312,7 +323,10 @@ mod tests {
 
         let msg = RawStdoutMessage::from_value(json);
         match msg {
-            RawStdoutMessage::IncomingControlRequest { request_id, request } => {
+            RawStdoutMessage::IncomingControlRequest {
+                request_id,
+                request,
+            } => {
                 assert_eq!(request_id, "req-3");
                 match request {
                     IncomingControlRequestInner::McpMessage { server_name, .. } => {
@@ -338,7 +352,10 @@ mod tests {
 
         let msg = RawStdoutMessage::from_value(json);
         match msg {
-            RawStdoutMessage::ControlResponse(ControlResponseInner::Success { request_id, response }) => {
+            RawStdoutMessage::ControlResponse(ControlResponseInner::Success {
+                request_id,
+                response,
+            }) => {
                 assert_eq!(request_id, "sdk-1");
                 assert_eq!(response.unwrap()["status"], "ok");
             }
@@ -359,7 +376,11 @@ mod tests {
 
         let msg = RawStdoutMessage::from_value(json);
         match msg {
-            RawStdoutMessage::ControlResponse(ControlResponseInner::Error { request_id, error, .. }) => {
+            RawStdoutMessage::ControlResponse(ControlResponseInner::Error {
+                request_id,
+                error,
+                ..
+            }) => {
                 assert_eq!(request_id, "sdk-2");
                 assert_eq!(error, "Something failed");
             }

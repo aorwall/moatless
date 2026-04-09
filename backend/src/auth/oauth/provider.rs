@@ -1,8 +1,8 @@
 //! OAuth provider trait.
 
-use async_trait::async_trait;
 use crate::auth::error::AuthError;
 use crate::auth::models::{OAuthTokens, ProviderUserInfo};
+use async_trait::async_trait;
 
 /// Generic OAuth provider interface.
 #[async_trait]
@@ -18,7 +18,11 @@ pub trait OAuthProvider: Send + Sync {
 
     /// Check whether the authenticated user belongs to the given organization.
     /// Returns `true` by default (no restriction) for providers that don't support org checks.
-    async fn check_org_membership(&self, _access_token: &str, _org: &str) -> Result<bool, AuthError> {
+    async fn check_org_membership(
+        &self,
+        _access_token: &str,
+        _org: &str,
+    ) -> Result<bool, AuthError> {
         Ok(true)
     }
 

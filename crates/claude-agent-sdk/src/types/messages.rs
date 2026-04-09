@@ -195,8 +195,7 @@ impl SdkMessage {
                     .and_then(serde_json::Value::as_bool)
                     .unwrap_or(false);
                 if is_replay {
-                    try_deser::<UserMessageReplay>(value, "user/replay")
-                        .map(SdkMessage::UserReplay)
+                    try_deser::<UserMessageReplay>(value, "user/replay").map(SdkMessage::UserReplay)
                 } else {
                     try_deser::<UserMessage>(value, "user").map(SdkMessage::User)
                 }
@@ -214,21 +213,17 @@ impl SdkMessage {
                 let subtype = value.get("subtype").and_then(|v| v.as_str())?;
                 match subtype {
                     "init" => {
-                        try_deser::<SystemInitMessage>(value, "system/init")
-                            .map(SdkMessage::System)
+                        try_deser::<SystemInitMessage>(value, "system/init").map(SdkMessage::System)
                     }
                     "compact_boundary" => {
                         try_deser::<CompactBoundaryMessage>(value, "system/compact_boundary")
                             .map(SdkMessage::CompactBoundary)
                     }
                     "status" => {
-                        try_deser::<StatusMessage>(value, "system/status")
-                            .map(SdkMessage::Status)
+                        try_deser::<StatusMessage>(value, "system/status").map(SdkMessage::Status)
                     }
-                    "hook_started" => {
-                        try_deser::<HookStartedMessage>(value, "system/hook_started")
-                            .map(SdkMessage::HookStarted)
-                    }
+                    "hook_started" => try_deser::<HookStartedMessage>(value, "system/hook_started")
+                        .map(SdkMessage::HookStarted),
                     "hook_progress" => {
                         try_deser::<HookProgressMessage>(value, "system/hook_progress")
                             .map(SdkMessage::HookProgress)
@@ -248,22 +243,15 @@ impl SdkMessage {
                     _ => None,
                 }
             }
-            "stream_event" => {
-                try_deser::<PartialAssistantMessage>(value, "stream_event")
-                    .map(SdkMessage::StreamEvent)
-            }
-            "tool_progress" => {
-                try_deser::<ToolProgressMessage>(value, "tool_progress")
-                    .map(SdkMessage::ToolProgress)
-            }
+            "stream_event" => try_deser::<PartialAssistantMessage>(value, "stream_event")
+                .map(SdkMessage::StreamEvent),
+            "tool_progress" => try_deser::<ToolProgressMessage>(value, "tool_progress")
+                .map(SdkMessage::ToolProgress),
             "auth_status" => {
-                try_deser::<AuthStatusMessage>(value, "auth_status")
-                    .map(SdkMessage::AuthStatus)
+                try_deser::<AuthStatusMessage>(value, "auth_status").map(SdkMessage::AuthStatus)
             }
-            "tool_use_summary" => {
-                try_deser::<ToolUseSummaryMessage>(value, "tool_use_summary")
-                    .map(SdkMessage::ToolUseSummary)
-            }
+            "tool_use_summary" => try_deser::<ToolUseSummaryMessage>(value, "tool_use_summary")
+                .map(SdkMessage::ToolUseSummary),
             _ => None,
         }
     }
@@ -337,7 +325,10 @@ pub struct UserMessage {
     pub is_meta: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none", rename = "isCompactSummary")]
     pub is_compact_summary: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "isVisibleInTranscriptOnly")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "isVisibleInTranscriptOnly"
+    )]
     pub is_visible_in_transcript_only: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none", rename = "planContent")]
     pub plan_content: Option<String>,
@@ -347,7 +338,10 @@ pub struct UserMessage {
     pub todos: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none", rename = "summarizeMetadata")]
     pub summarize_metadata: Option<Value>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "sourceToolAssistantUUID")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "sourceToolAssistantUUID"
+    )]
     pub source_tool_assistant_uuid: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", rename = "sourceToolUseID")]
     pub source_tool_use_id: Option<String>,
@@ -375,7 +369,10 @@ pub struct UserMessageReplay {
     pub is_meta: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none", rename = "isCompactSummary")]
     pub is_compact_summary: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "isVisibleInTranscriptOnly")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "isVisibleInTranscriptOnly"
+    )]
     pub is_visible_in_transcript_only: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none", rename = "planContent")]
     pub plan_content: Option<String>,
@@ -385,7 +382,10 @@ pub struct UserMessageReplay {
     pub todos: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none", rename = "summarizeMetadata")]
     pub summarize_metadata: Option<Value>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "sourceToolAssistantUUID")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "sourceToolAssistantUUID"
+    )]
     pub source_tool_assistant_uuid: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", rename = "sourceToolUseID")]
     pub source_tool_use_id: Option<String>,
@@ -857,8 +857,14 @@ mod tests {
 
         let msg = SdkMessage::from_value(json).unwrap();
         if let SdkMessage::Assistant(a) = msg {
-            assert_eq!(a.message.model.as_deref(), Some("claude-sonnet-4-5-20250929"));
-            assert_eq!(a.message.id.as_deref(), Some("msg_01XFDUDYJgAACzvnptvVoYEL"));
+            assert_eq!(
+                a.message.model.as_deref(),
+                Some("claude-sonnet-4-5-20250929")
+            );
+            assert_eq!(
+                a.message.id.as_deref(),
+                Some("msg_01XFDUDYJgAACzvnptvVoYEL")
+            );
             assert_eq!(a.message.stop_reason.as_deref(), Some("end_turn"));
             assert!(a.message.stop_sequence.is_none());
             assert_eq!(a.is_api_error_message, Some(true));
@@ -1050,7 +1056,10 @@ mod tests {
             assert!(ur.thinking_metadata.is_some());
             assert!(ur.todos.is_some());
             assert!(ur.summarize_metadata.is_some());
-            assert_eq!(ur.source_tool_assistant_uuid.as_deref(), Some("asst-replay-uuid"));
+            assert_eq!(
+                ur.source_tool_assistant_uuid.as_deref(),
+                Some("asst-replay-uuid")
+            );
             assert_eq!(ur.source_tool_use_id.as_deref(), Some("tool-replay-1"));
             assert_eq!(ur.permission_mode.as_deref(), Some("default"));
         } else {

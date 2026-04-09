@@ -115,9 +115,7 @@ impl ScopeContext {
                     false
                 }
             }
-            Scope::User => {
-                owner_id.is_some_and(|oid| oid == self.user_id)
-            }
+            Scope::User => owner_id.is_some_and(|oid| oid == self.user_id),
         }
     }
 }

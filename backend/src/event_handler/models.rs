@@ -37,11 +37,16 @@ impl AgentEvent {
     /// Parse `event_type` + `sub_type` into a typed `EventKey`.
     pub fn event_key(&self) -> EventKey {
         match self.event_type {
-            EventType::Agent => AgentSubType::try_from(self.sub_type.as_str()).map_or_else(|_| self.unknown(), EventKey::Agent),
-            EventType::Task => TaskSubType::try_from(self.sub_type.as_str()).map_or_else(|_| self.unknown(), EventKey::Task),
-            EventType::TaskTurn => TaskTurnSubType::try_from(self.sub_type.as_str()).map_or_else(|_| self.unknown(), EventKey::TaskTurn),
-            EventType::Sandbox => SandboxSubType::try_from(self.sub_type.as_str()).map_or_else(|_| self.unknown(), EventKey::Sandbox),
-            EventType::Server => ServerSubType::try_from(self.sub_type.as_str()).map_or_else(|_| self.unknown(), EventKey::Server),
+            EventType::Agent => AgentSubType::try_from(self.sub_type.as_str())
+                .map_or_else(|_| self.unknown(), EventKey::Agent),
+            EventType::Task => TaskSubType::try_from(self.sub_type.as_str())
+                .map_or_else(|_| self.unknown(), EventKey::Task),
+            EventType::TaskTurn => TaskTurnSubType::try_from(self.sub_type.as_str())
+                .map_or_else(|_| self.unknown(), EventKey::TaskTurn),
+            EventType::Sandbox => SandboxSubType::try_from(self.sub_type.as_str())
+                .map_or_else(|_| self.unknown(), EventKey::Sandbox),
+            EventType::Server => ServerSubType::try_from(self.sub_type.as_str())
+                .map_or_else(|_| self.unknown(), EventKey::Server),
             EventType::Resources => self.unknown(),
         }
     }
@@ -299,10 +304,7 @@ mod tests {
             "payload": {}
         });
         let evt: AgentEvent = serde_json::from_value(v).unwrap();
-        assert_eq!(
-            evt.event_key(),
-            EventKey::TaskTurn(TaskTurnSubType::Error)
-        );
+        assert_eq!(evt.event_key(), EventKey::TaskTurn(TaskTurnSubType::Error));
     }
 
     #[test]

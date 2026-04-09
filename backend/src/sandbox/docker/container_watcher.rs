@@ -34,10 +34,7 @@ pub fn spawn_container_lifecycle_watcher(
             // Set up event filters: only watch containers with our label
             let mut filters = HashMap::new();
             filters.insert("type".to_string(), vec!["container".to_string()]);
-            filters.insert(
-                "label".to_string(),
-                vec!["created-by=moatless".to_string()],
-            );
+            filters.insert("label".to_string(), vec!["created-by=moatless".to_string()]);
             filters.insert(
                 "event".to_string(),
                 vec![
@@ -137,11 +134,7 @@ async fn handle_docker_event(
     match action {
         "start" => {
             event_publisher
-                .publish_sandbox_event(
-                    task_id,
-                    moatless_events::SandboxStatus::Ready,
-                    "Running",
-                )
+                .publish_sandbox_event(task_id, moatless_events::SandboxStatus::Ready, "Running")
                 .await;
         }
         "die" | "stop" => {
@@ -152,8 +145,7 @@ async fn handle_docker_event(
                     if restart_count as i32 >= max_crash_restart_count {
                         warn!(
                             task_id,
-                            restart_count,
-                            "Container in crash loop, publishing error event"
+                            restart_count, "Container in crash loop, publishing error event"
                         );
                         event_publisher
                             .publish_sandbox_event(
@@ -168,20 +160,12 @@ async fn handle_docker_event(
             }
 
             event_publisher
-                .publish_sandbox_event(
-                    task_id,
-                    moatless_events::SandboxStatus::Stopped,
-                    "Stopped",
-                )
+                .publish_sandbox_event(task_id, moatless_events::SandboxStatus::Stopped, "Stopped")
                 .await;
         }
         "oom" => {
             event_publisher
-                .publish_sandbox_event(
-                    task_id,
-                    moatless_events::SandboxStatus::Error,
-                    "OOM killed",
-                )
+                .publish_sandbox_event(task_id, moatless_events::SandboxStatus::Error, "OOM killed")
                 .await;
         }
         "destroy" => {

@@ -29,17 +29,24 @@ pub trait TaskRepository: Send + Sync {
     /// Find by task_id (no access control — internal/system use).
     async fn find_by_id_internal(&self, task_id: &str) -> Result<Option<Task>, sqlx::Error>;
     /// Find by task_id, scoped to access control.
-    async fn find_by_id(&self, task_id: &str, ctx: &ScopeContext) -> Result<Option<Task>, sqlx::Error>;
-    async fn insert_task(&self, row: &Task) -> Result<(), sqlx::Error>;
-    async fn list_tasks(
+    async fn find_by_id(
         &self,
-        filter: &TaskFilter,
-    ) -> Result<(Vec<Task>, i64), sqlx::Error>;
+        task_id: &str,
+        ctx: &ScopeContext,
+    ) -> Result<Option<Task>, sqlx::Error>;
+    async fn insert_task(&self, row: &Task) -> Result<(), sqlx::Error>;
+    async fn list_tasks(&self, filter: &TaskFilter) -> Result<(Vec<Task>, i64), sqlx::Error>;
     async fn update_task(&self, task_id: &str, patch: &TaskPatch) -> Result<(), sqlx::Error>;
     async fn delete_task(&self, task_id: &str) -> Result<(), sqlx::Error>;
     async fn exists_by_short_id(&self, short_id: &str) -> Result<bool, sqlx::Error>;
-    async fn get_created_times(&self, task_ids: &[String]) -> Result<HashMap<String, DateTime<Utc>>, sqlx::Error>;
-    async fn get_sandbox_started_times(&self, task_ids: &[String]) -> Result<HashMap<String, DateTime<Utc>>, sqlx::Error>;
+    async fn get_created_times(
+        &self,
+        task_ids: &[String],
+    ) -> Result<HashMap<String, DateTime<Utc>>, sqlx::Error>;
+    async fn get_sandbox_started_times(
+        &self,
+        task_ids: &[String],
+    ) -> Result<HashMap<String, DateTime<Utc>>, sqlx::Error>;
 }
 
 /// PostgreSQL implementation of [`TaskRepository`].
@@ -48,18 +55,21 @@ pub struct PgTaskRepository(pub DbPool);
 #[async_trait]
 impl TaskRepository for PgTaskRepository {
     async fn find_by_id_internal(&self, task_id: &str) -> Result<Option<Task>, sqlx::Error> {
-        sqlx::query_as::<_, Task>(
-            "SELECT * FROM tasks WHERE task_id = $1",
-        )
-        .bind(task_id)
-        .fetch_optional(&self.0)
-        .await
+        sqlx::query_as::<_, Task>("SELECT * FROM tasks WHERE task_id = $1")
+            .bind(task_id)
+            .fetch_optional(&self.0)
+            .await
     }
 
-    async fn find_by_id(&self, task_id: &str, ctx: &ScopeContext) -> Result<Option<Task>, sqlx::Error> {
+    async fn find_by_id(
+        &self,
+        task_id: &str,
+        ctx: &ScopeContext,
+    ) -> Result<Option<Task>, sqlx::Error> {
         let access = ctx.access_filter(ScopedEntity::Task, "", 2);
         let sql = format!(
-            "SELECT * FROM tasks WHERE task_id = $1 AND {}", access.sql(),
+            "SELECT * FROM tasks WHERE task_id = $1 AND {}",
+            access.sql(),
         );
         sqlx::query_as::<_, Task>(&sql)
             .bind(task_id)
@@ -112,10 +122,7 @@ impl TaskRepository for PgTaskRepository {
         Ok(())
     }
 
-    async fn list_tasks(
-        &self,
-        filter: &TaskFilter,
-    ) -> Result<(Vec<Task>, i64), sqlx::Error> {
+    async fn list_tasks(&self, filter: &TaskFilter) -> Result<(Vec<Task>, i64), sqlx::Error> {
         // Use a CTE with window function to get total count in one query
         #[derive(sqlx::FromRow)]
         struct TaskWithCount {
@@ -245,18 +252,22 @@ impl TaskRepository for PgTaskRepository {
                 .await?;
         }
         if let Some(ref last_message_at) = patch.last_message_at {
-            sqlx::query("UPDATE tasks SET last_message_at = $2, updated_at = NOW() WHERE task_id = $1")
-                .bind(task_id)
-                .bind(last_message_at)
-                .execute(&self.0)
-                .await?;
+            sqlx::query(
+                "UPDATE tasks SET last_message_at = $2, updated_at = NOW() WHERE task_id = $1",
+            )
+            .bind(task_id)
+            .bind(last_message_at)
+            .execute(&self.0)
+            .await?;
         }
         if let Some(total_cost_usd) = patch.total_cost_usd {
-            sqlx::query("UPDATE tasks SET total_cost_usd = $2, updated_at = NOW() WHERE task_id = $1")
-                .bind(task_id)
-                .bind(total_cost_usd)
-                .execute(&self.0)
-                .await?;
+            sqlx::query(
+                "UPDATE tasks SET total_cost_usd = $2, updated_at = NOW() WHERE task_id = $1",
+            )
+            .bind(task_id)
+            .bind(total_cost_usd)
+            .execute(&self.0)
+            .await?;
         }
         if let Some(increment) = patch.total_cost_usd_increment {
             sqlx::query("UPDATE tasks SET total_cost_usd = total_cost_usd + $2, updated_at = NOW() WHERE task_id = $1")
@@ -287,18 +298,22 @@ impl TaskRepository for PgTaskRepository {
                 .await?;
         }
         if let Some(ref append_system_prompt) = patch.append_system_prompt {
-            sqlx::query("UPDATE tasks SET append_system_prompt = $2, updated_at = NOW() WHERE task_id = $1")
-                .bind(task_id)
-                .bind(append_system_prompt)
-                .execute(&self.0)
-                .await?;
+            sqlx::query(
+                "UPDATE tasks SET append_system_prompt = $2, updated_at = NOW() WHERE task_id = $1",
+            )
+            .bind(task_id)
+            .bind(append_system_prompt)
+            .execute(&self.0)
+            .await?;
         }
         if let Some(ref sandbox_started_at) = patch.sandbox_started_at {
-            sqlx::query("UPDATE tasks SET sandbox_started_at = $2, updated_at = NOW() WHERE task_id = $1")
-                .bind(task_id)
-                .bind(sandbox_started_at)
-                .execute(&self.0)
-                .await?;
+            sqlx::query(
+                "UPDATE tasks SET sandbox_started_at = $2, updated_at = NOW() WHERE task_id = $1",
+            )
+            .bind(task_id)
+            .bind(sandbox_started_at)
+            .execute(&self.0)
+            .await?;
         }
         Ok(())
     }
@@ -312,15 +327,17 @@ impl TaskRepository for PgTaskRepository {
     }
 
     async fn exists_by_short_id(&self, short_id: &str) -> Result<bool, sqlx::Error> {
-        let row: (bool,) =
-            sqlx::query_as("SELECT EXISTS(SELECT 1 FROM tasks WHERE short_id = $1)")
-                .bind(short_id)
-                .fetch_one(&self.0)
-                .await?;
+        let row: (bool,) = sqlx::query_as("SELECT EXISTS(SELECT 1 FROM tasks WHERE short_id = $1)")
+            .bind(short_id)
+            .fetch_one(&self.0)
+            .await?;
         Ok(row.0)
     }
 
-    async fn get_created_times(&self, task_ids: &[String]) -> Result<HashMap<String, DateTime<Utc>>, sqlx::Error> {
+    async fn get_created_times(
+        &self,
+        task_ids: &[String],
+    ) -> Result<HashMap<String, DateTime<Utc>>, sqlx::Error> {
         if task_ids.is_empty() {
             return Ok(HashMap::new());
         }
@@ -336,7 +353,10 @@ impl TaskRepository for PgTaskRepository {
         Ok(rows.into_iter().collect())
     }
 
-    async fn get_sandbox_started_times(&self, task_ids: &[String]) -> Result<HashMap<String, DateTime<Utc>>, sqlx::Error> {
+    async fn get_sandbox_started_times(
+        &self,
+        task_ids: &[String],
+    ) -> Result<HashMap<String, DateTime<Utc>>, sqlx::Error> {
         if task_ids.is_empty() {
             return Ok(HashMap::new());
         }
@@ -383,13 +403,24 @@ pub async fn insert_task(pool: &DbPool, row: &Task) -> Result<(), sqlx::Error> {
 }
 
 /// Find by task_id scoped to access control (convenience wrapper).
-pub async fn find_by_id(pool: &DbPool, task_id: &str, ctx: &ScopeContext) -> Result<Option<Task>, sqlx::Error> {
-    PgTaskRepository(pool.clone()).find_by_id(task_id, ctx).await
+pub async fn find_by_id(
+    pool: &DbPool,
+    task_id: &str,
+    ctx: &ScopeContext,
+) -> Result<Option<Task>, sqlx::Error> {
+    PgTaskRepository(pool.clone())
+        .find_by_id(task_id, ctx)
+        .await
 }
 
 /// Find by task_id without access control (convenience wrapper).
-pub async fn find_by_id_internal(pool: &DbPool, task_id: &str) -> Result<Option<Task>, sqlx::Error> {
-    PgTaskRepository(pool.clone()).find_by_id_internal(task_id).await
+pub async fn find_by_id_internal(
+    pool: &DbPool,
+    task_id: &str,
+) -> Result<Option<Task>, sqlx::Error> {
+    PgTaskRepository(pool.clone())
+        .find_by_id_internal(task_id)
+        .await
 }
 
 /// List tasks with individual filter arguments (convenience wrapper).
@@ -419,8 +450,14 @@ pub async fn list_tasks(
 }
 
 /// Update task fields (convenience wrapper).
-pub async fn update_task(pool: &DbPool, task_id: &str, patch: &TaskPatch) -> Result<(), sqlx::Error> {
-    PgTaskRepository(pool.clone()).update_task(task_id, patch).await
+pub async fn update_task(
+    pool: &DbPool,
+    task_id: &str,
+    patch: &TaskPatch,
+) -> Result<(), sqlx::Error> {
+    PgTaskRepository(pool.clone())
+        .update_task(task_id, patch)
+        .await
 }
 
 /// Delete a task (convenience wrapper).
@@ -430,5 +467,7 @@ pub async fn delete_task(pool: &DbPool, task_id: &str) -> Result<(), sqlx::Error
 
 /// Check if a task with the given short_id exists (convenience wrapper).
 pub async fn exists_by_short_id(pool: &DbPool, short_id: &str) -> Result<bool, sqlx::Error> {
-    PgTaskRepository(pool.clone()).exists_by_short_id(short_id).await
+    PgTaskRepository(pool.clone())
+        .exists_by_short_id(short_id)
+        .await
 }

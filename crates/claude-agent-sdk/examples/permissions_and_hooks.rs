@@ -12,13 +12,13 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use claude_agent_sdk::types::messages::ResultMessage;
-use claude_agent_sdk::{
-    query, ClaudeOptions, ContentBlock, HookHandler, HookOutput, PermissionHandler,
-    PermissionMode, PermissionResult, SdkMessage,
-};
 use claude_agent_sdk::types::hooks::SyncHookOutput;
+use claude_agent_sdk::types::messages::ResultMessage;
 use claude_agent_sdk::types::permissions::PermissionContext;
+use claude_agent_sdk::{
+    query, ClaudeOptions, ContentBlock, HookHandler, HookOutput, PermissionHandler, PermissionMode,
+    PermissionResult, SdkMessage,
+};
 
 /// A permission handler that only allows read-only tools.
 struct ReadOnlyPermissions;
@@ -57,11 +57,7 @@ struct LoggingHookHandler;
 
 #[async_trait]
 impl HookHandler for LoggingHookHandler {
-    async fn on_hook(
-        &self,
-        input: &serde_json::Value,
-        tool_use_id: Option<&str>,
-    ) -> HookOutput {
+    async fn on_hook(&self, input: &serde_json::Value, tool_use_id: Option<&str>) -> HookOutput {
         let event = input
             .get("hookEventName")
             .and_then(|v| v.as_str())
@@ -71,7 +67,10 @@ impl HookHandler for LoggingHookHandler {
             .and_then(|v| v.as_str())
             .unwrap_or("unknown");
 
-        println!("[Hook] Event: {event}, Tool: {tool}, ID: {}", tool_use_id.unwrap_or("none"));
+        println!(
+            "[Hook] Event: {event}, Tool: {tool}, ID: {}",
+            tool_use_id.unwrap_or("none")
+        );
 
         // Continue execution with no modifications
         HookOutput::Sync(SyncHookOutput {
@@ -103,7 +102,10 @@ async fn main() -> claude_agent_sdk::Result<()> {
                 }
             }
             SdkMessage::Result(ResultMessage::Success(result)) => {
-                println!("Done in {} turns. Cost: ${:.4}", result.num_turns, result.total_cost_usd);
+                println!(
+                    "Done in {} turns. Cost: ${:.4}",
+                    result.num_turns, result.total_cost_usd
+                );
                 break;
             }
             SdkMessage::Result(ResultMessage::Error(err)) => {

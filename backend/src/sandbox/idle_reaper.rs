@@ -159,7 +159,9 @@ async fn reap_idle_sandboxes(
 
     let mut stopped_count = 0u32;
     for task_id in &task_ids {
-        let is_idle = if let Some(latest_at) = latest_times.get(task_id) { *latest_at < cutoff } else {
+        let is_idle = if let Some(latest_at) = latest_times.get(task_id) {
+            *latest_at < cutoff
+        } else {
             debug!(task_id = %task_id, "No activity timestamp found, skipping");
             continue;
         };
@@ -192,11 +194,8 @@ async fn reap_idle_sandboxes(
 }
 
 /// List task IDs of all running sandbox Deployments (replicas > 0).
-async fn list_running_sandbox_task_ids(
-    k8s: &K8sClient,
-) -> Result<Vec<String>, kube::Error> {
-    let deployments: Api<Deployment> =
-        Api::namespaced(k8s.client.clone(), k8s.namespace());
+async fn list_running_sandbox_task_ids(k8s: &K8sClient) -> Result<Vec<String>, kube::Error> {
+    let deployments: Api<Deployment> = Api::namespaced(k8s.client.clone(), k8s.namespace());
     let lp = ListParams::default().labels("app.kubernetes.io/managed-by=moatless");
 
     let list = deployments.list(&lp).await?;
@@ -204,13 +203,7 @@ async fn list_running_sandbox_task_ids(
     let task_ids: Vec<String> = list
         .items
         .into_iter()
-        .filter(|dep| {
-            dep.spec
-                .as_ref()
-                .and_then(|s| s.replicas)
-                .unwrap_or(1)
-                > 0
-        })
+        .filter(|dep| dep.spec.as_ref().and_then(|s| s.replicas).unwrap_or(1) > 0)
         .filter_map(|dep| {
             dep.metadata
                 .labels

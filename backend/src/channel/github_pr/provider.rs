@@ -8,9 +8,7 @@ use tracing::{debug, info, warn};
 
 use crate::channel::error::ChannelError;
 use crate::channel::inbound;
-use crate::channel::models::{
-    ChannelConfig, ChannelThread, InboundMessage, OutboundReply,
-};
+use crate::channel::models::{ChannelConfig, ChannelThread, InboundMessage, OutboundReply};
 use crate::channel::provider::{ChannelProvider, ChannelType};
 use crate::db::DbPool;
 use crate::state::AppState;
@@ -143,7 +141,10 @@ impl GithubPrProvider {
 
         // Filter by events_filter config
         if !provider_config.events_filter.is_empty()
-            && !provider_config.events_filter.iter().any(|e| e == event_type)
+            && !provider_config
+                .events_filter
+                .iter()
+                .any(|e| e == event_type)
         {
             debug!(event_type, "GitHub event filtered out by config");
             return Ok(GithubPrWebhookResult::Ignore);
@@ -192,11 +193,12 @@ impl GithubPrProvider {
         };
 
         match event_type {
-            "pull_request" => self.handle_pull_request_event(payload, &ctx, &provider_config).await,
-            "issue_comment" => self.handle_issue_comment_event(payload, &ctx).await,
-            "pull_request_review_comment" => {
-                self.handle_review_comment_event(payload, &ctx).await
+            "pull_request" => {
+                self.handle_pull_request_event(payload, &ctx, &provider_config)
+                    .await
             }
+            "issue_comment" => self.handle_issue_comment_event(payload, &ctx).await,
+            "pull_request_review_comment" => self.handle_review_comment_event(payload, &ctx).await,
             "pull_request_review" => self.handle_review_event(payload, &ctx).await,
             "check_run" => self.handle_check_run_event(payload, &ctx).await,
             _ => {
@@ -243,16 +245,22 @@ impl GithubPrProvider {
             return Ok(GithubPrWebhookResult::Ignore);
         }
 
-        let pr = payload.get("pull_request").ok_or_else(|| {
-            ChannelError::BadRequest("Missing pull_request in payload".into())
-        })?;
+        let pr = payload
+            .get("pull_request")
+            .ok_or_else(|| ChannelError::BadRequest("Missing pull_request in payload".into()))?;
 
         let pr_number = pr
             .get("number")
             .and_then(serde_json::Value::as_u64)
             .ok_or_else(|| ChannelError::BadRequest("Missing PR number".into()))?;
-        let title = pr.get("title").and_then(serde_json::Value::as_str).unwrap_or("");
-        let body = pr.get("body").and_then(serde_json::Value::as_str).unwrap_or("");
+        let title = pr
+            .get("title")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        let body = pr
+            .get("body")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
         let html_url = pr
             .get("html_url")
             .and_then(serde_json::Value::as_str)
@@ -311,9 +319,9 @@ impl GithubPrProvider {
         payload: &serde_json::Value,
         ctx: &EventContext<'_>,
     ) -> Result<GithubPrWebhookResult, ChannelError> {
-        let pr = payload.get("pull_request").ok_or_else(|| {
-            ChannelError::BadRequest("Missing pull_request in payload".into())
-        })?;
+        let pr = payload
+            .get("pull_request")
+            .ok_or_else(|| ChannelError::BadRequest("Missing pull_request in payload".into()))?;
 
         let pr_number = pr
             .get("number")
@@ -398,9 +406,9 @@ impl GithubPrProvider {
             .and_then(serde_json::Value::as_u64)
             .ok_or_else(|| ChannelError::BadRequest("Missing issue number".into()))?;
 
-        let comment = payload.get("comment").ok_or_else(|| {
-            ChannelError::BadRequest("Missing comment in payload".into())
-        })?;
+        let comment = payload
+            .get("comment")
+            .ok_or_else(|| ChannelError::BadRequest("Missing comment in payload".into()))?;
 
         let comment_body = comment
             .get("body")
@@ -459,9 +467,9 @@ impl GithubPrProvider {
             .and_then(serde_json::Value::as_u64)
             .ok_or_else(|| ChannelError::BadRequest("Missing PR number".into()))?;
 
-        let comment = payload.get("comment").ok_or_else(|| {
-            ChannelError::BadRequest("Missing comment in payload".into())
-        })?;
+        let comment = payload
+            .get("comment")
+            .ok_or_else(|| ChannelError::BadRequest("Missing comment in payload".into()))?;
 
         let comment_body = comment
             .get("body")
@@ -567,9 +575,9 @@ impl GithubPrProvider {
             .and_then(serde_json::Value::as_u64)
             .ok_or_else(|| ChannelError::BadRequest("Missing PR number".into()))?;
 
-        let review = payload.get("review").ok_or_else(|| {
-            ChannelError::BadRequest("Missing review in payload".into())
-        })?;
+        let review = payload
+            .get("review")
+            .ok_or_else(|| ChannelError::BadRequest("Missing review in payload".into()))?;
 
         let review_body = review
             .get("body")
@@ -647,9 +655,9 @@ impl GithubPrProvider {
             return Ok(GithubPrWebhookResult::Ignore);
         }
 
-        let check_run = payload.get("check_run").ok_or_else(|| {
-            ChannelError::BadRequest("Missing check_run in payload".into())
-        })?;
+        let check_run = payload
+            .get("check_run")
+            .ok_or_else(|| ChannelError::BadRequest("Missing check_run in payload".into()))?;
 
         let conclusion = check_run
             .get("conclusion")
@@ -841,21 +849,13 @@ impl ChannelProvider for GithubPrProvider {
             .iter()
             .filter(|c| {
                 // Exclude agent's own comments from context
-                c.body
-                    .as_deref()
-                    .is_none_or(|b| !b.contains(AGENT_MARKER))
+                c.body.as_deref().is_none_or(|b| !b.contains(AGENT_MARKER))
             })
             .filter(|c| {
                 // Exclude comments already delivered to the task
                 !exclude_external_ids.contains(&c.id.to_string())
             })
-            .map(|c| {
-                format!(
-                    "@{}: {}",
-                    c.author(),
-                    c.body.as_deref().unwrap_or("")
-                )
-            })
+            .map(|c| format!("@{}: {}", c.author(), c.body.as_deref().unwrap_or("")))
             .collect::<Vec<_>>()
             .join("\n\n");
 
@@ -903,7 +903,12 @@ pub async fn resolve_and_process_github_webhook(
         .and_then(serde_json::Value::as_str)
         .ok_or_else(|| ChannelError::BadRequest("Missing repository.full_name".into()))?;
 
-    info!(event_type, repo = repo_full_name, delivery_id, "GitHub PR webhook received");
+    info!(
+        event_type,
+        repo = repo_full_name,
+        delivery_id,
+        "GitHub PR webhook received"
+    );
 
     // Look up config
     let config = state
@@ -919,7 +924,10 @@ pub async fn resolve_and_process_github_webhook(
     let config = match config {
         Some(c) if c.active => c,
         Some(_) => {
-            info!(repo = repo_full_name, "GitHub PR webhook ignored: config inactive");
+            info!(
+                repo = repo_full_name,
+                "GitHub PR webhook ignored: config inactive"
+            );
             return Ok(());
         }
         None => {
@@ -931,13 +939,19 @@ pub async fn resolve_and_process_github_webhook(
                 .map_err(ChannelError::Db)?;
 
             let Some(template) = wildcard else {
-                info!(repo = repo_full_name, "GitHub PR webhook ignored: no config and no wildcard");
+                info!(
+                    repo = repo_full_name,
+                    "GitHub PR webhook ignored: no config and no wildcard"
+                );
                 return Ok(());
             };
 
             let template_config = GithubPrProviderConfig::from_config(&template);
             if !template_config.auto_create {
-                info!(repo = repo_full_name, "GitHub PR webhook ignored: wildcard exists but auto_create is disabled");
+                info!(
+                    repo = repo_full_name,
+                    "GitHub PR webhook ignored: wildcard exists but auto_create is disabled"
+                );
                 return Ok(());
             }
 
@@ -956,7 +970,10 @@ pub async fn resolve_and_process_github_webhook(
                     config
                 }
                 Ok(None) => {
-                    info!(repo = repo_full_name, "GitHub PR webhook ignored: wildcard clone returned None");
+                    info!(
+                        repo = repo_full_name,
+                        "GitHub PR webhook ignored: wildcard clone returned None"
+                    );
                     return Ok(());
                 }
                 Err(e) => {
@@ -984,7 +1001,10 @@ pub async fn resolve_and_process_github_webhook(
     if let Some(secret) = secret {
         super::signature::verify_signature(secret, body, signature)?;
     } else if !signature.is_empty() {
-        warn!(repo = repo_full_name, "GitHub webhook has signature but no secret configured, skipping verification");
+        warn!(
+            repo = repo_full_name,
+            "GitHub webhook has signature but no secret configured, skipping verification"
+        );
     }
 
     // Parse the webhook event

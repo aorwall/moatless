@@ -33,5 +33,3 @@ pub fn metrics_router(handle: PrometheusHandle) -> Router {
 async fn metrics_handler(State(state): State<MetricsState>) -> impl IntoResponse {
     state.handle.render()
 }
-
-

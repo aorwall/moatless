@@ -53,9 +53,7 @@ impl sqlx::Type<sqlx::Postgres> for TaskStatus {
 
 #[cfg(feature = "database")]
 impl<'r> sqlx::Decode<'r, sqlx::Postgres> for TaskStatus {
-    fn decode(
-        value: sqlx::postgres::PgValueRef<'r>,
-    ) -> Result<Self, sqlx::error::BoxDynError> {
+    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
         let s = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
         TaskStatus::try_from(s.as_str()).map_err(Into::into)
     }
@@ -119,9 +117,7 @@ impl sqlx::Type<sqlx::Postgres> for Visibility {
 
 #[cfg(feature = "database")]
 impl<'r> sqlx::Decode<'r, sqlx::Postgres> for Visibility {
-    fn decode(
-        value: sqlx::postgres::PgValueRef<'r>,
-    ) -> Result<Self, sqlx::error::BoxDynError> {
+    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
         let s = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
         Visibility::try_from(s.as_str()).map_err(Into::into)
     }
@@ -191,9 +187,7 @@ impl sqlx::Type<sqlx::Postgres> for Scope {
 
 #[cfg(feature = "database")]
 impl<'r> sqlx::Decode<'r, sqlx::Postgres> for Scope {
-    fn decode(
-        value: sqlx::postgres::PgValueRef<'r>,
-    ) -> Result<Self, sqlx::error::BoxDynError> {
+    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
         let s = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
         Scope::try_from(s.as_str()).map_err(Into::into)
     }
@@ -260,9 +254,7 @@ impl sqlx::Type<sqlx::Postgres> for RepositoryKind {
 
 #[cfg(feature = "database")]
 impl<'r> sqlx::Decode<'r, sqlx::Postgres> for RepositoryKind {
-    fn decode(
-        value: sqlx::postgres::PgValueRef<'r>,
-    ) -> Result<Self, sqlx::error::BoxDynError> {
+    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
         let s = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
         RepositoryKind::try_from(s.as_str()).map_err(Into::into)
     }
@@ -329,9 +321,7 @@ impl sqlx::Type<sqlx::Postgres> for RepositoryProvider {
 
 #[cfg(feature = "database")]
 impl<'r> sqlx::Decode<'r, sqlx::Postgres> for RepositoryProvider {
-    fn decode(
-        value: sqlx::postgres::PgValueRef<'r>,
-    ) -> Result<Self, sqlx::error::BoxDynError> {
+    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
         let s = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
         RepositoryProvider::try_from(s.as_str()).map_err(Into::into)
     }
@@ -404,9 +394,7 @@ impl sqlx::Type<sqlx::Postgres> for MessageType {
 
 #[cfg(feature = "database")]
 impl<'r> sqlx::Decode<'r, sqlx::Postgres> for MessageType {
-    fn decode(
-        value: sqlx::postgres::PgValueRef<'r>,
-    ) -> Result<Self, sqlx::error::BoxDynError> {
+    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
         let s = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
         MessageType::try_from(s.as_str()).map_err(Into::into)
     }
@@ -473,9 +461,7 @@ impl sqlx::Type<sqlx::Postgres> for MessageRole {
 
 #[cfg(feature = "database")]
 impl<'r> sqlx::Decode<'r, sqlx::Postgres> for MessageRole {
-    fn decode(
-        value: sqlx::postgres::PgValueRef<'r>,
-    ) -> Result<Self, sqlx::error::BoxDynError> {
+    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
         let s = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
         MessageRole::try_from(s.as_str()).map_err(Into::into)
     }
@@ -539,9 +525,7 @@ impl sqlx::Type<sqlx::Postgres> for UserRole {
 
 #[cfg(feature = "database")]
 impl<'r> sqlx::Decode<'r, sqlx::Postgres> for UserRole {
-    fn decode(
-        value: sqlx::postgres::PgValueRef<'r>,
-    ) -> Result<Self, sqlx::error::BoxDynError> {
+    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
         let s = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
         UserRole::try_from(s.as_str()).map_err(Into::into)
     }
@@ -608,9 +592,7 @@ impl sqlx::Type<sqlx::Postgres> for RoutingMode {
 
 #[cfg(feature = "database")]
 impl<'r> sqlx::Decode<'r, sqlx::Postgres> for RoutingMode {
-    fn decode(
-        value: sqlx::postgres::PgValueRef<'r>,
-    ) -> Result<Self, sqlx::error::BoxDynError> {
+    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
         let s = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
         RoutingMode::try_from(s.as_str()).map_err(Into::into)
     }
@@ -691,9 +673,18 @@ mod tests {
 
     #[test]
     fn task_status_serde_roundtrip() {
-        assert_eq!(serde_json::to_string(&TaskStatus::Open).expect("serialize"), "\"open\"");
-        assert_eq!(serde_json::to_string(&TaskStatus::Closed).expect("serialize"), "\"closed\"");
-        assert_eq!(serde_json::to_string(&TaskStatus::Error).expect("serialize"), "\"error\"");
+        assert_eq!(
+            serde_json::to_string(&TaskStatus::Open).expect("serialize"),
+            "\"open\""
+        );
+        assert_eq!(
+            serde_json::to_string(&TaskStatus::Closed).expect("serialize"),
+            "\"closed\""
+        );
+        assert_eq!(
+            serde_json::to_string(&TaskStatus::Error).expect("serialize"),
+            "\"error\""
+        );
 
         let parsed: TaskStatus = serde_json::from_str("\"open\"").expect("deserialize");
         assert_eq!(parsed, TaskStatus::Open);
@@ -707,8 +698,14 @@ mod tests {
 
     #[test]
     fn visibility_serde_roundtrip() {
-        assert_eq!(serde_json::to_string(&Visibility::Public).expect("serialize"), "\"public\"");
-        assert_eq!(serde_json::to_string(&Visibility::Private).expect("serialize"), "\"private\"");
+        assert_eq!(
+            serde_json::to_string(&Visibility::Public).expect("serialize"),
+            "\"public\""
+        );
+        assert_eq!(
+            serde_json::to_string(&Visibility::Private).expect("serialize"),
+            "\"private\""
+        );
 
         let parsed: Visibility = serde_json::from_str("\"private\"").expect("deserialize");
         assert_eq!(parsed, Visibility::Private);
@@ -722,9 +719,18 @@ mod tests {
 
     #[test]
     fn scope_serde_roundtrip() {
-        assert_eq!(serde_json::to_string(&Scope::Global).expect("serialize"), "\"global\"");
-        assert_eq!(serde_json::to_string(&Scope::Team).expect("serialize"), "\"team\"");
-        assert_eq!(serde_json::to_string(&Scope::User).expect("serialize"), "\"user\"");
+        assert_eq!(
+            serde_json::to_string(&Scope::Global).expect("serialize"),
+            "\"global\""
+        );
+        assert_eq!(
+            serde_json::to_string(&Scope::Team).expect("serialize"),
+            "\"team\""
+        );
+        assert_eq!(
+            serde_json::to_string(&Scope::User).expect("serialize"),
+            "\"user\""
+        );
 
         let parsed: Scope = serde_json::from_str("\"team\"").expect("deserialize");
         assert_eq!(parsed, Scope::Team);
@@ -740,9 +746,18 @@ mod tests {
 
     #[test]
     fn repository_kind_serde_roundtrip() {
-        assert_eq!(serde_json::to_string(&RepositoryKind::Git).expect("serialize"), "\"git\"");
-        assert_eq!(serde_json::to_string(&RepositoryKind::Remote).expect("serialize"), "\"remote\"");
-        assert_eq!(serde_json::to_string(&RepositoryKind::Template).expect("serialize"), "\"template\"");
+        assert_eq!(
+            serde_json::to_string(&RepositoryKind::Git).expect("serialize"),
+            "\"git\""
+        );
+        assert_eq!(
+            serde_json::to_string(&RepositoryKind::Remote).expect("serialize"),
+            "\"remote\""
+        );
+        assert_eq!(
+            serde_json::to_string(&RepositoryKind::Template).expect("serialize"),
+            "\"template\""
+        );
 
         let parsed: RepositoryKind = serde_json::from_str("\"git\"").expect("deserialize");
         assert_eq!(parsed, RepositoryKind::Git);
@@ -751,16 +766,31 @@ mod tests {
     #[test]
     fn repository_kind_try_from() {
         assert_eq!(RepositoryKind::try_from("git"), Ok(RepositoryKind::Git));
-        assert_eq!(RepositoryKind::try_from("remote"), Ok(RepositoryKind::Remote));
-        assert_eq!(RepositoryKind::try_from("template"), Ok(RepositoryKind::Template));
+        assert_eq!(
+            RepositoryKind::try_from("remote"),
+            Ok(RepositoryKind::Remote)
+        );
+        assert_eq!(
+            RepositoryKind::try_from("template"),
+            Ok(RepositoryKind::Template)
+        );
         assert!(RepositoryKind::try_from("invalid").is_err());
     }
 
     #[test]
     fn repository_provider_serde_roundtrip() {
-        assert_eq!(serde_json::to_string(&RepositoryProvider::Github).expect("serialize"), "\"github\"");
-        assert_eq!(serde_json::to_string(&RepositoryProvider::Gitlab).expect("serialize"), "\"gitlab\"");
-        assert_eq!(serde_json::to_string(&RepositoryProvider::Gitness).expect("serialize"), "\"gitness\"");
+        assert_eq!(
+            serde_json::to_string(&RepositoryProvider::Github).expect("serialize"),
+            "\"github\""
+        );
+        assert_eq!(
+            serde_json::to_string(&RepositoryProvider::Gitlab).expect("serialize"),
+            "\"gitlab\""
+        );
+        assert_eq!(
+            serde_json::to_string(&RepositoryProvider::Gitness).expect("serialize"),
+            "\"gitness\""
+        );
 
         let parsed: RepositoryProvider = serde_json::from_str("\"github\"").expect("deserialize");
         assert_eq!(parsed, RepositoryProvider::Github);
@@ -768,19 +798,43 @@ mod tests {
 
     #[test]
     fn repository_provider_try_from() {
-        assert_eq!(RepositoryProvider::try_from("github"), Ok(RepositoryProvider::Github));
-        assert_eq!(RepositoryProvider::try_from("gitlab"), Ok(RepositoryProvider::Gitlab));
-        assert_eq!(RepositoryProvider::try_from("gitness"), Ok(RepositoryProvider::Gitness));
+        assert_eq!(
+            RepositoryProvider::try_from("github"),
+            Ok(RepositoryProvider::Github)
+        );
+        assert_eq!(
+            RepositoryProvider::try_from("gitlab"),
+            Ok(RepositoryProvider::Gitlab)
+        );
+        assert_eq!(
+            RepositoryProvider::try_from("gitness"),
+            Ok(RepositoryProvider::Gitness)
+        );
         assert!(RepositoryProvider::try_from("invalid").is_err());
     }
 
     #[test]
     fn message_type_serde_roundtrip() {
-        assert_eq!(serde_json::to_string(&MessageType::Assistant).expect("serialize"), "\"assistant\"");
-        assert_eq!(serde_json::to_string(&MessageType::User).expect("serialize"), "\"user\"");
-        assert_eq!(serde_json::to_string(&MessageType::System).expect("serialize"), "\"system\"");
-        assert_eq!(serde_json::to_string(&MessageType::Result).expect("serialize"), "\"result\"");
-        assert_eq!(serde_json::to_string(&MessageType::Error).expect("serialize"), "\"error\"");
+        assert_eq!(
+            serde_json::to_string(&MessageType::Assistant).expect("serialize"),
+            "\"assistant\""
+        );
+        assert_eq!(
+            serde_json::to_string(&MessageType::User).expect("serialize"),
+            "\"user\""
+        );
+        assert_eq!(
+            serde_json::to_string(&MessageType::System).expect("serialize"),
+            "\"system\""
+        );
+        assert_eq!(
+            serde_json::to_string(&MessageType::Result).expect("serialize"),
+            "\"result\""
+        );
+        assert_eq!(
+            serde_json::to_string(&MessageType::Error).expect("serialize"),
+            "\"error\""
+        );
 
         let parsed: MessageType = serde_json::from_str("\"assistant\"").expect("deserialize");
         assert_eq!(parsed, MessageType::Assistant);
@@ -788,7 +842,10 @@ mod tests {
 
     #[test]
     fn message_type_try_from() {
-        assert_eq!(MessageType::try_from("assistant"), Ok(MessageType::Assistant));
+        assert_eq!(
+            MessageType::try_from("assistant"),
+            Ok(MessageType::Assistant)
+        );
         assert_eq!(MessageType::try_from("user"), Ok(MessageType::User));
         assert_eq!(MessageType::try_from("system"), Ok(MessageType::System));
         assert_eq!(MessageType::try_from("result"), Ok(MessageType::Result));
@@ -798,9 +855,18 @@ mod tests {
 
     #[test]
     fn message_role_serde_roundtrip() {
-        assert_eq!(serde_json::to_string(&MessageRole::User).expect("serialize"), "\"user\"");
-        assert_eq!(serde_json::to_string(&MessageRole::Assistant).expect("serialize"), "\"assistant\"");
-        assert_eq!(serde_json::to_string(&MessageRole::System).expect("serialize"), "\"system\"");
+        assert_eq!(
+            serde_json::to_string(&MessageRole::User).expect("serialize"),
+            "\"user\""
+        );
+        assert_eq!(
+            serde_json::to_string(&MessageRole::Assistant).expect("serialize"),
+            "\"assistant\""
+        );
+        assert_eq!(
+            serde_json::to_string(&MessageRole::System).expect("serialize"),
+            "\"system\""
+        );
 
         let parsed: MessageRole = serde_json::from_str("\"user\"").expect("deserialize");
         assert_eq!(parsed, MessageRole::User);
@@ -809,15 +875,24 @@ mod tests {
     #[test]
     fn message_role_try_from() {
         assert_eq!(MessageRole::try_from("user"), Ok(MessageRole::User));
-        assert_eq!(MessageRole::try_from("assistant"), Ok(MessageRole::Assistant));
+        assert_eq!(
+            MessageRole::try_from("assistant"),
+            Ok(MessageRole::Assistant)
+        );
         assert_eq!(MessageRole::try_from("system"), Ok(MessageRole::System));
         assert!(MessageRole::try_from("invalid").is_err());
     }
 
     #[test]
     fn user_role_serde_roundtrip() {
-        assert_eq!(serde_json::to_string(&UserRole::User).expect("serialize"), "\"user\"");
-        assert_eq!(serde_json::to_string(&UserRole::Admin).expect("serialize"), "\"admin\"");
+        assert_eq!(
+            serde_json::to_string(&UserRole::User).expect("serialize"),
+            "\"user\""
+        );
+        assert_eq!(
+            serde_json::to_string(&UserRole::Admin).expect("serialize"),
+            "\"admin\""
+        );
 
         let parsed: UserRole = serde_json::from_str("\"admin\"").expect("deserialize");
         assert_eq!(parsed, UserRole::Admin);
@@ -832,9 +907,18 @@ mod tests {
 
     #[test]
     fn routing_mode_serde_roundtrip() {
-        assert_eq!(serde_json::to_string(&RoutingMode::Ongoing).expect("serialize"), "\"ongoing\"");
-        assert_eq!(serde_json::to_string(&RoutingMode::PerMessage).expect("serialize"), "\"per_message\"");
-        assert_eq!(serde_json::to_string(&RoutingMode::ThreadBased).expect("serialize"), "\"thread_based\"");
+        assert_eq!(
+            serde_json::to_string(&RoutingMode::Ongoing).expect("serialize"),
+            "\"ongoing\""
+        );
+        assert_eq!(
+            serde_json::to_string(&RoutingMode::PerMessage).expect("serialize"),
+            "\"per_message\""
+        );
+        assert_eq!(
+            serde_json::to_string(&RoutingMode::ThreadBased).expect("serialize"),
+            "\"thread_based\""
+        );
 
         let parsed: RoutingMode = serde_json::from_str("\"per_message\"").expect("deserialize");
         assert_eq!(parsed, RoutingMode::PerMessage);
@@ -843,8 +927,14 @@ mod tests {
     #[test]
     fn routing_mode_try_from() {
         assert_eq!(RoutingMode::try_from("ongoing"), Ok(RoutingMode::Ongoing));
-        assert_eq!(RoutingMode::try_from("per_message"), Ok(RoutingMode::PerMessage));
-        assert_eq!(RoutingMode::try_from("thread_based"), Ok(RoutingMode::ThreadBased));
+        assert_eq!(
+            RoutingMode::try_from("per_message"),
+            Ok(RoutingMode::PerMessage)
+        );
+        assert_eq!(
+            RoutingMode::try_from("thread_based"),
+            Ok(RoutingMode::ThreadBased)
+        );
         assert!(RoutingMode::try_from("invalid").is_err());
     }
 }

@@ -58,9 +58,7 @@ impl sqlx::Type<sqlx::Postgres> for ContentBlockType {
 }
 
 impl<'r> sqlx::Decode<'r, sqlx::Postgres> for ContentBlockType {
-    fn decode(
-        value: sqlx::postgres::PgValueRef<'r>,
-    ) -> Result<Self, sqlx::error::BoxDynError> {
+    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
         let s = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
         ContentBlockType::try_from(s.as_str()).map_err(Into::into)
     }
@@ -126,7 +124,12 @@ pub struct TaskMessage {
 
 impl TaskMessage {
     /// Create a new user message with required fields, defaulting all optional fields to `None`.
-    pub fn new_user_message(task_id: String, uuid: String, content: serde_json::Value, timestamp: String) -> Self {
+    pub fn new_user_message(
+        task_id: String,
+        uuid: String,
+        content: serde_json::Value,
+        timestamp: String,
+    ) -> Self {
         Self {
             id: 0,
             task_id,
@@ -215,11 +218,26 @@ mod tests {
 
     #[test]
     fn message_type_serde_roundtrip() {
-        assert_eq!(serde_json::to_string(&MessageType::Assistant).unwrap(), "\"assistant\"");
-        assert_eq!(serde_json::to_string(&MessageType::User).unwrap(), "\"user\"");
-        assert_eq!(serde_json::to_string(&MessageType::System).unwrap(), "\"system\"");
-        assert_eq!(serde_json::to_string(&MessageType::Result).unwrap(), "\"result\"");
-        assert_eq!(serde_json::to_string(&MessageType::Error).unwrap(), "\"error\"");
+        assert_eq!(
+            serde_json::to_string(&MessageType::Assistant).unwrap(),
+            "\"assistant\""
+        );
+        assert_eq!(
+            serde_json::to_string(&MessageType::User).unwrap(),
+            "\"user\""
+        );
+        assert_eq!(
+            serde_json::to_string(&MessageType::System).unwrap(),
+            "\"system\""
+        );
+        assert_eq!(
+            serde_json::to_string(&MessageType::Result).unwrap(),
+            "\"result\""
+        );
+        assert_eq!(
+            serde_json::to_string(&MessageType::Error).unwrap(),
+            "\"error\""
+        );
 
         let parsed: MessageType = serde_json::from_str("\"assistant\"").unwrap();
         assert_eq!(parsed, MessageType::Assistant);
@@ -227,17 +245,38 @@ mod tests {
 
     #[test]
     fn message_role_serde_roundtrip() {
-        assert_eq!(serde_json::to_string(&MessageRole::User).unwrap(), "\"user\"");
-        assert_eq!(serde_json::to_string(&MessageRole::Assistant).unwrap(), "\"assistant\"");
-        assert_eq!(serde_json::to_string(&MessageRole::System).unwrap(), "\"system\"");
+        assert_eq!(
+            serde_json::to_string(&MessageRole::User).unwrap(),
+            "\"user\""
+        );
+        assert_eq!(
+            serde_json::to_string(&MessageRole::Assistant).unwrap(),
+            "\"assistant\""
+        );
+        assert_eq!(
+            serde_json::to_string(&MessageRole::System).unwrap(),
+            "\"system\""
+        );
     }
 
     #[test]
     fn content_block_type_serde_roundtrip() {
-        assert_eq!(serde_json::to_string(&ContentBlockType::Text).unwrap(), "\"text\"");
-        assert_eq!(serde_json::to_string(&ContentBlockType::ToolUse).unwrap(), "\"tool_use\"");
-        assert_eq!(serde_json::to_string(&ContentBlockType::ToolResult).unwrap(), "\"tool_result\"");
-        assert_eq!(serde_json::to_string(&ContentBlockType::Image).unwrap(), "\"image\"");
+        assert_eq!(
+            serde_json::to_string(&ContentBlockType::Text).unwrap(),
+            "\"text\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ContentBlockType::ToolUse).unwrap(),
+            "\"tool_use\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ContentBlockType::ToolResult).unwrap(),
+            "\"tool_result\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ContentBlockType::Image).unwrap(),
+            "\"image\""
+        );
     }
 
     #[test]

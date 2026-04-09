@@ -47,10 +47,7 @@ pub enum ContentBlock {
     },
 
     #[serde(rename = "thinking")]
-    Thinking {
-        thinking: String,
-        signature: String,
-    },
+    Thinking { thinking: String, signature: String },
 
     #[serde(rename = "image")]
     Image { source: ImageSource },

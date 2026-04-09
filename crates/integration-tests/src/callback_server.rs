@@ -69,8 +69,7 @@ impl CallbackServer {
 
     /// Return the callback URL for this server.
     pub fn callback_url(&self) -> String {
-        let host =
-            std::env::var("CALLBACK_HOST").unwrap_or_else(|_| "127.0.0.1".into());
+        let host = std::env::var("CALLBACK_HOST").unwrap_or_else(|_| "127.0.0.1".into());
         format!("http://{}:{}/callback", host, self.port)
     }
 

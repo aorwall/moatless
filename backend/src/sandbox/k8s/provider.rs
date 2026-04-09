@@ -11,21 +11,21 @@ use tracing::{info, warn};
 
 use super::client::K8sClient;
 use super::deployment;
-use super::pod_reader;
 use super::ingress;
 use super::naming::generate_service_name;
 use super::pod_builder;
+use super::pod_reader;
 use super::pod_status::is_sandbox_container_ready;
 use super::pvc;
 use super::service;
 use super::status_resolver::StatusResolver;
 use crate::config::Config;
 use crate::events::EventPublisher;
+use crate::sandbox::client::SandboxClient;
 use crate::sandbox::error::SandboxError;
 use crate::sandbox::jwt;
-use crate::sandbox::provider::SandboxProvider;
-use crate::sandbox::client::SandboxClient;
 use crate::sandbox::models::*;
+use crate::sandbox::provider::SandboxProvider;
 use crate::sandbox::schemas::*;
 
 /// Kubernetes-based sandbox provider.
@@ -71,7 +71,8 @@ impl SandboxProvider for K8sSandboxProvider {
         // 2. Generate JWT using user_id directly (no DB lookup)
         let task_token_secret = self
             .config
-            .sandbox.task_token_secret
+            .sandbox
+            .task_token_secret
             .as_ref()
             .ok_or_else(|| SandboxError::ConfigMissing("TASK_TOKEN_SECRET".to_string()))?
             .clone();
@@ -105,15 +106,16 @@ impl SandboxProvider for K8sSandboxProvider {
             pod_builder::build_servers_map(plan).into_iter().collect();
 
         // 5. Create Deployment (wraps pod spec) + Service
-        let _deployment_name = deployment::create_sandbox_deployment(
+        let _deployment_name =
+            deployment::create_sandbox_deployment(&self.k8s, task_id, pod).await?;
+
+        let service_name = service::create_sandbox_service(
             &self.k8s,
             task_id,
-            pod,
+            &server_ports,
+            self.config.sandbox.grpc_port,
         )
         .await?;
-
-        let service_name =
-            service::create_sandbox_service(&self.k8s, task_id, &server_ports, self.config.sandbox.grpc_port).await?;
 
         // 5b. Create Traefik IngressRoutes (if proxy_domain is configured)
         if self.config.proxy.domain.is_some() {
@@ -145,7 +147,10 @@ impl SandboxProvider for K8sSandboxProvider {
         task_id: &str,
         server_configs: &[ServerConfig],
     ) -> Result<SandboxStatusFullResponse, SandboxError> {
-        Ok(self.status_resolver.resolve_sandbox_status(task_id, server_configs).await)
+        Ok(self
+            .status_resolver
+            .resolve_sandbox_status(task_id, server_configs)
+            .await)
     }
 
     async fn stop(&self, task_id: &str) -> Result<(), SandboxError> {
@@ -168,11 +173,7 @@ impl SandboxProvider for K8sSandboxProvider {
 
         if let Some(ref publisher) = self.event_publisher {
             publisher
-                .publish_sandbox_event(
-                    task_id,
-                    moatless_events::SandboxStatus::Stopped,
-                    "Stopped",
-                )
+                .publish_sandbox_event(task_id, moatless_events::SandboxStatus::Stopped, "Stopped")
                 .await;
         }
 
@@ -320,9 +321,7 @@ impl K8sSandboxProvider {
     /// Fast readiness gate — checks deployment replicas before attempting gRPC.
     async fn require_sandbox_ready(&self, task_id: &str) -> Result<(), SandboxError> {
         match deployment::get_deployment_replicas(&self.k8s, task_id).await {
-            Ok((0, _)) => {
-                Err(SandboxError::NotReady("Sandbox is stopped".into()))
-            }
+            Ok((0, _)) => Err(SandboxError::NotReady("Sandbox is stopped".into())),
             Ok(_) => Ok(()),
             Err(_) => {
                 // Deployment might not exist at all
@@ -392,10 +391,8 @@ impl K8sSandboxProvider {
         }
 
         // Check actual pod status
-        let pods_api: Api<Pod> =
-            Api::namespaced(self.k8s.client.clone(), self.k8s.namespace());
-        let lp =
-            ListParams::default().labels(&format!("moatless.io/task-id={task_id}"));
+        let pods_api: Api<Pod> = Api::namespaced(self.k8s.client.clone(), self.k8s.namespace());
+        let lp = ListParams::default().labels(&format!("moatless.io/task-id={task_id}"));
 
         let list = match pods_api.list(&lp).await {
             Ok(list) => list,

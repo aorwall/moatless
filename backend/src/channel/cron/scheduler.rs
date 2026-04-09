@@ -61,10 +61,7 @@ async fn tick(
     last_fired: &mut HashMap<String, chrono::DateTime<Utc>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Load active cron configs
-    let configs = state
-        .channel_configs
-        .list(Some("cron"), None, true)
-        .await?;
+    let configs = state.channel_configs.list(Some("cron"), None, true).await?;
 
     if configs.is_empty() {
         return Ok(());
@@ -114,18 +111,12 @@ async fn tick(
             if next_fire <= now {
                 info!(config_id = %config.id, schedule = %schedule_str, "Cron schedule fired");
 
-                let msg =
-                    super::provider::CronProvider::generate_message(config);
+                let msg = super::provider::CronProvider::generate_message(config);
 
                 let state_clone = state.clone();
                 tokio::spawn(async move {
                     if let Err(e) =
-                        crate::channel::inbound::process_inbound(
-                            &state_clone,
-                            msg,
-                            None,
-                        )
-                        .await
+                        crate::channel::inbound::process_inbound(&state_clone, msg, None).await
                     {
                         warn!(error = %e, "Failed to process cron-triggered message");
                     }

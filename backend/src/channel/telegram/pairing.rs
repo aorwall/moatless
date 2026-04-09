@@ -163,13 +163,12 @@ pub async fn approve_request(
     .map_err(ChannelError::Db)?;
 
     // Read current provider_config and append user to dm_allowlist
-    let row: (Option<serde_json::Value>,) = sqlx::query_as(
-        "SELECT provider_config FROM channel_configs WHERE id = $1",
-    )
-    .bind(config_id)
-    .fetch_one(db)
-    .await
-    .map_err(ChannelError::Db)?;
+    let row: (Option<serde_json::Value>,) =
+        sqlx::query_as("SELECT provider_config FROM channel_configs WHERE id = $1")
+            .bind(config_id)
+            .fetch_one(db)
+            .await
+            .map_err(ChannelError::Db)?;
 
     let mut tg_config: TelegramProviderConfig = row
         .0
@@ -203,13 +202,12 @@ pub async fn approve_request(
     );
 
     // Return updated request
-    let updated: PairingRequest = sqlx::query_as(
-        "SELECT * FROM channel_pairing_requests WHERE id = $1",
-    )
-    .bind(req.id)
-    .fetch_one(db)
-    .await
-    .map_err(ChannelError::Db)?;
+    let updated: PairingRequest =
+        sqlx::query_as("SELECT * FROM channel_pairing_requests WHERE id = $1")
+            .bind(req.id)
+            .fetch_one(db)
+            .await
+            .map_err(ChannelError::Db)?;
 
     Ok(updated)
 }

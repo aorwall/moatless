@@ -20,7 +20,10 @@ pub async fn seed_default_repositories(repos: &dyn RepoRepository) {
 
 async fn seed_moatable(repos: &dyn RepoRepository) -> Result<(), sqlx::Error> {
     // Check including soft-deleted rows so we don't re-create a repo the user removed.
-    if repos.exists_by_name_including_deleted("Moatable", "system").await? {
+    if repos
+        .exists_by_name_including_deleted("Moatable", "system")
+        .await?
+    {
         info!("Default repository 'Moatable' already exists, skipping seed");
         return Ok(());
     }

@@ -5,12 +5,12 @@ use tracing::{debug, info, warn};
 use super::config_dao::ChannelConfigPatch;
 use super::models::ChannelConfig;
 use crate::shared_models::{AgentMode, AgentType};
-use crate::task::models::{Task, TaskStatus, Visibility};
 use crate::state::AppState;
+use crate::task::models::{Task, TaskStatus, Visibility};
 
 use super::error::ChannelError;
-use super::router::{self, RoutingResult};
 use super::models::{InboundMessage, RoutingMode};
+use super::router::{self, RoutingResult};
 
 /// Pre-resolved command information passed from provider-specific ingress
 /// (e.g., Slack slash commands) or detected from message text.
@@ -111,7 +111,8 @@ pub async fn process_inbound(
                 routing_mode = ?config.routing_mode,
                 "Creating new task for channel message"
             );
-            let task_id = create_task_for_channel(state, &config, &msg, effective_command.as_ref()).await?;
+            let task_id =
+                create_task_for_channel(state, &config, &msg, effective_command.as_ref()).await?;
 
             // Provision sandbox (mirrors task/handlers.rs)
             match crate::sandbox::auto_provision::build_provision_request(
@@ -123,25 +124,31 @@ pub async fn process_inbound(
             )
             .await
             {
-                Ok(request) => {
-                    match state.sandbox.provision(&task_id, &request).await {
-                        Ok(_) => info!(task_id = %task_id, "Sandbox provisioning started for channel task"),
-                        Err(e) => warn!(task_id = %task_id, error = %e, "Failed to provision sandbox for channel task"),
+                Ok(request) => match state.sandbox.provision(&task_id, &request).await {
+                    Ok(_) => {
+                        info!(task_id = %task_id, "Sandbox provisioning started for channel task")
                     }
+                    Err(e) => {
+                        warn!(task_id = %task_id, error = %e, "Failed to provision sandbox for channel task")
+                    }
+                },
+                Err(e) => {
+                    warn!(task_id = %task_id, error = %e, "Failed to build provision request for channel task")
                 }
-                Err(e) => warn!(task_id = %task_id, error = %e, "Failed to build provision request for channel task"),
             }
 
             // For ongoing mode, update the config's ongoing_task_id
             if config.routing_mode == RoutingMode::Ongoing {
-                state.channel_configs.update(
-                    &config.id,
-                    &ChannelConfigPatch {
-                        ongoing_task_id: Some(Some(task_id.clone())),
-                        ..Default::default()
-                    },
-                )
-                .await?;
+                state
+                    .channel_configs
+                    .update(
+                        &config.id,
+                        &ChannelConfigPatch {
+                            ongoing_task_id: Some(Some(task_id.clone())),
+                            ..Default::default()
+                        },
+                    )
+                    .await?;
             }
 
             is_new_task = true;
@@ -168,40 +175,55 @@ pub async fn process_inbound(
     };
 
     let thread = if let Some(existing) = thread {
-        state.channel_threads.touch(existing.id, Some(&msg.thread_properties)).await?;
+        state
+            .channel_threads
+            .touch(existing.id, Some(&msg.thread_properties))
+            .await?;
         existing
     } else if config.routing_mode == RoutingMode::Ongoing {
         // Try to find an existing thread for this task+config before creating a new one
-        match state.channel_threads.find_by_task_id_and_config(&task_id, thread_config_id).await? {
+        match state
+            .channel_threads
+            .find_by_task_id_and_config(&task_id, thread_config_id)
+            .await?
+        {
             Some(existing) => {
-                state.channel_threads.touch(existing.id, Some(&msg.thread_properties)).await?;
+                state
+                    .channel_threads
+                    .touch(existing.id, Some(&msg.thread_properties))
+                    .await?;
                 existing
             }
             None => {
-                state.channel_threads.insert(
-                    thread_config_id,
-                    &task_id,
-                    &msg.message_thread_id,
-                    &thread_properties,
-                )
-                .await?
+                state
+                    .channel_threads
+                    .insert(
+                        thread_config_id,
+                        &task_id,
+                        &msg.message_thread_id,
+                        &thread_properties,
+                    )
+                    .await?
             }
         }
     } else {
-        state.channel_threads.insert(
-            thread_config_id,
-            &task_id,
-            &msg.message_thread_id,
-            &thread_properties,
-        )
-        .await?
+        state
+            .channel_threads
+            .insert(
+                thread_config_id,
+                &task_id,
+                &msg.message_thread_id,
+                &thread_properties,
+            )
+            .await?
     };
 
     // Fetch thread context for replies, excluding messages already delivered to the task.
     let thread_context = if msg.thread_id.is_some() {
         if let Some(ref providers) = state.channel_providers {
             if let Some(provider) = providers.get_by_name(&config.provider) {
-                let mut exclude_ids = match state.messages.get_channel_external_ids(&task_id).await {
+                let mut exclude_ids = match state.messages.get_channel_external_ids(&task_id).await
+                {
                     Ok(ids) => ids,
                     Err(e) => {
                         warn!(error = %e, "Failed to fetch channel external IDs, fetching full context");
@@ -213,7 +235,10 @@ pub async fn process_inbound(
                     exclude_ids.push(ext_id.clone());
                 }
 
-                match provider.fetch_context(&thread, &config, 20, &exclude_ids).await {
+                match provider
+                    .fetch_context(&thread, &config, 20, &exclude_ids)
+                    .await
+                {
                     Ok(ctx) => ctx,
                     Err(e) => {
                         warn!(error = %e, "Failed to fetch thread context");
@@ -287,9 +312,7 @@ pub async fn process_inbound(
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false);
         if !is_bot_mentioned {
-            message_text = format!(
-"[New message in Slack thread]\n\n{message_text}"
-            );
+            message_text = format!("[New message in Slack thread]\n\n{message_text}");
         }
     }
 
@@ -385,8 +408,12 @@ async fn create_task_for_channel(
         name: config.task_name.clone(),
         description: Some(match command {
             Some(cmd) => {
-                let stripped = msg.text.trim().strip_prefix(&format!("/{}", cmd.name))
-                    .unwrap_or(&msg.text).trim();
+                let stripped = msg
+                    .text
+                    .trim()
+                    .strip_prefix(&format!("/{}", cmd.name))
+                    .unwrap_or(&msg.text)
+                    .trim();
                 if stripped.is_empty() {
                     truncate(&format!("/{}", cmd.name), 200)
                 } else {
@@ -424,7 +451,9 @@ async fn create_task_for_channel(
         sandbox_started_at: None,
     };
 
-    state.tasks.insert_task(&row)
+    state
+        .tasks
+        .insert_task(&row)
         .await
         .map_err(|e| ChannelError::Internal(format!("Failed to create task: {e}")))?;
 
@@ -501,7 +530,11 @@ pub async fn trigger_inbound(
                 "thread_properties missing required field: repo".into(),
             ));
         }
-        if props.get("pr_number").and_then(serde_json::Value::as_u64).is_none() {
+        if props
+            .get("pr_number")
+            .and_then(serde_json::Value::as_u64)
+            .is_none()
+        {
             return Err(ChannelError::BadRequest(
                 "thread_properties missing required field: pr_number (must be a number)".into(),
             ));
@@ -544,13 +577,17 @@ pub async fn trigger_inbound(
     )
     .await
     {
-        Ok(request) => {
-            match state.sandbox.provision(&task_id, &request).await {
-                Ok(_) => info!(task_id = %task_id, "Sandbox provisioning started for triggered channel task"),
-                Err(e) => warn!(task_id = %task_id, error = %e, "Failed to provision sandbox for triggered channel task"),
+        Ok(request) => match state.sandbox.provision(&task_id, &request).await {
+            Ok(_) => {
+                info!(task_id = %task_id, "Sandbox provisioning started for triggered channel task")
             }
+            Err(e) => {
+                warn!(task_id = %task_id, error = %e, "Failed to provision sandbox for triggered channel task")
+            }
+        },
+        Err(e) => {
+            warn!(task_id = %task_id, error = %e, "Failed to build provision request for triggered channel task")
         }
-        Err(e) => warn!(task_id = %task_id, error = %e, "Failed to build provision request for triggered channel task"),
     }
 
     // For ongoing mode, record the new task as the current ongoing task
@@ -619,7 +656,9 @@ pub async fn trigger_inbound(
 async fn generate_short_id(state: &AppState) -> Result<String, ChannelError> {
     for _ in 0..10 {
         let id = nanoid::nanoid!(8, &nanoid::alphabet::SAFE);
-        if !state.tasks.exists_by_short_id(&id)
+        if !state
+            .tasks
+            .exists_by_short_id(&id)
             .await
             .map_err(|e| ChannelError::Internal(format!("Short ID check failed: {e}")))?
         {

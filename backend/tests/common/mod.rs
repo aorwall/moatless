@@ -14,13 +14,13 @@ use moatless_vibe_backend::config::{
 };
 use moatless_vibe_backend::message::models::{MessageRole, MessageType, TaskMessage};
 use moatless_vibe_backend::repository::models::{Repository, RepositoryKind, RepositoryProvider};
-use moatless_vibe_backend::sandbox::error::SandboxError;
-use moatless_vibe_backend::sandbox::provider::SandboxProvider;
 use moatless_vibe_backend::sandbox::client::SandboxClient;
+use moatless_vibe_backend::sandbox::error::SandboxError;
 use moatless_vibe_backend::sandbox::models::*;
+use moatless_vibe_backend::sandbox::provider::SandboxProvider;
 use moatless_vibe_backend::sandbox::schemas::*;
-use moatless_vibe_backend::state::AppState;
 use moatless_vibe_backend::shared_models::AgentType;
+use moatless_vibe_backend::state::AppState;
 use moatless_vibe_backend::task::models::{Task, TaskStatus, Visibility};
 
 // =========================================================================
@@ -346,21 +346,26 @@ pub fn make_command_row(name: &str) -> Command {
 
 /// Build an HTTP request with auth identity extension.
 #[allow(dead_code)]
-pub fn authed_request(method: &str, uri: &str, user_id: &str) -> axum::http::Request<axum::body::Body> {
+pub fn authed_request(
+    method: &str,
+    uri: &str,
+    user_id: &str,
+) -> axum::http::Request<axum::body::Body> {
     let mut req = axum::http::Request::builder()
         .method(method)
         .uri(uri)
         .header("content-type", "application/json")
         .body(axum::body::Body::empty())
         .unwrap();
-    req.extensions_mut().insert(moatless_vibe_backend::auth::identity::AuthIdentity {
-        user_id: user_id.to_string(),
-        login: user_id.to_string(),
-        role: moatless_vibe_backend::auth::models::UserRole::User,
-        provider: "test".to_string(),
-        group_id: None,
-        team_ids: vec![],
-    });
+    req.extensions_mut()
+        .insert(moatless_vibe_backend::auth::identity::AuthIdentity {
+            user_id: user_id.to_string(),
+            login: user_id.to_string(),
+            role: moatless_vibe_backend::auth::models::UserRole::User,
+            provider: "test".to_string(),
+            group_id: None,
+            team_ids: vec![],
+        });
     req
 }
 
@@ -378,14 +383,15 @@ pub fn authed_json_request(
         .header("content-type", "application/json")
         .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
         .unwrap();
-    req.extensions_mut().insert(moatless_vibe_backend::auth::identity::AuthIdentity {
-        user_id: user_id.to_string(),
-        login: user_id.to_string(),
-        role: moatless_vibe_backend::auth::models::UserRole::User,
-        provider: "test".to_string(),
-        group_id: None,
-        team_ids: vec![],
-    });
+    req.extensions_mut()
+        .insert(moatless_vibe_backend::auth::identity::AuthIdentity {
+            user_id: user_id.to_string(),
+            login: user_id.to_string(),
+            role: moatless_vibe_backend::auth::models::UserRole::User,
+            provider: "test".to_string(),
+            group_id: None,
+            team_ids: vec![],
+        });
     req
 }
 

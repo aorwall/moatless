@@ -87,7 +87,8 @@ impl FromRequestParts<AppState> for AuthUser {
         {
             let secret = state
                 .config
-                .sandbox.task_token_secret
+                .sandbox
+                .task_token_secret
                 .as_deref()
                 .ok_or_else(|| AuthError("Token verification not configured".to_string()))?;
 
@@ -142,7 +143,12 @@ impl FromRequestParts<AppState> for AuthUser {
                     .headers
                     .get("x-team-ids")
                     .and_then(|v| v.to_str().ok())
-                    .map(|s| s.split(',').map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect())
+                    .map(|s| {
+                        s.split(',')
+                            .map(|t| t.trim().to_string())
+                            .filter(|t| !t.is_empty())
+                            .collect()
+                    })
                     .unwrap_or_default();
 
                 return Ok(AuthUser {

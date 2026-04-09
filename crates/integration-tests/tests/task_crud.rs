@@ -32,6 +32,7 @@ async fn task_crud_chain() {
         contexts: vec![],
         file_ids: vec![],
         model: None,
+        command_name: None,
     };
     let created = client.api().create_task(&req).await.unwrap();
     assert_eq!(created.status, TaskStatus::Open);
@@ -40,11 +41,7 @@ async fn task_crud_chain() {
     let task_id = created.task_id;
 
     // TASK-01.1: Task appears in listing
-    let tasks = client
-        .api()
-        .list_tasks(&Default::default())
-        .await
-        .unwrap();
+    let tasks = client.api().list_tasks(&Default::default()).await.unwrap();
     assert!(tasks.items.iter().any(|t| t.task_id == task_id));
 
     // TASK-03: Get task by ID
@@ -134,10 +131,6 @@ async fn task_crud_chain() {
     client.api().delete_task(&task_id).await.unwrap();
 
     // TASK-09.1: Task removed from listing
-    let tasks = client
-        .api()
-        .list_tasks(&Default::default())
-        .await
-        .unwrap();
+    let tasks = client.api().list_tasks(&Default::default()).await.unwrap();
     assert!(!tasks.items.iter().any(|t| t.task_id == task_id));
 }

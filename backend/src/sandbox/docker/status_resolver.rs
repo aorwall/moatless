@@ -89,7 +89,12 @@ impl DockerStatusResolver {
         &self,
         container_name: &str,
     ) -> (SandboxStatus, Option<String>) {
-        match self.client.docker.inspect_container(container_name, None).await {
+        match self
+            .client
+            .docker
+            .inspect_container(container_name, None)
+            .await
+        {
             Ok(info) => {
                 let state = info.state.as_ref();
                 let restart_count = info.restart_count.unwrap_or(0);
@@ -97,10 +102,7 @@ impl DockerStatusResolver {
 
                 // Check for OOM first
                 if state.and_then(|s| s.oom_killed).unwrap_or(false) {
-                    return (
-                        SandboxStatus::Error,
-                        Some("Container OOM killed".into()),
-                    );
+                    return (SandboxStatus::Error, Some("Container OOM killed".into()));
                 }
 
                 // Check crash loop via restart count
@@ -174,7 +176,9 @@ impl DockerStatusResolver {
 
         for sc in server_configs {
             let container_name = generate_server_container_name(task_id, &sc.name);
-            let timeout = sc.startup_timeout_seconds.unwrap_or(DEFAULT_SERVER_READINESS_TIMEOUT_SECS);
+            let timeout = sc
+                .startup_timeout_seconds
+                .unwrap_or(DEFAULT_SERVER_READINESS_TIMEOUT_SECS);
             let (status, url, error) = self
                 .inspect_server_container(&container_name, sc.port, timeout)
                 .await;
@@ -206,7 +210,12 @@ impl DockerStatusResolver {
         container_port: u16,
         startup_timeout_secs: u32,
     ) -> (ServerStatus, Option<String>, Option<String>) {
-        match self.client.docker.inspect_container(container_name, None).await {
+        match self
+            .client
+            .docker
+            .inspect_container(container_name, None)
+            .await
+        {
             Ok(info) => {
                 let status_str = info
                     .state
@@ -226,7 +235,9 @@ impl DockerStatusResolver {
                     .and_then(|b| b.host_port.as_ref())
                     .and_then(|p| if p.is_empty() { None } else { Some(p.clone()) });
 
-                let url = host_port.as_ref().map(|port| format!("http://localhost:{port}"));
+                let url = host_port
+                    .as_ref()
+                    .map(|port| format!("http://localhost:{port}"));
 
                 let server_status = match status_str.as_str() {
                     "running" => {

@@ -30,10 +30,29 @@ pub struct ChannelConfigPatch {
 #[async_trait]
 pub trait ChannelConfigRepository: Send + Sync {
     async fn find_by_id(&self, id: &str) -> Result<Option<ChannelConfig>, sqlx::Error>;
-    async fn find_by_id_scoped(&self, id: &str, ctx: &ScopeContext) -> Result<Option<ChannelConfig>, sqlx::Error>;
-    async fn find_by_provider_source(&self, provider: &str, source_id: &str) -> Result<Option<ChannelConfig>, sqlx::Error>;
-    async fn list(&self, provider: Option<&str>, repository_id: Option<&str>, active_only: bool) -> Result<Vec<ChannelConfig>, sqlx::Error>;
-    async fn list_scoped(&self, provider: Option<&str>, repository_id: Option<&str>, active_only: bool, ctx: &ScopeContext) -> Result<Vec<ChannelConfig>, sqlx::Error>;
+    async fn find_by_id_scoped(
+        &self,
+        id: &str,
+        ctx: &ScopeContext,
+    ) -> Result<Option<ChannelConfig>, sqlx::Error>;
+    async fn find_by_provider_source(
+        &self,
+        provider: &str,
+        source_id: &str,
+    ) -> Result<Option<ChannelConfig>, sqlx::Error>;
+    async fn list(
+        &self,
+        provider: Option<&str>,
+        repository_id: Option<&str>,
+        active_only: bool,
+    ) -> Result<Vec<ChannelConfig>, sqlx::Error>;
+    async fn list_scoped(
+        &self,
+        provider: Option<&str>,
+        repository_id: Option<&str>,
+        active_only: bool,
+        ctx: &ScopeContext,
+    ) -> Result<Vec<ChannelConfig>, sqlx::Error>;
     async fn insert(&self, row: &ChannelConfig) -> Result<(), sqlx::Error>;
     async fn update(&self, id: &str, patch: &ChannelConfigPatch) -> Result<(), sqlx::Error>;
     async fn delete(&self, id: &str) -> Result<(), sqlx::Error>;
@@ -42,7 +61,11 @@ pub trait ChannelConfigRepository: Send + Sync {
     ///
     /// Lookup order: team-scoped wildcard first (if `team_id` is provided),
     /// then global wildcard.
-    async fn find_wildcard(&self, provider: &str, team_id: Option<&str>) -> Result<Option<ChannelConfig>, sqlx::Error>;
+    async fn find_wildcard(
+        &self,
+        provider: &str,
+        team_id: Option<&str>,
+    ) -> Result<Option<ChannelConfig>, sqlx::Error>;
 }
 
 /// PostgreSQL implementation of [`ChannelConfigRepository`].
@@ -51,20 +74,23 @@ pub struct PgChannelConfigRepository(pub DbPool);
 #[async_trait]
 impl ChannelConfigRepository for PgChannelConfigRepository {
     async fn find_by_id(&self, id: &str) -> Result<Option<ChannelConfig>, sqlx::Error> {
-        sqlx::query_as::<_, ChannelConfig>(
-            "SELECT * FROM channel_configs WHERE id = $1",
-        )
+        sqlx::query_as::<_, ChannelConfig>("SELECT * FROM channel_configs WHERE id = $1")
             .bind(id)
             .fetch_optional(&self.0)
             .await
     }
 
-    async fn find_by_id_scoped(&self, id: &str, ctx: &ScopeContext) -> Result<Option<ChannelConfig>, sqlx::Error> {
+    async fn find_by_id_scoped(
+        &self,
+        id: &str,
+        ctx: &ScopeContext,
+    ) -> Result<Option<ChannelConfig>, sqlx::Error> {
         let access = ctx.access_filter(ScopedEntity::ChannelConfig, "", 2);
         let sql = format!(
             "SELECT * FROM channel_configs \
              WHERE id = $1 \
-             AND {}", access.sql()
+             AND {}",
+            access.sql()
         );
         sqlx::query_as::<_, ChannelConfig>(&sql)
             .bind(id)
@@ -75,20 +101,27 @@ impl ChannelConfigRepository for PgChannelConfigRepository {
             .await
     }
 
-    async fn find_by_provider_source(&self, provider: &str, source_id: &str) -> Result<Option<ChannelConfig>, sqlx::Error> {
+    async fn find_by_provider_source(
+        &self,
+        provider: &str,
+        source_id: &str,
+    ) -> Result<Option<ChannelConfig>, sqlx::Error> {
         sqlx::query_as::<_, ChannelConfig>(
             "SELECT * FROM channel_configs WHERE provider = $1 AND source_id = $2",
         )
-            .bind(provider)
-            .bind(source_id)
-            .fetch_optional(&self.0)
-            .await
+        .bind(provider)
+        .bind(source_id)
+        .fetch_optional(&self.0)
+        .await
     }
 
-    async fn list(&self, provider: Option<&str>, repository_id: Option<&str>, active_only: bool) -> Result<Vec<ChannelConfig>, sqlx::Error> {
-        let mut sql = String::from(
-            "SELECT * FROM channel_configs WHERE 1=1"
-        );
+    async fn list(
+        &self,
+        provider: Option<&str>,
+        repository_id: Option<&str>,
+        active_only: bool,
+    ) -> Result<Vec<ChannelConfig>, sqlx::Error> {
+        let mut sql = String::from("SELECT * FROM channel_configs WHERE 1=1");
         let mut param_idx = 0u32;
         let mut binds: Vec<String> = Vec::new();
 
@@ -117,11 +150,18 @@ impl ChannelConfigRepository for PgChannelConfigRepository {
         query.fetch_all(&self.0).await
     }
 
-    async fn list_scoped(&self, provider: Option<&str>, repository_id: Option<&str>, active_only: bool, ctx: &ScopeContext) -> Result<Vec<ChannelConfig>, sqlx::Error> {
+    async fn list_scoped(
+        &self,
+        provider: Option<&str>,
+        repository_id: Option<&str>,
+        active_only: bool,
+        ctx: &ScopeContext,
+    ) -> Result<Vec<ChannelConfig>, sqlx::Error> {
         let access = ctx.access_filter(ScopedEntity::ChannelConfig, "", 1);
         let mut sql = format!(
             "SELECT * FROM channel_configs \
-             WHERE {}", access.sql()
+             WHERE {}",
+            access.sql()
         );
         let mut param_idx = 3u32;
         let mut binds: Vec<String> = Vec::new();
@@ -245,7 +285,10 @@ impl ChannelConfigRepository for PgChannelConfigRepository {
 
         sets.push("updated_at = now()".to_string());
 
-        let sql = format!("UPDATE channel_configs SET {} WHERE id = $1", sets.join(", "));
+        let sql = format!(
+            "UPDATE channel_configs SET {} WHERE id = $1",
+            sets.join(", ")
+        );
 
         let mut query = sqlx::query(&sql).bind(id);
 
@@ -298,7 +341,11 @@ impl ChannelConfigRepository for PgChannelConfigRepository {
         Ok(())
     }
 
-    async fn find_wildcard(&self, provider: &str, team_id: Option<&str>) -> Result<Option<ChannelConfig>, sqlx::Error> {
+    async fn find_wildcard(
+        &self,
+        provider: &str,
+        team_id: Option<&str>,
+    ) -> Result<Option<ChannelConfig>, sqlx::Error> {
         // Try team-scoped wildcard first
         if let Some(tid) = team_id {
             let result = sqlx::query_as::<_, ChannelConfig>(
@@ -306,10 +353,10 @@ impl ChannelConfigRepository for PgChannelConfigRepository {
                  WHERE provider = $1 AND source_id = '*' AND team_id = $2 AND active = true \
                  LIMIT 1",
             )
-                .bind(provider)
-                .bind(tid)
-                .fetch_optional(&self.0)
-                .await?;
+            .bind(provider)
+            .bind(tid)
+            .fetch_optional(&self.0)
+            .await?;
             if result.is_some() {
                 return Ok(result);
             }
@@ -322,8 +369,8 @@ impl ChannelConfigRepository for PgChannelConfigRepository {
              ORDER BY team_id NULLS LAST \
              LIMIT 1",
         )
-            .bind(provider)
-            .fetch_optional(&self.0)
-            .await
+        .bind(provider)
+        .fetch_optional(&self.0)
+        .await
     }
 }

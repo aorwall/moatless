@@ -52,11 +52,7 @@ pub async fn wait_for_sandbox_status(
 }
 
 /// Poll until `agent_state == "idle"`.
-pub async fn wait_for_agent_idle(
-    client: &MoatClient,
-    task_id: &str,
-    timeout: Duration,
-) -> bool {
+pub async fn wait_for_agent_idle(client: &MoatClient, task_id: &str, timeout: Duration) -> bool {
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
         if let Ok(status) = client.api().sandbox_status(task_id).await {

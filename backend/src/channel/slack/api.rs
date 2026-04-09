@@ -158,10 +158,7 @@ impl SlackApi {
             return Ok(None);
         }
 
-        Ok(resp
-            .user
-            .and_then(|u| u.profile)
-            .and_then(|p| p.email))
+        Ok(resp.user.and_then(|u| u.profile).and_then(|p| p.email))
     }
 
     /// List Slack channels the bot is a member of.
@@ -188,14 +185,10 @@ impl SlackApi {
                 .query(&query)
                 .send()
                 .await
-                .map_err(|e| {
-                    ChannelError::ProviderApi(format!("conversations.list failed: {e}"))
-                })?
+                .map_err(|e| ChannelError::ProviderApi(format!("conversations.list failed: {e}")))?
                 .json()
                 .await
-                .map_err(|e| {
-                    ChannelError::ProviderApi(format!("conversations.list parse: {e}"))
-                })?;
+                .map_err(|e| ChannelError::ProviderApi(format!("conversations.list parse: {e}")))?;
 
             if !resp.ok {
                 let err = resp.error.unwrap_or_default();
@@ -257,14 +250,10 @@ impl SlackApi {
             .query(&query)
             .send()
             .await
-            .map_err(|e| {
-                ChannelError::ProviderApi(format!("conversations.replies failed: {e}"))
-            })?
+            .map_err(|e| ChannelError::ProviderApi(format!("conversations.replies failed: {e}")))?
             .json()
             .await
-            .map_err(|e| {
-                ChannelError::ProviderApi(format!("conversations.replies parse: {e}"))
-            })?;
+            .map_err(|e| ChannelError::ProviderApi(format!("conversations.replies parse: {e}")))?;
 
         if !resp.ok {
             let err = resp.error.unwrap_or_default();
@@ -287,7 +276,8 @@ impl SlackApi {
             .filter_map(|m| {
                 let ts = m.ts.clone();
                 // Try blocks first (Block Kit), then attachments (legacy), then text (fallback)
-                let text = m.blocks
+                let text = m
+                    .blocks
                     .as_ref()
                     .map(|b| super::format::extract_text_from_blocks(b))
                     .filter(|t| !t.is_empty())
@@ -332,16 +322,12 @@ impl SlackApi {
             .send()
             .await
             .map_err(|e| {
-                ChannelError::ProviderApi(format!(
-                    "files.getUploadURLExternal failed: {e}"
-                ))
+                ChannelError::ProviderApi(format!("files.getUploadURLExternal failed: {e}"))
             })?
             .json()
             .await
             .map_err(|e| {
-                ChannelError::ProviderApi(format!(
-                    "files.getUploadURLExternal parse failed: {e}"
-                ))
+                ChannelError::ProviderApi(format!("files.getUploadURLExternal parse failed: {e}"))
             })?;
 
         if !resp.ok {
@@ -393,16 +379,12 @@ impl SlackApi {
             .send()
             .await
             .map_err(|e| {
-                ChannelError::ProviderApi(format!(
-                    "files.completeUploadExternal failed: {e}"
-                ))
+                ChannelError::ProviderApi(format!("files.completeUploadExternal failed: {e}"))
             })?
             .json()
             .await
             .map_err(|e| {
-                ChannelError::ProviderApi(format!(
-                    "files.completeUploadExternal parse failed: {e}"
-                ))
+                ChannelError::ProviderApi(format!("files.completeUploadExternal parse failed: {e}"))
             })?;
 
         if !complete_resp.ok {
@@ -429,14 +411,10 @@ impl SlackApi {
             .query(&[("channel", channel_id)])
             .send()
             .await
-            .map_err(|e| {
-                ChannelError::ProviderApi(format!("conversations.info failed: {e}"))
-            })?
+            .map_err(|e| ChannelError::ProviderApi(format!("conversations.info failed: {e}")))?
             .json()
             .await
-            .map_err(|e| {
-                ChannelError::ProviderApi(format!("conversations.info parse: {e}"))
-            })?;
+            .map_err(|e| ChannelError::ProviderApi(format!("conversations.info parse: {e}")))?;
 
         if !resp.ok {
             let err = resp.error.unwrap_or_default();

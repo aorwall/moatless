@@ -55,7 +55,9 @@ impl Orchestrator {
                     debug!("Orchestrator cancelled");
                 } else {
                     error!(error = %e, "Orchestrator error");
-                    let _ = message_tx.send(Err(SdkError::Internal(e.to_string()))).await;
+                    let _ = message_tx
+                        .send(Err(SdkError::Internal(e.to_string())))
+                        .await;
                 }
             }
 
@@ -249,9 +251,7 @@ impl Orchestrator {
             } => {
                 let response_value = if let Some(handler) = hook_handler {
                     debug!(callback_id = %callback_id, "Hook callback received — invoking handler");
-                    let output = handler
-                        .on_hook(&input, tool_use_id.as_deref())
-                        .await;
+                    let output = handler.on_hook(&input, tool_use_id.as_deref()).await;
                     // Serialize HookOutput into the response JSON
                     match output {
                         HookOutput::Async(async_output) => {

@@ -28,7 +28,10 @@ impl IntoResponse for TeamError {
             Self::Forbidden(m) => (StatusCode::FORBIDDEN, m.clone()),
             Self::Db(e) => {
                 tracing::error!(error = %e, "Database error in team handler");
-                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal server error".to_string(),
+                )
             }
         };
         error_response(status, message)

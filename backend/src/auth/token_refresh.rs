@@ -54,9 +54,7 @@ pub async fn ensure_fresh_token(
 
     info!(user_id = %user_id, "Refreshing expired GitHub App user token");
 
-    let new_tokens = github_app_service
-        .refresh_user_token(refresh_token)
-        .await?;
+    let new_tokens = github_app_service.refresh_user_token(refresh_token).await?;
 
     let now = Utc::now();
     let new_pt = crate::auth::provider_tokens::ProviderToken {

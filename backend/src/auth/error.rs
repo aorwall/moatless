@@ -34,7 +34,6 @@ pub enum AuthError {
 
     #[error("Database error: {0}")]
     Database(#[from] sqlx::Error),
-
 }
 
 impl IntoResponse for AuthError {

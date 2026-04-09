@@ -8,8 +8,7 @@ pub use moatless_api_schemas::channel::*;
 use super::provider::ChannelType;
 
 pub fn channel_config_from_model(row: &super::models::ChannelConfig) -> ChannelConfigResponse {
-    let provider = ChannelType::parse(&row.provider)
-        .unwrap_or(ChannelType::Slack);
+    let provider = ChannelType::parse(&row.provider).unwrap_or(ChannelType::Slack);
     ChannelConfigResponse {
         id: row.id.clone(),
         provider,
@@ -34,9 +33,7 @@ pub fn channel_config_from_model(row: &super::models::ChannelConfig) -> ChannelC
     }
 }
 
-pub fn task_channel_from_model(
-    config: &super::models::ChannelConfig,
-) -> TaskChannelResponse {
+pub fn task_channel_from_model(config: &super::models::ChannelConfig) -> TaskChannelResponse {
     let provider = ChannelType::parse(&config.provider).unwrap_or(ChannelType::Slack);
     TaskChannelResponse {
         config_id: config.id.clone(),
@@ -46,7 +43,9 @@ pub fn task_channel_from_model(
     }
 }
 
-pub fn pairing_request_from_model(r: &super::telegram::pairing::PairingRequest) -> PairingRequestResponse {
+pub fn pairing_request_from_model(
+    r: &super::telegram::pairing::PairingRequest,
+) -> PairingRequestResponse {
     PairingRequestResponse {
         id: r.id,
         config_id: r.config_id.clone(),

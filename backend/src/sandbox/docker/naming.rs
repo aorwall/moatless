@@ -95,18 +95,12 @@ mod tests {
 
     #[test]
     fn container_name_basic() {
-        assert_eq!(
-            generate_container_name("abc123"),
-            "moatless-sandbox-abc123"
-        );
+        assert_eq!(generate_container_name("abc123"), "moatless-sandbox-abc123");
     }
 
     #[test]
     fn container_name_sanitizes_uppercase() {
-        assert_eq!(
-            generate_container_name("ABC123"),
-            "moatless-sandbox-abc123"
-        );
+        assert_eq!(generate_container_name("ABC123"), "moatless-sandbox-abc123");
     }
 
     #[test]

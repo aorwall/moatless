@@ -65,10 +65,7 @@ pub async fn run(client: &MoatClient, action: PluginAction, json: bool) -> Resul
             println!("Plugin {plugin} linked to repository {repo}.");
         }
         PluginAction::Unlink { repo, plugin } => {
-            client
-                .api()
-                .unlink_plugin_from_repo(&repo, &plugin)
-                .await?;
+            client.api().unlink_plugin_from_repo(&repo, &plugin).await?;
             println!("Plugin {plugin} unlinked from repository {repo}.");
         }
         PluginAction::RepoPlugins { repo_id } => {

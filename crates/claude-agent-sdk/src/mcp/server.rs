@@ -75,7 +75,11 @@ impl SdkMcpServer {
             }
             "tools/list" => {
                 debug!(server = %self.name, "tools/list");
-                let tools: Vec<Value> = self.tools.values().map(super::tool::SdkMcpTool::to_tool_info).collect();
+                let tools: Vec<Value> = self
+                    .tools
+                    .values()
+                    .map(super::tool::SdkMcpTool::to_tool_info)
+                    .collect();
                 serde_json::json!({
                     "jsonrpc": "2.0",
                     "result": {
@@ -86,10 +90,7 @@ impl SdkMcpServer {
             }
             "tools/call" => {
                 let params = message.get("params").cloned().unwrap_or(Value::Null);
-                let tool_name = params
-                    .get("name")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
+                let tool_name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
                 let arguments = params
                     .get("arguments")
                     .cloned()
@@ -253,10 +254,7 @@ mod tests {
         let tools = resp["result"]["tools"].as_array().unwrap();
         assert_eq!(tools.len(), 2);
 
-        let names: Vec<&str> = tools
-            .iter()
-            .map(|t| t["name"].as_str().unwrap())
-            .collect();
+        let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert!(names.contains(&"add"));
         assert!(names.contains(&"multiply"));
     }

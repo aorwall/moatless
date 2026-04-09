@@ -447,22 +447,15 @@ fn flatten_content_to_string(obj: &mut serde_json::Map<String, serde_json::Value
                     })
                     .collect::<Vec<_>>()
                     .join("\n");
-                msg.insert(
-                    "content".to_string(),
-                    serde_json::Value::String(text),
-                );
+                msg.insert("content".to_string(), serde_json::Value::String(text));
             }
         }
     }
 }
 
 /// Extract server names from the SDK MCP servers map.
-fn extract_server_names(
-    servers: &Option<HashMap<String, SdkMcpServer>>,
-) -> Option<Vec<String>> {
-    servers
-        .as_ref()
-        .map(|s| s.keys().cloned().collect())
+fn extract_server_names(servers: &Option<HashMap<String, SdkMcpServer>>) -> Option<Vec<String>> {
+    servers.as_ref().map(|s| s.keys().cloned().collect())
 }
 
 /// Build the initialize control request from options.
@@ -480,9 +473,10 @@ fn build_initialize_request(
         _ => None,
     };
 
-    let json_schema = options.output_format.as_ref().and_then(|f| {
-        serde_json::to_value(f).ok()
-    });
+    let json_schema = options
+        .output_format
+        .as_ref()
+        .and_then(|f| serde_json::to_value(f).ok());
 
     // Serialize hook definitions in the CLI-expected format:
     // Record<HookEvent, Array<{hookCallbackIds: string[], matcher?: string, timeout?: number}>>

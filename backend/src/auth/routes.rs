@@ -29,9 +29,9 @@ use super::models::UserRole;
 use super::oauth::provider::OAuthProvider;
 use super::provider_tokens::ProviderTokenAuthRepository;
 use super::schemas::{
-    ApiKeyCreateResponse, ApiKeyListItem, CliLoginQuery, CreateApiKeyRequest, MessageResponse,
-    OAuthCallbackQuery, SessionResponse, TokenSessionResponse, UpdateUserRequest,
-    UserInfo, UserListItem, UserListResponse, format_datetime, format_datetime_opt,
+    format_datetime, format_datetime_opt, ApiKeyCreateResponse, ApiKeyListItem, CliLoginQuery,
+    CreateApiKeyRequest, MessageResponse, OAuthCallbackQuery, SessionResponse,
+    TokenSessionResponse, UpdateUserRequest, UserInfo, UserListItem, UserListResponse,
 };
 use super::session;
 use super::sessions::SessionRepository;
@@ -226,7 +226,10 @@ async fn authenticate_request(
     headers: &HeaderMap,
 ) -> Result<AuthIdentity, AuthError> {
     // Try API key (Authorization: Bearer mvk_xxx)
-    if let Some(auth_header) = headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()) {
+    if let Some(auth_header) = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+    {
         if auth_header.starts_with("Bearer mvk_") {
             let key = &auth_header[7..]; // strip "Bearer "
             if let Some(payload) = api_key::validate_key_cached(
@@ -234,7 +237,9 @@ async fn authenticate_request(
                 state.users.as_ref(),
                 key,
                 &state.cache,
-            ).await? {
+            )
+            .await?
+            {
                 return Ok(AuthIdentity {
                     user_id: payload.user_id,
                     login: payload.user_login,
@@ -302,7 +307,9 @@ async fn verify_handler(
     let identity = authenticate_request(&state, &headers).await?;
 
     // For preview URLs, check task-based access control
-    let forwarded_host = headers.get("x-forwarded-host").and_then(|v| v.to_str().ok());
+    let forwarded_host = headers
+        .get("x-forwarded-host")
+        .and_then(|v| v.to_str().ok());
     if let Some(host) = forwarded_host {
         if let Some(task_id) = extract_task_id_from_hostname(host) {
             if let Some(ref tasks) = state.tasks {
@@ -311,7 +318,9 @@ async fn verify_handler(
                     team_ids: identity.team_ids.clone(),
                     is_admin: identity.role == UserRole::Admin,
                 };
-                let task = tasks.find_by_id(task_id, &scope_ctx).await
+                let task = tasks
+                    .find_by_id(task_id, &scope_ctx)
+                    .await
                     .map_err(|_| AuthError::Forbidden)?;
                 if task.is_none() {
                     return Err(AuthError::Forbidden);
@@ -332,7 +341,11 @@ fn extract_task_id_from_hostname(host: &str) -> Option<&str> {
         return None;
     }
     let task_id = first_segment.split("--").next()?;
-    if task_id.is_empty() { None } else { Some(task_id) }
+    if task_id.is_empty() {
+        None
+    } else {
+        Some(task_id)
+    }
 }
 
 // ============================================================================
@@ -412,11 +425,7 @@ async fn update_me_handler(
     // Update the users table
     let user = state
         .users
-        .update_user_profile(
-            &claims.sub,
-            body.name.clone(),
-            body.email.clone(),
-        )
+        .update_user_profile(&claims.sub, body.name.clone(), body.email.clone())
         .await?
         .ok_or_else(|| AuthError::NotFound("User not found".to_string()))?;
 
@@ -489,7 +498,12 @@ async fn cli_login_handler(
         headers.insert(header::SET_COOKIE, v);
     }
 
-    Ok((StatusCode::FOUND, headers, [("Location", auth_url.as_str())]).into_response())
+    Ok((
+        StatusCode::FOUND,
+        headers,
+        [("Location", auth_url.as_str())],
+    )
+        .into_response())
 }
 
 // ============================================================================
@@ -502,7 +516,10 @@ fn generate_csrf_state() -> String {
 }
 
 /// Initiate OAuth flow for a given provider.
-async fn initiate_oauth(state: &AuthState, provider_id: AuthProvider) -> Result<Response, AuthError> {
+async fn initiate_oauth(
+    state: &AuthState,
+    provider_id: AuthProvider,
+) -> Result<Response, AuthError> {
     let provider = state
         .providers
         .get(provider_id)
@@ -520,7 +537,12 @@ async fn initiate_oauth(state: &AuthState, provider_id: AuthProvider) -> Result<
         headers.insert(header::SET_COOKIE, v);
     }
 
-    Ok((StatusCode::FOUND, headers, [("Location", auth_url.as_str())]).into_response())
+    Ok((
+        StatusCode::FOUND,
+        headers,
+        [("Location", auth_url.as_str())],
+    )
+        .into_response())
 }
 
 /// Handle OAuth callback for a given provider.
@@ -563,10 +585,7 @@ async fn handle_oauth_callback(
                 required_org = %required_org,
                 "User is not a member of required GitHub org"
             );
-            let redirect = format!(
-                "{}?error=org_required",
-                state.config.auth.frontend_url
-            );
+            let redirect = format!("{}?error=org_required", state.config.auth.frontend_url);
             return Ok((StatusCode::FOUND, [("Location", redirect.as_str())]).into_response());
         }
     }
@@ -630,9 +649,8 @@ async fn handle_oauth_callback(
 
         let login_encoded = urlencoding::encode(&user_info.login);
         let key_encoded = urlencoding::encode(&result.key);
-        let redirect_url = format!(
-            "http://127.0.0.1:{port}/callback?key={key_encoded}&login={login_encoded}"
-        );
+        let redirect_url =
+            format!("http://127.0.0.1:{port}/callback?key={key_encoded}&login={login_encoded}");
 
         info!(user_login = %user_info.login, "CLI login successful, redirecting to localhost:{}", port);
 
@@ -651,8 +669,11 @@ async fn handle_oauth_callback(
     }
 
     // Normal flow: set session cookie, clear state cookie, redirect to frontend
-    let session_cookie =
-        cookie::build_session_cookie(&state.config, &jwt_token, state.config.auth.session_max_age_secs);
+    let session_cookie = cookie::build_session_cookie(
+        &state.config,
+        &jwt_token,
+        state.config.auth.session_max_age_secs,
+    );
     let clear_state_cookie = cookie::build_clear_oauth_state_cookie(&state.config);
 
     let mut resp_headers = HeaderMap::new();
@@ -684,7 +705,14 @@ async fn github_callback_handler(
     headers: HeaderMap,
     axum::extract::Query(query): axum::extract::Query<OAuthCallbackQuery>,
 ) -> Result<Response, AuthError> {
-    handle_oauth_callback(&state, AuthProvider::GitHub, &query.code, query.state.as_deref(), &headers).await
+    handle_oauth_callback(
+        &state,
+        AuthProvider::GitHub,
+        &query.code,
+        query.state.as_deref(),
+        &headers,
+    )
+    .await
 }
 
 // ============================================================================
@@ -723,7 +751,14 @@ async fn auth0_callback_handler(
     headers: HeaderMap,
     axum::extract::Query(query): axum::extract::Query<OAuthCallbackQuery>,
 ) -> Result<Response, AuthError> {
-    handle_oauth_callback(&state, AuthProvider::Auth0, &query.code, query.state.as_deref(), &headers).await
+    handle_oauth_callback(
+        &state,
+        AuthProvider::Auth0,
+        &query.code,
+        query.state.as_deref(),
+        &headers,
+    )
+    .await
 }
 
 // ============================================================================
@@ -758,7 +793,8 @@ async fn do_logout(state: &AuthState, headers: &HeaderMap) -> Result<Response, A
     // Auth0 requires server-side logout
     if let Some(pid) = session_provider {
         if let Some(provider) = state.providers.get(pid) {
-            if let Some(logout_url) = provider.generate_logout_url(&state.config.auth.frontend_url) {
+            if let Some(logout_url) = provider.generate_logout_url(&state.config.auth.frontend_url)
+            {
                 info!(provider = %pid, "Redirecting to provider logout");
                 return Ok((
                     StatusCode::FOUND,
@@ -835,14 +871,19 @@ async fn exchange_api_key_handler(
         .await?
         .ok_or(AuthError::InvalidApiKey)?;
 
-    let user = state.users.get_user(&payload.user_id)
+    let user = state
+        .users
+        .get_user(&payload.user_id)
         .await?
         .ok_or(AuthError::Unauthorized)?;
 
     let jwt_secret = require_jwt_secret(&state.config)?;
 
     let team_ids = if let Some(ref teams_repo) = state.teams {
-        teams_repo.find_team_ids_for_user(&user.id).await.unwrap_or_default()
+        teams_repo
+            .find_team_ids_for_user(&user.id)
+            .await
+            .unwrap_or_default()
     } else {
         vec![]
     };
@@ -1002,9 +1043,9 @@ async fn create_api_key_handler(
 ) -> Result<(StatusCode, Json<ApiKeyCreateResponse>), AuthError> {
     let claims = authenticate_from_cookie(&state.config, &headers)?;
 
-    let expires_at = body.expires_in_days.map(|days| {
-        chrono::Utc::now() + chrono::Duration::days(days as i64)
-    });
+    let expires_at = body
+        .expires_in_days
+        .map(|days| chrono::Utc::now() + chrono::Duration::days(days as i64));
 
     let result = api_key::generate_key(
         state.api_keys.as_ref(),
@@ -1163,7 +1204,10 @@ async fn resolve_team_ids_on_login(
     }
 
     // Fetch current team memberships
-    let mut team_ids = teams.find_team_ids_for_user(user_id).await.unwrap_or_default();
+    let mut team_ids = teams
+        .find_team_ids_for_user(user_id)
+        .await
+        .unwrap_or_default();
 
     // If no teams and a default team is configured, add user to it
     if team_ids.is_empty() {

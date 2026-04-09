@@ -8,7 +8,7 @@
 use std::time::Duration;
 
 use integration_tests::{ensure_template_repo, sandbox_helpers, test_client};
-use moatless_api_schemas::{task::CreateTaskRequest, sandbox::WriteFileRequestBody};
+use moatless_api_schemas::{sandbox::WriteFileRequestBody, task::CreateTaskRequest};
 use moatless_cli::events::EventCollector;
 
 // =============================================================================
@@ -44,6 +44,7 @@ async fn sandbox_lifecycle_chain() {
         contexts: vec![],
         file_ids: vec![],
         model: None,
+        command_name: None,
     };
     let created = client.api().create_task(&req).await.unwrap();
     let task_id = &created.task_id;
@@ -54,14 +55,9 @@ async fn sandbox_lifecycle_chain() {
         "Sandbox did not become ready"
     );
 
-    let status = client
-        .api()
-        .sandbox_status(task_id)
-        .await
-        .unwrap();
+    let status = client.api().sandbox_status(task_id).await.unwrap();
     assert_eq!(
-        status.environment_status,
-        "ready",
+        status.environment_status, "ready",
         "environment_status should be ready"
     );
 
@@ -76,27 +72,14 @@ async fn sandbox_lifecycle_chain() {
         path: "lifecycle-marker.txt".into(),
         content: "sandbox lifecycle test".into(),
     };
-    client
-        .api()
-        .write_file(task_id, &write_req)
-        .await
-        .unwrap();
+    client.api().write_file(task_id, &write_req).await.unwrap();
 
     // SANDBOX-02: Provision again — should be idempotent (still ready)
-    let provision_resp = client
-        .api()
-        .provision_sandbox(task_id)
-        .await
-        .unwrap();
+    let provision_resp = client.api().provision_sandbox(task_id).await.unwrap();
     // Verify still ready after provision
-    let status = client
-        .api()
-        .sandbox_status(task_id)
-        .await
-        .unwrap();
+    let status = client.api().sandbox_status(task_id).await.unwrap();
     assert_eq!(
-        status.environment_status,
-        "ready",
+        status.environment_status, "ready",
         "Should still be ready after re-provision"
     );
     println!(

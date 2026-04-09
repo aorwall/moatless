@@ -9,9 +9,7 @@ use std::time::Duration;
 
 use integration_tests::{ensure_template_repo, sandbox_helpers, test_client};
 use moatless_api_schemas::{
-    message::SendMessageRequest,
-    shared::AgentMode,
-    task::CreateTaskRequest,
+    message::SendMessageRequest, shared::AgentMode, task::CreateTaskRequest,
 };
 use moatless_cli::events::EventCollector;
 
@@ -89,6 +87,7 @@ async fn agent_plan_mode() {
         contexts: vec![],
         file_ids: vec![],
         model: None,
+        command_name: None,
     };
     let created = client.api().create_task(&req).await.unwrap();
     let task_id = &created.task_id;
@@ -166,11 +165,7 @@ async fn agent_plan_mode() {
     }
 
     // AGENT-03.2: Assert messages contain plan content
-    let messages = client
-        .api()
-        .get_messages(task_id)
-        .await
-        .unwrap();
+    let messages = client.api().get_messages(task_id).await.unwrap();
     assert!(
         messages.messages.len() >= 2,
         "Expected at least 2 messages, got {}",

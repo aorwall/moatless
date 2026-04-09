@@ -2,11 +2,11 @@
 
 use std::time::Duration;
 
-use async_trait::async_trait;
+use super::provider::OAuthProvider;
 use crate::auth::error::AuthError;
 use crate::auth::models::{OAuthTokens, ProviderUserInfo};
 use crate::config::Config;
-use super::provider::OAuthProvider;
+use async_trait::async_trait;
 
 pub struct GitHubOAuthProvider {
     client_id: String,
@@ -166,10 +166,9 @@ impl OAuthProvider for GitHubOAuthProvider {
                 )));
             }
 
-            let orgs: Vec<GitHubOrg> = resp
-                .json()
-                .await
-                .map_err(|e| AuthError::OAuth(format!("Failed to parse GitHub orgs response: {e}")))?;
+            let orgs: Vec<GitHubOrg> = resp.json().await.map_err(|e| {
+                AuthError::OAuth(format!("Failed to parse GitHub orgs response: {e}"))
+            })?;
 
             if orgs.is_empty() {
                 break;

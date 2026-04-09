@@ -35,9 +35,7 @@ use super::slack::provider::SlackWebhookResult;
         (status = 200, description = "Configured provider names", body = Vec<String>)
     )
 )]
-pub async fn list_providers(
-    State(state): State<AppState>,
-) -> Json<Vec<String>> {
+pub async fn list_providers(State(state): State<AppState>) -> Json<Vec<String>> {
     let types = state
         .channel_providers
         .as_ref()
@@ -87,7 +85,10 @@ pub async fn slack_webhook(
     let payload: serde_json::Value = serde_json::from_slice(&body)
         .map_err(|e| ChannelError::BadRequest(format!("Invalid JSON: {e}")))?;
 
-    let event_type = payload.get("type").and_then(|v| v.as_str()).unwrap_or("unknown");
+    let event_type = payload
+        .get("type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
     info!(event_type, "Slack webhook received");
 
     // Handle url_verification before config lookup (no channel info needed)
@@ -122,24 +123,38 @@ pub async fn slack_webhook(
         .unwrap_or("");
 
     if source_id.is_empty() {
-        let event_subtype = payload.pointer("/event/type").and_then(|v| v.as_str()).unwrap_or("unknown");
-        warn!(event_type, event_subtype, "Slack webhook has no channel ID in event payload, ignoring");
+        let event_subtype = payload
+            .pointer("/event/type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+        warn!(
+            event_type,
+            event_subtype, "Slack webhook has no channel ID in event payload, ignoring"
+        );
         return Ok(StatusCode::OK.into_response());
     }
 
     // Look up config — exact match first, then try wildcard auto-create
-    let config = state.channel_configs.find_by_provider_source("slack", source_id)
+    let config = state
+        .channel_configs
+        .find_by_provider_source("slack", source_id)
         .await?;
 
     let config = match config {
         Some(c) if c.active => c,
         Some(_) => {
-            info!(source_id, "Slack message ignored: channel config exists but is inactive");
+            info!(
+                source_id,
+                "Slack message ignored: channel config exists but is inactive"
+            );
             return Ok(StatusCode::OK.into_response());
         }
         None => {
             // Try to auto-create from wildcard config
-            let source_name = slack_provider.get_channel_name(source_id).await.unwrap_or(None);
+            let source_name = slack_provider
+                .get_channel_name(source_id)
+                .await
+                .unwrap_or(None);
             match super::defaults::create_config_from_wildcard(
                 &*state.channel_configs,
                 "slack",
@@ -155,7 +170,10 @@ pub async fn slack_webhook(
                     c
                 }
                 Ok(None) => {
-                    info!(source_id, "Slack message ignored: no channel config for this channel");
+                    info!(
+                        source_id,
+                        "Slack message ignored: no channel config for this channel"
+                    );
                     return Ok(StatusCode::OK.into_response());
                 }
                 Err(e) => {
@@ -187,23 +205,22 @@ pub async fn slack_webhook(
         .await?;
 
     match result {
-        SlackWebhookResult::Challenge(challenge) => {
-            Ok((StatusCode::OK, challenge).into_response())
-        }
+        SlackWebhookResult::Challenge(challenge) => Ok((StatusCode::OK, challenge).into_response()),
         SlackWebhookResult::Message(msg) => {
             // Process in background (Slack requires <3s response)
             let state_clone = state.clone();
             tokio::spawn(async move {
-                if let Err(e) =
-                    inbound::process_inbound(&state_clone, *msg, None).await
-                {
+                if let Err(e) = inbound::process_inbound(&state_clone, *msg, None).await {
                     warn!(error = %e, "Failed to process Slack inbound message");
                 }
             });
             Ok(StatusCode::OK.into_response())
         }
         SlackWebhookResult::Ignore => {
-            info!(source_id, "Slack event ignored by provider (bot message, unsupported event, or deduplicated)");
+            info!(
+                source_id,
+                "Slack event ignored by provider (bot message, unsupported event, or deduplicated)"
+            );
             Ok(StatusCode::OK.into_response())
         }
     }
@@ -415,9 +432,7 @@ async fn process_slash_command_background(
             )
             .await?
             .ok_or_else(|| {
-                ChannelError::ConfigNotFound(format!(
-                    "No Slack config for channel {channel_id}"
-                ))
+                ChannelError::ConfigNotFound(format!("No Slack config for channel {channel_id}"))
             })?;
         }
     }
@@ -517,7 +532,9 @@ pub async fn telegram_webhook(
     let payload: serde_json::Value = serde_json::from_slice(&body)
         .map_err(|e| ChannelError::BadRequest(format!("Invalid JSON: {e}")))?;
 
-    let message = payload.get("message").or_else(|| payload.get("channel_post"));
+    let message = payload
+        .get("message")
+        .or_else(|| payload.get("channel_post"));
     if let Some(chat_id) = message
         .and_then(|m| m.pointer("/chat/id"))
         .and_then(serde_json::Value::as_i64)
@@ -535,13 +552,11 @@ pub async fn telegram_webhook(
             .await?;
         let config = match config {
             Some(c) if c.active => Some(c),
-            None if is_private_chat => {
-                state
-                    .channel_configs
-                    .find_by_provider_source("telegram", "*")
-                    .await?
-                    .filter(|c| c.active)
-            }
+            None if is_private_chat => state
+                .channel_configs
+                .find_by_provider_source("telegram", "*")
+                .await?
+                .filter(|c| c.active),
             _ => None,
         };
 
@@ -636,8 +651,7 @@ pub async fn list_pairing_requests(
         ));
     }
 
-    let requests =
-        super::telegram::pairing::list_pending(&state.db, &query.config_id).await?;
+    let requests = super::telegram::pairing::list_pending(&state.db, &query.config_id).await?;
 
     let items: Vec<serde_json::Value> = requests
         .into_iter()
@@ -810,8 +824,7 @@ pub async fn webhook_inbound(
         .and_then(|v| v.to_str().ok());
 
     // Parse inbound message
-    let msg =
-        super::webhook::provider::WebhookProvider::parse_inbound(&config, &body, signature)?;
+    let msg = super::webhook::provider::WebhookProvider::parse_inbound(&config, &body, signature)?;
 
     match inbound::process_inbound(&state, msg, None).await {
         Ok(task_id) => Ok(Json(serde_json::json!({ "taskId": task_id })).into_response()),
@@ -894,14 +907,18 @@ pub async fn create_config(
     validate_cron_schedule(req.provider.as_str(), req.provider_config.as_ref())?;
 
     // Validate repository exists
-    state.repositories.find_repository_by_id(&req.repository_id)
+    state
+        .repositories
+        .find_repository_by_id(&req.repository_id)
         .await?
         .ok_or_else(|| {
             ChannelError::BadRequest(format!("Repository not found: {}", req.repository_id))
         })?;
 
     // Check for existing config with same provider + source_id
-    if state.channel_configs.find_by_provider_source(req.provider.as_str(), &req.source_id)
+    if state
+        .channel_configs
+        .find_by_provider_source(req.provider.as_str(), &req.source_id)
         .await?
         .is_some()
     {
@@ -971,13 +988,15 @@ pub async fn list_configs(
 ) -> Result<Json<Vec<ChannelConfigResponse>>, ChannelError> {
     info!(provider = ?query.provider, repository_id = ?query.repository_id, "Listing channel configs");
 
-    let rows = state.channel_configs.list_scoped(
-        query.provider.as_deref(),
-        query.repository_id.as_deref(),
-        false, // show all, not just active
-        &auth.scope_context(),
-    )
-    .await?;
+    let rows = state
+        .channel_configs
+        .list_scoped(
+            query.provider.as_deref(),
+            query.repository_id.as_deref(),
+            false, // show all, not just active
+            &auth.scope_context(),
+        )
+        .await?;
 
     let items: Vec<ChannelConfigResponse> = rows.iter().map(channel_config_from_model).collect();
     Ok(Json(items))
@@ -1003,7 +1022,9 @@ pub async fn get_config(
 ) -> Result<Json<ChannelConfigResponse>, ChannelError> {
     info!(config_id = %id, "Getting channel config");
 
-    let row = state.channel_configs.find_by_id_scoped(&id, &auth.scope_context())
+    let row = state
+        .channel_configs
+        .find_by_id_scoped(&id, &auth.scope_context())
         .await?
         .ok_or_else(|| ChannelError::ConfigNotFound(id))?;
 
@@ -1033,7 +1054,9 @@ pub async fn update_config(
     info!(config_id = %id, "Updating channel config");
 
     // Verify exists and accessible
-    let existing = state.channel_configs.find_by_id_scoped(&id, &auth.scope_context())
+    let existing = state
+        .channel_configs
+        .find_by_id_scoped(&id, &auth.scope_context())
         .await?
         .ok_or_else(|| ChannelError::ConfigNotFound(id.clone()))?;
 
@@ -1057,7 +1080,9 @@ pub async fn update_config(
 
     state.channel_configs.update(&id, &patch).await?;
 
-    let row = state.channel_configs.find_by_id(&id)
+    let row = state
+        .channel_configs
+        .find_by_id(&id)
         .await?
         .ok_or_else(|| ChannelError::ConfigNotFound(id))?;
 
@@ -1095,12 +1120,9 @@ pub async fn direct_send_to_channel(
     Path(id): Path<String>,
     Json(req): Json<DirectSendRequest>,
 ) -> Result<Json<DirectSendResponse>, ChannelError> {
-    let providers = state
-        .channel_providers
-        .as_ref()
-        .ok_or_else(|| {
-            ChannelError::ProviderNotConfigured("No channel providers configured".into())
-        })?;
+    let providers = state.channel_providers.as_ref().ok_or_else(|| {
+        ChannelError::ProviderNotConfigured("No channel providers configured".into())
+    })?;
 
     let external_id = super::outbound::direct_send_to_channel(
         &state,
@@ -1156,9 +1178,13 @@ pub async fn trigger_channel(
         ));
     }
 
-    let task_id =
-        inbound::trigger_inbound(&state, &config, req.message.as_deref(), req.thread_properties)
-            .await?;
+    let task_id = inbound::trigger_inbound(
+        &state,
+        &config,
+        req.message.as_deref(),
+        req.thread_properties,
+    )
+    .await?;
 
     let task = state
         .tasks
@@ -1270,7 +1296,11 @@ pub async fn set_defaults(
     };
 
     // Check if wildcard config already exists
-    if let Some(existing) = state.channel_configs.find_wildcard(&provider, team_id).await? {
+    if let Some(existing) = state
+        .channel_configs
+        .find_wildcard(&provider, team_id)
+        .await?
+    {
         // Update existing wildcard config
         let patch = ChannelConfigPatch {
             repository_id: Some(req.repository_id),
@@ -1347,7 +1377,9 @@ pub async fn delete_config(
 ) -> Result<StatusCode, ChannelError> {
     info!(config_id = %id, "Deleting channel config");
 
-    state.channel_configs.find_by_id_scoped(&id, &auth.scope_context())
+    state
+        .channel_configs
+        .find_by_id_scoped(&id, &auth.scope_context())
         .await?
         .ok_or_else(|| ChannelError::ConfigNotFound(id.clone()))?;
 
@@ -1413,13 +1445,19 @@ pub async fn send_to_task_channels(
     Path(task_id): Path<String>,
     Json(req): Json<SendChannelMessageRequest>,
 ) -> Result<Json<SendChannelMessageResponse>, ChannelError> {
-    let providers = state
-        .channel_providers
-        .as_ref()
-        .ok_or_else(|| ChannelError::ProviderNotConfigured("No channel providers configured".into()))?;
+    let providers = state.channel_providers.as_ref().ok_or_else(|| {
+        ChannelError::ProviderNotConfigured("No channel providers configured".into())
+    })?;
 
-    let (sent_count, errors) =
-        super::outbound::send_to_channels(&state, providers, &task_id, &req.text, &req.file_ids, None).await?;
+    let (sent_count, errors) = super::outbound::send_to_channels(
+        &state,
+        providers,
+        &task_id,
+        &req.text,
+        &req.file_ids,
+        None,
+    )
+    .await?;
 
     if sent_count == 0 && !errors.is_empty() {
         return Err(ChannelError::ProviderApi(errors.join("; ")));
@@ -1450,14 +1488,19 @@ pub async fn send_to_task_channel(
     Path((task_id, config_id)): Path<(String, String)>,
     Json(req): Json<SendChannelMessageRequest>,
 ) -> Result<Json<SendChannelMessageResponse>, ChannelError> {
-    let providers = state
-        .channel_providers
-        .as_ref()
-        .ok_or_else(|| ChannelError::ProviderNotConfigured("No channel providers configured".into()))?;
+    let providers = state.channel_providers.as_ref().ok_or_else(|| {
+        ChannelError::ProviderNotConfigured("No channel providers configured".into())
+    })?;
 
-    let (sent_count, errors) =
-        super::outbound::send_to_channels(&state, providers, &task_id, &req.text, &req.file_ids, Some(&config_id))
-            .await?;
+    let (sent_count, errors) = super::outbound::send_to_channels(
+        &state,
+        providers,
+        &task_id,
+        &req.text,
+        &req.file_ids,
+        Some(&config_id),
+    )
+    .await?;
 
     if sent_count == 0 && !errors.is_empty() {
         return Err(ChannelError::ProviderApi(errors.join("; ")));
@@ -1494,9 +1537,7 @@ pub async fn connect_channel(
     // Resolve source_id from the task's repository when not provided
     let source_id = match req.source_id {
         Some(s) => s,
-        None => {
-            resolve_source_id_from_task(&state, &req.task_id, req.provider).await?
-        }
+        None => resolve_source_id_from_task(&state, &req.task_id, req.provider).await?,
     };
 
     // Build thread_properties if not provided (github_pr convenience)

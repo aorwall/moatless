@@ -17,5 +17,11 @@ pub struct ErrorBody {
 /// Every module's `IntoResponse` impl MUST use this function to guarantee
 /// a consistent response shape across all endpoints.
 pub fn error_response(status: StatusCode, message: impl Into<String>) -> Response {
-    (status, Json(ErrorBody { error: message.into() })).into_response()
+    (
+        status,
+        Json(ErrorBody {
+            error: message.into(),
+        }),
+    )
+        .into_response()
 }

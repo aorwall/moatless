@@ -47,10 +47,8 @@ pub trait BackendClient: Send + Sync {
     ) -> Result<(), tonic::Status>;
 
     /// Fetch credentials for sandbox initialization.
-    async fn get_credentials(
-        &self,
-        task_id: &str,
-    ) -> Result<GetCredentialsResponse, tonic::Status>;
+    async fn get_credentials(&self, task_id: &str)
+        -> Result<GetCredentialsResponse, tonic::Status>;
 }
 
 /// Auth interceptor that injects a Bearer token on every outbound gRPC call.
@@ -65,9 +63,7 @@ impl tonic::service::Interceptor for AuthInterceptor {
             let header_value = format!("Bearer {token}")
                 .parse()
                 .map_err(|_| Status::internal("Invalid auth token format"))?;
-            request
-                .metadata_mut()
-                .insert("authorization", header_value);
+            request.metadata_mut().insert("authorization", header_value);
         }
         Ok(request)
     }
@@ -87,10 +83,7 @@ impl BackendGrpcClient {
     /// before the backend gRPC server is ready.
     ///
     /// The `auth_token` is injected as a Bearer token on every outbound call.
-    pub fn connect(
-        url: &str,
-        auth_token: Option<String>,
-    ) -> Result<Self, BackendGrpcClientError> {
+    pub fn connect(url: &str, auth_token: Option<String>) -> Result<Self, BackendGrpcClientError> {
         let channel = Channel::from_shared(url.to_string())?
             .connect_timeout(Duration::from_secs(5))
             .timeout(Duration::from_secs(10))

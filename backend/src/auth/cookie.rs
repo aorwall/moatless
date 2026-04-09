@@ -1,9 +1,9 @@
 //! Cookie utilities for session management.
 
+use crate::config::Config;
 use axum::http::header;
 use axum::http::HeaderMap;
 use cookie::{Cookie, SameSite};
-use crate::config::Config;
 
 /// Extract a cookie value from the request headers (returns the first match).
 pub fn get_cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {

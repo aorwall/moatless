@@ -101,12 +101,9 @@ impl OAuthProvider for GitHubAppOAuthProvider {
             )));
         }
 
-        let data: GitHubAppTokenResponse = resp
-            .json()
-            .await
-            .map_err(|e| {
-                AuthError::OAuth(format!("Failed to parse GitHub App token response: {e}"))
-            })?;
+        let data: GitHubAppTokenResponse = resp.json().await.map_err(|e| {
+            AuthError::OAuth(format!("Failed to parse GitHub App token response: {e}"))
+        })?;
 
         if let Some(err) = data.error {
             let desc = data.error_description.unwrap_or_default();
@@ -158,11 +155,7 @@ impl OAuthProvider for GitHubAppOAuthProvider {
         })
     }
 
-    async fn check_org_membership(
-        &self,
-        access_token: &str,
-        org: &str,
-    ) -> Result<bool, AuthError> {
+    async fn check_org_membership(&self, access_token: &str, org: &str) -> Result<bool, AuthError> {
         let mut page = 1u32;
         loop {
             let resp = self
@@ -184,12 +177,9 @@ impl OAuthProvider for GitHubAppOAuthProvider {
                 )));
             }
 
-            let orgs: Vec<GitHubOrg> = resp
-                .json()
-                .await
-                .map_err(|e| {
-                    AuthError::OAuth(format!("Failed to parse GitHub orgs response: {e}"))
-                })?;
+            let orgs: Vec<GitHubOrg> = resp.json().await.map_err(|e| {
+                AuthError::OAuth(format!("Failed to parse GitHub orgs response: {e}"))
+            })?;
 
             if orgs.is_empty() {
                 break;

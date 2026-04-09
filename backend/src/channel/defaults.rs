@@ -21,9 +21,7 @@ pub async fn create_config_from_wildcard(
     team_id: Option<&str>,
     created_by: &str,
 ) -> Result<Option<ChannelConfig>, ChannelError> {
-    let wildcard = channel_configs
-        .find_wildcard(provider, team_id)
-        .await?;
+    let wildcard = channel_configs.find_wildcard(provider, team_id).await?;
 
     let Some(template) = wildcard else {
         return Ok(None);

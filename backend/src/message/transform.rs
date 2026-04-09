@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 
-use super::models::{TaskMessageContentBlock, TaskMessageContext, TaskMessage};
+use super::models::{TaskMessage, TaskMessageContentBlock, TaskMessageContext};
 use crate::message::models::MessageType;
 
 use super::schemas::*;
@@ -35,7 +35,8 @@ pub fn transform_to_ui(
             if let Some(content) = m.message_content.as_array() {
                 for block in content {
                     if block.get("type").and_then(|v| v.as_str()) == Some("tool_result") {
-                        if let Some(tool_use_id) = block.get("tool_use_id").and_then(|v| v.as_str()) {
+                        if let Some(tool_use_id) = block.get("tool_use_id").and_then(|v| v.as_str())
+                        {
                             if let Some(ref tur) = m.tool_use_result {
                                 return Some((tool_use_id.to_string(), tur));
                             }
@@ -50,13 +51,17 @@ pub fn transform_to_ui(
     // Build tool_results_map: tool_use_id → tool_result message
     let tool_results_map: HashMap<String, &TaskMessage> = messages
         .iter()
-        .filter(|m| m.message_type == MessageType::Result || m.message_role == crate::message::models::MessageRole::User)
+        .filter(|m| {
+            m.message_type == MessageType::Result
+                || m.message_role == crate::message::models::MessageRole::User
+        })
         .filter_map(|m| {
             // Check if message_content has tool_use_id (tool_result messages)
             if let Some(content) = m.message_content.as_array() {
                 for block in content {
                     if block.get("type").and_then(|v| v.as_str()) == Some("tool_result") {
-                        if let Some(tool_use_id) = block.get("tool_use_id").and_then(|v| v.as_str()) {
+                        if let Some(tool_use_id) = block.get("tool_use_id").and_then(|v| v.as_str())
+                        {
                             return Some((tool_use_id.to_string(), m));
                         }
                     }
@@ -75,13 +80,21 @@ pub fn transform_to_ui(
 
         match msg.message_type {
             MessageType::Assistant => {
-                let ui_msg = transform_assistant(msg, &msg_blocks, &tool_results_map, &tool_use_result_map, is_last, messages);
+                let ui_msg = transform_assistant(
+                    msg,
+                    &msg_blocks,
+                    &tool_results_map,
+                    &tool_use_result_map,
+                    is_last,
+                    messages,
+                );
                 ui_messages.push(ui_msg);
             }
             MessageType::User => {
                 // Skip tool_result user messages (inlined into assistant)
                 if msg.message_content.as_array().is_some_and(|arr| {
-                    arr.iter().any(|b| b.get("type").and_then(|v| v.as_str()) == Some("tool_result"))
+                    arr.iter()
+                        .any(|b| b.get("type").and_then(|v| v.as_str()) == Some("tool_result"))
                 }) {
                     continue;
                 }
@@ -121,12 +134,22 @@ fn transform_assistant(
                     if let Some(result_msg) = tool_results_map.get(tool_use_id) {
                         if let Some(result_content) = result_msg.message_content.as_array() {
                             for rb in result_content {
-                                if rb.get("tool_use_id").and_then(|v| v.as_str()) == Some(tool_use_id) {
+                                if rb.get("tool_use_id").and_then(|v| v.as_str())
+                                    == Some(tool_use_id)
+                                {
                                     tool_results.push(UiToolResult {
                                         tool_use_id: tool_use_id.to_string(),
-                                        content: rb.get("content").and_then(|v| v.as_str()).map(std::string::ToString::to_string),
-                                        is_error: rb.get("is_error").and_then(serde_json::Value::as_bool),
-                                        typed_result: tool_use_result_map.get(tool_use_id).copied().cloned(),
+                                        content: rb
+                                            .get("content")
+                                            .and_then(|v| v.as_str())
+                                            .map(std::string::ToString::to_string),
+                                        is_error: rb
+                                            .get("is_error")
+                                            .and_then(serde_json::Value::as_bool),
+                                        typed_result: tool_use_result_map
+                                            .get(tool_use_id)
+                                            .copied()
+                                            .cloned(),
                                     });
                                 }
                             }
@@ -200,10 +223,13 @@ fn transform_user(msg: &TaskMessage, blocks: &[&TaskMessageContentBlock]) -> UiM
             .collect()
     };
 
-    let channel = msg.channel_provider.as_ref().map(|provider| UiMessageChannel {
-        provider: provider.clone(),
-        source_name: msg.channel_source_name.clone(),
-    });
+    let channel = msg
+        .channel_provider
+        .as_ref()
+        .map(|provider| UiMessageChannel {
+            provider: provider.clone(),
+            source_name: msg.channel_source_name.clone(),
+        });
 
     UiMessage {
         uuid: msg.uuid.clone(),
@@ -285,9 +311,18 @@ fn build_content_from_message(
 
                 UiContentBlock {
                     block_type: block_type.clone(),
-                    text: block.get("text").and_then(|v| v.as_str()).map(std::string::ToString::to_string),
-                    tool_use_id: block.get("id").and_then(|v| v.as_str()).map(std::string::ToString::to_string),
-                    tool_name: block.get("name").and_then(|v| v.as_str()).map(std::string::ToString::to_string),
+                    text: block
+                        .get("text")
+                        .and_then(|v| v.as_str())
+                        .map(std::string::ToString::to_string),
+                    tool_use_id: block
+                        .get("id")
+                        .and_then(|v| v.as_str())
+                        .map(std::string::ToString::to_string),
+                    tool_name: block
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .map(std::string::ToString::to_string),
                     tool_input: block.get("input").filter(|v| !v.is_null()).cloned(),
                     show_in_ui: None,
                 }
@@ -305,7 +340,10 @@ fn extract_text_from_content(content: &serde_json::Value) -> Vec<UiContentBlock>
             .filter(|b| b.get("type").and_then(|v| v.as_str()) == Some("text"))
             .map(|b| UiContentBlock {
                 block_type: "text".to_string(),
-                text: b.get("text").and_then(|v| v.as_str()).map(std::string::ToString::to_string),
+                text: b
+                    .get("text")
+                    .and_then(|v| v.as_str())
+                    .map(std::string::ToString::to_string),
                 tool_use_id: None,
                 tool_name: None,
                 tool_input: None,
@@ -331,7 +369,8 @@ fn check_pending_user_input(msg: &TaskMessage, all_messages: &[TaskMessage]) -> 
                         if let Some(content) = m.message_content.as_array() {
                             content.iter().any(|b| {
                                 b.get("type").and_then(|v| v.as_str()) == Some("tool_result")
-                                    && b.get("tool_use_id").and_then(|v| v.as_str()) == Some(tool_use_id)
+                                    && b.get("tool_use_id").and_then(|v| v.as_str())
+                                        == Some(tool_use_id)
                             })
                         } else {
                             false

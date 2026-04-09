@@ -81,11 +81,7 @@ mod tests {
 
         /// Receive the next SDK message from the consumer channel.
         async fn recv(&mut self) -> SdkMessage {
-            match tokio::time::timeout(
-                std::time::Duration::from_secs(2),
-                self.sdk_rx.recv(),
-            )
-            .await
+            match tokio::time::timeout(std::time::Duration::from_secs(2), self.sdk_rx.recv()).await
             {
                 Ok(Some(Ok(msg))) => msg,
                 Ok(Some(Err(e))) => panic!("Received error: {e}"),
@@ -96,11 +92,8 @@ mod tests {
 
         /// Read the next JSON line written to stdin (control response).
         async fn read_stdin_line(&mut self) -> serde_json::Value {
-            match tokio::time::timeout(
-                std::time::Duration::from_secs(2),
-                self.stdin_rx.recv(),
-            )
-            .await
+            match tokio::time::timeout(std::time::Duration::from_secs(2), self.stdin_rx.recv())
+                .await
             {
                 Ok(Some(line)) => serde_json::from_str(&line).unwrap(),
                 Ok(None) => panic!("Stdin channel closed"),
@@ -166,11 +159,8 @@ mod tests {
         assert!(matches!(msg, SdkMessage::Result(_)));
 
         // Channel should close after result
-        let next = tokio::time::timeout(
-            std::time::Duration::from_millis(200),
-            h.sdk_rx.recv(),
-        )
-        .await;
+        let next =
+            tokio::time::timeout(std::time::Duration::from_millis(200), h.sdk_rx.recv()).await;
         assert!(next.is_ok()); // Returns Ok(None) — channel closed
         assert!(next.unwrap().is_none());
     }
@@ -182,11 +172,8 @@ mod tests {
         h.feed(RawStdoutMessage::KeepAlive).await;
 
         // No message should arrive
-        let result = tokio::time::timeout(
-            std::time::Duration::from_millis(100),
-            h.sdk_rx.recv(),
-        )
-        .await;
+        let result =
+            tokio::time::timeout(std::time::Duration::from_millis(100), h.sdk_rx.recv()).await;
         assert!(result.is_err()); // Timeout — no message forwarded
     }
 
@@ -194,13 +181,13 @@ mod tests {
     async fn unknown_message_does_not_forward() {
         let mut h = TestHarness::new(None, None);
 
-        h.feed(RawStdoutMessage::Unknown(serde_json::json!({"type": "future_type"}))).await;
-
-        let result = tokio::time::timeout(
-            std::time::Duration::from_millis(100),
-            h.sdk_rx.recv(),
-        )
+        h.feed(RawStdoutMessage::Unknown(
+            serde_json::json!({"type": "future_type"}),
+        ))
         .await;
+
+        let result =
+            tokio::time::timeout(std::time::Duration::from_millis(100), h.sdk_rx.recv()).await;
         assert!(result.is_err()); // Timeout — unknown messages are ignored
     }
 
@@ -289,7 +276,8 @@ mod tests {
     async fn permission_handler_allow_sends_allow_response() {
         let mut h = TestHarness::new(Some(Arc::new(AllowAllHandler)), None);
 
-        h.feed(make_can_use_tool_request("req-1", "Bash", "tu-1")).await;
+        h.feed(make_can_use_tool_request("req-1", "Bash", "tu-1"))
+            .await;
 
         let response = h.read_stdin_line().await;
         let resp = &response["response"];
@@ -308,7 +296,8 @@ mod tests {
         };
         let mut h = TestHarness::new(Some(Arc::new(handler)), None);
 
-        h.feed(make_can_use_tool_request("req-2", "Write", "tu-2")).await;
+        h.feed(make_can_use_tool_request("req-2", "Write", "tu-2"))
+            .await;
 
         let response = h.read_stdin_line().await;
         let resp = &response["response"];
@@ -322,7 +311,8 @@ mod tests {
     async fn no_permission_handler_auto_allows() {
         let mut h = TestHarness::new(None, None);
 
-        h.feed(make_can_use_tool_request("req-3", "Read", "tu-3")).await;
+        h.feed(make_can_use_tool_request("req-3", "Read", "tu-3"))
+            .await;
 
         let response = h.read_stdin_line().await;
         let resp = &response["response"];
@@ -370,8 +360,10 @@ mod tests {
     async fn multiple_permission_requests_handled_sequentially() {
         let mut h = TestHarness::new(Some(Arc::new(AllowAllHandler)), None);
 
-        h.feed(make_can_use_tool_request("req-a", "Read", "tu-a")).await;
-        h.feed(make_can_use_tool_request("req-b", "Write", "tu-b")).await;
+        h.feed(make_can_use_tool_request("req-a", "Read", "tu-a"))
+            .await;
+        h.feed(make_can_use_tool_request("req-b", "Write", "tu-b"))
+            .await;
 
         let resp_a = h.read_stdin_line().await;
         let resp_b = h.read_stdin_line().await;
@@ -482,8 +474,13 @@ mod tests {
     async fn hook_handler_approve_sends_continue_response() {
         let mut h = TestHarness::new(None, Some(Arc::new(ApprovingHookHandler)));
 
-        h.feed(make_hook_callback_request("req-h1", "cb-1", "PreToolUse", Some("tu-1")))
-            .await;
+        h.feed(make_hook_callback_request(
+            "req-h1",
+            "cb-1",
+            "PreToolUse",
+            Some("tu-1"),
+        ))
+        .await;
 
         let response = h.read_stdin_line().await;
         let resp = &response["response"];
@@ -500,8 +497,13 @@ mod tests {
         };
         let mut h = TestHarness::new(None, Some(Arc::new(handler)));
 
-        h.feed(make_hook_callback_request("req-h2", "cb-2", "PreToolUse", Some("tu-2")))
-            .await;
+        h.feed(make_hook_callback_request(
+            "req-h2",
+            "cb-2",
+            "PreToolUse",
+            Some("tu-2"),
+        ))
+        .await;
 
         let response = h.read_stdin_line().await;
         let resp = &response["response"];
@@ -517,8 +519,13 @@ mod tests {
         };
         let mut h = TestHarness::new(None, Some(Arc::new(handler)));
 
-        h.feed(make_hook_callback_request("req-h3", "cb-3", "PostToolUse", None))
-            .await;
+        h.feed(make_hook_callback_request(
+            "req-h3",
+            "cb-3",
+            "PostToolUse",
+            None,
+        ))
+        .await;
 
         let response = h.read_stdin_line().await;
         let resp = &response["response"];
@@ -532,8 +539,13 @@ mod tests {
     async fn no_hook_handler_auto_responds_empty() {
         let mut h = TestHarness::new(None, None);
 
-        h.feed(make_hook_callback_request("req-h4", "cb-4", "PreToolUse", Some("tu-4")))
-            .await;
+        h.feed(make_hook_callback_request(
+            "req-h4",
+            "cb-4",
+            "PreToolUse",
+            Some("tu-4"),
+        ))
+        .await;
 
         let response = h.read_stdin_line().await;
         let resp = &response["response"];
@@ -551,8 +563,13 @@ mod tests {
         };
         let mut h = TestHarness::new(None, Some(Arc::new(handler)));
 
-        h.feed(make_hook_callback_request("req-h5", "cb-5", "PreToolUse", Some("tu-5")))
-            .await;
+        h.feed(make_hook_callback_request(
+            "req-h5",
+            "cb-5",
+            "PreToolUse",
+            Some("tu-5"),
+        ))
+        .await;
 
         // Wait for the response
         let _ = h.read_stdin_line().await;
@@ -572,13 +589,19 @@ mod tests {
         );
 
         // Send a permission request
-        h.feed(make_can_use_tool_request("req-p1", "Bash", "tu-p1")).await;
+        h.feed(make_can_use_tool_request("req-p1", "Bash", "tu-p1"))
+            .await;
         let perm_resp = h.read_stdin_line().await;
         assert_eq!(perm_resp["response"]["response"]["behavior"], "allow");
 
         // Send a hook callback
-        h.feed(make_hook_callback_request("req-hh1", "cb-hh1", "PreToolUse", Some("tu-hh1")))
-            .await;
+        h.feed(make_hook_callback_request(
+            "req-hh1",
+            "cb-hh1",
+            "PreToolUse",
+            Some("tu-hh1"),
+        ))
+        .await;
         let hook_resp = h.read_stdin_line().await;
         assert_eq!(hook_resp["response"]["response"]["continue"], true);
     }
@@ -683,23 +706,21 @@ mod tests {
             },
             "parent_tool_use_id": null
         });
-        h.feed(RawStdoutMessage::Sdk(Box::new(SdkMessage::from_value(json).unwrap())))
-            .await;
+        h.feed(RawStdoutMessage::Sdk(Box::new(
+            SdkMessage::from_value(json).unwrap(),
+        )))
+        .await;
         let _ = h.recv().await;
 
         // Cancel
         h.cancel.cancel();
 
         // Channel should close
-        let result = tokio::time::timeout(
-            std::time::Duration::from_secs(2),
-            h.sdk_rx.recv(),
-        )
-        .await;
+        let result = tokio::time::timeout(std::time::Duration::from_secs(2), h.sdk_rx.recv()).await;
         // Either we get an error message or the channel closes
         match result {
             Ok(Some(Err(_))) => {} // Cancelled error
-            Ok(None) => {}          // Channel closed
+            Ok(None) => {}         // Channel closed
             other => panic!("Unexpected result: {other:?}"),
         }
     }
@@ -733,11 +754,7 @@ mod tests {
         drop(msg_tx);
 
         // Channel should close gracefully
-        let result = tokio::time::timeout(
-            std::time::Duration::from_secs(2),
-            sdk_rx.recv(),
-        )
-        .await;
+        let result = tokio::time::timeout(std::time::Duration::from_secs(2), sdk_rx.recv()).await;
         assert!(matches!(result, Ok(None)));
 
         cancel.cancel();
@@ -764,8 +781,7 @@ mod tests {
                 updated_permissions: Some(vec![PermissionUpdate::AddRules {
                     rules: vec![],
                     behavior: crate::types::permissions::PermissionBehavior::Allow,
-                    destination:
-                        crate::types::permissions::PermissionUpdateDestination::Session,
+                    destination: crate::types::permissions::PermissionUpdateDestination::Session,
                 }]),
             }
         }
@@ -775,7 +791,8 @@ mod tests {
     async fn permission_handler_allow_with_updated_input() {
         let mut h = TestHarness::new(Some(Arc::new(InputModifyingHandler)), None);
 
-        h.feed(make_can_use_tool_request("req-mod", "Bash", "tu-mod")).await;
+        h.feed(make_can_use_tool_request("req-mod", "Bash", "tu-mod"))
+            .await;
 
         let response = h.read_stdin_line().await;
         let resp = &response["response"]["response"];
@@ -986,11 +1003,8 @@ mod tests {
         .await;
 
         // No response should be written (no servers registered)
-        let result = tokio::time::timeout(
-            std::time::Duration::from_millis(100),
-            h.stdin_rx.recv(),
-        )
-        .await;
+        let result =
+            tokio::time::timeout(std::time::Duration::from_millis(100), h.stdin_rx.recv()).await;
         assert!(result.is_err()); // Timeout — no response written
     }
 
@@ -999,14 +1013,12 @@ mod tests {
         let mut servers = HashMap::new();
         servers.insert("calc".to_string(), build_test_mcp_server());
 
-        let mut h = TestHarness::with_mcp_servers(
-            Some(Arc::new(AllowAllHandler)),
-            None,
-            Some(servers),
-        );
+        let mut h =
+            TestHarness::with_mcp_servers(Some(Arc::new(AllowAllHandler)), None, Some(servers));
 
         // Send permission request
-        h.feed(make_can_use_tool_request("req-p1", "Bash", "tu-p1")).await;
+        h.feed(make_can_use_tool_request("req-p1", "Bash", "tu-p1"))
+            .await;
         let perm_resp = h.read_stdin_line().await;
         assert_eq!(perm_resp["response"]["response"]["behavior"], "allow");
 

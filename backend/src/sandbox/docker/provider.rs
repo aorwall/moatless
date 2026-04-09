@@ -10,8 +10,8 @@ use bollard::container::{
     ListContainersOptions, RemoveContainerOptions, RestartContainerOptions, StartContainerOptions,
     StopContainerOptions,
 };
-use bollard::network::ConnectNetworkOptions;
 use bollard::models::EndpointSettings;
+use bollard::network::ConnectNetworkOptions;
 use futures::stream::BoxStream;
 use std::sync::Arc;
 use tracing::{info, warn};
@@ -22,8 +22,8 @@ use super::naming::{generate_container_name, generate_server_container_name};
 use super::status_resolver::DockerStatusResolver;
 use crate::config::Config;
 use crate::events::EventPublisher;
-use crate::sandbox::error::SandboxError;
 use crate::sandbox::client::SandboxClient;
+use crate::sandbox::error::SandboxError;
 use crate::sandbox::jwt;
 use crate::sandbox::models::*;
 use crate::sandbox::provider::SandboxProvider;
@@ -69,7 +69,9 @@ impl SandboxProvider for DockerSandboxProvider {
                     .docker
                     .start_container(&container_name, None::<StartContainerOptions<String>>)
                     .await
-                    .map_err(|e| SandboxError::DockerError(format!("Failed to start container: {e}")))?;
+                    .map_err(|e| {
+                        SandboxError::DockerError(format!("Failed to start container: {e}"))
+                    })?;
 
                 self.publish_ready(task_id).await;
 
@@ -101,15 +103,17 @@ impl SandboxProvider for DockerSandboxProvider {
             &self.config.docker.container_data_dir,
             task_id,
         );
-        let container_data_path = super::naming::generate_data_host_path(
-            &self.config.docker.container_data_dir,
-            task_id,
-        );
+        let container_data_path =
+            super::naming::generate_data_host_path(&self.config.docker.container_data_dir, task_id);
         let container_claude_config_path = super::naming::generate_claude_config_host_path(
             &self.config.docker.container_data_dir,
             task_id,
         );
-        for dir in [&container_workspace_path, &container_data_path, &container_claude_config_path] {
+        for dir in [
+            &container_workspace_path,
+            &container_data_path,
+            &container_claude_config_path,
+        ] {
             if let Err(e) = tokio::fs::create_dir_all(dir).await {
                 warn!(
                     task_id = %task_id,
@@ -190,7 +194,14 @@ impl SandboxProvider for DockerSandboxProvider {
         // 7. Create and start server sidecar containers
         if let Some(ref servers) = plan.repo_config.servers {
             for server in servers {
-                if let Err(e) = self.create_and_start_server_container(task_id, server, plan.repo_config.docker_image.as_deref()).await {
+                if let Err(e) = self
+                    .create_and_start_server_container(
+                        task_id,
+                        server,
+                        plan.repo_config.docker_image.as_deref(),
+                    )
+                    .await
+                {
                     warn!(
                         task_id = %task_id,
                         server = %server.name,
@@ -213,7 +224,10 @@ impl SandboxProvider for DockerSandboxProvider {
         task_id: &str,
         server_configs: &[ServerConfig],
     ) -> Result<SandboxStatusFullResponse, SandboxError> {
-        Ok(self.status_resolver.resolve_sandbox_status(task_id, server_configs).await)
+        Ok(self
+            .status_resolver
+            .resolve_sandbox_status(task_id, server_configs)
+            .await)
     }
 
     async fn stop(&self, task_id: &str) -> Result<(), SandboxError> {
@@ -226,22 +240,13 @@ impl SandboxProvider for DockerSandboxProvider {
 
         self.client
             .docker
-            .stop_container(
-                &container_name,
-                Some(StopContainerOptions { t: 30 }),
-            )
+            .stop_container(&container_name, Some(StopContainerOptions { t: 30 }))
             .await
-            .map_err(|e| {
-                SandboxError::DockerError(format!("Failed to stop container: {e}"))
-            })?;
+            .map_err(|e| SandboxError::DockerError(format!("Failed to stop container: {e}")))?;
 
         if let Some(ref publisher) = self.event_publisher {
             publisher
-                .publish_sandbox_event(
-                    task_id,
-                    moatless_events::SandboxStatus::Stopped,
-                    "Stopped",
-                )
+                .publish_sandbox_event(task_id, moatless_events::SandboxStatus::Stopped, "Stopped")
                 .await;
         }
 
@@ -262,9 +267,7 @@ impl SandboxProvider for DockerSandboxProvider {
             .docker
             .restart_container(&container_name, Some(RestartContainerOptions { t: 30 }))
             .await
-            .map_err(|e| {
-                SandboxError::DockerError(format!("Failed to restart container: {e}"))
-            })?;
+            .map_err(|e| SandboxError::DockerError(format!("Failed to restart container: {e}")))?;
 
         self.publish_ready(task_id).await;
 
@@ -385,11 +388,8 @@ impl DockerSandboxProvider {
                 }
             }
             Err(bollard::errors::Error::DockerResponseServerError {
-                status_code: 404,
-                ..
-            }) => Err(SandboxError::NotReady(
-                "Sandbox not provisioned".into(),
-            )),
+                status_code: 404, ..
+            }) => Err(SandboxError::NotReady("Sandbox not provisioned".into())),
             Err(e) => Err(SandboxError::DockerError(format!(
                 "Failed to inspect container: {e}"
             ))),
@@ -413,11 +413,7 @@ impl DockerSandboxProvider {
     async fn publish_ready(&self, task_id: &str) {
         if let Some(ref publisher) = self.event_publisher {
             publisher
-                .publish_sandbox_event(
-                    task_id,
-                    moatless_events::SandboxStatus::Ready,
-                    "Running",
-                )
+                .publish_sandbox_event(task_id, moatless_events::SandboxStatus::Ready, "Running")
                 .await;
         }
     }
@@ -441,9 +437,14 @@ impl DockerSandboxProvider {
                 info!(task_id = %task_id, server = %server.name, "Starting existing server container");
                 self.client
                     .docker
-                    .start_container(&server_container_name, None::<StartContainerOptions<String>>)
+                    .start_container(
+                        &server_container_name,
+                        None::<StartContainerOptions<String>>,
+                    )
                     .await
-                    .map_err(|e| SandboxError::DockerError(format!("Failed to start server container: {e}")))?;
+                    .map_err(|e| {
+                        SandboxError::DockerError(format!("Failed to start server container: {e}"))
+                    })?;
                 return Ok(());
             }
             ExistingContainerResult::NotFound => {}
@@ -466,13 +467,20 @@ impl DockerSandboxProvider {
                 server_config,
             )
             .await
-            .map_err(|e| SandboxError::DockerError(format!("Failed to create server container: {e}")))?;
+            .map_err(|e| {
+                SandboxError::DockerError(format!("Failed to create server container: {e}"))
+            })?;
 
         self.client
             .docker
-            .start_container(&server_container_name, None::<StartContainerOptions<String>>)
+            .start_container(
+                &server_container_name,
+                None::<StartContainerOptions<String>>,
+            )
             .await
-            .map_err(|e| SandboxError::DockerError(format!("Failed to start server container: {e}")))?;
+            .map_err(|e| {
+                SandboxError::DockerError(format!("Failed to start server container: {e}"))
+            })?;
 
         info!(
             task_id = %task_id,
@@ -489,16 +497,24 @@ impl DockerSandboxProvider {
         use std::collections::HashMap;
 
         let mut filters = HashMap::new();
-        filters.insert("label".to_string(), vec![
-            format!("moatless.io/task-id={task_id}"),
-            "moatless.service=server".to_string(),
-        ]);
+        filters.insert(
+            "label".to_string(),
+            vec![
+                format!("moatless.io/task-id={task_id}"),
+                "moatless.service=server".to_string(),
+            ],
+        );
 
-        match self.client.docker.list_containers(Some(ListContainersOptions {
-            all: true,
-            filters,
-            ..Default::default()
-        })).await {
+        match self
+            .client
+            .docker
+            .list_containers(Some(ListContainersOptions {
+                all: true,
+                filters,
+                ..Default::default()
+            }))
+            .await
+        {
             Ok(containers) => containers
                 .into_iter()
                 .filter_map(|c| {
@@ -517,11 +533,19 @@ impl DockerSandboxProvider {
     /// Stop all server containers for a task.
     async fn stop_server_containers(&self, task_id: &str) {
         for name in self.list_server_container_names(task_id).await {
-            if let Err(e) = self.client.docker.stop_container(
-                &name,
-                Some(StopContainerOptions { t: 10 }),
-            ).await {
-                if !matches!(e, bollard::errors::Error::DockerResponseServerError { status_code: 304 | 404, .. }) {
+            if let Err(e) = self
+                .client
+                .docker
+                .stop_container(&name, Some(StopContainerOptions { t: 10 }))
+                .await
+            {
+                if !matches!(
+                    e,
+                    bollard::errors::Error::DockerResponseServerError {
+                        status_code: 304 | 404,
+                        ..
+                    }
+                ) {
                     warn!(task_id = %task_id, container = %name, error = %e, "Failed to stop server container");
                 }
             }
@@ -531,10 +555,12 @@ impl DockerSandboxProvider {
     /// Restart all server containers for a task.
     async fn restart_server_containers(&self, task_id: &str) {
         for name in self.list_server_container_names(task_id).await {
-            if let Err(e) = self.client.docker.restart_container(
-                &name,
-                Some(RestartContainerOptions { t: 10 }),
-            ).await {
+            if let Err(e) = self
+                .client
+                .docker
+                .restart_container(&name, Some(RestartContainerOptions { t: 10 }))
+                .await
+            {
                 warn!(task_id = %task_id, container = %name, error = %e, "Failed to restart server container");
             }
         }
@@ -575,10 +601,7 @@ impl DockerSandboxProvider {
     }
 
     /// Check if an existing container exists and its state.
-    async fn check_existing_container(
-        &self,
-        container_name: &str,
-    ) -> ExistingContainerResult {
+    async fn check_existing_container(&self, container_name: &str) -> ExistingContainerResult {
         match self
             .client
             .docker
@@ -600,8 +623,7 @@ impl DockerSandboxProvider {
                 }
             }
             Err(bollard::errors::Error::DockerResponseServerError {
-                status_code: 404,
-                ..
+                status_code: 404, ..
             }) => ExistingContainerResult::NotFound,
             Err(e) => {
                 warn!(container = %container_name, error = %e, "Error inspecting container");

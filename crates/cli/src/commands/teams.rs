@@ -60,9 +60,6 @@ fn format_team_detail(t: &TeamResponse) {
     println!("ID:          {}", t.id);
     println!("Name:        {}", t.name);
     println!("Slug:        {}", t.slug);
-    println!(
-        "Description: {}",
-        t.description.as_deref().unwrap_or("-")
-    );
+    println!("Description: {}", t.description.as_deref().unwrap_or("-"));
     println!("Default:     {}", t.is_default);
 }

@@ -24,7 +24,10 @@ impl IntoResponse for CommandError {
             CommandError::AlreadyExists(_) => (StatusCode::CONFLICT, self.to_string()),
             CommandError::Db(e) => {
                 tracing::error!(error = %e, "Database error in command handler");
-                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal server error".to_string(),
+                )
             }
         };
 

@@ -176,11 +176,13 @@ impl ProviderTokenRepository for PgProviderTokenRepository {
     }
 
     async fn delete_team_token(&self, team_id: &str, provider: &str) -> Result<(), sqlx::Error> {
-        sqlx::query("DELETE FROM provider_tokens WHERE team_id = $1 AND provider = $2 AND user_id IS NULL")
-            .bind(team_id)
-            .bind(provider)
-            .execute(&self.0)
-            .await?;
+        sqlx::query(
+            "DELETE FROM provider_tokens WHERE team_id = $1 AND provider = $2 AND user_id IS NULL",
+        )
+        .bind(team_id)
+        .bind(provider)
+        .execute(&self.0)
+        .await?;
         Ok(())
     }
 

@@ -195,35 +195,27 @@ pub fn format_slack_text(text: &str) -> String {
 
     // <!subteam^S123|@team-name> → @team-name
     result = SUBTEAM_MENTION
-        .replace_all(&result, |caps: &regex::Captures| {
-            match caps.get(1) {
-                Some(name) => format!("@{}", name.as_str()),
-                None => "@team".to_string(),
-            }
+        .replace_all(&result, |caps: &regex::Captures| match caps.get(1) {
+            Some(name) => format!("@{}", name.as_str()),
+            None => "@team".to_string(),
         })
         .into_owned();
 
     // <!here> → @here, <!channel> → @channel, <!everyone> → @everyone
     result = SPECIAL_MENTION
-        .replace_all(&result, |caps: &regex::Captures| {
-            format!("@{}", &caps[1])
-        })
+        .replace_all(&result, |caps: &regex::Captures| format!("@{}", &caps[1]))
         .into_owned();
 
     // <#C123|channel-name> → #channel-name
     result = CHANNEL_LINK
-        .replace_all(&result, |caps: &regex::Captures| {
-            format!("#{}", &caps[2])
-        })
+        .replace_all(&result, |caps: &regex::Captures| format!("#{}", &caps[2]))
         .into_owned();
 
     // <@U123|display_name> → @display_name, <@U123> → @U123
     result = USER_MENTION
-        .replace_all(&result, |caps: &regex::Captures| {
-            match caps.get(2) {
-                Some(name) => format!("@{}", name.as_str()),
-                None => format!("@{}", &caps[1]),
-            }
+        .replace_all(&result, |caps: &regex::Captures| match caps.get(2) {
+            Some(name) => format!("@{}", name.as_str()),
+            None => format!("@{}", &caps[1]),
         })
         .into_owned();
 
@@ -258,10 +250,7 @@ mod tests {
 
     #[test]
     fn channel_link() {
-        assert_eq!(
-            format_slack_text("see <#C456DEF|general>"),
-            "see #general"
-        );
+        assert_eq!(format_slack_text("see <#C456DEF|general>"), "see #general");
     }
 
     #[test]

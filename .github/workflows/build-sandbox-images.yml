@@ -55,7 +55,7 @@ jobs:
       )
     runs-on: ubuntu-latest
     container:
-      image: rust:1.88-bookworm
+      image: rust:1.91-bookworm
     steps:
       - uses: actions/checkout@v4
 

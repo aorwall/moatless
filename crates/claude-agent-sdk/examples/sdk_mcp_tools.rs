@@ -83,7 +83,10 @@ async fn main() -> claude_agent_sdk::Result<()> {
                 }
             }
             SdkMessage::Result(ResultMessage::Success(result)) => {
-                println!("Done in {} turns. Cost: ${:.4}", result.num_turns, result.total_cost_usd);
+                println!(
+                    "Done in {} turns. Cost: ${:.4}",
+                    result.num_turns, result.total_cost_usd
+                );
                 break;
             }
             SdkMessage::Result(ResultMessage::Error(err)) => {

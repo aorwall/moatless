@@ -53,12 +53,7 @@ pub fn describe_event_metrics() {
 #[async_trait]
 pub trait EventPublisher: Send + Sync {
     /// Publish a sandbox lifecycle event with a message.
-    async fn publish_sandbox_event(
-        &self,
-        task_id: &str,
-        sub_type: SandboxSubType,
-        message: &str,
-    );
+    async fn publish_sandbox_event(&self, task_id: &str, sub_type: SandboxSubType, message: &str);
 
     /// Publish a sandbox lifecycle event with a typed payload.
     async fn publish_sandbox_event_with_payload(
@@ -252,8 +247,7 @@ impl RedisEventPublisher {
             match result {
                 Ok(_) => {
                     if attempt > 0 {
-                        metrics::counter!("events_publish_retries_total")
-                            .increment(attempt as u64);
+                        metrics::counter!("events_publish_retries_total").increment(attempt as u64);
                         info!(
                             task_id = %task_id,
                             event_type = %event_type,
@@ -296,12 +290,7 @@ impl RedisEventPublisher {
 
 #[async_trait]
 impl EventPublisher for RedisEventPublisher {
-    async fn publish_sandbox_event(
-        &self,
-        task_id: &str,
-        sub_type: SandboxSubType,
-        message: &str,
-    ) {
+    async fn publish_sandbox_event(&self, task_id: &str, sub_type: SandboxSubType, message: &str) {
         let payload = SandboxEventPayload {
             message: message.to_string(),
             ..Default::default()

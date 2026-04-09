@@ -7,7 +7,9 @@ use futures_util::StreamExt;
 use moatless_api_schemas::enums::TaskStatus;
 use moatless_api_schemas::sandbox::SandboxStatusFullResponse;
 use moatless_api_schemas::shared::AgentMode;
-use moatless_api_schemas::task::{CreateTaskRequest, ListTasksQuery, ListTasksResponse, TaskResponse};
+use moatless_api_schemas::task::{
+    CreateTaskRequest, ListTasksQuery, ListTasksResponse, TaskResponse,
+};
 
 use crate::client::{ClientError, MoatClient};
 use crate::config::Config;
@@ -240,7 +242,10 @@ pub async fn run(
         }
         TaskAction::Redeploy { task_id } => {
             let resp = client.api().redeploy_sandbox(&task_id).await?;
-            println!("Sandbox for {task_id} redeployed (status: {:?}).", resp.status);
+            println!(
+                "Sandbox for {task_id} redeployed (status: {:?}).",
+                resp.status
+            );
         }
         TaskAction::Logs {
             task_id,
@@ -277,7 +282,10 @@ pub async fn run(
                 })?;
             let base_url = entry.url.as_deref().ok_or_else(|| ClientError::Api {
                 status: 404,
-                body: format!("Server '{}' has no URL (status: {:?})", server, entry.status),
+                body: format!(
+                    "Server '{}' has no URL (status: {:?})",
+                    server, entry.status
+                ),
             })?;
             let url = format!("{}{}", base_url.trim_end_matches('/'), path);
             let body = client.raw_get_url(&url).await?;
@@ -353,17 +361,11 @@ fn format_task_detail(t: &TaskResponse) {
     println!("Task:    {}", t.task_id);
     println!("Title:   {}", t.title);
     println!("Status:  {}", t.status);
-    println!(
-        "Repo:    {}",
-        t.repository_name.as_deref().unwrap_or("-")
-    );
+    println!("Repo:    {}", t.repository_name.as_deref().unwrap_or("-"));
     println!("Branch:  {}", t.branch.as_deref().unwrap_or("-"));
     println!("Created: {}", t.created_at);
     println!("Cost:    ${:.4}", t.total_cost_usd);
-    println!(
-        "Parent:  {}",
-        t.parent_task_id.as_deref().unwrap_or("none")
-    );
+    println!("Parent:  {}", t.parent_task_id.as_deref().unwrap_or("none"));
 }
 
 fn format_sandbox_status(status: &SandboxStatusFullResponse) {
@@ -397,8 +399,14 @@ fn format_container_diagnostics_json(diagnostics: Option<&Vec<serde_json::Value>
 
     println!("\nContainer Diagnostics:");
     for c in items {
-        let name = c.get("name").and_then(serde_json::Value::as_str).unwrap_or("?");
-        let state = c.get("state").and_then(serde_json::Value::as_str).unwrap_or("?");
+        let name = c
+            .get("name")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("?");
+        let state = c
+            .get("state")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("?");
         let restarts = c
             .get("restartCount")
             .and_then(serde_json::Value::as_i64)
@@ -411,13 +419,19 @@ fn format_container_diagnostics_json(diagnostics: Option<&Vec<serde_json::Value>
         if let Some(code) = c.get("exitCode").and_then(serde_json::Value::as_i64) {
             println!("    Exit Code:      {code}");
         }
-        if let Some(reason) = c.get("terminatedReason").and_then(serde_json::Value::as_str) {
+        if let Some(reason) = c
+            .get("terminatedReason")
+            .and_then(serde_json::Value::as_str)
+        {
             println!("    Terminated:     {reason}");
         }
         if let Some(code) = c.get("lastExitCode").and_then(serde_json::Value::as_i64) {
             println!("    Last Exit Code: {code}");
         }
-        if let Some(reason) = c.get("lastTerminatedReason").and_then(serde_json::Value::as_str) {
+        if let Some(reason) = c
+            .get("lastTerminatedReason")
+            .and_then(serde_json::Value::as_str)
+        {
             println!("    Last Terminated: {reason}");
         }
         if let Some(reason) = c.get("waitingReason").and_then(serde_json::Value::as_str) {
@@ -449,9 +463,8 @@ async fn run_diagnose(
     let status = client.raw_get(&status_path).await?;
 
     // Fetch recent error events
-    let events_path = format!(
-        "/api/v1/tasks/{task_id}/events/history?limit={limit}&types=sandbox,server"
-    );
+    let events_path =
+        format!("/api/v1/tasks/{task_id}/events/history?limit={limit}&types=sandbox,server");
     let events_resp = client.raw_get(&events_path).await;
 
     if json {
@@ -484,7 +497,10 @@ async fn run_diagnose(
         .unwrap_or("unknown");
     println!("  Agent:        {agent_state}");
 
-    if let Some(err) = status.get("environmentError").and_then(serde_json::Value::as_str) {
+    if let Some(err) = status
+        .get("environmentError")
+        .and_then(serde_json::Value::as_str)
+    {
         println!("  Error:        {err}");
     }
 
@@ -495,14 +511,29 @@ async fn run_diagnose(
     format_container_diagnostics_json(diagnostics);
 
     // Runtime events section (from K8s/Docker events)
-    if let Some(rt_events) = status.get("runtimeEvents").and_then(serde_json::Value::as_array) {
+    if let Some(rt_events) = status
+        .get("runtimeEvents")
+        .and_then(serde_json::Value::as_array)
+    {
         if !rt_events.is_empty() {
             println!("\nRuntime Events:");
             for e in rt_events {
-                let reason = e.get("reason").and_then(serde_json::Value::as_str).unwrap_or("?");
-                let message = e.get("message").and_then(serde_json::Value::as_str).unwrap_or("");
-                let severity = e.get("severity").and_then(serde_json::Value::as_str).unwrap_or("normal");
-                let count = e.get("count").and_then(serde_json::Value::as_i64).unwrap_or(1);
+                let reason = e
+                    .get("reason")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("?");
+                let message = e
+                    .get("message")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("");
+                let severity = e
+                    .get("severity")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("normal");
+                let count = e
+                    .get("count")
+                    .and_then(serde_json::Value::as_i64)
+                    .unwrap_or(1);
                 let ts = e
                     .get("lastTimestamp")
                     .and_then(serde_json::Value::as_str)
@@ -519,9 +550,18 @@ async fn run_diagnose(
         if !servers.is_empty() {
             println!("\nServers:");
             for s in servers {
-                let name = s.get("name").and_then(serde_json::Value::as_str).unwrap_or("?");
-                let srv_status = s.get("status").and_then(serde_json::Value::as_str).unwrap_or("?");
-                let port = s.get("port").and_then(serde_json::Value::as_u64).unwrap_or(0);
+                let name = s
+                    .get("name")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("?");
+                let srv_status = s
+                    .get("status")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("?");
+                let port = s
+                    .get("port")
+                    .and_then(serde_json::Value::as_u64)
+                    .unwrap_or(0);
                 println!("  {name}: {srv_status} (port {port})");
                 if let Some(err) = s.get("error").and_then(serde_json::Value::as_str) {
                     println!("    Error: {err}");
@@ -558,7 +598,10 @@ async fn run_diagnose(
                     .and_then(serde_json::Value::as_str)
                     .unwrap_or("-");
                 let ts = if ts.len() > 19 { &ts[..19] } else { ts };
-                let event_type = e.get("type").and_then(serde_json::Value::as_str).unwrap_or("-");
+                let event_type = e
+                    .get("type")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("-");
                 let sub_type = e
                     .get("subType")
                     .and_then(serde_json::Value::as_str)
@@ -666,10 +709,7 @@ async fn run_file_action(
                 println!("{pretty}");
             } else {
                 // Print file content directly.
-                let content = resp
-                    .get("content")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
+                let content = resp.get("content").and_then(|v| v.as_str()).unwrap_or("");
                 print!("{content}");
             }
         }

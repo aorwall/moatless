@@ -85,7 +85,9 @@ pub async fn delete_plugin_repo(
 ) -> Result<axum::http::StatusCode, PluginRepoError> {
     let deleted = state.plugin_repos.delete(&id).await?;
     if !deleted {
-        return Err(PluginRepoError::NotFound(format!("Plugin repo '{id}' not found")));
+        return Err(PluginRepoError::NotFound(format!(
+            "Plugin repo '{id}' not found"
+        )));
     }
     Ok(axum::http::StatusCode::NO_CONTENT)
 }

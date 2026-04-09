@@ -118,7 +118,11 @@ async fn team_membership_chain() {
     assert_eq!(bob.unwrap().role, "member");
 
     // AUTH-07: Remove member from team
-    alice.api().remove_member(&team_id, "bob-test").await.unwrap();
+    alice
+        .api()
+        .remove_member(&team_id, "bob-test")
+        .await
+        .unwrap();
 
     // AUTH-07.1: Removed member no longer in listing
     let members = alice.api().list_members(&team_id).await.unwrap();
@@ -167,11 +171,7 @@ async fn team_credentials_chain() {
         .unwrap();
 
     // AUTH-08.1: Credential appears in listing
-    let creds = alice
-        .api()
-        .list_credentials(&team_id)
-        .await
-        .unwrap();
+    let creds = alice.api().list_credentials(&team_id).await.unwrap();
     let github = creds.iter().find(|c| c.provider == "github");
     assert!(github.is_some());
     // Access token must NOT be exposed in listing
@@ -179,14 +179,14 @@ async fn team_credentials_chain() {
     assert!(!cred_json.contains("ghp_test_token"));
 
     // AUTH-08.2: Delete team credential
-    alice.api().delete_credential(&team_id, "github").await.unwrap();
-
-    // AUTH-08.2.1: Credential removed from listing
-    let creds = alice
+    alice
         .api()
-        .list_credentials(&team_id)
+        .delete_credential(&team_id, "github")
         .await
         .unwrap();
+
+    // AUTH-08.2.1: Credential removed from listing
+    let creds = alice.api().list_credentials(&team_id).await.unwrap();
     assert!(!creds.iter().any(|c| c.provider == "github"));
 
     // Cleanup

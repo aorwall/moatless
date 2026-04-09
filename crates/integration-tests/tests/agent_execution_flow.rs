@@ -8,7 +8,9 @@
 use std::time::Duration;
 
 use integration_tests::{ensure_template_repo, sandbox_helpers, test_client};
-use moatless_api_schemas::{task::CreateTaskRequest, sandbox::SearchFilesRequest, message::SendMessageRequest};
+use moatless_api_schemas::{
+    message::SendMessageRequest, sandbox::SearchFilesRequest, task::CreateTaskRequest,
+};
 use moatless_cli::events::EventCollector;
 
 // =============================================================================
@@ -46,6 +48,7 @@ async fn agent_execution_and_multi_turn() {
         contexts: vec![],
         file_ids: vec![],
         model: None,
+        command_name: None,
     };
     let created = client.api().create_task(&req).await.unwrap();
     let task_id = &created.task_id;
@@ -78,10 +81,7 @@ async fn agent_execution_and_multi_turn() {
 
     // AGENT-01.2b: Verify cost was recorded on the task
     let task = client.api().get_task(task_id).await.unwrap();
-    println!(
-        "AGENT-01.2b: total_cost_usd = {}",
-        task.total_cost_usd
-    );
+    println!("AGENT-01.2b: total_cost_usd = {}", task.total_cost_usd);
     assert!(
         task.total_cost_usd > 0.0,
         "Expected non-zero total_cost_usd after agent execution, got: {}",
@@ -95,11 +95,7 @@ async fn agent_execution_and_multi_turn() {
     assert!(agent_started.is_some(), "Expected agent.started SSE event");
 
     // AGENT-02: Get messages — assert ≥2 messages (user + assistant)
-    let messages = client
-        .api()
-        .get_messages(task_id)
-        .await
-        .unwrap();
+    let messages = client.api().get_messages(task_id).await.unwrap();
     assert!(
         messages.messages.len() >= 2,
         "Expected at least 2 messages (user + assistant), got {}",
@@ -123,7 +119,9 @@ async fn agent_execution_and_multi_turn() {
 
     // AGENT-02.2: Send follow-up message (multi-turn)
     let follow_up = SendMessageRequest {
-        message: "Create another file called e2e-multiturn.txt with the content 'Multi-Turn Success'".into(),
+        message:
+            "Create another file called e2e-multiturn.txt with the content 'Multi-Turn Success'"
+                .into(),
         agent_mode: None,
         command_name: None,
         contexts: vec![],
@@ -142,12 +140,15 @@ async fn agent_execution_and_multi_turn() {
 
     // Wait for 2nd taskTurn.completed
     let turn2 = collector
-        .wait_for_nth_event("taskTurn", "completed", task_id, 2, Duration::from_secs(300))
+        .wait_for_nth_event(
+            "taskTurn",
+            "completed",
+            task_id,
+            2,
+            Duration::from_secs(300),
+        )
         .await;
-    assert!(
-        turn2.is_some(),
-        "Expected 2nd taskTurn.completed event"
-    );
+    assert!(turn2.is_some(), "Expected 2nd taskTurn.completed event");
 
     // AGENT-02.3: Search files for "Multi-Turn Success"
     let search_req2 = SearchFilesRequest {

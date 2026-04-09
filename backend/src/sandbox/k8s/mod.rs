@@ -6,11 +6,11 @@
 pub mod auto_provision;
 pub mod client;
 pub mod deployment;
-pub mod pod_reader;
 pub mod ingress;
 pub mod leader_election;
 pub mod naming;
 pub mod pod_builder;
+pub mod pod_reader;
 pub mod pod_status;
 pub mod pod_watcher;
 pub mod provider;

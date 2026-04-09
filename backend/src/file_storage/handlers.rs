@@ -32,14 +32,12 @@ pub async fn upload_file(
     _auth: AuthUser,
     mut multipart: Multipart,
 ) -> Result<Json<UploadResponse>, FileStorageError> {
-    let s3_client = state
-        .s3
-        .as_ref()
-        .ok_or(FileStorageError::S3NotConfigured)?;
+    let s3_client = state.s3.as_ref().ok_or(FileStorageError::S3NotConfigured)?;
 
     let bucket = state
         .config
-        .s3.bucket_name
+        .s3
+        .bucket_name
         .as_ref()
         .ok_or(FileStorageError::S3NotConfigured)?;
 
@@ -52,10 +50,7 @@ pub async fn upload_file(
     {
         let name = field.name().unwrap_or_default().to_string();
         if name == "file" {
-            let filename = field
-                .file_name()
-                .unwrap_or("unnamed")
-                .to_string();
+            let filename = field.file_name().unwrap_or("unnamed").to_string();
             let content_type = field
                 .content_type()
                 .unwrap_or("application/octet-stream")
@@ -117,18 +112,18 @@ pub async fn download_file(
     _auth: AuthUser,
     Path(file_id): Path<String>,
 ) -> Result<Response, FileStorageError> {
-    let s3_client = state
-        .s3
-        .as_ref()
-        .ok_or(FileStorageError::S3NotConfigured)?;
+    let s3_client = state.s3.as_ref().ok_or(FileStorageError::S3NotConfigured)?;
 
     let bucket = state
         .config
-        .s3.bucket_name
+        .s3
+        .bucket_name
         .as_ref()
         .ok_or(FileStorageError::S3NotConfigured)?;
 
-    let meta = state.files.find_by_id(&file_id)
+    let meta = state
+        .files
+        .find_by_id(&file_id)
         .await?
         .ok_or_else(|| FileStorageError::NotFound(file_id.clone()))?;
 
@@ -137,7 +132,8 @@ pub async fn download_file(
         .await
         .map_err(FileStorageError::UploadFailed)?;
 
-    #[allow(clippy::expect_used)] // Response::builder() only fails with invalid header names (ours are static)
+    #[allow(clippy::expect_used)]
+    // Response::builder() only fails with invalid header names (ours are static)
     let response = Response::builder()
         .header(header::CONTENT_TYPE, content_type)
         .header(

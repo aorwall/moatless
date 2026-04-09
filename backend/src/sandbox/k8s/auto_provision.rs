@@ -11,9 +11,9 @@ use crate::auth::provider_token_dao::ProviderTokenRepository;
 use crate::plugin_repo::dao::PluginRepoRepository;
 use crate::repository::dao::RepoRepository;
 use crate::repository::models::{Repository, RepositoryProvider, ResourceConfig};
-use crate::task::dao::TaskRepository;
 use crate::sandbox::error::SandboxError;
 use crate::sandbox::models::{ProvisionPlan, ProvisionRequest, RepoConfig, ServerConfig};
+use crate::task::dao::TaskRepository;
 
 /// Build a `ProvisionRequest` from database state + recovered credentials.
 ///
@@ -31,12 +31,11 @@ pub async fn build_provision_request(
     task_id: &str,
 ) -> Result<ProvisionRequest, SandboxError> {
     // 1. Read task from DB
-    let task = tasks.find_by_id_internal(task_id)
+    let task = tasks
+        .find_by_id_internal(task_id)
         .await
         .map_err(|e| SandboxError::Internal(format!("DB error reading task: {e}")))?
-        .ok_or_else(|| {
-            SandboxError::Internal(format!("Task '{task_id}' not found in database"))
-        })?;
+        .ok_or_else(|| SandboxError::Internal(format!("Task '{task_id}' not found in database")))?;
 
     info!(
         task_id = %task_id,
@@ -45,7 +44,8 @@ pub async fn build_provision_request(
     );
 
     // 2. Read repository from DB
-    let repo = repos.find_repository_by_id(&task.repository_id)
+    let repo = repos
+        .find_repository_by_id(&task.repository_id)
         .await
         .map_err(|e| SandboxError::Internal(format!("DB error reading repository: {e}")))?
         .ok_or_else(|| {
@@ -57,8 +57,15 @@ pub async fn build_provision_request(
 
     // 3. Resolve credentials
     let git_provider = repo.provider.unwrap_or(RepositoryProvider::Github);
-    let (git_provider_token, anthropic_api_key, claude_oauth_token) =
-        resolve_credentials(k8s, task_id, provider_tokens, task.created_by.as_deref(), task.team_id.as_deref(), git_provider).await;
+    let (git_provider_token, anthropic_api_key, claude_oauth_token) = resolve_credentials(
+        k8s,
+        task_id,
+        provider_tokens,
+        task.created_by.as_deref(),
+        task.team_id.as_deref(),
+        git_provider,
+    )
+    .await;
 
     // Ensure we have at least some auth
     if anthropic_api_key.is_none() && claude_oauth_token.is_none() {
@@ -76,7 +83,10 @@ pub async fn build_provision_request(
     let env_vars = parse_env_vars(&repo);
 
     // Resolve plugin git repos from the join table
-    match plugin_repos.find_by_repository_id(&task.repository_id).await {
+    match plugin_repos
+        .find_by_repository_id(&task.repository_id)
+        .await
+    {
         Ok(plugins) if !plugins.is_empty() => {
             let urls: Vec<String> = plugins.into_iter().map(|p| p.git_url).collect();
             info!(
@@ -267,11 +277,13 @@ pub async fn get_server_configs(
     repos: &dyn RepoRepository,
     task_id: &str,
 ) -> Result<Vec<ServerConfig>, String> {
-    let task = tasks.find_by_id_internal(task_id)
+    let task = tasks
+        .find_by_id_internal(task_id)
         .await
         .map_err(|e| format!("Failed to fetch task {task_id}: {e}"))?
         .ok_or_else(|| format!("Task {task_id} not found"))?;
-    let repo = repos.find_repository_by_id(&task.repository_id)
+    let repo = repos
+        .find_repository_by_id(&task.repository_id)
         .await
         .map_err(|e| format!("Failed to fetch repository {}: {e}", task.repository_id))?
         .ok_or_else(|| format!("Repository {} not found", task.repository_id))?;
@@ -306,9 +318,7 @@ fn build_servers(repo: &Repository) -> Vec<ServerConfig> {
                 default: true,
                 enable_inspector: repo.enable_inspector.unwrap_or(false),
                 start_commands,
-                docker_image: Some(
-                    "aorwall/moatless-vibe-preview-server:latest".to_string(),
-                ),
+                docker_image: Some("aorwall/moatless-vibe-preview-server:latest".to_string()),
                 ..Default::default()
             });
         }
@@ -413,10 +423,7 @@ fn build_preview_config(repo: &Repository) -> Option<serde_json::Value> {
         );
     }
     if let Some(reload) = repo.auto_reload {
-        config.insert(
-            "autoReload".to_string(),
-            serde_json::Value::Bool(reload),
-        );
+        config.insert("autoReload".to_string(), serde_json::Value::Bool(reload));
     }
 
     Some(serde_json::Value::Object(config))
@@ -424,9 +431,8 @@ fn build_preview_config(repo: &Repository) -> Option<serde_json::Value> {
 
 /// Build code_execution JSON pass-through from flattened DB columns.
 fn build_code_execution(repo: &Repository) -> Option<serde_json::Value> {
-    let has_any = repo.setup_commands.is_some()
-        || repo.docker_image.is_some()
-        || repo.env_vars.is_some();
+    let has_any =
+        repo.setup_commands.is_some() || repo.docker_image.is_some() || repo.env_vars.is_some();
 
     if !has_any {
         return None;

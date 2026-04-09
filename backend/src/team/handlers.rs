@@ -52,7 +52,10 @@ pub async fn create_team(
     Json(req): Json<CreateTeamRequest>,
 ) -> Result<(StatusCode, Json<TeamResponse>), TeamError> {
     if state.teams.find_by_slug(&req.slug).await?.is_some() {
-        return Err(TeamError::Conflict(format!("Slug '{}' already taken", req.slug)));
+        return Err(TeamError::Conflict(format!(
+            "Slug '{}' already taken",
+            req.slug
+        )));
     }
 
     let id = uuid::Uuid::new_v4().to_string();
@@ -93,7 +96,10 @@ pub async fn get_team(
     auth: AuthUser,
     Path(team_id): Path<String>,
 ) -> Result<Json<TeamResponse>, TeamError> {
-    let team = state.teams.find_by_id(&team_id).await?
+    let team = state
+        .teams
+        .find_by_id(&team_id)
+        .await?
         .ok_or_else(|| TeamError::NotFound(team_id.clone()))?;
 
     // Non-admin must be a member
@@ -125,12 +131,21 @@ pub async fn update_team(
     Path(team_id): Path<String>,
     Json(req): Json<UpdateTeamRequest>,
 ) -> Result<Json<TeamResponse>, TeamError> {
-    let _existing = state.teams.find_by_id(&team_id).await?
+    let _existing = state
+        .teams
+        .find_by_id(&team_id)
+        .await?
         .ok_or_else(|| TeamError::NotFound(team_id.clone()))?;
 
-    state.teams.update(&team_id, &req.name, req.description.as_deref()).await?;
+    state
+        .teams
+        .update(&team_id, &req.name, req.description.as_deref())
+        .await?;
 
-    let updated = state.teams.find_by_id(&team_id).await?
+    let updated = state
+        .teams
+        .find_by_id(&team_id)
+        .await?
         .ok_or_else(|| TeamError::NotFound(team_id))?;
 
     Ok(Json(updated.into()))
@@ -152,7 +167,10 @@ pub async fn delete_team(
     _auth: AuthUser,
     Path(team_id): Path<String>,
 ) -> Result<StatusCode, TeamError> {
-    let _existing = state.teams.find_by_id(&team_id).await?
+    let _existing = state
+        .teams
+        .find_by_id(&team_id)
+        .await?
         .ok_or_else(|| TeamError::NotFound(team_id.clone()))?;
 
     state.teams.delete(&team_id).await?;
@@ -197,7 +215,10 @@ pub async fn add_member(
     Path(team_id): Path<String>,
     Json(req): Json<AddTeamMemberRequest>,
 ) -> Result<StatusCode, TeamError> {
-    let _existing = state.teams.find_by_id(&team_id).await?
+    let _existing = state
+        .teams
+        .find_by_id(&team_id)
+        .await?
         .ok_or_else(|| TeamError::NotFound(team_id.clone()))?;
 
     let role = req.role.as_deref().unwrap_or("member");
@@ -224,7 +245,10 @@ pub async fn remove_member(
     _auth: AuthUser,
     Path((team_id, user_id)): Path<(String, String)>,
 ) -> Result<StatusCode, TeamError> {
-    let _existing = state.teams.find_by_id(&team_id).await?
+    let _existing = state
+        .teams
+        .find_by_id(&team_id)
+        .await?
         .ok_or_else(|| TeamError::NotFound(team_id.clone()))?;
 
     state.teams.remove_member(&team_id, &user_id).await?;

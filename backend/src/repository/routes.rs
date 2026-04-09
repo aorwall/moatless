@@ -27,8 +27,15 @@ pub struct RepositoryApiDoc;
 /// Build the repository router with OpenAPI metadata.
 pub fn repository_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenApi) {
     let (router, api) = OpenApiRouter::with_openapi(RepositoryApiDoc::openapi())
-        .routes(routes!(handlers::create_repository, handlers::list_repositories))
-        .routes(routes!(handlers::get_repository, handlers::update_repository, handlers::delete_repository))
+        .routes(routes!(
+            handlers::create_repository,
+            handlers::list_repositories
+        ))
+        .routes(routes!(
+            handlers::get_repository,
+            handlers::update_repository,
+            handlers::delete_repository
+        ))
         .routes(routes!(handlers::convert_to_template))
         .routes(routes!(handlers::get_branches))
         .routes(routes!(handlers::sync_config))

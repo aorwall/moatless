@@ -48,14 +48,9 @@ pub async fn connect(
             .find_by_id_internal(task_id)
             .await
             .map_err(|e| ChannelError::Internal(format!("Failed to look up task: {e}")))?
-            .ok_or_else(|| {
-                ChannelError::BadRequest(format!("Task not found: {task_id}"))
-            })?;
+            .ok_or_else(|| ChannelError::BadRequest(format!("Task not found: {task_id}")))?;
 
-        let created_by = task
-            .created_by
-            .as_deref()
-            .unwrap_or("system");
+        let created_by = task.created_by.as_deref().unwrap_or("system");
 
         match super::defaults::create_config_from_wildcard(
             state.channel_configs.as_ref(),
@@ -162,7 +157,10 @@ pub async fn deliver_to_connected_threads(
         }
 
         // Check per-thread filter_user_id
-        if let Some(filter_uid) = thread.properties.get("filter_user_id").and_then(|v| v.as_str())
+        if let Some(filter_uid) = thread
+            .properties
+            .get("filter_user_id")
+            .and_then(|v| v.as_str())
         {
             if msg.user_id == filter_uid {
                 continue;

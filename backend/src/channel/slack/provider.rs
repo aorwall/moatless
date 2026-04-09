@@ -8,9 +8,9 @@ use tracing::{debug, info, warn};
 
 use crate::channel::error::ChannelError;
 use crate::channel::models::{AccessDecision, ChannelTrigger};
-use crate::channel::provider::{ChannelProvider, ChannelType};
-use crate::channel::models::{InboundMessage, NewThreadInfo, OutboundReply};
 use crate::channel::models::{ChannelConfig, ChannelThread};
+use crate::channel::models::{InboundMessage, NewThreadInfo, OutboundReply};
+use crate::channel::provider::{ChannelProvider, ChannelType};
 use crate::db::DbPool;
 
 use super::access::enforce_slack_access;
@@ -21,7 +21,8 @@ use super::signature;
 /// Build Slack-specific reply instructions, optionally including the bot's own
 /// Slack user ID so the agent can detect mentions and decide when to respond.
 fn build_slack_reply_instructions(bot_user_id: Option<&str>) -> String {
-    let mut s = String::from("\
+    let mut s = String::from(
+        "\
 ## Slack-specific instructions
 
 ### Mentioning users
@@ -33,10 +34,13 @@ To include files (screenshots, logs, generated artifacts) in your reply, use the
 - `moat reply --text \"Here are the results\" --file screenshot.png`
 - `moat reply --text \"Logs attached\" --file output.log --file error.log`
 - Multiple `--file` flags can be used to attach several files at once.
-- Images will render inline in the Slack thread.");
+- Images will render inline in the Slack thread.",
+    );
 
     if let Some(bot_id) = bot_user_id {
-        let _ = write!(s, "\n\n\
+        let _ = write!(
+            s,
+            "\n\n\
 ### When to respond in thread conversations\n\
 Your Slack user ID is `{bot_id}`.\n\
 You will receive ALL messages in the thread, not just ones directed at you.\n\
@@ -45,7 +49,8 @@ You will receive ALL messages in the thread, not just ones directed at you.\n\
 - **Stay silent** if people are talking to each other and the conversation doesn't involve you\n\
 - **Stay silent** for simple acknowledgments, reactions, or off-topic chat\n\
 - When in doubt, stay silent rather than interjecting\n\
-- To stay silent, simply do nothing — do NOT send a `moat reply`");
+- To stay silent, simply do nothing — do NOT send a `moat reply`"
+        );
     }
 
     s
@@ -339,13 +344,12 @@ impl ChannelProvider for SlackProvider {
             return Ok(None);
         };
 
-        let row: Option<(String, String)> = sqlx::query_as(
-            "SELECT id, login FROM users WHERE email = $1 LIMIT 1",
-        )
-        .bind(&email)
-        .fetch_optional(db)
-        .await
-        .map_err(|e| ChannelError::Internal(format!("User lookup failed: {e}")))?;
+        let row: Option<(String, String)> =
+            sqlx::query_as("SELECT id, login FROM users WHERE email = $1 LIMIT 1")
+                .bind(&email)
+                .fetch_optional(db)
+                .await
+                .map_err(|e| ChannelError::Internal(format!("User lookup failed: {e}")))?;
 
         if let Some((id, login)) = row {
             info!(slack_user = %identity, email = %email, user_id = %id, login = %login, "Resolved Slack user to system user");
@@ -419,9 +423,7 @@ impl ChannelProvider for SlackProvider {
             .api
             .post_message(channel, &text, None)
             .await?
-            .ok_or_else(|| {
-                ChannelError::Internal("Slack did not return message ts".into())
-            })?;
+            .ok_or_else(|| ChannelError::Internal("Slack did not return message ts".into()))?;
 
         // Upload file attachments (best-effort: log failures, don't fail the message)
         for file in &message.files {
@@ -471,9 +473,7 @@ impl ChannelProvider for SlackProvider {
         }
 
         let slack_config = SlackProviderConfig::from_config(config);
-        let config_limit = slack_config
-            .thread_context_limit
-            .unwrap_or(limit as u64) as usize;
+        let config_limit = slack_config.thread_context_limit.unwrap_or(limit as u64) as usize;
 
         // Use last_channel_external_id as cursor — only fetch messages after it
         let oldest = thread
@@ -519,7 +519,6 @@ impl ChannelProvider for SlackProvider {
 
         Ok(Some(messages.join("\n\n---\n\n")))
     }
-
 }
 
 /// Strip bot mention from message text (e.g., "<@U123ABC> fix the bug" → "fix the bug").

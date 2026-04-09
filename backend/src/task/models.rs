@@ -48,9 +48,18 @@ mod tests {
 
     #[test]
     fn task_status_serde_roundtrip() {
-        assert_eq!(serde_json::to_string(&TaskStatus::Open).unwrap(), "\"open\"");
-        assert_eq!(serde_json::to_string(&TaskStatus::Closed).unwrap(), "\"closed\"");
-        assert_eq!(serde_json::to_string(&TaskStatus::Error).unwrap(), "\"error\"");
+        assert_eq!(
+            serde_json::to_string(&TaskStatus::Open).unwrap(),
+            "\"open\""
+        );
+        assert_eq!(
+            serde_json::to_string(&TaskStatus::Closed).unwrap(),
+            "\"closed\""
+        );
+        assert_eq!(
+            serde_json::to_string(&TaskStatus::Error).unwrap(),
+            "\"error\""
+        );
 
         let parsed: TaskStatus = serde_json::from_str("\"open\"").unwrap();
         assert_eq!(parsed, TaskStatus::Open);
@@ -58,8 +67,14 @@ mod tests {
 
     #[test]
     fn visibility_serde_roundtrip() {
-        assert_eq!(serde_json::to_string(&Visibility::Public).unwrap(), "\"public\"");
-        assert_eq!(serde_json::to_string(&Visibility::Private).unwrap(), "\"private\"");
+        assert_eq!(
+            serde_json::to_string(&Visibility::Public).unwrap(),
+            "\"public\""
+        );
+        assert_eq!(
+            serde_json::to_string(&Visibility::Private).unwrap(),
+            "\"private\""
+        );
 
         let parsed: Visibility = serde_json::from_str("\"private\"").unwrap();
         assert_eq!(parsed, Visibility::Private);

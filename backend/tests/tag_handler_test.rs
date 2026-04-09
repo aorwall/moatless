@@ -1,5 +1,10 @@
 #![cfg(feature = "db-tests")]
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::print_stdout, clippy::print_stderr)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 //! HTTP handler integration tests for tag endpoints.
 
 mod common;
@@ -44,7 +49,11 @@ async fn list_tags_with_data(pool: PgPool) {
     // Create some tags
     tag_dao::find_or_create_tags(
         &pool,
-        &["bug".to_string(), "feature".to_string(), "urgent".to_string()],
+        &[
+            "bug".to_string(),
+            "feature".to_string(),
+            "urgent".to_string(),
+        ],
     )
     .await
     .unwrap();

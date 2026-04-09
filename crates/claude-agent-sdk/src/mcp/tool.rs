@@ -19,10 +19,7 @@ pub struct ToolResult {
 #[derive(Debug, Clone)]
 pub enum ToolContent {
     Text(String),
-    Image {
-        data: String,
-        mime_type: String,
-    },
+    Image { data: String, mime_type: String },
 }
 
 impl ToolResult {

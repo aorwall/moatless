@@ -18,9 +18,7 @@ use super::schemas::TagResponse;
         (status = 500, description = "Internal error", body = crate::error::ErrorBody)
     )
 )]
-pub async fn list_tags(
-    State(state): State<AppState>,
-) -> Result<Json<Vec<TagResponse>>, TagError> {
+pub async fn list_tags(State(state): State<AppState>) -> Result<Json<Vec<TagResponse>>, TagError> {
     let rows = state.tags.list_all().await?;
 
     let tags: Vec<TagResponse> = rows

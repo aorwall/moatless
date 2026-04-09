@@ -39,8 +39,13 @@ pub async fn create_task_ingress_routes(
     server_ports: &BTreeMap<String, u16>,
     config: &Config,
 ) -> Result<(), kube::Error> {
-    let proxy_domain = if let Some(d) = config.proxy.domain.as_deref() { d } else {
-        debug!(task_id, "No PROXY_DOMAIN configured, skipping IngressRoute creation");
+    let proxy_domain = if let Some(d) = config.proxy.domain.as_deref() {
+        d
+    } else {
+        debug!(
+            task_id,
+            "No PROXY_DOMAIN configured, skipping IngressRoute creation"
+        );
         return Ok(());
     };
 
@@ -92,8 +97,7 @@ pub async fn create_task_ingress_routes(
             "spec": spec,
         });
 
-        let obj: DynamicObject =
-            serde_json::from_value(data).map_err(kube::Error::SerdeError)?;
+        let obj: DynamicObject = serde_json::from_value(data).map_err(kube::Error::SerdeError)?;
 
         match api.create(&PostParams::default(), &obj).await {
             Ok(_) => {
@@ -116,17 +120,17 @@ pub async fn create_task_ingress_routes(
 ///
 /// Uses label selector `moatless.io/task-id={task_id}` to find and delete
 /// all routes. Handles 404 (NotFound) gracefully.
-pub async fn delete_task_ingress_routes(
-    k8s: &K8sClient,
-    task_id: &str,
-) -> Result<(), kube::Error> {
+pub async fn delete_task_ingress_routes(k8s: &K8sClient, task_id: &str) -> Result<(), kube::Error> {
     let api = ingress_api(k8s);
     let lp = ListParams::default().labels(&format!("moatless.io/task-id={task_id}"));
 
     let list = match api.list(&lp).await {
         Ok(list) => list,
         Err(kube::Error::Api(ref e)) if e.code == 404 => {
-            debug!(task_id, "IngressRoute CRD not found (Traefik not installed?), skipping deletion");
+            debug!(
+                task_id,
+                "IngressRoute CRD not found (Traefik not installed?), skipping deletion"
+            );
             return Ok(());
         }
         Err(e) => {

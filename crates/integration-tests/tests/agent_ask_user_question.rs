@@ -16,9 +16,7 @@ use std::time::Duration;
 
 use integration_tests::{ensure_template_repo, sandbox_helpers, test_client};
 use moatless_api_schemas::{
-    enums::MessageRole,
-    message::SendMessageRequest,
-    task::CreateTaskRequest,
+    enums::MessageRole, message::SendMessageRequest, task::CreateTaskRequest,
 };
 use moatless_cli::events::EventCollector;
 
@@ -29,9 +27,11 @@ fn extract_tool_use_id(
     messages: &moatless_api_schemas::message::GetMessagesResponse,
     tool_name: &str,
 ) -> Option<String> {
-    let last_assistant = messages.messages.iter().rev().find(|m| {
-        m.role == MessageRole::Assistant && m.has_pending_user_input == Some(true)
-    })?;
+    let last_assistant = messages
+        .messages
+        .iter()
+        .rev()
+        .find(|m| m.role == MessageRole::Assistant && m.has_pending_user_input == Some(true))?;
 
     let result_ids: std::collections::HashSet<&str> = last_assistant
         .tool_results
@@ -93,6 +93,7 @@ async fn agent_ask_user_question() {
         contexts: vec![],
         file_ids: vec![],
         model: None,
+        command_name: None,
     };
     let created = client.api().create_task(&req).await.unwrap();
     let task_id = &created.task_id;
@@ -171,11 +172,7 @@ async fn agent_ask_user_question() {
     }
 
     // Verify messages exist
-    let messages = client
-        .api()
-        .get_messages(task_id)
-        .await
-        .unwrap();
+    let messages = client.api().get_messages(task_id).await.unwrap();
     assert!(
         messages.messages.len() >= 2,
         "Expected at least 2 messages, got {}",

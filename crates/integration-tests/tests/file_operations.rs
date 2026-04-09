@@ -7,11 +7,10 @@
 
 use std::time::Duration;
 
-use integration_tests::{
-    ensure_template_repo, sandbox_helpers, test_client,
-};
+use integration_tests::{ensure_template_repo, sandbox_helpers, test_client};
 use moatless_api_schemas::{
-    task::CreateTaskRequest, sandbox::{SearchByNameRequest, WriteFileRequestBody},
+    sandbox::{SearchByNameRequest, WriteFileRequestBody},
+    task::CreateTaskRequest,
 };
 use pretty_assertions::assert_eq;
 
@@ -43,6 +42,7 @@ async fn file_operations_chain() {
         contexts: vec![],
         file_ids: vec![],
         model: None,
+        command_name: None,
     };
     let created = client.api().create_task(&req).await.unwrap();
     let task_id = &created.task_id;
@@ -58,11 +58,7 @@ async fn file_operations_chain() {
         sandbox_helpers::wait_for_files_available(&client, task_id, Duration::from_secs(30)).await,
         "Files did not become available"
     );
-    let files = client
-        .api()
-        .list_files(task_id)
-        .await
-        .unwrap();
+    let files = client.api().list_files(task_id).await.unwrap();
     assert!(
         files.files.iter().any(|f| f.contains("package.json")),
         "Expected package.json in file list: {:?}",
@@ -81,15 +77,8 @@ async fn file_operations_chain() {
     );
 
     // FILE-03: File tree, assert has entries
-    let tree = client
-        .api()
-        .file_tree(task_id)
-        .await
-        .unwrap();
-    assert!(
-        !tree.tree.is_empty(),
-        "File tree should have entries"
-    );
+    let tree = client.api().file_tree(task_id).await.unwrap();
+    assert!(!tree.tree.is_empty(), "File tree should have entries");
 
     // FILE-04: Search by name "package.json", assert found
     let search_req = SearchByNameRequest {
@@ -112,11 +101,7 @@ async fn file_operations_chain() {
         path: "e2e-test-file.txt".into(),
         content: "E2E file operations test content".into(),
     };
-    client
-        .api()
-        .write_file(task_id, &write_req)
-        .await
-        .unwrap();
+    client.api().write_file(task_id, &write_req).await.unwrap();
 
     let readback = client
         .api()

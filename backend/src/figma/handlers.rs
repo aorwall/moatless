@@ -41,8 +41,7 @@ pub async fn import_clipboard(
     let file_key = Some(result.metadata.file_key.clone());
 
     // Serialize the normalized node tree as metadata
-    let node_metadata =
-        serde_json::to_value(&result.root).ok();
+    let node_metadata = serde_json::to_value(&result.root).ok();
 
     let import_id = nanoid::nanoid!();
     let now = chrono::Utc::now();
@@ -97,7 +96,9 @@ pub async fn import_node(
     let (file_key, node_id) = parse_figma_url(&req.url)?;
 
     // Get user's Figma token
-    let token = state.provider_tokens.find_provider_token(&auth.user_id, "figma")
+    let token = state
+        .provider_tokens
+        .find_provider_token(&auth.user_id, "figma")
         .await
         .map_err(FigmaError::Db)?
         .ok_or_else(|| {
@@ -279,14 +280,17 @@ pub async fn get_import(
     _auth: AuthUser,
     Path(import_id): Path<String>,
 ) -> Result<Json<FigmaImportDetailResponse>, FigmaError> {
-    let row = state.figma_imports.find_by_id(&import_id)
+    let row = state
+        .figma_imports
+        .find_by_id(&import_id)
         .await?
         .ok_or_else(|| FigmaError::NotFound(import_id))?;
 
     // Generate prompt from stored metadata
     let prompt = if let Some(ref metadata) = row.node_metadata {
         // Try to deserialize as NormalizedNode and generate prompt
-        if let Ok(node) = serde_json::from_value::<figma_clipboard::NormalizedNode>(metadata.clone())
+        if let Ok(node) =
+            serde_json::from_value::<figma_clipboard::NormalizedNode>(metadata.clone())
         {
             let config = figma_clipboard::FigmaPromptConfig::default();
             figma_clipboard::generate_figma_prompt(
@@ -297,7 +301,10 @@ pub async fn get_import(
             )
         } else {
             // Fallback: return raw JSON as prompt context
-            format!("Figma design data:\n{}", serde_json::to_string_pretty(metadata).unwrap_or_default())
+            format!(
+                "Figma design data:\n{}",
+                serde_json::to_string_pretty(metadata).unwrap_or_default()
+            )
         }
     } else {
         "No design data available for this import.".to_string()
@@ -310,10 +317,7 @@ pub async fn get_import(
         file_name: row.file_name,
         node_name: row.node_name,
         has_image: row.has_image.unwrap_or(false),
-        created_at: row
-            .created_at
-            .map(|t| t.to_rfc3339())
-            .unwrap_or_default(),
+        created_at: row.created_at.map(|t| t.to_rfc3339()).unwrap_or_default(),
         prompt,
     }))
 }
@@ -336,7 +340,9 @@ pub async fn get_import_image(
     _auth: AuthUser,
     Path(import_id): Path<String>,
 ) -> Result<impl IntoResponse, FigmaError> {
-    let row = state.figma_imports.find_by_id(&import_id)
+    let row = state
+        .figma_imports
+        .find_by_id(&import_id)
         .await?
         .ok_or_else(|| FigmaError::NotFound(import_id.clone()))?;
 
@@ -358,10 +364,9 @@ pub async fn get_import_image(
     // Look for the image in S3 by import_id pattern
     let key = format!("{}/figma/{}.png", state.config.s3.key_prefix, import_id);
 
-    let (bytes, content_type) =
-        s3::get_object(s3_client, bucket, &key)
-            .await
-            .map_err(FigmaError::StorageError)?;
+    let (bytes, content_type) = s3::get_object(s3_client, bucket, &key)
+        .await
+        .map_err(FigmaError::StorageError)?;
 
     Ok((
         StatusCode::OK,
@@ -404,9 +409,7 @@ fn parse_figma_url(url: &str) -> Result<(String, String), FigmaError> {
                 }
             })
         })
-        .ok_or_else(|| {
-            FigmaError::BadRequest(format!("Cannot extract node-id from URL: {url}"))
-        })?;
+        .ok_or_else(|| FigmaError::BadRequest(format!("Cannot extract node-id from URL: {url}")))?;
 
     // Convert dashes to colons (Figma URL encoding)
     let node_id = node_id.replace('-', ":");
@@ -439,7 +442,10 @@ mod tests {
         let url = "https://www.figma.com/other/page?node-id=1-2";
         let result = parse_figma_url(url);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Cannot extract file key"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Cannot extract file key"));
     }
 
     #[test]
@@ -447,7 +453,10 @@ mod tests {
         let url = "https://www.figma.com/file/abc123/My-Design";
         let result = parse_figma_url(url);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Cannot extract node-id"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Cannot extract node-id"));
     }
 
     #[test]

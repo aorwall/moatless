@@ -156,4 +156,3 @@ pub enum AccessDecision {
     /// A pairing code was sent to the user; message is not processed.
     PairingSent,
 }
-

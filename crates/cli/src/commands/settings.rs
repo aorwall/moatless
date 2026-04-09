@@ -39,9 +39,7 @@ pub async fn run(
                 }
             } else if let Some(pat) = token {
                 let body = serde_json::json!({ "token": pat });
-                let resp = client
-                    .raw_put("/api/v1/settings/github/pat", &body)
-                    .await?;
+                let resp = client.raw_put("/api/v1/settings/github/pat", &body).await?;
                 if json {
                     output::print_json_typed(&resp);
                 } else {

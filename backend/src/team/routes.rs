@@ -31,11 +31,18 @@ pub struct TeamApiDoc;
 pub fn team_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenApi) {
     let (router, api) = OpenApiRouter::with_openapi(TeamApiDoc::openapi())
         .routes(routes!(handlers::list_teams, handlers::create_team))
-        .routes(routes!(handlers::get_team, handlers::update_team, handlers::delete_team))
+        .routes(routes!(
+            handlers::get_team,
+            handlers::update_team,
+            handlers::delete_team
+        ))
         .routes(routes!(handlers::list_members, handlers::add_member))
         .routes(routes!(handlers::remove_member))
         .routes(routes!(handlers::list_credentials))
-        .routes(routes!(handlers::upsert_credential, handlers::delete_credential))
+        .routes(routes!(
+            handlers::upsert_credential,
+            handlers::delete_credential
+        ))
         .with_state(state)
         .split_for_parts();
 

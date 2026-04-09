@@ -37,9 +37,7 @@ impl IntoResponse for ChannelError {
         let (status, message) = match &self {
             ChannelError::ConfigNotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
             ChannelError::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
-            ChannelError::ProviderNotConfigured(_) => {
-                (StatusCode::BAD_REQUEST, self.to_string())
-            }
+            ChannelError::ProviderNotConfigured(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             ChannelError::SignatureInvalid => (StatusCode::UNAUTHORIZED, self.to_string()),
             ChannelError::Db(e) => {
                 tracing::error!(error = %e, "Database error in channel handler");
@@ -49,12 +47,13 @@ impl IntoResponse for ChannelError {
                 )
             }
             ChannelError::AccessDenied(_) => (StatusCode::FORBIDDEN, self.to_string()),
-            ChannelError::ProviderApi(_) => {
-                (StatusCode::BAD_GATEWAY, self.to_string())
-            }
+            ChannelError::ProviderApi(_) => (StatusCode::BAD_GATEWAY, self.to_string()),
             ChannelError::Internal(ref msg) => {
                 tracing::error!(error = %msg, "Internal error in channel handler");
-                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal server error".to_string(),
+                )
             }
         };
 

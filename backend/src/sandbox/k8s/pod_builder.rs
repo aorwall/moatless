@@ -4,8 +4,8 @@
 //! Server containers are created dynamically from the repo config.
 
 use k8s_openapi::api::core::v1::{
-    Capabilities, Container, ContainerPort, EmptyDirVolumeSource, EnvVar, HTTPGetAction, Pod,
-    PodSpec, PersistentVolumeClaimVolumeSource, Probe, ResourceRequirements, SecurityContext,
+    Capabilities, Container, ContainerPort, EmptyDirVolumeSource, EnvVar, HTTPGetAction,
+    PersistentVolumeClaimVolumeSource, Pod, PodSpec, Probe, ResourceRequirements, SecurityContext,
     TCPSocketAction, Toleration, Volume, VolumeMount,
 };
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
@@ -97,7 +97,8 @@ pub fn build_pod(
     }
 
     // ── Sandbox container ───────────────────────────────────────────
-    let sandbox_container = build_sandbox_container(config, task_id, plan, pvc_name, user_auth_token)?;
+    let sandbox_container =
+        build_sandbox_container(config, task_id, plan, pvc_name, user_auth_token)?;
 
     // ── Server containers ───────────────────────────────────────────
     let server_containers = build_server_containers(config, plan, pvc_name)?;
@@ -139,7 +140,11 @@ pub fn build_pod(
         ..Default::default()
     };
 
-    let server_count = plan.repo_config.servers.as_ref().map_or(0, std::vec::Vec::len);
+    let server_count = plan
+        .repo_config
+        .servers
+        .as_ref()
+        .map_or(0, std::vec::Vec::len);
     info!(
         task_id,
         pod_name = %pod_name,
@@ -147,7 +152,13 @@ pub fn build_pod(
         server_count,
         "Pod spec built (code-generated)"
     );
-    debug!(task_id, "Pod spec: {:?}", pod.spec.as_ref().map(|s| s.containers.iter().map(|c| &c.name).collect::<Vec<_>>()));
+    debug!(
+        task_id,
+        "Pod spec: {:?}",
+        pod.spec
+            .as_ref()
+            .map(|s| s.containers.iter().map(|c| &c.name).collect::<Vec<_>>())
+    );
 
     Ok(pod)
 }
@@ -174,14 +185,20 @@ fn build_sandbox_container(
     let mut env = vec![
         env_var("TASK_ID", task_id),
         env_var("GIT_CLONE_URL", &plan.git_clone_url),
-        env_var("BACKEND_GRPC_URL", &format!(
-            "http://moatless-vibe-backend.{}.svc.cluster.local:{}",
-            config.sandbox.namespace, config.server.grpc_port
-        )),
-        env_var("BACKEND_API_URL", &format!(
-            "http://moatless-vibe-backend.{}.svc.cluster.local:{}",
-            config.sandbox.namespace, config.server.port
-        )),
+        env_var(
+            "BACKEND_GRPC_URL",
+            &format!(
+                "http://moatless-vibe-backend.{}.svc.cluster.local:{}",
+                config.sandbox.namespace, config.server.grpc_port
+            ),
+        ),
+        env_var(
+            "BACKEND_API_URL",
+            &format!(
+                "http://moatless-vibe-backend.{}.svc.cluster.local:{}",
+                config.sandbox.namespace, config.server.port
+            ),
+        ),
     ];
 
     if let Some(ref branch) = plan.git_branch {
@@ -413,12 +430,24 @@ fn build_server_containers(
         } else {
             ResourceRequirements {
                 limits: Some(BTreeMap::from([
-                    ("cpu".to_string(), Quantity(config.sandbox.resources_cpu_limit.clone())),
-                    ("memory".to_string(), Quantity(config.sandbox.resources_memory_limit.clone())),
+                    (
+                        "cpu".to_string(),
+                        Quantity(config.sandbox.resources_cpu_limit.clone()),
+                    ),
+                    (
+                        "memory".to_string(),
+                        Quantity(config.sandbox.resources_memory_limit.clone()),
+                    ),
                 ])),
                 requests: Some(BTreeMap::from([
-                    ("cpu".to_string(), Quantity(config.sandbox.resources_cpu_request.clone())),
-                    ("memory".to_string(), Quantity(config.sandbox.resources_memory_request.clone())),
+                    (
+                        "cpu".to_string(),
+                        Quantity(config.sandbox.resources_cpu_request.clone()),
+                    ),
+                    (
+                        "memory".to_string(),
+                        Quantity(config.sandbox.resources_memory_request.clone()),
+                    ),
                 ])),
                 ..Default::default()
             }

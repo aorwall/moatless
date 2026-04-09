@@ -1,5 +1,10 @@
 #![cfg(feature = "db-tests")]
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::print_stdout, clippy::print_stderr)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 //! HTTP handler integration tests for repository endpoints.
 
 mod common;
@@ -11,9 +16,7 @@ use tower::ServiceExt;
 use moatless_vibe_backend::repository::dao as repository_dao;
 use moatless_vibe_backend::repository::routes::repository_router;
 
-use common::{
-    authed_json_request, authed_request, body_json, make_repository_row, test_app_state,
-};
+use common::{authed_json_request, authed_request, body_json, make_repository_row, test_app_state};
 
 fn build_router(pool: PgPool) -> axum::Router {
     let state = test_app_state(pool);

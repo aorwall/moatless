@@ -108,10 +108,7 @@ pub async fn update_channel_config(
 /// Delete a channel config and return raw response.
 ///
 /// DELETE /api/v1/channels/configs/{id}
-pub async fn delete_channel_config(
-    http: &reqwest::Client,
-    config_id: &str,
-) -> reqwest::Response {
+pub async fn delete_channel_config(http: &reqwest::Client, config_id: &str) -> reqwest::Response {
     http.delete(format!(
         "{}/api/v1/channels/configs/{}",
         base_url(),
@@ -125,10 +122,7 @@ pub async fn delete_channel_config(
 /// Create a task and return raw response (for testing error cases).
 ///
 /// POST /api/v1/tasks
-pub async fn create_task_raw(
-    http: &reqwest::Client,
-    payload: &Value,
-) -> reqwest::Response {
+pub async fn create_task_raw(http: &reqwest::Client, payload: &Value) -> reqwest::Response {
     http.post(format!("{}/api/v1/tasks", base_url()))
         .json(payload)
         .send()
@@ -144,24 +138,17 @@ pub async fn send_message_raw(
     task_id: &str,
     payload: &Value,
 ) -> reqwest::Response {
-    http.post(format!(
-        "{}/api/v1/tasks/{}/messages",
-        base_url(),
-        task_id
-    ))
-    .json(payload)
-    .send()
-    .await
-    .unwrap()
+    http.post(format!("{}/api/v1/tasks/{}/messages", base_url(), task_id))
+        .json(payload)
+        .send()
+        .await
+        .unwrap()
 }
 
 /// Delete a task and return raw response.
 ///
 /// DELETE /api/v1/tasks/{task_id}
-pub async fn delete_task_raw(
-    http: &reqwest::Client,
-    task_id: &str,
-) -> reqwest::Response {
+pub async fn delete_task_raw(http: &reqwest::Client, task_id: &str) -> reqwest::Response {
     http.delete(format!("{}/api/v1/tasks/{}", base_url(), task_id))
         .send()
         .await
@@ -192,10 +179,7 @@ pub async fn upsert_team_credential(
 /// Create a team and return raw response (for testing error cases like duplicate slug).
 ///
 /// POST /api/v1/teams
-pub async fn create_team_raw(
-    http: &reqwest::Client,
-    payload: &Value,
-) -> reqwest::Response {
+pub async fn create_team_raw(http: &reqwest::Client, payload: &Value) -> reqwest::Response {
     http.post(format!("{}/api/v1/teams", base_url()))
         .json(payload)
         .send()

@@ -167,13 +167,12 @@ impl Config {
     pub fn from_env() -> Self {
         let parsed = parse_repo_config();
 
-        let home_dir = env::var("HOME")
-            .unwrap_or_else(|_| "/home/moatless".to_string());
+        let home_dir = env::var("HOME").unwrap_or_else(|_| "/home/moatless".to_string());
 
-        let claude_config_dir = env::var("CLAUDE_CONFIG_DIR")
-            .unwrap_or_else(|_| format!("{home_dir}/.claude"));
-        let codex_home_dir = env::var("CODEX_HOME")
-            .unwrap_or_else(|_| format!("{home_dir}/.codex"));
+        let claude_config_dir =
+            env::var("CLAUDE_CONFIG_DIR").unwrap_or_else(|_| format!("{home_dir}/.claude"));
+        let codex_home_dir =
+            env::var("CODEX_HOME").unwrap_or_else(|_| format!("{home_dir}/.codex"));
 
         Self {
             port: env::var("PORT")

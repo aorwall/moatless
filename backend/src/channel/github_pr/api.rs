@@ -21,9 +21,7 @@ pub struct PrComment {
 
 impl PrComment {
     pub fn author(&self) -> &str {
-        self.user
-            .as_ref()
-            .map_or("unknown", |u| u.login.as_str())
+        self.user.as_ref().map_or("unknown", |u| u.login.as_str())
     }
 }
 
@@ -46,9 +44,7 @@ pub struct PrInfo {
 
 impl PrInfo {
     pub fn author(&self) -> &str {
-        self.user
-            .as_ref()
-            .map_or("unknown", |u| u.login.as_str())
+        self.user.as_ref().map_or("unknown", |u| u.login.as_str())
     }
 }
 
@@ -94,9 +90,8 @@ impl GithubPrApi {
         pr_number: u64,
         body: &str,
     ) -> Result<u64, ChannelError> {
-        let url = format!(
-            "https://api.github.com/repos/{owner}/{repo}/issues/{pr_number}/comments"
-        );
+        let url =
+            format!("https://api.github.com/repos/{owner}/{repo}/issues/{pr_number}/comments");
 
         // Truncate if needed
         let body = if body.len() > MAX_COMMENT_LENGTH {
@@ -121,12 +116,14 @@ impl GithubPrApi {
             )));
         }
 
-        let data: serde_json::Value = resp
-            .json()
-            .await
-            .map_err(|e| ChannelError::ProviderApi(format!("GitHub post_comment parse error: {e}")))?;
+        let data: serde_json::Value = resp.json().await.map_err(|e| {
+            ChannelError::ProviderApi(format!("GitHub post_comment parse error: {e}"))
+        })?;
 
-        let comment_id = data.get("id").and_then(serde_json::Value::as_u64).unwrap_or(0);
+        let comment_id = data
+            .get("id")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0);
         Ok(comment_id)
     }
 
@@ -138,9 +135,8 @@ impl GithubPrApi {
         pr_number: u64,
         limit: usize,
     ) -> Result<Vec<PrComment>, ChannelError> {
-        let url = format!(
-            "https://api.github.com/repos/{owner}/{repo}/issues/{pr_number}/comments"
-        );
+        let url =
+            format!("https://api.github.com/repos/{owner}/{repo}/issues/{pr_number}/comments");
 
         let resp = self
             .request(reqwest::Method::GET, &url)
@@ -160,10 +156,9 @@ impl GithubPrApi {
             )));
         }
 
-        let comments: Vec<PrComment> = resp
-            .json()
-            .await
-            .map_err(|e| ChannelError::ProviderApi(format!("GitHub list_comments parse error: {e}")))?;
+        let comments: Vec<PrComment> = resp.json().await.map_err(|e| {
+            ChannelError::ProviderApi(format!("GitHub list_comments parse error: {e}"))
+        })?;
 
         Ok(comments)
     }
@@ -195,5 +190,4 @@ impl GithubPrApi {
             .await
             .map_err(|e| ChannelError::ProviderApi(format!("GitHub get_pr parse error: {e}")))
     }
-
 }

@@ -838,9 +838,18 @@ mod tests {
 
     #[test]
     fn agent_state_serializes_lowercase() {
-        assert_eq!(serde_json::to_string(&AgentState::Idle).unwrap(), "\"idle\"");
-        assert_eq!(serde_json::to_string(&AgentState::Running).unwrap(), "\"running\"");
-        assert_eq!(serde_json::to_string(&AgentState::None).unwrap(), "\"none\"");
+        assert_eq!(
+            serde_json::to_string(&AgentState::Idle).unwrap(),
+            "\"idle\""
+        );
+        assert_eq!(
+            serde_json::to_string(&AgentState::Running).unwrap(),
+            "\"running\""
+        );
+        assert_eq!(
+            serde_json::to_string(&AgentState::None).unwrap(),
+            "\"none\""
+        );
     }
 
     #[test]
@@ -857,21 +866,51 @@ mod tests {
 
     #[test]
     fn server_status_enum_serializes_lowercase() {
-        assert_eq!(serde_json::to_string(&ServerStatus::Stopped).unwrap(), "\"stopped\"");
-        assert_eq!(serde_json::to_string(&ServerStatus::Starting).unwrap(), "\"starting\"");
-        assert_eq!(serde_json::to_string(&ServerStatus::Started).unwrap(), "\"started\"");
-        assert_eq!(serde_json::to_string(&ServerStatus::Failed).unwrap(), "\"failed\"");
-        assert_eq!(serde_json::to_string(&ServerStatus::Installing).unwrap(), "\"installing\"");
+        assert_eq!(
+            serde_json::to_string(&ServerStatus::Stopped).unwrap(),
+            "\"stopped\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ServerStatus::Starting).unwrap(),
+            "\"starting\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ServerStatus::Started).unwrap(),
+            "\"started\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ServerStatus::Failed).unwrap(),
+            "\"failed\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ServerStatus::Installing).unwrap(),
+            "\"installing\""
+        );
     }
 
     #[test]
     fn server_status_enum_from_str() {
-        assert!(matches!(ServerStatus::from("stopped"), ServerStatus::Stopped));
-        assert!(matches!(ServerStatus::from("installing"), ServerStatus::Installing));
-        assert!(matches!(ServerStatus::from("starting"), ServerStatus::Starting));
-        assert!(matches!(ServerStatus::from("started"), ServerStatus::Started));
+        assert!(matches!(
+            ServerStatus::from("stopped"),
+            ServerStatus::Stopped
+        ));
+        assert!(matches!(
+            ServerStatus::from("installing"),
+            ServerStatus::Installing
+        ));
+        assert!(matches!(
+            ServerStatus::from("starting"),
+            ServerStatus::Starting
+        ));
+        assert!(matches!(
+            ServerStatus::from("started"),
+            ServerStatus::Started
+        ));
         assert!(matches!(ServerStatus::from("failed"), ServerStatus::Failed));
-        assert!(matches!(ServerStatus::from("unknown"), ServerStatus::Stopped));
+        assert!(matches!(
+            ServerStatus::from("unknown"),
+            ServerStatus::Stopped
+        ));
     }
 
     // =========================================================================
@@ -929,12 +968,22 @@ mod tests {
     #[test]
     fn error_reason_returns_failure_reasons_only() {
         let cs = ContainerObservedStatus::test(
-            "test", false, false, ContainerState::Waiting, 0, Some("ErrImagePull"),
+            "test",
+            false,
+            false,
+            ContainerState::Waiting,
+            0,
+            Some("ErrImagePull"),
         );
         assert_eq!(cs.error_reason().as_deref(), Some("ErrImagePull"));
 
         let cs2 = ContainerObservedStatus::test(
-            "test", false, false, ContainerState::Waiting, 0, Some("ContainerCreating"),
+            "test",
+            false,
+            false,
+            ContainerState::Waiting,
+            0,
+            Some("ContainerCreating"),
         );
         assert!(cs2.error_reason().is_none());
     }
@@ -942,21 +991,30 @@ mod tests {
     #[test]
     fn detail_reason_returns_non_failure_reasons() {
         let cs = ContainerObservedStatus::test(
-            "test", false, false, ContainerState::Waiting, 0, Some("ContainerCreating"),
+            "test",
+            false,
+            false,
+            ContainerState::Waiting,
+            0,
+            Some("ContainerCreating"),
         );
         assert_eq!(cs.detail_reason().as_deref(), Some("ContainerCreating"));
 
         let cs2 = ContainerObservedStatus::test(
-            "test", false, false, ContainerState::Waiting, 0, Some("CrashLoopBackOff"),
+            "test",
+            false,
+            false,
+            ContainerState::Waiting,
+            0,
+            Some("CrashLoopBackOff"),
         );
         assert!(cs2.detail_reason().is_none());
     }
 
     #[test]
     fn error_reason_none_when_no_waiting_reason() {
-        let cs = ContainerObservedStatus::test(
-            "test", false, false, ContainerState::Running, 0, None,
-        );
+        let cs =
+            ContainerObservedStatus::test("test", false, false, ContainerState::Running, 0, None);
         assert!(cs.error_reason().is_none());
         assert!(cs.detail_reason().is_none());
     }
@@ -975,11 +1033,13 @@ mod tests {
 
     #[test]
     fn error_reason_returns_last_state_oom() {
-        let mut cs = ContainerObservedStatus::test(
-            "test", false, false, ContainerState::Running, 1, None,
-        );
+        let mut cs =
+            ContainerObservedStatus::test("test", false, false, ContainerState::Running, 1, None);
         cs.last_terminated_reason = Some("OOMKilled".to_string());
-        assert_eq!(cs.error_reason().as_deref(), Some("Restarted after OOMKilled"));
+        assert_eq!(
+            cs.error_reason().as_deref(),
+            Some("Restarted after OOMKilled")
+        );
     }
 
     // =========================================================================
@@ -988,7 +1048,11 @@ mod tests {
 
     #[test]
     fn server_status_terminated_oom_killed_is_failed() {
-        let cs = ContainerObservedStatus::test_terminated("preview-server", Some("OOMKilled"), Some(137));
+        let cs = ContainerObservedStatus::test_terminated(
+            "preview-server",
+            Some("OOMKilled"),
+            Some(137),
+        );
         assert_eq!(cs.to_server_status(), ServerStatus::Failed);
     }
 
@@ -1000,7 +1064,8 @@ mod tests {
 
     #[test]
     fn server_status_terminated_completed_is_stopped() {
-        let cs = ContainerObservedStatus::test_terminated("preview-server", Some("Completed"), Some(0));
+        let cs =
+            ContainerObservedStatus::test_terminated("preview-server", Some("Completed"), Some(0));
         assert_eq!(cs.to_server_status(), ServerStatus::Stopped);
     }
 
@@ -1016,8 +1081,14 @@ mod tests {
 
     #[test]
     fn sandbox_state_serde() {
-        assert_eq!(serde_json::to_string(&SandboxState::Exists).unwrap(), "\"exists\"");
-        assert_eq!(serde_json::to_string(&SandboxState::Missing).unwrap(), "\"missing\"");
+        assert_eq!(
+            serde_json::to_string(&SandboxState::Exists).unwrap(),
+            "\"exists\""
+        );
+        assert_eq!(
+            serde_json::to_string(&SandboxState::Missing).unwrap(),
+            "\"missing\""
+        );
     }
 
     // =========================================================================
@@ -1071,7 +1142,10 @@ mod tests {
             None,
         );
         cs.running_since = Some(chrono::Utc::now() - chrono::Duration::seconds(10));
-        assert_eq!(cs.to_server_status_with_timeout(120), ServerStatus::Starting);
+        assert_eq!(
+            cs.to_server_status_with_timeout(120),
+            ServerStatus::Starting
+        );
     }
 
     #[test]
@@ -1099,7 +1173,10 @@ mod tests {
             None,
         );
         // running_since is None by default
-        assert_eq!(cs.to_server_status_with_timeout(120), ServerStatus::Starting);
+        assert_eq!(
+            cs.to_server_status_with_timeout(120),
+            ServerStatus::Starting
+        );
     }
 
     #[test]

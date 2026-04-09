@@ -232,7 +232,11 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
                 docker_image,
                 enable_inspector,
                 env_vars: parse_env_vars(&env_vars),
-                plugins: if plugins.is_empty() { None } else { Some(plugins) },
+                plugins: if plugins.is_empty() {
+                    None
+                } else {
+                    Some(plugins)
+                },
                 server_start_commands: if server_start_commands.is_empty() {
                     None
                 } else {
@@ -307,7 +311,11 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
                 docker_image,
                 enable_inspector,
                 env_vars: parse_env_vars(&env_vars),
-                plugins: if plugins.is_empty() { None } else { Some(plugins) },
+                plugins: if plugins.is_empty() {
+                    None
+                } else {
+                    Some(plugins)
+                },
                 server_start_commands: if server_start_commands.is_empty() {
                     None
                 } else {
@@ -454,7 +462,11 @@ fn parse_env_vars(raw: &[String]) -> Option<HashMap<String, String>> {
             Some((k.to_string(), v.to_string()))
         })
         .collect();
-    if map.is_empty() { None } else { Some(map) }
+    if map.is_empty() {
+        None
+    } else {
+        Some(map)
+    }
 }
 
 fn format_repo_detail(r: &RepositoryResponse) {
@@ -466,14 +478,8 @@ fn format_repo_detail(r: &RepositoryResponse) {
             .as_ref()
             .map_or("-".to_string(), ToString::to_string)
     );
-    println!(
-        "Branch:   {}",
-        r.default_branch.as_deref().unwrap_or("-")
-    );
-    println!(
-        "Git URL:  {}",
-        r.remote_url.as_deref().unwrap_or("-")
-    );
+    println!("Branch:   {}", r.default_branch.as_deref().unwrap_or("-"));
+    println!("Git URL:  {}", r.remote_url.as_deref().unwrap_or("-"));
     if let Some(ref img) = r.docker_image {
         println!("Image:    {img}");
     }

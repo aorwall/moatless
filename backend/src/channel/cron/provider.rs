@@ -14,9 +14,7 @@
 //! replies to another channel (e.g., Slack or webhook).
 
 use crate::channel::error::ChannelError;
-use crate::channel::models::{
-    ChannelConfig, ChannelThread, InboundMessage, OutboundReply,
-};
+use crate::channel::models::{ChannelConfig, ChannelThread, InboundMessage, OutboundReply};
 use crate::channel::provider::{ChannelProvider, ChannelType};
 use crate::db::DbPool;
 
@@ -97,7 +95,6 @@ impl ChannelProvider for CronProvider {
         // to route replies to another channel.
         Ok(None)
     }
-
 }
 
 #[cfg(test)]

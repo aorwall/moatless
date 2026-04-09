@@ -13,9 +13,7 @@ pub enum AuthMode {
         task_id: Option<String>,
     },
     /// Standalone CLI — uses API key from credentials file.
-    Standalone {
-        api_key: Option<String>,
-    },
+    Standalone { api_key: Option<String> },
 }
 
 #[derive(Debug, Clone)]
@@ -52,8 +50,8 @@ impl Config {
         let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
         let session_file = format!("{home}/.moat_session");
 
-        let cookie_name = std::env::var("MOAT_COOKIE_NAME")
-            .unwrap_or_else(|_| "moatless_session".to_string());
+        let cookie_name =
+            std::env::var("MOAT_COOKIE_NAME").unwrap_or_else(|_| "moatless_session".to_string());
 
         Self {
             api_url,

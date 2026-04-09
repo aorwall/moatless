@@ -66,20 +66,16 @@ impl CommandRepository for PgCommandRepository {
     }
 
     async fn find_by_name(&self, name: &str) -> Result<Option<Command>, sqlx::Error> {
-        sqlx::query_as::<_, Command>(
-            "SELECT * FROM commands WHERE name = $1",
-        )
-        .bind(name)
-        .fetch_optional(&self.0)
-        .await
+        sqlx::query_as::<_, Command>("SELECT * FROM commands WHERE name = $1")
+            .bind(name)
+            .fetch_optional(&self.0)
+            .await
     }
 
     async fn list_all(&self) -> Result<Vec<Command>, sqlx::Error> {
-        sqlx::query_as::<_, Command>(
-            "SELECT * FROM commands ORDER BY name",
-        )
-        .fetch_all(&self.0)
-        .await
+        sqlx::query_as::<_, Command>("SELECT * FROM commands ORDER BY name")
+            .fetch_all(&self.0)
+            .await
     }
 
     async fn update_by_name(
@@ -171,7 +167,17 @@ pub async fn update_by_name(
     agent_mode: Option<&AgentMode>,
 ) -> Result<bool, sqlx::Error> {
     PgCommandRepository(pool.clone())
-        .update_by_name(name, description, prompt, conditions, icon, variant, active, will_not_resume, agent_mode)
+        .update_by_name(
+            name,
+            description,
+            prompt,
+            conditions,
+            icon,
+            variant,
+            active,
+            will_not_resume,
+            agent_mode,
+        )
         .await
 }
 

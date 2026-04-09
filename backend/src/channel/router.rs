@@ -18,9 +18,7 @@ pub enum RoutingResult {
         config: ChannelConfig,
     },
     /// Create a new task.
-    NewTask {
-        config: ChannelConfig,
-    },
+    NewTask { config: ChannelConfig },
 }
 
 /// Route an inbound message based on config + routing mode.
@@ -29,11 +27,10 @@ pub async fn route_message(
     msg: &InboundMessage,
 ) -> Result<RoutingResult, ChannelError> {
     // 1. Find config
-    let config = state.channel_configs.find_by_provider_source(
-        msg.provider.as_str(),
-        &msg.source_id,
-    )
-    .await?;
+    let config = state
+        .channel_configs
+        .find_by_provider_source(msg.provider.as_str(), &msg.source_id)
+        .await?;
 
     let config = match config {
         Some(c) if c.active => c,
@@ -45,7 +42,10 @@ pub async fn route_message(
 
     // 2. Check for existing thread
     let existing_thread = if let Some(ref thread_id) = msg.thread_id {
-        state.channel_threads.find_by_config_and_thread(&config.id, thread_id).await?
+        state
+            .channel_threads
+            .find_by_config_and_thread(&config.id, thread_id)
+            .await?
     } else {
         None
     };
@@ -63,9 +63,7 @@ pub async fn route_message(
         (RoutingMode::Ongoing, None) => {
             if let Some(ref task_id) = config.ongoing_task_id {
                 // Verify task is still open
-                if let Ok(Some(task)) =
-                    state.tasks.find_by_id_internal(task_id).await
-                {
+                if let Ok(Some(task)) = state.tasks.find_by_id_internal(task_id).await {
                     if task.status == crate::task::models::TaskStatus::Open {
                         return Ok(RoutingResult::ExistingTask {
                             task_id: task.task_id.clone(),

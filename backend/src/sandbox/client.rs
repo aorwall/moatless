@@ -53,9 +53,7 @@ impl SandboxClient {
         namespace: &str,
         port: u16,
     ) -> Result<Self, ClientError> {
-        let url = format!(
-            "http://{service_name}.{namespace}.svc.cluster.local:{port}"
-        );
+        let url = format!("http://{service_name}.{namespace}.svc.cluster.local:{port}");
         Self::connect(&url)
     }
 
@@ -91,9 +89,7 @@ impl SandboxClient {
     pub async fn get_agent_status(&self) -> Result<GetAgentStatusResponse, tonic::Status> {
         let mut client = self.client.clone();
         let result = tokio::time::timeout(Duration::from_secs(5), async {
-            client
-                .get_agent_status(GetAgentStatusRequest {})
-                .await
+            client.get_agent_status(GetAgentStatusRequest {}).await
         })
         .await;
 

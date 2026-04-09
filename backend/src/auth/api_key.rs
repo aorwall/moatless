@@ -63,7 +63,9 @@ pub async fn generate_key(
         name: name.to_string(),
         key_hash,
         key_prefix: key_prefix.clone(),
-        scopes: scopes.as_ref().map(|s| serde_json::to_string(s).unwrap_or_default()),
+        scopes: scopes
+            .as_ref()
+            .map(|s| serde_json::to_string(s).unwrap_or_default()),
         group_id: group_id.map(String::from),
         last_used_at: None,
         expires_at,
@@ -170,9 +172,7 @@ pub async fn validate_key_cached(
     };
 
     // Use MAX for keys without expiry so the cache expiry check always passes
-    let expires_at = payload
-        .expires_at
-        .unwrap_or(DateTime::<Utc>::MAX_UTC);
+    let expires_at = payload.expires_at.unwrap_or(DateTime::<Utc>::MAX_UTC);
 
     let verify = crate::auth::cache::VerifyPayload {
         user_id: payload.user_id,
@@ -227,4 +227,3 @@ pub fn hash_key(key: &str) -> String {
     hasher.update(key.as_bytes());
     hex::encode(hasher.finalize())
 }
-

@@ -60,7 +60,11 @@ pub enum CommandAction {
     },
 }
 
-pub async fn run(client: &MoatClient, action: CommandAction, json: bool) -> Result<(), ClientError> {
+pub async fn run(
+    client: &MoatClient,
+    action: CommandAction,
+    json: bool,
+) -> Result<(), ClientError> {
     match action {
         CommandAction::List => {
             let cmds = client.api().list_commands().await?;
@@ -69,12 +73,7 @@ pub async fn run(client: &MoatClient, action: CommandAction, json: bool) -> Resu
             } else {
                 let rows: Vec<Vec<String>> = cmds
                     .iter()
-                    .map(|c| {
-                        vec![
-                            c.name.clone(),
-                            c.description.chars().take(60).collect(),
-                        ]
-                    })
+                    .map(|c| vec![c.name.clone(), c.description.chars().take(60).collect()])
                     .collect();
                 output::print_table(&["NAME", "DESCRIPTION"], &rows);
             }

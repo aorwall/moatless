@@ -24,31 +24,25 @@ pub struct PgPluginRepoRepository(pub DbPool);
 #[async_trait]
 impl PluginRepoRepository for PgPluginRepoRepository {
     async fn list_all(&self) -> Result<Vec<PluginRepo>, sqlx::Error> {
-        sqlx::query_as::<_, PluginRepo>(
-            "SELECT * FROM plugin_repos ORDER BY name ASC",
-        )
-        .fetch_all(&self.0)
-        .await
+        sqlx::query_as::<_, PluginRepo>("SELECT * FROM plugin_repos ORDER BY name ASC")
+            .fetch_all(&self.0)
+            .await
     }
 
     async fn find_by_id(&self, id: &str) -> Result<Option<PluginRepo>, sqlx::Error> {
-        sqlx::query_as::<_, PluginRepo>(
-            "SELECT * FROM plugin_repos WHERE id = $1",
-        )
-        .bind(id)
-        .fetch_optional(&self.0)
-        .await
+        sqlx::query_as::<_, PluginRepo>("SELECT * FROM plugin_repos WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&self.0)
+            .await
     }
 
     async fn insert(&self, row: &PluginRepo) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            "INSERT INTO plugin_repos (id, name, git_url) VALUES ($1, $2, $3)",
-        )
-        .bind(&row.id)
-        .bind(&row.name)
-        .bind(&row.git_url)
-        .execute(&self.0)
-        .await?;
+        sqlx::query("INSERT INTO plugin_repos (id, name, git_url) VALUES ($1, $2, $3)")
+            .bind(&row.id)
+            .bind(&row.name)
+            .bind(&row.git_url)
+            .execute(&self.0)
+            .await?;
         Ok(())
     }
 

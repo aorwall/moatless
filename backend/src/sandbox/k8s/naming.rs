@@ -91,7 +91,10 @@ mod tests {
     fn test_sanitize_k8s_name() {
         assert_eq!(sanitize_k8s_name("ABC_123", 63), "abc-123");
         assert_eq!(sanitize_k8s_name("hello.world", 63), "hello-world");
-        assert_eq!(sanitize_k8s_name("a".repeat(100).as_str(), 20), "a".repeat(20));
+        assert_eq!(
+            sanitize_k8s_name("a".repeat(100).as_str(), 20),
+            "a".repeat(20)
+        );
     }
 
     #[test]

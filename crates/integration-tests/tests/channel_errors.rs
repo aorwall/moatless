@@ -38,13 +38,9 @@ async fn create_webhook_config(
         task_name: None,
         tag_ids: None,
         run_as_user_id: None,
+        allow_direct_send: None,
     };
-    client
-        .api()
-        .create_channel_config(&req)
-        .await
-        .unwrap()
-        .id
+    client.api().create_channel_config(&req).await.unwrap().id
 }
 
 // CHAN-50: Webhook to non-existent config returns error
@@ -68,15 +64,19 @@ async fn webhook_inactive_config() {
     let repo_id = ensure_template_repo(&client).await;
     let suffix = timestamp_suffix();
 
-    let config_id = create_webhook_config(&client, &repo_id, &format!("inactive-{suffix}"), None)
-        .await;
+    let config_id =
+        create_webhook_config(&client, &repo_id, &format!("inactive-{suffix}"), None).await;
 
     // Deactivate
     let update = UpdateChannelConfigRequest {
         active: Some(false),
         ..Default::default()
     };
-    client.api().update_channel_config(&config_id, &update).await.unwrap();
+    client
+        .api()
+        .update_channel_config(&config_id, &update)
+        .await
+        .unwrap();
 
     // Send message — should be accepted but ignored
     let resp = raw_api::send_webhook_message(
@@ -147,6 +147,7 @@ async fn channel_create_nonexistent_repo() {
         task_name: None,
         tag_ids: None,
         run_as_user_id: None,
+        allow_direct_send: None,
     };
     let err = client.api().create_channel_config(&req).await.unwrap_err();
     match &err {

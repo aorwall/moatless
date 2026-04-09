@@ -41,6 +41,7 @@ async fn channel_config_crud_chain() {
         task_name: None,
         tag_ids: None,
         run_as_user_id: None,
+        allow_direct_send: None,
     };
     let config = client.api().create_channel_config(&req).await.unwrap();
     assert!(config.active);
@@ -51,11 +52,7 @@ async fn channel_config_crud_chain() {
     let config_id = config.id;
 
     // CHAN-01.1: Config appears in listing
-    let configs = client
-        .api()
-        .list_channel_configs(None, None)
-        .await
-        .unwrap();
+    let configs = client.api().list_channel_configs(None, None).await.unwrap();
     assert!(configs.iter().any(|c| c.id == config_id));
 
     // CHAN-02: Get channel config by ID
@@ -96,21 +93,17 @@ async fn channel_config_crud_chain() {
     assert!(!deactivated.active);
 
     // Still appears in listing
-    let configs = client
-        .api()
-        .list_channel_configs(None, None)
-        .await
-        .unwrap();
+    let configs = client.api().list_channel_configs(None, None).await.unwrap();
     assert!(configs.iter().any(|c| c.id == config_id));
 
     // CHAN-05: Delete channel config
-    client.api().delete_channel_config(&config_id).await.unwrap();
-
-    // CHAN-05.1: Config removed from listing
-    let configs = client
+    client
         .api()
-        .list_channel_configs(None, None)
+        .delete_channel_config(&config_id)
         .await
         .unwrap();
+
+    // CHAN-05.1: Config removed from listing
+    let configs = client.api().list_channel_configs(None, None).await.unwrap();
     assert!(!configs.iter().any(|c| c.id == config_id));
 }

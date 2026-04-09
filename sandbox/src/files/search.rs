@@ -22,7 +22,11 @@ pub async fn search_files_by_name(
 ) -> Result<Vec<FileNameMatch>, std::io::Error> {
     let all_files = tree::list_files(workspace_dir, ".", true).await?;
 
-    let max = if max_results <= 0 { 100 } else { max_results as usize };
+    let max = if max_results <= 0 {
+        100
+    } else {
+        max_results as usize
+    };
     let query_normalized = if case_sensitive {
         query.to_string()
     } else {
@@ -69,10 +73,9 @@ mod tests {
         std::fs::write(tmp.path().join("bar.rs"), "").unwrap();
         std::fs::write(tmp.path().join("baz.txt"), "").unwrap();
 
-        let results =
-            search_files_by_name(tmp.path().to_str().unwrap(), ".rs", false, 0)
-                .await
-                .unwrap();
+        let results = search_files_by_name(tmp.path().to_str().unwrap(), ".rs", false, 0)
+            .await
+            .unwrap();
         assert_eq!(results.len(), 2);
     }
 
@@ -83,10 +86,9 @@ mod tests {
             std::fs::write(tmp.path().join(format!("file{i}.txt")), "").unwrap();
         }
 
-        let results =
-            search_files_by_name(tmp.path().to_str().unwrap(), "file", false, 3)
-                .await
-                .unwrap();
+        let results = search_files_by_name(tmp.path().to_str().unwrap(), "file", false, 3)
+            .await
+            .unwrap();
         assert_eq!(results.len(), 3);
     }
 
@@ -96,10 +98,9 @@ mod tests {
         std::fs::write(tmp.path().join("README.md"), "").unwrap();
         std::fs::write(tmp.path().join("readme.txt"), "").unwrap();
 
-        let results =
-            search_files_by_name(tmp.path().to_str().unwrap(), "readme", false, 0)
-                .await
-                .unwrap();
+        let results = search_files_by_name(tmp.path().to_str().unwrap(), "readme", false, 0)
+            .await
+            .unwrap();
         assert_eq!(results.len(), 2);
     }
 
@@ -109,10 +110,9 @@ mod tests {
         std::fs::write(tmp.path().join("README.md"), "").unwrap();
         std::fs::write(tmp.path().join("readme.txt"), "").unwrap();
 
-        let results =
-            search_files_by_name(tmp.path().to_str().unwrap(), "README", true, 0)
-                .await
-                .unwrap();
+        let results = search_files_by_name(tmp.path().to_str().unwrap(), "README", true, 0)
+            .await
+            .unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].path, "README.md");
     }
@@ -123,10 +123,9 @@ mod tests {
         std::fs::create_dir(tmp.path().join("src")).unwrap();
         std::fs::write(tmp.path().join("src/main.rs"), "").unwrap();
 
-        let results =
-            search_files_by_name(tmp.path().to_str().unwrap(), "src", false, 0)
-                .await
-                .unwrap();
+        let results = search_files_by_name(tmp.path().to_str().unwrap(), "src", false, 0)
+            .await
+            .unwrap();
         // Only src/main.rs should match (contains "src" in path), not the directory itself
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].path, "src/main.rs");

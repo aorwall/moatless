@@ -1,5 +1,10 @@
 #![cfg(feature = "db-tests")]
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::print_stdout, clippy::print_stderr)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 //! Integration tests for task_dao.
 
 mod common;
@@ -26,9 +31,7 @@ async fn insert_and_find_by_id(pool: PgPool) {
     let row = make_task_row("task-aaa", user);
     task_dao::insert_task(&pool, &row).await.unwrap();
 
-    let found = task_dao::find_by_id(&pool, "task-aaa", user)
-        .await
-        .unwrap();
+    let found = task_dao::find_by_id(&pool, "task-aaa", user).await.unwrap();
     assert!(found.is_some());
     let found = found.unwrap();
     assert_eq!(found.task_id, "task-aaa");
@@ -114,10 +117,19 @@ async fn list_tasks_status_filter(pool: PgPool) {
     closed_task.status = TaskStatus::Closed;
     task_dao::insert_task(&pool, &closed_task).await.unwrap();
 
-    let (rows, total) =
-        task_dao::list_tasks(&pool, user, 50, 0, Some(TaskStatus::Open), None, None, None, None)
-            .await
-            .unwrap();
+    let (rows, total) = task_dao::list_tasks(
+        &pool,
+        user,
+        50,
+        0,
+        Some(TaskStatus::Open),
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
 
     assert_eq!(total, 1);
     assert_eq!(rows[0].task_id, "task-open");
@@ -135,12 +147,9 @@ async fn list_tasks_tag_filter(pool: PgPool) {
     task_dao::insert_task(&pool, &task_b).await.unwrap();
 
     // Create tag and assign
-    let tags = moatless_vibe_backend::tag::dao::find_or_create_tags(
-        &pool,
-        &["bug".to_string()],
-    )
-    .await
-    .unwrap();
+    let tags = moatless_vibe_backend::tag::dao::find_or_create_tags(&pool, &["bug".to_string()])
+        .await
+        .unwrap();
     let tag_ids: Vec<String> = tags.iter().map(|t| t.tag_id.clone()).collect();
     moatless_vibe_backend::tag::dao::set_task_tags(&pool, "task-tagged", &tag_ids)
         .await
@@ -219,9 +228,7 @@ async fn delete_task(pool: PgPool) {
 
     task_dao::delete_task(&pool, "task-del").await.unwrap();
 
-    let found = task_dao::find_by_id(&pool, "task-del", user)
-        .await
-        .unwrap();
+    let found = task_dao::find_by_id(&pool, "task-del", user).await.unwrap();
     assert!(found.is_none());
 }
 
@@ -234,6 +241,10 @@ async fn exists_by_short_id(pool: PgPool) {
     row.short_id = Some("abcd1234".to_string());
     task_dao::insert_task(&pool, &row).await.unwrap();
 
-    assert!(task_dao::exists_by_short_id(&pool, "abcd1234").await.unwrap());
-    assert!(!task_dao::exists_by_short_id(&pool, "xxxxxxxx").await.unwrap());
+    assert!(task_dao::exists_by_short_id(&pool, "abcd1234")
+        .await
+        .unwrap());
+    assert!(!task_dao::exists_by_short_id(&pool, "xxxxxxxx")
+        .await
+        .unwrap());
 }

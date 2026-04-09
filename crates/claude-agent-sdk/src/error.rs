@@ -22,10 +22,7 @@ pub enum SdkError {
     },
 
     #[error("Control request {request_id} timed out after {timeout_ms}ms")]
-    ControlTimeout {
-        request_id: String,
-        timeout_ms: u64,
-    },
+    ControlTimeout { request_id: String, timeout_ms: u64 },
 
     #[error("Control request {request_id} failed: {error}")]
     ControlError { request_id: String, error: String },

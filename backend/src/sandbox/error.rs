@@ -36,27 +36,45 @@ impl IntoResponse for SandboxError {
             Self::NotReady(_) => (StatusCode::SERVICE_UNAVAILABLE, self.to_string()),
             Self::ConfigMissing(ref msg) => {
                 tracing::error!(error = %msg, "Sandbox config missing");
-                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal server error".to_string(),
+                )
             }
             Self::JwtError(ref msg) => {
                 tracing::error!(error = %msg, "Sandbox JWT error");
-                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal server error".to_string(),
+                )
             }
             Self::PodBuildError(ref msg) => {
                 tracing::error!(error = %msg, "Sandbox pod build error");
-                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal server error".to_string(),
+                )
             }
             Self::KubeError(ref e) => {
                 tracing::error!(error = %e, "Kubernetes API error in sandbox handler");
-                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal server error".to_string(),
+                )
             }
             Self::DockerError(ref msg) => {
                 tracing::error!(error = %msg, "Docker API error in sandbox handler");
-                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal server error".to_string(),
+                )
             }
             Self::Internal(ref msg) => {
                 tracing::error!(error = %msg, "Internal sandbox error");
-                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal server error".to_string(),
+                )
             }
         };
         error_response(status, message)

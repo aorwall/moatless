@@ -55,10 +55,7 @@ impl StdinWriter for ChildStdinWriter {
             .write_all(json.as_bytes())
             .await
             .map_err(SdkError::SpawnError)?;
-        stdin
-            .write_all(b"\n")
-            .await
-            .map_err(SdkError::SpawnError)?;
+        stdin.write_all(b"\n").await.map_err(SdkError::SpawnError)?;
         stdin.flush().await.map_err(SdkError::SpawnError)?;
         Ok(())
     }
@@ -67,10 +64,7 @@ impl StdinWriter for ChildStdinWriter {
 /// Log a stdin JSON line with a concise summary instead of the full JSON.
 fn log_stdin_line(json: &str) {
     if let Ok(value) = serde_json::from_str::<serde_json::Value>(json) {
-        let msg_type = value
-            .get("type")
-            .and_then(|v| v.as_str())
-            .unwrap_or("?");
+        let msg_type = value.get("type").and_then(|v| v.as_str()).unwrap_or("?");
         let request_id = value.get("request_id").and_then(|v| v.as_str());
         let subtype = value
             .get("request")

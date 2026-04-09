@@ -47,7 +47,11 @@ pub async fn send_to_channels(
     config_id: Option<&str>,
 ) -> Result<(u32, Vec<String>), ChannelError> {
     let threads = if let Some(cid) = config_id {
-        match state.channel_threads.find_by_task_id_and_config(task_id, cid).await? {
+        match state
+            .channel_threads
+            .find_by_task_id_and_config(task_id, cid)
+            .await?
+        {
             Some(t) => vec![t],
             None => {
                 return Err(ChannelError::ConfigNotFound(format!(
@@ -95,10 +99,7 @@ pub async fn send_to_channels(
         // that's the actual target; otherwise the config itself is the target.
         // This prevents duplicate sends when both a cross-channel thread (e.g. cron)
         // and its response config's direct thread exist for the same task.
-        let effective_config_id = config
-            .response_config_id
-            .as_deref()
-            .unwrap_or(&config.id);
+        let effective_config_id = config.response_config_id.as_deref().unwrap_or(&config.id);
         if !sent_config_ids.insert(effective_config_id.to_string()) {
             debug!(
                 config_id = %config.id,
@@ -108,7 +109,9 @@ pub async fn send_to_channels(
             continue;
         }
 
-        let target = if let Some(t) = resolve_outbound_target(state, providers, &config, thread, task_id).await {
+        let target = if let Some(t) =
+            resolve_outbound_target(state, providers, &config, thread, task_id).await
+        {
             t
         } else {
             errors.push(format!("No provider for config {}", config.id));
@@ -234,15 +237,12 @@ pub async fn direct_send_to_channel(
     }
 
     // No existing thread (or no task_id) — send a new top-level message.
-    let thread_info = provider
-        .send_message(&config, &reply)
-        .await
-        .map_err(|e| {
-            ChannelError::ProviderApi(format!(
-                "Failed to send message via {}: {e}",
-                config.provider
-            ))
-        })?;
+    let thread_info = provider.send_message(&config, &reply).await.map_err(|e| {
+        ChannelError::ProviderApi(format!(
+            "Failed to send message via {}: {e}",
+            config.provider
+        ))
+    })?;
 
     // Persist the thread so future sends from this task reply in it.
     if let Some(tid) = task_id {
@@ -326,10 +326,7 @@ pub async fn handle_channel_notification(
         };
 
         // Deduplicate by effective target config (see send_to_channels).
-        let effective_config_id = config
-            .response_config_id
-            .as_deref()
-            .unwrap_or(&config.id);
+        let effective_config_id = config.response_config_id.as_deref().unwrap_or(&config.id);
         if !sent_config_ids.insert(effective_config_id.to_string()) {
             debug!(
                 task_id = %event.task_id,
@@ -343,18 +340,21 @@ pub async fn handle_channel_notification(
         let task_url = build_task_url(state, &event.task_id);
 
         // Resolve outbound target: use response_config_id if set
-        let target =
-            match resolve_outbound_target(state, providers, &config, thread, &event.task_id).await
-            {
-                Some(t) => t,
-                None => continue,
-            };
+        let target = match resolve_outbound_target(
+            state,
+            providers,
+            &config,
+            thread,
+            &event.task_id,
+        )
+        .await
+        {
+            Some(t) => t,
+            None => continue,
+        };
 
         // Extract message_id from payload (injected by agent_handlers for outbound tracking)
-        let message_id = event
-            .payload
-            .get("message_id")
-            .and_then(|v| v.as_str());
+        let message_id = event.payload.get("message_id").and_then(|v| v.as_str());
 
         match &key {
             EventKey::TaskTurn(TaskTurnSubType::Completed)
@@ -372,8 +372,7 @@ pub async fn handle_channel_notification(
                     files: vec![],
                 };
 
-                send_outbound(state, &event.task_id, target, &reply, message_id)
-                    .await;
+                send_outbound(state, &event.task_id, target, &reply, message_id).await;
             }
 
             EventKey::Agent(AgentSubType::Error)
@@ -431,7 +430,11 @@ async fn send_outbound(
             match provider.send_reply(&thread, &config, reply).await {
                 Ok(Some(external_id)) => {
                     if let Some(msg_id) = message_id {
-                        if let Err(e) = state.messages.set_channel_external_id(msg_id, &external_id).await {
+                        if let Err(e) = state
+                            .messages
+                            .set_channel_external_id(msg_id, &external_id)
+                            .await
+                        {
                             warn!(task_id = %task_id, error = %e, "Failed to store outbound external ID");
                         }
                     }
@@ -648,11 +651,7 @@ pub(crate) async fn resolve_outbound_target<'a>(
 ) -> Option<OutboundTarget<'a>> {
     if let Some(ref response_config_id) = config.response_config_id {
         // Cross-channel: load response config
-        let response_config = match state
-            .channel_configs
-            .find_by_id(response_config_id)
-            .await
-        {
+        let response_config = match state.channel_configs.find_by_id(response_config_id).await {
             Ok(Some(c)) => c,
             Ok(None) => {
                 warn!(

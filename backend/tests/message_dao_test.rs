@@ -1,11 +1,18 @@
 #![cfg(feature = "db-tests")]
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::print_stdout, clippy::print_stderr)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 //! Integration tests for message_dao.
 
 mod common;
 
 use moatless_vibe_backend::message::dao as message_dao;
-use moatless_vibe_backend::message::models::{ContentBlockType, MessageType, TaskMessageContentBlock, TaskMessageContext};
+use moatless_vibe_backend::message::models::{
+    ContentBlockType, MessageType, TaskMessageContentBlock, TaskMessageContext,
+};
 use sqlx::PgPool;
 
 use common::{make_message_row, make_repository_row, make_task_row};
@@ -186,7 +193,10 @@ async fn set_session_id_also_sets_sent_at(pool: PgPool) {
     // Verify sent_at is set on all messages
     let (all_msgs, _, _) = message_dao::get_all(&pool, "task-1").await.unwrap();
     for msg in &all_msgs {
-        assert!(msg.sent_at.is_some(), "sent_at should be set after set_session_id_for_task");
+        assert!(
+            msg.sent_at.is_some(),
+            "sent_at should be set after set_session_id_for_task"
+        );
         assert_eq!(msg.session_id.as_deref(), Some("session-abc"));
         assert_eq!(msg.agent_session_id.as_deref(), Some("session-abc"));
     }
@@ -207,9 +217,7 @@ async fn get_last_result(pool: PgPool) {
     msg2.timestamp = "2024-01-02T00:00:00.000Z".to_string();
     message_dao::append(&pool, &msg2, &[], &[]).await.unwrap();
 
-    let last = message_dao::get_last_result(&pool, "task-1")
-        .await
-        .unwrap();
+    let last = message_dao::get_last_result(&pool, "task-1").await.unwrap();
     assert!(last.is_some());
     assert_eq!(last.unwrap().uuid, "result-2");
 }

@@ -667,19 +667,13 @@ mod tests {
             Ok(SandboxStatus::Removed)
         );
         // Legacy "fatal" maps to Error
-        assert_eq!(
-            SandboxStatus::try_from("fatal"),
-            Ok(SandboxStatus::Error)
-        );
+        assert_eq!(SandboxStatus::try_from("fatal"), Ok(SandboxStatus::Error));
         assert!(SandboxStatus::try_from("bad").is_err());
     }
 
     #[test]
     fn server_sub_type_try_from() {
-        assert_eq!(
-            ServerSubType::try_from("failed"),
-            Ok(ServerSubType::Failed)
-        );
+        assert_eq!(ServerSubType::try_from("failed"), Ok(ServerSubType::Failed));
         assert!(ServerSubType::try_from("nah").is_err());
     }
 }

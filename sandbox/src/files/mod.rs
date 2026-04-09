@@ -51,23 +51,24 @@ pub fn validate_path(workspace_dir: &str, relative_path: &str) -> Result<PathBuf
 
     // For the target, try to canonicalize. If the file doesn't exist yet
     // (write case), canonicalize the parent and append the filename.
-    let canonical_target = if full_path.exists() {
-        full_path.canonicalize()?
-    } else {
-        let parent = full_path.parent().ok_or_else(|| {
-            FileError::InvalidPath("Cannot determine parent directory".to_string())
-        })?;
-        if parent.exists() {
-            let canonical_parent = parent.canonicalize()?;
-            canonical_parent.join(full_path.file_name().ok_or_else(|| {
-                FileError::InvalidPath("Cannot determine filename".to_string())
-            })?)
+    let canonical_target =
+        if full_path.exists() {
+            full_path.canonicalize()?
         } else {
-            // Parent doesn't exist either — reconstruct using canonical
-            // workspace + relative path so the starts_with check works.
-            canonical_workspace.join(relative_path)
-        }
-    };
+            let parent = full_path.parent().ok_or_else(|| {
+                FileError::InvalidPath("Cannot determine parent directory".to_string())
+            })?;
+            if parent.exists() {
+                let canonical_parent = parent.canonicalize()?;
+                canonical_parent.join(full_path.file_name().ok_or_else(|| {
+                    FileError::InvalidPath("Cannot determine filename".to_string())
+                })?)
+            } else {
+                // Parent doesn't exist either — reconstruct using canonical
+                // workspace + relative path so the starts_with check works.
+                canonical_workspace.join(relative_path)
+            }
+        };
 
     // Ensure the resolved path is within the workspace
     if !canonical_target.starts_with(&canonical_workspace) {

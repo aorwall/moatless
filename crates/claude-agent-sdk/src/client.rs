@@ -28,7 +28,8 @@ impl ClaudeClient {
     /// message received during the first turn. For the initial `send()` before
     /// any messages have been received, pass an empty string.
     pub async fn send(&self, message: &str, session_id: &str) -> Result<()> {
-        self.send_with_priority(message, session_id, MessagePriority::Next).await
+        self.send_with_priority(message, session_id, MessagePriority::Next)
+            .await
     }
 
     /// Send a text message with an explicit priority.

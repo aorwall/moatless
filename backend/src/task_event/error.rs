@@ -20,7 +20,10 @@ impl IntoResponse for TaskEventError {
             TaskEventError::TaskNotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
             TaskEventError::Db(e) => {
                 tracing::error!(error = %e, "Database error in task event handler");
-                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal server error".to_string(),
+                )
             }
         };
         error_response(status, message)

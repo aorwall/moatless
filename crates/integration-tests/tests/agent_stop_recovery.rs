@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use integration_tests::{ensure_template_repo, sandbox_helpers, test_client};
 use moatless_api_schemas::{
-    task::CreateTaskRequest, sandbox::SearchFilesRequest, message::SendMessageRequest,
+    message::SendMessageRequest, sandbox::SearchFilesRequest, task::CreateTaskRequest,
 };
 use moatless_cli::events::EventCollector;
 
@@ -51,6 +51,7 @@ async fn agent_stop_and_recovery() {
         contexts: vec![],
         file_ids: vec![],
         model: None,
+        command_name: None,
     };
     let created = client.api().create_task(&req).await.unwrap();
     let task_id = &created.task_id;
@@ -65,10 +66,7 @@ async fn agent_stop_and_recovery() {
     let agent_started = collector
         .wait_for_event("agent", Some("started"), task_id, Duration::from_secs(120))
         .await;
-    assert!(
-        agent_started.is_some(),
-        "Expected agent.started event"
-    );
+    assert!(agent_started.is_some(), "Expected agent.started event");
 
     // Give the agent a few seconds to start working
     tokio::time::sleep(Duration::from_secs(5)).await;
@@ -82,10 +80,7 @@ async fn agent_stop_and_recovery() {
         if let Ok(status) = client.api().sandbox_status(task_id).await {
             let agent_state_str = format!("{}", status.agent_state);
             if agent_state_str == "idle" || agent_state_str == "none" {
-                println!(
-                    "AGENT-04.2: Agent stopped, state={}",
-                    status.agent_state
-                );
+                println!("AGENT-04.2: Agent stopped, state={}", status.agent_state);
                 break;
             }
         }
@@ -103,20 +98,19 @@ async fn agent_stop_and_recovery() {
     );
 
     // Check that at least some files were created before the stop
-    let files = client
-        .api()
-        .list_files(task_id)
-        .await
-        .unwrap();
+    let files = client.api().list_files(task_id).await.unwrap();
     println!(
         "AGENT-05: Files after restart: {:?}",
-        files.files.iter().filter(|f| f.contains("step")).collect::<Vec<_>>()
+        files
+            .files
+            .iter()
+            .filter(|f| f.contains("step"))
+            .collect::<Vec<_>>()
     );
 
     // AGENT-06: Send follow-up message after recovery
     let follow_up = SendMessageRequest {
-        message: "Create a file called resumed.txt with the content 'Resumed Session Works'"
-            .into(),
+        message: "Create a file called resumed.txt with the content 'Resumed Session Works'".into(),
         agent_mode: None,
         command_name: None,
         contexts: vec![],
@@ -148,11 +142,7 @@ async fn agent_stop_and_recovery() {
     );
 
     // AGENT-06.5: Assert messages and search for resumed content
-    let messages = client
-        .api()
-        .get_messages(task_id)
-        .await
-        .unwrap();
+    let messages = client.api().get_messages(task_id).await.unwrap();
     assert!(
         messages.messages.len() >= 4,
         "Expected at least 4 messages (initial + stop + follow-up + response), got {}",

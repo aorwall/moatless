@@ -42,7 +42,9 @@ pub async fn create_task(
     Json(req): Json<CreateTaskRequest>,
 ) -> Result<Json<CreateTaskResponse>, TaskError> {
     // Validate repository exists
-    let repo = state.repositories.find_repository_by_id(&req.repository_id)
+    let repo = state
+        .repositories
+        .find_repository_by_id(&req.repository_id)
         .await?
         .ok_or_else(|| TaskError::RepoNotFound(req.repository_id.clone()))?;
 
@@ -107,7 +109,9 @@ pub async fn create_task(
     let task_id = uuid::Uuid::new_v4().to_string();
     let short_id = generate_unique_short_id(&state).await?;
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-    let agent_type = req.agent_type.unwrap_or_else(|| AgentType(AgentType::CLAUDE_CODE.into()));
+    let agent_type = req
+        .agent_type
+        .unwrap_or_else(|| AgentType(AgentType::CLAUDE_CODE.into()));
 
     let row = Task {
         task_id: task_id.clone(),
@@ -119,7 +123,11 @@ pub async fn create_task(
         status: TaskStatus::Open,
         total_cost_usd: 0.0,
         site_url: None,
-        template_id: if is_template { Some(req.repository_id.clone()) } else { None },
+        template_id: if is_template {
+            Some(req.repository_id.clone())
+        } else {
+            None
+        },
         vibe: if is_template { Some(true) } else { None },
         name: req.name.clone(),
         description: req.description.clone(),
@@ -172,7 +180,12 @@ async fn insert_and_provision_task(
     // Emit task event
     if let Some(ref events) = state.events {
         events
-            .publish_task_event(task_id, TaskSubType::Open, Some(row.agent_type.as_str()), serde_json::json!({}))
+            .publish_task_event(
+                task_id,
+                TaskSubType::Open,
+                Some(row.agent_type.as_str()),
+                serde_json::json!({}),
+            )
             .await;
     }
 
@@ -186,29 +199,27 @@ async fn insert_and_provision_task(
     )
     .await
     {
-        Ok(request) => {
-            match state.sandbox.provision(task_id, &request).await {
-                Ok(_response) => {
-                    tracing::info!(task_id = %task_id, "Sandbox provisioning started (initializing)");
-                }
-                Err(e) => {
-                    tracing::warn!(task_id = %task_id, error = %e, "Failed to provision sandbox");
-                    if let Some(ref events) = state.events {
-                        events
-                            .publish_sandbox_event_with_payload(
-                                task_id,
-                                SandboxSubType::Error,
-                                &SandboxEventPayload {
-                                    message: format!("Failed to provision sandbox: {e}"),
-                                    error: Some(e.to_string()),
-                                    ..Default::default()
-                                },
-                            )
-                            .await;
-                    }
+        Ok(request) => match state.sandbox.provision(task_id, &request).await {
+            Ok(_response) => {
+                tracing::info!(task_id = %task_id, "Sandbox provisioning started (initializing)");
+            }
+            Err(e) => {
+                tracing::warn!(task_id = %task_id, error = %e, "Failed to provision sandbox");
+                if let Some(ref events) = state.events {
+                    events
+                        .publish_sandbox_event_with_payload(
+                            task_id,
+                            SandboxSubType::Error,
+                            &SandboxEventPayload {
+                                message: format!("Failed to provision sandbox: {e}"),
+                                error: Some(e.to_string()),
+                                ..Default::default()
+                            },
+                        )
+                        .await;
                 }
             }
-        }
+        },
         Err(e) => {
             tracing::warn!(task_id = %task_id, error = %e, "Failed to build provision request");
             if let Some(ref events) = state.events {
@@ -230,7 +241,18 @@ async fn insert_and_provision_task(
     // If a message was provided, send it to the agent
     if let Some(msg) = message {
         if let Err(e) = crate::message::send::send_message_flow(
-            state, task_id, msg, model, agent_mode, file_ids, contexts, true, None, None, None, command_name,
+            state,
+            task_id,
+            msg,
+            model,
+            agent_mode,
+            file_ids,
+            contexts,
+            true,
+            None,
+            None,
+            None,
+            command_name,
         )
         .await
         {
@@ -371,7 +393,9 @@ pub async fn get_task(
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<Json<TaskResponse>, TaskError> {
-    let row = state.tasks.find_by_id(&task_id, &auth.scope_context())
+    let row = state
+        .tasks
+        .find_by_id(&task_id, &auth.scope_context())
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
@@ -403,22 +427,28 @@ pub async fn update_task_metadata(
         validate_task_name(name)?;
     }
 
-    let _existing = state.tasks.find_by_id(&task_id, &auth.scope_context())
+    let _existing = state
+        .tasks
+        .find_by_id(&task_id, &auth.scope_context())
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
-    state.tasks.update_task(
-        &task_id,
-        &TaskPatch {
-            name: req.name,
-            description: req.description,
-            ..Default::default()
-        },
-    )
-    .await?;
+    state
+        .tasks
+        .update_task(
+            &task_id,
+            &TaskPatch {
+                name: req.name,
+                description: req.description,
+                ..Default::default()
+            },
+        )
+        .await?;
     tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Task metadata updated");
 
-    let row = state.tasks.find_by_id(&task_id, &auth.scope_context())
+    let row = state
+        .tasks
+        .find_by_id(&task_id, &auth.scope_context())
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
@@ -444,7 +474,9 @@ pub async fn delete_task(
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<axum::http::StatusCode, TaskError> {
-    let _existing = state.tasks.find_by_id(&task_id, &auth.scope_context())
+    let _existing = state
+        .tasks
+        .find_by_id(&task_id, &auth.scope_context())
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
@@ -477,7 +509,9 @@ pub async fn close_task(
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<Json<TaskResponse>, TaskError> {
-    let row = state.tasks.find_by_id(&task_id, &auth.scope_context())
+    let row = state
+        .tasks
+        .find_by_id(&task_id, &auth.scope_context())
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
@@ -487,14 +521,16 @@ pub async fn close_task(
     }
     tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Task closed");
 
-    state.tasks.update_task(
-        &task_id,
-        &TaskPatch {
-            status: Some(TaskStatus::Closed),
-            ..Default::default()
-        },
-    )
-    .await?;
+    state
+        .tasks
+        .update_task(
+            &task_id,
+            &TaskPatch {
+                status: Some(TaskStatus::Closed),
+                ..Default::default()
+            },
+        )
+        .await?;
 
     if let Some(ref events) = state.events {
         events
@@ -507,7 +543,9 @@ pub async fn close_task(
             .await;
     }
 
-    let updated = state.tasks.find_by_id(&task_id, &auth.scope_context())
+    let updated = state
+        .tasks
+        .find_by_id(&task_id, &auth.scope_context())
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
@@ -534,7 +572,9 @@ pub async fn start_task(
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<axum::http::StatusCode, TaskError> {
-    let row = state.tasks.find_by_id(&task_id, &auth.scope_context())
+    let row = state
+        .tasks
+        .find_by_id(&task_id, &auth.scope_context())
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
@@ -557,7 +597,10 @@ pub async fn start_task(
     .await
     .map_err(|e| TaskError::Internal(e.to_string()))?;
 
-    state.sandbox.provision(&task_id, &request).await
+    state
+        .sandbox
+        .provision(&task_id, &request)
+        .await
         .map_err(|e| TaskError::Internal(e.to_string()))?;
 
     tracing::info!(task_id = %task_id, "Sandbox provision initiated (initializing)");
@@ -582,7 +625,9 @@ pub async fn stop_task(
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<axum::http::StatusCode, TaskError> {
-    let _task = state.tasks.find_by_id(&task_id, &auth.scope_context())
+    let _task = state
+        .tasks
+        .find_by_id(&task_id, &auth.scope_context())
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
@@ -602,22 +647,35 @@ pub async fn stop_task(
     // (In Docker mode the container is killed before the sandbox can publish these)
     if let Some(ref events) = state.events {
         events
-            .publish_agent_event(&task_id, moatless_events::AgentSubType::Stopped, None, serde_json::json!({}))
+            .publish_agent_event(
+                &task_id,
+                moatless_events::AgentSubType::Stopped,
+                None,
+                serde_json::json!({}),
+            )
             .await;
         events
-            .publish_task_turn_event(&task_id, moatless_events::TaskTurnSubType::Stopped, None, None, serde_json::json!({}))
+            .publish_task_turn_event(
+                &task_id,
+                moatless_events::TaskTurnSubType::Stopped,
+                None,
+                None,
+                serde_json::json!({}),
+            )
             .await;
     }
 
     // Update task status
-    state.tasks.update_task(
-        &task_id,
-        &TaskPatch {
-            status: Some(TaskStatus::Open),
-            ..Default::default()
-        },
-    )
-    .await?;
+    state
+        .tasks
+        .update_task(
+            &task_id,
+            &TaskPatch {
+                status: Some(TaskStatus::Open),
+                ..Default::default()
+            },
+        )
+        .await?;
 
     tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Agent stopped");
 
@@ -644,7 +702,9 @@ pub async fn set_task_tags(
     Path(task_id): Path<String>,
     Json(req): Json<SetTagsRequest>,
 ) -> Result<Json<Vec<TagResponse>>, TaskError> {
-    let _existing = state.tasks.find_by_id(&task_id, &auth.scope_context())
+    let _existing = state
+        .tasks
+        .find_by_id(&task_id, &auth.scope_context())
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
@@ -685,21 +745,27 @@ pub async fn update_visibility(
     Path(task_id): Path<String>,
     Json(req): Json<UpdateVisibilityRequest>,
 ) -> Result<Json<TaskResponse>, TaskError> {
-    let _existing = state.tasks.find_by_id(&task_id, &auth.scope_context())
+    let _existing = state
+        .tasks
+        .find_by_id(&task_id, &auth.scope_context())
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
-    state.tasks.update_task(
-        &task_id,
-        &TaskPatch {
-            visibility: Some(req.visibility),
-            ..Default::default()
-        },
-    )
-    .await?;
+    state
+        .tasks
+        .update_task(
+            &task_id,
+            &TaskPatch {
+                visibility: Some(req.visibility),
+                ..Default::default()
+            },
+        )
+        .await?;
     tracing::info!(task_id = %task_id, user_id = %auth.user_id, visibility = %req.visibility, "Task visibility updated");
 
-    let row = state.tasks.find_by_id(&task_id, &auth.scope_context())
+    let row = state
+        .tasks
+        .find_by_id(&task_id, &auth.scope_context())
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
@@ -726,7 +792,9 @@ async fn enrich_task(
         })
         .collect();
 
-    let repo_name = state.repositories.find_repository_by_id(&row.repository_id)
+    let repo_name = state
+        .repositories
+        .find_repository_by_id(&row.repository_id)
         .await?
         .map(|r| r.name);
 
@@ -746,14 +814,22 @@ async fn enrich_task(
         state.tasks.as_ref(),
         state.repositories.as_ref(),
         &row.task_id,
-    ).await;
-    if let Ok(status) = state.sandbox.sandbox_status(&row.task_id, &server_configs).await {
+    )
+    .await;
+    if let Ok(status) = state
+        .sandbox
+        .sandbox_status(&row.task_id, &server_configs)
+        .await
+    {
         resp.environment_status = Some(status.environment_status.as_str().to_string());
-        resp.agent_state = Some(match status.agent_state {
-            AgentState::Idle => "idle",
-            AgentState::Running => "running",
-            AgentState::None => "none",
-        }.to_string());
+        resp.agent_state = Some(
+            match status.agent_state {
+                AgentState::Idle => "idle",
+                AgentState::Running => "running",
+                AgentState::None => "none",
+            }
+            .to_string(),
+        );
         resp.is_running = Some(status.environment_status == SandboxStatus::Ready);
     }
 
@@ -820,10 +896,14 @@ fn derive_title(row: &Task) -> String {
 /// Validate task name (URL-friendly: alphanumeric + dashes).
 fn validate_task_name(name: &str) -> Result<(), TaskError> {
     if name.is_empty() {
-        return Err(TaskError::BadRequest("Task name cannot be empty".to_string()));
+        return Err(TaskError::BadRequest(
+            "Task name cannot be empty".to_string(),
+        ));
     }
     if name.len() > 200 {
-        return Err(TaskError::BadRequest("Task name too long (max 200)".to_string()));
+        return Err(TaskError::BadRequest(
+            "Task name too long (max 200)".to_string(),
+        ));
     }
     Ok(())
 }
@@ -836,7 +916,9 @@ async fn generate_unique_short_id(state: &AppState) -> Result<String, TaskError>
             return Ok(id);
         }
     }
-    Err(TaskError::Internal("Failed to generate unique short ID".to_string()))
+    Err(TaskError::Internal(
+        "Failed to generate unique short ID".to_string(),
+    ))
 }
 
 /// Resolve display names for multiple user IDs in a single batch query.

@@ -34,8 +34,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging
     tracing_subscriber::fmt()
         .with_env_filter(
-            EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new(&config.log_level)),
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(&config.log_level)),
         )
         .json()
         .init();
@@ -49,8 +48,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create gRPC client for backend communication (required)
     #[allow(clippy::expect_used)] // fail-fast: sandbox cannot operate without backend connectivity
-    let backend_client = BackendGrpcClient::connect(&config.backend_grpc_url, config.user_auth_token.clone())
-        .expect("Failed to create backend gRPC client");
+    let backend_client =
+        BackendGrpcClient::connect(&config.backend_grpc_url, config.user_auth_token.clone())
+            .expect("Failed to create backend gRPC client");
     info!(url = %config.backend_grpc_url, "Backend gRPC client created (lazy connection)");
 
     // Wrap backend client in Arc for shared ownership
@@ -92,9 +92,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let addr = SocketAddr::from(([0, 0, 0, 0], grpc_port));
         info!(port = grpc_port, "Starting sandbox gRPC server");
         if let Err(e) = tonic::transport::Server::builder()
-            .add_service(
-                sandbox_proto::sandbox_service_server::SandboxServiceServer::new(svc),
-            )
+            .add_service(sandbox_proto::sandbox_service_server::SandboxServiceServer::new(svc))
             .serve(addr)
             .await
         {
@@ -118,7 +116,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Start HTTP server (K8s health probes only)
     let addr = SocketAddr::from(([0, 0, 0, 0], config.port));
     let listener = TcpListener::bind(addr).await?;
-    info!(port = config.port, "Sandbox HTTP server started (health only)");
+    info!(
+        port = config.port,
+        "Sandbox HTTP server started (health only)"
+    );
 
     axum::serve(listener, router).await?;
 

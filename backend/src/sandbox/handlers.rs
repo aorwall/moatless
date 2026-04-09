@@ -15,8 +15,8 @@ use tracing::{error, info, warn};
 use chrono::Utc;
 
 use super::error::SandboxError;
-use super::routes::SandboxApiState;
 use super::models::*;
+use super::routes::SandboxApiState;
 use super::schemas::*;
 use crate::task::dao::TaskPatch;
 
@@ -42,12 +42,30 @@ pub async fn provision_handler(
 ) -> Result<Json<ProvisionResponse>, SandboxError> {
     info!(task_id = %task_id, "POST /provision");
 
-    let (tasks, repos, provider_tokens, plugin_repos) = match (&state.tasks, &state.repos, &state.provider_tokens, &state.plugin_repos) {
-        (Some(t), Some(r), Some(pt), Some(pr)) => (t.as_ref(), r.as_ref(), pt.as_ref(), pr.as_ref()),
-        _ => return Err(SandboxError::Internal("Database not available for provisioning".into())),
+    let (tasks, repos, provider_tokens, plugin_repos) = match (
+        &state.tasks,
+        &state.repos,
+        &state.provider_tokens,
+        &state.plugin_repos,
+    ) {
+        (Some(t), Some(r), Some(pt), Some(pr)) => {
+            (t.as_ref(), r.as_ref(), pt.as_ref(), pr.as_ref())
+        }
+        _ => {
+            return Err(SandboxError::Internal(
+                "Database not available for provisioning".into(),
+            ))
+        }
     };
 
-    let request = super::auto_provision::build_provision_request(tasks, repos, provider_tokens, plugin_repos, &task_id).await?;
+    let request = super::auto_provision::build_provision_request(
+        tasks,
+        repos,
+        provider_tokens,
+        plugin_repos,
+        &task_id,
+    )
+    .await?;
 
     match state.provider.provision(&task_id, &request).await {
         Ok(response) => {
@@ -83,7 +101,11 @@ pub async fn sandbox_status_handler(
     // Resolve server configs from DB
     let server_configs = resolve_server_configs(&state, &task_id).await;
 
-    match state.provider.sandbox_status(&task_id, &server_configs).await {
+    match state
+        .provider
+        .sandbox_status(&task_id, &server_configs)
+        .await
+    {
         Ok(mut resp) => {
             // If sandbox doesn't exist and the task is closed, report as Removed
             if resp.environment_status == SandboxStatus::NotCreated {
@@ -186,12 +208,30 @@ pub async fn redeploy_handler(
 ) -> Result<Json<ProvisionResponse>, SandboxError> {
     info!(task_id = %task_id, "POST /redeploy");
 
-    let (tasks, repos, provider_tokens, plugin_repos) = match (&state.tasks, &state.repos, &state.provider_tokens, &state.plugin_repos) {
-        (Some(t), Some(r), Some(pt), Some(pr)) => (t.as_ref(), r.as_ref(), pt.as_ref(), pr.as_ref()),
-        _ => return Err(SandboxError::Internal("Database not available for redeployment".into())),
+    let (tasks, repos, provider_tokens, plugin_repos) = match (
+        &state.tasks,
+        &state.repos,
+        &state.provider_tokens,
+        &state.plugin_repos,
+    ) {
+        (Some(t), Some(r), Some(pt), Some(pr)) => {
+            (t.as_ref(), r.as_ref(), pt.as_ref(), pr.as_ref())
+        }
+        _ => {
+            return Err(SandboxError::Internal(
+                "Database not available for redeployment".into(),
+            ))
+        }
     };
 
-    let request = super::auto_provision::build_provision_request(tasks, repos, provider_tokens, plugin_repos, &task_id).await?;
+    let request = super::auto_provision::build_provision_request(
+        tasks,
+        repos,
+        provider_tokens,
+        plugin_repos,
+        &task_id,
+    )
+    .await?;
 
     match state.provider.redeploy(&task_id, &request).await {
         Ok(response) => {
@@ -334,12 +374,8 @@ async fn record_sandbox_started(state: &SandboxApiState, task_id: &str) {
 /// Resolve server configs from DB via the SandboxApiState repositories.
 async fn resolve_server_configs(state: &SandboxApiState, task_id: &str) -> Vec<ServerConfig> {
     if let (Some(ref tasks), Some(ref repos)) = (&state.tasks, &state.repos) {
-        super::auto_provision::get_server_configs_for_task(
-            tasks.as_ref(),
-            repos.as_ref(),
-            task_id,
-        )
-        .await
+        super::auto_provision::get_server_configs_for_task(tasks.as_ref(), repos.as_ref(), task_id)
+            .await
     } else {
         warn!(task_id = %task_id, "No task/repo repositories available for server config resolution");
         vec![]
@@ -359,7 +395,10 @@ fn merge_server_status(
                 let name = cs.name.strip_suffix("-server").unwrap_or(&cs.name);
                 name == config.name
             });
-            let status = container.map_or(ServerStatus::Starting, ContainerObservedStatus::to_server_status);
+            let status = container.map_or(
+                ServerStatus::Starting,
+                ContainerObservedStatus::to_server_status,
+            );
             let mut snapshot = ServerSnapshot::from_config(config, status);
             snapshot.error = container.and_then(|cs| cs.waiting_reason.clone());
             snapshot

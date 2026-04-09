@@ -1,5 +1,10 @@
 #![cfg(feature = "db-tests")]
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::print_stdout, clippy::print_stderr)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 //! HTTP handler integration tests for message endpoints.
 
 mod common;
@@ -26,11 +31,11 @@ fn build_router(pool: PgPool) -> axum::Router {
 
 async fn seed_task(pool: &PgPool, task_id: &str, user: &str) {
     let repo = make_repository_row("repo-1", user);
-    repository_dao::insert(pool, &repo).await.expect("seed repo");
-    let task = make_task_row(task_id, user);
-    task_dao::insert_task(pool, &task)
+    repository_dao::insert(pool, &repo)
         .await
-        .expect("seed task");
+        .expect("seed repo");
+    let task = make_task_row(task_id, user);
+    task_dao::insert_task(pool, &task).await.expect("seed task");
 }
 
 // =========================================================================

@@ -57,8 +57,7 @@ pub async fn build_content_blocks(
                 });
             }
             MessageContextInput::Element { data, .. } => {
-                let element_text = serde_json::to_string_pretty(&data)
-                    .unwrap_or_default();
+                let element_text = serde_json::to_string_pretty(&data).unwrap_or_default();
                 blocks.push(ContentBlock {
                     block_type: "text".to_string(),
                     text: Some(format!("Selected UI element context:\n{element_text}")),
@@ -79,7 +78,10 @@ pub async fn build_content_blocks(
 }
 
 /// Build a content block from a Figma import reference.
-async fn build_figma_context_block(figma_imports: &dyn FigmaRepository, import_id: &str) -> Option<ContentBlock> {
+async fn build_figma_context_block(
+    figma_imports: &dyn FigmaRepository,
+    import_id: &str,
+) -> Option<ContentBlock> {
     let row = match figma_imports.find_by_id(import_id).await {
         Ok(Some(row)) => row,
         Ok(None) => {
@@ -94,7 +96,8 @@ async fn build_figma_context_block(figma_imports: &dyn FigmaRepository, import_i
 
     // Generate prompt from stored node metadata
     let prompt = if let Some(ref metadata) = row.node_metadata {
-        if let Ok(node) = serde_json::from_value::<figma_clipboard::NormalizedNode>(metadata.clone())
+        if let Ok(node) =
+            serde_json::from_value::<figma_clipboard::NormalizedNode>(metadata.clone())
         {
             let config = figma_clipboard::FigmaPromptConfig::default();
             figma_clipboard::generate_figma_prompt(
@@ -121,7 +124,10 @@ async fn build_figma_context_block(figma_imports: &dyn FigmaRepository, import_i
 }
 
 /// Build a content block from a file attachment reference.
-async fn build_file_attachment_block(files: &dyn FileRepository, file_id: &str) -> Option<ContentBlock> {
+async fn build_file_attachment_block(
+    files: &dyn FileRepository,
+    file_id: &str,
+) -> Option<ContentBlock> {
     let row = match files.find_by_id(file_id).await {
         Ok(Some(row)) => row,
         Ok(None) => {

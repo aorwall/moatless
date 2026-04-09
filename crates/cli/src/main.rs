@@ -245,8 +245,8 @@ async fn run_sandbox(cli: SandboxCli) -> Result<(), Box<dyn std::error::Error>> 
                 if !path.exists() {
                     return Err(format!("File not found: {path_str}").into());
                 }
-                let data = std::fs::read(path)
-                    .map_err(|e| format!("Failed to read {path_str}: {e}"))?;
+                let data =
+                    std::fs::read(path).map_err(|e| format!("Failed to read {path_str}: {e}"))?;
                 let filename = path
                     .file_name()
                     .and_then(|n| n.to_str())

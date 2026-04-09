@@ -59,7 +59,9 @@ impl TelegramApi {
                 .json(&body)
                 .send()
                 .await
-                .map_err(|e| ChannelError::ProviderApi(format!("Telegram sendMessage failed: {e}")))?;
+                .map_err(|e| {
+                    ChannelError::ProviderApi(format!("Telegram sendMessage failed: {e}"))
+                })?;
 
             if resp.status().as_u16() == 400 {
                 // Markdown parse error — retry without parse_mode
@@ -71,8 +73,7 @@ impl TelegramApi {
                         "text": chunk,
                     });
                     if let Some(id) = reply_id {
-                        plain_body["reply_parameters"] =
-                            serde_json::json!({ "message_id": id });
+                        plain_body["reply_parameters"] = serde_json::json!({ "message_id": id });
                     }
                     let retry_resp = self
                         .client
@@ -122,7 +123,9 @@ impl TelegramApi {
             .post(format!("{}/deleteWebhook", self.base_url))
             .send()
             .await
-            .map_err(|e| ChannelError::ProviderApi(format!("Telegram deleteWebhook failed: {e}")))?;
+            .map_err(|e| {
+                ChannelError::ProviderApi(format!("Telegram deleteWebhook failed: {e}"))
+            })?;
 
         if !resp.status().is_success() {
             let status = resp.status();
@@ -178,10 +181,9 @@ impl TelegramApi {
             )));
         }
 
-        let json: serde_json::Value = resp
-            .json()
-            .await
-            .map_err(|e| ChannelError::ProviderApi(format!("Telegram getUpdates parse error: {e}")))?;
+        let json: serde_json::Value = resp.json().await.map_err(|e| {
+            ChannelError::ProviderApi(format!("Telegram getUpdates parse error: {e}"))
+        })?;
 
         let updates = json
             .get("result")
@@ -193,11 +195,7 @@ impl TelegramApi {
     }
 
     /// Send a chat action indicator (e.g., "typing").
-    pub async fn send_chat_action(
-        &self,
-        chat_id: &str,
-        action: &str,
-    ) -> Result<(), ChannelError> {
+    pub async fn send_chat_action(&self, chat_id: &str, action: &str) -> Result<(), ChannelError> {
         let body = serde_json::json!({
             "chat_id": chat_id,
             "action": action,

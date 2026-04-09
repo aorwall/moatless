@@ -7,12 +7,15 @@
 
 use std::collections::HashMap;
 
+use bollard::container::Config as ContainerConfig;
 use bollard::models::{
     HostConfig, Mount, MountTypeEnum, PortBinding, RestartPolicy, RestartPolicyNameEnum,
 };
-use bollard::container::Config as ContainerConfig;
 
-use super::naming::{generate_claude_config_host_path, generate_container_name, generate_data_host_path, generate_server_container_name, generate_workspace_host_path};
+use super::naming::{
+    generate_claude_config_host_path, generate_container_name, generate_data_host_path,
+    generate_server_container_name, generate_workspace_host_path,
+};
 use crate::config::Config;
 use crate::sandbox::models::{ProvisionPlan, ServerConfig};
 
@@ -103,14 +106,8 @@ pub fn build_container_config(
     // ── Labels ─────────────────────────────────────────────────────
     let mut labels = HashMap::new();
     labels.insert("created-by".to_string(), "moatless".to_string());
-    labels.insert(
-        "moatless.service".to_string(),
-        "sandbox".to_string(),
-    );
-    labels.insert(
-        "moatless.io/task-id".to_string(),
-        task_id.to_string(),
-    );
+    labels.insert("moatless.service".to_string(), "sandbox".to_string());
+    labels.insert("moatless.io/task-id".to_string(), task_id.to_string());
     labels.insert(
         "app.kubernetes.io/managed-by".to_string(),
         "moatless".to_string(),
@@ -146,7 +143,8 @@ pub fn build_container_config(
     // ── Bind mounts ───────────────────────────────────────────────
     let workspace_host_path = generate_workspace_host_path(&config.docker.data_dir, task_id);
     let data_host_path = generate_data_host_path(&config.docker.data_dir, task_id);
-    let claude_config_host_path = generate_claude_config_host_path(&config.docker.data_dir, task_id);
+    let claude_config_host_path =
+        generate_claude_config_host_path(&config.docker.data_dir, task_id);
     let mut mounts = vec![
         Mount {
             target: Some("/opt/moatless/repo".to_string()),
@@ -326,10 +324,7 @@ pub fn build_server_container_config(
     labels.insert("created-by".to_string(), "moatless".to_string());
     labels.insert("moatless.service".to_string(), "server".to_string());
     labels.insert("moatless.io/task-id".to_string(), task_id.to_string());
-    labels.insert(
-        "moatless.io/server-name".to_string(),
-        server.name.clone(),
-    );
+    labels.insert("moatless.io/server-name".to_string(), server.name.clone());
     labels.insert(
         "app.kubernetes.io/managed-by".to_string(),
         "moatless".to_string(),
@@ -453,9 +448,18 @@ mod tests {
                 extra_networks: vec![],
             },
             database_url: None,
-            database: DatabaseConfig { url: None, max_connections: 5 },
-            redis: RedisConfig { url: None, max_stream_length: 100 },
-            sse: SseConfig { broadcast_capacity: 16, consumer_id: "test".into() },
+            database: DatabaseConfig {
+                url: None,
+                max_connections: 5,
+            },
+            redis: RedisConfig {
+                url: None,
+                max_stream_length: 100,
+            },
+            sse: SseConfig {
+                broadcast_capacity: 16,
+                consumer_id: "test".into(),
+            },
             auth: AuthConfig {
                 provider: None,
                 github_client_id: None,
@@ -485,10 +489,24 @@ mod tests {
                 github_app_private_key: None,
                 github_app_default_installation_id: None,
             },
-            s3: S3Config { bucket_name: None, key_prefix: "test".into(), region: "us-east-1".into() },
-            slack: SlackConfig { bot_token: None, signing_secret: None, bot_user_id: None },
-            telegram: TelegramConfig { bot_token: None, mode: "webhook".into() },
-            github_pr: crate::config::GithubPrConfig { webhook_secret: None, bot_token: None },
+            s3: S3Config {
+                bucket_name: None,
+                key_prefix: "test".into(),
+                region: "us-east-1".into(),
+            },
+            slack: SlackConfig {
+                bot_token: None,
+                signing_secret: None,
+                bot_user_id: None,
+            },
+            telegram: TelegramConfig {
+                bot_token: None,
+                mode: "webhook".into(),
+            },
+            github_pr: crate::config::GithubPrConfig {
+                webhook_secret: None,
+                bot_token: None,
+            },
         }
     }
 
@@ -582,7 +600,10 @@ mod tests {
         assert_eq!(mounts[1].target.as_deref(), Some("/opt/moatless/data"));
         assert_eq!(mounts[1].source.as_deref(), Some("/data/tasks/task-1/data"));
         assert_eq!(mounts[2].target.as_deref(), Some("/opt/moatless/.claude"));
-        assert_eq!(mounts[2].source.as_deref(), Some("/data/tasks/task-1/claude-config"));
+        assert_eq!(
+            mounts[2].source.as_deref(),
+            Some("/data/tasks/task-1/claude-config")
+        );
     }
 
     #[test]
@@ -716,7 +737,9 @@ mod tests {
         let cc = build_container_config(&config, "task-1", &plan, None);
         let mounts = cc.host_config.unwrap().mounts.unwrap();
         assert_eq!(mounts.len(), 3);
-        assert!(!mounts.iter().any(|m| m.target.as_deref() == Some("/var/run/docker.sock")));
+        assert!(!mounts
+            .iter()
+            .any(|m| m.target.as_deref() == Some("/var/run/docker.sock")));
     }
 
     #[test]
@@ -727,9 +750,14 @@ mod tests {
         let cc = build_container_config(&config, "task-1", &plan, None);
         let mounts = cc.host_config.unwrap().mounts.unwrap();
         assert_eq!(mounts.len(), 4);
-        let socket_mount = mounts.iter().find(|m| m.target.as_deref() == Some("/var/run/docker.sock"));
+        let socket_mount = mounts
+            .iter()
+            .find(|m| m.target.as_deref() == Some("/var/run/docker.sock"));
         assert!(socket_mount.is_some());
-        assert_eq!(socket_mount.unwrap().source.as_deref(), Some("/var/run/docker.sock"));
+        assert_eq!(
+            socket_mount.unwrap().source.as_deref(),
+            Some("/var/run/docker.sock")
+        );
     }
 
     #[test]
@@ -740,7 +768,9 @@ mod tests {
         let cc = build_container_config(&config, "task-1", &plan, None);
         let mounts = cc.host_config.unwrap().mounts.unwrap();
         assert_eq!(mounts.len(), 4);
-        assert!(mounts.iter().any(|m| m.target.as_deref() == Some("/var/run/docker.sock")));
+        assert!(mounts
+            .iter()
+            .any(|m| m.target.as_deref() == Some("/var/run/docker.sock")));
     }
 
     #[test]
@@ -752,7 +782,9 @@ mod tests {
         let cc = build_container_config(&config, "task-1", &plan, None);
         let mounts = cc.host_config.unwrap().mounts.unwrap();
         assert_eq!(mounts.len(), 3);
-        assert!(!mounts.iter().any(|m| m.target.as_deref() == Some("/var/run/docker.sock")));
+        assert!(!mounts
+            .iter()
+            .any(|m| m.target.as_deref() == Some("/var/run/docker.sock")));
     }
 
     #[test]
@@ -763,7 +795,10 @@ mod tests {
         let plan = test_plan();
         let cc = build_container_config(&config, "task-1", &plan, None);
         let mounts = cc.host_config.unwrap().mounts.unwrap();
-        let socket_mount = mounts.iter().find(|m| m.target.as_deref() == Some("/var/run/docker.sock")).unwrap();
+        let socket_mount = mounts
+            .iter()
+            .find(|m| m.target.as_deref() == Some("/var/run/docker.sock"))
+            .unwrap();
         assert_eq!(socket_mount.source.as_deref(), Some("/custom/docker.sock"));
     }
 }

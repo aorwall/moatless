@@ -1,5 +1,10 @@
 #![cfg(feature = "db-tests")]
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::print_stdout, clippy::print_stderr)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 //! Integration tests for command_dao — requires `DATABASE_URL` and `--features db-tests`.
 
 mod common;
@@ -94,18 +99,14 @@ async fn delete_by_name(pool: PgPool) {
         .await
         .unwrap();
 
-    let deleted = command_dao::delete_by_name(&pool, "del-cmd")
-        .await
-        .unwrap();
+    let deleted = command_dao::delete_by_name(&pool, "del-cmd").await.unwrap();
     assert!(deleted);
 
     let found = command_dao::find_by_name(&pool, "del-cmd").await.unwrap();
     assert!(found.is_none());
 
     // Double delete returns false
-    let deleted_again = command_dao::delete_by_name(&pool, "del-cmd")
-        .await
-        .unwrap();
+    let deleted_again = command_dao::delete_by_name(&pool, "del-cmd").await.unwrap();
     assert!(!deleted_again);
 }
 

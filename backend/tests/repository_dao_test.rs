@@ -1,5 +1,10 @@
 #![cfg(feature = "db-tests")]
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::print_stdout, clippy::print_stderr)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 //! Integration tests for repository_dao.
 
 mod common;
@@ -33,7 +38,10 @@ async fn insert_and_find_by_id(pool: PgPool) {
     let found = found.unwrap();
     assert_eq!(found.id, "repo-abc");
     assert_eq!(found.name, "repo-repo-abc");
-    assert_eq!(found.kind, moatless_vibe_backend::repository::models::RepositoryKind::Git);
+    assert_eq!(
+        found.kind,
+        moatless_vibe_backend::repository::models::RepositoryKind::Git
+    );
 }
 
 #[sqlx::test]
@@ -66,11 +74,15 @@ async fn list_all_visibility_scoping(pool: PgPool) {
     repository_dao::insert(&pool, &public_repo).await.unwrap();
 
     // user-1 sees own private + other's public
-    let list = repository_dao::list_all(&pool, &scope_ctx("user-1")).await.unwrap();
+    let list = repository_dao::list_all(&pool, &scope_ctx("user-1"))
+        .await
+        .unwrap();
     assert_eq!(list.len(), 2);
 
     // user-2 sees own public but not user-1's private
-    let list = repository_dao::list_all(&pool, &scope_ctx("user-2")).await.unwrap();
+    let list = repository_dao::list_all(&pool, &scope_ctx("user-2"))
+        .await
+        .unwrap();
     assert_eq!(list.len(), 1);
     assert_eq!(list[0].id, "repo-pub");
 }
@@ -99,7 +111,10 @@ async fn update_partial(pool: PgPool) {
         .unwrap();
     assert_eq!(found.name, "new-name");
     assert_eq!(found.description.as_deref(), Some("new desc"));
-    assert_eq!(found.kind, moatless_vibe_backend::repository::models::RepositoryKind::Git); // unchanged
+    assert_eq!(
+        found.kind,
+        moatless_vibe_backend::repository::models::RepositoryKind::Git
+    ); // unchanged
 }
 
 #[sqlx::test]
@@ -107,7 +122,9 @@ async fn soft_delete(pool: PgPool) {
     let row = make_repository_row("repo-del", "user-1");
     repository_dao::insert(&pool, &row).await.unwrap();
 
-    let deleted = repository_dao::soft_delete(&pool, "repo-del").await.unwrap();
+    let deleted = repository_dao::soft_delete(&pool, "repo-del")
+        .await
+        .unwrap();
     assert!(deleted);
 
     // Should not be findable anymore
@@ -117,7 +134,9 @@ async fn soft_delete(pool: PgPool) {
     assert!(found.is_none());
 
     // Double delete should be no-op
-    let deleted_again = repository_dao::soft_delete(&pool, "repo-del").await.unwrap();
+    let deleted_again = repository_dao::soft_delete(&pool, "repo-del")
+        .await
+        .unwrap();
     assert!(!deleted_again);
 }
 

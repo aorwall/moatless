@@ -28,11 +28,7 @@ pub enum EventAction {
     },
 }
 
-pub async fn run(
-    client: &MoatClient,
-    action: EventAction,
-    json: bool,
-) -> Result<(), ClientError> {
+pub async fn run(client: &MoatClient, action: EventAction, json: bool) -> Result<(), ClientError> {
     match action {
         EventAction::List {
             task_id,
@@ -42,9 +38,7 @@ pub async fn run(
             follow,
         } => {
             // Fetch and display history first.
-            let mut path = format!(
-                "/api/v1/tasks/{task_id}/events/history?limit={limit}"
-            );
+            let mut path = format!("/api/v1/tasks/{task_id}/events/history?limit={limit}");
             if let Some(ref t) = types {
                 let _ = write!(path, "&types={t}");
             }
@@ -59,7 +53,11 @@ pub async fn run(
             let items: Vec<serde_json::Value> = if errors {
                 items
                     .into_iter()
-                    .filter(|e| e.get("isError").and_then(serde_json::Value::as_bool).unwrap_or(false))
+                    .filter(|e| {
+                        e.get("isError")
+                            .and_then(serde_json::Value::as_bool)
+                            .unwrap_or(false)
+                    })
                     .collect()
             } else {
                 items

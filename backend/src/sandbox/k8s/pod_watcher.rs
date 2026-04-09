@@ -20,9 +20,7 @@ use futures::TryStreamExt;
 use k8s_openapi::api::core::v1::Pod;
 use kube::api::{Api, LogParams};
 use kube::runtime::watcher::{self, Config as WatcherConfig};
-use moatless_events::{
-    SandboxEventPayload, SandboxStatus, ServerEventPayload, ServerSubType,
-};
+use moatless_events::{SandboxEventPayload, SandboxStatus, ServerEventPayload, ServerSubType};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
@@ -30,7 +28,9 @@ use tracing::{debug, info, warn};
 use super::client::K8sClient;
 use super::deployment;
 use super::leader_election::LeaderElection;
-use super::pod_status::{extract_container_observed_statuses, DEFAULT_SERVER_READINESS_TIMEOUT_SECS};
+use super::pod_status::{
+    extract_container_observed_statuses, DEFAULT_SERVER_READINESS_TIMEOUT_SECS,
+};
 use crate::events::EventPublisher;
 
 /// Exit code used by the sandbox to signal a permanent init failure (sysexits EX_CONFIG).
@@ -214,9 +214,14 @@ async fn process_watcher_event(
     match event {
         watcher::Event::Apply(pod) | watcher::Event::InitApply(pod) => {
             let is_init = matches!(event, watcher::Event::InitApply(_));
-            let task_id = if let Some(id) = extract_task_id(pod) { id } else {
+            let task_id = if let Some(id) = extract_task_id(pod) {
+                id
+            } else {
                 let name = pod.metadata.name.as_deref().unwrap_or("unknown");
-                warn!(pod_name = name, "Pod has no moatless.io/task-id label — skipping");
+                warn!(
+                    pod_name = name,
+                    "Pod has no moatless.io/task-id label — skipping"
+                );
                 return;
             };
             let pod_name = pod
@@ -364,8 +369,7 @@ async fn process_watcher_event(
                     && matches!(
                         lifecycle_sub_type_to_sandbox_status(sub_type),
                         SandboxStatus::Error
-                    )
-                {
+                    ) {
                     SandboxStatus::Stopped
                 } else {
                     lifecycle_sub_type_to_sandbox_status(sub_type)
@@ -388,9 +392,16 @@ async fn process_watcher_event(
                         &task_id,
                         sandbox_status,
                         &SandboxEventPayload {
-                            message: format_sandbox_lifecycle_message(sub_type, error_msg.as_deref()),
+                            message: format_sandbox_lifecycle_message(
+                                sub_type,
+                                error_msg.as_deref(),
+                            ),
                             lifecycle_event: Some(sub_type.clone()),
-                            error: if is_intentional_stop { None } else { error_msg.clone() },
+                            error: if is_intentional_stop {
+                                None
+                            } else {
+                                error_msg.clone()
+                            },
                         },
                     )
                     .await;
@@ -409,13 +420,14 @@ async fn process_watcher_event(
             // Container-level crashes (OOM, terminated, crash loop) are not fatal
             // because K8s will restart them. The auto-stop threshold handles
             // persistent crash loops separately.
-            let has_fatal = transitions.iter().any(|(sub_type, _)| {
-                matches!(sub_type.as_str(), "pod_failed" | "pod_evicted")
-            });
+            let has_fatal = transitions
+                .iter()
+                .any(|(sub_type, _)| matches!(sub_type.as_str(), "pod_failed" | "pod_evicted"));
 
             if has_fatal && !is_intentional_stop && !new_state.fatal_published {
                 let error_msg = transitions
-                    .iter().find_map(|(_, err)| err.as_ref())
+                    .iter()
+                    .find_map(|(_, err)| err.as_ref())
                     .cloned()
                     .unwrap_or_else(|| "Sandbox terminated unexpectedly".to_string());
 
@@ -437,7 +449,9 @@ async fn process_watcher_event(
             // Immediate fail for permanent init errors.
             // Exit code 78 signals the sandbox detected an unrecoverable failure
             // (repo not found, auth error, etc.) — no point retrying.
-            let has_terminated = transitions.iter().any(|(sub, _)| sub == "container_terminated");
+            let has_terminated = transitions
+                .iter()
+                .any(|(sub, _)| sub == "container_terminated");
             if has_terminated
                 && !is_intentional_stop
                 && new_state.exit_code == Some(PERMANENT_FAILURE_EXIT_CODE)
@@ -540,7 +554,9 @@ async fn process_watcher_event(
 
             // Auto-scale down when sandbox container exits cleanly (Completed).
             // This prevents K8s from restarting the container into CrashLoopBackOff.
-            let has_completed = transitions.iter().any(|(sub, _)| sub == "sandbox_completed");
+            let has_completed = transitions
+                .iter()
+                .any(|(sub, _)| sub == "sandbox_completed");
             if has_completed && !is_intentional_stop {
                 info!(
                     task_id = %task_id,
@@ -559,16 +575,17 @@ async fn process_watcher_event(
             pod_states.insert(pod_name, new_state);
         }
         watcher::Event::Delete(pod) => {
-            let task_id = if let Some(id) = extract_task_id(pod) { id } else {
+            let task_id = if let Some(id) = extract_task_id(pod) {
+                id
+            } else {
                 let name = pod.metadata.name.as_deref().unwrap_or("unknown");
-                warn!(pod_name = name, "Deleted pod has no moatless.io/task-id label — skipping");
+                warn!(
+                    pod_name = name,
+                    "Deleted pod has no moatless.io/task-id label — skipping"
+                );
                 return;
             };
-            let pod_name = pod
-                .metadata
-                .name
-                .as_deref()
-                .unwrap_or("unknown");
+            let pod_name = pod.metadata.name.as_deref().unwrap_or("unknown");
 
             // Capture server state BEFORE removing from pod_states
             let deleted_pod_servers: Vec<ServerContainerState> = pod_states
@@ -713,11 +730,13 @@ fn extract_pod_observed_state(pod: &Pod, pod_name: &str, task_id: &str) -> PodOb
         .and_then(|cs| cs.iter().find(|c| c.name == "sandbox"));
 
     if sandbox_container_status.is_none() && phase == "Running" {
-        warn!(task_id, pod_name, "No sandbox container found in running pod");
+        warn!(
+            task_id,
+            pod_name, "No sandbox container found in running pod"
+        );
     }
 
-    let restart_count = sandbox_container_status
-        .map_or(0, |cs| cs.restart_count);
+    let restart_count = sandbox_container_status.map_or(0, |cs| cs.restart_count);
 
     let terminated_reason = sandbox_container_status
         .and_then(|cs| cs.state.as_ref())
@@ -769,12 +788,7 @@ fn extract_pod_observed_state(pod: &Pod, pod_name: &str, task_id: &str) -> PodOb
             spec.containers
                 .iter()
                 .filter_map(|c| {
-                    let limit = c
-                        .resources
-                        .as_ref()?
-                        .limits
-                        .as_ref()?
-                        .get("memory")?;
+                    let limit = c.resources.as_ref()?.limits.as_ref()?.get("memory")?;
                     Some((c.name.clone(), limit.0.clone()))
                 })
                 .collect()
@@ -788,7 +802,9 @@ fn extract_pod_observed_state(pod: &Pod, pod_name: &str, task_id: &str) -> PodOb
             let memory_limit = memory_limits.get(&cs.name).cloned();
             ServerContainerState {
                 name: cs.name.clone(),
-                status: cs.to_server_status_with_timeout(DEFAULT_SERVER_READINESS_TIMEOUT_SECS).to_string(),
+                status: cs
+                    .to_server_status_with_timeout(DEFAULT_SERVER_READINESS_TIMEOUT_SECS)
+                    .to_string(),
                 error: cs.error_reason_with_timeout(DEFAULT_SERVER_READINESS_TIMEOUT_SECS),
                 detail: cs.detail_reason(),
                 terminated_reason: cs.terminated_reason.clone(),
@@ -850,9 +866,7 @@ fn detect_transitions(
     // Detect clean sandbox exit (Completed with exit code 0).
     // Instead of silently ignoring it, emit a transition so we can
     // scale the deployment to 0 and prevent CrashLoopBackOff.
-    if current.terminated_reason.as_deref() == Some("Completed")
-        && current.exit_code == Some(0)
-    {
+    if current.terminated_reason.as_deref() == Some("Completed") && current.exit_code == Some(0) {
         let prev_reason = prev.and_then(|p| p.terminated_reason.as_deref());
         if prev_reason != Some("Completed") {
             events.push(("sandbox_completed".to_string(), None));
@@ -907,10 +921,7 @@ fn detect_transitions(
                 }
             }
             "Succeeded" => {
-                events.push((
-                    "pod_succeeded".to_string(),
-                    None,
-                ));
+                events.push(("pod_succeeded".to_string(), None));
             }
             _ => {}
         }
@@ -957,11 +968,7 @@ fn detect_server_transitions(
                 "stopped" => ServerSubType::Stopped,
                 _ => continue,
             };
-            events.push((
-                sub_type,
-                server_name.to_string(),
-                sc.status.clone(),
-            ));
+            events.push((sub_type, server_name.to_string(), sc.status.clone()));
         }
     }
 
@@ -1056,5 +1063,3 @@ fn format_sandbox_lifecycle_message(lifecycle_event: &str, error: Option<&str>) 
         other => other.replace('_', " "),
     }
 }
-
-

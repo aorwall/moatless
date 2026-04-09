@@ -31,8 +31,12 @@ impl From<Repository> for RepositoryResponse {
             servers: r.servers.and_then(|v| serde_json::from_value(v).ok()),
             plugins: r.plugins.and_then(|v| serde_json::from_value(v).ok()),
             env_vars: r.env_vars.and_then(|v| serde_json::from_value(v).ok()),
-            setup_commands: r.setup_commands.and_then(|v| serde_json::from_value(v).ok()),
-            server_start_commands: r.server_start_commands.and_then(|v| serde_json::from_value(v).ok()),
+            setup_commands: r
+                .setup_commands
+                .and_then(|v| serde_json::from_value(v).ok()),
+            server_start_commands: r
+                .server_start_commands
+                .and_then(|v| serde_json::from_value(v).ok()),
             startup_timeout_seconds: r.startup_timeout_seconds,
             build_command: r.build_command,
             build_output_directory: r.build_output_directory,

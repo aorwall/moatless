@@ -80,7 +80,10 @@ impl TelegramProvider {
             .or_else(|| payload.get("channel_post"));
 
         let Some(message) = message else {
-            debug!(update_id, "Telegram update has no message or channel_post, ignoring");
+            debug!(
+                update_id,
+                "Telegram update has no message or channel_post, ignoring"
+            );
             return Ok(TelegramWebhookResult::Ignore);
         };
 
@@ -159,9 +162,15 @@ impl TelegramProvider {
         }
 
         // 7.5. Access control
-        let from_username = from.and_then(|f| f.get("username")).and_then(|v| v.as_str());
-        let from_first_name = from.and_then(|f| f.get("first_name")).and_then(|v| v.as_str());
-        let from_last_name = from.and_then(|f| f.get("last_name")).and_then(|v| v.as_str());
+        let from_username = from
+            .and_then(|f| f.get("username"))
+            .and_then(|v| v.as_str());
+        let from_first_name = from
+            .and_then(|f| f.get("first_name"))
+            .and_then(|v| v.as_str());
+        let from_last_name = from
+            .and_then(|f| f.get("last_name"))
+            .and_then(|v| v.as_str());
 
         let access_decision = if is_private_chat {
             let ctx = access::DmAccessContext {
@@ -237,16 +246,10 @@ impl TelegramProvider {
             )
         } else if let (true, Some(topic_id)) = (is_forum, forum_topic_id) {
             let topic_key = format!("{chat_id_str}:{topic_id}");
-            (
-                Some(topic_key.clone()),
-                topic_key,
-                chat_id_str.clone(),
-            )
+            (Some(topic_key.clone()), topic_key, chat_id_str.clone())
         } else {
             let thread_id = reply_to_message_id.map(|id| id.to_string());
-            let msg_thread_id = reply_to_message_id
-                .unwrap_or(message_id)
-                .to_string();
+            let msg_thread_id = reply_to_message_id.unwrap_or(message_id).to_string();
             (thread_id, msg_thread_id, chat_id_str.clone())
         };
 
@@ -359,7 +362,9 @@ pub async fn resolve_and_process_telegram_update(
         .map_err(|e| ChannelError::BadRequest(format!("Invalid JSON: {e}")))?;
 
     // Extract chat_id from message or channel_post
-    let message = payload.get("message").or_else(|| payload.get("channel_post"));
+    let message = payload
+        .get("message")
+        .or_else(|| payload.get("channel_post"));
     let chat_id = message
         .and_then(|m| m.pointer("/chat/id"))
         .and_then(serde_json::Value::as_i64);
@@ -392,7 +397,10 @@ pub async fn resolve_and_process_telegram_update(
     let config = match config {
         Some(c) if c.active => c,
         Some(_) => {
-            info!(source_id, "Telegram message ignored: channel config inactive");
+            info!(
+                source_id,
+                "Telegram message ignored: channel config inactive"
+            );
             return Ok(());
         }
         None if is_private_chat => {
@@ -406,7 +414,9 @@ pub async fn resolve_and_process_telegram_update(
                     c
                 }
                 _ => {
-                    match auto_create_config(state, &source_id, message, is_private_chat, from_id).await {
+                    match auto_create_config(state, &source_id, message, is_private_chat, from_id)
+                        .await
+                    {
                         Ok(c) => c,
                         Err(e) => {
                             warn!(source_id, error = %e, "Failed to auto-create Telegram config");
@@ -442,8 +452,7 @@ pub async fn resolve_and_process_telegram_update(
             let state_clone = state.clone();
             tokio::spawn(async move {
                 if let Err(e) =
-                    crate::channel::inbound::process_inbound(&state_clone, *msg, None)
-                        .await
+                    crate::channel::inbound::process_inbound(&state_clone, *msg, None).await
                 {
                     warn!(error = %e, "Failed to process Telegram inbound message");
                 }
@@ -510,19 +519,20 @@ async fn auto_create_config(
         .repositories
         .find_by_name_and_user("Moatable", "system")
         .await?
-        .ok_or_else(|| {
-            ChannelError::Internal("Default Moatable repository not found".into())
-        })?;
+        .ok_or_else(|| ChannelError::Internal("Default Moatable repository not found".into()))?;
 
     let now = chrono::Utc::now();
 
     // DMs use Pairing policy so the owner must approve new users;
     // groups default to Open.
     let provider_config = if is_private_chat {
-        Some(serde_json::to_value(TelegramProviderConfig {
-            dm_access_policy: ChannelAccessPolicy::Pairing,
-            ..Default::default()
-        }).unwrap_or_default())
+        Some(
+            serde_json::to_value(TelegramProviderConfig {
+                dm_access_policy: ChannelAccessPolicy::Pairing,
+                ..Default::default()
+            })
+            .unwrap_or_default(),
+        )
     } else {
         None
     };
@@ -674,7 +684,9 @@ mod tests {
         let config = test_config();
 
         // First call reaches DB and fails (expected) — but populates dedup cache
-        let _ = provider.parse_update(&body, &config, false, &fake_db_pool()).await;
+        let _ = provider
+            .parse_update(&body, &config, false, &fake_db_pool())
+            .await;
 
         // Second call should be deduplicated before reaching DB
         let result = provider
@@ -722,7 +734,9 @@ mod tests {
 
         let body = serde_json::to_vec(&update).unwrap();
         let config = test_config();
-        let result = provider.parse_update(&body, &config, false, &fake_db_pool()).await;
+        let result = provider
+            .parse_update(&body, &config, false, &fake_db_pool())
+            .await;
         assert!(result.is_err());
     }
 

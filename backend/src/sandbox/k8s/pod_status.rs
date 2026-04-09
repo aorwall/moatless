@@ -228,7 +228,10 @@ fn extract_container_statuses_filtered(
                 .and_then(|s| s.running.as_ref())
                 .and_then(|r| r.started_at.as_ref())
                 .and_then(|t| {
-                    chrono::DateTime::from_timestamp(t.0.as_second(), t.0.subsec_nanosecond() as u32)
+                    chrono::DateTime::from_timestamp(
+                        t.0.as_second(),
+                        t.0.subsec_nanosecond() as u32,
+                    )
                 });
 
             ContainerObservedStatus {
@@ -332,10 +335,7 @@ pub mod test_helpers {
         }
     }
 
-    pub fn pod_with_phase_and_containers(
-        phase: &str,
-        containers: Vec<ContainerStatus>,
-    ) -> Pod {
+    pub fn pod_with_phase_and_containers(phase: &str, containers: Vec<ContainerStatus>) -> Pod {
         Pod {
             metadata: ObjectMeta::default(),
             status: Some(PodStatus {
@@ -354,8 +354,8 @@ pub mod test_helpers {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::test_helpers::*;
+    use super::*;
     use crate::sandbox::models::ServerStatus;
     use k8s_openapi::api::core::v1::{
         ContainerState as K8sState, ContainerStateRunning, ContainerStateWaiting, ContainerStatus,
@@ -505,7 +505,10 @@ mod tests {
         };
 
         let msg = check_sandbox_permanent_failure(&pod).unwrap();
-        assert_eq!(msg, "Sandbox failed: Failed to clone repository: auth error");
+        assert_eq!(
+            msg,
+            "Sandbox failed: Failed to clone repository: auth error"
+        );
     }
 
     #[test]
@@ -572,13 +575,7 @@ mod tests {
         );
         let pods = vec![pending, running];
         let best = pick_best_pod(&pods).unwrap();
-        let best_phase = best
-            .status
-            .as_ref()
-            .unwrap()
-            .phase
-            .as_deref()
-            .unwrap();
+        let best_phase = best.status.as_ref().unwrap().phase.as_deref().unwrap();
         assert_eq!(best_phase, "Running");
     }
 

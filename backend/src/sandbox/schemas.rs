@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use super::models::{
-    AgentState, ResourceMetrics, SandboxState, SandboxStatus, ServerCapabilities,
-    ServerSnapshot, ServerStatus,
+    AgentState, ResourceMetrics, SandboxState, SandboxStatus, ServerCapabilities, ServerSnapshot,
+    ServerStatus,
 };
 
 /// Provision response
@@ -272,7 +272,12 @@ impl From<sandbox_proto::FileTreeNode> for FileTreeNodeDto {
                 None
             }
         } else {
-            Some(node.children.into_iter().map(FileTreeNodeDto::from).collect())
+            Some(
+                node.children
+                    .into_iter()
+                    .map(FileTreeNodeDto::from)
+                    .collect(),
+            )
         };
 
         Self {
@@ -372,7 +377,9 @@ mod tests {
 
     #[test]
     fn error_body_serializes() {
-        let body = crate::error::ErrorBody { error: "not found".into() };
+        let body = crate::error::ErrorBody {
+            error: "not found".into(),
+        };
         let json = serde_json::to_value(&body).unwrap();
         assert_eq!(json["error"], "not found");
     }

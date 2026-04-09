@@ -17,7 +17,5 @@ pub async fn create_pool(database_url: &str, max_connections: u32) -> Result<DbP
 /// Run pending SQL migrations from `./migrations/`.
 /// Uses PostgreSQL advisory locks — safe for concurrent replicas.
 pub async fn run_migrations(pool: &DbPool) -> Result<(), sqlx::migrate::MigrateError> {
-    sqlx::migrate!("./migrations")
-        .run(pool)
-        .await
+    sqlx::migrate!("./migrations").run(pool).await
 }

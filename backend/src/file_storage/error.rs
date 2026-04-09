@@ -32,7 +32,10 @@ impl IntoResponse for FileStorageError {
             }
             FileStorageError::UploadFailed(ref msg) => {
                 tracing::error!(error = %msg, "File upload failed");
-                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal server error".to_string(),
+                )
             }
             FileStorageError::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             FileStorageError::Db(e) => {

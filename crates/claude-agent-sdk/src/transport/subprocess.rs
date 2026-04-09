@@ -1,3 +1,4 @@
+use serde_json::{Map, Value};
 use std::fmt::Write;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
@@ -5,7 +6,6 @@ use tokio::process::{Child, ChildStdin, ChildStdout};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
-use serde_json::{Map, Value};
 use tracing::{debug, info, trace, warn};
 
 use crate::error::{Result, SdkError};
@@ -30,10 +30,7 @@ impl SubprocessTransport {
     pub(crate) async fn spawn(options: &ClaudeOptions) -> Result<Self> {
         let cli_path = resolve_cli_path(options)?;
         let args = build_cli_args(options);
-        let cancellation_token = options
-            .cancellation_token
-            .clone()
-            .unwrap_or_default();
+        let cancellation_token = options.cancellation_token.clone().unwrap_or_default();
 
         info!(cli_path = %cli_path, args = ?args, "Spawning Claude CLI");
 
@@ -58,7 +55,9 @@ impl SubprocessTransport {
 
         let mut child = cmd.spawn().map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
-                SdkError::CliNotFound { path: cli_path.clone() }
+                SdkError::CliNotFound {
+                    path: cli_path.clone(),
+                }
             } else {
                 SdkError::SpawnError(e)
             }
@@ -128,12 +127,11 @@ impl SubprocessTransport {
                 continue;
             }
 
-            let value: serde_json::Value = serde_json::from_str(trimmed).map_err(|e| {
-                SdkError::JsonParseError {
+            let value: serde_json::Value =
+                serde_json::from_str(trimmed).map_err(|e| SdkError::JsonParseError {
                     source: e,
                     raw_line: trimmed.to_string(),
-                }
-            })?;
+                })?;
 
             let msg = RawStdoutMessage::from_value(value);
             log_stdout_message(&msg);
@@ -149,10 +147,7 @@ impl SubprocessTransport {
             .write_all(json.as_bytes())
             .await
             .map_err(SdkError::SpawnError)?;
-        stdin
-            .write_all(b"\n")
-            .await
-            .map_err(SdkError::SpawnError)?;
+        stdin.write_all(b"\n").await.map_err(SdkError::SpawnError)?;
         stdin.flush().await.map_err(SdkError::SpawnError)?;
         Ok(())
     }
@@ -172,12 +167,7 @@ impl SubprocessTransport {
         }
 
         // Step 2: Wait briefly for natural exit after EOF
-        match tokio::time::timeout(
-            std::time::Duration::from_secs(2),
-            self.child.wait(),
-        )
-        .await
-        {
+        match tokio::time::timeout(std::time::Duration::from_secs(2), self.child.wait()).await {
             Ok(Ok(status)) => {
                 let stderr_lines = collect_stderr(&mut self._stderr_task).await;
                 log_exit_status(status, &stderr_lines);
@@ -205,12 +195,7 @@ impl SubprocessTransport {
         }
 
         // Step 4: Wait for SIGTERM to take effect
-        match tokio::time::timeout(
-            std::time::Duration::from_secs(5),
-            self.child.wait(),
-        )
-        .await
-        {
+        match tokio::time::timeout(std::time::Duration::from_secs(5), self.child.wait()).await {
             Ok(Ok(status)) => {
                 let stderr_lines = collect_stderr(&mut self._stderr_task).await;
                 log_exit_status(status, &stderr_lines);
@@ -250,10 +235,7 @@ fn resolve_cli_path(options: &ClaudeOptions) -> Result<String> {
     }
 
     // Try `which claude`
-    if let Ok(output) = std::process::Command::new("which")
-        .arg("claude")
-        .output()
-    {
+    if let Ok(output) = std::process::Command::new("which").arg("claude").output() {
         if output.status.success() {
             let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
             if !path.is_empty() {
@@ -651,7 +633,8 @@ fn log_stdout_message(msg: &RawStdoutMessage) {
             SdkMessage::ToolProgress(m) => {
                 trace!(
                     "CLI stdout: tool_progress tool={} elapsed={:.1}s",
-                    m.tool_name, m.elapsed_time_seconds
+                    m.tool_name,
+                    m.elapsed_time_seconds
                 );
             }
             SdkMessage::AuthStatus(m) => {
@@ -711,10 +694,7 @@ fn log_stdout_message(msg: &RawStdoutMessage) {
             trace!("CLI stdout: keep_alive");
         }
         RawStdoutMessage::Unknown(value) => {
-            let type_str = value
-                .get("type")
-                .and_then(|v| v.as_str())
-                .unwrap_or("?");
+            let type_str = value.get("type").and_then(|v| v.as_str()).unwrap_or("?");
             debug!(raw = %value, "CLI stdout: unknown type={}", type_str);
         }
     }
@@ -905,10 +885,7 @@ mod tests {
         };
         let args = build_cli_args(&options);
 
-        let idx = args
-            .iter()
-            .position(|a| a == "--permission-mode")
-            .unwrap();
+        let idx = args.iter().position(|a| a == "--permission-mode").unwrap();
         assert_eq!(args[idx + 1], "bypassPermissions");
     }
 
@@ -945,16 +922,10 @@ mod tests {
         };
         let args = build_cli_args(&options);
 
-        let allowed_idx = args
-            .iter()
-            .position(|a| a == "--allowedTools")
-            .unwrap();
+        let allowed_idx = args.iter().position(|a| a == "--allowedTools").unwrap();
         assert_eq!(args[allowed_idx + 1], "Read,Write");
 
-        let disallowed_idx = args
-            .iter()
-            .position(|a| a == "--disallowedTools")
-            .unwrap();
+        let disallowed_idx = args.iter().position(|a| a == "--disallowedTools").unwrap();
         assert_eq!(args[disallowed_idx + 1], "Bash");
     }
 
@@ -966,10 +937,7 @@ mod tests {
         };
         let args = build_cli_args(&options);
 
-        let idx = args
-            .iter()
-            .position(|a| a == "--system-prompt")
-            .unwrap();
+        let idx = args.iter().position(|a| a == "--system-prompt").unwrap();
         assert_eq!(args[idx + 1], "You are helpful.");
     }
 
@@ -1179,9 +1147,7 @@ mod tests {
             ..Default::default()
         };
         let args = build_cli_args(&options);
-        assert!(args.contains(
-            &"--allow-dangerously-skip-permissions".to_string()
-        ));
+        assert!(args.contains(&"--allow-dangerously-skip-permissions".to_string()));
     }
 
     #[test]

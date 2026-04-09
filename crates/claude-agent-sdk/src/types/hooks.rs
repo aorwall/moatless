@@ -158,10 +158,7 @@ mod tests {
             serde_json::to_string(&HookEvent::PostToolUse).unwrap(),
             "\"PostToolUse\""
         );
-        assert_eq!(
-            serde_json::to_string(&HookEvent::Stop).unwrap(),
-            "\"Stop\""
-        );
+        assert_eq!(serde_json::to_string(&HookEvent::Stop).unwrap(), "\"Stop\"");
     }
 
     #[test]

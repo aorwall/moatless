@@ -43,6 +43,7 @@ async fn cross_channel_response_routing() {
         task_name: None,
         tag_ids: None,
         run_as_user_id: None,
+        allow_direct_send: None,
     };
     let trigger = client
         .api()
@@ -66,6 +67,7 @@ async fn cross_channel_response_routing() {
         task_name: None,
         tag_ids: None,
         run_as_user_id: None,
+        allow_direct_send: None,
     };
     let response_config = client
         .api()
@@ -78,8 +80,7 @@ async fn cross_channel_response_routing() {
     let update_payload = json!({
         "response_config_id": response_config.id
     });
-    let update_resp =
-        raw_api::update_channel_config(&http, &trigger.id, &update_payload).await;
+    let update_resp = raw_api::update_channel_config(&http, &trigger.id, &update_payload).await;
     assert!(
         update_resp.status().is_success(),
         "Failed to link response_config_id: {}",
@@ -90,8 +91,7 @@ async fn cross_channel_response_routing() {
     let inbound_payload = json!({
         "message": "Cross-channel test message"
     });
-    let inbound_resp =
-        raw_api::send_webhook_message(&http, &trigger.id, &inbound_payload).await;
+    let inbound_resp = raw_api::send_webhook_message(&http, &trigger.id, &inbound_payload).await;
     assert_eq!(inbound_resp.status().as_u16(), 200);
     let inbound_body: serde_json::Value = inbound_resp.json().await.unwrap();
     assert!(
@@ -109,5 +109,8 @@ async fn cross_channel_response_routing() {
 
     // Cleanup
     let _ = client.api().delete_channel_config(&trigger.id).await;
-    let _ = client.api().delete_channel_config(&response_config.id).await;
+    let _ = client
+        .api()
+        .delete_channel_config(&response_config.id)
+        .await;
 }

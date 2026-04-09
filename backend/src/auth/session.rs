@@ -38,8 +38,7 @@ pub async fn create_session(
 
     // Upsert user
     let existing_user = users.get_user(&user_info.id).await?;
-    let role = existing_user
-        .as_ref().map_or(UserRole::User, |u| u.role);
+    let role = existing_user.as_ref().map_or(UserRole::User, |u| u.role);
 
     let user_row = User {
         id: user_info.id.clone(),
@@ -49,9 +48,7 @@ pub async fn create_session(
         avatar_url: user_info.avatar_url.clone(),
         provider: provider_id.to_string(),
         role,
-        created_at: existing_user
-            .as_ref()
-            .map_or(now, |u| u.created_at),
+        created_at: existing_user.as_ref().map_or(now, |u| u.created_at),
         last_login_at: now,
         settings: existing_user
             .as_ref()

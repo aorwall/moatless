@@ -85,7 +85,9 @@ pub async fn get_command(
     _auth: AuthUser,
     Path(name): Path<String>,
 ) -> Result<Json<CommandResponse>, CommandError> {
-    let row = state.commands.find_by_name(&name)
+    let row = state
+        .commands
+        .find_by_name(&name)
         .await?
         .ok_or_else(|| CommandError::NotFound(name))?;
 
@@ -112,24 +114,28 @@ pub async fn update_command(
     Path(name): Path<String>,
     Json(req): Json<UpdateCommandRequest>,
 ) -> Result<Json<CommandResponse>, CommandError> {
-    let updated = state.commands.update_by_name(
-        &name,
-        req.description.as_deref(),
-        req.prompt.as_deref(),
-        req.conditions.as_ref(),
-        req.icon.as_deref(),
-        req.variant.as_deref(),
-        req.active,
-        req.will_not_resume,
-        req.agent_mode.as_ref(),
-    )
-    .await?;
+    let updated = state
+        .commands
+        .update_by_name(
+            &name,
+            req.description.as_deref(),
+            req.prompt.as_deref(),
+            req.conditions.as_ref(),
+            req.icon.as_deref(),
+            req.variant.as_deref(),
+            req.active,
+            req.will_not_resume,
+            req.agent_mode.as_ref(),
+        )
+        .await?;
 
     if !updated {
         return Err(CommandError::NotFound(name));
     }
 
-    let row = state.commands.find_by_name(&name)
+    let row = state
+        .commands
+        .find_by_name(&name)
         .await?
         .ok_or_else(|| CommandError::NotFound(name))?;
 

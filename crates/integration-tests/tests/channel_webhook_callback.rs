@@ -70,6 +70,7 @@ async fn webhook_outbound_callback() {
         task_name: None,
         tag_ids: None,
         run_as_user_id: None,
+        allow_direct_send: None,
     };
     let config = client
         .api()
@@ -82,8 +83,7 @@ async fn webhook_outbound_callback() {
     let inbound_payload = json!({
         "message": "Create a file called hello.txt with 'Hello from webhook callback test'"
     });
-    let inbound_resp =
-        raw_api::send_webhook_message(&http, &config.id, &inbound_payload).await;
+    let inbound_resp = raw_api::send_webhook_message(&http, &config.id, &inbound_payload).await;
     assert_eq!(inbound_resp.status().as_u16(), 200);
     let inbound_body: serde_json::Value = inbound_resp.json().await.unwrap();
     let task_id = inbound_body["taskId"]

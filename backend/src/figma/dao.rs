@@ -43,12 +43,10 @@ impl FigmaRepository for PgFigmaRepository {
     }
 
     async fn find_by_id(&self, import_id: &str) -> Result<Option<FigmaImport>, sqlx::Error> {
-        sqlx::query_as::<_, FigmaImport>(
-            "SELECT * FROM figma_imports WHERE import_id = $1",
-        )
-        .bind(import_id)
-        .fetch_optional(&self.0)
-        .await
+        sqlx::query_as::<_, FigmaImport>("SELECT * FROM figma_imports WHERE import_id = $1")
+            .bind(import_id)
+            .fetch_optional(&self.0)
+            .await
     }
 
     async fn delete(&self, import_id: &str) -> Result<bool, sqlx::Error> {

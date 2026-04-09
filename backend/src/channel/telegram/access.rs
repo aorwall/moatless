@@ -56,13 +56,9 @@ pub async fn enforce_dm_access(ctx: &DmAccessContext<'_>) -> Result<AccessDecisi
                 "last_name": ctx.from_last_name,
             });
 
-            let req = pairing::upsert_pairing_request(
-                ctx.db,
-                &ctx.config.id,
-                &from_id_str,
-                Some(meta),
-            )
-            .await?;
+            let req =
+                pairing::upsert_pairing_request(ctx.db, &ctx.config.id, &from_id_str, Some(meta))
+                    .await?;
 
             // Send pairing message
             let message = format!(
@@ -73,7 +69,11 @@ pub async fn enforce_dm_access(ctx: &DmAccessContext<'_>) -> Result<AccessDecisi
             );
 
             let chat_id_str = ctx.chat_id.to_string();
-            if let Err(e) = ctx.api.send_message(&chat_id_str, &message, None, None).await {
+            if let Err(e) = ctx
+                .api
+                .send_message(&chat_id_str, &message, None, None)
+                .await
+            {
                 // Best-effort — log but don't fail the whole flow
                 info!(from_id, error = %e, "Failed to send pairing message");
             }
@@ -98,14 +98,20 @@ pub fn enforce_group_access(
 ) -> AccessDecision {
     match tg_config.group_access_policy {
         ChannelAccessPolicy::Disabled => {
-            debug!(chat_id, "Group message blocked: group_access_policy=disabled");
+            debug!(
+                chat_id,
+                "Group message blocked: group_access_policy=disabled"
+            );
             return AccessDecision::Blocked;
         }
         ChannelAccessPolicy::Allowlist | ChannelAccessPolicy::Pairing => {
             // Pairing is not meaningful for groups; treat as Allowlist
             let chat_id_str = chat_id.to_string();
             if !tg_config.group_allowlist.contains(&chat_id_str) {
-                debug!(chat_id, "Group message blocked: chat not in group_allowlist");
+                debug!(
+                    chat_id,
+                    "Group message blocked: chat not in group_allowlist"
+                );
                 return AccessDecision::Blocked;
             }
         }
@@ -121,7 +127,10 @@ pub fn enforce_group_access(
                 format!("@{bot_username}")
             };
             if !text.contains(&mention) {
-                debug!(chat_id, "Group message blocked: require_mention and no bot mention");
+                debug!(
+                    chat_id,
+                    "Group message blocked: require_mention and no bot mention"
+                );
                 return AccessDecision::Blocked;
             }
         }
@@ -134,7 +143,10 @@ pub fn enforce_group_access(
 mod tests {
     use super::*;
 
-    fn make_config(dm_policy: ChannelAccessPolicy, dm_allowlist: Vec<&str>) -> TelegramProviderConfig {
+    fn make_config(
+        dm_policy: ChannelAccessPolicy,
+        dm_allowlist: Vec<&str>,
+    ) -> TelegramProviderConfig {
         TelegramProviderConfig {
             bot_username: Some("testbot".into()),
             dm_access_policy: dm_policy,

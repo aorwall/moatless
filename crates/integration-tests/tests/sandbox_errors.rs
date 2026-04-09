@@ -53,6 +53,7 @@ async fn sandbox_provision_failure_invalid_image() {
         contexts: vec![],
         file_ids: vec![],
         model: None,
+        command_name: None,
     };
     let created = client.api().create_task(&task_req).await.unwrap();
     let task_id = &created.task_id;
@@ -67,12 +68,8 @@ async fn sandbox_provision_failure_invalid_image() {
     );
 
     // Check that the status indicates an error
-    let error = sandbox_helpers::wait_for_sandbox_error(
-        &client,
-        task_id,
-        Duration::from_secs(10),
-    )
-    .await;
+    let error =
+        sandbox_helpers::wait_for_sandbox_error(&client, task_id, Duration::from_secs(10)).await;
 
     // The sandbox may report error through status or error field
     let status = client
@@ -94,7 +91,10 @@ async fn sandbox_provision_failure_invalid_image() {
     if let Some(err) = error {
         println!("SANDBOX-06: Error detected: {err}");
     } else {
-        println!("SANDBOX-06: No explicit error reported, but sandbox is not ready (status={})", status.environment_status);
+        println!(
+            "SANDBOX-06: No explicit error reported, but sandbox is not ready (status={})",
+            status.environment_status
+        );
     }
 
     // Cleanup

@@ -11,9 +11,12 @@ use tracing::{debug, warn};
 
 use super::client::K8sClient;
 use super::deployment;
-use super::pod_reader;
 use super::naming::generate_service_name;
-use super::pod_status::{check_sandbox_permanent_failure, is_sandbox_container_ready, pick_best_pod, DEFAULT_SERVER_READINESS_TIMEOUT_SECS};
+use super::pod_reader;
+use super::pod_status::{
+    check_sandbox_permanent_failure, is_sandbox_container_ready, pick_best_pod,
+    DEFAULT_SERVER_READINESS_TIMEOUT_SECS,
+};
 use crate::config::Config;
 use crate::sandbox::client::SandboxClient;
 use crate::sandbox::models::*;
@@ -29,14 +32,8 @@ pub struct StatusResolver {
 }
 
 impl StatusResolver {
-    pub fn new(
-        k8s: K8sClient,
-        config: Arc<Config>,
-    ) -> Self {
-        Self {
-            k8s,
-            config,
-        }
+    pub fn new(k8s: K8sClient, config: Arc<Config>) -> Self {
+        Self { k8s, config }
     }
 
     /// Full sandbox status (env + servers) from K8s API.
@@ -64,9 +61,12 @@ impl StatusResolver {
                         let name = cs.name.strip_suffix("-server").unwrap_or(&cs.name);
                         name == config.name
                     });
-                    let timeout = config.startup_timeout_seconds.unwrap_or(DEFAULT_SERVER_READINESS_TIMEOUT_SECS);
-                    let status = container
-                        .map_or(ServerStatus::Starting, |cs| cs.to_server_status_with_timeout(timeout));
+                    let timeout = config
+                        .startup_timeout_seconds
+                        .unwrap_or(DEFAULT_SERVER_READINESS_TIMEOUT_SECS);
+                    let status = container.map_or(ServerStatus::Starting, |cs| {
+                        cs.to_server_status_with_timeout(timeout)
+                    });
                     let url = self.build_proxy_url(task_id, config.port);
                     ServerEntry {
                         name: config.name.clone(),
@@ -75,7 +75,8 @@ impl StatusResolver {
                         status,
                         url,
                         error: container.and_then(|cs| cs.error_reason_with_timeout(timeout)),
-                        detail: container.and_then(super::super::models::ContainerObservedStatus::detail_reason),
+                        detail: container
+                            .and_then(super::super::models::ContainerObservedStatus::detail_reason),
                         default: config.default,
                         capabilities: server_capabilities_from_config(config),
                     }
@@ -125,9 +126,12 @@ impl StatusResolver {
                         let name = cs.name.strip_suffix("-server").unwrap_or(&cs.name);
                         name == config.name
                     });
-                    let timeout = config.startup_timeout_seconds.unwrap_or(DEFAULT_SERVER_READINESS_TIMEOUT_SECS);
-                    let status = container
-                        .map_or(ServerStatus::Starting, |cs| cs.to_server_status_with_timeout(timeout));
+                    let timeout = config
+                        .startup_timeout_seconds
+                        .unwrap_or(DEFAULT_SERVER_READINESS_TIMEOUT_SECS);
+                    let status = container.map_or(ServerStatus::Starting, |cs| {
+                        cs.to_server_status_with_timeout(timeout)
+                    });
                     let url = self.build_proxy_url(task_id, config.port);
                     ServerEntry {
                         name: config.name.clone(),
@@ -136,7 +140,8 @@ impl StatusResolver {
                         status,
                         url,
                         error: container.and_then(|cs| cs.error_reason_with_timeout(timeout)),
-                        detail: container.and_then(super::super::models::ContainerObservedStatus::detail_reason),
+                        detail: container
+                            .and_then(super::super::models::ContainerObservedStatus::detail_reason),
                         default: config.default,
                         capabilities: server_capabilities_from_config(config),
                     }
@@ -177,7 +182,11 @@ impl StatusResolver {
         // Fetch runtime events for error/initializing states
         let runtime_events = if fetch_diagnostics {
             let events = pod_reader::fetch_pod_runtime_events(&self.k8s, task_id).await;
-            if events.is_empty() { None } else { Some(events) }
+            if events.is_empty() {
+                None
+            } else {
+                Some(events)
+            }
         } else {
             None
         };
@@ -276,8 +285,7 @@ impl StatusResolver {
     /// permanent failures (CrashLoopBackOff, ImagePullBackOff, etc.).
     async fn resolve_pod_phase_and_error(&self, task_id: &str) -> (PodPhase, Option<String>) {
         // Check Deployment replicas first
-        if let Ok(Some(_dep)) = deployment::find_deployment(&self.k8s, task_id).await
-        {
+        if let Ok(Some(_dep)) = deployment::find_deployment(&self.k8s, task_id).await {
             if let Ok((desired, _ready)) =
                 deployment::get_deployment_replicas(&self.k8s, task_id).await
             {
@@ -291,16 +299,13 @@ impl StatusResolver {
         }
 
         // Deployment exists with replicas > 0, check actual pod status
-        let pods_api: Api<Pod> =
-            Api::namespaced(self.k8s.client.clone(), self.k8s.namespace());
-        let lp = ListParams::default()
-            .labels(&format!("moatless.io/task-id={task_id}"));
+        let pods_api: Api<Pod> = Api::namespaced(self.k8s.client.clone(), self.k8s.namespace());
+        let lp = ListParams::default().labels(&format!("moatless.io/task-id={task_id}"));
 
         match pods_api.list(&lp).await {
             Ok(list) => {
                 if let Some(pod) = pick_best_pod(&list.items) {
-                    let is_terminating =
-                        pod.metadata.deletion_timestamp.is_some();
+                    let is_terminating = pod.metadata.deletion_timestamp.is_some();
                     let raw_phase = pod
                         .status
                         .as_ref()
@@ -312,9 +317,7 @@ impl StatusResolver {
 
                     let phase = if is_terminating {
                         PodPhase::Terminating
-                    } else if raw_phase == "Running"
-                        && !is_sandbox_container_ready(pod)
-                    {
+                    } else if raw_phase == "Running" && !is_sandbox_container_ready(pod) {
                         PodPhase::Pending
                     } else {
                         PodPhase::from(raw_phase)

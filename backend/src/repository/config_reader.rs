@@ -65,9 +65,8 @@ async fn fetch_github_config(
         RepositoryError::BadRequest(format!("Cannot parse GitHub URL: {remote_url}"))
     })?;
 
-    let mut url = format!(
-        "https://api.github.com/repos/{owner}/{repo}/contents/.moatless/config.json"
-    );
+    let mut url =
+        format!("https://api.github.com/repos/{owner}/{repo}/contents/.moatless/config.json");
     if let Some(r) = branch {
         use std::fmt::Write;
         let _ = write!(url, "?ref={r}");
@@ -112,9 +111,7 @@ async fn fetch_gitlab_config(
     branch: Option<&str>,
     token: &str,
 ) -> Result<Option<MoatlessRepoConfig>, RepositoryError> {
-    let url_trimmed = remote_url
-        .trim_end_matches('/')
-        .trim_end_matches(".git");
+    let url_trimmed = remote_url.trim_end_matches('/').trim_end_matches(".git");
 
     let project_path = url_trimmed
         .strip_prefix("https://gitlab.com/")
@@ -229,7 +226,13 @@ mod tests {
         assert_eq!(config.servers.as_ref().unwrap().len(), 1);
         assert_eq!(config.servers.as_ref().unwrap()[0].name, "dev");
         assert_eq!(
-            config.code_execution.as_ref().unwrap().setup_commands.as_ref().unwrap(),
+            config
+                .code_execution
+                .as_ref()
+                .unwrap()
+                .setup_commands
+                .as_ref()
+                .unwrap(),
             &vec!["bun install".to_string()]
         );
     }

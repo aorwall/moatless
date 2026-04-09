@@ -35,12 +35,10 @@ impl FileRepository for PgFileRepository {
     }
 
     async fn find_by_id(&self, file_id: &str) -> Result<Option<FileMetadata>, sqlx::Error> {
-        sqlx::query_as::<_, FileMetadata>(
-            "SELECT * FROM file_metadata WHERE file_id = $1",
-        )
-        .bind(file_id)
-        .fetch_optional(&self.0)
-        .await
+        sqlx::query_as::<_, FileMetadata>("SELECT * FROM file_metadata WHERE file_id = $1")
+            .bind(file_id)
+            .fetch_optional(&self.0)
+            .await
     }
 
     async fn delete_metadata(&self, file_id: &str) -> Result<bool, sqlx::Error> {

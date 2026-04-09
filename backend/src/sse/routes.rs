@@ -55,10 +55,7 @@ pub fn sse_router(state: SseState) -> Router {
 /// Returns an NDJSON stream with:
 /// - Event lines: raw JSON from Redis + `\n`
 /// - Ping every 30s: `{"type":"ping","timestamp":"..."}\n`
-async fn sse_handler(
-    State(state): State<SseState>,
-    Query(query): Query<SseQuery>,
-) -> Response {
+async fn sse_handler(State(state): State<SseState>, Query(query): Query<SseQuery>) -> Response {
     let rx = state.broadcast.subscribe();
     let cancel = state.cancel.clone();
 
@@ -123,7 +120,8 @@ async fn sse_handler(
     // Convert to axum body
     let body = Body::from_stream(ndjson_stream.map(|r| r.map(std::string::String::into_bytes)));
 
-    #[allow(clippy::expect_used)] // Response::builder() only fails with invalid header names (ours are static)
+    #[allow(clippy::expect_used)]
+    // Response::builder() only fails with invalid header names (ours are static)
     Response::builder()
         .header("Content-Type", "text/event-stream")
         .header("Cache-Control", "no-cache")

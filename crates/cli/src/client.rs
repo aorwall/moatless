@@ -85,8 +85,10 @@ impl MoatClient {
         if !team_ids.is_empty() {
             headers.insert(
                 "X-Team-Ids",
-                HeaderValue::from_str(&team_ids.join(","))
-                    .map_err(|e| ClientError::Api { status: 0, body: e.to_string() })?,
+                HeaderValue::from_str(&team_ids.join(",")).map_err(|e| ClientError::Api {
+                    status: 0,
+                    body: e.to_string(),
+                })?,
             );
         }
         Self::from_headers(headers)
@@ -98,8 +100,14 @@ impl MoatClient {
             status: 0,
             body: e.to_string(),
         };
-        headers.insert("X-User-Id", HeaderValue::from_str(user_id).map_err(map_err)?);
-        headers.insert("X-User-Login", HeaderValue::from_str(login).map_err(map_err)?);
+        headers.insert(
+            "X-User-Id",
+            HeaderValue::from_str(user_id).map_err(map_err)?,
+        );
+        headers.insert(
+            "X-User-Login",
+            HeaderValue::from_str(login).map_err(map_err)?,
+        );
         headers.insert("X-User-Role", HeaderValue::from_str(role).map_err(map_err)?);
         Ok(headers)
     }

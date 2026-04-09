@@ -70,6 +70,7 @@ async fn channel_per_message_routing() {
         task_name: None,
         tag_ids: None,
         run_as_user_id: None,
+        allow_direct_send: None,
     };
     let config = client.api().create_channel_config(&req).await.unwrap();
     assert!(config.active);
@@ -84,11 +85,7 @@ async fn channel_per_message_routing() {
     task_ids.push(first_task_id.clone());
 
     // CHAN-11.1: Task is in open state
-    let task = client
-        .api()
-        .get_task(&first_task_id)
-        .await
-        .unwrap();
+    let task = client.api().get_task(&first_task_id).await.unwrap();
     assert_eq!(task.status, TaskStatus::Open);
 
     // CHAN-11.2: Task linked to correct repository
@@ -148,6 +145,7 @@ async fn channel_ongoing_routing() {
         task_name: None,
         tag_ids: None,
         run_as_user_id: None,
+        allow_direct_send: None,
     };
     let config = client.api().create_channel_config(&req).await.unwrap();
     assert!(config.active);
@@ -155,8 +153,7 @@ async fn channel_ongoing_routing() {
     let config_id = config.id;
 
     // CHAN-21: First message creates ongoing task
-    let (status, task_id) =
-        send_webhook(&http, &config_id, "First ongoing message", None).await;
+    let (status, task_id) = send_webhook(&http, &config_id, "First ongoing message", None).await;
     assert_eq!(status, 200);
     let ongoing_task_id = task_id.expect("should return task_id");
     task_ids.push(ongoing_task_id.clone());
@@ -172,15 +169,13 @@ async fn channel_ongoing_routing() {
     );
 
     // CHAN-22: Second message routes to same task
-    let (status, task_id) =
-        send_webhook(&http, &config_id, "Second ongoing message", None).await;
+    let (status, task_id) = send_webhook(&http, &config_id, "Second ongoing message", None).await;
     assert_eq!(status, 200);
     assert_eq!(task_id.as_deref(), Some(ongoing_task_id.as_str()));
 
     // CHAN-23: After task closed, next message creates new task
     client.api().close_task(&ongoing_task_id).await.unwrap();
-    let (status, task_id) =
-        send_webhook(&http, &config_id, "Message after close", None).await;
+    let (status, task_id) = send_webhook(&http, &config_id, "Message after close", None).await;
     assert_eq!(status, 200);
     let new_task_id = task_id.expect("should return task_id");
     assert_ne!(new_task_id, ongoing_task_id);
@@ -191,7 +186,10 @@ async fn channel_ongoing_routing() {
 
     // Config should now point to the new task
     let config = client.api().get_channel_config(&config_id).await.unwrap();
-    assert_eq!(config.ongoing_task_id.as_deref(), Some(new_task_id.as_str()));
+    assert_eq!(
+        config.ongoing_task_id.as_deref(),
+        Some(new_task_id.as_str())
+    );
 
     // Cleanup
     let _ = client.api().delete_channel_config(&config_id).await;
@@ -225,6 +223,7 @@ async fn channel_thread_based_routing() {
         task_name: None,
         tag_ids: None,
         run_as_user_id: None,
+        allow_direct_send: None,
     };
     let config = client.api().create_channel_config(&req).await.unwrap();
     assert!(config.active);
@@ -233,37 +232,22 @@ async fn channel_thread_based_routing() {
 
     // CHAN-31: New message creates task
     let thread_a = format!("thread-a-{suffix}");
-    let (status, task_id) = send_webhook(
-        &http,
-        &config_id,
-        "First thread message",
-        Some(&thread_a),
-    )
-    .await;
+    let (status, task_id) =
+        send_webhook(&http, &config_id, "First thread message", Some(&thread_a)).await;
     assert_eq!(status, 200);
     let first_task_id = task_id.expect("should return task_id");
     task_ids.push(first_task_id.clone());
 
     // CHAN-32: Reply in same thread routes to same task
-    let (status, task_id) = send_webhook(
-        &http,
-        &config_id,
-        "Reply in same thread",
-        Some(&thread_a),
-    )
-    .await;
+    let (status, task_id) =
+        send_webhook(&http, &config_id, "Reply in same thread", Some(&thread_a)).await;
     assert_eq!(status, 200);
     assert_eq!(task_id.as_deref(), Some(first_task_id.as_str()));
 
     // CHAN-33: New thread creates new task
     let thread_b = format!("thread-b-{suffix}");
-    let (status, task_id) = send_webhook(
-        &http,
-        &config_id,
-        "Message in new thread",
-        Some(&thread_b),
-    )
-    .await;
+    let (status, task_id) =
+        send_webhook(&http, &config_id, "Message in new thread", Some(&thread_b)).await;
     assert_eq!(status, 200);
     let second_task_id = task_id.expect("should return task_id");
     assert_ne!(second_task_id, first_task_id);

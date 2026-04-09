@@ -33,10 +33,7 @@ pub fn spawn_telegram_poller(
             return;
         };
 
-        let Some(telegram_provider) = telegram
-            .as_any()
-            .downcast_ref::<TelegramProvider>()
-        else {
+        let Some(telegram_provider) = telegram.as_any().downcast_ref::<TelegramProvider>() else {
             error!("Telegram poller: provider type mismatch");
             return;
         };
@@ -46,7 +43,9 @@ pub fn spawn_telegram_poller(
         // Delete any existing webhook so getUpdates works
         match api.delete_webhook().await {
             Ok(()) => info!("Telegram poller: cleared existing webhook"),
-            Err(e) => warn!(error = %e, "Telegram poller: failed to delete webhook, continuing anyway"),
+            Err(e) => {
+                warn!(error = %e, "Telegram poller: failed to delete webhook, continuing anyway")
+            }
         }
 
         let mut offset: Option<i64> = None;
@@ -67,7 +66,9 @@ pub fn spawn_telegram_poller(
 
                     for update in &updates {
                         // Advance offset so Telegram discards this update
-                        if let Some(uid) = update.get("update_id").and_then(serde_json::Value::as_i64) {
+                        if let Some(uid) =
+                            update.get("update_id").and_then(serde_json::Value::as_i64)
+                        {
                             offset = Some(uid + 1);
                         }
 
@@ -79,12 +80,9 @@ pub fn spawn_telegram_poller(
                             }
                         };
 
-                        if let Err(e) = resolve_and_process_telegram_update(
-                            &state,
-                            telegram_provider,
-                            &body,
-                        )
-                        .await
+                        if let Err(e) =
+                            resolve_and_process_telegram_update(&state, telegram_provider, &body)
+                                .await
                         {
                             warn!(error = %e, "Telegram poller: failed to process update");
                         }

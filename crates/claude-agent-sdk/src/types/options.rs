@@ -197,9 +197,7 @@ pub struct SandboxNetworkConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum OutputFormat {
-    JsonSchema {
-        schema: Value,
-    },
+    JsonSchema { schema: Value },
 }
 
 /// Plugin entry as reported in system init messages.

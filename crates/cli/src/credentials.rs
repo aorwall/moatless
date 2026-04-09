@@ -62,8 +62,7 @@ pub fn save_credential(host: &str, api_key: &str, login: &str) -> Result<(), Str
     {
         use std::os::unix::fs::PermissionsExt;
         let perms = fs::Permissions::from_mode(0o600);
-        fs::set_permissions(&path, perms)
-            .map_err(|e| format!("Failed to set permissions: {e}"))?;
+        fs::set_permissions(&path, perms).map_err(|e| format!("Failed to set permissions: {e}"))?;
     }
 
     Ok(())

@@ -23,7 +23,9 @@ async fn main() -> claude_agent_sdk::Result<()> {
 
     // First turn
     println!("--- Turn 1 ---");
-    client.send("Remember the number 42. Just confirm you've noted it.", "").await?;
+    client
+        .send("Remember the number 42. Just confirm you've noted it.", "")
+        .await?;
 
     let mut session_id = String::new();
     loop {
@@ -56,7 +58,9 @@ async fn main() -> claude_agent_sdk::Result<()> {
 
     // Second turn (continues the same session)
     println!("\n--- Turn 2 ---");
-    client.send("What number did I ask you to remember?", &session_id).await?;
+    client
+        .send("What number did I ask you to remember?", &session_id)
+        .await?;
 
     loop {
         match client.recv().await {
