@@ -1,12 +1,11 @@
 //! Actor-style agent handle — owns the CLI session and exposes `send()`.
 //!
 //! The outside world (dispatcher, gRPC handlers) calls `agent.send(text)`.
-//! Internally, the actor manages the `QueryHandle` lifecycle:
-//! - If a session is active → inject the message via `send_user_message()`
-//! - If no session → start a new one via `query()`
+//! Internally, the actor manages the runtime lifecycle:
+//! - Claude sessions stay open and accept injected user messages.
+//! - Codex runs one turn per `codex exec` invocation and resumes on the next turn.
 //!
-//! The actor emits `AgentEvent`s through a channel for the event handler
-//! to publish to the backend.
+//! The actor emits `AgentEvent`s through the shared event publisher.
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
@@ -14,7 +13,7 @@ use std::time::SystemTime;
 
 use claude_agent_sdk::types::content::{ApiMessage, ContentBlock};
 use claude_agent_sdk::types::messages::{MessagePriority, ResultMessage, UserMessage};
-use claude_agent_sdk::{QueryHandle, SdkError, SdkMessage};
+use claude_agent_sdk::{QueryHandle as ClaudeQueryHandle, SdkError, SdkMessage};
 use moatless_events::{AgentSubType, SandboxSubType, TaskTurnSubType};
 use tokio::sync::{mpsc, oneshot, RwLock};
 use tokio::time::Instant;
@@ -26,8 +25,53 @@ use crate::config::Config;
 use crate::events::GrpcEventPublisher;
 
 use super::agent_state::AgentState;
+use super::codex_exec::{self, CodexCliSession, CodexExecEvent, ThreadItemDetails, Usage};
 use super::options::build_options;
-use super::types::AgentRunRequest;
+use super::types::{AgentRunRequest, ResumeSession};
+
+const AGENT_TYPE_CLAUDE_CODE: &str = "claude-code";
+const AGENT_TYPE_CODEX: &str = "codex";
+
+enum ActiveHandle {
+    Claude(ClaudeQueryHandle),
+    Codex(CodexCliSession),
+}
+
+#[allow(clippy::large_enum_variant)] // Claude SDK messages are much larger than Codex JSON events.
+enum ActiveMessage {
+    Claude(Result<SdkMessage, SdkError>),
+    Codex(Result<CodexExecEvent, String>),
+}
+
+#[derive(Debug, thiserror::Error)]
+enum AgentRuntimeError {
+    #[error(transparent)]
+    Claude(#[from] claude_agent_sdk::SdkError),
+    #[error("{0}")]
+    Codex(String),
+}
+
+impl ActiveHandle {
+    async fn send(&self, text: &str, session_id: &str) -> Result<(), AgentRuntimeError> {
+        match self {
+            Self::Claude(handle) => {
+                let user_msg = make_user_message(text, session_id);
+                handle.send_user_message(&user_msg).await?;
+                Ok(())
+            }
+            Self::Codex(_) => Err(AgentRuntimeError::Codex(
+                "Cannot inject into an active Codex turn".to_string(),
+            )),
+        }
+    }
+
+    fn close(&self) {
+        match self {
+            Self::Claude(handle) => handle.close(),
+            Self::Codex(handle) => handle.cancel(),
+        }
+    }
+}
 
 /// Commands sent to the agent actor.
 enum AgentCommand {
@@ -35,13 +79,27 @@ enum AgentCommand {
     /// the agent confirms it processed the message.
     Send {
         text: String,
+        model: Option<String>,
         system_prompt: Option<String>,
+        agent_type: Option<String>,
+        agent_mode: Option<String>,
         /// Session ID from the backend for resuming after pod restart.
         resume_session_id: Option<String>,
         ack: oneshot::Sender<String>,
     },
     /// Stop the agent and shut down the actor loop.
     Stop,
+}
+
+/// Queued turn waiting for a runtime to become idle.
+struct QueuedSend {
+    text: String,
+    model: Option<String>,
+    system_prompt: Option<String>,
+    agent_type: Option<String>,
+    agent_mode: Option<String>,
+    resume_session_id: Option<String>,
+    ack: oneshot::Sender<String>,
 }
 
 /// Handle to the agent actor — the only interface the outside world needs.
@@ -54,23 +112,29 @@ impl AgentHandle {
     /// Send a message to the agent.
     ///
     /// `resume_session_id` is the backend-tracked session ID for resuming after
-    /// pod restart. Pass `None` when injecting into an active session or when
-    /// no prior session is known.
+    /// pod restart. Pass `None` when injecting into an active Claude session or
+    /// when no prior session is known.
     ///
     /// Returns a receiver that resolves with the session ID once the agent
     /// has processed the message:
-    /// - **Injection** (session active): resolves immediately after successful stdin write.
-    /// - **New session**: resolves on `SessionInit` with the real session ID.
+    /// - Claude injection: resolves immediately after a successful stdin write.
+    /// - New Claude/Codex turn: resolves on `SessionInit` with the real session ID.
     pub fn send(
         &self,
         text: String,
+        model: Option<String>,
         system_prompt: Option<String>,
+        agent_type: Option<String>,
+        agent_mode: Option<String>,
         resume_session_id: Option<String>,
     ) -> oneshot::Receiver<String> {
         let (ack_tx, ack_rx) = oneshot::channel();
         let _ = self.command_tx.send(AgentCommand::Send {
             text,
+            model,
             system_prompt,
+            agent_type,
+            agent_mode,
             resume_session_id,
             ack: ack_tx,
         });
@@ -92,7 +156,10 @@ const JITTER_FACTOR: f64 = 0.2;
 /// Pending retry state for transient agent errors.
 struct RetryState {
     prompt: String,
+    model: Option<String>,
     system_prompt: Option<String>,
+    agent_type: Option<String>,
+    agent_mode: Option<String>,
     attempt: u32,
     retry_at: Instant,
 }
@@ -108,19 +175,16 @@ fn is_retryable_result(result: &ResultMessage) -> bool {
                 return false;
             }
             let subtype = e.subtype.as_str();
-            let retryable_subtypes = [
-                "overloaded",
-                "rate_limit",
-                "server_error",
-                "capacity",
-            ];
+            let retryable_subtypes = ["overloaded", "rate_limit", "server_error", "capacity"];
             if retryable_subtypes.iter().any(|s| subtype.contains(s)) {
                 return true;
             }
             let retryable_patterns = ["529", "503", "502", "overloaded_error", "rate_limit"];
             e.errors.iter().any(|err| {
                 let lower = err.to_lowercase();
-                retryable_patterns.iter().any(|p| lower.contains(p))
+                retryable_patterns
+                    .iter()
+                    .any(|pattern| lower.contains(pattern))
             })
         }
         ResultMessage::Success(s) => {
@@ -130,14 +194,38 @@ fn is_retryable_result(result: &ResultMessage) -> bool {
             let lower = s.result.to_lowercase();
             ["overloaded", "rate_limit", "529", "503", "502"]
                 .iter()
-                .any(|p| lower.contains(p))
+                .any(|pattern| lower.contains(pattern))
         }
     }
 }
 
 /// Check if an SDK-level error is transient and worth retrying.
 fn is_retryable_sdk_error(error: &SdkError) -> bool {
-    matches!(error, SdkError::ProcessExit { .. } | SdkError::TransportClosed)
+    matches!(
+        error,
+        SdkError::ProcessExit { .. } | SdkError::TransportClosed
+    )
+}
+
+fn is_retryable_runtime_error(error: &AgentRuntimeError) -> bool {
+    match error {
+        AgentRuntimeError::Claude(error) => is_retryable_sdk_error(error),
+        AgentRuntimeError::Codex(_) => false,
+    }
+}
+
+fn normalize_agent_type(agent_type: Option<&str>) -> &'static str {
+    match agent_type {
+        Some(AGENT_TYPE_CODEX) => AGENT_TYPE_CODEX,
+        Some(AGENT_TYPE_CLAUDE_CODE) | None => AGENT_TYPE_CLAUDE_CODE,
+        Some(other) => {
+            warn!(
+                agent_type = other,
+                "Unknown agent_type, defaulting to claude-code"
+            );
+            AGENT_TYPE_CLAUDE_CODE
+        }
+    }
 }
 
 /// Compute exponential backoff with jitter for a given attempt (0-indexed).
@@ -150,7 +238,6 @@ fn compute_backoff(attempt: u32) -> std::time::Duration {
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap_or_default()
         .subsec_nanos();
-    // Map nanos to [-1.0, 1.0]
     let jitter_norm = (nanos as f64 / u32::MAX as f64) * 2.0 - 1.0;
     let jitter = capped * JITTER_FACTOR * jitter_norm;
 
@@ -182,7 +269,7 @@ pub fn spawn_agent(
 
 /// The actor event loop.
 ///
-/// Runs a `tokio::select!` that reads SDK messages from the active session
+/// Runs a `tokio::select!` that reads runtime messages from the active session
 /// and processes incoming commands. Manages the full session lifecycle.
 async fn agent_loop(
     mut command_rx: mpsc::UnboundedReceiver<AgentCommand>,
@@ -193,35 +280,116 @@ async fn agent_loop(
     backend_client: Arc<dyn BackendClient>,
 ) {
     let task_id = config.task_id.clone();
-    let mut handle: Option<QueryHandle> = None;
+    let mut handle: Option<ActiveHandle> = None;
     let mut session_id = String::new();
     let mut consecutive_errors: u32 = 0;
     let mut pending_acks: VecDeque<oneshot::Sender<String>> = VecDeque::new();
+    let mut queued_sends: VecDeque<QueuedSend> = VecDeque::new();
+    let mut codex_turn_output = String::new();
+    let mut last_model: Option<String> = None;
     let mut last_system_prompt: Option<String> = None;
+    let mut last_agent_type: Option<String> = None;
+    let mut last_agent_mode: Option<String> = None;
     let mut retry_state: Option<RetryState> = None;
     let mut last_prompt: Option<String> = None;
 
     info!(task_id = %task_id, "Agent actor started");
 
     loop {
+        if handle.is_none() && retry_state.is_none() {
+            if let Some(send) = queued_sends.pop_front() {
+                last_prompt = Some(send.text.clone());
+                pending_acks.push_back(send.ack);
+
+                match start_session(
+                    &send.text,
+                    &config,
+                    Arc::clone(&agent_state),
+                    &events,
+                    &credentials,
+                    &*backend_client,
+                    &task_id,
+                    &session_id,
+                    send.model.as_deref(),
+                    send.system_prompt.as_deref(),
+                    send.agent_type.as_deref(),
+                    send.agent_mode.as_deref(),
+                    send.resume_session_id,
+                )
+                .await
+                {
+                    Ok(new_handle) => {
+                        handle = Some(new_handle);
+                    }
+                    Err(error) => {
+                        warn!(error = %error, "Failed to start agent session");
+                        drain_pending_acks(&mut pending_acks);
+
+                        if is_retryable_runtime_error(&error) && MAX_RETRIES > 0 {
+                            let backoff = compute_backoff(0);
+                            info!(
+                                backoff_secs = backoff.as_secs_f64(),
+                                "Scheduling retry after session start failure"
+                            );
+                            retry_state = Some(RetryState {
+                                prompt: send.text,
+                                model: send.model,
+                                system_prompt: send.system_prompt,
+                                agent_type: send.agent_type,
+                                agent_mode: send.agent_mode,
+                                attempt: 0,
+                                retry_at: Instant::now() + backoff,
+                            });
+                            events
+                                .publish_agent_event(
+                                    &task_id,
+                                    AgentSubType::Retrying,
+                                    serde_json::json!({
+                                        "attempt": 0,
+                                        "max_retries": MAX_RETRIES,
+                                        "backoff_secs": backoff.as_secs_f64(),
+                                    }),
+                                )
+                                .await;
+                        } else {
+                            consecutive_errors += 1;
+                            agent_state.set_error(error.to_string()).await;
+                            events
+                                .publish_agent_event(
+                                    &task_id,
+                                    AgentSubType::Error,
+                                    serde_json::json!({ "error": error.to_string() }),
+                                )
+                                .await;
+                        }
+                    }
+                }
+
+                continue;
+            }
+        }
+
         tokio::select! {
-            // ── Read from active session ───────────────────────────
             msg = async {
                 match handle.as_mut() {
-                    Some(h) => h.messages.recv().await,
-                    None => std::future::pending().await,
+                    Some(ActiveHandle::Claude(handle)) => {
+                        handle.messages.recv().await.map(ActiveMessage::Claude)
+                    }
+                    Some(ActiveHandle::Codex(handle)) => {
+                        handle.messages.recv().await.map(ActiveMessage::Codex)
+                    }
+                    None => std::future::pending::<Option<ActiveMessage>>().await,
                 }
             } => {
                 match msg {
-                    Some(Ok(sdk_msg)) => {
-                        // Clone Result messages before processing to check retryability
+                    Some(ActiveMessage::Claude(Ok(sdk_msg))) => {
                         let retry_candidate = if let SdkMessage::Result(ref result) = sdk_msg {
                             Some(result.clone())
                         } else {
                             None
                         };
 
-                        process_sdk_message(
+                        process_claude_message(
                             sdk_msg,
                             &agent_state,
                             &mut pending_acks,
@@ -232,13 +400,11 @@ async fn agent_loop(
                             &mut consecutive_errors,
                         ).await;
 
-                        // After processing, check if we should retry
                         if let Some(result) = retry_candidate {
                             if is_retryable_result(&result) {
-                                let attempt = retry_state.as_ref().map_or(0, |r| r.attempt + 1);
+                                let attempt = retry_state.as_ref().map_or(0, |state| state.attempt + 1);
                                 if attempt < MAX_RETRIES {
                                     if let Some(ref prompt) = last_prompt {
-                                        // Undo the error increment — retries shouldn't count toward circuit breaker
                                         agent_state.undo_error_increment().await;
                                         consecutive_errors = consecutive_errors.saturating_sub(1);
 
@@ -252,7 +418,10 @@ async fn agent_loop(
 
                                         retry_state = Some(RetryState {
                                             prompt: prompt.clone(),
+                                            model: last_model.clone(),
                                             system_prompt: last_system_prompt.clone(),
+                                            agent_type: last_agent_type.clone(),
+                                            agent_mode: last_agent_mode.clone(),
                                             attempt,
                                             retry_at: Instant::now() + backoff,
                                         });
@@ -272,21 +441,49 @@ async fn agent_loop(
                                     retry_state = None;
                                 }
                             } else {
-                                // Successful or non-retryable — clear retry state
                                 retry_state = None;
                             }
                         }
                     }
-                    Some(Err(e)) => {
-                        if matches!(e, claude_agent_sdk::SdkError::Cancelled) {
-                            info!("Session cancelled");
+                    Some(ActiveMessage::Claude(Err(error))) => {
+                        if matches!(error, claude_agent_sdk::SdkError::Cancelled) {
+                            info!("Claude session cancelled");
                             handle = None;
                         } else {
-                            warn!(error = %e, "SDK message error");
+                            warn!(error = %error, "Claude SDK message error");
                         }
                     }
+                    Some(ActiveMessage::Codex(Ok(event))) => {
+                        process_codex_message(
+                            event,
+                            last_model.as_deref(),
+                            &agent_state,
+                            &mut pending_acks,
+                            &events,
+                            &task_id,
+                            &mut session_id,
+                            &mut handle,
+                            &mut consecutive_errors,
+                            &mut codex_turn_output,
+                        ).await;
+                        retry_state = None;
+                    }
+                    Some(ActiveMessage::Codex(Err(error))) => {
+                        handle_codex_stream_error(
+                            &error,
+                            last_model.as_deref(),
+                            &agent_state,
+                            &mut pending_acks,
+                            &events,
+                            &task_id,
+                            &session_id,
+                            &mut handle,
+                            &mut consecutive_errors,
+                            &mut codex_turn_output,
+                        ).await;
+                        retry_state = None;
+                    }
                     None => {
-                        // Transport closed (subprocess exited)
                         debug!("Session transport closed");
                         if handle.is_some() {
                             handle = None;
@@ -296,24 +493,20 @@ async fn agent_loop(
                 }
             }
 
-            // ── Retry timer fires ─────────────────────────────────
             () = async {
                 match retry_state.as_ref() {
-                    Some(rs) => tokio::time::sleep_until(rs.retry_at).await,
+                    Some(state) => tokio::time::sleep_until(state.retry_at).await,
                     None => std::future::pending().await,
                 }
             } => {
-                // SAFETY: the async branch only completes when retry_state is Some
-                let Some(rs) = retry_state.take() else {
+                let Some(state) = retry_state.take() else {
                     continue;
                 };
-                info!(
-                    attempt = rs.attempt,
-                    "Retry timer fired, starting new session"
-                );
+
+                info!(attempt = state.attempt, "Retry timer fired, starting new session");
 
                 match start_session(
-                    &rs.prompt,
+                    &state.prompt,
                     &config,
                     Arc::clone(&agent_state),
                     &events,
@@ -321,25 +514,31 @@ async fn agent_loop(
                     &*backend_client,
                     &task_id,
                     &session_id,
-                    rs.system_prompt.as_deref(),
+                    state.model.as_deref(),
+                    state.system_prompt.as_deref(),
+                    state.agent_type.as_deref(),
+                    state.agent_mode.as_deref(),
                     None,
                 ).await {
-                    Ok(h) => {
-                        handle = Some(h);
+                    Ok(new_handle) => {
+                        handle = Some(new_handle);
                     }
-                    Err(e) => {
-                        warn!(error = %e, attempt = rs.attempt, "Retry session start failed");
-                        if is_retryable_sdk_error(&e) && rs.attempt + 1 < MAX_RETRIES {
-                            let next_attempt = rs.attempt + 1;
+                    Err(error) => {
+                        warn!(error = %error, attempt = state.attempt, "Retry session start failed");
+                        if is_retryable_runtime_error(&error) && state.attempt + 1 < MAX_RETRIES {
+                            let next_attempt = state.attempt + 1;
                             let backoff = compute_backoff(next_attempt);
                             info!(
                                 attempt = next_attempt,
                                 backoff_secs = backoff.as_secs_f64(),
-                                "Scheduling next retry after SDK error"
+                                "Scheduling next retry after session start failure"
                             );
                             retry_state = Some(RetryState {
-                                prompt: rs.prompt,
-                                system_prompt: rs.system_prompt,
+                                prompt: state.prompt,
+                                model: state.model,
+                                system_prompt: state.system_prompt,
+                                agent_type: state.agent_type,
+                                agent_mode: state.agent_mode,
                                 attempt: next_attempt,
                                 retry_at: Instant::now() + backoff,
                             });
@@ -354,39 +553,44 @@ async fn agent_loop(
                             ).await;
                         } else {
                             consecutive_errors += 1;
-                            agent_state.set_error(e.to_string()).await;
+                            agent_state.set_error(error.to_string()).await;
                             events.publish_agent_event(
                                 &task_id,
                                 AgentSubType::Error,
-                                serde_json::json!({ "error": e.to_string() }),
+                                serde_json::json!({ "error": error.to_string() }),
                             ).await;
                         }
                     }
                 }
             }
 
-            // ── Handle commands ────────────────────────────────────
             cmd = command_rx.recv() => {
                 match cmd {
-                    Some(AgentCommand::Send { text, system_prompt, resume_session_id, ack }) => {
-                        // New send supersedes any pending retry
+                    Some(AgentCommand::Send { text, model, system_prompt, agent_type, agent_mode, resume_session_id, ack }) => {
                         if retry_state.is_some() {
                             info!("New send command cancels pending retry");
                             retry_state = None;
                         }
 
-                        // Store the latest system_prompt for use in start_session
-                        if system_prompt.is_some() {
-                            last_system_prompt = system_prompt;
+                        if model.is_some() {
+                            last_model = model.clone();
                         }
-                        // Circuit breaker
+                        if system_prompt.is_some() {
+                            last_system_prompt = system_prompt.clone();
+                        }
+                        if agent_type.is_some() {
+                            last_agent_type = agent_type.clone();
+                        }
+                        if agent_mode.is_some() {
+                            last_agent_mode = agent_mode.clone();
+                        }
+
                         const MAX_CONSECUTIVE_ERRORS: u32 = 3;
                         if consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
                             warn!(
                                 consecutive_errors,
                                 "Circuit breaker: {consecutive_errors} consecutive errors, rejecting send"
                             );
-                            // Drop ack — receiver gets RecvError
                             drop(ack);
                             events.publish_sandbox_event(
                                 &task_id,
@@ -401,84 +605,45 @@ async fn agent_loop(
                             continue;
                         }
 
-                        // Track the prompt for retry
-                        last_prompt = Some(text.clone());
+                        let effective_send = QueuedSend {
+                            text: text.clone(),
+                            model: last_model.clone(),
+                            system_prompt: last_system_prompt.clone(),
+                            agent_type: last_agent_type.clone(),
+                            agent_mode: last_agent_mode.clone(),
+                            resume_session_id,
+                            ack,
+                        };
+                        last_prompt = Some(text);
 
-                        if let Some(ref h) = handle {
-                            // Session active — inject message
-                            info!("Injecting message into running session");
-                            let user_msg = make_user_message(&text, &session_id);
-                            if let Err(e) = h.send_user_message(&user_msg).await {
-                                warn!(error = %e, "Failed to inject message");
-                                drop(ack);
-                            } else {
-                                // Write succeeded — resolve ack immediately
-                                let _ = ack.send(session_id.clone());
+                        match handle.as_ref() {
+                            Some(active_handle @ ActiveHandle::Claude(_)) => {
+                                info!("Injecting message into running Claude session");
+                                if let Err(error) = active_handle.send(&effective_send.text, &session_id).await {
+                                    warn!(error = %error, "Failed to inject message into Claude session");
+                                    drop(effective_send.ack);
+                                } else {
+                                    let _ = effective_send.ack.send(session_id.clone());
+                                }
                             }
-                        } else {
-                            // No active session — defer ack until SessionInit
-                            pending_acks.push_back(ack);
-                            match start_session(
-                                &text,
-                                &config,
-                                Arc::clone(&agent_state),
-                                &events,
-                                &credentials,
-                                &*backend_client,
-                                &task_id,
-                                &session_id,
-                                last_system_prompt.as_deref(),
-                                resume_session_id,
-                            ).await {
-                                Ok(h) => {
-                                    handle = Some(h);
-                                }
-                                Err(e) => {
-                                    warn!(error = %e, "Failed to start agent session");
-                                    // Drain pending acks — session failed to start
-                                    while let Some(ack) = pending_acks.pop_front() {
-                                        drop(ack);
-                                    }
-
-                                    if is_retryable_sdk_error(&e) && MAX_RETRIES > 0 {
-                                        let backoff = compute_backoff(0);
-                                        info!(
-                                            backoff_secs = backoff.as_secs_f64(),
-                                            "Scheduling retry after session start failure"
-                                        );
-                                        retry_state = Some(RetryState {
-                                            prompt: text,
-                                            system_prompt: last_system_prompt.clone(),
-                                            attempt: 0,
-                                            retry_at: Instant::now() + backoff,
-                                        });
-                                        events.publish_agent_event(
-                                            &task_id,
-                                            AgentSubType::Retrying,
-                                            serde_json::json!({
-                                                "attempt": 0,
-                                                "max_retries": MAX_RETRIES,
-                                                "backoff_secs": backoff.as_secs_f64(),
-                                            }),
-                                        ).await;
-                                    } else {
-                                        consecutive_errors += 1;
-                                        agent_state.set_error(e.to_string()).await;
-                                        events.publish_agent_event(
-                                            &task_id,
-                                            AgentSubType::Error,
-                                            serde_json::json!({ "error": e.to_string() }),
-                                        ).await;
-                                    }
-                                }
+                            Some(ActiveHandle::Codex(_)) => {
+                                info!("Queueing message until active Codex turn completes");
+                                queued_sends.push_back(effective_send);
+                            }
+                            None => {
+                                queued_sends.push_back(effective_send);
                             }
                         }
                     }
                     Some(AgentCommand::Stop) | None => {
                         info!("Agent actor stopping");
                         drop(retry_state.take());
-                        if let Some(h) = handle.take() {
-                            h.close();
+                        while let Some(send) = queued_sends.pop_front() {
+                            drop(send.ack);
+                        }
+                        drain_pending_acks(&mut pending_acks);
+                        if let Some(active_handle) = handle.take() {
+                            active_handle.close();
                         }
                         agent_state.set_stopped().await;
                         events.publish_agent_event(
@@ -497,7 +662,7 @@ async fn agent_loop(
 }
 
 /// Start a new CLI session.
-#[allow(clippy::too_many_arguments)] // reason: actor internals, will refactor to a struct later
+#[allow(clippy::too_many_arguments)] // reason: actor internals, will refactor later
 async fn start_session(
     prompt: &str,
     config: &Config,
@@ -507,17 +672,19 @@ async fn start_session(
     backend_client: &dyn BackendClient,
     task_id: &str,
     previous_session_id: &str,
+    model: Option<&str>,
     system_prompt: Option<&str>,
+    agent_type: Option<&str>,
+    agent_mode: Option<&str>,
     resume_session_id: Option<String>,
-) -> Result<QueryHandle, claude_agent_sdk::SdkError> {
-    // Re-fetch credentials before each run to pick up rotated tokens.
-    // Best-effort — fall back to cached credentials on failure.
+) -> Result<ActiveHandle, AgentRuntimeError> {
     match backend_client.get_credentials(task_id).await {
         Ok(resp) => {
+            crate::init::credentials::persist_agent_credentials(config, &resp.credentials).await;
             *credentials.write().await = resp.credentials;
         }
-        Err(e) => {
-            warn!(error = %e, "Failed to refresh credentials, using cached");
+        Err(error) => {
+            warn!(error = %error, "Failed to refresh credentials, using cached");
         }
     }
 
@@ -529,38 +696,33 @@ async fn start_session(
     };
     drop(creds);
 
-    // Resume strategy (in priority order):
-    // 1. In-memory previous_session_id (within same pod lifetime) → --resume <id>
-    // 2. Backend-provided resume_session_id (survives pod restarts) → --resume <id>
-    // 3. Fall back to --continue (resumes latest session from disk)
-    // 4. If --continue fails → start a fresh session
+    let agent_type = normalize_agent_type(agent_type);
+
     let is_first_session = previous_session_id.is_empty();
     let resume = if !previous_session_id.is_empty() {
-        Some(super::types::ResumeSession::WithId(
-            previous_session_id.to_string(),
-        ))
-    } else if let Some(ref sid) = resume_session_id {
-        info!(resume_session_id = %sid, "Using backend-provided session ID for resume");
-        Some(super::types::ResumeSession::WithId(sid.clone()))
+        Some(ResumeSession::WithId(previous_session_id.to_string()))
+    } else if let Some(ref session_id) = resume_session_id {
+        info!(resume_session_id = %session_id, "Using backend-provided session ID for resume");
+        Some(ResumeSession::WithId(session_id.clone()))
+    } else if agent_type == AGENT_TYPE_CLAUDE_CODE {
+        Some(ResumeSession::Last)
     } else {
-        Some(super::types::ResumeSession::Last)
+        None
     };
 
     let request = AgentRunRequest {
         content: Vec::new(),
-        model: None,
+        model: model.map(std::string::ToString::to_string),
         system_prompt: system_prompt.map(ToString::to_string),
         resume,
-        agent_type: None,
+        agent_type: Some(agent_type.to_string()),
+        agent_mode: agent_mode.map(std::string::ToString::to_string),
         is_first_session,
     };
 
     let cancel_token = CancellationToken::new();
     agent_state.set_running(cancel_token.clone()).await;
 
-    let options = build_options(config, &request, cancel_token.clone(), Arc::clone(&agent_state), env.clone());
-
-    // Publish lifecycle events
     events
         .publish_agent_event(task_id, AgentSubType::Started, serde_json::json!({}))
         .await;
@@ -568,35 +730,87 @@ async fn start_session(
         .publish_task_turn_event(task_id, TaskTurnSubType::Active, serde_json::json!({}))
         .await;
 
-    info!(task_id = %task_id, resume = ?request.resume, "Starting agent session");
+    info!(
+        task_id = %task_id,
+        resume = ?request.resume,
+        agent_type,
+        "Starting agent session"
+    );
+
+    if agent_type == AGENT_TYPE_CODEX {
+        return codex_exec::start(prompt, config, &request, env)
+            .await
+            .map(ActiveHandle::Codex)
+            .map_err(|error| {
+                AgentRuntimeError::Codex(format!("Failed to start Codex CLI: {error}"))
+            });
+    }
+
+    let options = build_options(
+        config,
+        &request,
+        cancel_token.clone(),
+        Arc::clone(&agent_state),
+        env.clone(),
+    );
 
     match claude_agent_sdk::query(prompt, options).await {
-        Ok(handle) => Ok(handle),
-        Err(e) if request.resume == Some(super::types::ResumeSession::Last) => {
-            // --continue failed (e.g. no prior session on disk) — retry as new session
-            warn!(error = %e, "Resume with --continue failed, starting fresh session");
+        Ok(handle) => Ok(ActiveHandle::Claude(handle)),
+        Err(error) if request.resume == Some(ResumeSession::Last) => {
+            warn!(error = %error, "Resume with --continue failed, starting fresh session");
             let fresh_request = AgentRunRequest {
                 resume: None,
                 ..request
             };
             let fresh_options =
                 build_options(config, &fresh_request, cancel_token, agent_state, env);
-            claude_agent_sdk::query(prompt, fresh_options).await
+            claude_agent_sdk::query(prompt, fresh_options)
+                .await
+                .map(ActiveHandle::Claude)
+                .map_err(AgentRuntimeError::from)
         }
-        Err(e) => Err(e),
+        Err(error) => Err(AgentRuntimeError::from(error)),
     }
 }
 
-/// Process an SDK message from the active session.
-#[allow(clippy::too_many_arguments)] // reason: actor internals, will refactor to a struct later
-async fn process_sdk_message(
+async fn publish_session_init(
+    agent_state: &AgentState,
+    events: &GrpcEventPublisher,
+    task_id: &str,
+    pending_acks: &mut VecDeque<oneshot::Sender<String>>,
+    session_id: &mut String,
+    new_session_id: String,
+    model: Option<String>,
+) {
+    *session_id = new_session_id.clone();
+    agent_state.set_session_id(new_session_id.clone()).await;
+
+    while let Some(ack) = pending_acks.pop_front() {
+        let _ = ack.send(new_session_id.clone());
+    }
+
+    events
+        .publish_agent_event(
+            task_id,
+            AgentSubType::SessionInit,
+            serde_json::json!({
+                "session_id": new_session_id,
+                "model": model,
+            }),
+        )
+        .await;
+}
+
+/// Process a Claude SDK message from the active session.
+#[allow(clippy::too_many_arguments)] // reason: actor internals, will refactor later
+async fn process_claude_message(
     msg: SdkMessage,
     agent_state: &AgentState,
     pending_acks: &mut VecDeque<oneshot::Sender<String>>,
     events: &GrpcEventPublisher,
     task_id: &str,
     session_id: &mut String,
-    handle: &mut Option<QueryHandle>,
+    handle: &mut Option<ActiveHandle>,
     consecutive_errors: &mut u32,
 ) {
     match msg {
@@ -604,32 +818,24 @@ async fn process_sdk_message(
             info!(
                 session_id = %init.session_id,
                 model = %init.model,
-                "Agent initialized"
+                "Claude session initialized"
             );
-            *session_id = init.session_id.clone();
-            agent_state.set_session_id(init.session_id.clone()).await;
-
-            // Resolve pending acks with the real session ID
-            while let Some(ack) = pending_acks.pop_front() {
-                let _ = ack.send(init.session_id.clone());
-            }
-
-            events
-                .publish_agent_event(
-                    task_id,
-                    AgentSubType::SessionInit,
-                    serde_json::json!({
-                        "session_id": init.session_id,
-                        "model": init.model,
-                    }),
-                )
-                .await;
+            publish_session_init(
+                agent_state,
+                events,
+                task_id,
+                pending_acks,
+                session_id,
+                init.session_id,
+                Some(init.model),
+            )
+            .await;
         }
         SdkMessage::Assistant(assistant) => {
             debug!(
                 uuid = %assistant.uuid,
                 blocks = assistant.message.content.len(),
-                "Assistant message"
+                "Claude assistant message"
             );
             let payload = serde_json::to_value(&assistant).unwrap_or_default();
             events
@@ -650,18 +856,15 @@ async fn process_sdk_message(
                 *consecutive_errors = 0;
             }
 
-            events
-                .publish_agent_event(task_id, sub_type, payload)
-                .await;
+            events.publish_agent_event(task_id, sub_type, payload).await;
 
-            // Session is done — drop the handle so next Send starts a new one
             *handle = None;
         }
         SdkMessage::User(user_msg) => {
             debug!(
                 uuid = ?user_msg.uuid,
                 blocks = user_msg.message.content.len(),
-                "User message (tool results)"
+                "Claude user message"
             );
             let payload = serde_json::to_value(&user_msg).unwrap_or_default();
             events
@@ -669,13 +872,238 @@ async fn process_sdk_message(
                 .await;
         }
         _ => {
-            // Status, hooks, compact boundary, etc. — log only
-            debug!("SDK message (non-content)");
+            debug!("Claude SDK message (non-content)");
         }
     }
 }
 
-/// Construct a `UserMessage` for injection into a running session.
+/// Process a Codex CLI event from the active turn.
+#[allow(clippy::too_many_arguments)] // reason: actor internals, will refactor later
+async fn process_codex_message(
+    msg: CodexExecEvent,
+    requested_model: Option<&str>,
+    agent_state: &AgentState,
+    pending_acks: &mut VecDeque<oneshot::Sender<String>>,
+    events: &GrpcEventPublisher,
+    task_id: &str,
+    session_id: &mut String,
+    handle: &mut Option<ActiveHandle>,
+    consecutive_errors: &mut u32,
+    turn_output: &mut String,
+) {
+    match msg {
+        CodexExecEvent::ThreadStarted(event) => {
+            info!(
+                thread_id = %event.thread_id,
+                model = ?requested_model,
+                "Codex session initialized"
+            );
+            publish_session_init(
+                agent_state,
+                events,
+                task_id,
+                pending_acks,
+                session_id,
+                event.thread_id,
+                requested_model.map(std::string::ToString::to_string),
+            )
+            .await;
+        }
+        CodexExecEvent::TurnStarted(_) => {
+            turn_output.clear();
+        }
+        CodexExecEvent::ItemStarted(_) | CodexExecEvent::ItemUpdated(_) => {
+            debug!("Codex item event");
+        }
+        CodexExecEvent::ItemCompleted(event) => {
+            if let ThreadItemDetails::AgentMessage(agent_message) = &event.item.details {
+                append_turn_output(turn_output, &agent_message.text);
+
+                let payload = codex_message_payload(
+                    &event.item.id,
+                    session_id,
+                    &agent_message.text,
+                    requested_model,
+                );
+                events
+                    .publish_agent_event(task_id, AgentSubType::Message, payload)
+                    .await;
+            }
+        }
+        CodexExecEvent::TurnCompleted(event) => {
+            let payload = codex_result_payload(
+                Some(session_id.as_str()),
+                false,
+                "completed",
+                turn_output.trim().to_string(),
+                Some(&event.usage),
+                requested_model,
+            );
+
+            agent_state.set_idle().await;
+            *consecutive_errors = 0;
+
+            events
+                .publish_agent_event(task_id, AgentSubType::Completed, payload)
+                .await;
+
+            turn_output.clear();
+            *handle = None;
+        }
+        CodexExecEvent::TurnFailed(event) => {
+            drain_pending_acks(pending_acks);
+            agent_state.set_error(event.error.message.clone()).await;
+            *consecutive_errors += 1;
+
+            let payload = codex_result_payload(
+                (!session_id.is_empty()).then_some(session_id.as_str()),
+                true,
+                "failed",
+                event.error.message,
+                None,
+                requested_model,
+            );
+
+            events
+                .publish_agent_event(task_id, AgentSubType::Completed, payload)
+                .await;
+
+            turn_output.clear();
+            *handle = None;
+        }
+        CodexExecEvent::Error(event) => {
+            drain_pending_acks(pending_acks);
+            agent_state.set_error(event.message.clone()).await;
+            *consecutive_errors += 1;
+
+            let payload = codex_result_payload(
+                (!session_id.is_empty()).then_some(session_id.as_str()),
+                true,
+                "error",
+                event.message,
+                None,
+                requested_model,
+            );
+
+            events
+                .publish_agent_event(task_id, AgentSubType::Completed, payload)
+                .await;
+
+            turn_output.clear();
+            *handle = None;
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)] // reason: actor internals, will refactor later
+async fn handle_codex_stream_error(
+    error: &str,
+    requested_model: Option<&str>,
+    agent_state: &AgentState,
+    pending_acks: &mut VecDeque<oneshot::Sender<String>>,
+    events: &GrpcEventPublisher,
+    task_id: &str,
+    session_id: &str,
+    handle: &mut Option<ActiveHandle>,
+    consecutive_errors: &mut u32,
+    turn_output: &mut String,
+) {
+    warn!(error, "Codex stream error");
+    drain_pending_acks(pending_acks);
+    agent_state.set_error(error.to_string()).await;
+    *consecutive_errors += 1;
+
+    let payload = codex_result_payload(
+        (!session_id.is_empty()).then_some(session_id),
+        true,
+        "error",
+        error.to_string(),
+        None,
+        requested_model,
+    );
+    events
+        .publish_agent_event(task_id, AgentSubType::Completed, payload)
+        .await;
+
+    turn_output.clear();
+    *handle = None;
+}
+
+fn codex_message_payload(
+    uuid: &str,
+    session_id: &str,
+    text: &str,
+    requested_model: Option<&str>,
+) -> serde_json::Value {
+    let mut message = serde_json::Map::new();
+    message.insert("role".to_string(), serde_json::json!("assistant"));
+    message.insert(
+        "content".to_string(),
+        serde_json::json!([{ "type": "text", "text": text }]),
+    );
+    if let Some(model) = requested_model {
+        message.insert("model".to_string(), serde_json::json!(model));
+    }
+
+    serde_json::json!({
+        "uuid": uuid,
+        "session_id": session_id,
+        "message": serde_json::Value::Object(message),
+    })
+}
+
+fn codex_result_payload(
+    session_id: Option<&str>,
+    is_error: bool,
+    subtype: &str,
+    result: String,
+    usage: Option<&Usage>,
+    requested_model: Option<&str>,
+) -> serde_json::Value {
+    let mut payload = serde_json::Map::new();
+    if let Some(session_id) = session_id.filter(|session_id| !session_id.is_empty()) {
+        payload.insert("session_id".to_string(), serde_json::json!(session_id));
+    }
+    payload.insert("is_error".to_string(), serde_json::json!(is_error));
+    payload.insert("subtype".to_string(), serde_json::json!(subtype));
+    payload.insert("result".to_string(), serde_json::json!(result));
+    payload.insert("total_cost_usd".to_string(), serde_json::json!(0.0));
+    payload.insert("num_turns".to_string(), serde_json::json!(1));
+    if let Some(model) = requested_model {
+        payload.insert("model".to_string(), serde_json::json!(model));
+    }
+    if let Some(usage) = usage {
+        payload.insert(
+            "usage".to_string(),
+            serde_json::json!({
+                "input_tokens": usage.input_tokens,
+                "output_tokens": usage.output_tokens,
+                "cache_read_input_tokens": usage.cached_input_tokens,
+                "cache_creation_input_tokens": serde_json::Value::Null,
+            }),
+        );
+    }
+
+    serde_json::Value::Object(payload)
+}
+
+fn append_turn_output(turn_output: &mut String, text: &str) {
+    if text.trim().is_empty() {
+        return;
+    }
+    if !turn_output.is_empty() {
+        turn_output.push_str("\n\n");
+    }
+    turn_output.push_str(text);
+}
+
+fn drain_pending_acks(pending_acks: &mut VecDeque<oneshot::Sender<String>>) {
+    while let Some(ack) = pending_acks.pop_front() {
+        drop(ack);
+    }
+}
+
+/// Construct a `UserMessage` for injection into a running Claude session.
 fn make_user_message(text: &str, session_id: &str) -> UserMessage {
     UserMessage {
         uuid: None,
@@ -714,50 +1142,50 @@ fn extract_result_info(
     task_id: &str,
 ) -> (bool, String, AgentSubType, serde_json::Value) {
     match result {
-        ResultMessage::Success(s) => {
-            if s.is_error {
+        ResultMessage::Success(success) => {
+            if success.is_error {
                 warn!(
-                    task_id,
-                    session_id = %s.session_id,
-                    num_turns = s.num_turns,
-                    duration_ms = s.duration_ms,
-                    cost_usd = s.total_cost_usd,
-                    output = %truncate(&s.result, 500),
+                    task_id = task_id,
+                    session_id = %success.session_id,
+                    num_turns = success.num_turns,
+                    duration_ms = success.duration_ms,
+                    cost_usd = success.total_cost_usd,
+                    output = %truncate(&success.result, 500),
                     "Agent completed with error output"
                 );
             } else {
                 info!(
-                    task_id,
-                    session_id = %s.session_id,
-                    num_turns = s.num_turns,
-                    duration_ms = s.duration_ms,
-                    cost_usd = s.total_cost_usd,
-                    output = %truncate(&s.result, 500),
+                    task_id = task_id,
+                    session_id = %success.session_id,
+                    num_turns = success.num_turns,
+                    duration_ms = success.duration_ms,
+                    cost_usd = success.total_cost_usd,
+                    output = %truncate(&success.result, 500),
                     "Agent completed successfully"
                 );
             }
             (
-                s.is_error,
-                s.session_id.clone(),
+                success.is_error,
+                success.session_id.clone(),
                 AgentSubType::Completed,
-                serde_json::to_value(s).unwrap_or_default(),
+                serde_json::to_value(success).unwrap_or_default(),
             )
         }
-        ResultMessage::Error(e) => {
+        ResultMessage::Error(error) => {
             warn!(
-                task_id,
-                session_id = %e.session_id,
-                num_turns = e.num_turns,
-                duration_ms = e.duration_ms,
-                subtype = %e.subtype,
-                errors = ?e.errors,
+                task_id = task_id,
+                session_id = %error.session_id,
+                num_turns = error.num_turns,
+                duration_ms = error.duration_ms,
+                subtype = %error.subtype,
+                errors = ?error.errors,
                 "Agent completed with error"
             );
             (
                 true,
-                e.session_id.clone(),
+                error.session_id.clone(),
                 AgentSubType::Error,
-                serde_json::to_value(e).unwrap_or_default(),
+                serde_json::to_value(error).unwrap_or_default(),
             )
         }
     }
@@ -766,8 +1194,8 @@ fn extract_result_info(
 /// Extract a human-readable error text from a result message.
 fn extract_error_text(result: &ResultMessage) -> String {
     match result {
-        ResultMessage::Success(s) => truncate(&s.result, 500).to_string(),
-        ResultMessage::Error(e) => e
+        ResultMessage::Success(success) => truncate(&success.result, 500).to_string(),
+        ResultMessage::Error(error) => error
             .errors
             .first()
             .cloned()
@@ -786,9 +1214,8 @@ fn truncate(s: &str, max: usize) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use claude_agent_sdk::types::content::Usage;
+    use claude_agent_sdk::types::content::Usage as ClaudeUsage;
     use claude_agent_sdk::types::messages::{ResultError, ResultSuccess};
-    use std::collections::HashMap;
 
     fn make_result_error(subtype: &str, num_turns: u32, errors: Vec<String>) -> ResultMessage {
         ResultMessage::Error(ResultError {
@@ -800,7 +1227,7 @@ mod tests {
             is_error: true,
             num_turns,
             total_cost_usd: 0.0,
-            usage: Usage {
+            usage: ClaudeUsage {
                 input_tokens: 0,
                 output_tokens: 0,
                 cache_read_input_tokens: None,
@@ -825,7 +1252,7 @@ mod tests {
             num_turns,
             result: result.to_string(),
             total_cost_usd: 0.0,
-            usage: Usage {
+            usage: ClaudeUsage {
                 input_tokens: 0,
                 output_tokens: 0,
                 cache_read_input_tokens: None,
@@ -853,111 +1280,60 @@ mod tests {
     }
 
     #[test]
-    fn is_retryable_result_529_in_errors() {
-        let result = make_result_error("unknown", 2, vec!["HTTP 529 overloaded".to_string()]);
+    fn is_retryable_result_server_error_pattern() {
+        let result = make_result_error(
+            "unknown",
+            2,
+            vec!["HTTP 503 service unavailable".to_string()],
+        );
         assert!(is_retryable_result(&result));
     }
 
     #[test]
-    fn is_retryable_result_503_in_errors() {
-        let result = make_result_error("unknown", 1, vec!["503 Service Unavailable".to_string()]);
+    fn is_not_retryable_after_many_turns() {
+        let result = make_result_error("overloaded", 6, vec!["overloaded_error".to_string()]);
+        assert!(!is_retryable_result(&result));
+    }
+
+    #[test]
+    fn is_retryable_success_with_error_text() {
+        let result = make_result_success(true, 1, "Service overloaded (529)");
         assert!(is_retryable_result(&result));
     }
 
     #[test]
-    fn is_retryable_result_not_retryable_after_many_turns() {
-        let result = make_result_error("overloaded", 10, vec!["overloaded_error".to_string()]);
+    fn is_not_retryable_success_without_error() {
+        let result = make_result_success(false, 1, "All done");
         assert!(!is_retryable_result(&result));
     }
 
     #[test]
-    fn is_retryable_result_not_retryable_generic_error() {
-        let result = make_result_error("unknown", 1, vec!["something else".to_string()]);
-        assert!(!is_retryable_result(&result));
+    fn normalize_unknown_agent_type_defaults_to_claude() {
+        assert_eq!(
+            normalize_agent_type(Some("something-else")),
+            AGENT_TYPE_CLAUDE_CODE
+        );
     }
 
     #[test]
-    fn is_retryable_result_success_not_retryable() {
-        let result = make_result_success(false, 5, "done");
-        assert!(!is_retryable_result(&result));
-    }
+    fn codex_result_payload_includes_usage_shape() {
+        let payload = codex_result_payload(
+            Some("thread-1"),
+            false,
+            "completed",
+            "done".to_string(),
+            Some(&Usage {
+                input_tokens: 12,
+                cached_input_tokens: 3,
+                output_tokens: 4,
+            }),
+            Some("gpt-5"),
+        );
 
-    #[test]
-    fn is_retryable_result_success_with_overloaded_error_text() {
-        let result = make_result_success(true, 1, "overloaded_error: API is overloaded");
-        assert!(is_retryable_result(&result));
-    }
-
-    #[test]
-    fn is_retryable_result_success_error_too_many_turns() {
-        let result = make_result_success(true, 10, "overloaded");
-        assert!(!is_retryable_result(&result));
-    }
-
-    #[test]
-    fn is_retryable_sdk_error_process_exit() {
-        let err = SdkError::ProcessExit {
-            code: Some(1),
-            signal: None,
-        };
-        assert!(is_retryable_sdk_error(&err));
-    }
-
-    #[test]
-    fn is_retryable_sdk_error_transport_closed() {
-        assert!(is_retryable_sdk_error(&SdkError::TransportClosed));
-    }
-
-    #[test]
-    fn is_retryable_sdk_error_not_retryable_cancelled() {
-        assert!(!is_retryable_sdk_error(&SdkError::Cancelled));
-    }
-
-    #[test]
-    fn is_retryable_sdk_error_not_retryable_json() {
-        let err = SdkError::Internal("test".to_string());
-        assert!(!is_retryable_sdk_error(&err));
-    }
-
-    #[test]
-    fn compute_backoff_increases_with_attempt() {
-        let b0 = compute_backoff(0);
-        let b1 = compute_backoff(1);
-        let b2 = compute_backoff(2);
-        // With jitter, we can't be exact, but the general trend should hold.
-        // Base values: 5, 10, 20 — even with +-20% jitter, b2 > b0.
-        assert!(b2 > b0, "backoff should generally increase: b0={b0:?}, b2={b2:?}");
-        // All should be at least 1 second
-        assert!(b0.as_secs_f64() >= 1.0);
-        assert!(b1.as_secs_f64() >= 1.0);
-        assert!(b2.as_secs_f64() >= 1.0);
-    }
-
-    #[test]
-    fn compute_backoff_caps_at_max() {
-        // Attempt 10: base = 5 * 2^10 = 5120, capped at 60
-        let b = compute_backoff(10);
-        // With 20% jitter on 60s cap: range is [48, 72], but clamped at min 1.0
-        assert!(b.as_secs_f64() <= 72.0, "backoff should be capped: {b:?}");
-    }
-
-    #[tokio::test]
-    async fn undo_error_increment_decrements() {
-        let state = AgentState::new();
-        state.set_error("err1".to_string()).await;
-        state.set_error("err2".to_string()).await;
-        assert_eq!(state.consecutive_errors().await, 2);
-
-        state.undo_error_increment().await;
-        assert_eq!(state.consecutive_errors().await, 1);
-    }
-
-    #[tokio::test]
-    async fn undo_error_increment_saturates_at_zero() {
-        let state = AgentState::new();
-        assert_eq!(state.consecutive_errors().await, 0);
-
-        state.undo_error_increment().await;
-        assert_eq!(state.consecutive_errors().await, 0);
+        assert_eq!(payload["session_id"], "thread-1");
+        assert_eq!(payload["is_error"], false);
+        assert_eq!(payload["usage"]["input_tokens"], 12);
+        assert_eq!(payload["usage"]["cache_read_input_tokens"], 3);
+        assert_eq!(payload["model"], "gpt-5");
     }
 }

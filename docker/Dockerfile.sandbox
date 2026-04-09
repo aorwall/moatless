@@ -84,13 +84,15 @@ RUN mkdir -p /home/$USERNAME/.cache \
 ARG TARGETARCH
 COPY --from=binaries ${TARGETARCH}/sandbox /usr/local/bin/sandbox
 COPY --from=binaries ${TARGETARCH}/moat /usr/local/bin/moat
-RUN npm install -g @anthropic-ai/claude-code@latest \
-    && ln -sf "$(which claude)" /usr/local/bin/claude
+RUN npm install -g @anthropic-ai/claude-code@latest @openai/codex@latest \
+    && ln -sf "$(which claude)" /usr/local/bin/claude \
+    && ln -sf "$(which codex)" /usr/local/bin/codex
 COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/docker-entrypoint-sandbox.sh /usr/local/bin/docker-entrypoint-sandbox.sh
 COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/sync-plugins.sh /usr/local/bin/sync-plugins.sh
 RUN chmod +x /usr/local/bin/sandbox /usr/local/bin/moat \
     /usr/local/bin/docker-entrypoint-sandbox.sh /usr/local/bin/sync-plugins.sh \
-    && (claude --version 2>/dev/null || echo "unknown") > /opt/moatless/.claude-cli-version
+    && (claude --version 2>/dev/null || echo "unknown") > /opt/moatless/.claude-cli-version \
+    && (codex --version 2>/dev/null || echo "unknown") > /opt/moatless/.codex-cli-version
 
 WORKDIR /home/moatless
 
@@ -103,6 +105,7 @@ WORKDIR /home/moatless
 ENV HOME=/home/moatless
 ENV WORKSPACE_DIR=/opt/moatless/repo
 ENV CLAUDE_CONFIG_DIR=/opt/moatless/.claude
+ENV CODEX_HOME=/home/moatless/.codex
 ENV CLAUDE_BIN_DIR=/usr/local/bin
 ENV DATA_DIR=/opt/moatless/data
 ENV UV_THREADPOOL_SIZE=16

@@ -1,16 +1,10 @@
-//! Build `ClaudeOptions` from sandbox config + per-request overrides.
+//! Build agent prompt/options from sandbox config + per-request overrides.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
 
-use claude_agent_sdk::{ClaudeOptions, PermissionMode};
 use claude_agent_sdk::types::options::{PluginConfig, SystemPrompt};
-use codex_sdk::{
-    AskForApproval as CodexAskForApproval, AutoApproveHandler, CodexOptions,
-    SandboxMode as CodexSandboxMode,
-};
+use claude_agent_sdk::{ClaudeOptions, PermissionMode};
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
@@ -41,11 +35,12 @@ pub fn build_options(
     // Build plugin configs from paths
     let plugins = build_plugins(config);
 
-    // Detect plan mode from agent_type
+    // Detect plan mode from agent_mode.
     let is_plan_mode = request.agent_mode.as_deref() == Some("plan");
 
     // Build the permission handler for interactive prompts
-    let permission_handler = InteractivePermissionHandler::with_plan_mode(agent_state, is_plan_mode);
+    let permission_handler =
+        InteractivePermissionHandler::with_plan_mode(agent_state, is_plan_mode);
 
     // Determine session resume
     let (resume, continue_conversation) = resolve_resume(request);
@@ -72,7 +67,11 @@ pub fn build_options(
         }),
         cwd: Some(config.workspace_dir.clone()),
         cli_path: Some(config.claude_cli_path.clone()),
-        plugins: if plugins.is_empty() { None } else { Some(plugins) },
+        plugins: if plugins.is_empty() {
+            None
+        } else {
+            Some(plugins)
+        },
         resume,
         continue_conversation,
         can_use_tool: Some(Arc::new(permission_handler)),
@@ -81,38 +80,6 @@ pub fn build_options(
         init_timeout: Some(init_timeout),
         env,
         ..ClaudeOptions::default()
-    }
-}
-
-/// Build CodexOptions from config + per-request overrides.
-pub fn build_codex_options(
-    config: &Config,
-    request: &AgentRunRequest,
-    cancel_token: CancellationToken,
-) -> CodexOptions {
-    let model = request.model.clone();
-    let developer_instructions = Some(build_prompt_append(config, request));
-    let init_timeout = Duration::from_secs(120);
-
-    info!(
-        task_id = %config.task_id,
-        model = ?model,
-        resume = ?request.resume,
-        init_timeout_secs = init_timeout.as_secs(),
-        "Built Codex options"
-    );
-
-    CodexOptions {
-        model,
-        developer_instructions,
-        approval_policy: Some(CodexAskForApproval::OnRequest),
-        sandbox_mode: Some(CodexSandboxMode::WorkspaceWrite),
-        cwd: Some(PathBuf::from(&config.workspace_dir)),
-        resume_thread_id: resolve_resume_thread_id(request),
-        approval_handler: Some(Arc::new(AutoApproveHandler)),
-        cancellation_token: Some(cancel_token),
-        init_timeout: Some(init_timeout),
-        ..CodexOptions::default()
     }
 }
 
@@ -290,13 +257,5 @@ fn resolve_resume(request: &AgentRunRequest) -> (Option<String>, Option<bool>) {
         Some(ResumeSession::WithId(session_id)) => (Some(session_id.clone()), None),
         Some(ResumeSession::Last) => (None, Some(true)),
         None => (None, None),
-    }
-}
-
-fn resolve_resume_thread_id(request: &AgentRunRequest) -> Option<String> {
-    use super::types::ResumeSession;
-    match &request.resume {
-        Some(ResumeSession::WithId(session_id)) => Some(session_id.clone()),
-        Some(ResumeSession::Last) | None => None,
     }
 }

@@ -34,6 +34,7 @@ fn copy_dir_contents(src: &Path, dst: &Path) -> std::io::Result<usize> {
 pub fn ensure_directories(config: &Config) {
     let dirs = [
         &config.home_dir,
+        &config.codex_home_dir,
         &config.workspace_dir,
         &config.data_dir,
         &config.claude_config_dir,
@@ -59,6 +60,17 @@ pub fn ensure_directories(config: &Config) {
                 Ok(0) => {}
                 Ok(count) => info!(count, "Copied staged skills into config dir"),
                 Err(e) => warn!(error = %e, "Failed to copy staged skills"),
+            }
+        }
+
+        let codex_skills = format!("{}/skills", config.codex_home_dir);
+        if let Err(e) = std::fs::create_dir_all(&codex_skills) {
+            warn!(error = %e, "Failed to create Codex skills directory");
+        } else {
+            match copy_dir_contents(staged_skills, std::path::Path::new(&codex_skills)) {
+                Ok(0) => {}
+                Ok(count) => info!(count, "Copied staged skills into Codex home"),
+                Err(e) => warn!(error = %e, "Failed to copy staged Codex skills"),
             }
         }
     }

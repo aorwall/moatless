@@ -57,6 +57,7 @@ message PendingMessage {
   optional string resume_session_id = 7;
   // Message UUID for per-message acknowledgment tracking
   optional string uuid = 8;
+  optional string agent_mode = 9;
 }
 
 message ContentBlock {
@@ -117,6 +118,7 @@ message ExecuteAgentRequest {
   optional string system_prompt = 3;
   optional bool resume = 4;
   optional string agent_type = 5;
+  optional string agent_mode = 6;
 }
 
 message ExecuteAgentResponse {}

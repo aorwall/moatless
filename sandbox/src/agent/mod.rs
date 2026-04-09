@@ -1,4 +1,5 @@
 pub mod agent_state;
+pub mod codex_exec;
 pub mod dispatcher;
 pub mod handle;
 pub mod options;

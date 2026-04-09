@@ -90,6 +90,9 @@ pub struct AgentRunRequest {
     /// Agent type identifier.
     #[serde(default)]
     pub agent_type: Option<String>,
+    /// Agent mode identifier.
+    #[serde(default)]
+    pub agent_mode: Option<String>,
     /// True when this is the first session in the pod's lifetime (no prior session).
     /// Used to decide whether to inject one-time directives like set-name.
     #[serde(default)]
@@ -129,9 +132,7 @@ pub fn content_blocks_from_proto(
         .into_iter()
         .filter_map(|block| {
             block.block.map(|b| match b {
-                sandbox_proto::content_block::Block::Text(t) => {
-                    ContentBlock::Text { text: t.text }
-                }
+                sandbox_proto::content_block::Block::Text(t) => ContentBlock::Text { text: t.text },
                 sandbox_proto::content_block::Block::Image(img) => ContentBlock::Image {
                     source: ImageSource {
                         source_type: ImageSourceType::Url,
@@ -150,14 +151,25 @@ mod tests {
 
     #[test]
     fn agent_status_serializes_lowercase() {
-        assert_eq!(serde_json::to_string(&AgentStatus::Idle).unwrap(), r#""idle""#);
-        assert_eq!(serde_json::to_string(&AgentStatus::Running).unwrap(), r#""running""#);
-        assert_eq!(serde_json::to_string(&AgentStatus::Stopped).unwrap(), r#""stopped""#);
+        assert_eq!(
+            serde_json::to_string(&AgentStatus::Idle).unwrap(),
+            r#""idle""#
+        );
+        assert_eq!(
+            serde_json::to_string(&AgentStatus::Running).unwrap(),
+            r#""running""#
+        );
+        assert_eq!(
+            serde_json::to_string(&AgentStatus::Stopped).unwrap(),
+            r#""stopped""#
+        );
     }
 
     #[test]
     fn content_block_text_roundtrip() {
-        let block = ContentBlock::Text { text: "hello".to_string() };
+        let block = ContentBlock::Text {
+            text: "hello".to_string(),
+        };
         let json = serde_json::to_value(&block).unwrap();
         assert_eq!(json["type"], "text");
         assert_eq!(json["text"], "hello");
@@ -188,7 +200,9 @@ mod tests {
     fn extract_text_joins_text_blocks() {
         let req = AgentRunRequest {
             content: vec![
-                ContentBlock::Text { text: "line one".to_string() },
+                ContentBlock::Text {
+                    text: "line one".to_string(),
+                },
                 ContentBlock::Image {
                     source: ImageSource {
                         source_type: ImageSourceType::Base64,
@@ -196,12 +210,15 @@ mod tests {
                         data: "data".to_string(),
                     },
                 },
-                ContentBlock::Text { text: "line two".to_string() },
+                ContentBlock::Text {
+                    text: "line two".to_string(),
+                },
             ],
             model: None,
             system_prompt: None,
             resume: None,
             agent_type: None,
+            agent_mode: None,
             is_first_session: false,
         };
         assert_eq!(req.extract_text(), "line one\nline two");
@@ -215,6 +232,7 @@ mod tests {
             system_prompt: None,
             resume: None,
             agent_type: None,
+            agent_mode: None,
             is_first_session: false,
         };
         assert_eq!(req.extract_text(), "");
@@ -247,12 +265,18 @@ mod tests {
     fn agent_run_request_deserializes_resume_session_id() {
         let json = r#"{"resume": "session-abc-123"}"#;
         let req: AgentRunRequest = serde_json::from_str(json).unwrap();
-        assert_eq!(req.resume, Some(ResumeSession::WithId("session-abc-123".to_string())));
+        assert_eq!(
+            req.resume,
+            Some(ResumeSession::WithId("session-abc-123".to_string()))
+        );
     }
 
     #[test]
     fn resume_session_serializes_correctly() {
-        assert_eq!(serde_json::to_value(ResumeSession::Last).unwrap(), serde_json::Value::Bool(true));
+        assert_eq!(
+            serde_json::to_value(ResumeSession::Last).unwrap(),
+            serde_json::Value::Bool(true)
+        );
         assert_eq!(
             serde_json::to_value(ResumeSession::WithId("abc".to_string())).unwrap(),
             serde_json::Value::String("abc".to_string())
@@ -312,4 +336,3 @@ mod tests {
         assert!(blocks.is_empty());
     }
 }
-

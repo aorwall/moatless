@@ -2,11 +2,11 @@
 
 use moatless_events::{TaskSubType, TaskTurnSubType};
 
-use crate::message::models::{TaskMessageContentBlock, TaskMessageContext, TaskMessage};
-use crate::task::dao::TaskPatch;
 use crate::message::models::{ContentBlockType, MessageRole, MessageType};
+use crate::message::models::{TaskMessage, TaskMessageContentBlock, TaskMessageContext};
 use crate::shared_models::AgentMode;
 use crate::state::AppState;
+use crate::task::dao::TaskPatch;
 use crate::task::models::TaskStatus;
 
 use super::models::{AgentEvent, SdkResultMessage};
@@ -46,18 +46,17 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
         tracing::debug!(task_id = %event.task_id, "Skipping agent.completed — result already exists for current turn");
         return;
     }
-    let sdk_result: Option<SdkResultMessage> =
-        match serde_json::from_value(event.payload.clone()) {
-            Ok(r) => Some(r),
-            Err(e) => {
-                tracing::warn!(
-                    task_id = %event.task_id,
-                    error = %e,
-                    "Failed to parse agent.completed payload — treating as error"
-                );
-                None
-            }
-        };
+    let sdk_result: Option<SdkResultMessage> = match serde_json::from_value(event.payload.clone()) {
+        Ok(r) => Some(r),
+        Err(e) => {
+            tracing::warn!(
+                task_id = %event.task_id,
+                error = %e,
+                "Failed to parse agent.completed payload — treating as error"
+            );
+            None
+        }
+    };
 
     let (result_message_type, task_status) = match &sdk_result {
         Some(r) if r.is_error.unwrap_or(false) => (MessageType::Error, TaskStatus::Error),
@@ -78,7 +77,11 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
     // Fallback: set real Claude Code session_id on user messages
     // (in case session_init event was missed or arrived before messages were fetched)
     if let Some(ref sid) = session_id {
-        if let Err(e) = state.messages.set_session_id_for_task(&event.task_id, sid).await {
+        if let Err(e) = state
+            .messages
+            .set_session_id_for_task(&event.task_id, sid)
+            .await
+        {
             tracing::warn!(task_id = %event.task_id, error = %e, "Failed to set session_id on user messages (fallback)");
         }
     }
@@ -89,7 +92,15 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
         .get("model_usage")
         .or_else(|| event.payload.get("modelUsage"))
         .and_then(|mu| mu.as_object())
-        .and_then(|obj| obj.keys().next()).cloned();
+        .and_then(|obj| obj.keys().next())
+        .cloned()
+        .or_else(|| {
+            event
+                .payload
+                .get("model")
+                .and_then(serde_json::Value::as_str)
+                .map(std::string::ToString::to_string)
+        });
 
     // Inherit agent_mode from the last user message for this task
     let agent_mode = match state.messages.get_last_user_message(&event.task_id).await {
@@ -106,7 +117,17 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
         "text": result_text
     }]);
 
-    let msg_row = build_result_message_row(&event.task_id, &msg_uuid, &now, content, result_message_type, will_not_resume, session_id, agent_mode, model);
+    let msg_row = build_result_message_row(
+        &event.task_id,
+        &msg_uuid,
+        &now,
+        content,
+        result_message_type,
+        will_not_resume,
+        session_id,
+        agent_mode,
+        model,
+    );
     let contexts: Vec<TaskMessageContext> = vec![];
     let blocks = vec![TaskMessageContentBlock {
         id: 0,
@@ -188,7 +209,9 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
 /// Per-message acknowledgment is now handled by the sandbox via
 /// `AcknowledgeMessages` gRPC call. This handler only logs the event.
 pub async fn handle_agent_session_init(_state: &AppState, event: &AgentEvent) {
-    let session_id = if let Some(sid) = event.payload.get("session_id").and_then(|v| v.as_str()) { sid } else {
+    let session_id = if let Some(sid) = event.payload.get("session_id").and_then(|v| v.as_str()) {
+        sid
+    } else {
         tracing::warn!(task_id = %event.task_id, "agent.session_init missing session_id");
         return;
     };
@@ -222,7 +245,17 @@ pub async fn handle_agent_stopped(state: &AppState, event: &AgentEvent) {
         _ => None,
     };
 
-    let msg_row = build_result_message_row(&event.task_id, &msg_uuid, &now, content, MessageType::Result, true, None, agent_mode, None);
+    let msg_row = build_result_message_row(
+        &event.task_id,
+        &msg_uuid,
+        &now,
+        content,
+        MessageType::Result,
+        true,
+        None,
+        agent_mode,
+        None,
+    );
     let contexts: Vec<TaskMessageContext> = vec![];
     let blocks = vec![TaskMessageContentBlock {
         id: 0,
@@ -243,15 +276,17 @@ pub async fn handle_agent_stopped(state: &AppState, event: &AgentEvent) {
         tracing::warn!(task_id = %event.task_id, error = %e, "Failed to append stopped message");
     }
 
-    if let Err(e) = state.tasks.update_task(
-        &event.task_id,
-        &TaskPatch {
-            status: Some(TaskStatus::Open),
-            last_message_at: Some(now),
-            ..Default::default()
-        },
-    )
-    .await
+    if let Err(e) = state
+        .tasks
+        .update_task(
+            &event.task_id,
+            &TaskPatch {
+                status: Some(TaskStatus::Open),
+                last_message_at: Some(now),
+                ..Default::default()
+            },
+        )
+        .await
     {
         tracing::warn!(task_id = %event.task_id, error = %e, "Failed to update task after stop");
     }
@@ -310,7 +345,17 @@ pub async fn handle_agent_error(state: &AppState, event: &AgentEvent) {
 
     // will_not_resume=false: harness-level errors (sandbox crash, pod eviction)
     // should not prevent session resumption. The Claude session is still valid.
-    let msg_row = build_result_message_row(&event.task_id, &msg_uuid, &now, content, MessageType::Error, false, None, agent_mode, None);
+    let msg_row = build_result_message_row(
+        &event.task_id,
+        &msg_uuid,
+        &now,
+        content,
+        MessageType::Error,
+        false,
+        None,
+        agent_mode,
+        None,
+    );
     let contexts: Vec<TaskMessageContext> = vec![];
     let blocks = vec![TaskMessageContentBlock {
         id: 0,
@@ -331,15 +376,17 @@ pub async fn handle_agent_error(state: &AppState, event: &AgentEvent) {
         tracing::warn!(task_id = %event.task_id, error = %e, "Failed to append error message");
     }
 
-    if let Err(e) = state.tasks.update_task(
-        &event.task_id,
-        &TaskPatch {
-            status: Some(TaskStatus::Open),
-            last_message_at: Some(now),
-            ..Default::default()
-        },
-    )
-    .await
+    if let Err(e) = state
+        .tasks
+        .update_task(
+            &event.task_id,
+            &TaskPatch {
+                status: Some(TaskStatus::Open),
+                last_message_at: Some(now),
+                ..Default::default()
+            },
+        )
+        .await
     {
         tracing::warn!(task_id = %event.task_id, error = %e, "Failed to update task after error");
     }
@@ -423,10 +470,7 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
         content
     };
 
-    let usage = event
-        .payload
-        .get("message")
-        .and_then(|m| m.get("usage"));
+    let usage = event.payload.get("message").and_then(|m| m.get("usage"));
 
     // 3. Inherit agent_mode from the last user message (same pattern as result messages)
     let agent_mode = match state.messages.get_last_user_message(&event.task_id).await {
@@ -437,32 +481,63 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
     // 4. Extract API message fields and build sdk_metadata
     let api_message = event.payload.get("message");
 
-    let (assistant_message_id, assistant_message_model, assistant_stop_reason, assistant_stop_sequence) =
-        if message_type == MessageType::Assistant {
-            (
-                api_message.and_then(|m| m.get("id")).and_then(|v| v.as_str()).map(ToString::to_string),
-                api_message.and_then(|m| m.get("model")).and_then(|v| v.as_str()).map(ToString::to_string),
-                api_message.and_then(|m| m.get("stop_reason")).and_then(|v| v.as_str()).map(ToString::to_string),
-                api_message.and_then(|m| m.get("stop_sequence")).and_then(|v| v.as_str()).map(ToString::to_string),
-            )
-        } else {
-            (None, None, None, None)
-        };
+    let (
+        assistant_message_id,
+        assistant_message_model,
+        assistant_stop_reason,
+        assistant_stop_sequence,
+    ) = if message_type == MessageType::Assistant {
+        (
+            api_message
+                .and_then(|m| m.get("id"))
+                .and_then(|v| v.as_str())
+                .map(ToString::to_string),
+            api_message
+                .and_then(|m| m.get("model"))
+                .and_then(|v| v.as_str())
+                .map(ToString::to_string),
+            api_message
+                .and_then(|m| m.get("stop_reason"))
+                .and_then(|v| v.as_str())
+                .map(ToString::to_string),
+            api_message
+                .and_then(|m| m.get("stop_sequence"))
+                .and_then(|v| v.as_str())
+                .map(ToString::to_string),
+        )
+    } else {
+        (None, None, None, None)
+    };
 
     let sdk_metadata = if message_type == MessageType::Assistant {
-        build_sdk_metadata(&event.payload, &["isApiErrorMessage", "apiError", "requestId"])
+        build_sdk_metadata(
+            &event.payload,
+            &["isApiErrorMessage", "apiError", "requestId"],
+        )
     } else {
-        build_sdk_metadata(&event.payload, &[
-            "isMeta", "isCompactSummary", "isVisibleInTranscriptOnly",
-            "planContent", "thinkingMetadata", "todos", "summarizeMetadata",
-            "sourceToolAssistantUUID", "sourceToolUseID", "permissionMode",
-        ])
+        build_sdk_metadata(
+            &event.payload,
+            &[
+                "isMeta",
+                "isCompactSummary",
+                "isVisibleInTranscriptOnly",
+                "planContent",
+                "thinkingMetadata",
+                "todos",
+                "summarizeMetadata",
+                "sourceToolAssistantUUID",
+                "sourceToolUseID",
+                "permissionMode",
+            ],
+        )
     };
 
     let tool_use_result = if message_type == MessageType::Assistant {
         None
     } else {
-        event.payload.get("toolUseResult")
+        event
+            .payload
+            .get("toolUseResult")
             .or_else(|| event.payload.get("tool_use_result"))
             .cloned()
     };
@@ -562,9 +637,7 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
         match state.tags.find_or_create_tags(&tag_names).await {
             Ok(tags) => {
                 let tag_ids: Vec<String> = tags.into_iter().map(|t| t.tag_id).collect();
-                if let Err(e) =
-                    state.tags.add_task_tags(&event.task_id, &tag_ids).await
-                {
+                if let Err(e) = state.tags.add_task_tags(&event.task_id, &tag_ids).await {
                     tracing::warn!(
                         task_id = %event.task_id,
                         error = %e,
@@ -619,22 +692,24 @@ fn build_content_blocks_from_payload(content: &serde_json::Value) -> Vec<TaskMes
     arr.iter()
         .enumerate()
         .map(|(idx, block)| {
-            let type_str = block
-                .get("type")
-                .and_then(|v| v.as_str())
-                .unwrap_or("text");
+            let type_str = block.get("type").and_then(|v| v.as_str()).unwrap_or("text");
 
-            let block_type = ContentBlockType::try_from(type_str)
-                .unwrap_or(ContentBlockType::Text);
+            let block_type = ContentBlockType::try_from(type_str).unwrap_or(ContentBlockType::Text);
 
             let (text_content, tool_use_id, tool_result_content, tool_result_is_error, show_in_ui) =
                 match block_type {
                     ContentBlockType::Text => {
-                        let text = block.get("text").and_then(|v| v.as_str()).map(std::string::ToString::to_string);
+                        let text = block
+                            .get("text")
+                            .and_then(|v| v.as_str())
+                            .map(std::string::ToString::to_string);
                         (text, None, None, None, true)
                     }
                     ContentBlockType::ToolUse => {
-                        let id = block.get("id").and_then(|v| v.as_str()).map(std::string::ToString::to_string);
+                        let id = block
+                            .get("id")
+                            .and_then(|v| v.as_str())
+                            .map(std::string::ToString::to_string);
                         (None, id, None, None, true)
                     }
                     ContentBlockType::ToolResult => {
@@ -642,15 +717,13 @@ fn build_content_blocks_from_payload(content: &serde_json::Value) -> Vec<TaskMes
                             .get("tool_use_id")
                             .and_then(|v| v.as_str())
                             .map(std::string::ToString::to_string);
-                        let result_content = block
-                            .get("content")
-                            .map(|v| {
-                                if let Some(s) = v.as_str() {
-                                    s.to_string()
-                                } else {
-                                    v.to_string()
-                                }
-                            });
+                        let result_content = block.get("content").map(|v| {
+                            if let Some(s) = v.as_str() {
+                                s.to_string()
+                            } else {
+                                v.to_string()
+                            }
+                        });
                         let is_error = block.get("is_error").and_then(serde_json::Value::as_bool);
                         (None, id, result_content, is_error, false)
                     }
@@ -751,7 +824,11 @@ fn build_sdk_metadata(payload: &serde_json::Value, keys: &[&str]) -> Option<serd
             }
         }
     }
-    if meta.is_empty() { None } else { Some(serde_json::Value::Object(meta)) }
+    if meta.is_empty() {
+        None
+    } else {
+        Some(serde_json::Value::Object(meta))
+    }
 }
 
 /// Extract skill names from tool_use blocks in agent message payload.

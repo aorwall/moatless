@@ -108,6 +108,7 @@ fn make_text_message(text: &str, uuid: Option<&str>) -> PendingMessage {
         resume: None,
         resume_session_id: None,
         agent_type: None,
+        agent_mode: None,
         uuid: uuid.map(ToString::to_string),
     }
 }
@@ -121,12 +122,14 @@ fn test_config() -> Config {
         data_dir: "/tmp/test-data".to_string(),
         upload_dir: "/tmp/test-upload".to_string(),
         home_dir: "/tmp/test-home".to_string(),
+        codex_home_dir: "/tmp/test-codex-home".to_string(),
         log_level: "info".to_string(),
         backend_grpc_url: "http://localhost:50051".to_string(),
         backend_api_url: None,
         user_auth_token: None,
         agent_config: moatless_sandbox::config::AgentConfig::default(),
         claude_cli_path: "/usr/bin/claude".to_string(),
+        codex_cli_path: "/usr/bin/codex".to_string(),
         proxy: moatless_sandbox::config::ProxyConfig::default(),
         servers: vec![],
         claude_config_dir: "/tmp/test-claude-config".to_string(),
@@ -187,9 +190,10 @@ async fn dispatch_does_not_ack_when_agent_fails_to_start() {
     // Without a real CLI binary, the agent actor will fail to start a session.
     // The ack oneshot is dropped on failure, so the dispatcher's spawned task
     // gets RecvError and skips the acknowledge call.
-    let backend = Arc::new(MockBackendClient::new(vec![
-        vec![make_text_message("hello", Some("uuid-1"))],
-    ]));
+    let backend = Arc::new(MockBackendClient::new(vec![vec![make_text_message(
+        "hello",
+        Some("uuid-1"),
+    )]]));
     let state = test_state(Arc::clone(&backend) as _);
 
     moatless_sandbox::agent::dispatcher::dispatch_pending_messages(state.clone()).await;
@@ -212,7 +216,9 @@ async fn agent_handle_send_triggers_actor() {
     // Send directly to agent handle — actor will try to start a session.
     // It will fail (no real CLI) but the send itself should not panic.
     // Drop the ack receiver since we don't need it.
-    let _ack_rx = state.agent_handle.send("test message".to_string(), None, None);
+    let _ack_rx = state
+        .agent_handle
+        .send("test message".to_string(), None, None, None, None, None);
 
     // Give the actor loop time to process
     tokio::time::sleep(Duration::from_millis(500)).await;
@@ -249,7 +255,10 @@ async fn agent_handle_rapid_fire_send_no_panic() {
     // Send 10 messages rapidly — actor processes them without panic or deadlock.
     // Drop ack receivers since we only care about channel stability.
     for i in 0..10 {
-        let _ack_rx = state.agent_handle.send(format!("rapid message {i}"), None, None);
+        let _ack_rx =
+            state
+                .agent_handle
+                .send(format!("rapid message {i}"), None, None, None, None, None);
     }
 
     // Give the actor time to attempt processing
@@ -275,8 +284,17 @@ async fn agent_handle_send_after_stop_does_not_panic() {
 
     // Sending after stop should be silently ignored (command channel closed,
     // ack receiver will get RecvError immediately).
-    let ack1 = state.agent_handle.send("should be ignored".to_string(), None, None);
-    let ack2 = state.agent_handle.send("also ignored".to_string(), None, None);
+    let ack1 = state.agent_handle.send(
+        "should be ignored".to_string(),
+        None,
+        None,
+        None,
+        None,
+        None,
+    );
+    let ack2 = state
+        .agent_handle
+        .send("also ignored".to_string(), None, None, None, None, None);
 
     // Ack receivers should resolve with error (sender dropped)
     assert!(ack1.await.is_err(), "ack should fail after stop");
@@ -299,7 +317,7 @@ async fn agent_handle_concurrent_send_from_multiple_tasks() {
     for i in 0..5 {
         let handle = state.agent_handle.clone();
         join_handles.push(tokio::spawn(async move {
-            let _ack_rx = handle.send(format!("concurrent task {i}"), None, None);
+            let _ack_rx = handle.send(format!("concurrent task {i}"), None, None, None, None, None);
         }));
     }
 
@@ -327,9 +345,10 @@ async fn dispatch_does_not_ack_without_real_session() {
     // session handle (handle is None in the actor), so it starts a new session
     // which fails. The ack oneshot is dropped, and the dispatcher's spawned
     // task gets RecvError — no ack fires.
-    let backend = Arc::new(MockBackendClient::new(vec![vec![
-        make_text_message("injected message", Some("uuid-inject")),
-    ]]));
+    let backend = Arc::new(MockBackendClient::new(vec![vec![make_text_message(
+        "injected message",
+        Some("uuid-inject"),
+    )]]));
     let state = test_state(Arc::clone(&backend) as _);
 
     // Simulate agent state as "running" — but the actor's internal handle is None
