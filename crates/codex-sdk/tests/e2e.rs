@@ -634,12 +634,21 @@ async fn test_ephemeral_thread() {
 // ===========================================================================
 
 /// Resume: start a session, shut it down, then resume the same thread in a new session.
-#[tokio::test]
+/// Uses a custom runtime with 8MB worker stacks because the codex in-process
+/// app-server has deep call chains that overflow the default 2MB stack in debug builds.
+#[test]
 #[ignore]
-async fn test_resume_session() {
+fn test_resume_session() {
     skip_unless_e2e!();
     init_tracing();
 
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .thread_stack_size(8 * 1024 * 1024)
+        .enable_all()
+        .build()
+        .unwrap();
+
+    rt.block_on(async {
     let result = timeout(Duration::from_secs(120), async {
         // Session 1: non-ephemeral so the thread is persisted to disk.
         let options1 = CodexOptions {
@@ -724,6 +733,7 @@ async fn test_resume_session() {
     .await;
 
     result.expect("Test timed out");
+    }); // rt.block_on
 }
 
 // ===========================================================================

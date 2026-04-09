@@ -7,6 +7,8 @@ use codex_app_server_client::InProcessClientStartArgs;
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::ConfigWarningNotification;
 use codex_app_server_protocol::RequestId;
+use codex_app_server_protocol::ThreadResumeParams;
+use codex_app_server_protocol::ThreadResumeResponse;
 use codex_app_server_protocol::ThreadStartParams;
 use codex_app_server_protocol::ThreadStartResponse;
 use codex_arg0::Arg0DispatchPaths;
@@ -133,26 +135,49 @@ pub(crate) async fn start_runtime(options: &CodexOptions) -> Result<RuntimeState
         .await
         .map_err(SdkError::Startup)?;
 
-    // Create a new thread.
-    let thread_start_response: ThreadStartResponse = client
-        .request_typed(ClientRequest::ThreadStart {
-            request_id: RequestId::Integer(1),
-            params: ThreadStartParams {
-                model: options.model.clone(),
-                model_provider: options.model_provider.clone(),
-                base_instructions: options.base_instructions.clone(),
-                developer_instructions: options.developer_instructions.clone(),
-                ephemeral: options.ephemeral,
-                cwd: options.cwd.as_ref().map(|p| p.display().to_string()),
-                approval_policy: options.approval_policy,
-                sandbox: options.sandbox_mode,
-                ..Default::default()
-            },
-        })
-        .await
-        .map_err(|e| SdkError::Request(format!("thread/start failed: {e}")))?;
+    let thread_id = if let Some(ref thread_id) = options.resume_thread_id {
+        // Resume an existing thread.
+        let thread_resume_response: ThreadResumeResponse = client
+            .request_typed(ClientRequest::ThreadResume {
+                request_id: RequestId::Integer(1),
+                params: ThreadResumeParams {
+                    thread_id: thread_id.clone(),
+                    model: options.model.clone(),
+                    model_provider: options.model_provider.clone(),
+                    cwd: options.cwd.as_ref().map(|p| p.display().to_string()),
+                    approval_policy: options.approval_policy,
+                    sandbox: options.sandbox_mode,
+                    base_instructions: options.base_instructions.clone(),
+                    developer_instructions: options.developer_instructions.clone(),
+                    ..Default::default()
+                },
+            })
+            .await
+            .map_err(|e| SdkError::Request(format!("thread/resume failed: {e}")))?;
 
-    let thread_id = thread_start_response.thread.id;
+        thread_resume_response.thread.id
+    } else {
+        // Create a new thread.
+        let thread_start_response: ThreadStartResponse = client
+            .request_typed(ClientRequest::ThreadStart {
+                request_id: RequestId::Integer(1),
+                params: ThreadStartParams {
+                    model: options.model.clone(),
+                    model_provider: options.model_provider.clone(),
+                    base_instructions: options.base_instructions.clone(),
+                    developer_instructions: options.developer_instructions.clone(),
+                    ephemeral: options.ephemeral,
+                    cwd: options.cwd.as_ref().map(|p| p.display().to_string()),
+                    approval_policy: options.approval_policy,
+                    sandbox: options.sandbox_mode,
+                    ..Default::default()
+                },
+            })
+            .await
+            .map_err(|e| SdkError::Request(format!("thread/start failed: {e}")))?;
+
+        thread_start_response.thread.id
+    };
 
     Ok(RuntimeState {
         client,
