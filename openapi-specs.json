@@ -1707,6 +1707,35 @@
         }
       }
     },
+    "/api/v1/channels/slack/slash": {
+      "post": {
+        "tags": [
+          "channels"
+        ],
+        "summary": "Handle Slack slash command.",
+        "description": "Slack sends a POST with `application/x-www-form-urlencoded` body when a user\ninvokes a registered slash command (e.g., `/moat commit fix auth bug`).\nThe handler must respond within 3 seconds, so processing happens in background.",
+        "operationId": "slack_slash_command",
+        "requestBody": {
+          "description": "Slack slash command form payload",
+          "content": {
+            "text/plain": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Command acknowledged"
+          },
+          "401": {
+            "description": "Invalid signature"
+          }
+        }
+      }
+    },
     "/api/v1/channels/slack/webhook": {
       "post": {
         "tags": [
@@ -4661,7 +4690,8 @@
           "completed",
           "error",
           "pending_response",
-          "session_init"
+          "session_init",
+          "retrying"
         ]
       },
       "AgentType": {

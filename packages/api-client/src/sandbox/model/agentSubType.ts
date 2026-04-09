@@ -20,4 +20,5 @@ export const AgentSubType = {
   error: 'error',
   pending_response: 'pending_response',
   session_init: 'session_init',
+  retrying: 'retrying',
 } as const;

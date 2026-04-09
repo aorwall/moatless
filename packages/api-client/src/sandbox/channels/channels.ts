@@ -1616,6 +1616,98 @@ export const prefetchListSlackChannelsQuery = async <TData = Awaited<ReturnType<
 
 
 /**
+ * Slack sends a POST with `application/x-www-form-urlencoded` body when a user
+invokes a registered slash command (e.g., `/moat commit fix auth bug`).
+The handler must respond within 3 seconds, so processing happens in background.
+ * @summary Handle Slack slash command.
+ */
+export type slackSlashCommandResponse200 = {
+  data: void
+  status: 200
+}
+
+export type slackSlashCommandResponse401 = {
+  data: void
+  status: 401
+}
+    
+export type slackSlashCommandResponseSuccess = (slackSlashCommandResponse200) & {
+  headers: Headers;
+};
+export type slackSlashCommandResponseError = (slackSlashCommandResponse401) & {
+  headers: Headers;
+};
+
+export type slackSlashCommandResponse = (slackSlashCommandResponseSuccess | slackSlashCommandResponseError)
+
+export const getSlackSlashCommandUrl = () => {
+
+
+  
+
+  return `/api/v1/channels/slack/slash`
+}
+
+export const slackSlashCommand = async (slackSlashCommandBody: string, options?: RequestInit): Promise<slackSlashCommandResponse> => {
+  
+  return customInstance<slackSlashCommandResponse>(getSlackSlashCommandUrl(),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain', ...options?.headers },
+    body: 
+      slackSlashCommandBody,
+  }
+);}
+
+
+
+
+export const getSlackSlashCommandMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof slackSlashCommand>>, TError,{data: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof slackSlashCommand>>, TError,{data: string}, TContext> => {
+
+const mutationKey = ['slackSlashCommand'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof slackSlashCommand>>, {data: string}> = (props) => {
+          const {data} = props ?? {};
+
+          return  slackSlashCommand(data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SlackSlashCommandMutationResult = NonNullable<Awaited<ReturnType<typeof slackSlashCommand>>>
+    export type SlackSlashCommandMutationBody = string
+    export type SlackSlashCommandMutationError = ErrorType<void>
+
+    /**
+ * @summary Handle Slack slash command.
+ */
+export const useSlackSlashCommand = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof slackSlashCommand>>, TError,{data: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof slackSlashCommand>>,
+        TError,
+        {data: string},
+        TContext
+      > => {
+      return useMutation(getSlackSlashCommandMutationOptions(options), queryClient);
+    }
+    /**
  * @summary Handle Slack Events API webhook.
  */
 export type slackWebhookResponse200 = {
