@@ -136,7 +136,7 @@ pub struct Config {
     pub servers: Vec<ServerInfo>,
     /// Frontend URL for constructing task URLs (e.g., "https://moatless.io")
     pub frontend_url: Option<String>,
-    /// Global default model (env: CLAUDE_DEFAULT_MODEL), used when neither request nor repo config set one
+    /// Global default model (env: DEFAULT_CLAUDE_CODE_MODEL), used when neither request nor repo config set one
     pub default_model: Option<String>,
 
     // ── Init-related fields ────────────────────────────────────────
@@ -221,7 +221,7 @@ impl Config {
             },
             servers: parsed.servers,
             frontend_url: env::var("FRONTEND_URL").ok(),
-            default_model: env::var("CLAUDE_DEFAULT_MODEL").ok(),
+            default_model: env::var("DEFAULT_CLAUDE_CODE_MODEL").ok(),
 
             home_dir,
             codex_home_dir,

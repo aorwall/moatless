@@ -93,7 +93,7 @@ pub fn build_container_config(
 
     // Default model for agent sessions
     if let Some(ref model) = config.sandbox.default_model {
-        env.push(format!("CLAUDE_DEFAULT_MODEL={model}"));
+        env.push(format!("DEFAULT_CLAUDE_CODE_MODEL={model}"));
     }
 
     // Custom env vars from repo config
