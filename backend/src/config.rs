@@ -159,6 +159,8 @@ pub struct SandboxConfig {
     pub node_selector_json: Option<String>,
     /// Kubernetes ServiceAccount name for sandbox pods (set via K8S_SANDBOX_SERVICE_ACCOUNT)
     pub service_account_name: Option<String>,
+    /// Default Claude model for sandbox agents (forwarded as DEFAULT_CLAUDE_CODE_MODEL env var)
+    pub default_model: Option<String>,
 }
 
 /// Proxy / Traefik IngressRoute settings.
@@ -474,6 +476,7 @@ impl Config {
                 tolerations_json: env_opt("K8S_SANDBOX_TOLERATIONS"),
                 node_selector_json: env_opt("K8S_SANDBOX_NODE_SELECTOR"),
                 service_account_name: env_opt("K8S_SANDBOX_SERVICE_ACCOUNT"),
+                default_model: env_opt("DEFAULT_CLAUDE_CODE_MODEL"),
             },
 
             proxy: ProxyConfig {
@@ -794,6 +797,7 @@ mod tests {
                 node_selector_json: None,
                 tolerations_json: None,
                 service_account_name: None,
+                default_model: None,
             },
             proxy: ProxyConfig {
                 domain: None,

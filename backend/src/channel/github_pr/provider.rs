@@ -14,6 +14,7 @@ use crate::channel::models::{
 use crate::channel::provider::{ChannelProvider, ChannelType};
 use crate::db::DbPool;
 use crate::state::AppState;
+use crate::task::models::TaskStatus;
 
 use super::api::GithubPrApi;
 use super::config::GithubPrProviderConfig;
@@ -25,6 +26,8 @@ const AGENT_MARKER: &str = "<!-- moatless-agent -->";
 pub enum GithubPrWebhookResult {
     /// Parsed message ready for routing.
     Message(Box<InboundMessage>),
+    /// PR was closed/merged — close associated tasks.
+    CloseTask { pr_number: u64 },
     /// Webhook should be ignored (unsupported event, bot self-reply, etc.).
     Ignore,
 }
@@ -189,7 +192,7 @@ impl GithubPrProvider {
         };
 
         match event_type {
-            "pull_request" => self.handle_pull_request_event(payload, &ctx).await,
+            "pull_request" => self.handle_pull_request_event(payload, &ctx, &provider_config).await,
             "issue_comment" => self.handle_issue_comment_event(payload, &ctx).await,
             "pull_request_review_comment" => {
                 self.handle_review_comment_event(payload, &ctx).await
@@ -207,6 +210,7 @@ impl GithubPrProvider {
         &self,
         payload: &serde_json::Value,
         ctx: &EventContext<'_>,
+        provider_config: &GithubPrProviderConfig,
     ) -> Result<GithubPrWebhookResult, ChannelError> {
         let action = payload
             .get("action")
@@ -215,6 +219,23 @@ impl GithubPrProvider {
 
         if action == "synchronize" {
             return self.handle_pull_request_sync(payload, ctx).await;
+        }
+
+        if action == "closed" {
+            if provider_config.close_task_on_close {
+                let pr_number = payload
+                    .pointer("/pull_request/number")
+                    .and_then(serde_json::Value::as_u64)
+                    .ok_or_else(|| ChannelError::BadRequest("Missing PR number".into()))?;
+                let merged = payload
+                    .pointer("/pull_request/merged")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false);
+                info!(pr_number, merged, "PR closed, will close associated tasks");
+                return Ok(GithubPrWebhookResult::CloseTask { pr_number });
+            }
+            debug!("PR closed but close_task_on_close is disabled");
+            return Ok(GithubPrWebhookResult::Ignore);
         }
 
         if action != "opened" && action != "reopened" {
@@ -1000,10 +1021,85 @@ pub async fn resolve_and_process_github_webhook(
                 }
             });
         }
+        GithubPrWebhookResult::CloseTask { pr_number } => {
+            let state_clone = state.clone();
+            let config_id = config.id.clone();
+            tokio::spawn(async move {
+                close_tasks_for_pr(&state_clone, &config_id, pr_number).await;
+            });
+        }
         GithubPrWebhookResult::Ignore => {
             debug!(event_type, "GitHub PR event ignored");
         }
     }
 
     Ok(())
+}
+
+/// Close all tasks associated with a PR thread.
+async fn close_tasks_for_pr(state: &AppState, config_id: &str, pr_number: u64) {
+    let threads = match state
+        .channel_threads
+        .find_all_by_config_and_thread(config_id, &pr_number.to_string())
+        .await
+    {
+        Ok(t) => t,
+        Err(e) => {
+            warn!(config_id, pr_number, error = %e, "Failed to look up threads for PR close");
+            return;
+        }
+    };
+
+    for thread in threads {
+        let task_id = &thread.task_id;
+
+        // Skip already-closed tasks
+        match state.tasks.find_by_id_internal(task_id).await {
+            Ok(Some(task)) if task.status == TaskStatus::Closed => {
+                debug!(task_id, pr_number, "Task already closed, skipping");
+                continue;
+            }
+            Ok(None) => {
+                warn!(task_id, pr_number, "Task not found for PR close");
+                continue;
+            }
+            Err(e) => {
+                warn!(task_id, pr_number, error = %e, "Failed to fetch task for PR close");
+                continue;
+            }
+            _ => {}
+        }
+
+        if let Err(e) = state.sandbox.cleanup(task_id).await {
+            warn!(task_id = %task_id, error = %e, "Failed to cleanup sandbox on PR close");
+        }
+
+        if let Err(e) = state
+            .tasks
+            .update_task(
+                task_id,
+                &crate::task::dao::TaskPatch {
+                    status: Some(TaskStatus::Closed),
+                    ..Default::default()
+                },
+            )
+            .await
+        {
+            warn!(task_id = %task_id, error = %e, "Failed to close task on PR close");
+            continue;
+        }
+
+        if let Some(ref events) = state.events {
+            events
+                .publish_task_event(
+                    task_id,
+                    moatless_events::TaskSubType::Closed,
+                    Some("claude-code"),
+                    serde_json::json!({"reason": "pr_closed", "pr_number": pr_number}),
+                )
+                .await;
+        }
+
+        info!(task_id = %task_id, pr_number, "Task closed due to PR close");
+    }
 }

@@ -10,6 +10,7 @@ members = [
     "crates/api-client",
     "crates/api-schemas",
     "crates/integration-tests",
+    # "crates/codex-sdk",  # Excluded: built separately via its own workspace (codex dep graph)
 ]
 resolver = "2"
 

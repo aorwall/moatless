@@ -22,7 +22,7 @@ pub fn build_options(
     agent_state: Arc<AgentState>,
     env: Option<HashMap<String, String>>,
 ) -> ClaudeOptions {
-    // Determine model: request > agentConfig > DEFAULT_MODEL env
+    // Determine model: request > agentConfig > DEFAULT_CLAUDE_CODE_MODEL env
     let model = request
         .model
         .clone()

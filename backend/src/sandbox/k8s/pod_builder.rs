@@ -210,6 +210,11 @@ fn build_sandbox_container(
     // Frontend URL for constructing task URLs in the agent system prompt
     env.push(env_var("FRONTEND_URL", &config.auth.frontend_url));
 
+    // Default model for agent sessions
+    if let Some(ref model) = config.sandbox.default_model {
+        env.push(env_var("DEFAULT_CLAUDE_CODE_MODEL", model));
+    }
+
     if let Some(token) = user_auth_token {
         env.push(env_var("USER_AUTH_TOKEN", token));
     }

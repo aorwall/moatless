@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::channel::models::ChannelConfig;
 
 /// Typed representation of `provider_config` JSONB for GitHub PR channels.
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct GithubPrProviderConfig {
     /// Per-config webhook secret override (takes precedence over global env var).
     pub webhook_secret: Option<String>,
@@ -22,6 +22,26 @@ pub struct GithubPrProviderConfig {
     /// Whether to auto-create channel configs for unconfigured repos from this wildcard template.
     #[serde(default)]
     pub auto_create: bool,
+    /// Automatically close the associated task when the PR is merged or closed.
+    #[serde(default = "default_true")]
+    pub close_task_on_close: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl Default for GithubPrProviderConfig {
+    fn default() -> Self {
+        Self {
+            webhook_secret: None,
+            bot_token: None,
+            bot_username: None,
+            events_filter: vec![],
+            auto_create: false,
+            close_task_on_close: true,
+        }
+    }
 }
 
 impl GithubPrProviderConfig {
@@ -49,6 +69,7 @@ mod tests {
         assert!(cfg.bot_token.is_none());
         assert!(cfg.bot_username.is_none());
         assert!(cfg.events_filter.is_empty());
+        assert!(cfg.close_task_on_close);
     }
 
     #[test]
@@ -65,6 +86,14 @@ mod tests {
         assert_eq!(cfg.bot_token.as_deref(), Some("ghp_abc"));
         assert_eq!(cfg.bot_username.as_deref(), Some("my-bot[bot]"));
         assert_eq!(cfg.events_filter, vec!["pull_request", "issue_comment"]);
+    }
+
+    #[test]
+    fn deserialize_close_task_on_close_false() {
+        let json = serde_json::json!({ "close_task_on_close": false });
+        let cfg: GithubPrProviderConfig = serde_json::from_value(json).unwrap();
+
+        assert!(!cfg.close_task_on_close);
     }
 
     #[test]

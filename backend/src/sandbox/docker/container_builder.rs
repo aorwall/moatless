@@ -88,6 +88,11 @@ pub fn build_container_config(
     // Frontend URL for constructing task URLs in the agent system prompt
     env.push(format!("FRONTEND_URL={}", config.auth.frontend_url));
 
+    // Default model for agent sessions
+    if let Some(ref model) = config.sandbox.default_model {
+        env.push(format!("DEFAULT_CLAUDE_CODE_MODEL={model}"));
+    }
+
     // Custom env vars from repo config
     if let Some(ref env_vars) = plan.env_vars {
         for (key, value) in env_vars {
@@ -428,6 +433,7 @@ mod tests {
                 node_selector_json: None,
                 tolerations_json: None,
                 service_account_name: None,
+                default_model: None,
             },
             proxy: ProxyConfig {
                 domain: None,
