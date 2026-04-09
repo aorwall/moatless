@@ -23,11 +23,12 @@ use crate::auth::provider_token_dao::ProviderTokenRepository;
 use crate::auth::provider_tokens::ProviderTokenAuthRepository;
 use crate::auth::token_refresh::ensure_fresh_token;
 use crate::command::dao::CommandRepository;
+use crate::events::EventPublisher;
 use crate::message::dao::MessageRepository;
 use crate::message::send::enrich_pending_with_commands;
-use crate::task::dao::TaskRepository;
-use crate::events::EventPublisher;
 use crate::sandbox::jwt;
+use crate::shared_models::AgentType;
+use crate::task::dao::TaskRepository;
 
 /// Known credential env var names.
 ///
@@ -38,6 +39,8 @@ impl CredentialKey {
     pub const GITHUB_TOKEN: &str = "GITHUB_TOKEN";
     pub const GITLAB_TOKEN: &str = "GITLAB_TOKEN";
     pub const GITNESS_TOKEN: &str = "GITNESS_TOKEN";
+    pub const CODEX_AUTH_JSON: &str = "CODEX_AUTH_JSON";
+    pub const OPENAI_API_KEY: &str = "OPENAI_API_KEY";
     pub const ANTHROPIC_API_KEY: &str = "ANTHROPIC_API_KEY";
     pub const CLAUDE_CODE_OAUTH_TOKEN: &str = "CLAUDE_CODE_OAUTH_TOKEN";
 }
@@ -63,10 +66,7 @@ impl BackendSandboxServiceImpl {
     /// Extracts `Bearer <token>` from the `authorization` metadata key,
     /// verifies the JWT, and returns the claims.
     #[allow(clippy::result_large_err)]
-    fn verify_auth<T>(
-        &self,
-        request: &Request<T>,
-    ) -> Result<jwt::UserTokenClaims, Status> {
+    fn verify_auth<T>(&self, request: &Request<T>) -> Result<jwt::UserTokenClaims, Status> {
         let secret = self
             .task_token_secret
             .as_ref()
@@ -194,25 +194,22 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             }));
         };
 
-        // Look up the task's append_system_prompt to pass through PendingMessage
-        let task_system_prompt = if let Some(ref tasks) = self.tasks {
-            tasks
-                .find_by_id_internal(&req.task_id)
-                .await
-                .ok()
-                .flatten()
-                .and_then(|t| t.append_system_prompt)
+        let task = if let Some(ref tasks) = self.tasks {
+            tasks.find_by_id_internal(&req.task_id).await.ok().flatten()
         } else {
             None
         };
+        let task_system_prompt = task.as_ref().and_then(|t| t.append_system_prompt.clone());
+        let task_agent_type = task.as_ref().map_or_else(
+            || AgentType::CLAUDE_CODE.to_string(),
+            |t| t.agent_type.0.clone(),
+        );
 
         // Fetch pending user messages from DB
-        let mut pending = messages.get_pending_user(&req.task_id)
-            .await
-            .map_err(|e| {
-                warn!(error = %e, task_id = %req.task_id, "Failed to fetch pending messages");
-                Status::internal("Failed to fetch pending messages")
-            })?;
+        let mut pending = messages.get_pending_user(&req.task_id).await.map_err(|e| {
+            warn!(error = %e, task_id = %req.task_id, "Failed to fetch pending messages");
+            Status::internal("Failed to fetch pending messages")
+        })?;
 
         // Enrich messages that carry a command_name with the command's prompt
         if let Some(ref commands) = self.commands {
@@ -220,7 +217,8 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         }
 
         // Look up latest agent_session_id for --resume <id>
-        let resume_session_id = messages.get_latest_agent_session_id(&req.task_id)
+        let resume_session_id = messages
+            .get_latest_agent_session_id(&req.task_id)
             .await
             .unwrap_or(None);
 
@@ -265,10 +263,11 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
                     model: row.model.clone(),
                     system_prompt: task_system_prompt.clone(),
                     resume,
-                    agent_type: row.agent_mode.as_ref().map(|m| m.0.clone()),
+                    agent_type: Some(task_agent_type.clone()),
                     is_error: None,
                     resume_session_id: resume_session_id.clone(),
                     uuid: Some(row.uuid.clone()),
+                    agent_mode: row.agent_mode.as_ref().map(|m| m.0.clone()),
                 })
             })
             .collect();
@@ -354,11 +353,14 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         if let Ok(key) = env::var("ANTHROPIC_API_KEY") {
             credentials.insert(CredentialKey::ANTHROPIC_API_KEY.to_string(), key);
         }
+        if let Ok(auth_json) = env::var("CODEX_AUTH_JSON") {
+            credentials.insert(CredentialKey::CODEX_AUTH_JSON.to_string(), auth_json);
+        }
+        if let Ok(key) = env::var("OPENAI_API_KEY") {
+            credentials.insert(CredentialKey::OPENAI_API_KEY.to_string(), key);
+        }
         if let Ok(token) = env::var("CLAUDE_CODE_OAUTH_TOKEN") {
-            credentials.insert(
-                CredentialKey::CLAUDE_CODE_OAUTH_TOKEN.to_string(),
-                token,
-            );
+            credentials.insert(CredentialKey::CLAUDE_CODE_OAUTH_TOKEN.to_string(), token);
         }
 
         // Step 2: Team-level provider_tokens (if task belongs to a team)
@@ -368,6 +370,8 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
                 ("github", CredentialKey::GITHUB_TOKEN),
                 ("gitlab", CredentialKey::GITLAB_TOKEN),
                 ("gitness", CredentialKey::GITNESS_TOKEN),
+                ("codex", CredentialKey::CODEX_AUTH_JSON),
+                ("openai", CredentialKey::OPENAI_API_KEY),
             ] {
                 if !credentials.contains_key(cred_key) {
                     match provider_tokens.find_team_token(team_id, provider).await {
@@ -448,9 +452,14 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             for (provider, cred_key) in [
                 ("gitlab", CredentialKey::GITLAB_TOKEN),
                 ("gitness", CredentialKey::GITNESS_TOKEN),
+                ("codex", CredentialKey::CODEX_AUTH_JSON),
+                ("openai", CredentialKey::OPENAI_API_KEY),
             ] {
                 if !credentials.contains_key(cred_key) {
-                    match provider_tokens.find_provider_token(&claims.user_id, provider).await {
+                    match provider_tokens
+                        .find_provider_token(&claims.user_id, provider)
+                        .await
+                    {
                         Ok(Some(row)) => {
                             credentials.insert(cred_key.to_string(), row.access_token);
                         }
@@ -465,7 +474,9 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             if !credentials.contains_key(CredentialKey::CLAUDE_CODE_OAUTH_TOKEN)
                 && !credentials.contains_key(CredentialKey::ANTHROPIC_API_KEY)
             {
-                match provider_tokens.find_provider_token(&claims.user_id, "claude").await
+                match provider_tokens
+                    .find_provider_token(&claims.user_id, "claude")
+                    .await
                 {
                     Ok(Some(row)) => {
                         credentials.insert(
@@ -487,6 +498,8 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             has_github = credentials.contains_key(CredentialKey::GITHUB_TOKEN),
             has_gitlab = credentials.contains_key(CredentialKey::GITLAB_TOKEN),
             has_gitness = credentials.contains_key(CredentialKey::GITNESS_TOKEN),
+            has_codex_auth = credentials.contains_key(CredentialKey::CODEX_AUTH_JSON),
+            has_openai = credentials.contains_key(CredentialKey::OPENAI_API_KEY),
             has_anthropic = credentials.contains_key(CredentialKey::ANTHROPIC_API_KEY),
             has_claude_oauth = credentials.contains_key(CredentialKey::CLAUDE_CODE_OAUTH_TOKEN),
             "Credentials resolved"
@@ -569,13 +582,10 @@ fn parse_content_blocks(value: &Value) -> Vec<sandbox_proto::ContentBlock> {
         Value::String(s) if !s.is_empty() => {
             vec![sandbox_proto::ContentBlock {
                 block: Some(sandbox_proto::content_block::Block::Text(
-                    sandbox_proto::TextBlock {
-                        text: s.clone(),
-                    },
+                    sandbox_proto::TextBlock { text: s.clone() },
                 )),
             }]
         }
         _ => vec![],
     }
 }
-

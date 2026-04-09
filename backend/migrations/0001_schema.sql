@@ -58,15 +58,22 @@ CREATE TABLE IF NOT EXISTS "api_keys" (
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS "provider_tokens" (
     "id" serial PRIMARY KEY NOT NULL,
-    "user_id" text NOT NULL,
+    "user_id" text,
     "provider" text NOT NULL,
     "access_token" text NOT NULL,
     "refresh_token" text,
     "token_type" text,
+    "auth_method" text NOT NULL DEFAULT 'manual',
+    "scope" text,
+    "provider_user_id" text,
+    "provider_login" text,
+    "connected_at" timestamptz NOT NULL DEFAULT now(),
+    "expires_at" timestamptz,
     "metadata" jsonb,
     "created_at" timestamptz DEFAULT now(),
     "updated_at" timestamptz DEFAULT now(),
-    CONSTRAINT "provider_tokens_user_provider_uq" UNIQUE ("user_id", "provider")
+    "team_id" text,
+    CONSTRAINT "provider_tokens_scope_uq" UNIQUE NULLS NOT DISTINCT ("user_id", "provider", "team_id")
 );
 
 -- =========================================================================

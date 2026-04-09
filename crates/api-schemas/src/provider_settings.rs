@@ -26,6 +26,22 @@ pub struct SavePatRequest {
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
+pub struct CodexConfigResponse {
+    pub connected: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token_type: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct SaveCodexAuthRequest {
+    pub auth_json: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
 pub struct OAuthUrlResponse {
     pub url: String,
 }

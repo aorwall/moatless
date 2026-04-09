@@ -9,7 +9,7 @@ use crate::state::AppState;
 #[derive(OpenApi)]
 #[openapi(
     tags(
-        (name = "provider-settings", description = "GitHub OAuth/PAT & Gitness PAT management"),
+        (name = "provider-settings", description = "GitHub, Gitness, and Codex credential management"),
     ),
     paths(
         handlers::get_github_config,
@@ -21,6 +21,9 @@ use crate::state::AppState;
         handlers::get_gitness_config,
         handlers::save_gitness_pat,
         handlers::delete_gitness_config,
+        handlers::get_codex_config,
+        handlers::save_codex_auth,
+        handlers::delete_codex_config,
     )
 )]
 pub struct ProviderSettingsApiDoc;
@@ -28,12 +31,26 @@ pub struct ProviderSettingsApiDoc;
 /// Build the provider settings router with OpenAPI metadata.
 pub fn provider_settings_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenApi) {
     let (router, api) = OpenApiRouter::with_openapi(ProviderSettingsApiDoc::openapi())
-        .routes(routes!(handlers::get_github_config, handlers::delete_github_config))
-        .routes(routes!(handlers::save_github_pat, handlers::delete_github_pat_override))
+        .routes(routes!(
+            handlers::get_github_config,
+            handlers::delete_github_config
+        ))
+        .routes(routes!(
+            handlers::save_github_pat,
+            handlers::delete_github_pat_override
+        ))
         .routes(routes!(handlers::get_github_oauth_url))
         .routes(routes!(handlers::exchange_github_token))
-        .routes(routes!(handlers::get_gitness_config, handlers::delete_gitness_config))
+        .routes(routes!(
+            handlers::get_gitness_config,
+            handlers::delete_gitness_config
+        ))
         .routes(routes!(handlers::save_gitness_pat))
+        .routes(routes!(
+            handlers::get_codex_config,
+            handlers::delete_codex_config
+        ))
+        .routes(routes!(handlers::save_codex_auth))
         .with_state(state)
         .split_for_parts();
 

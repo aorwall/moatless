@@ -1,4 +1,4 @@
-//! Provider settings HTTP handlers (GitHub, Gitness).
+//! Provider settings HTTP handlers (GitHub, Gitness, Codex).
 
 use axum::extract::State;
 use axum::Json;
@@ -10,6 +10,19 @@ use super::error::ProviderSettingsError;
 use super::github_client;
 use super::gitness_client;
 use super::schemas::*;
+
+fn parse_codex_auth_json(raw: &str) -> Result<serde_json::Value, ProviderSettingsError> {
+    let parsed: serde_json::Value = serde_json::from_str(raw)
+        .map_err(|e| ProviderSettingsError::BadRequest(format!("Invalid Codex auth JSON: {e}")))?;
+
+    if !parsed.is_object() {
+        return Err(ProviderSettingsError::BadRequest(
+            "Codex auth JSON must be a JSON object".to_string(),
+        ));
+    }
+
+    Ok(parsed)
+}
 
 /// Get current GitHub configuration for the user.
 #[utoipa::path(
@@ -25,7 +38,9 @@ pub async fn get_github_config(
     State(state): State<AppState>,
     auth: AuthUser,
 ) -> Result<Json<GitHubConfigResponse>, ProviderSettingsError> {
-    let token = state.provider_tokens.find_provider_token_full(&auth.user_id, "github")
+    let token = state
+        .provider_tokens
+        .find_provider_token_full(&auth.user_id, "github")
         .await?;
 
     let is_github_oauth_user = auth.provider.as_deref() == Some("github");
@@ -56,7 +71,11 @@ pub async fn get_github_config(
             connected: false,
             login: None,
             token_type: None,
-            has_pat_override: if is_github_oauth_user { Some(false) } else { None },
+            has_pat_override: if is_github_oauth_user {
+                Some(false)
+            } else {
+                None
+            },
         })),
     }
 }
@@ -99,8 +118,7 @@ pub async fn save_github_pat(
                     .and_then(|m| m.get("oauth_access_token"))
                     .and_then(|v| v.as_str())
                 {
-                    metadata["oauth_access_token"] =
-                        serde_json::Value::String(stashed.to_string());
+                    metadata["oauth_access_token"] = serde_json::Value::String(stashed.to_string());
                 }
                 if let Some(oauth_login) = existing
                     .metadata
@@ -108,8 +126,7 @@ pub async fn save_github_pat(
                     .and_then(|m| m.get("oauth_login"))
                     .and_then(|v| v.as_str())
                 {
-                    metadata["oauth_login"] =
-                        serde_json::Value::String(oauth_login.to_string());
+                    metadata["oauth_login"] = serde_json::Value::String(oauth_login.to_string());
                 }
             } else {
                 // Stash the current OAuth token
@@ -121,22 +138,23 @@ pub async fn save_github_pat(
                     .and_then(|m| m.get("login"))
                     .and_then(|v| v.as_str())
                 {
-                    metadata["oauth_login"] =
-                        serde_json::Value::String(oauth_login.to_string());
+                    metadata["oauth_login"] = serde_json::Value::String(oauth_login.to_string());
                 }
             }
         }
     }
 
-    state.provider_tokens.upsert_token(
-        &auth.user_id,
-        "github",
-        &req.token,
-        None,
-        Some("pat"),
-        Some(&metadata),
-    )
-    .await?;
+    state
+        .provider_tokens
+        .upsert_token(
+            &auth.user_id,
+            "github",
+            &req.token,
+            None,
+            Some("pat"),
+            Some(&metadata),
+        )
+        .await?;
 
     let is_github_oauth_user = auth.provider.as_deref() == Some("github");
 
@@ -144,7 +162,11 @@ pub async fn save_github_pat(
         connected: true,
         login: Some(login),
         token_type: Some("pat".to_string()),
-        has_pat_override: if is_github_oauth_user { Some(true) } else { None },
+        has_pat_override: if is_github_oauth_user {
+            Some(true)
+        } else {
+            None
+        },
     }))
 }
 
@@ -164,7 +186,8 @@ pub async fn get_github_oauth_url(
 ) -> Result<Json<OAuthUrlResponse>, ProviderSettingsError> {
     let client_id = state
         .config
-        .auth.github_client_id
+        .auth
+        .github_client_id
         .as_deref()
         .ok_or_else(|| {
             ProviderSettingsError::BadRequest(
@@ -172,10 +195,14 @@ pub async fn get_github_oauth_url(
             )
         })?;
 
-    let default_callback = format!("{}/settings/github/callback", state.config.auth.frontend_url);
+    let default_callback = format!(
+        "{}/settings/github/callback",
+        state.config.auth.frontend_url
+    );
     let callback_url = state
         .config
-        .auth.github_callback_url
+        .auth
+        .github_callback_url
         .as_deref()
         .unwrap_or(&default_callback);
 
@@ -211,7 +238,8 @@ pub async fn exchange_github_token(
 ) -> Result<Json<ExchangeTokenResponse>, ProviderSettingsError> {
     let client_id = state
         .config
-        .auth.github_client_id
+        .auth
+        .github_client_id
         .as_deref()
         .ok_or_else(|| {
             ProviderSettingsError::BadRequest("GitHub OAuth not configured".to_string())
@@ -219,7 +247,8 @@ pub async fn exchange_github_token(
 
     let client_secret = state
         .config
-        .auth.github_client_secret
+        .auth
+        .github_client_secret
         .as_deref()
         .ok_or_else(|| {
             ProviderSettingsError::BadRequest("GitHub OAuth not configured".to_string())
@@ -237,15 +266,17 @@ pub async fn exchange_github_token(
 
     let metadata = serde_json::json!({ "login": login });
 
-    state.provider_tokens.upsert_token(
-        &auth.user_id,
-        "github",
-        &access_token,
-        None,
-        Some(&token_type),
-        Some(&metadata),
-    )
-    .await?;
+    state
+        .provider_tokens
+        .upsert_token(
+            &auth.user_id,
+            "github",
+            &access_token,
+            None,
+            Some(&token_type),
+            Some(&metadata),
+        )
+        .await?;
 
     Ok(Json(ExchangeTokenResponse {
         connected: true,
@@ -267,7 +298,10 @@ pub async fn delete_github_config(
     State(state): State<AppState>,
     auth: AuthUser,
 ) -> Result<Json<GitHubConfigResponse>, ProviderSettingsError> {
-    state.provider_tokens.delete_token(&auth.user_id, "github").await?;
+    state
+        .provider_tokens
+        .delete_token(&auth.user_id, "github")
+        .await?;
 
     Ok(Json(GitHubConfigResponse {
         connected: false,
@@ -371,7 +405,9 @@ pub async fn get_gitness_config(
     State(state): State<AppState>,
     auth: AuthUser,
 ) -> Result<Json<GitnessConfigResponse>, ProviderSettingsError> {
-    let token = state.provider_tokens.find_provider_token_full(&auth.user_id, "gitness")
+    let token = state
+        .provider_tokens
+        .find_provider_token_full(&auth.user_id, "gitness")
         .await?;
 
     match token {
@@ -430,15 +466,17 @@ pub async fn save_gitness_pat(
         "base_url": req.base_url,
     });
 
-    state.provider_tokens.upsert_token(
-        &auth.user_id,
-        "gitness",
-        &req.token,
-        None,
-        Some("pat"),
-        Some(&metadata),
-    )
-    .await?;
+    state
+        .provider_tokens
+        .upsert_token(
+            &auth.user_id,
+            "gitness",
+            &req.token,
+            None,
+            Some("pat"),
+            Some(&metadata),
+        )
+        .await?;
 
     Ok(Json(GitnessConfigResponse {
         connected: true,
@@ -461,11 +499,115 @@ pub async fn delete_gitness_config(
     State(state): State<AppState>,
     auth: AuthUser,
 ) -> Result<Json<GitnessConfigResponse>, ProviderSettingsError> {
-    state.provider_tokens.delete_token(&auth.user_id, "gitness").await?;
+    state
+        .provider_tokens
+        .delete_token(&auth.user_id, "gitness")
+        .await?;
 
     Ok(Json(GitnessConfigResponse {
         connected: false,
         login: None,
         base_url: None,
+    }))
+}
+
+// =========================================================================
+// Codex handlers
+// =========================================================================
+
+/// Get current Codex configuration for the user.
+#[utoipa::path(
+    get,
+    path = "/api/v1/settings/codex/config",
+    tag = "provider-settings",
+    responses(
+        (status = 200, description = "Codex config", body = CodexConfigResponse),
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn get_codex_config(
+    State(state): State<AppState>,
+    auth: AuthUser,
+) -> Result<Json<CodexConfigResponse>, ProviderSettingsError> {
+    let token = state
+        .provider_tokens
+        .find_provider_token_full(&auth.user_id, "codex")
+        .await?;
+
+    match token {
+        Some(row) => Ok(Json(CodexConfigResponse {
+            connected: true,
+            token_type: row.token_type,
+        })),
+        None => Ok(Json(CodexConfigResponse {
+            connected: false,
+            token_type: None,
+        })),
+    }
+}
+
+/// Save Codex auth.json contents for sandbox startup.
+#[utoipa::path(
+    put,
+    path = "/api/v1/settings/codex/config",
+    tag = "provider-settings",
+    request_body = SaveCodexAuthRequest,
+    responses(
+        (status = 200, description = "Codex auth saved", body = CodexConfigResponse),
+        (status = 400, description = "Invalid auth JSON", body = crate::error::ErrorBody),
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn save_codex_auth(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Json(req): Json<SaveCodexAuthRequest>,
+) -> Result<Json<CodexConfigResponse>, ProviderSettingsError> {
+    let parsed = parse_codex_auth_json(&req.auth_json)?;
+    let metadata = serde_json::json!({
+        "has_openai_api_key": parsed.get("OPENAI_API_KEY").and_then(serde_json::Value::as_str).is_some(),
+        "has_tokens": parsed.get("tokens").is_some_and(serde_json::Value::is_object),
+    });
+
+    state
+        .provider_tokens
+        .upsert_token(
+            &auth.user_id,
+            "codex",
+            &parsed.to_string(),
+            None,
+            Some("auth_json"),
+            Some(&metadata),
+        )
+        .await?;
+
+    Ok(Json(CodexConfigResponse {
+        connected: true,
+        token_type: Some("auth_json".to_string()),
+    }))
+}
+
+/// Disconnect Codex by deleting the stored auth blob.
+#[utoipa::path(
+    delete,
+    path = "/api/v1/settings/codex/config",
+    tag = "provider-settings",
+    responses(
+        (status = 200, description = "Codex disconnected", body = CodexConfigResponse),
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn delete_codex_config(
+    State(state): State<AppState>,
+    auth: AuthUser,
+) -> Result<Json<CodexConfigResponse>, ProviderSettingsError> {
+    state
+        .provider_tokens
+        .delete_token(&auth.user_id, "codex")
+        .await?;
+
+    Ok(Json(CodexConfigResponse {
+        connected: false,
+        token_type: None,
     }))
 }
