@@ -1,5 +1,6 @@
 import type { UiContentBlock, UiMessage, UiToolResult } from '@moatless/api-client'
 import {
+  Brain,
   CheckCircle,
   ChevronDown,
   ChevronRight,
@@ -14,7 +15,7 @@ import { type ImageContentBlock, isImageContentBlock } from '@/lib/types/content
 import type { AllowedPrompt, Question } from '@/lib/types/user-input'
 import { cn } from '@/lib/utils'
 import { ImageThumbnail } from './image-thumbnail'
-import { type Todo, TodoList } from './tool-calls'
+import { CodexToolCall, type Todo, TodoList } from './tool-calls'
 
 interface AssistantMessageProps {
   message: UiMessage
@@ -60,6 +61,24 @@ function ToolCallComponent({
   onToggle,
   hasPendingUserInput,
 }: ToolCallProps) {
+  // Codex tool calls use the `codex.*` namespace and are rendered via a
+  // dedicated dispatch that knows how to pretty-print shell output and
+  // file diffs. Unknown codex.* names fall through to the generic renderer.
+  if (
+    content.toolName === 'codex.shell' ||
+    content.toolName === 'codex.edit' ||
+    content.toolName === 'codex.todo_list'
+  ) {
+    return (
+      <CodexToolCall
+        content={content}
+        toolResult={toolResult}
+        expanded={expanded}
+        onToggle={onToggle}
+      />
+    )
+  }
+
   // Special handling for AskUserQuestion tool
   if (content.toolName === 'AskUserQuestion' && content.toolInput) {
     const toolInput = content.toolInput as { questions?: Question[] }
@@ -508,6 +527,38 @@ function renderCollapsedMessage(
   )
 }
 
+function CodexReasoningCard({ text }: { text: string }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="border border-dashed border-muted-foreground/30 rounded-lg overflow-hidden bg-muted/10">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center gap-2 p-2 text-xs text-muted-foreground hover:bg-muted/30 transition-colors"
+      >
+        {open ? (
+          <ChevronDown className="h-3 w-3 flex-shrink-0" />
+        ) : (
+          <ChevronRight className="h-3 w-3 flex-shrink-0" />
+        )}
+        <Brain className="h-3 w-3 flex-shrink-0" />
+        <span className="font-medium">Reasoning</span>
+        {!open && (
+          <span className="truncate text-muted-foreground/70">
+            {text.slice(0, 80)}
+            {text.length > 80 ? '...' : ''}
+          </span>
+        )}
+      </button>
+      {open && (
+        <div className="p-3 border-t border-dashed border-muted-foreground/20 text-sm">
+          <Response>{text}</Response>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function AssistantMessageComponent({
   message,
   expandedToolCalls,
@@ -516,12 +567,19 @@ export function AssistantMessageComponent({
   const [isExpanded, setIsExpanded] = useState(false)
   const isHidden = (message.messageType as string) === 'transcript_only'
   const isSummary = (message.messageType as string) === 'compact_summary'
+  const isCodexReasoning = message.sdkMetadata?.codex_reasoning === true
 
   // Build a lookup map from toolUseId to toolResult
   const toolResultMap = buildToolResultMap(message)
 
   // Content is always UiContentBlock[]
   const { textContent, toolCalls } = parseMessageContent(message.content)
+
+  // Codex reasoning messages are rendered as a collapsible card instead of
+  // inline assistant text.
+  if (isCodexReasoning && textContent && toolCalls.length === 0) {
+    return <CodexReasoningCard text={textContent} />
+  }
 
   // For hidden messages, show collapsed view by default
   if (isHidden) {

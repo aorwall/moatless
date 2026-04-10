@@ -11,6 +11,7 @@
 
 pub mod auth;
 pub mod channel;
+pub mod codex;
 pub mod command;
 pub mod enums;
 pub mod figma;

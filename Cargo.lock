@@ -3028,6 +3028,7 @@ dependencies = [
  "claude-agent-sdk",
  "futures",
  "glob",
+ "moatless-api-schemas",
  "moatless-events",
  "prost",
  "sandbox-proto",

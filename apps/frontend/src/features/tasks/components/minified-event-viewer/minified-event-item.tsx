@@ -43,6 +43,9 @@ function getToolIcon(toolName: string) {
     TodoRead: <ListTodo className="h-3 w-3" />,
     LS: <FileSearch className="h-3 w-3" />,
     Task: <Bot className="h-3 w-3" />,
+    'codex.shell': <Terminal className="h-3 w-3" />,
+    'codex.edit': <FileEdit className="h-3 w-3" />,
+    'codex.todo_list': <ListTodo className="h-3 w-3" />,
   }
 
   return iconMap[toolName] || <Code2 className="h-3 w-3" />
@@ -91,6 +94,23 @@ function getTodoCountSummary(input: Record<string, unknown>): string {
   return input.todos && Array.isArray(input.todos) ? `${input.todos.length} items` : ''
 }
 
+// Helper: Get codex todo_list item count summary
+function getCodexTodoListSummary(input: Record<string, unknown>): string {
+  return Array.isArray(input.items) ? `${input.items.length} items` : ''
+}
+
+// Helper: Get codex edit change summary
+function getCodexEditSummary(input: Record<string, unknown>): string {
+  if (!Array.isArray(input.changes) || input.changes.length === 0) {
+    return ''
+  }
+  if (input.changes.length === 1) {
+    const first = input.changes[0] as { path?: unknown }
+    return typeof first.path === 'string' ? truncateText(first.path, 40) : ''
+  }
+  return `${input.changes.length} files`
+}
+
 function getToolSummary(toolContent: ToolUseContent): string {
   const toolName = toolContent.name
   const input = toolContent.input as Record<string, unknown>
@@ -121,6 +141,12 @@ function getToolSummary(toolContent: ToolUseContent): string {
       return getPathSummary(input)
     case 'Task':
       return getDescriptionSummary(input)
+    case 'codex.shell':
+      return getCommandSummary(input)
+    case 'codex.edit':
+      return getCodexEditSummary(input)
+    case 'codex.todo_list':
+      return getCodexTodoListSummary(input)
     default:
       return getDescriptionSummary(input)
   }

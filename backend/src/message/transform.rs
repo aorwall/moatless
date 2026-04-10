@@ -6,6 +6,8 @@
 
 use std::collections::HashMap;
 
+use moatless_api_schemas::codex::{CodexToolInput, CodexToolResult};
+
 use super::models::{TaskMessage, TaskMessageContentBlock, TaskMessageContext};
 use crate::message::models::MessageType;
 
@@ -137,6 +139,18 @@ fn transform_assistant(
                                 if rb.get("tool_use_id").and_then(|v| v.as_str())
                                     == Some(tool_use_id)
                                 {
+                                    let raw_typed = tool_use_result_map
+                                        .get(tool_use_id)
+                                        .copied()
+                                        .cloned();
+                                    let tool_name =
+                                        block.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                                    let typed_result = enrich_codex_typed_result(
+                                        tool_name,
+                                        block.get("input"),
+                                        raw_typed,
+                                    );
+
                                     tool_results.push(UiToolResult {
                                         tool_use_id: tool_use_id.to_string(),
                                         content: rb
@@ -146,10 +160,7 @@ fn transform_assistant(
                                         is_error: rb
                                             .get("is_error")
                                             .and_then(serde_json::Value::as_bool),
-                                        typed_result: tool_use_result_map
-                                            .get(tool_use_id)
-                                            .copied()
-                                            .cloned(),
+                                        typed_result,
                                     });
                                 }
                             }
@@ -355,6 +366,49 @@ fn extract_text_from_content(content: &serde_json::Value) -> Vec<UiContentBlock>
     }
 }
 
+/// For codex tool calls, re-validate the stored `tool_use_result` against
+/// the shared typed schemas so the frontend receives a known-shape payload.
+///
+/// Falls back to the raw value when the tool name is not a codex tool or
+/// when deserialization fails — no message is ever dropped.
+fn enrich_codex_typed_result(
+    tool_name: &str,
+    tool_input: Option<&serde_json::Value>,
+    raw_typed: Option<serde_json::Value>,
+) -> Option<serde_json::Value> {
+    if !tool_name.starts_with("codex.") {
+        return raw_typed;
+    }
+
+    if let Some(input) = tool_input {
+        match CodexToolInput::from_tool(tool_name, input) {
+            Some(Ok(_)) => {}
+            Some(Err(e)) => {
+                tracing::warn!(
+                    tool_name,
+                    error = %e,
+                    "codex tool_input failed typed validation; keeping raw",
+                );
+            }
+            None => {}
+        }
+    }
+
+    let raw = raw_typed?;
+    match CodexToolResult::from_tool(tool_name, &raw) {
+        Some(Ok(typed)) => Some(serde_json::to_value(typed).unwrap_or(raw)),
+        Some(Err(e)) => {
+            tracing::warn!(
+                tool_name,
+                error = %e,
+                "codex tool_use_result failed typed validation; keeping raw",
+            );
+            Some(raw)
+        }
+        None => Some(raw),
+    }
+}
+
 /// Check if the last assistant message has a pending interactive tool call
 /// (AskUserQuestion or ExitPlanMode) without a corresponding tool result.
 fn check_pending_user_input(msg: &TaskMessage, all_messages: &[TaskMessage]) -> bool {
@@ -385,4 +439,55 @@ fn check_pending_user_input(msg: &TaskMessage, all_messages: &[TaskMessage]) -> 
         }
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn enrich_codex_shell_normalizes_typed_result() {
+        let input = json!({ "command": "false" });
+        let raw = json!({
+            "status": "failed",
+            "exitCode": 1,
+            "aggregatedOutput": "",
+        });
+        let enriched =
+            enrich_codex_typed_result("codex.shell", Some(&input), Some(raw)).expect("typed");
+        assert_eq!(enriched["status"], "failed");
+        assert_eq!(enriched["exitCode"], 1);
+    }
+
+    #[test]
+    fn enrich_codex_malformed_result_falls_back_to_raw() {
+        let input = json!({ "command": "ls" });
+        let raw = json!({ "garbage": true });
+        let enriched =
+            enrich_codex_typed_result("codex.shell", Some(&input), Some(raw.clone()))
+                .expect("keeps raw");
+        assert_eq!(enriched, raw);
+    }
+
+    #[test]
+    fn enrich_non_codex_tool_passes_through_untouched() {
+        let raw = json!({ "stdout": "ok" });
+        let enriched =
+            enrich_codex_typed_result("Bash", None, Some(raw.clone())).expect("untouched");
+        assert_eq!(enriched, raw);
+    }
+
+    #[test]
+    fn enrich_codex_edit_normalizes_changes() {
+        let input = json!({ "changes": [{ "path": "a.rs", "kind": "update" }] });
+        let raw = json!({
+            "status": "completed",
+            "changes": [{ "path": "a.rs", "kind": "update" }],
+        });
+        let enriched =
+            enrich_codex_typed_result("codex.edit", Some(&input), Some(raw)).expect("typed");
+        assert_eq!(enriched["status"], "completed");
+        assert_eq!(enriched["changes"][0]["kind"], "update");
+    }
 }

@@ -24,8 +24,17 @@ use crate::backend_client::BackendClient;
 use crate::config::Config;
 use crate::events::GrpcEventPublisher;
 
+use moatless_api_schemas::codex::{
+    CodexEditInput, CodexEditResult, CodexShellInput, CodexShellResult, CodexTodoItem,
+    CodexTodoListInput, CodexToolStatus, FileUpdateChange, FileUpdateKind, CODEX_TOOL_EDIT,
+    CODEX_TOOL_SHELL, CODEX_TOOL_TODO_LIST,
+};
+
 use super::agent_state::AgentState;
-use super::codex_exec::{self, CodexCliSession, CodexExecEvent, ThreadItemDetails, Usage};
+use super::codex_exec::{
+    self, CodexCliSession, CodexExecEvent, CommandExecutionItem, FileChangeItem, ThreadItemDetails,
+    TodoListItem, Usage,
+};
 use super::options::build_options;
 use super::types::{AgentRunRequest, ResumeSession};
 
@@ -912,27 +921,90 @@ async fn process_codex_message(
         CodexExecEvent::TurnStarted(_) => {
             turn_output.clear();
         }
-        CodexExecEvent::ItemStarted(_) | CodexExecEvent::ItemUpdated(_) => {
-            debug!("Codex item event");
+        CodexExecEvent::ItemStarted(event) | CodexExecEvent::ItemUpdated(event) => {
+            if let ThreadItemDetails::TodoList(todo) = &event.item.details {
+                publish_codex_todo_list_call(
+                    events,
+                    task_id,
+                    session_id,
+                    &event.item.id,
+                    todo,
+                    requested_model,
+                )
+                .await;
+            } else {
+                debug!("Codex item event");
+            }
         }
         CodexExecEvent::ItemCompleted(event) => {
-            if let ThreadItemDetails::AgentMessage(agent_message) = &event.item.details {
-                append_turn_output(turn_output, &agent_message.text);
+            let item_id = &event.item.id;
+            match &event.item.details {
+                ThreadItemDetails::AgentMessage(agent_message) => {
+                    append_turn_output(turn_output, &agent_message.text);
 
-                // Codex item ids are short and only unique within a thread
-                // (item_0, item_1, ...). The task_messages table uses a
-                // global ON CONFLICT (uuid), so qualify the id with the
-                // session to avoid cross-task row collisions.
-                let uuid = format!("{session_id}_{}", event.item.id);
-                let payload = codex_message_payload(
-                    &uuid,
-                    session_id,
-                    &agent_message.text,
-                    requested_model,
-                );
-                events
-                    .publish_agent_event(task_id, AgentSubType::Message, payload)
+                    // Codex item ids are short and only unique within a thread
+                    // (item_0, item_1, ...). The task_messages table uses a
+                    // global ON CONFLICT (uuid), so qualify the id with the
+                    // session to avoid cross-task row collisions.
+                    let uuid = format!("{session_id}_{item_id}");
+                    let payload = codex_message_payload(
+                        &uuid,
+                        session_id,
+                        &agent_message.text,
+                        requested_model,
+                    );
+                    events
+                        .publish_agent_event(task_id, AgentSubType::Message, payload)
+                        .await;
+                }
+                ThreadItemDetails::Reasoning(reasoning) => {
+                    let uuid = format!("{session_id}_{item_id}");
+                    let payload = codex_reasoning_payload(
+                        &uuid,
+                        session_id,
+                        &reasoning.text,
+                        requested_model,
+                    );
+                    events
+                        .publish_agent_event(task_id, AgentSubType::Message, payload)
+                        .await;
+                }
+                ThreadItemDetails::CommandExecution(cmd) => {
+                    publish_codex_shell_call(
+                        events,
+                        task_id,
+                        session_id,
+                        item_id,
+                        cmd,
+                        requested_model,
+                    )
                     .await;
+                }
+                ThreadItemDetails::FileChange(edit) => {
+                    publish_codex_edit_call(
+                        events,
+                        task_id,
+                        session_id,
+                        item_id,
+                        edit,
+                        requested_model,
+                    )
+                    .await;
+                }
+                ThreadItemDetails::TodoList(todo) => {
+                    publish_codex_todo_list_call(
+                        events,
+                        task_id,
+                        session_id,
+                        item_id,
+                        todo,
+                        requested_model,
+                    )
+                    .await;
+                }
+                ThreadItemDetails::Other => {
+                    debug!(item_id, "Codex item kind unhandled — skipped");
+                }
             }
         }
         CodexExecEvent::TurnCompleted(event) => {
@@ -1055,6 +1127,307 @@ fn codex_message_payload(
         "session_id": session_id,
         "message": serde_json::Value::Object(message),
     })
+}
+
+/// Assistant text payload for a codex reasoning item, tagged so the UI
+/// can render it collapsed.
+fn codex_reasoning_payload(
+    uuid: &str,
+    session_id: &str,
+    text: &str,
+    requested_model: Option<&str>,
+) -> serde_json::Value {
+    let mut message = serde_json::Map::new();
+    message.insert("role".to_string(), serde_json::json!("assistant"));
+    message.insert(
+        "content".to_string(),
+        serde_json::json!([{ "type": "text", "text": text }]),
+    );
+    if let Some(model) = requested_model {
+        message.insert("model".to_string(), serde_json::json!(model));
+    }
+
+    serde_json::json!({
+        "uuid": uuid,
+        "session_id": session_id,
+        "message": serde_json::Value::Object(message),
+        "sdk_metadata": { "codex_reasoning": true },
+    })
+}
+
+/// Build an assistant message envelope containing a single `tool_use` block.
+fn codex_tool_use_payload(
+    uuid: &str,
+    session_id: &str,
+    tool_use_id: &str,
+    tool_name: &str,
+    tool_input: serde_json::Value,
+    requested_model: Option<&str>,
+) -> serde_json::Value {
+    let mut message = serde_json::Map::new();
+    message.insert("role".to_string(), serde_json::json!("assistant"));
+    message.insert(
+        "content".to_string(),
+        serde_json::json!([{
+            "type": "tool_use",
+            "id": tool_use_id,
+            "name": tool_name,
+            "input": tool_input,
+        }]),
+    );
+    if let Some(model) = requested_model {
+        message.insert("model".to_string(), serde_json::json!(model));
+    }
+
+    serde_json::json!({
+        "uuid": uuid,
+        "session_id": session_id,
+        "message": serde_json::Value::Object(message),
+    })
+}
+
+/// Build a user message envelope containing a single `tool_result` block
+/// referencing a prior `tool_use`. The `tool_use_result` field carries the
+/// typed codex result for backend enrichment.
+fn codex_tool_result_payload(
+    uuid: &str,
+    session_id: &str,
+    tool_use_id: &str,
+    content: &str,
+    is_error: bool,
+    tool_use_result: serde_json::Value,
+) -> serde_json::Value {
+    serde_json::json!({
+        "uuid": uuid,
+        "session_id": session_id,
+        "message": {
+            "role": "user",
+            "content": [{
+                "type": "tool_result",
+                "tool_use_id": tool_use_id,
+                "content": content,
+                "is_error": is_error,
+            }],
+        },
+        "tool_use_result": tool_use_result,
+    })
+}
+
+fn map_codex_status(status: Option<&str>, exit_code: Option<i32>) -> CodexToolStatus {
+    match status {
+        Some("completed") => {
+            if matches!(exit_code, Some(code) if code != 0) {
+                CodexToolStatus::Failed
+            } else {
+                CodexToolStatus::Completed
+            }
+        }
+        Some("failed") => CodexToolStatus::Failed,
+        Some("declined") => CodexToolStatus::Declined,
+        Some("in_progress") => CodexToolStatus::InProgress,
+        _ => CodexToolStatus::Completed,
+    }
+}
+
+fn parse_file_update_kind(raw: &str) -> FileUpdateKind {
+    match raw {
+        "delete" => FileUpdateKind::Delete,
+        "update" => FileUpdateKind::Update,
+        // Treat unknown kinds as `add` — the worst case is a misleading
+        // badge rather than dropping the change.
+        _ => FileUpdateKind::Add,
+    }
+}
+
+fn build_shell_tool_use(cmd: &CommandExecutionItem) -> serde_json::Value {
+    let input = CodexShellInput {
+        command: cmd.command.clone(),
+        cwd: cmd.cwd.clone(),
+        command_actions: vec![],
+    };
+    serde_json::to_value(input).unwrap_or_else(|_| serde_json::json!({}))
+}
+
+fn build_shell_tool_result(
+    cmd: &CommandExecutionItem,
+) -> (serde_json::Value, String, bool) {
+    let status = map_codex_status(cmd.status.as_deref(), cmd.exit_code);
+    let is_error = matches!(status, CodexToolStatus::Failed | CodexToolStatus::Declined);
+    let summary_text = cmd.aggregated_output.clone().unwrap_or_default();
+
+    let result = CodexShellResult {
+        status,
+        exit_code: cmd.exit_code,
+        aggregated_output: cmd.aggregated_output.clone(),
+        duration_ms: cmd.duration_ms,
+    };
+    let value = serde_json::to_value(result).unwrap_or_else(|_| serde_json::json!({}));
+    (value, summary_text, is_error)
+}
+
+fn build_edit_tool_use(edit: &FileChangeItem) -> serde_json::Value {
+    let input = CodexEditInput {
+        changes: edit
+            .changes
+            .iter()
+            .map(|c| FileUpdateChange {
+                path: c.path.clone(),
+                kind: parse_file_update_kind(&c.kind),
+                diff: c.diff.clone(),
+            })
+            .collect(),
+    };
+    serde_json::to_value(input).unwrap_or_else(|_| serde_json::json!({}))
+}
+
+fn build_edit_tool_result(edit: &FileChangeItem) -> (serde_json::Value, String, bool) {
+    let status = map_codex_status(edit.status.as_deref(), None);
+    let is_error = matches!(status, CodexToolStatus::Failed | CodexToolStatus::Declined);
+
+    let summary_text = if edit.changes.is_empty() {
+        String::new()
+    } else {
+        edit.changes
+            .iter()
+            .map(|c| format!("{} {}", c.kind, c.path))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+
+    let result = CodexEditResult {
+        status,
+        changes: edit
+            .changes
+            .iter()
+            .map(|c| FileUpdateChange {
+                path: c.path.clone(),
+                kind: parse_file_update_kind(&c.kind),
+                diff: c.diff.clone(),
+            })
+            .collect(),
+    };
+    let value = serde_json::to_value(result).unwrap_or_else(|_| serde_json::json!({}));
+    (value, summary_text, is_error)
+}
+
+async fn publish_codex_shell_call(
+    events: &GrpcEventPublisher,
+    task_id: &str,
+    session_id: &str,
+    item_id: &str,
+    cmd: &CommandExecutionItem,
+    requested_model: Option<&str>,
+) {
+    let tool_use_id = format!("{session_id}_{item_id}");
+    let assistant_uuid = format!("{session_id}_{item_id}_call");
+    let tool_input = build_shell_tool_use(cmd);
+    let use_payload = codex_tool_use_payload(
+        &assistant_uuid,
+        session_id,
+        &tool_use_id,
+        CODEX_TOOL_SHELL,
+        tool_input,
+        requested_model,
+    );
+    events
+        .publish_agent_event(task_id, AgentSubType::Message, use_payload)
+        .await;
+
+    let (result_value, summary_text, is_error) = build_shell_tool_result(cmd);
+    let result_uuid = format!("{session_id}_{item_id}_result");
+    let result_payload = codex_tool_result_payload(
+        &result_uuid,
+        session_id,
+        &tool_use_id,
+        &summary_text,
+        is_error,
+        result_value,
+    );
+    events
+        .publish_agent_event(task_id, AgentSubType::Message, result_payload)
+        .await;
+}
+
+async fn publish_codex_edit_call(
+    events: &GrpcEventPublisher,
+    task_id: &str,
+    session_id: &str,
+    item_id: &str,
+    edit: &FileChangeItem,
+    requested_model: Option<&str>,
+) {
+    let tool_use_id = format!("{session_id}_{item_id}");
+    let assistant_uuid = format!("{session_id}_{item_id}_call");
+    let tool_input = build_edit_tool_use(edit);
+    let use_payload = codex_tool_use_payload(
+        &assistant_uuid,
+        session_id,
+        &tool_use_id,
+        CODEX_TOOL_EDIT,
+        tool_input,
+        requested_model,
+    );
+    events
+        .publish_agent_event(task_id, AgentSubType::Message, use_payload)
+        .await;
+
+    let (result_value, summary_text, is_error) = build_edit_tool_result(edit);
+    let result_uuid = format!("{session_id}_{item_id}_result");
+    let result_payload = codex_tool_result_payload(
+        &result_uuid,
+        session_id,
+        &tool_use_id,
+        &summary_text,
+        is_error,
+        result_value,
+    );
+    events
+        .publish_agent_event(task_id, AgentSubType::Message, result_payload)
+        .await;
+}
+
+fn build_codex_todo_list_input(todo: &TodoListItem) -> CodexTodoListInput {
+    CodexTodoListInput {
+        items: todo
+            .items
+            .iter()
+            .map(|entry| CodexTodoItem {
+                text: entry.text.clone(),
+                completed: entry.completed,
+            })
+            .collect(),
+    }
+}
+
+/// Publish a codex `todo_list` item as a tool_use block. Unlike shell/edit,
+/// this is called on every `item.started` / `item.updated` / `item.completed`
+/// for the same `item_id` — the stable `assistant_uuid` (session + item_id)
+/// causes the backend DAO to upsert in place, so the UI sees one card that
+/// mutates live as codex flips items to done. No `tool_result` is emitted;
+/// codex's todo_list has no separate result concept.
+async fn publish_codex_todo_list_call(
+    events: &GrpcEventPublisher,
+    task_id: &str,
+    session_id: &str,
+    item_id: &str,
+    todo: &TodoListItem,
+    requested_model: Option<&str>,
+) {
+    let tool_use_id = format!("{session_id}_{item_id}");
+    let assistant_uuid = format!("{session_id}_{item_id}_call");
+    let input = build_codex_todo_list_input(todo);
+    let tool_input = serde_json::to_value(input).unwrap_or_else(|_| serde_json::json!({}));
+    let use_payload = codex_tool_use_payload(
+        &assistant_uuid,
+        session_id,
+        &tool_use_id,
+        CODEX_TOOL_TODO_LIST,
+        tool_input,
+        requested_model,
+    );
+    events
+        .publish_agent_event(task_id, AgentSubType::Message, use_payload)
+        .await;
 }
 
 fn codex_result_payload(
@@ -1318,6 +1691,181 @@ mod tests {
             normalize_agent_type(Some("something-else")),
             AGENT_TYPE_CLAUDE_CODE
         );
+    }
+
+    #[test]
+    fn codex_tool_use_payload_shapes_assistant_block() {
+        let input = serde_json::json!({ "command": "echo hi" });
+        let payload = codex_tool_use_payload(
+            "sess_item_1_call",
+            "sess",
+            "sess_item_1",
+            "codex.shell",
+            input,
+            Some("gpt-5"),
+        );
+
+        assert_eq!(payload["uuid"], "sess_item_1_call");
+        assert_eq!(payload["session_id"], "sess");
+        assert_eq!(payload["message"]["role"], "assistant");
+        assert_eq!(payload["message"]["model"], "gpt-5");
+
+        let block = &payload["message"]["content"][0];
+        assert_eq!(block["type"], "tool_use");
+        assert_eq!(block["id"], "sess_item_1");
+        assert_eq!(block["name"], "codex.shell");
+        assert_eq!(block["input"]["command"], "echo hi");
+    }
+
+    #[test]
+    fn codex_tool_result_payload_carries_typed_result() {
+        let typed = serde_json::json!({ "status": "completed", "exitCode": 0 });
+        let payload = codex_tool_result_payload(
+            "sess_item_1_result",
+            "sess",
+            "sess_item_1",
+            "hi\n",
+            false,
+            typed,
+        );
+
+        assert_eq!(payload["uuid"], "sess_item_1_result");
+        assert_eq!(payload["message"]["role"], "user");
+        let block = &payload["message"]["content"][0];
+        assert_eq!(block["type"], "tool_result");
+        assert_eq!(block["tool_use_id"], "sess_item_1");
+        assert_eq!(block["content"], "hi\n");
+        assert_eq!(block["is_error"], false);
+        assert_eq!(payload["tool_use_result"]["exitCode"], 0);
+    }
+
+    #[test]
+    fn map_codex_status_treats_nonzero_exit_as_failed() {
+        assert_eq!(
+            map_codex_status(Some("completed"), Some(1)),
+            CodexToolStatus::Failed
+        );
+        assert_eq!(
+            map_codex_status(Some("completed"), Some(0)),
+            CodexToolStatus::Completed
+        );
+        assert_eq!(
+            map_codex_status(Some("failed"), Some(1)),
+            CodexToolStatus::Failed
+        );
+        assert_eq!(
+            map_codex_status(Some("in_progress"), None),
+            CodexToolStatus::InProgress
+        );
+    }
+
+    #[test]
+    fn build_codex_todo_list_input_preserves_items() {
+        use crate::agent::codex_exec::TodoListEntry;
+        let todo = TodoListItem {
+            items: vec![
+                TodoListEntry {
+                    text: "first".to_string(),
+                    completed: true,
+                },
+                TodoListEntry {
+                    text: "second".to_string(),
+                    completed: false,
+                },
+            ],
+        };
+        let input = build_codex_todo_list_input(&todo);
+        assert_eq!(input.items.len(), 2);
+        assert_eq!(input.items[0].text, "first");
+        assert!(input.items[0].completed);
+        assert_eq!(input.items[1].text, "second");
+        assert!(!input.items[1].completed);
+    }
+
+    #[test]
+    fn codex_todo_list_payload_uses_stable_uuid_per_item_id() {
+        // Simulate two emissions for the same codex item_id: first a started
+        // snapshot with all false, then an updated snapshot with one true.
+        // Both should produce the same uuid so the backend upserts in place.
+        let initial = serde_json::to_value(build_codex_todo_list_input(&TodoListItem {
+            items: vec![
+                codex_exec::TodoListEntry {
+                    text: "a".to_string(),
+                    completed: false,
+                },
+                codex_exec::TodoListEntry {
+                    text: "b".to_string(),
+                    completed: false,
+                },
+            ],
+        }))
+        .unwrap();
+        let updated = serde_json::to_value(build_codex_todo_list_input(&TodoListItem {
+            items: vec![
+                codex_exec::TodoListEntry {
+                    text: "a".to_string(),
+                    completed: true,
+                },
+                codex_exec::TodoListEntry {
+                    text: "b".to_string(),
+                    completed: false,
+                },
+            ],
+        }))
+        .unwrap();
+
+        let p1 = codex_tool_use_payload(
+            &format!("{}_{}_call", "sess", "item_1"),
+            "sess",
+            &format!("{}_{}", "sess", "item_1"),
+            CODEX_TOOL_TODO_LIST,
+            initial,
+            Some("gpt-5"),
+        );
+        let p2 = codex_tool_use_payload(
+            &format!("{}_{}_call", "sess", "item_1"),
+            "sess",
+            &format!("{}_{}", "sess", "item_1"),
+            CODEX_TOOL_TODO_LIST,
+            updated,
+            Some("gpt-5"),
+        );
+
+        assert_eq!(p1["uuid"], p2["uuid"]);
+        assert_eq!(p1["uuid"], "sess_item_1_call");
+        assert_eq!(p1["message"]["content"][0]["name"], CODEX_TOOL_TODO_LIST);
+        // Payloads differ only in the tool_input items array.
+        assert_eq!(p1["message"]["content"][0]["input"]["items"][0]["completed"], false);
+        assert_eq!(p2["message"]["content"][0]["input"]["items"][0]["completed"], true);
+    }
+
+    #[test]
+    fn build_shell_tool_result_marks_error_on_nonzero_exit() {
+        let cmd = CommandExecutionItem {
+            command: "false".to_string(),
+            cwd: None,
+            aggregated_output: Some(String::new()),
+            exit_code: Some(1),
+            status: Some("failed".to_string()),
+            duration_ms: None,
+        };
+        let (value, _, is_error) = build_shell_tool_result(&cmd);
+        assert!(is_error);
+        assert_eq!(value["status"], "failed");
+        assert_eq!(value["exitCode"], 1);
+    }
+
+    #[test]
+    fn codex_reasoning_payload_sets_metadata_flag() {
+        let payload = codex_reasoning_payload(
+            "sess_item_0",
+            "sess",
+            "thinking...",
+            Some("gpt-5"),
+        );
+        assert_eq!(payload["sdk_metadata"]["codex_reasoning"], true);
+        assert_eq!(payload["message"]["content"][0]["type"], "text");
+        assert_eq!(payload["message"]["content"][0]["text"], "thinking...");
     }
 
     #[test]
