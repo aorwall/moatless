@@ -108,6 +108,10 @@ pub async fn start(
 ) -> Result<CodexCliSession, std::io::Error> {
     let mut command = Command::new(&config.codex_cli_path);
     command.kill_on_drop(true);
+    // Detach stdin so codex doesn't block reading an inherited empty stdin
+    // (observed with codex-cli >= 0.118: a stdin-append path waits forever
+    // when the parent has no controlling tty — sandbox runs as PID 1).
+    command.stdin(Stdio::null());
     command.stdout(Stdio::piped());
     command.stderr(Stdio::piped());
     command.current_dir(&config.workspace_dir);
