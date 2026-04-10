@@ -24,6 +24,12 @@ ALTER TABLE provider_tokens
 ALTER TABLE provider_tokens
     ADD COLUMN IF NOT EXISTS team_id text;
 
+ALTER TABLE provider_tokens
+    ALTER COLUMN user_id DROP NOT NULL;
+
+ALTER TABLE provider_tokens
+    DROP CONSTRAINT IF EXISTS provider_tokens_user_provider_uq;
+
 UPDATE provider_tokens
 SET auth_method = 'manual'
 WHERE auth_method IS NULL;
