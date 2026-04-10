@@ -330,6 +330,19 @@ impl ChannelProvider for SlackProvider {
         Some(build_slack_reply_instructions(self.bot_user_id.as_deref()))
     }
 
+    fn thread_reply_hint(&self, msg: &InboundMessage) -> Option<String> {
+        let is_bot_mentioned = msg
+            .provider_context
+            .get("is_bot_mentioned")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        if is_bot_mentioned {
+            None
+        } else {
+            Some("[New message in Slack thread]".to_string())
+        }
+    }
+
     async fn resolve_user(
         &self,
         identity: &str,

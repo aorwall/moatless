@@ -303,16 +303,15 @@ pub async fn process_inbound(
         message_text = format!("{label}: {message_text}");
     }
 
-    // For thread replies where the bot was not mentioned, prepend a hint so the
-    // agent knows it can stay silent.
+    // For thread replies, let the provider decide whether to prepend a hint
+    // so the agent knows it can stay silent.
     if msg.thread_id.is_some() {
-        let is_bot_mentioned = msg
-            .provider_context
-            .get("is_bot_mentioned")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false);
-        if !is_bot_mentioned {
-            message_text = format!("[New message in Slack thread]\n\n{message_text}");
+        if let Some(providers) = state.channel_providers.as_ref() {
+            if let Some(provider) = providers.get_by_name(&config.provider) {
+                if let Some(hint) = provider.thread_reply_hint(&msg) {
+                    message_text = format!("{hint}\n\n{message_text}");
+                }
+            }
         }
     }
 

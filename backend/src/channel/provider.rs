@@ -9,7 +9,7 @@ use super::models::{ChannelConfig, ChannelThread};
 use crate::db::DbPool;
 
 use super::error::ChannelError;
-use super::models::{NewThreadInfo, OutboundReply};
+use super::models::{InboundMessage, NewThreadInfo, OutboundReply};
 
 pub use moatless_api_schemas::enums::ChannelType;
 
@@ -79,6 +79,18 @@ pub trait ChannelProvider: Send + Sync {
     ///
     /// Default: no provider-specific instructions.
     fn reply_instructions(&self) -> Option<String> {
+        None
+    }
+
+    /// Optional prefix prepended to inbound thread-reply messages to hint to
+    /// the agent that this is a follow-up where it may choose to stay silent.
+    ///
+    /// Called only when `msg.thread_id.is_some()`. Providers inspect
+    /// `msg.provider_context` (e.g., Slack's `is_bot_mentioned`) to decide
+    /// whether the hint applies.
+    ///
+    /// Default: `None` — no hint prepended.
+    fn thread_reply_hint(&self, _msg: &InboundMessage) -> Option<String> {
         None
     }
 
