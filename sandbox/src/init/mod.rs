@@ -13,6 +13,7 @@
 pub(crate) mod credentials;
 mod dirs;
 mod git;
+mod plugin_skills;
 mod workspace;
 
 use moatless_events::SandboxSubType;
@@ -251,6 +252,20 @@ async fn run_core_init(state: &SandboxState) -> Result<(), InitError> {
             )
             .await;
         }
+    }
+
+    // 7. Stage plugin-bundled skills so the Codex agent can discover them.
+    // Runs unconditionally so we pick up skills from both `plugin_repos`
+    // (cloned above) and `plugin_ids` (installed by sync_plugins.sh).
+    let staged = plugin_skills::stage_plugin_skills_for_codex().await;
+    if staged > 0 {
+        publish_sandbox_event(
+            state,
+            "CodexPluginSkillsStaged",
+            &format!("Staged {staged} plugin skill(s) for Codex"),
+            false,
+        )
+        .await;
     }
 
     Ok(())

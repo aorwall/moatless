@@ -13,7 +13,7 @@ use crate::config::Config;
 
 /// Recursively copy directory contents from `src` to `dst`.
 /// Returns the number of files copied.
-fn copy_dir_contents(src: &Path, dst: &Path) -> std::io::Result<usize> {
+pub(super) fn copy_dir_contents(src: &Path, dst: &Path) -> std::io::Result<usize> {
     let mut count = 0;
     for entry in std::fs::read_dir(src)? {
         let entry = entry?;
