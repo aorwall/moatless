@@ -957,6 +957,7 @@ pub async fn create_config(
         task_name: req.task_name,
         tag_ids: req.tag_ids.unwrap_or_default(),
         run_as_user_id: req.run_as_user_id,
+        agent_type: req.agent_type.unwrap_or_else(|| "claude-code".to_string()),
         created_by: auth.user_id,
         created_at: now,
         updated_at: now,
@@ -1075,6 +1076,7 @@ pub async fn update_config(
         tag_ids: req.tag_ids,
         run_as_user_id: req.run_as_user_id,
         allow_direct_send: req.allow_direct_send,
+        agent_type: req.agent_type,
         ..Default::default()
     };
 
@@ -1310,6 +1312,7 @@ pub async fn set_defaults(
             response_config_id: Some(req.response_config_id),
             task_name: Some(req.task_name),
             tag_ids: req.tag_ids,
+            agent_type: req.agent_type,
             ..Default::default()
         };
 
@@ -1345,6 +1348,7 @@ pub async fn set_defaults(
             task_name: req.task_name,
             tag_ids: req.tag_ids.unwrap_or_default(),
             run_as_user_id: None,
+            agent_type: req.agent_type.unwrap_or_else(|| "claude-code".to_string()),
             created_by: auth.user_id,
             created_at: now,
             updated_at: now,

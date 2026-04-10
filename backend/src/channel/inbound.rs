@@ -398,7 +398,7 @@ async fn create_task_for_channel(
         short_id: Some(short_id),
         created_at: now.clone(),
         last_message_at: now,
-        agent_type: AgentType(AgentType::CLAUDE_CODE.into()),
+        agent_type: AgentType(config.agent_type.clone()),
         repository_id: config.repository_id.clone(),
         status: TaskStatus::Open,
         total_cost_usd: 0.0,

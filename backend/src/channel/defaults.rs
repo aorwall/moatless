@@ -47,6 +47,7 @@ pub async fn create_config_from_wildcard(
         task_name: template.task_name.clone(),
         tag_ids: template.tag_ids.clone(),
         run_as_user_id: template.run_as_user_id.clone(),
+        agent_type: template.agent_type.clone(),
         created_by: created_by.to_string(),
         created_at: now,
         updated_at: now,

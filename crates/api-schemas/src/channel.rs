@@ -23,6 +23,8 @@ pub struct CreateChannelConfigRequest {
     pub tag_ids: Option<Vec<String>>,
     pub run_as_user_id: Option<String>,
     pub allow_direct_send: Option<bool>,
+    /// Agent type for tasks created from this channel (defaults to "claude-code")
+    pub agent_type: Option<String>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -41,6 +43,8 @@ pub struct UpdateChannelConfigRequest {
     pub tag_ids: Option<Vec<String>>,
     pub run_as_user_id: Option<Option<String>>,
     pub allow_direct_send: Option<bool>,
+    /// Agent type for tasks created from this channel
+    pub agent_type: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -66,6 +70,8 @@ pub struct ChannelConfigResponse {
     pub task_name: Option<String>,
     pub tag_ids: Vec<String>,
     pub run_as_user_id: Option<String>,
+    /// Agent type for tasks created from this channel
+    pub agent_type: String,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -139,6 +145,8 @@ pub struct SetChannelDefaultsRequest {
     pub team_id: Option<String>,
     pub task_name: Option<String>,
     pub tag_ids: Option<Vec<String>>,
+    /// Agent type for tasks created from this channel (defaults to "claude-code")
+    pub agent_type: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

@@ -120,6 +120,7 @@ mod tests {
             task_name: None,
             tag_ids: vec![],
             run_as_user_id: None,
+            agent_type: "claude-code".into(),
             created_by: "owner".into(),
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),

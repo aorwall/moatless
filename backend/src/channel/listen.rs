@@ -243,6 +243,7 @@ async fn create_minimal_config(
         task_name: None,
         tag_ids: vec![],
         run_as_user_id: None,
+        agent_type: "claude-code".to_string(),
         created_by: created_by.to_string(),
         created_at: now,
         updated_at: now,

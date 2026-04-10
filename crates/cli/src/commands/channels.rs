@@ -42,6 +42,9 @@ pub enum ChannelAction {
         /// Allow direct sending to this channel without a task
         #[arg(long)]
         allow_direct_send: bool,
+        /// Agent type for tasks created from this channel (default: claude-code)
+        #[arg(long)]
+        agent_type: Option<String>,
     },
     /// Update a channel config
     Update {
@@ -80,6 +83,9 @@ pub enum ChannelAction {
         /// Allow direct sending to this channel without a task (true/false)
         #[arg(long)]
         allow_direct_send: Option<bool>,
+        /// Agent type for tasks created from this channel
+        #[arg(long)]
+        agent_type: Option<String>,
     },
     /// Send a message through the channel(s) associated with a task
     Send {
@@ -159,6 +165,9 @@ pub enum ChannelDefaultsAction {
         /// Comma-separated tag IDs to auto-assign to tasks
         #[arg(long, value_delimiter = ',')]
         tag_ids: Option<Vec<String>>,
+        /// Agent type for tasks (default: claude-code)
+        #[arg(long)]
+        agent_type: Option<String>,
     },
 }
 
@@ -187,6 +196,7 @@ pub async fn run(
             tag_ids,
             run_as_user_id,
             allow_direct_send,
+            agent_type,
         } => {
             let parsed_config =
                 parse_provider_config(provider_config.as_deref())?.map(serde_json::Value::Object);
@@ -206,6 +216,7 @@ pub async fn run(
                 tag_ids,
                 run_as_user_id,
                 allow_direct_send: if allow_direct_send { Some(true) } else { None },
+                agent_type,
             };
             let created = client.api().create_channel_config(&req).await?;
             if json {
@@ -227,6 +238,7 @@ pub async fn run(
             tag_ids,
             run_as_user_id,
             allow_direct_send,
+            agent_type,
         } => {
             let parsed_config =
                 parse_provider_config(provider_config.as_deref())?.map(serde_json::Value::Object);
@@ -243,6 +255,7 @@ pub async fn run(
                 tag_ids,
                 run_as_user_id: run_as_user_id.map(Some),
                 allow_direct_send,
+                agent_type,
             };
             let updated = client.api().update_channel_config(&id, &req).await?;
             if json {
@@ -462,6 +475,7 @@ async fn run_defaults(
             team,
             task_name,
             tag_ids,
+            agent_type,
         } => {
             let parsed_config = provider_config
                 .as_deref()
@@ -480,6 +494,7 @@ async fn run_defaults(
                 "teamId": team,
                 "taskName": task_name,
                 "tagIds": tag_ids,
+                "agentType": agent_type,
             });
 
             let resp = client

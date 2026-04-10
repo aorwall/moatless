@@ -21,6 +21,7 @@ pub struct ChannelConfigPatch {
     pub tag_ids: Option<Vec<String>>,
     pub run_as_user_id: Option<Option<String>>,
     pub allow_direct_send: Option<bool>,
+    pub agent_type: Option<String>,
 }
 
 /// Repository trait for channel config persistence.
@@ -200,8 +201,8 @@ impl ChannelConfigRepository for PgChannelConfigRepository {
                (id, provider, source_id, source_name, repository_id, routing_mode,
                 prompt_template, active, allow_direct_send, provider_config, ongoing_task_id,
                 response_config_id, scope, team_id, task_name, tag_ids,
-                run_as_user_id, created_by)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)"#,
+                run_as_user_id, agent_type, created_by)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)"#,
         )
         .bind(&row.id)
         .bind(&row.provider)
@@ -220,6 +221,7 @@ impl ChannelConfigRepository for PgChannelConfigRepository {
         .bind(&row.task_name)
         .bind(&row.tag_ids)
         .bind(&row.run_as_user_id)
+        .bind(&row.agent_type)
         .bind(&row.created_by)
         .execute(&self.0)
         .await?;
@@ -278,6 +280,10 @@ impl ChannelConfigRepository for PgChannelConfigRepository {
             param_idx += 1;
             sets.push(format!("allow_direct_send = ${param_idx}"));
         }
+        if patch.agent_type.is_some() {
+            param_idx += 1;
+            sets.push(format!("agent_type = ${param_idx}"));
+        }
 
         if sets.is_empty() {
             return Ok(());
@@ -326,6 +332,9 @@ impl ChannelConfigRepository for PgChannelConfigRepository {
             query = query.bind(v.as_deref());
         }
         if let Some(v) = patch.allow_direct_send {
+            query = query.bind(v);
+        }
+        if let Some(ref v) = patch.agent_type {
             query = query.bind(v);
         }
 
