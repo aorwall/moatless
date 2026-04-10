@@ -21,12 +21,15 @@ import {
   SendButton,
 } from '@/lib/components/chat/chat-input'
 import {
+  type AgentType,
   AttachmentPopoverContent,
   BranchPopoverContent,
+  DEFAULT_AGENT_TYPE,
   PopoverSelector,
   SearchablePopoverContent,
   SimpleListPopoverContent,
   useAgentModeSelector,
+  useAgentTypeSelector,
   useBranchSelector,
   useModelSelector,
   useRepositorySelector,
@@ -51,6 +54,8 @@ interface CreateCodeTaskProps {
   onModelChange: (model: ClaudeModel) => void
   agentMode: 'edit' | 'plan'
   onAgentModeChange: (mode: 'edit' | 'plan') => void
+  agentType?: AgentType
+  onAgentTypeChange?: (type: AgentType) => void
   repositoryId: string
   onRepositoryChange: (repoId: string) => void
   onSuccess?: () => void
@@ -67,6 +72,8 @@ export function CreateCodeTask({
   onModelChange,
   agentMode,
   onAgentModeChange,
+  agentType = DEFAULT_AGENT_TYPE,
+  onAgentTypeChange,
   repositoryId,
   onRepositoryChange,
   onSuccess,
@@ -161,6 +168,7 @@ export function CreateCodeTask({
         },
   )
   const agentModeSelector = useAgentModeSelector(agentMode, onAgentModeChange)
+  const agentTypeSelector = useAgentTypeSelector(agentType, onAgentTypeChange)
   const repoSelector = useRepositorySelector(repositoryId, onRepositoryChange, true)
   const branchSelector = useBranchSelector(repositoryId, branch, setBranch, true, repositoryDetails)
 
@@ -215,7 +223,7 @@ export function CreateCodeTask({
 
     createTask.mutate(
       {
-        agentType: 'claude-code',
+        agentType,
         message: submitMessage,
         repositoryId,
         model: isModelSelectorEnabled ? modelToApiValue(model) : undefined,
@@ -368,6 +376,21 @@ export function CreateCodeTask({
                   items={agentModeSelector.items}
                   value={agentModeSelector.value}
                   onChange={agentModeSelector.onChange}
+                />
+              </PopoverSelector>
+
+              <PopoverSelector
+                icon={agentTypeSelector.icon}
+                value={agentTypeSelector.value}
+                displayValue={agentTypeSelector.displayValue}
+                tooltip={agentTypeSelector.tooltip}
+                loading={agentTypeSelector.loading}
+                disabled={agentTypeSelector.disabled}
+              >
+                <SimpleListPopoverContent
+                  items={agentTypeSelector.items}
+                  value={agentTypeSelector.value}
+                  onChange={agentTypeSelector.onChange}
                 />
               </PopoverSelector>
             </Selectors>

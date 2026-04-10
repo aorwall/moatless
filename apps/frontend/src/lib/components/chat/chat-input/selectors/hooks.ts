@@ -1,4 +1,4 @@
-import { Bot, Database, GitBranch, Plus, Wand2 } from 'lucide-react'
+import { Bot, Database, GitBranch, Plus, Sparkles, Wand2 } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import { useBranches, useRepositoriesList } from '@/features/repositories/hooks/use-repositories.ts'
 import {
@@ -276,6 +276,53 @@ export function useAgentModeSelector(
       displayValue: selectedMode?.label || 'Select mode',
     }),
     [currentValue, handleChange, items, selectedMode],
+  )
+}
+
+export type AgentType = 'claude-code' | 'codex'
+export const DEFAULT_AGENT_TYPE: AgentType = 'claude-code'
+
+const AGENT_TYPE_ITEMS: Array<{ id: AgentType; label: string }> = [
+  { id: 'claude-code', label: 'Claude Code' },
+  { id: 'codex', label: 'Codex' },
+]
+
+// Agent type selector hook - controlled. Picks which agent CLI runs the task.
+export function useAgentTypeSelector(value?: AgentType, onChange?: (value: AgentType) => void) {
+  const [internalValue, setInternalValue] = useState<AgentType>(DEFAULT_AGENT_TYPE)
+  const isControlled = value !== undefined
+  const currentValue = isControlled ? value : internalValue
+
+  const handleChange = useCallback(
+    (newValue: string) => {
+      const typeValue = newValue as AgentType
+      if (!isControlled) {
+        setInternalValue(typeValue)
+      }
+      onChange?.(typeValue)
+    },
+    [isControlled, onChange],
+  )
+
+  const selectedType = useMemo(
+    () => AGENT_TYPE_ITEMS.find((item) => item.id === currentValue),
+    [currentValue],
+  )
+
+  return useMemo(
+    () => ({
+      value: currentValue,
+      onChange: handleChange,
+      placeholder: 'Agent',
+      items: AGENT_TYPE_ITEMS,
+      width: 'w-[120px]',
+      loading: false,
+      disabled: false,
+      icon: Sparkles,
+      tooltip: 'Choose which agent runs the task',
+      displayValue: selectedType?.label || 'Select agent',
+    }),
+    [currentValue, handleChange, selectedType],
   )
 }
 

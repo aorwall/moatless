@@ -4,8 +4,11 @@ export type {
   GenericSelectorProps,
 } from './generic-selector.tsx'
 export { GenericSelector } from './generic-selector.tsx'
+export type { AgentType } from './hooks.ts'
 export {
+  DEFAULT_AGENT_TYPE,
   useAgentModeSelector,
+  useAgentTypeSelector,
   useAttachmentSelector,
   useBranchSelector,
   useModelSelector,

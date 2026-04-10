@@ -45,6 +45,8 @@ function EmptyTaskState() {
           onModelChange={setModel}
           agentMode={preferences.agentMode}
           onAgentModeChange={preferences.setAgentMode}
+          agentType={preferences.agentType}
+          onAgentTypeChange={preferences.setAgentType}
           repositoryId={preferences.repositoryId}
           onRepositoryChange={preferences.setRepositoryId}
         />
@@ -160,6 +162,8 @@ export function TaskDashboard({
           onModelChange={setModel}
           agentMode={preferences.agentMode}
           onAgentModeChange={preferences.setAgentMode}
+          agentType={preferences.agentType}
+          onAgentTypeChange={preferences.setAgentType}
           repositoryId={preferences.repositoryId}
           onRepositoryChange={preferences.setRepositoryId}
         />

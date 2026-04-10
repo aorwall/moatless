@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTaskPreferences } from '@/features/tasks/hooks/use-task-preferences'
 import { Dialog, DialogContent } from '@/lib/components/ui/dialog'
 import { type ClaudeModel, DEFAULT_CLAUDE_MODEL } from '@/lib/types/claude-models'
 import { CreateCodeTask } from './create-task/create-code-task'
@@ -16,6 +17,7 @@ export function CreateTaskDialog({
   defaultRepositoryId,
   defaultMessage,
 }: CreateTaskDialogProps) {
+  const preferences = useTaskPreferences()
   const [model, setModel] = useState<ClaudeModel>(DEFAULT_CLAUDE_MODEL)
   const [agentMode, setAgentMode] = useState<'edit' | 'plan'>('edit')
   const [repositoryId, setRepositoryId] = useState<string>(defaultRepositoryId || '')
@@ -32,6 +34,8 @@ export function CreateTaskDialog({
             onModelChange={setModel}
             agentMode={agentMode}
             onAgentModeChange={setAgentMode}
+            agentType={preferences.agentType}
+            onAgentTypeChange={preferences.setAgentType}
             repositoryId={repositoryId}
             onRepositoryChange={setRepositoryId}
             onSuccess={() => onOpenChange(false)}
