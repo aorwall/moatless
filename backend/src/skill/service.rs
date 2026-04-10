@@ -14,7 +14,7 @@ use moka::future::Cache;
 use tracing::debug;
 
 use super::error::SkillError;
-use super::fetcher::SkillFetcher;
+use super::fetcher::{SkillFetcher, SkillLayout};
 use super::models::{Skill, SkillSource};
 use super::scanner;
 use super::schemas::SkillResponse;
@@ -136,7 +136,7 @@ impl SkillService {
 
         let files = self
             .fetcher
-            .fetch_skill_files(remote_url, token.as_deref())
+            .fetch_skill_files(remote_url, SkillLayout::Workspace, token.as_deref())
             .await?;
 
         let mut skills: Vec<Skill> = files
@@ -170,7 +170,7 @@ impl SkillService {
 
         let files = self
             .fetcher
-            .fetch_skill_files(&plugin.git_url, token.as_deref())
+            .fetch_skill_files(&plugin.git_url, SkillLayout::Plugin, token.as_deref())
             .await?;
 
         let mut skills: Vec<Skill> = files
