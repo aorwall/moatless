@@ -919,8 +919,13 @@ async fn process_codex_message(
             if let ThreadItemDetails::AgentMessage(agent_message) = &event.item.details {
                 append_turn_output(turn_output, &agent_message.text);
 
+                // Codex item ids are short and only unique within a thread
+                // (item_0, item_1, ...). The task_messages table uses a
+                // global ON CONFLICT (uuid), so qualify the id with the
+                // session to avoid cross-task row collisions.
+                let uuid = format!("{session_id}_{}", event.item.id);
                 let payload = codex_message_payload(
-                    &event.item.id,
+                    &uuid,
                     session_id,
                     &agent_message.text,
                     requested_model,
