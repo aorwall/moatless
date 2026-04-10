@@ -429,7 +429,6 @@ mod tests {
                 tolerations_json: None,
                 service_account_name: None,
                 default_model: None,
-                tmp_size: "2Gi".into(),
             },
             proxy: ProxyConfig {
                 domain: None,

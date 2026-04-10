@@ -4,6 +4,7 @@
 
 //! Directory creation for sandbox initialization.
 
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 use tracing::{info, warn};
@@ -30,8 +31,47 @@ fn copy_dir_contents(src: &Path, dst: &Path) -> std::io::Result<usize> {
     Ok(count)
 }
 
+/// Wipe leftover entries under `/tmp` and re-apply 1777 permissions.
+///
+/// `/tmp` is backed by a subPath on the workspace PVC, so anything written there
+/// survives pod restarts. That's the wrong semantics for `/tmp` — it should be
+/// clean on every boot — so we remove top-level entries here. We also re-chmod
+/// to 1777, since K8s creates the subPath directory with 0755 on first use and
+/// tools that drop privileges (playwright/chromium, bun cache) need a sticky,
+/// world-writable `/tmp`.
+fn reset_tmp() {
+    let tmp = Path::new("/tmp");
+    match std::fs::read_dir(tmp) {
+        Ok(entries) => {
+            let mut removed = 0usize;
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let result = if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                    std::fs::remove_dir_all(&path)
+                } else {
+                    std::fs::remove_file(&path)
+                };
+                match result {
+                    Ok(()) => removed += 1,
+                    Err(e) => warn!(path = %path.display(), error = %e, "Failed to clean /tmp entry"),
+                }
+            }
+            if removed > 0 {
+                info!(removed, "Cleaned leftover /tmp entries");
+            }
+        }
+        Err(e) => warn!(error = %e, "Failed to read /tmp for cleanup"),
+    }
+
+    if let Err(e) = std::fs::set_permissions(tmp, std::fs::Permissions::from_mode(0o1777)) {
+        warn!(error = %e, "Failed to chmod /tmp to 1777");
+    }
+}
+
 /// Ensure all required directories exist.
 pub fn ensure_directories(config: &Config) {
+    reset_tmp();
+
     let dirs = [
         &config.home_dir,
         &config.codex_home_dir,

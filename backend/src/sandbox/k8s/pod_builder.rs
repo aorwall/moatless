@@ -61,15 +61,13 @@ pub fn build_pod(
     );
 
     // ── Volumes ─────────────────────────────────────────────────────
+    //
+    // `/tmp` is served from a subPath of the `workspace-data` PVC when available —
+    // this stops it from eating the pod's memory budget and lets it share the full
+    // PVC headroom with the rest of the workspace. When the PVC is disabled (docker /
+    // dev), we fall back to a disk-backed emptyDir (no `medium: Memory`) so we still
+    // never charge `/tmp` against container memory.
     let mut volumes = vec![
-        Volume {
-            name: "tmp".to_string(),
-            empty_dir: Some(EmptyDirVolumeSource {
-                medium: Some("Memory".to_string()),
-                size_limit: Some(Quantity("512Mi".to_string())),
-            }),
-            ..Default::default()
-        },
         Volume {
             name: "build-cache".to_string(),
             empty_dir: Some(EmptyDirVolumeSource {
@@ -91,6 +89,15 @@ pub fn build_pod(
             persistent_volume_claim: Some(PersistentVolumeClaimVolumeSource {
                 claim_name: pvc.to_string(),
                 read_only: Some(false),
+            }),
+            ..Default::default()
+        });
+    } else {
+        volumes.push(Volume {
+            name: "tmp".to_string(),
+            empty_dir: Some(EmptyDirVolumeSource {
+                size_limit: Some(Quantity("2Gi".to_string())),
+                ..Default::default()
             }),
             ..Default::default()
         });
@@ -261,12 +268,11 @@ fn build_sandbox_container(
     };
 
     // Volume mounts
+    //
+    // When the workspace PVC is present, `/tmp` is backed by a subPath on that PVC —
+    // same volume as `/opt/moatless`, just a separate directory. Otherwise we mount
+    // the disk-backed `tmp` emptyDir defined above.
     let mut volume_mounts = vec![
-        VolumeMount {
-            name: "tmp".to_string(),
-            mount_path: "/tmp".to_string(),
-            ..Default::default()
-        },
         VolumeMount {
             name: "build-cache".to_string(),
             mount_path: "/opt/moatless/build-cache".to_string(),
@@ -283,6 +289,18 @@ fn build_sandbox_container(
         volume_mounts.push(VolumeMount {
             name: "workspace-data".to_string(),
             mount_path: "/opt/moatless".to_string(),
+            ..Default::default()
+        });
+        volume_mounts.push(VolumeMount {
+            name: "workspace-data".to_string(),
+            mount_path: "/tmp".to_string(),
+            sub_path: Some("tmp".to_string()),
+            ..Default::default()
+        });
+    } else {
+        volume_mounts.push(VolumeMount {
+            name: "tmp".to_string(),
+            mount_path: "/tmp".to_string(),
             ..Default::default()
         });
     }

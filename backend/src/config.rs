@@ -516,7 +516,6 @@ impl Config {
                 node_selector_json: env_opt("K8S_SANDBOX_NODE_SELECTOR"),
                 service_account_name: env_opt("K8S_SANDBOX_SERVICE_ACCOUNT"),
                 default_model: env_opt("DEFAULT_CLAUDE_CODE_MODEL"),
-                tmp_size: env_str("SANDBOX_TMP_SIZE", "2Gi"),
             },
 
             proxy: ProxyConfig {
@@ -874,7 +873,6 @@ mod tests {
                 tolerations_json: None,
                 service_account_name: None,
                 default_model: None,
-                tmp_size: "2Gi".into(),
             },
             proxy: ProxyConfig {
                 domain: None,
