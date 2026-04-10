@@ -429,6 +429,7 @@ mod tests {
                 tolerations_json: None,
                 service_account_name: None,
                 default_model: None,
+                tmp_size: "2Gi".into(),
             },
             proxy: ProxyConfig {
                 domain: None,
@@ -507,10 +508,7 @@ mod tests {
                 webhook_secret: None,
                 bot_token: None,
             },
-            skill: crate::config::SkillConfig {
-                cache_dir: "/tmp/moatless-test-skill-cache".into(),
-                cache_ttl_secs: 60,
-            },
+            skill: crate::config::SkillConfig { cache_ttl_secs: 60 },
         }
     }
 

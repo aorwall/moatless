@@ -22,7 +22,7 @@ use crate::message::dao::{MessageRepository, PgMessageRepository};
 use crate::plugin_repo::dao::{PgPluginRepoRepository, PluginRepoRepository};
 use crate::repository::dao::{PgRepoRepository, RepoRepository};
 use crate::sandbox::provider::SandboxProvider;
-use crate::skill::git_cache::FsGitFetcher;
+use crate::skill::fetcher::{GitHubSkillFetcher, SkillFetcher};
 use crate::skill::service::SkillService;
 use crate::tag::dao::{PgTagRepository, TagRepository};
 use crate::task::dao::{PgTaskRepository, TaskRepository};
@@ -94,12 +94,28 @@ impl AppState {
             Arc::new(PgPluginRepoRepository(pool.clone()));
         let provider_tokens: Arc<dyn ProviderTokenRepository> =
             Arc::new(PgProviderTokenRepository(pool.clone()));
+        let provider_token_auth: Arc<dyn ProviderTokenAuthRepository> =
+            Arc::new(PgProviderTokenAuthRepository(pool.clone()));
 
-        let skill_fetcher = Arc::new(FsGitFetcher::new(config.skill.cache_dir.clone()));
+        let skill_http = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .user_agent("moatless-vibe-backend")
+            .build()
+            .unwrap_or_else(|e| {
+                tracing::warn!(
+                    error = %e,
+                    "Failed to build reqwest client for skill fetcher, falling back to default"
+                );
+                reqwest::Client::new()
+            });
+        let skill_fetcher: Arc<dyn SkillFetcher> =
+            Arc::new(GitHubSkillFetcher::new(skill_http));
         let skills = Arc::new(SkillService::new(
             repositories.clone(),
             plugin_repos.clone(),
             provider_tokens.clone(),
+            provider_token_auth.clone(),
+            github_app_service.clone(),
             skill_fetcher,
             std::time::Duration::from_secs(config.skill.cache_ttl_secs),
         ));
@@ -116,7 +132,7 @@ impl AppState {
             channel_threads: Arc::new(PgChannelThreadRepository(pool.clone())),
             users: Arc::new(PgUserRepository(pool.clone())),
             provider_tokens,
-            provider_token_auth: Arc::new(PgProviderTokenAuthRepository(pool.clone())),
+            provider_token_auth,
             teams: Arc::new(PgTeamRepository(pool.clone())),
             task_events: Arc::new(PgTaskEventRepository(pool.clone())),
             plugin_repos,

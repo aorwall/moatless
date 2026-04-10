@@ -1,10 +1,9 @@
 //! SKILL.md frontmatter parser.
 //!
-//! Walks `{root}/.claude/skills/*/SKILL.md`, one directory deep, parses YAML
-//! frontmatter into [`Skill`] rows. Individual parse failures are logged and
-//! skipped so one malformed file doesn't tank the whole list.
-
-use std::path::Path;
+//! Given the raw body of a `SKILL.md` file and the directory name it came
+//! from, returns a parsed [`Skill`] with the appropriate source metadata.
+//! Individual parse failures are logged and returned as `None` so one
+//! malformed file doesn't tank the whole list.
 
 use serde::Deserialize;
 use tracing::warn;
@@ -19,77 +18,39 @@ struct SkillFrontmatter {
     description: Option<String>,
 }
 
-/// Scan `{root}/.claude/skills/` for SKILL.md files.
+/// Parse a SKILL.md body into a [`Skill`].
 ///
-/// The returned skills are tagged with the provided `source` and optional
-/// plugin metadata. If `.claude/skills/` doesn't exist the function returns
-/// an empty vector — a repository without skills is not an error.
-pub async fn scan_dir(
-    root: &Path,
+/// Returns `None` (after logging a warning) when the frontmatter is missing,
+/// malformed, or has no `description:` field. `plugin_repo_id` and
+/// `plugin_repo_name` are recorded verbatim on the returned skill.
+pub fn parse_skill(
+    content: &str,
+    dir_name: &str,
     source: SkillSource,
     plugin_repo_id: Option<&str>,
     plugin_repo_name: Option<&str>,
-) -> std::io::Result<Vec<Skill>> {
-    let skills_dir = root.join(".claude").join("skills");
-    if !skills_dir.exists() {
-        return Ok(Vec::new());
-    }
-
-    let mut entries = tokio::fs::read_dir(&skills_dir).await?;
-    let mut skills = Vec::new();
-
-    while let Some(entry) = entries.next_entry().await? {
-        let file_type = match entry.file_type().await {
-            Ok(ft) => ft,
-            Err(e) => {
-                warn!(path = %entry.path().display(), error = %e, "Failed to stat skill entry");
-                continue;
-            }
-        };
-        if !file_type.is_dir() {
-            continue;
+) -> Option<Skill> {
+    let fm = match parse_frontmatter(content) {
+        Ok(fm) => fm,
+        Err(e) => {
+            warn!(dir_name, error = %e, "Skipping skill: malformed frontmatter");
+            return None;
         }
-        let skill_md = entry.path().join("SKILL.md");
-        if !skill_md.exists() {
-            continue;
-        }
+    };
 
-        let contents = match tokio::fs::read_to_string(&skill_md).await {
-            Ok(c) => c,
-            Err(e) => {
-                warn!(path = %skill_md.display(), error = %e, "Failed to read SKILL.md");
-                continue;
-            }
-        };
+    let Some(description) = fm.description else {
+        warn!(dir_name, "Skipping skill: missing description");
+        return None;
+    };
 
-        let dir_name = entry
-            .file_name()
-            .to_string_lossy()
-            .to_string();
-
-        match parse_frontmatter(&contents) {
-            Ok(fm) => {
-                let name = fm.name.unwrap_or_else(|| dir_name.clone());
-                let Some(description) = fm.description else {
-                    warn!(path = %skill_md.display(), "Skipping skill: missing description");
-                    continue;
-                };
-                skills.push(Skill {
-                    name,
-                    description,
-                    source,
-                    plugin_repo_id: plugin_repo_id.map(String::from),
-                    plugin_repo_name: plugin_repo_name.map(String::from),
-                });
-            }
-            Err(e) => {
-                warn!(path = %skill_md.display(), error = %e, "Skipping skill: malformed frontmatter");
-            }
-        }
-    }
-
-    skills.sort_by(|a, b| a.name.cmp(&b.name));
-    Ok(skills)
+    let name = fm.name.unwrap_or_else(|| dir_name.to_string());
+    Some(Skill {
+        name,
+        description,
+        source,
+        plugin_repo_id: plugin_repo_id.map(String::from),
+        plugin_repo_name: plugin_repo_name.map(String::from),
+    })
 }
 
 fn parse_frontmatter(contents: &str) -> Result<SkillFrontmatter, String> {
@@ -121,174 +82,92 @@ fn parse_frontmatter(contents: &str) -> Result<SkillFrontmatter, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
-    use tokio::fs;
 
-    async fn write_skill(root: &Path, name: &str, body: &str) {
-        let dir = root.join(".claude").join("skills").join(name);
-        fs::create_dir_all(&dir).await.unwrap();
-        fs::write(dir.join("SKILL.md"), body).await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn parses_valid_skill() {
-        let tmp = TempDir::new().unwrap();
-        write_skill(
-            tmp.path(),
-            "backend",
+    #[test]
+    fn parses_valid_skill() {
+        let skill = parse_skill(
             "---\nname: backend\ndescription: Backend dev patterns\n---\n\n# Body\n",
+            "backend",
+            SkillSource::Workspace,
+            None,
+            None,
         )
-        .await;
-
-        let skills = scan_dir(tmp.path(), SkillSource::Workspace, None, None)
-            .await
-            .unwrap();
-        assert_eq!(skills.len(), 1);
-        assert_eq!(skills[0].name, "backend");
-        assert_eq!(skills[0].description, "Backend dev patterns");
-        assert_eq!(skills[0].source, SkillSource::Workspace);
+        .expect("valid skill parses");
+        assert_eq!(skill.name, "backend");
+        assert_eq!(skill.description, "Backend dev patterns");
+        assert_eq!(skill.source, SkillSource::Workspace);
     }
 
-    #[tokio::test]
-    async fn falls_back_to_directory_name_when_name_missing() {
-        let tmp = TempDir::new().unwrap();
-        write_skill(
-            tmp.path(),
-            "my-skill",
+    #[test]
+    fn falls_back_to_directory_name_when_name_missing() {
+        let skill = parse_skill(
             "---\ndescription: No explicit name here\n---\n",
+            "my-skill",
+            SkillSource::Workspace,
+            None,
+            None,
         )
-        .await;
-
-        let skills = scan_dir(tmp.path(), SkillSource::Workspace, None, None)
-            .await
-            .unwrap();
-        assert_eq!(skills.len(), 1);
-        assert_eq!(skills[0].name, "my-skill");
+        .expect("skill without explicit name parses");
+        assert_eq!(skill.name, "my-skill");
     }
 
-    #[tokio::test]
-    async fn skips_skill_missing_description() {
-        let tmp = TempDir::new().unwrap();
-        write_skill(tmp.path(), "broken", "---\nname: broken\n---\n").await;
-
-        let skills = scan_dir(tmp.path(), SkillSource::Workspace, None, None)
-            .await
-            .unwrap();
-        assert!(skills.is_empty());
+    #[test]
+    fn skips_skill_missing_description() {
+        let skill = parse_skill(
+            "---\nname: broken\n---\n",
+            "broken",
+            SkillSource::Workspace,
+            None,
+            None,
+        );
+        assert!(skill.is_none());
     }
 
-    #[tokio::test]
-    async fn skips_skill_without_frontmatter() {
-        let tmp = TempDir::new().unwrap();
-        write_skill(
-            tmp.path(),
-            "no-fm",
+    #[test]
+    fn skips_skill_without_frontmatter() {
+        let skill = parse_skill(
             "# Just a markdown file with no frontmatter\n",
-        )
-        .await;
-
-        let skills = scan_dir(tmp.path(), SkillSource::Workspace, None, None)
-            .await
-            .unwrap();
-        assert!(skills.is_empty());
+            "no-fm",
+            SkillSource::Workspace,
+            None,
+            None,
+        );
+        assert!(skill.is_none());
     }
 
-    #[tokio::test]
-    async fn returns_empty_when_skills_dir_missing() {
-        let tmp = TempDir::new().unwrap();
-        let skills = scan_dir(tmp.path(), SkillSource::Workspace, None, None)
-            .await
-            .unwrap();
-        assert!(skills.is_empty());
-    }
-
-    #[tokio::test]
-    async fn tags_plugin_metadata() {
-        let tmp = TempDir::new().unwrap();
-        write_skill(
-            tmp.path(),
-            "deploy",
+    #[test]
+    fn tags_plugin_metadata() {
+        let skill = parse_skill(
             "---\nname: deploy\ndescription: Deploy stuff\n---\n",
-        )
-        .await;
-
-        let skills = scan_dir(
-            tmp.path(),
+            "deploy",
             SkillSource::Plugin,
             Some("plugin-123"),
             Some("ops-plugin"),
         )
-        .await
-        .unwrap();
-        assert_eq!(skills.len(), 1);
-        assert_eq!(skills[0].source, SkillSource::Plugin);
-        assert_eq!(skills[0].plugin_repo_id.as_deref(), Some("plugin-123"));
-        assert_eq!(skills[0].plugin_repo_name.as_deref(), Some("ops-plugin"));
+        .expect("plugin skill parses");
+        assert_eq!(skill.source, SkillSource::Plugin);
+        assert_eq!(skill.plugin_repo_id.as_deref(), Some("plugin-123"));
+        assert_eq!(skill.plugin_repo_name.as_deref(), Some("ops-plugin"));
     }
 
-    #[tokio::test]
-    async fn scans_multiple_skills_sorted_by_name() {
-        let tmp = TempDir::new().unwrap();
-        write_skill(
-            tmp.path(),
-            "zebra",
-            "---\nname: zebra\ndescription: Z\n---\n",
-        )
-        .await;
-        write_skill(
-            tmp.path(),
-            "alpha",
-            "---\nname: alpha\ndescription: A\n---\n",
-        )
-        .await;
-        write_skill(
-            tmp.path(),
-            "middle",
-            "---\nname: middle\ndescription: M\n---\n",
-        )
-        .await;
-
-        let skills = scan_dir(tmp.path(), SkillSource::Workspace, None, None)
-            .await
-            .unwrap();
-        let names: Vec<&str> = skills.iter().map(|s| s.name.as_str()).collect();
-        assert_eq!(names, vec!["alpha", "middle", "zebra"]);
-    }
-
-    #[tokio::test]
-    async fn ignores_non_directory_entries_in_skills_dir() {
-        let tmp = TempDir::new().unwrap();
-        let skills_root = tmp.path().join(".claude").join("skills");
-        fs::create_dir_all(&skills_root).await.unwrap();
-        fs::write(skills_root.join("stray.txt"), "not a skill").await.unwrap();
-        write_skill(
-            tmp.path(),
-            "real",
-            "---\nname: real\ndescription: Real skill\n---\n",
-        )
-        .await;
-
-        let skills = scan_dir(tmp.path(), SkillSource::Workspace, None, None)
-            .await
-            .unwrap();
-        assert_eq!(skills.len(), 1);
-        assert_eq!(skills[0].name, "real");
-    }
-
-    #[tokio::test]
-    async fn ignores_extra_frontmatter_fields() {
-        let tmp = TempDir::new().unwrap();
-        write_skill(
-            tmp.path(),
-            "extra",
+    #[test]
+    fn ignores_extra_frontmatter_fields() {
+        let skill = parse_skill(
             "---\nname: extra\ndescription: Has extras\nallowed-tools: Bash(git:*)\ncolor: red\n---\n",
+            "extra",
+            SkillSource::Workspace,
+            None,
+            None,
         )
-        .await;
+        .expect("extra fields parse");
+        assert_eq!(skill.name, "extra");
+    }
 
-        let skills = scan_dir(tmp.path(), SkillSource::Workspace, None, None)
-            .await
-            .unwrap();
-        assert_eq!(skills.len(), 1);
-        assert_eq!(skills[0].name, "extra");
+    #[test]
+    fn tolerates_bom_and_crlf() {
+        let body = "\u{feff}---\r\nname: bom\r\ndescription: BOM handled\r\n---\r\n";
+        let skill = parse_skill(body, "bom", SkillSource::Workspace, None, None)
+            .expect("bom+crlf parses");
+        assert_eq!(skill.name, "bom");
     }
 }

@@ -434,9 +434,6 @@ pub struct DatabaseConfig {
 /// Skill discovery configuration.
 #[derive(Debug, Clone)]
 pub struct SkillConfig {
-    /// Local directory used to cache shallow clones of workspace and plugin
-    /// repositories while scanning `.claude/skills/`.
-    pub cache_dir: String,
     /// In-memory cache TTL for parsed skill lists.
     pub cache_ttl_secs: u64,
 }
@@ -519,6 +516,7 @@ impl Config {
                 node_selector_json: env_opt("K8S_SANDBOX_NODE_SELECTOR"),
                 service_account_name: env_opt("K8S_SANDBOX_SERVICE_ACCOUNT"),
                 default_model: env_opt("DEFAULT_CLAUDE_CODE_MODEL"),
+                tmp_size: env_str("SANDBOX_TMP_SIZE", "2Gi"),
             },
 
             proxy: ProxyConfig {
@@ -635,10 +633,6 @@ impl Config {
             },
 
             skill: SkillConfig {
-                cache_dir: env_str(
-                    "BACKEND_SKILL_CACHE_DIR",
-                    "/var/cache/moatless-backend/skills",
-                ),
                 cache_ttl_secs: env_or("BACKEND_SKILL_CACHE_TTL_SECONDS", 3_600),
             },
         };
@@ -880,6 +874,7 @@ mod tests {
                 tolerations_json: None,
                 service_account_name: None,
                 default_model: None,
+                tmp_size: "2Gi".into(),
             },
             proxy: ProxyConfig {
                 domain: None,
@@ -958,10 +953,7 @@ mod tests {
                 webhook_secret: None,
                 bot_token: None,
             },
-            skill: SkillConfig {
-                cache_dir: "/tmp/moatless-test-skill-cache".into(),
-                cache_ttl_secs: 60,
-            },
+            skill: SkillConfig { cache_ttl_secs: 60 },
         }
     }
 

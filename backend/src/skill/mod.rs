@@ -5,7 +5,7 @@
 //! through `GET /api/v1/repositories/{repository_id}/skills`.
 
 pub mod error;
-pub mod git_cache;
+pub mod fetcher;
 pub mod handlers;
 pub mod models;
 pub mod routes;

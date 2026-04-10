@@ -2,9 +2,9 @@
 //! linked plugin repositories.
 //!
 //! Caches the parsed skill lists in memory with a TTL. Cache keys:
-//!   - `workspace:{repository_id}` — skills from the workspace repo's clone
-//!   - `plugin:{plugin_repo_id}` — skills from a plugin repo clone (shared
-//!     across all workspace repos that reference it)
+//!   - `workspace:{repository_id}` — skills from the workspace repo
+//!   - `plugin:{plugin_repo_id}` — skills from a plugin repo (shared across
+//!     all workspace repos that reference it)
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -14,11 +14,15 @@ use moka::future::Cache;
 use tracing::debug;
 
 use super::error::SkillError;
-use super::git_cache::GitFetcher;
+use super::fetcher::SkillFetcher;
 use super::models::{Skill, SkillSource};
 use super::scanner;
 use super::schemas::SkillResponse;
+use crate::auth::error::AuthError;
+use crate::auth::github_app_service::GitHubAppService;
 use crate::auth::provider_token_dao::ProviderTokenRepository;
+use crate::auth::provider_tokens::ProviderTokenAuthRepository;
+use crate::auth::token_refresh::ensure_fresh_token;
 use crate::extractors::AuthUser;
 use crate::plugin_repo::dao::PluginRepoRepository;
 use crate::plugin_repo::models::PluginRepo;
@@ -30,16 +34,23 @@ pub struct SkillService {
     repositories: Arc<dyn RepoRepository>,
     plugin_repos: Arc<dyn PluginRepoRepository>,
     provider_tokens: Arc<dyn ProviderTokenRepository>,
-    fetcher: Arc<dyn GitFetcher>,
+    provider_token_auth: Arc<dyn ProviderTokenAuthRepository>,
+    github_app_service: Option<Arc<GitHubAppService>>,
+    fetcher: Arc<dyn SkillFetcher>,
     cache: Cache<String, Arc<Vec<Skill>>>,
 }
 
 impl SkillService {
+    #[allow(clippy::too_many_arguments)]
+    // reason: this service fans out to four DAOs plus the GitHub App service,
+    // and the constructor is called once from AppState::new.
     pub fn new(
         repositories: Arc<dyn RepoRepository>,
         plugin_repos: Arc<dyn PluginRepoRepository>,
         provider_tokens: Arc<dyn ProviderTokenRepository>,
-        fetcher: Arc<dyn GitFetcher>,
+        provider_token_auth: Arc<dyn ProviderTokenAuthRepository>,
+        github_app_service: Option<Arc<GitHubAppService>>,
+        fetcher: Arc<dyn SkillFetcher>,
         ttl: Duration,
     ) -> Self {
         let cache = Cache::builder().time_to_live(ttl).max_capacity(1024).build();
@@ -47,6 +58,8 @@ impl SkillService {
             repositories,
             plugin_repos,
             provider_tokens,
+            provider_token_auth,
+            github_app_service,
             fetcher,
             cache,
         }
@@ -94,6 +107,7 @@ impl SkillService {
             }
         }
 
+        merged.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(merged.into_iter().map(SkillResponse::from).collect())
     }
 
@@ -102,7 +116,7 @@ impl SkillService {
         repo: &Repository,
         auth: &AuthUser,
     ) -> Result<Arc<Vec<Skill>>, SkillError> {
-        // Templates don't have a remote URL we can clone — skip silently.
+        // Templates don't have a remote URL we can fetch — skip silently.
         if repo.kind == RepositoryKind::Template {
             return Ok(Arc::new(Vec::new()));
         }
@@ -120,12 +134,19 @@ impl SkillService {
             .resolve_token_for_provider(auth, repo.provider.as_ref())
             .await?;
 
-        let clone_path = self
+        let files = self
             .fetcher
-            .fetch_or_update(remote_url, token.as_deref())
+            .fetch_skill_files(remote_url, token.as_deref())
             .await?;
 
-        let skills = scanner::scan_dir(&clone_path, SkillSource::Workspace, None, None).await?;
+        let mut skills: Vec<Skill> = files
+            .into_iter()
+            .filter_map(|f| {
+                scanner::parse_skill(&f.content, &f.dir_name, SkillSource::Workspace, None, None)
+            })
+            .collect();
+        skills.sort_by(|a, b| a.name.cmp(&b.name));
+
         let skills = Arc::new(skills);
         self.cache.insert(cache_key, skills.clone()).await;
         Ok(skills)
@@ -143,20 +164,29 @@ impl SkillService {
         }
 
         let provider = derive_provider_from_url(&plugin.git_url);
-        let token = self.resolve_token_for_provider(auth, provider.as_ref()).await?;
-
-        let clone_path = self
-            .fetcher
-            .fetch_or_update(&plugin.git_url, token.as_deref())
+        let token = self
+            .resolve_token_for_provider(auth, provider.as_ref())
             .await?;
 
-        let skills = scanner::scan_dir(
-            &clone_path,
-            SkillSource::Plugin,
-            Some(&plugin.id),
-            Some(&plugin.name),
-        )
-        .await?;
+        let files = self
+            .fetcher
+            .fetch_skill_files(&plugin.git_url, token.as_deref())
+            .await?;
+
+        let mut skills: Vec<Skill> = files
+            .into_iter()
+            .filter_map(|f| {
+                scanner::parse_skill(
+                    &f.content,
+                    &f.dir_name,
+                    SkillSource::Plugin,
+                    Some(&plugin.id),
+                    Some(&plugin.name),
+                )
+            })
+            .collect();
+        skills.sort_by(|a, b| a.name.cmp(&b.name));
+
         let skills = Arc::new(skills);
         self.cache.insert(cache_key, skills.clone()).await;
         Ok(skills)
@@ -170,6 +200,30 @@ impl SkillService {
         let Some(provider) = provider else {
             return Ok(None);
         };
+
+        if *provider == RepositoryProvider::Github {
+            if let Some(app_svc) = self.github_app_service.as_ref() {
+                match ensure_fresh_token(
+                    self.provider_tokens.as_ref(),
+                    self.provider_token_auth.as_ref(),
+                    app_svc,
+                    &auth.user_id,
+                )
+                .await
+                {
+                    Ok(tok) => return Ok(Some(tok)),
+                    // No token configured — fall through to unauthenticated fetch.
+                    Err(AuthError::NotFound(_)) => return Ok(None),
+                    Err(AuthError::Database(e)) => return Err(SkillError::Db(e)),
+                    Err(e) => {
+                        return Err(SkillError::Internal(format!(
+                            "GitHub token refresh failed: {e}"
+                        )));
+                    }
+                }
+            }
+        }
+
         let provider_str = provider_to_token_key(*provider);
         let token = self
             .provider_tokens
@@ -191,8 +245,7 @@ fn provider_to_token_key(provider: RepositoryProvider) -> &'static str {
 }
 
 /// Derive a `RepositoryProvider` from a git URL's host. Returns `None` for
-/// hosts we don't recognise — the service will attempt an unauthenticated
-/// clone for those.
+/// hosts we don't recognise.
 fn derive_provider_from_url(url: &str) -> Option<RepositoryProvider> {
     let lower = url.to_ascii_lowercase();
     if lower.contains("github.com") {
