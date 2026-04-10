@@ -6,7 +6,7 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, warn};
+use tracing::{info, warn};
 
 use crate::config::Config;
 
@@ -156,6 +156,13 @@ pub async fn start(
         command.envs(vars);
     }
 
+    info!(
+        cli = %config.codex_cli_path,
+        cwd = %config.workspace_dir,
+        home = %config.home_dir,
+        codex_home = %config.codex_home_dir,
+        "Spawning Codex CLI"
+    );
     let mut child = command.spawn()?;
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
@@ -167,8 +174,9 @@ pub async fn start(
         tokio::spawn(async move {
             let mut lines = BufReader::new(stderr).lines();
             while let Ok(Some(line)) = lines.next_line().await {
-                debug!(line, "Codex stderr");
+                info!(line, "Codex stderr");
             }
+            info!("Codex stderr stream ended");
         });
     }
 
@@ -179,8 +187,10 @@ pub async fn start(
             return;
         };
 
+        info!("Codex stdout reader started");
         let mut lines = BufReader::new(stdout).lines();
         let mut saw_terminal_event = false;
+        let mut event_count: u32 = 0;
 
         loop {
             tokio::select! {
@@ -191,24 +201,32 @@ pub async fn start(
                 line = lines.next_line() => {
                     match line {
                         Ok(Some(line)) => {
+                            event_count += 1;
+                            info!(event_count, line_len = line.len(), "Codex stdout line received");
                             match serde_json::from_str::<CodexExecEvent>(&line) {
                                 Ok(event) => {
                                     if matches!(event, CodexExecEvent::TurnCompleted(_) | CodexExecEvent::TurnFailed(_) | CodexExecEvent::Error(_)) {
                                         saw_terminal_event = true;
                                     }
                                     if tx.send(Ok(event)).is_err() {
+                                        info!("Codex event channel closed by receiver");
                                         let _ = child.kill().await;
                                         break;
                                     }
                                 }
                                 Err(error) => {
+                                    info!(error = %error, line = %line, "Codex parse failed");
                                     let _ = tx.send(Err(format!("Failed to parse Codex JSONL event: {error}")));
                                     break;
                                 }
                             }
                         }
-                        Ok(None) => break,
+                        Ok(None) => {
+                            info!(event_count, "Codex stdout EOF");
+                            break;
+                        }
                         Err(error) => {
+                            info!(error = %error, "Codex stdout read error");
                             let _ = tx.send(Err(format!("Failed to read Codex stdout: {error}")));
                             break;
                         }
@@ -217,21 +235,32 @@ pub async fn start(
             }
         }
 
+        info!(
+            event_count,
+            saw_terminal_event,
+            cancelled = session_cancel.is_cancelled(),
+            "Codex stdout loop exited, waiting for child"
+        );
         match child.wait().await {
             Ok(status)
                 if !status.success() && !session_cancel.is_cancelled() && !saw_terminal_event =>
             {
+                info!(%status, "Codex child exited with error, no terminal event");
                 let _ = tx.send(Err(format!("Codex process exited with status {status}")));
             }
             Ok(status)
                 if status.success() && !session_cancel.is_cancelled() && !saw_terminal_event =>
             {
+                info!(%status, "Codex child exited success, no terminal event");
                 let _ = tx.send(Err(
                     "Codex process exited without a terminal event".to_string()
                 ));
             }
-            Ok(_) => {}
+            Ok(status) => {
+                info!(%status, "Codex child exited cleanly");
+            }
             Err(error) if !session_cancel.is_cancelled() => {
+                info!(error = %error, "Codex child wait failed");
                 let _ = tx.send(Err(format!("Failed to wait for Codex process: {error}")));
             }
             Err(error) => {
