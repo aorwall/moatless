@@ -1,6 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { useCommandsList } from '@/features/commands/hooks/use-commands'
 import { FigmaImportDialog } from '@/features/figma/components/figma-import-dialog'
@@ -9,6 +9,7 @@ import {
   useRepositoriesList,
   useRepository,
 } from '@/features/repositories'
+import { useRepositorySkills } from '@/features/skills'
 import { useTaskInputs } from '@/features/tasks/hooks/use-task-inputs'
 import { useCreateTask } from '@/features/tasks/hooks/use-tasks'
 import { queryKeys } from '@/lib/api/query-keys'
@@ -32,6 +33,7 @@ import {
 } from '@/lib/components/chat/chat-input/selectors'
 import {
   CommandAutocomplete,
+  type Suggestion,
   useCommandAutocomplete,
 } from '@/lib/components/chat/command-autocomplete'
 import { useFeatureFlag } from '@/lib/hooks/use-feature-flag'
@@ -78,6 +80,29 @@ export function CreateCodeTask({
   // Fetch global commands for slash command autocomplete
   const { data: commands = [] } = useCommandsList()
 
+  // Fetch repo-scoped skills (workspace + linked plugin repos). Only fetch
+  // once a repository is selected — the composer can't submit without one.
+  const { data: skills = [], error: skillsError } = useRepositorySkills(repositoryId || undefined)
+
+  // Surface skill-fetch failures via a toast. The autocomplete still works
+  // with just the global commands list.
+  useEffect(() => {
+    if (skillsError) {
+      toast.error('Failed to load repository skills', {
+        description: getErrorMessage(skillsError),
+      })
+    }
+  }, [skillsError])
+
+  // Merge commands + skills into a single Suggestion[] for the "/" dropdown.
+  const suggestions = useMemo<Suggestion[]>(
+    () => [
+      ...commands.map((c) => ({ kind: 'command' as const, ...c })),
+      ...skills.map((s) => ({ kind: 'skill' as const, ...s })),
+    ],
+    [commands, skills],
+  )
+
   // Command autocomplete hook
   const {
     inputRef: textareaRef,
@@ -91,7 +116,7 @@ export function CreateCodeTask({
     clearSelectedCommand,
   } = useCommandAutocomplete({
     onValueChange: setMessage,
-    commands,
+    suggestions,
     enabled: true,
   })
 

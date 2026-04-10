@@ -507,6 +507,10 @@ mod tests {
                 webhook_secret: None,
                 bot_token: None,
             },
+            skill: crate::config::SkillConfig {
+                cache_dir: "/tmp/moatless-test-skill-cache".into(),
+                cache_ttl_secs: 60,
+            },
         }
     }
 

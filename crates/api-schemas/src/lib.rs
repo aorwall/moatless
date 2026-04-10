@@ -21,6 +21,7 @@ pub mod provider_settings;
 pub mod repository;
 pub mod sandbox;
 pub mod shared;
+pub mod skill;
 pub mod tag;
 pub mod task;
 pub mod task_event;

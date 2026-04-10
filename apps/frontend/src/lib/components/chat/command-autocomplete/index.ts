@@ -1,2 +1,2 @@
 export { CommandAutocomplete } from './command-autocomplete'
-export { useCommandAutocomplete } from './use-command-autocomplete'
+export { type Suggestion, useCommandAutocomplete } from './use-command-autocomplete'

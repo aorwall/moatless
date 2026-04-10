@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { FigmaImportDialog } from '@/features/figma/components/figma-import-dialog'
 import { SettingsDialog, useFigmaConfig } from '@/features/settings'
+import { useRepositorySkills } from '@/features/skills'
 import { useTaskId } from '@/features/tasks/contexts/task-providers'
 import { useFileSearch } from '@/features/tasks/hooks/use-file-search'
 import { useSandboxRetry, useSandboxStatus } from '@/features/tasks/hooks/use-sandbox-status'
@@ -37,6 +38,7 @@ import {
 import { ChatView } from '@/lib/components/chat/chat-view'
 import {
   CommandAutocomplete,
+  type Suggestion,
   useCommandAutocomplete,
 } from '@/lib/components/chat/command-autocomplete'
 import { FileAutocomplete, useFileAutocomplete } from '@/lib/components/chat/file-autocomplete'
@@ -127,6 +129,30 @@ function ChatContainer({
     enabled: !!taskId && !isTaskRunning && envStatus === 'ready',
   })
 
+  // Fetch repo-scoped skills for the task's repository (workspace +
+  // linked plugin repos). Surfaces in the same "/" autocomplete dropdown.
+  const { data: repoSkills = [], error: skillsError } = useRepositorySkills(task?.repositoryId, {
+    enabled: !!task?.repositoryId && !!taskId && !isTaskRunning && envStatus === 'ready',
+  })
+
+  useEffect(() => {
+    if (skillsError) {
+      toast.error('Failed to load repository skills', {
+        description: getErrorMessage(skillsError),
+      })
+    }
+  }, [skillsError])
+
+  // Merge commands + skills for the autocomplete dropdown. Command buttons
+  // bar below is still commands-only.
+  const suggestions = useMemo<Suggestion[]>(
+    () => [
+      ...availableCommands.map((c) => ({ kind: 'command' as const, ...c })),
+      ...repoSkills.map((s) => ({ kind: 'skill' as const, ...s })),
+    ],
+    [availableCommands, repoSkills],
+  )
+
   // Local state for chat values
   const [message, setMessage] = useState('')
   const [resumeConversation] = useState(true)
@@ -186,7 +212,7 @@ function ChatContainer({
     clearSelectedCommand,
   } = useCommandAutocomplete({
     onValueChange: setMessage,
-    commands: availableCommands,
+    suggestions,
     enabled: !isTaskRunning,
   })
 

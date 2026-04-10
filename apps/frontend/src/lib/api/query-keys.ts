@@ -55,6 +55,10 @@ export const queryKeys = {
   commandsList: () => [...queryKeys.commands(), 'list'] as const,
   commandDetail: (commandName: string) => [...queryKeys.commands(), 'detail', commandName] as const,
 
+  skills: () => [...queryKeys.all, 'skills'] as const,
+  skillsForRepository: (repositoryId: string) =>
+    [...queryKeys.skills(), 'repository', repositoryId] as const,
+
   claudeCode: {
     all: () => [...queryKeys.all, 'claude-code'] as const,
     settings: () => [...queryKeys.claudeCode.all(), 'settings'] as const,

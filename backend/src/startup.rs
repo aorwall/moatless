@@ -296,6 +296,7 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     use crate::provider_settings::routes::ProviderSettingsApiDoc;
     use crate::repository::routes::RepositoryApiDoc;
     use crate::sandbox::routes::SandboxApiDoc;
+    use crate::skill::routes::SkillApiDoc;
     use crate::tag::routes::TagApiDoc;
     use crate::task::routes::TaskApiDoc;
     use crate::task_event::routes::TaskEventApiDoc;
@@ -366,6 +367,7 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     merged.merge(EventsApiDoc::openapi());
     merged.merge(TaskEventApiDoc::openapi());
     merged.merge(FeatureFlagsApiDoc::openapi());
+    merged.merge(SkillApiDoc::openapi());
 
     merged.info = utoipa::openapi::InfoBuilder::new()
         .title("Moatless Vibe Backend API")

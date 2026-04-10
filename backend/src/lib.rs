@@ -32,6 +32,7 @@ pub mod repository;
 pub mod sandbox;
 pub mod scope;
 pub mod shared_models;
+pub mod skill;
 pub mod sse;
 pub mod startup;
 pub mod state;

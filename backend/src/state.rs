@@ -22,6 +22,8 @@ use crate::message::dao::{MessageRepository, PgMessageRepository};
 use crate::plugin_repo::dao::{PgPluginRepoRepository, PluginRepoRepository};
 use crate::repository::dao::{PgRepoRepository, RepoRepository};
 use crate::sandbox::provider::SandboxProvider;
+use crate::skill::git_cache::FsGitFetcher;
+use crate::skill::service::SkillService;
 use crate::tag::dao::{PgTagRepository, TagRepository};
 use crate::task::dao::{PgTaskRepository, TaskRepository};
 use crate::task_event::dao::{PgTaskEventRepository, TaskEventRepository};
@@ -67,6 +69,9 @@ pub struct AppState {
     pub teams: Arc<dyn TeamRepository>,
     pub task_events: Arc<dyn TaskEventRepository>,
     pub plugin_repos: Arc<dyn PluginRepoRepository>,
+    /// Skill discovery service — reads `.claude/skills/` from workspace
+    /// and plugin repositories, parses frontmatter, caches results.
+    pub skills: Arc<SkillService>,
 }
 
 impl AppState {
@@ -83,10 +88,26 @@ impl AppState {
         channel_providers: Option<Arc<ChannelProviders>>,
     ) -> Self {
         let github_app_service = GitHubAppService::from_config(&config).map(Arc::new);
+
+        let repositories: Arc<dyn RepoRepository> = Arc::new(PgRepoRepository(pool.clone()));
+        let plugin_repos: Arc<dyn PluginRepoRepository> =
+            Arc::new(PgPluginRepoRepository(pool.clone()));
+        let provider_tokens: Arc<dyn ProviderTokenRepository> =
+            Arc::new(PgProviderTokenRepository(pool.clone()));
+
+        let skill_fetcher = Arc::new(FsGitFetcher::new(config.skill.cache_dir.clone()));
+        let skills = Arc::new(SkillService::new(
+            repositories.clone(),
+            plugin_repos.clone(),
+            provider_tokens.clone(),
+            skill_fetcher,
+            std::time::Duration::from_secs(config.skill.cache_ttl_secs),
+        ));
+
         Self {
             tasks: Arc::new(PgTaskRepository(pool.clone())),
             messages: Arc::new(PgMessageRepository(pool.clone())),
-            repositories: Arc::new(PgRepoRepository(pool.clone())),
+            repositories,
             commands: Arc::new(PgCommandRepository(pool.clone())),
             tags: Arc::new(PgTagRepository(pool.clone())),
             files: Arc::new(PgFileRepository(pool.clone())),
@@ -94,11 +115,12 @@ impl AppState {
             channel_configs: Arc::new(PgChannelConfigRepository(pool.clone())),
             channel_threads: Arc::new(PgChannelThreadRepository(pool.clone())),
             users: Arc::new(PgUserRepository(pool.clone())),
-            provider_tokens: Arc::new(PgProviderTokenRepository(pool.clone())),
+            provider_tokens,
             provider_token_auth: Arc::new(PgProviderTokenAuthRepository(pool.clone())),
             teams: Arc::new(PgTeamRepository(pool.clone())),
             task_events: Arc::new(PgTaskEventRepository(pool.clone())),
-            plugin_repos: Arc::new(PgPluginRepoRepository(pool.clone())),
+            plugin_repos,
+            skills,
             db: pool,
             config,
             sandbox,

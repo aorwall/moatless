@@ -431,6 +431,16 @@ pub struct DatabaseConfig {
     pub max_connections: u32,
 }
 
+/// Skill discovery configuration.
+#[derive(Debug, Clone)]
+pub struct SkillConfig {
+    /// Local directory used to cache shallow clones of workspace and plugin
+    /// repositories while scanning `.claude/skills/`.
+    pub cache_dir: String,
+    /// In-memory cache TTL for parsed skill lists.
+    pub cache_ttl_secs: u64,
+}
+
 // =========================================================================
 // Top-level Config
 // =========================================================================
@@ -454,6 +464,7 @@ pub struct Config {
     pub slack: SlackConfig,
     pub telegram: TelegramConfig,
     pub github_pr: GithubPrConfig,
+    pub skill: SkillConfig,
 }
 
 /// Configuration validation errors.
@@ -621,6 +632,14 @@ impl Config {
             github_pr: GithubPrConfig {
                 webhook_secret: env_opt("GITHUB_CHANNEL_WEBHOOK_SECRET"),
                 bot_token: env_opt("GITHUB_CHANNEL_TOKEN"),
+            },
+
+            skill: SkillConfig {
+                cache_dir: env_str(
+                    "BACKEND_SKILL_CACHE_DIR",
+                    "/var/cache/moatless-backend/skills",
+                ),
+                cache_ttl_secs: env_or("BACKEND_SKILL_CACHE_TTL_SECONDS", 3_600),
             },
         };
 
@@ -938,6 +957,10 @@ mod tests {
             github_pr: GithubPrConfig {
                 webhook_secret: None,
                 bot_token: None,
+            },
+            skill: SkillConfig {
+                cache_dir: "/tmp/moatless-test-skill-cache".into(),
+                cache_ttl_secs: 60,
             },
         }
     }

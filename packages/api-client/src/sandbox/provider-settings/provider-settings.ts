@@ -25,12 +25,14 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  CodexConfigResponse,
   ErrorBody,
   ExchangeTokenRequest,
   ExchangeTokenResponse,
   GitHubConfigResponse,
   GitnessConfigResponse,
   OAuthUrlResponse,
+  SaveCodexAuthRequest,
   SaveGitnessPATRequest,
   SavePatRequest
 } from '.././model';
@@ -48,6 +50,319 @@ type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
 
 
 /**
+ * @summary Get current Codex configuration for the user.
+ */
+export type getCodexConfigResponse200 = {
+  data: CodexConfigResponse
+  status: 200
+}
+
+export type getCodexConfigResponse401 = {
+  data: ErrorBody
+  status: 401
+}
+    
+export type getCodexConfigResponseSuccess = (getCodexConfigResponse200) & {
+  headers: Headers;
+};
+export type getCodexConfigResponseError = (getCodexConfigResponse401) & {
+  headers: Headers;
+};
+
+export type getCodexConfigResponse = (getCodexConfigResponseSuccess | getCodexConfigResponseError)
+
+export const getGetCodexConfigUrl = () => {
+
+
+  
+
+  return `/api/v1/settings/codex/config`
+}
+
+export const getCodexConfig = async ( options?: RequestInit): Promise<getCodexConfigResponse> => {
+  
+  return customInstance<getCodexConfigResponse>(getGetCodexConfigUrl(),
+  {      
+    ...options,
+    method: 'GET'
+    
+    
+  }
+);}
+
+
+
+
+
+export const getGetCodexConfigQueryKey = () => {
+    return [
+    `/api/v1/settings/codex/config`
+    ] as const;
+    }
+
+    
+export const getGetCodexConfigQueryOptions = <TData = Awaited<ReturnType<typeof getCodexConfig>>, TError = ErrorType<ErrorBody>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getCodexConfig>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetCodexConfigQueryKey();
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getCodexConfig>>> = ({ signal }) => getCodexConfig({ signal, ...requestOptions });
+
+      
+
+      
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getCodexConfig>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
+}
+
+export type GetCodexConfigQueryResult = NonNullable<Awaited<ReturnType<typeof getCodexConfig>>>
+export type GetCodexConfigQueryError = ErrorType<ErrorBody>
+
+
+export function useGetCodexConfig<TData = Awaited<ReturnType<typeof getCodexConfig>>, TError = ErrorType<ErrorBody>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getCodexConfig>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getCodexConfig>>,
+          TError,
+          Awaited<ReturnType<typeof getCodexConfig>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useGetCodexConfig<TData = Awaited<ReturnType<typeof getCodexConfig>>, TError = ErrorType<ErrorBody>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getCodexConfig>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getCodexConfig>>,
+          TError,
+          Awaited<ReturnType<typeof getCodexConfig>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useGetCodexConfig<TData = Awaited<ReturnType<typeof getCodexConfig>>, TError = ErrorType<ErrorBody>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getCodexConfig>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+/**
+ * @summary Get current Codex configuration for the user.
+ */
+
+export function useGetCodexConfig<TData = Awaited<ReturnType<typeof getCodexConfig>>, TError = ErrorType<ErrorBody>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getCodexConfig>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
+
+  const queryOptions = getGetCodexConfigQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get current Codex configuration for the user.
+ */
+export const prefetchGetCodexConfigQuery = async <TData = Awaited<ReturnType<typeof getCodexConfig>>, TError = ErrorType<ErrorBody>>(
+ queryClient: QueryClient,  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getCodexConfig>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+
+  ): Promise<QueryClient> => {
+
+  const queryOptions = getGetCodexConfigQueryOptions(options)
+
+  await queryClient.prefetchQuery(queryOptions);
+
+  return queryClient;
+}
+
+
+
+/**
+ * @summary Save Codex auth.json contents for sandbox startup.
+ */
+export type saveCodexAuthResponse200 = {
+  data: CodexConfigResponse
+  status: 200
+}
+
+export type saveCodexAuthResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
+export type saveCodexAuthResponse401 = {
+  data: ErrorBody
+  status: 401
+}
+    
+export type saveCodexAuthResponseSuccess = (saveCodexAuthResponse200) & {
+  headers: Headers;
+};
+export type saveCodexAuthResponseError = (saveCodexAuthResponse400 | saveCodexAuthResponse401) & {
+  headers: Headers;
+};
+
+export type saveCodexAuthResponse = (saveCodexAuthResponseSuccess | saveCodexAuthResponseError)
+
+export const getSaveCodexAuthUrl = () => {
+
+
+  
+
+  return `/api/v1/settings/codex/config`
+}
+
+export const saveCodexAuth = async (saveCodexAuthRequest: SaveCodexAuthRequest, options?: RequestInit): Promise<saveCodexAuthResponse> => {
+  
+  return customInstance<saveCodexAuthResponse>(getSaveCodexAuthUrl(),
+  {      
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      saveCodexAuthRequest,)
+  }
+);}
+
+
+
+
+export const getSaveCodexAuthMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveCodexAuth>>, TError,{data: SaveCodexAuthRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof saveCodexAuth>>, TError,{data: SaveCodexAuthRequest}, TContext> => {
+
+const mutationKey = ['saveCodexAuth'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof saveCodexAuth>>, {data: SaveCodexAuthRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  saveCodexAuth(data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SaveCodexAuthMutationResult = NonNullable<Awaited<ReturnType<typeof saveCodexAuth>>>
+    export type SaveCodexAuthMutationBody = SaveCodexAuthRequest
+    export type SaveCodexAuthMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Save Codex auth.json contents for sandbox startup.
+ */
+export const useSaveCodexAuth = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveCodexAuth>>, TError,{data: SaveCodexAuthRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof saveCodexAuth>>,
+        TError,
+        {data: SaveCodexAuthRequest},
+        TContext
+      > => {
+      return useMutation(getSaveCodexAuthMutationOptions(options), queryClient);
+    }
+    /**
+ * @summary Disconnect Codex by deleting the stored auth blob.
+ */
+export type deleteCodexConfigResponse200 = {
+  data: CodexConfigResponse
+  status: 200
+}
+
+export type deleteCodexConfigResponse401 = {
+  data: ErrorBody
+  status: 401
+}
+    
+export type deleteCodexConfigResponseSuccess = (deleteCodexConfigResponse200) & {
+  headers: Headers;
+};
+export type deleteCodexConfigResponseError = (deleteCodexConfigResponse401) & {
+  headers: Headers;
+};
+
+export type deleteCodexConfigResponse = (deleteCodexConfigResponseSuccess | deleteCodexConfigResponseError)
+
+export const getDeleteCodexConfigUrl = () => {
+
+
+  
+
+  return `/api/v1/settings/codex/config`
+}
+
+export const deleteCodexConfig = async ( options?: RequestInit): Promise<deleteCodexConfigResponse> => {
+  
+  return customInstance<deleteCodexConfigResponse>(getDeleteCodexConfigUrl(),
+  {      
+    ...options,
+    method: 'DELETE'
+    
+    
+  }
+);}
+
+
+
+
+export const getDeleteCodexConfigMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteCodexConfig>>, TError,void, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteCodexConfig>>, TError,void, TContext> => {
+
+const mutationKey = ['deleteCodexConfig'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteCodexConfig>>, void> = () => {
+          
+
+          return  deleteCodexConfig(requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteCodexConfigMutationResult = NonNullable<Awaited<ReturnType<typeof deleteCodexConfig>>>
+    
+    export type DeleteCodexConfigMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Disconnect Codex by deleting the stored auth blob.
+ */
+export const useDeleteCodexConfig = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteCodexConfig>>, TError,void, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof deleteCodexConfig>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getDeleteCodexConfigMutationOptions(options), queryClient);
+    }
+    /**
  * @summary Get current GitHub configuration for the user.
  */
 export type getGithubConfigResponse200 = {

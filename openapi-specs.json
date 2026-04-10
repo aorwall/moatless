@@ -2606,6 +2606,59 @@
         }
       }
     },
+    "/api/v1/repositories/{repository_id}/skills": {
+      "get": {
+        "tags": [
+          "skills"
+        ],
+        "summary": "List all skills discovered for a repository.",
+        "description": "Returns skills from the workspace repo's own `.claude/skills/` directory\nplus skills from every linked plugin repo, deduplicated by name\n(workspace shadows plugin, first plugin wins on plugin-vs-plugin clash).",
+        "operationId": "list_repository_skills",
+        "parameters": [
+          {
+            "name": "repository_id",
+            "in": "path",
+            "description": "Repository identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of skills",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListSkillsResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Repository not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Failed to fetch a git repository",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/repositories/{repository_id}/sync-config": {
       "post": {
         "tags": [
@@ -2647,6 +2700,115 @@
           },
           "404": {
             "description": "Repository not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/settings/codex/config": {
+      "get": {
+        "tags": [
+          "provider-settings"
+        ],
+        "summary": "Get current Codex configuration for the user.",
+        "operationId": "get_codex_config",
+        "responses": {
+          "200": {
+            "description": "Codex config",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CodexConfigResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "provider-settings"
+        ],
+        "summary": "Save Codex auth.json contents for sandbox startup.",
+        "operationId": "save_codex_auth",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveCodexAuthRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Codex auth saved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CodexConfigResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid auth JSON",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "provider-settings"
+        ],
+        "summary": "Disconnect Codex by deleting the stored auth blob.",
+        "operationId": "delete_codex_config",
+        "responses": {
+          "200": {
+            "description": "Codex disconnected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CodexConfigResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
             "content": {
               "application/json": {
                 "schema": {
@@ -5104,6 +5266,23 @@
           "github_pr"
         ]
       },
+      "CodexConfigResponse": {
+        "type": "object",
+        "required": [
+          "connected"
+        ],
+        "properties": {
+          "connected": {
+            "type": "boolean"
+          },
+          "tokenType": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "CommandResponse": {
         "type": "object",
         "required": [
@@ -6647,6 +6826,21 @@
           }
         }
       },
+      "ListSkillsResponse": {
+        "type": "object",
+        "description": "Response body for `GET /api/v1/repositories/{repository_id}/skills`.",
+        "required": [
+          "skills"
+        ],
+        "properties": {
+          "skills": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SkillResponse"
+            }
+          }
+        }
+      },
       "ListTaskEventsResponse": {
         "type": "object",
         "description": "Response for listing task events.",
@@ -7700,6 +7894,17 @@
           }
         }
       },
+      "SaveCodexAuthRequest": {
+        "type": "object",
+        "required": [
+          "authJson"
+        ],
+        "properties": {
+          "authJson": {
+            "type": "string"
+          }
+        }
+      },
       "SaveGitnessPATRequest": {
         "type": "object",
         "required": [
@@ -8270,6 +8475,46 @@
             }
           }
         }
+      },
+      "SkillResponse": {
+        "type": "object",
+        "description": "Single skill discovered from a `.claude/skills/{name}/SKILL.md` file.",
+        "required": [
+          "name",
+          "description",
+          "source"
+        ],
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "pluginRepoId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "pluginRepoName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source": {
+            "$ref": "#/components/schemas/SkillSource"
+          }
+        }
+      },
+      "SkillSource": {
+        "type": "string",
+        "description": "Origin of a discovered skill.",
+        "enum": [
+          "workspace",
+          "plugin"
+        ]
       },
       "SlackChannelInfoResponse": {
         "type": "object",
@@ -9736,7 +9981,7 @@
     },
     {
       "name": "provider-settings",
-      "description": "GitHub OAuth/PAT & Gitness PAT management"
+      "description": "GitHub, Gitness, and Codex credential management"
     },
     {
       "name": "channels",
@@ -9749,6 +9994,10 @@
     {
       "name": "task-events",
       "description": "Task event history"
+    },
+    {
+      "name": "skills",
+      "description": "Repository skill discovery"
     }
   ]
 }

@@ -17,6 +17,7 @@
     "./sandbox/provider-settings/provider-settings": "./src/sandbox/provider-settings/provider-settings.ts",
     "./sandbox/repositories/repositories": "./src/sandbox/repositories/repositories.ts",
     "./sandbox/sandbox/sandbox": "./src/sandbox/sandbox/sandbox.ts",
+    "./sandbox/skills/skills": "./src/sandbox/skills/skills.ts",
     "./sandbox/tags/tags": "./src/sandbox/tags/tags.ts",
     "./sandbox/tasks/tasks": "./src/sandbox/tasks/tasks.ts",
     "./sandbox/users/users": "./src/sandbox/users/users.ts",
