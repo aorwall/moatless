@@ -5,8 +5,11 @@ import {
   ChevronRight,
   FileEdit,
   ListTodo,
+  Search,
   Terminal,
+  Users,
   XCircle,
+  Zap,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { type Todo, TodoList } from './todo-list.tsx'
@@ -52,6 +55,56 @@ interface CodexTodoItem {
 
 interface CodexTodoListInput {
   items?: CodexTodoItem[]
+}
+
+type CodexStatus = 'in_progress' | 'completed' | 'failed' | 'declined'
+
+interface CodexMcpInput {
+  server?: string
+  tool?: string
+  arguments?: unknown
+}
+
+interface CodexMcpResult {
+  status?: CodexStatus
+  content?: Record<string, unknown>[] | null
+  structuredContent?: unknown
+  errorMessage?: string | null
+}
+
+type CodexCollabTool = 'spawn_agent' | 'send_input' | 'wait' | 'close_agent' | 'unknown'
+
+type CodexCollabAgentStatus =
+  | 'pending_init'
+  | 'running'
+  | 'interrupted'
+  | 'completed'
+  | 'errored'
+  | 'shutdown'
+  | 'not_found'
+  | 'unknown'
+
+interface CodexCollabAgentState {
+  status: CodexCollabAgentStatus
+  message?: string | null
+}
+
+interface CodexCollabInput {
+  tool?: CodexCollabTool
+  senderThreadId?: string
+  receiverThreadIds?: string[]
+  prompt?: string | null
+  agentsStates?: Record<string, CodexCollabAgentState>
+}
+
+interface CodexCollabResult {
+  status?: CodexStatus
+  agentsStates?: Record<string, CodexCollabAgentState>
+}
+
+interface CodexWebSearchInput {
+  query?: string
+  action?: unknown
 }
 
 function truncate(text: string, max: number): string {
@@ -287,6 +340,198 @@ function CodexTodoListCall({ content }: CodexToolCallProps) {
   )
 }
 
+function StatusPill({ status }: { status: CodexStatus | undefined }) {
+  if (!status) {
+    return null
+  }
+  const label = status.replace('_', ' ')
+  const isError = status === 'failed' || status === 'declined'
+  const isPending = status === 'in_progress'
+  return (
+    <span
+      className={cn(
+        'px-1.5 rounded text-[10px]',
+        isError && 'bg-red-500/10 text-red-600 dark:text-red-400',
+        isPending && 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+        !(isError || isPending) && 'bg-green-500/10 text-green-600 dark:text-green-400',
+      )}
+    >
+      {label}
+    </span>
+  )
+}
+
+function CodexMcpToolCall({ content, toolResult, expanded, onToggle }: CodexToolCallProps) {
+  const input = (content.toolInput ?? {}) as CodexMcpInput
+  const result = (toolResult?.typedResult ?? null) as CodexMcpResult | null
+  const hasResult = !!toolResult
+  const status = result?.status
+  const isError = toolResult?.isError === true || status === 'failed' || !!result?.errorMessage
+  const server = input.server ?? '?'
+  const tool = input.tool ?? '?'
+  const argsJson = JSON.stringify(input.arguments ?? {}, null, 2)
+  const contentJson = result?.content ? JSON.stringify(result.content, null, 2) : ''
+
+  return (
+    <div className="text-xs font-mono w-full max-w-full">
+      <div className="flex items-start gap-2">
+        <div
+          className={cn(
+            'w-1.5 h-1.5 rounded-full mt-1 flex-shrink-0',
+            isError ? 'bg-destructive' : 'bg-primary',
+          )}
+        />
+        <div className="flex-1 min-w-0">
+          <ExpandableHeader isExpandable expanded={expanded} onToggle={onToggle}>
+            <Zap className="h-3 w-3 text-primary flex-shrink-0" />
+            <span className="font-medium flex-shrink-0">MCP</span>
+            <span className="text-muted-foreground truncate min-w-0">
+              {truncate(`${server}/${tool}`, 80)}
+            </span>
+            {hasResult && (
+              <span className="flex items-center gap-1 flex-shrink-0 ml-auto">
+                <StatusPill status={status} />
+                <ResultIcon isError={isError} />
+              </span>
+            )}
+          </ExpandableHeader>
+
+          {expanded && (
+            <div className="mt-1 bg-muted/30 p-1 text-muted-foreground max-h-96 overflow-y-auto space-y-2">
+              <div>
+                <div className="text-[10px] uppercase mb-0.5">Arguments</div>
+                <pre className="whitespace-pre-wrap break-all">{argsJson}</pre>
+              </div>
+              {result?.errorMessage && (
+                <div>
+                  <div className="text-[10px] uppercase mb-0.5 text-red-500">Error</div>
+                  <pre className="whitespace-pre-wrap break-all text-red-500">
+                    {result.errorMessage}
+                  </pre>
+                </div>
+              )}
+              {contentJson && (
+                <div>
+                  <div className="text-[10px] uppercase mb-0.5">Result</div>
+                  <pre className="whitespace-pre-wrap break-all">{contentJson}</pre>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function agentStatusBadgeClass(status: CodexCollabAgentStatus): string {
+  switch (status) {
+    case 'completed':
+      return 'bg-green-500/10 text-green-600 dark:text-green-400'
+    case 'running':
+    case 'pending_init':
+      return 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+    case 'errored':
+    case 'not_found':
+      return 'bg-red-500/10 text-red-600 dark:text-red-400'
+    default:
+      return 'bg-muted text-muted-foreground'
+  }
+}
+
+function CodexCollabToolCall({ content, toolResult, expanded, onToggle }: CodexToolCallProps) {
+  const input = (content.toolInput ?? {}) as CodexCollabInput
+  const result = (toolResult?.typedResult ?? null) as CodexCollabResult | null
+  const hasResult = !!toolResult
+  const status = result?.status
+  const agentsStates = result?.agentsStates ?? input.agentsStates ?? {}
+  const agentEntries = Object.entries(agentsStates)
+  const anyErrored = agentEntries.some(([, s]) => s.status === 'errored')
+  const isError = toolResult?.isError === true || status === 'failed' || anyErrored
+  const tool = input.tool ?? 'unknown'
+  const receivers = input.receiverThreadIds ?? []
+
+  return (
+    <div className="text-xs font-mono w-full max-w-full">
+      <div className="flex items-start gap-2">
+        <div
+          className={cn(
+            'w-1.5 h-1.5 rounded-full mt-1 flex-shrink-0',
+            isError ? 'bg-destructive' : 'bg-primary',
+          )}
+        />
+        <div className="flex-1 min-w-0">
+          <ExpandableHeader isExpandable expanded={expanded} onToggle={onToggle}>
+            <Users className="h-3 w-3 text-primary flex-shrink-0" />
+            <span className="font-medium flex-shrink-0">Collab</span>
+            <span className="text-muted-foreground truncate min-w-0">
+              {tool.replace('_', ' ')} ({receivers.length} agent{receivers.length === 1 ? '' : 's'})
+            </span>
+            {hasResult && (
+              <span className="flex items-center gap-1 flex-shrink-0 ml-auto">
+                <StatusPill status={status} />
+                <ResultIcon isError={isError} />
+              </span>
+            )}
+          </ExpandableHeader>
+
+          {expanded && (
+            <div className="mt-1 bg-muted/30 p-2 rounded space-y-2">
+              {input.prompt && (
+                <div>
+                  <div className="text-[10px] uppercase mb-0.5 text-muted-foreground">Prompt</div>
+                  <div className="whitespace-pre-wrap break-all">{input.prompt}</div>
+                </div>
+              )}
+              {agentEntries.length > 0 && (
+                <div className="space-y-1">
+                  <div className="text-[10px] uppercase mb-0.5 text-muted-foreground">Agents</div>
+                  {agentEntries.map(([id, state]) => (
+                    <div key={id} className="flex items-center gap-2">
+                      <span
+                        className={cn(
+                          'px-1.5 rounded text-[10px] font-medium uppercase flex-shrink-0',
+                          agentStatusBadgeClass(state.status),
+                        )}
+                      >
+                        {state.status.replace('_', ' ')}
+                      </span>
+                      <span className="break-all">{id}</span>
+                      {state.message && (
+                        <span className="text-muted-foreground break-all">— {state.message}</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function CodexWebSearchCall({ content }: CodexToolCallProps) {
+  const input = (content.toolInput ?? {}) as CodexWebSearchInput
+  const query = input.query ?? ''
+
+  return (
+    <div className="text-xs font-mono w-full max-w-full">
+      <div className="flex items-start gap-2">
+        <div className="w-1.5 h-1.5 bg-primary rounded-full mt-1 flex-shrink-0" />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <Search className="h-3 w-3 text-primary flex-shrink-0" />
+            <span className="font-medium flex-shrink-0">Web search</span>
+            <span className="text-muted-foreground truncate min-w-0">{truncate(query, 100)}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /**
  * Render a codex-specific tool call. Dispatches by tool name to a
  * terminal/shell view, edit view, todo-list plan view, or a fallback.
@@ -304,6 +549,15 @@ export function CodexToolCall(props: CodexToolCallProps): React.ReactNode {
   }
   if (toolName === 'codex.todo_list') {
     return <CodexTodoListCall {...props} />
+  }
+  if (toolName === 'codex.mcp_tool_call') {
+    return <CodexMcpToolCall {...props} />
+  }
+  if (toolName === 'codex.collab_tool_call') {
+    return <CodexCollabToolCall {...props} />
+  }
+  if (toolName === 'codex.web_search') {
+    return <CodexWebSearchCall {...props} />
   }
   return null
 }

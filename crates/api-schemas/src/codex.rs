@@ -13,6 +13,9 @@ use serde::{Deserialize, Serialize};
 pub const CODEX_TOOL_SHELL: &str = "codex.shell";
 pub const CODEX_TOOL_EDIT: &str = "codex.edit";
 pub const CODEX_TOOL_TODO_LIST: &str = "codex.todo_list";
+pub const CODEX_TOOL_MCP: &str = "codex.mcp_tool_call";
+pub const CODEX_TOOL_COLLAB: &str = "codex.collab_tool_call";
+pub const CODEX_TOOL_WEB_SEARCH: &str = "codex.web_search";
 
 /// Status reported by codex for a tool invocation.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -120,6 +123,109 @@ pub struct CodexTodoListInput {
     pub items: Vec<CodexTodoItem>,
 }
 
+/// Input for `codex.mcp_tool_call` tool calls.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct CodexMcpInput {
+    pub server: String,
+    pub tool: String,
+    #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
+    pub arguments: serde_json::Value,
+}
+
+/// Result for `codex.mcp_tool_call` tool calls.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct CodexMcpResult {
+    pub status: CodexToolStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content: Option<Vec<serde_json::Value>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub structured_content: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_message: Option<String>,
+}
+
+/// The collab tool being invoked.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum CodexCollabTool {
+    SpawnAgent,
+    SendInput,
+    Wait,
+    CloseAgent,
+    #[serde(other)]
+    Unknown,
+}
+
+/// Collab agent status for one of the agents involved in a collab tool call.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum CodexCollabAgentStatus {
+    PendingInit,
+    Running,
+    Interrupted,
+    Completed,
+    Errored,
+    Shutdown,
+    NotFound,
+    #[serde(other)]
+    Unknown,
+}
+
+/// Last known state of a collab agent.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct CodexCollabAgentState {
+    pub status: CodexCollabAgentStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+/// Input for `codex.collab_tool_call` tool calls.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct CodexCollabInput {
+    pub tool: CodexCollabTool,
+    pub sender_thread_id: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub receiver_thread_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<String>,
+    #[serde(default)]
+    pub agents_states: std::collections::BTreeMap<String, CodexCollabAgentState>,
+}
+
+/// Result for `codex.collab_tool_call` tool calls.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct CodexCollabResult {
+    pub status: CodexToolStatus,
+    #[serde(default)]
+    pub agents_states: std::collections::BTreeMap<String, CodexCollabAgentState>,
+}
+
+/// Input for `codex.web_search` tool calls.
+///
+/// Upstream's `WebSearchAction` is itself an enum whose variants depend on
+/// the underlying provider; we keep it as a raw JSON value since we do not
+/// introspect it today.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct CodexWebSearchInput {
+    pub query: String,
+    #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
+    pub action: serde_json::Value,
+}
+
 /// Typed union of codex tool inputs, keyed by canonical tool name.
 ///
 /// Used by the backend enricher to deserialize stored `tool_input` JSON
@@ -131,6 +237,9 @@ pub enum CodexToolInput {
     Shell(CodexShellInput),
     Edit(CodexEditInput),
     TodoList(CodexTodoListInput),
+    Mcp(CodexMcpInput),
+    Collab(CodexCollabInput),
+    WebSearch(CodexWebSearchInput),
 }
 
 impl CodexToolInput {
@@ -152,6 +261,17 @@ impl CodexToolInput {
                 serde_json::from_value::<CodexTodoListInput>(value.clone())
                     .map(CodexToolInput::TodoList),
             ),
+            CODEX_TOOL_MCP => Some(
+                serde_json::from_value::<CodexMcpInput>(value.clone()).map(CodexToolInput::Mcp),
+            ),
+            CODEX_TOOL_COLLAB => Some(
+                serde_json::from_value::<CodexCollabInput>(value.clone())
+                    .map(CodexToolInput::Collab),
+            ),
+            CODEX_TOOL_WEB_SEARCH => Some(
+                serde_json::from_value::<CodexWebSearchInput>(value.clone())
+                    .map(CodexToolInput::WebSearch),
+            ),
             _ => None,
         }
     }
@@ -164,6 +284,8 @@ impl CodexToolInput {
 pub enum CodexToolResult {
     Shell(CodexShellResult),
     Edit(CodexEditResult),
+    Mcp(CodexMcpResult),
+    Collab(CodexCollabResult),
 }
 
 impl CodexToolResult {
@@ -179,6 +301,13 @@ impl CodexToolResult {
             ),
             CODEX_TOOL_EDIT => Some(
                 serde_json::from_value::<CodexEditResult>(value.clone()).map(CodexToolResult::Edit),
+            ),
+            CODEX_TOOL_MCP => Some(
+                serde_json::from_value::<CodexMcpResult>(value.clone()).map(CodexToolResult::Mcp),
+            ),
+            CODEX_TOOL_COLLAB => Some(
+                serde_json::from_value::<CodexCollabResult>(value.clone())
+                    .map(CodexToolResult::Collab),
             ),
             _ => None,
         }
@@ -286,6 +415,81 @@ mod tests {
     }
 
     #[test]
+    fn mcp_input_from_tool_parses() {
+        let value = json!({ "server": "atlassian", "tool": "jira_search", "arguments": { "q": "foo" } });
+        let parsed = CodexToolInput::from_tool(CODEX_TOOL_MCP, &value)
+            .expect("handled")
+            .expect("ok");
+        match parsed {
+            CodexToolInput::Mcp(m) => {
+                assert_eq!(m.server, "atlassian");
+                assert_eq!(m.tool, "jira_search");
+                assert_eq!(m.arguments["q"], "foo");
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn mcp_result_from_tool_roundtrips_error() {
+        let value = json!({
+            "status": "failed",
+            "errorMessage": "connection refused",
+        });
+        let parsed = CodexToolResult::from_tool(CODEX_TOOL_MCP, &value)
+            .expect("handled")
+            .expect("ok");
+        match parsed {
+            CodexToolResult::Mcp(m) => {
+                assert_eq!(m.status, CodexToolStatus::Failed);
+                assert_eq!(m.error_message.as_deref(), Some("connection refused"));
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn collab_input_from_tool_parses_agents() {
+        let value = json!({
+            "tool": "spawn_agent",
+            "senderThreadId": "main",
+            "receiverThreadIds": ["sub_a"],
+            "prompt": "help",
+            "agentsStates": {
+                "sub_a": { "status": "running" }
+            }
+        });
+        let parsed = CodexToolInput::from_tool(CODEX_TOOL_COLLAB, &value)
+            .expect("handled")
+            .expect("ok");
+        match parsed {
+            CodexToolInput::Collab(c) => {
+                assert_eq!(c.tool, CodexCollabTool::SpawnAgent);
+                assert_eq!(c.sender_thread_id, "main");
+                assert_eq!(c.receiver_thread_ids, vec!["sub_a"]);
+                let state = c.agents_states.get("sub_a").expect("agent state");
+                assert_eq!(state.status, CodexCollabAgentStatus::Running);
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn web_search_input_from_tool_parses() {
+        let value = json!({ "query": "rust release", "action": { "type": "search" } });
+        let parsed = CodexToolInput::from_tool(CODEX_TOOL_WEB_SEARCH, &value)
+            .expect("handled")
+            .expect("ok");
+        match parsed {
+            CodexToolInput::WebSearch(w) => {
+                assert_eq!(w.query, "rust release");
+                assert_eq!(w.action["type"], "search");
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
     fn shell_result_from_tool_parses_status() {
         let value = json!({
             "status": "completed",
@@ -301,7 +505,7 @@ mod tests {
                 assert_eq!(r.exit_code, Some(0));
                 assert_eq!(r.aggregated_output.as_deref(), Some("done\n"));
             }
-            CodexToolResult::Edit(_) => panic!("wrong variant"),
+            _ => panic!("wrong variant"),
         }
     }
 }

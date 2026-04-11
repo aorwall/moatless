@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::process::Stdio;
 
+use serde::de::{Deserializer, Error as DeError};
 use serde::Deserialize;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
@@ -87,16 +88,72 @@ pub struct ThreadItem {
     pub details: ThreadItemDetails,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
+/// Typed payloads for each supported codex thread item type.
+///
+/// Mirrors the upstream `ThreadItemDetails` enum at
+/// `codex-rs/exec/src/exec_events.rs`. Unknown item types (introduced by
+/// newer codex releases) land in `Other` with the raw JSON retained so the
+/// processing loop can log them instead of silently dropping.
+#[derive(Debug)]
 pub enum ThreadItemDetails {
     AgentMessage(AgentMessageItem),
+    Reasoning(ReasoningItem),
     CommandExecution(CommandExecutionItem),
     FileChange(FileChangeItem),
-    Reasoning(ReasoningItem),
+    McpToolCall(McpToolCallItem),
+    CollabToolCall(CollabToolCallItem),
+    WebSearch(WebSearchItem),
     TodoList(TodoListItem),
-    #[serde(other)]
-    Other,
+    Error(ErrorItem),
+    Other {
+        type_name: String,
+        raw: serde_json::Value,
+    },
+}
+
+impl<'de> Deserialize<'de> for ThreadItemDetails {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        let type_name = value
+            .get("type")
+            .and_then(|t| t.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        match type_name.as_str() {
+            "agent_message" => serde_json::from_value(value)
+                .map(Self::AgentMessage)
+                .map_err(D::Error::custom),
+            "reasoning" => serde_json::from_value(value)
+                .map(Self::Reasoning)
+                .map_err(D::Error::custom),
+            "command_execution" => serde_json::from_value(value)
+                .map(Self::CommandExecution)
+                .map_err(D::Error::custom),
+            "file_change" => serde_json::from_value(value)
+                .map(Self::FileChange)
+                .map_err(D::Error::custom),
+            "mcp_tool_call" => serde_json::from_value(value)
+                .map(Self::McpToolCall)
+                .map_err(D::Error::custom),
+            "collab_tool_call" => serde_json::from_value(value)
+                .map(Self::CollabToolCall)
+                .map_err(D::Error::custom),
+            "web_search" => serde_json::from_value(value)
+                .map(Self::WebSearch)
+                .map_err(D::Error::custom),
+            "todo_list" => serde_json::from_value(value)
+                .map(Self::TodoList)
+                .map_err(D::Error::custom),
+            "error" => serde_json::from_value(value)
+                .map(Self::Error)
+                .map_err(D::Error::custom),
+            _ => Ok(Self::Other {
+                type_name,
+                raw: value,
+            }),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -104,10 +161,28 @@ pub struct AgentMessageItem {
     pub text: String,
 }
 
+/// Status reported for a command execution item.
+///
+/// Defaults to `InProgress` on missing values and falls through to `Unknown`
+/// on unrecognized values so forward-compat additions do not abort parsing.
+#[derive(Debug, Default, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CommandExecutionStatus {
+    #[default]
+    InProgress,
+    Completed,
+    Failed,
+    Declined,
+    #[serde(other)]
+    Unknown,
+}
+
 /// A `command_execution` item emitted by `codex exec --json`.
 ///
-/// Only fields observed in codex CLI 0.118+ are modeled. Forward-compat:
-/// unknown fields are ignored by serde's default.
+/// Only fields observed in codex CLI 0.118+ are modeled. Extra fields like
+/// `cwd` / `duration_ms` are defensively kept as `Option` because they have
+/// appeared in some shipped versions even though the upstream struct does
+/// not list them.
 #[derive(Debug, Deserialize)]
 pub struct CommandExecutionItem {
     pub command: String,
@@ -118,9 +193,21 @@ pub struct CommandExecutionItem {
     #[serde(default)]
     pub exit_code: Option<i32>,
     #[serde(default)]
-    pub status: Option<String>,
+    pub status: CommandExecutionStatus,
     #[serde(default)]
     pub duration_ms: Option<i64>,
+}
+
+/// Status reported for a `file_change` item.
+#[derive(Debug, Default, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PatchApplyStatus {
+    #[default]
+    InProgress,
+    Completed,
+    Failed,
+    #[serde(other)]
+    Unknown,
 }
 
 #[derive(Debug, Deserialize)]
@@ -128,7 +215,7 @@ pub struct FileChangeItem {
     #[serde(default)]
     pub changes: Vec<FileChangeEntry>,
     #[serde(default)]
-    pub status: Option<String>,
+    pub status: PatchApplyStatus,
 }
 
 #[derive(Debug, Deserialize)]
@@ -142,6 +229,131 @@ pub struct FileChangeEntry {
 #[derive(Debug, Deserialize)]
 pub struct ReasoningItem {
     pub text: String,
+}
+
+/// Status reported for an MCP tool call item.
+#[derive(Debug, Default, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum McpToolCallStatus {
+    #[default]
+    InProgress,
+    Completed,
+    Failed,
+    #[serde(other)]
+    Unknown,
+}
+
+/// Result payload from a successful MCP tool invocation.
+#[derive(Debug, Deserialize)]
+pub struct McpToolCallItemResult {
+    #[serde(default)]
+    pub content: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub structured_content: Option<serde_json::Value>,
+}
+
+/// Error details reported by a failed MCP tool invocation.
+#[derive(Debug, Deserialize)]
+pub struct McpToolCallItemError {
+    pub message: String,
+}
+
+/// A `mcp_tool_call` item emitted by `codex exec --json`.
+#[derive(Debug, Deserialize)]
+pub struct McpToolCallItem {
+    pub server: String,
+    pub tool: String,
+    #[serde(default)]
+    pub arguments: serde_json::Value,
+    #[serde(default)]
+    pub result: Option<McpToolCallItemResult>,
+    #[serde(default)]
+    pub error: Option<McpToolCallItemError>,
+    #[serde(default)]
+    pub status: McpToolCallStatus,
+}
+
+/// Status reported for a collab tool call item.
+#[derive(Debug, Default, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CollabToolCallStatus {
+    #[default]
+    InProgress,
+    Completed,
+    Failed,
+    #[serde(other)]
+    Unknown,
+}
+
+/// The supported collab tools reported by codex.
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CollabTool {
+    SpawnAgent,
+    SendInput,
+    Wait,
+    CloseAgent,
+    #[serde(other)]
+    Unknown,
+}
+
+/// Status of a collab agent involved in a collab tool call.
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CollabAgentStatus {
+    PendingInit,
+    Running,
+    Interrupted,
+    Completed,
+    Errored,
+    Shutdown,
+    NotFound,
+    #[serde(other)]
+    Unknown,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CollabAgentState {
+    pub status: CollabAgentStatus,
+    #[serde(default)]
+    pub message: Option<String>,
+}
+
+/// A `collab_tool_call` item emitted by `codex exec --json`.
+#[derive(Debug, Deserialize)]
+pub struct CollabToolCallItem {
+    pub tool: CollabTool,
+    pub sender_thread_id: String,
+    #[serde(default)]
+    pub receiver_thread_ids: Vec<String>,
+    #[serde(default)]
+    pub prompt: Option<String>,
+    #[serde(default)]
+    pub agents_states: HashMap<String, CollabAgentState>,
+    #[serde(default)]
+    pub status: CollabToolCallStatus,
+}
+
+/// A `web_search` item emitted by `codex exec --json`. Upstream's
+/// `WebSearchAction` is an enum of shapes specific to the underlying
+/// provider; we keep it as a raw JSON value since we do not introspect it.
+///
+/// Note: upstream `WebSearchItem` has an inner `id` field that collides on
+/// the wire with `ThreadItem.id`. We drop it here because the outer
+/// `ThreadItem.id` is the only id we care about when publishing.
+#[derive(Debug, Deserialize)]
+pub struct WebSearchItem {
+    pub query: String,
+    #[serde(default)]
+    pub action: serde_json::Value,
+}
+
+/// An `error` item — a non-fatal error surfaced alongside other items in the
+/// same turn. The turn is NOT failed by these; they are reported as text so
+/// the user can see them without marking the turn red.
+#[derive(Debug, Deserialize)]
+pub struct ErrorItem {
+    pub message: String,
 }
 
 /// A `todo_list` item emitted by `codex exec --json` as a running plan
@@ -381,7 +593,7 @@ mod tests {
         assert_eq!(c.command, "/bin/sh -c 'python3 hello.py'");
         assert_eq!(c.aggregated_output.as_deref(), Some("hi\n"));
         assert_eq!(c.exit_code, Some(0));
-        assert_eq!(c.status.as_deref(), Some("completed"));
+        assert_eq!(c.status, CommandExecutionStatus::Completed);
     }
 
     #[test]
@@ -395,7 +607,7 @@ mod tests {
             panic!("wrong details");
         };
         assert_eq!(c.exit_code, Some(1));
-        assert_eq!(c.status.as_deref(), Some("failed"));
+        assert_eq!(c.status, CommandExecutionStatus::Failed);
     }
 
     #[test]
@@ -409,7 +621,7 @@ mod tests {
             panic!("wrong details");
         };
         assert_eq!(c.exit_code, None);
-        assert_eq!(c.status.as_deref(), Some("in_progress"));
+        assert_eq!(c.status, CommandExecutionStatus::InProgress);
     }
 
     #[test]
@@ -426,7 +638,7 @@ mod tests {
         assert_eq!(f.changes[0].path, "/tmp/hello.py");
         assert_eq!(f.changes[0].kind, "add");
         assert_eq!(f.changes[1].kind, "update");
-        assert_eq!(f.status.as_deref(), Some("completed"));
+        assert_eq!(f.status, PatchApplyStatus::Completed);
     }
 
     #[test]
@@ -474,12 +686,112 @@ mod tests {
     }
 
     #[test]
-    fn unknown_item_kind_falls_through_to_other() {
-        let line = r#"{"type":"item.completed","item":{"id":"item_9","type":"mcp_tool_call","name":"foo"}}"#;
+    fn unknown_item_kind_falls_through_to_other_with_raw_payload() {
+        let line = r#"{"type":"item.completed","item":{"id":"item_9","type":"brand_new_thing","foo":"bar","count":3}}"#;
         let ev = parse(line);
         let CodexExecEvent::ItemCompleted(ItemEvent { item }) = ev else {
             panic!("wrong variant");
         };
-        assert!(matches!(item.details, ThreadItemDetails::Other));
+        match item.details {
+            ThreadItemDetails::Other { type_name, raw } => {
+                assert_eq!(type_name, "brand_new_thing");
+                assert_eq!(raw["foo"], "bar");
+                assert_eq!(raw["count"], 3);
+            }
+            _ => panic!("expected Other"),
+        }
+    }
+
+    #[test]
+    fn parses_mcp_tool_call_completed() {
+        let line = r#"{"type":"item.completed","item":{"id":"item_4","type":"mcp_tool_call","server":"atlassian","tool":"jira_search","arguments":{"q":"foo"},"result":{"content":[{"type":"text","text":"match"}],"structured_content":null},"error":null,"status":"completed"}}"#;
+        let ev = parse(line);
+        let CodexExecEvent::ItemCompleted(ItemEvent { item }) = ev else {
+            panic!("wrong variant");
+        };
+        let ThreadItemDetails::McpToolCall(mcp) = item.details else {
+            panic!("wrong details");
+        };
+        assert_eq!(mcp.server, "atlassian");
+        assert_eq!(mcp.tool, "jira_search");
+        assert_eq!(mcp.arguments["q"], "foo");
+        assert_eq!(mcp.status, McpToolCallStatus::Completed);
+        let result = mcp.result.expect("result present");
+        assert_eq!(result.content.len(), 1);
+    }
+
+    #[test]
+    fn parses_mcp_tool_call_failed() {
+        let line = r#"{"type":"item.completed","item":{"id":"item_5","type":"mcp_tool_call","server":"db","tool":"query","arguments":{},"result":null,"error":{"message":"connection refused"},"status":"failed"}}"#;
+        let ev = parse(line);
+        let CodexExecEvent::ItemCompleted(ItemEvent { item }) = ev else {
+            panic!("wrong variant");
+        };
+        let ThreadItemDetails::McpToolCall(mcp) = item.details else {
+            panic!("wrong details");
+        };
+        assert_eq!(mcp.status, McpToolCallStatus::Failed);
+        let error = mcp.error.expect("error present");
+        assert_eq!(error.message, "connection refused");
+    }
+
+    #[test]
+    fn parses_collab_tool_call() {
+        let line = r#"{"type":"item.completed","item":{"id":"item_6","type":"collab_tool_call","tool":"spawn_agent","sender_thread_id":"main","receiver_thread_ids":["sub_a","sub_b"],"prompt":"help","agents_states":{"sub_a":{"status":"running","message":null}},"status":"in_progress"}}"#;
+        let ev = parse(line);
+        let CodexExecEvent::ItemCompleted(ItemEvent { item }) = ev else {
+            panic!("wrong variant");
+        };
+        let ThreadItemDetails::CollabToolCall(collab) = item.details else {
+            panic!("wrong details");
+        };
+        assert_eq!(collab.tool, CollabTool::SpawnAgent);
+        assert_eq!(collab.sender_thread_id, "main");
+        assert_eq!(collab.receiver_thread_ids, vec!["sub_a", "sub_b"]);
+        assert_eq!(collab.prompt.as_deref(), Some("help"));
+        assert_eq!(collab.status, CollabToolCallStatus::InProgress);
+        let state = collab.agents_states.get("sub_a").expect("agent state");
+        assert_eq!(state.status, CollabAgentStatus::Running);
+    }
+
+    #[test]
+    fn parses_web_search_item() {
+        let line = r#"{"type":"item.completed","item":{"id":"item_7","type":"web_search","query":"rust release","action":{"type":"search"}}}"#;
+        let ev = parse(line);
+        let CodexExecEvent::ItemCompleted(ItemEvent { item }) = ev else {
+            panic!("wrong variant");
+        };
+        let ThreadItemDetails::WebSearch(ws) = item.details else {
+            panic!("wrong details");
+        };
+        assert_eq!(item.id, "item_7");
+        assert_eq!(ws.query, "rust release");
+        assert_eq!(ws.action["type"], "search");
+    }
+
+    #[test]
+    fn parses_error_item() {
+        let line = r#"{"type":"item.completed","item":{"id":"item_8","type":"error","message":"tool returned warning"}}"#;
+        let ev = parse(line);
+        let CodexExecEvent::ItemCompleted(ItemEvent { item }) = ev else {
+            panic!("wrong variant");
+        };
+        let ThreadItemDetails::Error(err) = item.details else {
+            panic!("wrong details");
+        };
+        assert_eq!(err.message, "tool returned warning");
+    }
+
+    #[test]
+    fn unknown_command_status_falls_back_to_unknown() {
+        let line = r#"{"type":"item.completed","item":{"id":"item_10","type":"command_execution","command":"ls","aggregated_output":"","exit_code":0,"status":"quantum_entangled"}}"#;
+        let ev = parse(line);
+        let CodexExecEvent::ItemCompleted(ItemEvent { item }) = ev else {
+            panic!("wrong variant");
+        };
+        let ThreadItemDetails::CommandExecution(c) = item.details else {
+            panic!("wrong details");
+        };
+        assert_eq!(c.status, CommandExecutionStatus::Unknown);
     }
 }

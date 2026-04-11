@@ -490,4 +490,45 @@ mod tests {
         assert_eq!(enriched["status"], "completed");
         assert_eq!(enriched["changes"][0]["kind"], "update");
     }
+
+    #[test]
+    fn enrich_codex_mcp_normalizes_typed_result() {
+        let input = json!({ "server": "atlassian", "tool": "jira_search", "arguments": {} });
+        let raw = json!({
+            "status": "failed",
+            "errorMessage": "timeout",
+        });
+        let enriched =
+            enrich_codex_typed_result("codex.mcp_tool_call", Some(&input), Some(raw))
+                .expect("typed");
+        assert_eq!(enriched["status"], "failed");
+        assert_eq!(enriched["errorMessage"], "timeout");
+    }
+
+    #[test]
+    fn enrich_codex_collab_normalizes_typed_result() {
+        let input = json!({
+            "tool": "spawn_agent",
+            "senderThreadId": "main",
+            "receiverThreadIds": ["sub"],
+            "agentsStates": {"sub": {"status": "running"}}
+        });
+        let raw = json!({
+            "status": "completed",
+            "agentsStates": {"sub": {"status": "completed"}}
+        });
+        let enriched =
+            enrich_codex_typed_result("codex.collab_tool_call", Some(&input), Some(raw))
+                .expect("typed");
+        assert_eq!(enriched["status"], "completed");
+        assert_eq!(enriched["agentsStates"]["sub"]["status"], "completed");
+    }
+
+    #[test]
+    fn enrich_codex_web_search_passes_through_without_typed_result() {
+        let input = json!({ "query": "rust release" });
+        let enriched = enrich_codex_typed_result("codex.web_search", Some(&input), None);
+        // web_search has no tool_result → None in/out.
+        assert!(enriched.is_none());
+    }
 }

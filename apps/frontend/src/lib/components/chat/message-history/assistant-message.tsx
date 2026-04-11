@@ -1,5 +1,6 @@
 import type { UiContentBlock, UiMessage, UiToolResult } from '@moatless/api-client'
 import {
+  AlertTriangle,
   Brain,
   CheckCircle,
   ChevronDown,
@@ -527,6 +528,17 @@ function renderCollapsedMessage(
   )
 }
 
+function CodexErrorCard({ text }: { text: string }) {
+  return (
+    <div className="border border-red-500/40 rounded-lg bg-red-500/5 p-3 flex items-start gap-2">
+      <AlertTriangle className="h-4 w-4 flex-shrink-0 text-red-500 mt-0.5" />
+      <div className="text-sm text-red-600 dark:text-red-400 whitespace-pre-wrap break-words">
+        {text}
+      </div>
+    </div>
+  )
+}
+
 function CodexReasoningCard({ text }: { text: string }) {
   const [open, setOpen] = useState(false)
   return (
@@ -568,6 +580,7 @@ export function AssistantMessageComponent({
   const isHidden = (message.messageType as string) === 'transcript_only'
   const isSummary = (message.messageType as string) === 'compact_summary'
   const isCodexReasoning = message.sdkMetadata?.codex_reasoning === true
+  const isCodexError = message.sdkMetadata?.codex_error === true
 
   // Build a lookup map from toolUseId to toolResult
   const toolResultMap = buildToolResultMap(message)
@@ -579,6 +592,12 @@ export function AssistantMessageComponent({
   // inline assistant text.
   if (isCodexReasoning && textContent && toolCalls.length === 0) {
     return <CodexReasoningCard text={textContent} />
+  }
+
+  // Non-fatal codex error items get a distinct red card so the user notices
+  // them; the turn itself is still running or completed normally.
+  if (isCodexError && textContent && toolCalls.length === 0) {
+    return <CodexErrorCard text={textContent} />
   }
 
   // For hidden messages, show collapsed view by default

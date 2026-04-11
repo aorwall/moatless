@@ -25,15 +25,19 @@ use crate::config::Config;
 use crate::events::GrpcEventPublisher;
 
 use moatless_api_schemas::codex::{
-    CodexEditInput, CodexEditResult, CodexShellInput, CodexShellResult, CodexTodoItem,
-    CodexTodoListInput, CodexToolStatus, FileUpdateChange, FileUpdateKind, CODEX_TOOL_EDIT,
-    CODEX_TOOL_SHELL, CODEX_TOOL_TODO_LIST,
+    CodexCollabAgentState, CodexCollabAgentStatus, CodexCollabInput, CodexCollabResult,
+    CodexCollabTool, CodexEditInput, CodexEditResult, CodexMcpInput, CodexMcpResult,
+    CodexShellInput, CodexShellResult, CodexTodoItem, CodexTodoListInput, CodexToolStatus,
+    CodexWebSearchInput, FileUpdateChange, FileUpdateKind, CODEX_TOOL_COLLAB, CODEX_TOOL_EDIT,
+    CODEX_TOOL_MCP, CODEX_TOOL_SHELL, CODEX_TOOL_TODO_LIST, CODEX_TOOL_WEB_SEARCH,
 };
 
 use super::agent_state::AgentState;
 use super::codex_exec::{
-    self, CodexCliSession, CodexExecEvent, CommandExecutionItem, FileChangeItem, ThreadItemDetails,
-    TodoListItem, Usage,
+    self, CodexCliSession, CodexExecEvent, CollabAgentStatus as CodexExecCollabAgentStatus,
+    CollabTool as CodexExecCollabTool, CollabToolCallItem, CollabToolCallStatus,
+    CommandExecutionItem, CommandExecutionStatus, FileChangeItem, McpToolCallItem,
+    McpToolCallStatus, PatchApplyStatus, ThreadItemDetails, TodoListItem, Usage, WebSearchItem,
 };
 use super::options::build_options;
 use super::types::{AgentRunRequest, ResumeSession};
@@ -922,18 +926,24 @@ async fn process_codex_message(
             turn_output.clear();
         }
         CodexExecEvent::ItemStarted(event) | CodexExecEvent::ItemUpdated(event) => {
-            if let ThreadItemDetails::TodoList(todo) = &event.item.details {
-                publish_codex_todo_list_call(
-                    events,
-                    task_id,
-                    session_id,
-                    &event.item.id,
-                    todo,
-                    requested_model,
-                )
-                .await;
-            } else {
-                debug!("Codex item event");
+            match &event.item.details {
+                ThreadItemDetails::TodoList(todo) => {
+                    publish_codex_todo_list_call(
+                        events,
+                        task_id,
+                        session_id,
+                        &event.item.id,
+                        todo,
+                        requested_model,
+                    )
+                    .await;
+                }
+                ThreadItemDetails::Other { type_name, .. } => {
+                    debug!(type_name, "Codex item event (unknown kind)");
+                }
+                _ => {
+                    debug!("Codex item event");
+                }
             }
         }
         CodexExecEvent::ItemCompleted(event) => {
@@ -1002,8 +1012,58 @@ async fn process_codex_message(
                     )
                     .await;
                 }
-                ThreadItemDetails::Other => {
-                    debug!(item_id, "Codex item kind unhandled — skipped");
+                ThreadItemDetails::McpToolCall(mcp) => {
+                    publish_codex_mcp_call(
+                        events,
+                        task_id,
+                        session_id,
+                        item_id,
+                        mcp,
+                        requested_model,
+                    )
+                    .await;
+                }
+                ThreadItemDetails::CollabToolCall(collab) => {
+                    publish_codex_collab_call(
+                        events,
+                        task_id,
+                        session_id,
+                        item_id,
+                        collab,
+                        requested_model,
+                    )
+                    .await;
+                }
+                ThreadItemDetails::WebSearch(web) => {
+                    publish_codex_web_search_call(
+                        events,
+                        task_id,
+                        session_id,
+                        item_id,
+                        web,
+                        requested_model,
+                    )
+                    .await;
+                }
+                ThreadItemDetails::Error(err) => {
+                    append_turn_output(turn_output, &err.message);
+                    publish_codex_error_item(
+                        events,
+                        task_id,
+                        session_id,
+                        item_id,
+                        &err.message,
+                        requested_model,
+                    )
+                    .await;
+                }
+                ThreadItemDetails::Other { type_name, raw } => {
+                    warn!(
+                        item_id,
+                        type_name,
+                        raw = %raw,
+                        "Unknown codex item type — skipped"
+                    );
                 }
             }
         }
@@ -1213,20 +1273,94 @@ fn codex_tool_result_payload(
     })
 }
 
-fn map_codex_status(status: Option<&str>, exit_code: Option<i32>) -> CodexToolStatus {
+/// Map a codex shell status + exit code to the shared typed status enum.
+///
+/// A `Completed` status with a non-zero exit code is surfaced as `Failed` so
+/// the UI can flag it — codex itself only flips to `Failed` for catastrophic
+/// failures, not for commands that ran successfully but returned non-zero.
+fn command_execution_to_tool_status(
+    status: CommandExecutionStatus,
+    exit_code: Option<i32>,
+) -> CodexToolStatus {
     match status {
-        Some("completed") => {
-            if matches!(exit_code, Some(code) if code != 0) {
-                CodexToolStatus::Failed
-            } else {
-                CodexToolStatus::Completed
-            }
-        }
-        Some("failed") => CodexToolStatus::Failed,
-        Some("declined") => CodexToolStatus::Declined,
-        Some("in_progress") => CodexToolStatus::InProgress,
-        _ => CodexToolStatus::Completed,
+        CommandExecutionStatus::InProgress => CodexToolStatus::InProgress,
+        CommandExecutionStatus::Completed => match exit_code {
+            Some(code) if code != 0 => CodexToolStatus::Failed,
+            _ => CodexToolStatus::Completed,
+        },
+        CommandExecutionStatus::Failed => CodexToolStatus::Failed,
+        CommandExecutionStatus::Declined => CodexToolStatus::Declined,
+        // Forward-compat fallback: unknown status → treat as completed so the
+        // turn is not stalled; the aggregated output will still render.
+        CommandExecutionStatus::Unknown => CodexToolStatus::Completed,
     }
+}
+
+fn patch_apply_to_tool_status(status: PatchApplyStatus) -> CodexToolStatus {
+    match status {
+        PatchApplyStatus::InProgress => CodexToolStatus::InProgress,
+        PatchApplyStatus::Completed => CodexToolStatus::Completed,
+        PatchApplyStatus::Failed => CodexToolStatus::Failed,
+        PatchApplyStatus::Unknown => CodexToolStatus::Completed,
+    }
+}
+
+fn mcp_to_tool_status(status: McpToolCallStatus) -> CodexToolStatus {
+    match status {
+        McpToolCallStatus::InProgress => CodexToolStatus::InProgress,
+        McpToolCallStatus::Completed => CodexToolStatus::Completed,
+        McpToolCallStatus::Failed => CodexToolStatus::Failed,
+        McpToolCallStatus::Unknown => CodexToolStatus::Completed,
+    }
+}
+
+fn collab_to_tool_status(status: CollabToolCallStatus) -> CodexToolStatus {
+    match status {
+        CollabToolCallStatus::InProgress => CodexToolStatus::InProgress,
+        CollabToolCallStatus::Completed => CodexToolStatus::Completed,
+        CollabToolCallStatus::Failed => CodexToolStatus::Failed,
+        CollabToolCallStatus::Unknown => CodexToolStatus::Completed,
+    }
+}
+
+fn map_collab_tool(tool: CodexExecCollabTool) -> CodexCollabTool {
+    match tool {
+        CodexExecCollabTool::SpawnAgent => CodexCollabTool::SpawnAgent,
+        CodexExecCollabTool::SendInput => CodexCollabTool::SendInput,
+        CodexExecCollabTool::Wait => CodexCollabTool::Wait,
+        CodexExecCollabTool::CloseAgent => CodexCollabTool::CloseAgent,
+        CodexExecCollabTool::Unknown => CodexCollabTool::Unknown,
+    }
+}
+
+fn map_collab_agent_status(status: CodexExecCollabAgentStatus) -> CodexCollabAgentStatus {
+    match status {
+        CodexExecCollabAgentStatus::PendingInit => CodexCollabAgentStatus::PendingInit,
+        CodexExecCollabAgentStatus::Running => CodexCollabAgentStatus::Running,
+        CodexExecCollabAgentStatus::Interrupted => CodexCollabAgentStatus::Interrupted,
+        CodexExecCollabAgentStatus::Completed => CodexCollabAgentStatus::Completed,
+        CodexExecCollabAgentStatus::Errored => CodexCollabAgentStatus::Errored,
+        CodexExecCollabAgentStatus::Shutdown => CodexCollabAgentStatus::Shutdown,
+        CodexExecCollabAgentStatus::NotFound => CodexCollabAgentStatus::NotFound,
+        CodexExecCollabAgentStatus::Unknown => CodexCollabAgentStatus::Unknown,
+    }
+}
+
+fn map_collab_agents_states(
+    states: &HashMap<String, codex_exec::CollabAgentState>,
+) -> std::collections::BTreeMap<String, CodexCollabAgentState> {
+    states
+        .iter()
+        .map(|(id, state)| {
+            (
+                id.clone(),
+                CodexCollabAgentState {
+                    status: map_collab_agent_status(state.status),
+                    message: state.message.clone(),
+                },
+            )
+        })
+        .collect()
 }
 
 fn parse_file_update_kind(raw: &str) -> FileUpdateKind {
@@ -1251,7 +1385,7 @@ fn build_shell_tool_use(cmd: &CommandExecutionItem) -> serde_json::Value {
 fn build_shell_tool_result(
     cmd: &CommandExecutionItem,
 ) -> (serde_json::Value, String, bool) {
-    let status = map_codex_status(cmd.status.as_deref(), cmd.exit_code);
+    let status = command_execution_to_tool_status(cmd.status, cmd.exit_code);
     let is_error = matches!(status, CodexToolStatus::Failed | CodexToolStatus::Declined);
     let summary_text = cmd.aggregated_output.clone().unwrap_or_default();
 
@@ -1281,7 +1415,7 @@ fn build_edit_tool_use(edit: &FileChangeItem) -> serde_json::Value {
 }
 
 fn build_edit_tool_result(edit: &FileChangeItem) -> (serde_json::Value, String, bool) {
-    let status = map_codex_status(edit.status.as_deref(), None);
+    let status = patch_apply_to_tool_status(edit.status);
     let is_error = matches!(status, CodexToolStatus::Failed | CodexToolStatus::Declined);
 
     let summary_text = if edit.changes.is_empty() {
@@ -1428,6 +1562,239 @@ async fn publish_codex_todo_list_call(
     events
         .publish_agent_event(task_id, AgentSubType::Message, use_payload)
         .await;
+}
+
+fn build_mcp_tool_use(item: &McpToolCallItem) -> serde_json::Value {
+    let input = CodexMcpInput {
+        server: item.server.clone(),
+        tool: item.tool.clone(),
+        arguments: item.arguments.clone(),
+    };
+    serde_json::to_value(input).unwrap_or_else(|_| serde_json::json!({}))
+}
+
+fn build_mcp_tool_result(item: &McpToolCallItem) -> (serde_json::Value, String, bool) {
+    let status = mcp_to_tool_status(item.status);
+    let is_error = matches!(status, CodexToolStatus::Failed) || item.error.is_some();
+
+    let (content, structured_content) = match &item.result {
+        Some(result) => (
+            Some(result.content.clone()),
+            result.structured_content.clone(),
+        ),
+        None => (None, None),
+    };
+    let error_message = item.error.as_ref().map(|e| e.message.clone());
+
+    let summary_text = if let Some(ref msg) = error_message {
+        msg.clone()
+    } else if let Some(ref content) = content {
+        content
+            .iter()
+            .filter_map(|block| block.get("text").and_then(|v| v.as_str()))
+            .collect::<Vec<_>>()
+            .join("\n")
+    } else {
+        String::new()
+    };
+
+    let result = CodexMcpResult {
+        status,
+        content,
+        structured_content,
+        error_message,
+    };
+    let value = serde_json::to_value(result).unwrap_or_else(|_| serde_json::json!({}));
+    (value, summary_text, is_error)
+}
+
+async fn publish_codex_mcp_call(
+    events: &GrpcEventPublisher,
+    task_id: &str,
+    session_id: &str,
+    item_id: &str,
+    mcp: &McpToolCallItem,
+    requested_model: Option<&str>,
+) {
+    let tool_use_id = format!("{session_id}_{item_id}");
+    let assistant_uuid = format!("{session_id}_{item_id}_call");
+    let tool_input = build_mcp_tool_use(mcp);
+    let use_payload = codex_tool_use_payload(
+        &assistant_uuid,
+        session_id,
+        &tool_use_id,
+        CODEX_TOOL_MCP,
+        tool_input,
+        requested_model,
+    );
+    events
+        .publish_agent_event(task_id, AgentSubType::Message, use_payload)
+        .await;
+
+    let (result_value, summary_text, is_error) = build_mcp_tool_result(mcp);
+    let result_uuid = format!("{session_id}_{item_id}_result");
+    let result_payload = codex_tool_result_payload(
+        &result_uuid,
+        session_id,
+        &tool_use_id,
+        &summary_text,
+        is_error,
+        result_value,
+    );
+    events
+        .publish_agent_event(task_id, AgentSubType::Message, result_payload)
+        .await;
+}
+
+fn build_collab_tool_use(item: &CollabToolCallItem) -> serde_json::Value {
+    let input = CodexCollabInput {
+        tool: map_collab_tool(item.tool),
+        sender_thread_id: item.sender_thread_id.clone(),
+        receiver_thread_ids: item.receiver_thread_ids.clone(),
+        prompt: item.prompt.clone(),
+        agents_states: map_collab_agents_states(&item.agents_states),
+    };
+    serde_json::to_value(input).unwrap_or_else(|_| serde_json::json!({}))
+}
+
+fn build_collab_tool_result(item: &CollabToolCallItem) -> (serde_json::Value, String, bool) {
+    let status = collab_to_tool_status(item.status);
+    let agents_states = map_collab_agents_states(&item.agents_states);
+    let any_errored = agents_states
+        .values()
+        .any(|state| state.status == CodexCollabAgentStatus::Errored);
+    let is_error = matches!(status, CodexToolStatus::Failed) || any_errored;
+
+    let summary_text = agents_states
+        .iter()
+        .map(|(id, state)| {
+            let status_str = serde_json::to_value(&state.status)
+                .ok()
+                .and_then(|v| v.as_str().map(std::string::ToString::to_string))
+                .unwrap_or_else(|| "unknown".to_string());
+            format!("{id}: {status_str}")
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let result = CodexCollabResult {
+        status,
+        agents_states,
+    };
+    let value = serde_json::to_value(result).unwrap_or_else(|_| serde_json::json!({}));
+    (value, summary_text, is_error)
+}
+
+async fn publish_codex_collab_call(
+    events: &GrpcEventPublisher,
+    task_id: &str,
+    session_id: &str,
+    item_id: &str,
+    collab: &CollabToolCallItem,
+    requested_model: Option<&str>,
+) {
+    let tool_use_id = format!("{session_id}_{item_id}");
+    let assistant_uuid = format!("{session_id}_{item_id}_call");
+    let tool_input = build_collab_tool_use(collab);
+    let use_payload = codex_tool_use_payload(
+        &assistant_uuid,
+        session_id,
+        &tool_use_id,
+        CODEX_TOOL_COLLAB,
+        tool_input,
+        requested_model,
+    );
+    events
+        .publish_agent_event(task_id, AgentSubType::Message, use_payload)
+        .await;
+
+    let (result_value, summary_text, is_error) = build_collab_tool_result(collab);
+    let result_uuid = format!("{session_id}_{item_id}_result");
+    let result_payload = codex_tool_result_payload(
+        &result_uuid,
+        session_id,
+        &tool_use_id,
+        &summary_text,
+        is_error,
+        result_value,
+    );
+    events
+        .publish_agent_event(task_id, AgentSubType::Message, result_payload)
+        .await;
+}
+
+/// Publish a `web_search` item as a single tool_use block — no result is
+/// emitted because upstream has no status or payload on completion.
+async fn publish_codex_web_search_call(
+    events: &GrpcEventPublisher,
+    task_id: &str,
+    session_id: &str,
+    item_id: &str,
+    web: &WebSearchItem,
+    requested_model: Option<&str>,
+) {
+    let tool_use_id = format!("{session_id}_{item_id}");
+    let assistant_uuid = format!("{session_id}_{item_id}_call");
+    let input = CodexWebSearchInput {
+        query: web.query.clone(),
+        action: web.action.clone(),
+    };
+    let tool_input = serde_json::to_value(input).unwrap_or_else(|_| serde_json::json!({}));
+    let use_payload = codex_tool_use_payload(
+        &assistant_uuid,
+        session_id,
+        &tool_use_id,
+        CODEX_TOOL_WEB_SEARCH,
+        tool_input,
+        requested_model,
+    );
+    events
+        .publish_agent_event(task_id, AgentSubType::Message, use_payload)
+        .await;
+}
+
+/// Publish a non-fatal codex `error` item as an assistant text message,
+/// flagged via `sdk_metadata.codex_error` so the UI can render it distinctly.
+/// Note: this intentionally does NOT touch `agent_state.set_error()` — the
+/// turn is still running; only the item itself reports a non-fatal error.
+async fn publish_codex_error_item(
+    events: &GrpcEventPublisher,
+    task_id: &str,
+    session_id: &str,
+    item_id: &str,
+    text: &str,
+    requested_model: Option<&str>,
+) {
+    let uuid = format!("{session_id}_{item_id}");
+    let payload = codex_error_message_payload(&uuid, session_id, text, requested_model);
+    events
+        .publish_agent_event(task_id, AgentSubType::Message, payload)
+        .await;
+}
+
+/// Assistant text payload for a non-fatal codex error item.
+fn codex_error_message_payload(
+    uuid: &str,
+    session_id: &str,
+    text: &str,
+    requested_model: Option<&str>,
+) -> serde_json::Value {
+    let mut message = serde_json::Map::new();
+    message.insert("role".to_string(), serde_json::json!("assistant"));
+    message.insert(
+        "content".to_string(),
+        serde_json::json!([{ "type": "text", "text": text }]),
+    );
+    if let Some(model) = requested_model {
+        message.insert("model".to_string(), serde_json::json!(model));
+    }
+
+    serde_json::json!({
+        "uuid": uuid,
+        "session_id": session_id,
+        "message": serde_json::Value::Object(message),
+        "sdk_metadata": { "codex_error": true },
+    })
 }
 
 fn codex_result_payload(
@@ -1740,22 +2107,30 @@ mod tests {
     }
 
     #[test]
-    fn map_codex_status_treats_nonzero_exit_as_failed() {
+    fn command_execution_status_nonzero_exit_is_failed() {
         assert_eq!(
-            map_codex_status(Some("completed"), Some(1)),
+            command_execution_to_tool_status(CommandExecutionStatus::Completed, Some(1)),
             CodexToolStatus::Failed
         );
         assert_eq!(
-            map_codex_status(Some("completed"), Some(0)),
+            command_execution_to_tool_status(CommandExecutionStatus::Completed, Some(0)),
             CodexToolStatus::Completed
         );
         assert_eq!(
-            map_codex_status(Some("failed"), Some(1)),
+            command_execution_to_tool_status(CommandExecutionStatus::Failed, Some(1)),
             CodexToolStatus::Failed
         );
         assert_eq!(
-            map_codex_status(Some("in_progress"), None),
+            command_execution_to_tool_status(CommandExecutionStatus::InProgress, None),
             CodexToolStatus::InProgress
+        );
+        assert_eq!(
+            command_execution_to_tool_status(CommandExecutionStatus::Declined, None),
+            CodexToolStatus::Declined
+        );
+        assert_eq!(
+            command_execution_to_tool_status(CommandExecutionStatus::Unknown, None),
+            CodexToolStatus::Completed
         );
     }
 
@@ -1846,13 +2221,86 @@ mod tests {
             cwd: None,
             aggregated_output: Some(String::new()),
             exit_code: Some(1),
-            status: Some("failed".to_string()),
+            status: CommandExecutionStatus::Failed,
             duration_ms: None,
         };
         let (value, _, is_error) = build_shell_tool_result(&cmd);
         assert!(is_error);
         assert_eq!(value["status"], "failed");
         assert_eq!(value["exitCode"], 1);
+    }
+
+    #[test]
+    fn build_mcp_tool_result_marks_error_when_error_present() {
+        let item = McpToolCallItem {
+            server: "db".to_string(),
+            tool: "query".to_string(),
+            arguments: serde_json::json!({}),
+            result: None,
+            error: Some(codex_exec::McpToolCallItemError {
+                message: "connection refused".to_string(),
+            }),
+            status: McpToolCallStatus::Failed,
+        };
+        let (value, summary, is_error) = build_mcp_tool_result(&item);
+        assert!(is_error);
+        assert_eq!(value["status"], "failed");
+        assert_eq!(value["errorMessage"], "connection refused");
+        assert_eq!(summary, "connection refused");
+    }
+
+    #[test]
+    fn build_mcp_tool_result_ok_when_status_completed() {
+        let item = McpToolCallItem {
+            server: "atlassian".to_string(),
+            tool: "jira_search".to_string(),
+            arguments: serde_json::json!({}),
+            result: Some(codex_exec::McpToolCallItemResult {
+                content: vec![serde_json::json!({"type":"text","text":"hit"})],
+                structured_content: None,
+            }),
+            error: None,
+            status: McpToolCallStatus::Completed,
+        };
+        let (value, summary, is_error) = build_mcp_tool_result(&item);
+        assert!(!is_error);
+        assert_eq!(value["status"], "completed");
+        assert_eq!(summary, "hit");
+    }
+
+    #[test]
+    fn build_collab_tool_result_marks_error_on_errored_agent() {
+        let mut agents = HashMap::new();
+        agents.insert(
+            "sub_a".to_string(),
+            codex_exec::CollabAgentState {
+                status: CodexExecCollabAgentStatus::Errored,
+                message: Some("crashed".to_string()),
+            },
+        );
+        let item = CollabToolCallItem {
+            tool: CodexExecCollabTool::SpawnAgent,
+            sender_thread_id: "main".to_string(),
+            receiver_thread_ids: vec!["sub_a".to_string()],
+            prompt: None,
+            agents_states: agents,
+            status: CollabToolCallStatus::Completed,
+        };
+        let (_, _, is_error) = build_collab_tool_result(&item);
+        assert!(is_error);
+    }
+
+    #[test]
+    fn codex_error_message_payload_sets_metadata_flag() {
+        let payload = codex_error_message_payload(
+            "sess_item_8",
+            "sess",
+            "tool returned warning",
+            Some("gpt-5"),
+        );
+        assert_eq!(payload["sdk_metadata"]["codex_error"], true);
+        assert_eq!(payload["message"]["content"][0]["text"], "tool returned warning");
+        assert_eq!(payload["message"]["role"], "assistant");
     }
 
     #[test]
