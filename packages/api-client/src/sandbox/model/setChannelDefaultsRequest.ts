@@ -9,6 +9,11 @@ import type { RoutingMode } from './routingMode';
 import type { SetChannelDefaultsRequestProviderConfig } from './setChannelDefaultsRequestProviderConfig';
 
 export interface SetChannelDefaultsRequest {
+  /**
+   * Agent type for tasks created from this channel (defaults to "claude-code")
+   * @nullable
+   */
+  agentType?: string | null;
   /** @nullable */
   promptTemplate?: string | null;
   /** @nullable */

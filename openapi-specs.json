@@ -5161,12 +5161,17 @@
           "scope",
           "createdBy",
           "tagIds",
+          "agentType",
           "createdAt",
           "updatedAt"
         ],
         "properties": {
           "active": {
             "type": "boolean"
+          },
+          "agentType": {
+            "type": "string",
+            "description": "Agent type for tasks created from this channel"
           },
           "allowDirectSend": {
             "type": "boolean"
@@ -5698,6 +5703,13 @@
           "routingMode"
         ],
         "properties": {
+          "agentType": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Agent type for tasks created from this channel (defaults to \"claude-code\")"
+          },
           "allowDirectSend": {
             "type": [
               "boolean",
@@ -8415,6 +8427,13 @@
           "routingMode"
         ],
         "properties": {
+          "agentType": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Agent type for tasks created from this channel (defaults to \"claude-code\")"
+          },
           "promptTemplate": {
             "type": [
               "string",
@@ -9336,6 +9355,13 @@
               "boolean",
               "null"
             ]
+          },
+          "agentType": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Agent type for tasks created from this channel"
           },
           "allowDirectSend": {
             "type": [

@@ -11,6 +11,11 @@ import type { RoutingMode } from './routingMode';
 import type { Scope } from './scope';
 
 export interface CreateChannelConfigRequest {
+  /**
+   * Agent type for tasks created from this channel (defaults to "claude-code")
+   * @nullable
+   */
+  agentType?: string | null;
   /** @nullable */
   allowDirectSend?: boolean | null;
   /** @nullable */

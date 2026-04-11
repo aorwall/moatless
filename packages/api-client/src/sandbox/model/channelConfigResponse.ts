@@ -12,6 +12,8 @@ import type { Scope } from './scope';
 
 export interface ChannelConfigResponse {
   active: boolean;
+  /** Agent type for tasks created from this channel */
+  agentType: string;
   allowDirectSend: boolean;
   createdAt: string;
   createdBy: string;

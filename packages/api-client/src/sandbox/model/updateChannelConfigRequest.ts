@@ -11,6 +11,11 @@ import type { UpdateChannelConfigRequestProviderConfig } from './updateChannelCo
 export interface UpdateChannelConfigRequest {
   /** @nullable */
   active?: boolean | null;
+  /**
+   * Agent type for tasks created from this channel
+   * @nullable
+   */
+  agentType?: string | null;
   /** @nullable */
   allowDirectSend?: boolean | null;
   /** @nullable */
