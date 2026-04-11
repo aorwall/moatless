@@ -71,9 +71,11 @@ export function CommandAutocomplete({
             onClick={() => onSelect(suggestion)}
           >
             <Icon className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-            <div className="flex-1 min-w-0">
-              <span className="text-sm font-medium">/{suggestion.name}</span>
-              <span className="text-sm text-muted-foreground ml-2">{suggestion.description}</span>
+            <div className="flex-1 min-w-0 flex items-baseline gap-2">
+              <span className="text-sm font-medium flex-shrink-0">/{suggestion.name}</span>
+              <span className="text-sm text-muted-foreground truncate">
+                {suggestion.description}
+              </span>
             </div>
             {badge && (
               <span className="text-[10px] uppercase tracking-wide text-muted-foreground bg-muted px-1.5 py-0.5 rounded flex-shrink-0">
