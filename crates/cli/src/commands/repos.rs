@@ -158,6 +158,13 @@ pub enum RepoAction {
     },
     /// Sync .moatless/config.json from the remote repository
     SyncConfig { repo_id: String },
+    /// Delete a repository (soft-delete — marks as deleted, preserves history)
+    Delete {
+        repo_id: String,
+        /// Skip confirmation prompt
+        #[arg(long)]
+        yes: bool,
+    },
 }
 
 pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<(), ClientError> {
@@ -345,6 +352,44 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
                 output::print_json_typed(&updated);
             } else {
                 println!("Config synced for repository {}.", updated.id);
+            }
+        }
+        RepoAction::Delete { repo_id, yes } => {
+            let repo = client.api().get_repository(&repo_id).await?;
+            let name = repo.name.clone();
+            let id = repo.id.clone();
+
+            if !yes {
+                use std::io::{IsTerminal, Write};
+                if !std::io::stdin().is_terminal() {
+                    return Err(ClientError::Other(
+                        "Refusing to delete without --yes in non-interactive mode".to_string(),
+                    ));
+                }
+                print!(
+                    "Delete repository '{name}' ({id})? This cannot be undone. [y/N] "
+                );
+                std::io::stdout()
+                    .flush()
+                    .map_err(|e| ClientError::Other(format!("Failed to flush stdout: {e}")))?;
+                let mut line = String::new();
+                std::io::stdin()
+                    .read_line(&mut line)
+                    .map_err(|e| ClientError::Other(format!("Failed to read stdin: {e}")))?;
+                let answer = line.trim().to_lowercase();
+                if answer != "y" && answer != "yes" {
+                    return Err(ClientError::Other("Aborted.".to_string()));
+                }
+            }
+
+            client.api().delete_repository(&id).await?;
+            if json {
+                output::print_json_typed(&serde_json::json!({
+                    "id": id,
+                    "deleted": true,
+                }));
+            } else {
+                println!("Deleted repository {name} ({id})");
             }
         }
     }
