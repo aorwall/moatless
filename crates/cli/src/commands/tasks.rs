@@ -237,10 +237,22 @@ pub async fn run(
             }
         }
         TaskAction::Restart { task_id } => {
+            if config.is_sandbox() {
+                return Err(ClientError::Api {
+                    status: 400,
+                    body: "Cannot restart the entire sandbox from within it. Use `moat tasks logs $TASK_ID --server <name>` to diagnose server issues.".to_string(),
+                });
+            }
             client.api().restart_sandbox(&task_id).await?;
             println!("Sandbox for {task_id} restarted.");
         }
         TaskAction::Redeploy { task_id } => {
+            if config.is_sandbox() {
+                return Err(ClientError::Api {
+                    status: 400,
+                    body: "Cannot redeploy the sandbox from within it.".to_string(),
+                });
+            }
             let resp = client.api().redeploy_sandbox(&task_id).await?;
             println!(
                 "Sandbox for {task_id} redeployed (status: {:?}).",

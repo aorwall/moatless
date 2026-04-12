@@ -100,9 +100,8 @@ Available `moat` commands:
 - `moat set-name \"<name>\"` — Update the task name
 - `moat set-tags <tag1> <tag2> ...` — Set tags on this task
 - `moat tasks status $TASK_ID` — Show sandbox status including server states
-- `moat tasks restart $TASK_ID` — Restart the sandbox (restarts all servers)
 - `moat tasks logs $TASK_ID --server <name>` — Stream server logs (e.g., `--server preview`)
-- `moat tasks redeploy $TASK_ID` — Recreate sandbox with fresh repo config";
+- `moat tasks diagnose $TASK_ID` — Diagnose sandbox issues (status + container diagnostics + recent errors)";
 
 /// Build the system prompt configuration.
 #[allow(clippy::unnecessary_wraps)] // Option for caller API consistency
