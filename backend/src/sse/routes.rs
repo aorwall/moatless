@@ -123,7 +123,7 @@ async fn sse_handler(State(state): State<SseState>, Query(query): Query<SseQuery
     #[allow(clippy::expect_used)]
     // Response::builder() only fails with invalid header names (ours are static)
     Response::builder()
-        .header("Content-Type", "text/event-stream")
+        .header("Content-Type", "application/x-ndjson")
         .header("Cache-Control", "no-cache")
         .header("Connection", "keep-alive")
         .header("X-Accel-Buffering", "no")
