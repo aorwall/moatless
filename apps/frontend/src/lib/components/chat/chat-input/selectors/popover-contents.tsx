@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { Button } from '@/lib/components/ui/button.tsx'
 import { Input } from '@/lib/components/ui/input.tsx'
 import { ScrollArea } from '@/lib/components/ui/scroll-area.tsx'
+import { getErrorMessage } from '@/lib/utils/error'
 import { cn } from '@/lib/utils.ts'
 
 export interface SelectableItem {
@@ -140,6 +141,7 @@ export interface BranchPopoverContentProps extends PopoverContentProps {
   currentBranch?: string
   enableSearch?: boolean
   placeholder?: string
+  error?: unknown
 }
 
 export function BranchPopoverContent({
@@ -150,6 +152,7 @@ export function BranchPopoverContent({
   currentBranch,
   enableSearch = false,
   placeholder = 'Search branches...',
+  error,
 }: BranchPopoverContentProps) {
   const [search, setSearch] = useState('')
 
@@ -164,6 +167,13 @@ export function BranchPopoverContent({
 
   return (
     <div className="flex flex-col">
+      {/* Error state */}
+      {error ? (
+        <div className="p-3 border-b bg-destructive/10 text-destructive text-sm">
+          {getErrorMessage(error)}
+        </div>
+      ) : null}
+
       {/* Search input (if enabled) */}
       {enableSearch && (
         <div className="p-3 border-b">

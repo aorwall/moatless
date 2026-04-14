@@ -5,6 +5,7 @@
  * Sandbox orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
+import type { ProviderConnection } from './providerConnection';
 import type { UserInfo } from './userInfo';
 
 /**
@@ -13,5 +14,9 @@ import type { UserInfo } from './userInfo';
 export interface SessionResponse {
   /** @nullable */
   expiresAt?: string | null;
+  /** Connection state for each external provider (GitHub, etc.). Empty when
+no authenticated user. The frontend uses this to surface reconnect
+prompts when a provider token has been revoked or failed to refresh. */
+  providers?: ProviderConnection[];
   user?: null | UserInfo;
 }

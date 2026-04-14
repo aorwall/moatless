@@ -55,6 +55,9 @@ export function useExchangeGitHubToken(
     onSuccess: () => {
       // Invalidate GitHub config to refresh connection status
       queryClient.invalidateQueries({ queryKey: queryKeys.settings.github() })
+      // Refresh the session so the top-bar reconnect indicator reflects the
+      // new provider state without requiring a full reload.
+      queryClient.invalidateQueries({ queryKey: ['auth', 'session'] })
     },
     ...options,
   })
@@ -73,6 +76,9 @@ export function useDisconnectGitHub(
     onSuccess: () => {
       // Invalidate GitHub config to refresh connection status
       queryClient.invalidateQueries({ queryKey: queryKeys.settings.github() })
+      // Refresh the session so the top-bar reconnect indicator reflects the
+      // new provider state without requiring a full reload.
+      queryClient.invalidateQueries({ queryKey: ['auth', 'session'] })
     },
     ...options,
   })
@@ -91,6 +97,9 @@ export function useSaveGitHubPAT(
     onSuccess: () => {
       // Invalidate GitHub config to refresh connection status
       queryClient.invalidateQueries({ queryKey: queryKeys.settings.github() })
+      // Refresh the session so the top-bar reconnect indicator reflects the
+      // new provider state without requiring a full reload.
+      queryClient.invalidateQueries({ queryKey: ['auth', 'session'] })
     },
     ...options,
   })
@@ -108,6 +117,7 @@ export function useRemoveGitHubPATOverride(
     mutationFn: githubConnectionApi.removePATOverride,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.settings.github() })
+      queryClient.invalidateQueries({ queryKey: ['auth', 'session'] })
     },
     ...options,
   })

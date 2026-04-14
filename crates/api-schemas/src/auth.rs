@@ -51,6 +51,29 @@ pub struct CreateApiKeyRequest {
 pub struct SessionResponse {
     pub user: Option<UserInfo>,
     pub expires_at: Option<String>,
+    /// Connection state for each external provider (GitHub, etc.). Empty when
+    /// no authenticated user. The frontend uses this to surface reconnect
+    /// prompts when a provider token has been revoked or failed to refresh.
+    #[serde(default)]
+    pub providers: Vec<ProviderConnection>,
+}
+
+/// Connection state for an external provider (OAuth app, GitHub App, PAT, …).
+///
+/// `connected = false` indicates the frontend should prompt the user to
+/// reconnect: either no token is stored, or the most recent refresh attempt
+/// failed.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderConnection {
+    /// Provider identifier (e.g. `"github"`).
+    pub provider: String,
+    /// True when a usable token exists and, for refreshable tokens, the most
+    /// recent refresh succeeded.
+    pub connected: bool,
+    /// Provider login (e.g. GitHub username) when available.
+    pub login: Option<String>,
 }
 
 /// User info within session response.

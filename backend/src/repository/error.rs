@@ -22,6 +22,9 @@ pub enum RepositoryError {
 
     #[error("Provider API error: {0}")]
     ProviderError(String),
+
+    #[error("Access denied: {0}")]
+    Forbidden(String),
 }
 
 impl IntoResponse for RepositoryError {
@@ -41,6 +44,7 @@ impl IntoResponse for RepositoryError {
                 warn!(error = %msg, "Repository provider API error");
                 (StatusCode::BAD_GATEWAY, self.to_string())
             }
+            RepositoryError::Forbidden(_) => (StatusCode::FORBIDDEN, self.to_string()),
         };
 
         error_response(status, message)

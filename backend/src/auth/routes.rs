@@ -23,14 +23,16 @@ use super::api_keys::ApiKeyRepository;
 use super::cache::AuthCache;
 use super::cookie;
 use super::error::AuthError;
+use super::github_app_service::GitHubAppService;
 use super::identity::AuthIdentity;
 use super::jwt::{self, SessionClaims};
 use super::models::UserRole;
 use super::oauth::provider::OAuthProvider;
+use super::provider_token_dao::{PgProviderTokenRepository, ProviderTokenRepository};
 use super::provider_tokens::ProviderTokenAuthRepository;
 use super::schemas::{
     format_datetime, format_datetime_opt, ApiKeyCreateResponse, ApiKeyListItem, CliLoginQuery,
-    CreateApiKeyRequest, MessageResponse, OAuthCallbackQuery, SessionResponse,
+    CreateApiKeyRequest, MessageResponse, OAuthCallbackQuery, ProviderConnection, SessionResponse,
     TokenSessionResponse, UpdateUserRequest, UserInfo, UserListItem, UserListResponse,
 };
 use super::session;
@@ -97,6 +99,12 @@ pub struct AuthState {
     pub api_keys: Arc<dyn ApiKeyRepository>,
     pub users: Arc<dyn UserRepository>,
     pub provider_tokens: Arc<dyn ProviderTokenAuthRepository>,
+    /// DAO for credential lookups (full-row reads, refresh persistence).
+    /// Separate from `provider_tokens` (which handles upsert/metadata paths).
+    pub provider_tokens_dao: Arc<dyn ProviderTokenRepository>,
+    /// Optional GitHub App service used to refresh expiring user tokens when
+    /// reporting provider connection status on `/me`.
+    pub github_app_service: Option<Arc<GitHubAppService>>,
     pub teams: Option<Arc<dyn crate::team::dao::TeamRepository>>,
     pub tasks: Option<Arc<dyn crate::task::dao::TaskRepository>>,
 }
@@ -115,11 +123,14 @@ impl AuthState {
             Some(Arc::new(crate::team::dao::PgTeamRepository(pool.clone())));
         let tasks: Option<Arc<dyn crate::task::dao::TaskRepository>> =
             Some(Arc::new(crate::task::dao::PgTaskRepository(pool.clone())));
+        let github_app_service = GitHubAppService::from_config(&config).map(Arc::new);
         Self {
             sessions: Arc::new(PgSessionRepository(pool.clone())),
             api_keys: Arc::new(PgApiKeyRepository(pool.clone())),
             users: Arc::new(PgUserRepository(pool.clone())),
             provider_tokens: Arc::new(PgProviderTokenAuthRepository(pool.clone())),
+            provider_tokens_dao: Arc::new(PgProviderTokenRepository(pool.clone())),
+            github_app_service,
             providers: Arc::new(providers),
             cache,
             teams,
@@ -371,6 +382,7 @@ async fn me_handler(
         return Ok(Json(SessionResponse {
             user: None,
             expires_at: None,
+            providers: Vec::new(),
         }));
     }
 
@@ -383,6 +395,8 @@ async fn me_handler(
         return Err(AuthError::SessionExpired);
     };
 
+    let providers = check_provider_connections(&state, &identity.user_id).await;
+
     Ok(Json(SessionResponse {
         user: Some(UserInfo {
             id: user.id,
@@ -394,7 +408,92 @@ async fn me_handler(
             role: identity.role,
         }),
         expires_at: None,
+        providers,
     }))
+}
+
+/// Inspect external provider tokens for the current user and report whether
+/// each provider is currently usable. Returns a best-effort list: DB errors
+/// are logged but surfaced as `connected: false` rather than failing `/me`.
+///
+/// Scoped to GitHub for now — extend with additional providers as they gain
+/// refreshable credentials.
+async fn check_provider_connections(state: &AuthState, user_id: &str) -> Vec<ProviderConnection> {
+    let mut out = Vec::with_capacity(1);
+    out.push(check_github_connection(state, user_id).await);
+    out
+}
+
+async fn check_github_connection(state: &AuthState, user_id: &str) -> ProviderConnection {
+    let disconnected = |login: Option<String>| ProviderConnection {
+        provider: "github".to_string(),
+        connected: false,
+        login,
+    };
+
+    let token = match state
+        .provider_tokens_dao
+        .find_provider_token_full(user_id, "github")
+        .await
+    {
+        Ok(row) => row,
+        Err(e) => {
+            warn!(
+                error = %e,
+                user_id = %user_id,
+                "Failed to load GitHub provider token while building /me response"
+            );
+            return disconnected(None);
+        }
+    };
+
+    let Some(token) = token else {
+        return disconnected(None);
+    };
+
+    let login = token
+        .metadata
+        .as_ref()
+        .and_then(|m| m.get("login"))
+        .and_then(|v| v.as_str())
+        .map(std::string::ToString::to_string);
+
+    // When a GitHub App service is configured, verify the token by exercising
+    // the refresh path. Any error (missing token row, refresh rejected, etc.)
+    // is reported as disconnected so the frontend can prompt for reconnect.
+    if let Some(ref app_svc) = state.github_app_service {
+        match super::token_refresh::ensure_fresh_token(
+            state.provider_tokens_dao.as_ref(),
+            state.provider_tokens.as_ref(),
+            app_svc,
+            user_id,
+        )
+        .await
+        {
+            Ok(_) => ProviderConnection {
+                provider: "github".to_string(),
+                connected: true,
+                login,
+            },
+            Err(e) => {
+                warn!(
+                    error = %e,
+                    user_id = %user_id,
+                    "GitHub token unavailable when reporting /me provider status"
+                );
+                disconnected(login)
+            }
+        }
+    } else {
+        // Without an App service we cannot refresh, so treat the stored token
+        // as usable. Callers that actually hit GitHub will still surface 401s
+        // through `RepositoryError::Forbidden` if the token has been revoked.
+        ProviderConnection {
+            provider: "github".to_string(),
+            connected: true,
+            login,
+        }
+    }
 }
 
 // ============================================================================
@@ -442,6 +541,7 @@ async fn update_me_handler(
             role,
         }),
         expires_at: expires_at.map(format_datetime),
+        providers: Vec::new(),
     }))
 }
 
@@ -916,6 +1016,7 @@ async fn exchange_api_key_handler(
             role: user.role,
         }),
         expires_at: None,
+        providers: Vec::new(),
     };
 
     let mut resp_headers = HeaderMap::new();

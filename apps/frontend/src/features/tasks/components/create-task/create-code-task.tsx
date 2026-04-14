@@ -172,6 +172,15 @@ export function CreateCodeTask({
   const repoSelector = useRepositorySelector(repositoryId, onRepositoryChange, true)
   const branchSelector = useBranchSelector(repositoryId, branch, setBranch, true, repositoryDetails)
 
+  // Surface branch-fetch failures via a toast (e.g., 403 when token lacks access)
+  useEffect(() => {
+    if (branchSelector.error) {
+      toast.error('Failed to load branches', {
+        description: getErrorMessage(branchSelector.error),
+      })
+    }
+  }, [branchSelector.error])
+
   // Auto-select first repository when dialog closes and a repository is available but none selected
   useEffect(() => {
     if (!(repoDialogOpen || repositoryId) && repositories && repositories.length > 0) {
@@ -336,6 +345,7 @@ export function CreateCodeTask({
                   tooltip={branchSelector.tooltip}
                   loading={branchSelector.loading}
                   disabled={branchSelector.disabled}
+                  error={branchSelector.isError}
                 >
                   <BranchPopoverContent
                     items={branchSelector.items}
@@ -343,6 +353,7 @@ export function CreateCodeTask({
                     onChange={branchSelector.onChange}
                     currentBranch={branchSelector.currentBranch}
                     enableSearch={true}
+                    error={branchSelector.error}
                   />
                 </PopoverSelector>
               )}

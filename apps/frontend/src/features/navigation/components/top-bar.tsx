@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router'
-import { Box, FolderGit2, LogOut, Settings, User } from 'lucide-react'
+import { AlertTriangle, Box, FolderGit2, LogOut, Settings, User } from 'lucide-react'
 import { useState } from 'react'
 import { useAuth } from '@/features/auth'
 import { Button } from '@/lib/components/ui/button'
@@ -13,7 +13,8 @@ interface TopBarProps {
 
 export function TopBar({ onRepositoriesClick, onSettingsClick }: TopBarProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
-  const { user, isAuthenticated, logout } = useAuth()
+  const { user, isAuthenticated, githubConnected, logout } = useAuth()
+  const showReconnectGithub = isAuthenticated && !githubConnected
 
   const handleRepositoriesClick = () => {
     onRepositoriesClick()
@@ -35,6 +36,18 @@ export function TopBar({ onRepositoriesClick, onSettingsClick }: TopBarProps) {
       <div className="container mx-auto max-w-7xl flex h-14 items-center px-6">
         <h1 className="font-bold text-lg">Moatless Vibe</h1>
         <div className="ml-auto flex items-center gap-4">
+          {showReconnectGithub && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 border-amber-500/60 bg-amber-500/10 text-amber-700 hover:bg-amber-500/20 hover:text-amber-800 dark:text-amber-400 dark:hover:text-amber-300"
+              onClick={onSettingsClick}
+              title="Your GitHub access is unavailable. Click to reconnect."
+            >
+              <AlertTriangle className="mr-1.5 h-4 w-4" />
+              Reconnect GitHub
+            </Button>
+          )}
           <Popover open={isMenuOpen} onOpenChange={setIsMenuOpen}>
             <PopoverTrigger asChild>
               <Button variant="ghost" size="icon">

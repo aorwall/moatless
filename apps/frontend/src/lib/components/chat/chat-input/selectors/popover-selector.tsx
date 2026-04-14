@@ -12,6 +12,7 @@ export interface PopoverSelectorProps {
   tooltip?: string
   disabled?: boolean
   loading?: boolean
+  error?: boolean
   children: React.ReactNode
   className?: string
 }
@@ -23,6 +24,7 @@ export function PopoverSelector({
   tooltip,
   disabled = false,
   loading = false,
+  error = false,
   children,
   className,
 }: PopoverSelectorProps) {
@@ -41,6 +43,7 @@ export function PopoverSelector({
               className={cn(
                 'h-6 p-3 text-xs justify-start gap-1.5 rounded-lg',
                 !hasValue && 'text-muted-foreground',
+                error && 'border-destructive text-destructive',
                 className,
               )}
             >

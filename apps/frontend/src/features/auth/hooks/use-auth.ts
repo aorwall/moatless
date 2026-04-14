@@ -1,4 +1,4 @@
-import type { SessionResponse } from '@moatless/api-client'
+import type { ProviderConnection, SessionResponse } from '@moatless/api-client'
 import { unwrapResponse } from '@moatless/api-client/custom-instance'
 import { meHandler } from '@moatless/api-client/sandbox/auth/auth'
 import { useQuery } from '@tanstack/react-query'
@@ -27,6 +27,12 @@ export function useAuth() {
     window.location.href = `${API_BASE_URL}/api/v1/auth/logout`
   }
 
+  const providers: ProviderConnection[] = session?.providers ?? []
+  const githubProvider = providers.find((p) => p.provider === 'github')
+  // Default to `true` when no entry is present (dev mode, unauthenticated) so
+  // we don't flash a reconnect banner before the session loads.
+  const githubConnected = githubProvider?.connected ?? true
+
   return {
     user: session?.user ?? null,
     role: session?.user?.role ?? null,
@@ -34,6 +40,8 @@ export function useAuth() {
     expiresAt: session?.expiresAt ?? null,
     isAuthenticated: !!session,
     isLoading,
+    providers,
+    githubConnected,
     logout,
   }
 }

@@ -2541,6 +2541,16 @@
               }
             }
           },
+          "403": {
+            "description": "Access denied - token lacks permissions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Repository not found",
             "content": {
@@ -7267,6 +7277,31 @@
           }
         }
       },
+      "ProviderConnection": {
+        "type": "object",
+        "description": "Connection state for an external provider (OAuth app, GitHub App, PAT, …).\n\n`connected = false` indicates the frontend should prompt the user to\nreconnect: either no token is stored, or the most recent refresh attempt\nfailed.",
+        "required": [
+          "provider",
+          "connected"
+        ],
+        "properties": {
+          "connected": {
+            "type": "boolean",
+            "description": "True when a usable token exists and, for refreshable tokens, the most\nrecent refresh succeeded."
+          },
+          "login": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Provider login (e.g. GitHub username) when available."
+          },
+          "provider": {
+            "type": "string",
+            "description": "Provider identifier (e.g. `\"github\"`)."
+          }
+        }
+      },
       "ProvisionResponse": {
         "type": "object",
         "description": "Provision response",
@@ -8407,6 +8442,13 @@
               "string",
               "null"
             ]
+          },
+          "providers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProviderConnection"
+            },
+            "description": "Connection state for each external provider (GitHub, etc.). Empty when\nno authenticated user. The frontend uses this to surface reconnect\nprompts when a provider token has been revoked or failed to refresh."
           },
           "user": {
             "oneOf": [

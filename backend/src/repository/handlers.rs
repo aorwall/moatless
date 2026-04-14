@@ -350,6 +350,7 @@ pub async fn convert_to_template(
     responses(
         (status = 200, description = "Branch list", body = BranchListResponse),
         (status = 400, description = "Bad request", body = crate::error::ErrorBody),
+        (status = 403, description = "Access denied - token lacks permissions", body = crate::error::ErrorBody),
         (status = 404, description = "Repository not found", body = crate::error::ErrorBody)
     )
 )]
@@ -552,6 +553,25 @@ async fn fetch_github_branches(
         if !resp.status().is_success() {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
+
+            // 401/403 = access denied (token lacks permissions or repo access)
+            if status == reqwest::StatusCode::UNAUTHORIZED
+                || status == reqwest::StatusCode::FORBIDDEN
+            {
+                return Err(RepositoryError::Forbidden(
+                    "Cannot access repository. Your GitHub token may lack the required permissions. \
+                     Try reconnecting your GitHub account in Settings.".to_string(),
+                ));
+            }
+
+            // 404 = repo not found (may also be private repo without access)
+            if status == reqwest::StatusCode::NOT_FOUND {
+                return Err(RepositoryError::Forbidden(
+                    "Repository not found or not accessible. If this is a private repository, \
+                     ensure your GitHub token has access.".to_string(),
+                ));
+            }
+
             return Err(RepositoryError::ProviderError(format!(
                 "GitHub API returned {status}: {body}"
             )));
@@ -660,6 +680,25 @@ async fn fetch_gitlab_branches(
         if !resp.status().is_success() {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
+
+            // 401/403 = access denied (token lacks permissions or repo access)
+            if status == reqwest::StatusCode::UNAUTHORIZED
+                || status == reqwest::StatusCode::FORBIDDEN
+            {
+                return Err(RepositoryError::Forbidden(
+                    "Cannot access repository. Your GitLab token may lack the required permissions. \
+                     Try reconnecting your GitLab account in Settings.".to_string(),
+                ));
+            }
+
+            // 404 = repo not found (may also be private repo without access)
+            if status == reqwest::StatusCode::NOT_FOUND {
+                return Err(RepositoryError::Forbidden(
+                    "Repository not found or not accessible. If this is a private repository, \
+                     ensure your GitLab token has access.".to_string(),
+                ));
+            }
+
             return Err(RepositoryError::ProviderError(format!(
                 "GitLab API returned {status}: {body}"
             )));
@@ -753,6 +792,25 @@ async fn fetch_gitness_branches(
         if !resp.status().is_success() {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
+
+            // 401/403 = access denied (token lacks permissions or repo access)
+            if status == reqwest::StatusCode::UNAUTHORIZED
+                || status == reqwest::StatusCode::FORBIDDEN
+            {
+                return Err(RepositoryError::Forbidden(
+                    "Cannot access repository. Your Gitness token may lack the required permissions. \
+                     Try reconnecting your Gitness account in Settings.".to_string(),
+                ));
+            }
+
+            // 404 = repo not found (may also be private repo without access)
+            if status == reqwest::StatusCode::NOT_FOUND {
+                return Err(RepositoryError::Forbidden(
+                    "Repository not found or not accessible. If this is a private repository, \
+                     ensure your Gitness token has access.".to_string(),
+                ));
+            }
+
             return Err(RepositoryError::ProviderError(format!(
                 "Gitness API returned {status}: {body}"
             )));

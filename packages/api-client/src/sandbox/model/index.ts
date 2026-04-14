@@ -115,6 +115,7 @@ export * from './pendingMessageItemMessageContent';
 export * from './permissionDenial';
 export * from './permissionDenialToolInput';
 export * from './previewUrlContextData';
+export * from './providerConnection';
 export * from './provisionPlan';
 export * from './provisionPlanEnvVars';
 export * from './provisionRequest';

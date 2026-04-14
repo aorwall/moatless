@@ -579,6 +579,11 @@ export type getBranchesResponse400 = {
   status: 400
 }
 
+export type getBranchesResponse403 = {
+  data: ErrorBody
+  status: 403
+}
+
 export type getBranchesResponse404 = {
   data: ErrorBody
   status: 404
@@ -587,7 +592,7 @@ export type getBranchesResponse404 = {
 export type getBranchesResponseSuccess = (getBranchesResponse200) & {
   headers: Headers;
 };
-export type getBranchesResponseError = (getBranchesResponse400 | getBranchesResponse404) & {
+export type getBranchesResponseError = (getBranchesResponse400 | getBranchesResponse403 | getBranchesResponse404) & {
   headers: Headers;
 };
 
