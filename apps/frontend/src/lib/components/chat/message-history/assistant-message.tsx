@@ -11,15 +11,16 @@ import {
   XCircle,
 } from 'lucide-react'
 import { useState } from 'react'
+import type { UiMessageWithSubagents } from '@/features/tasks/utils/group-messages'
 import { Response } from '@/lib/components/ai-elements/response'
 import { type ImageContentBlock, isImageContentBlock } from '@/lib/types/content-guards'
 import type { AllowedPrompt, Question } from '@/lib/types/user-input'
 import { cn } from '@/lib/utils'
 import { ImageThumbnail } from './image-thumbnail'
-import { CodexToolCall, type Todo, TodoList } from './tool-calls'
+import { CodexToolCall, SubagentToolCall, type Todo, TodoList } from './tool-calls'
 
 interface AssistantMessageProps {
-  message: UiMessage
+  message: UiMessageWithSubagents
   expandedToolCalls: Set<string>
   onToggleToolCall: (toolUseId: string) => void
 }
@@ -433,6 +434,7 @@ function renderToolCalls(
   expandedToolCalls: Set<string>,
   onToggleToolCall: (toolUseId: string) => void,
   hasPendingUserInput: boolean | null | undefined,
+  subagentMessages?: UiMessage[],
 ): React.ReactNode {
   if (toolCalls.length === 0) {
     return null
@@ -440,16 +442,32 @@ function renderToolCalls(
 
   return (
     <div className="space-y-2 w-full max-w-full">
-      {toolCalls.map((toolCall) => (
-        <ToolCallComponent
-          key={toolCall.toolUseId}
-          content={toolCall}
-          toolResult={toolCall.toolUseId ? toolResultMap.get(toolCall.toolUseId) : undefined}
-          expanded={expandedToolCalls.has(toolCall.toolUseId || '')}
-          onToggle={() => onToggleToolCall(toolCall.toolUseId || '')}
-          hasPendingUserInput={hasPendingUserInput}
-        />
-      ))}
+      {toolCalls.map((toolCall) => {
+        // Render Agent tool calls with SubagentToolCall component
+        if (toolCall.toolName === 'Agent' && toolCall.toolUseId) {
+          return (
+            <SubagentToolCall
+              key={toolCall.toolUseId}
+              content={toolCall}
+              toolResult={toolResultMap.get(toolCall.toolUseId)}
+              subagentMessages={subagentMessages}
+              expanded={expandedToolCalls.has(toolCall.toolUseId)}
+              onToggle={() => onToggleToolCall(toolCall.toolUseId || '')}
+            />
+          )
+        }
+
+        return (
+          <ToolCallComponent
+            key={toolCall.toolUseId}
+            content={toolCall}
+            toolResult={toolCall.toolUseId ? toolResultMap.get(toolCall.toolUseId) : undefined}
+            expanded={expandedToolCalls.has(toolCall.toolUseId || '')}
+            onToggle={() => onToggleToolCall(toolCall.toolUseId || '')}
+            hasPendingUserInput={hasPendingUserInput}
+          />
+        )
+      })}
     </div>
   )
 }
@@ -468,6 +486,7 @@ function renderCollapsedMessage(
   expandedToolCalls: Set<string>,
   onToggleToolCall: (toolUseId: string) => void,
   hasPendingUserInput: boolean | null | undefined,
+  subagentMessages?: UiMessage[],
 ): React.ReactNode {
   return (
     <div
@@ -520,6 +539,7 @@ function renderCollapsedMessage(
               expandedToolCalls,
               onToggleToolCall,
               hasPendingUserInput,
+              subagentMessages,
             )}
           </div>
         </div>
@@ -616,6 +636,7 @@ export function AssistantMessageComponent({
       expandedToolCalls,
       onToggleToolCall,
       message.hasPendingUserInput,
+      message.subagentMessages,
     )
   }
 
@@ -636,6 +657,7 @@ export function AssistantMessageComponent({
         expandedToolCalls,
         onToggleToolCall,
         message.hasPendingUserInput,
+        message.subagentMessages,
       )}
     </div>
   )

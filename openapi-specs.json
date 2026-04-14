@@ -9237,6 +9237,13 @@
               "null"
             ]
           },
+          "parentUuid": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Parent tool use ID (links subagent messages to parent Agent tool call)."
+          },
           "result": {
             "oneOf": [
               {

@@ -45,6 +45,9 @@ pub struct UiMessage {
     /// Command name if this message was sent via a slash command.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command_name: Option<String>,
+    /// Parent tool use ID (links subagent messages to parent Agent tool call).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_uuid: Option<String>,
 }
 
 /// Channel source metadata for messages originating from external channels.

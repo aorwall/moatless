@@ -2,7 +2,11 @@ import type { EnvironmentStatus, UiContentBlock, UiMessage } from '@moatless/api
 import { ArrowDown, ChevronDown, Terminal } from 'lucide-react'
 import React, { useCallback, useEffect, useState } from 'react'
 import { StickToBottom, useStickToBottomContext } from 'use-stick-to-bottom'
-import { groupMessages } from '@/features/tasks/utils/group-messages.ts'
+import {
+  groupMessages,
+  groupSubagentMessages,
+  type UiMessageWithSubagents,
+} from '@/features/tasks/utils/group-messages.ts'
 import { Button } from '@/lib/components/ui/button.tsx'
 import { cn } from '@/lib/utils'
 import { getErrorMessage } from '@/lib/utils/error.ts'
@@ -27,7 +31,7 @@ interface MessageHistoryProps {
 }
 
 interface ToolCallGroupProps {
-  messages: UiMessage[]
+  messages: UiMessageWithSubagents[]
   expandedToolCalls: Set<string>
   onToggleToolCall: (toolUseId: string) => void
 }
@@ -225,12 +229,15 @@ function MessageHistoryComponent({
     })
   }, [])
 
-  // Group consecutive assistant messages with only tool calls
+  // Group subagent messages under parent Agent tool calls, then group consecutive tool calls
   const groupedMessages = React.useMemo(() => {
     if (!messages) {
       return []
     }
-    return groupMessages(messages, initialMessageCount)
+    // First, group subagent messages under their parent Agent tool calls
+    const messagesWithSubagents = groupSubagentMessages(messages)
+    // Then, group consecutive assistant messages with only tool calls
+    return groupMessages(messagesWithSubagents, initialMessageCount)
   }, [messages, initialMessageCount])
 
   // Show skeleton during initial load

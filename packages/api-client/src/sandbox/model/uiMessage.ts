@@ -39,6 +39,11 @@ export interface UiMessage {
   messageType: MessageType;
   /** @nullable */
   model?: string | null;
+  /**
+   * Parent tool use ID (links subagent messages to parent Agent tool call).
+   * @nullable
+   */
+  parentUuid?: string | null;
   result?: null | UiResultMeta;
   role: MessageRole;
   /**
