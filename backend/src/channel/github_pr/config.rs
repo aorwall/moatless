@@ -16,7 +16,7 @@ pub struct GithubPrProviderConfig {
     pub bot_username: Option<String>,
     /// Filter which events to process. Empty means all supported events.
     /// Possible values: "pull_request", "issue_comment", "pull_request_review_comment",
-    ///   "pull_request_review", "check_run"
+    ///   "pull_request_review", "check_run", "check_suite"
     #[serde(default)]
     pub events_filter: Vec<String>,
     /// Whether to auto-create channel configs for unconfigured repos from this wildcard template.
@@ -25,6 +25,10 @@ pub struct GithubPrProviderConfig {
     /// Automatically close the associated task when the PR is merged or closed.
     #[serde(default = "default_true")]
     pub close_task_on_close: bool,
+    /// Emit an inbound message when a check_suite completes successfully.
+    /// Failures are always reported via check_run regardless of this flag.
+    #[serde(default)]
+    pub notify_on_success: bool,
 }
 
 fn default_true() -> bool {
@@ -40,6 +44,7 @@ impl Default for GithubPrProviderConfig {
             events_filter: vec![],
             auto_create: false,
             close_task_on_close: true,
+            notify_on_success: false,
         }
     }
 }
@@ -70,6 +75,7 @@ mod tests {
         assert!(cfg.bot_username.is_none());
         assert!(cfg.events_filter.is_empty());
         assert!(cfg.close_task_on_close);
+        assert!(!cfg.notify_on_success);
     }
 
     #[test]
@@ -79,6 +85,7 @@ mod tests {
             "bot_token": "ghp_abc",
             "bot_username": "my-bot[bot]",
             "events_filter": ["pull_request", "issue_comment"],
+            "notify_on_success": true,
         });
         let cfg: GithubPrProviderConfig = serde_json::from_value(json).unwrap();
 
@@ -86,6 +93,7 @@ mod tests {
         assert_eq!(cfg.bot_token.as_deref(), Some("ghp_abc"));
         assert_eq!(cfg.bot_username.as_deref(), Some("my-bot[bot]"));
         assert_eq!(cfg.events_filter, vec!["pull_request", "issue_comment"]);
+        assert!(cfg.notify_on_success);
     }
 
     #[test]

@@ -216,6 +216,12 @@ pub async fn deliver_to_connected_threads(
 }
 
 /// Create a minimal channel config for auto-connect.
+///
+/// Auto-connect is explicit opt-in (the user ran `channel connect`), so we
+/// default to listening for every supported event the provider emits. For
+/// GitHub PR that means also seeding `notify_on_success: true` so successful
+/// `check_suite` events are forwarded — the failure path is already on by
+/// default via `check_run`.
 async fn create_minimal_config(
     state: &AppState,
     provider: ChannelType,
@@ -225,6 +231,10 @@ async fn create_minimal_config(
     team_id: Option<&str>,
 ) -> Result<ChannelConfig, ChannelError> {
     let now = chrono::Utc::now();
+    let provider_config = match provider {
+        ChannelType::GithubPr => Some(serde_json::json!({ "notify_on_success": true })),
+        _ => None,
+    };
     let config = ChannelConfig {
         id: nanoid::nanoid!(21),
         provider: provider.as_str().to_string(),
@@ -235,7 +245,7 @@ async fn create_minimal_config(
         prompt_template: None,
         active: true,
         allow_direct_send: true,
-        provider_config: None,
+        provider_config,
         ongoing_task_id: None,
         response_config_id: None,
         scope: crate::scope::Scope::Team,

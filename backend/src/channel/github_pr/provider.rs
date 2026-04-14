@@ -201,6 +201,10 @@ impl GithubPrProvider {
             "pull_request_review_comment" => self.handle_review_comment_event(payload, &ctx).await,
             "pull_request_review" => self.handle_review_event(payload, &ctx).await,
             "check_run" => self.handle_check_run_event(payload, &ctx).await,
+            "check_suite" => {
+                self.handle_check_suite_event(payload, &ctx, &provider_config)
+                    .await
+            }
             _ => {
                 debug!(event_type, "Unsupported GitHub event type");
                 Ok(GithubPrWebhookResult::Ignore)
@@ -636,6 +640,9 @@ impl GithubPrProvider {
     const CHECK_RUN_FAILURE_CONCLUSIONS: &[&str] =
         &["failure", "timed_out", "cancelled", "action_required"];
 
+    /// Conclusion value indicating a successful `check_suite`.
+    const CHECK_SUITE_SUCCESS_CONCLUSION: &str = "success";
+
     /// Maximum length for check_run output summary in the message.
     const CHECK_RUN_SUMMARY_MAX_LEN: usize = 2000;
 
@@ -732,6 +739,90 @@ impl GithubPrProvider {
                 }
             }
         }
+
+        let user_id = self
+            .resolve_user_or_fallback(ctx.sender_login, ctx.config, ctx.db)
+            .await;
+
+        Ok(GithubPrWebhookResult::Message(Box::new(InboundMessage {
+            provider: ChannelType::GithubPr,
+            source_id: ctx.config.source_id.clone(),
+            thread_id: Some(pr_number.to_string()),
+            message_thread_id: pr_number.to_string(),
+            user_id,
+            text,
+            file_ids: vec![],
+            thread_properties: serde_json::json!({
+                "owner": ctx.owner,
+                "repo": ctx.repo,
+                "pr_number": pr_number,
+            }),
+            provider_context: serde_json::json!({}),
+            channel_external_id: None,
+        })))
+    }
+
+    /// Handle `check_suite` `completed` events with a successful conclusion.
+    /// Gated on `notify_on_success` so existing configs keep failure-only behavior.
+    async fn handle_check_suite_event(
+        &self,
+        payload: &serde_json::Value,
+        ctx: &EventContext<'_>,
+        provider_config: &GithubPrProviderConfig,
+    ) -> Result<GithubPrWebhookResult, ChannelError> {
+        let action = payload
+            .get("action")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+
+        if action != "completed" {
+            debug!(action, "Ignoring check_suite action (not completed)");
+            return Ok(GithubPrWebhookResult::Ignore);
+        }
+
+        if !provider_config.notify_on_success {
+            debug!("Ignoring check_suite: notify_on_success disabled");
+            return Ok(GithubPrWebhookResult::Ignore);
+        }
+
+        let check_suite = payload
+            .get("check_suite")
+            .ok_or_else(|| ChannelError::BadRequest("Missing check_suite in payload".into()))?;
+
+        let conclusion = check_suite
+            .get("conclusion")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+
+        if conclusion != Self::CHECK_SUITE_SUCCESS_CONCLUSION {
+            debug!(conclusion, "Ignoring check_suite with non-success conclusion");
+            return Ok(GithubPrWebhookResult::Ignore);
+        }
+
+        let pr_number = check_suite
+            .pointer("/pull_requests/0/number")
+            .and_then(serde_json::Value::as_u64);
+
+        let Some(pr_number) = pr_number else {
+            debug!("Ignoring check_suite: no associated pull request");
+            return Ok(GithubPrWebhookResult::Ignore);
+        };
+
+        let head_sha = check_suite
+            .get("head_sha")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        let short_sha = &head_sha[..7.min(head_sha.len())];
+        let app_name = check_suite
+            .pointer("/app/name")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("CI");
+
+        let text = format!(
+            "## CI Passed\n\n\
+             **CI:** {app_name}\n\
+             **Commit:** `{short_sha}`\n",
+        );
 
         let user_id = self
             .resolve_user_or_fallback(ctx.sender_login, ctx.config, ctx.db)
