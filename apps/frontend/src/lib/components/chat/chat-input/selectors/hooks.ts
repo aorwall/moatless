@@ -1,10 +1,10 @@
 import { Bot, Database, GitBranch, Plus, Sparkles, Wand2 } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
+import type { AgentDescriptor, AgentModel } from '@/features/agents/types'
 import { useBranches, useRepositoriesList } from '@/features/repositories/hooks/use-repositories.ts'
 import {
   CLAUDE_MODEL_DISPLAY_NAMES,
   CLAUDE_MODELS,
-  type ClaudeModel,
   DEFAULT_CLAUDE_MODEL,
 } from '@/lib/types/claude-models'
 
@@ -164,42 +164,42 @@ export function useBranchSelector(
   )
 }
 
-// Model selector hook - now controlled
-export function useModelSelector(value?: ClaudeModel, onChange?: (value: ClaudeModel) => void) {
-  const items = useMemo(
-    () => [
-      {
-        id: CLAUDE_MODELS.DEFAULT,
-        label: CLAUDE_MODEL_DISPLAY_NAMES[CLAUDE_MODELS.DEFAULT],
-      },
-      {
-        id: CLAUDE_MODELS.OPUS_4,
-        label: CLAUDE_MODEL_DISPLAY_NAMES[CLAUDE_MODELS.OPUS_4],
-      },
-      {
-        id: CLAUDE_MODELS.SONNET_4,
-        label: CLAUDE_MODEL_DISPLAY_NAMES[CLAUDE_MODELS.SONNET_4],
-      },
-      {
-        id: CLAUDE_MODELS.HAIKU_4,
-        label: CLAUDE_MODEL_DISPLAY_NAMES[CLAUDE_MODELS.HAIKU_4],
-      },
-    ],
-    [],
-  )
+const FALLBACK_MODELS: AgentModel[] = [
+  { id: CLAUDE_MODELS.DEFAULT, label: CLAUDE_MODEL_DISPLAY_NAMES[CLAUDE_MODELS.DEFAULT] },
+  { id: CLAUDE_MODELS.OPUS_4, label: CLAUDE_MODEL_DISPLAY_NAMES[CLAUDE_MODELS.OPUS_4] },
+  { id: CLAUDE_MODELS.SONNET_4, label: CLAUDE_MODEL_DISPLAY_NAMES[CLAUDE_MODELS.SONNET_4] },
+  { id: CLAUDE_MODELS.HAIKU_4, label: CLAUDE_MODEL_DISPLAY_NAMES[CLAUDE_MODELS.HAIKU_4] },
+]
+
+// Model selector hook - now controlled.
+// When `models`/`defaultModelId` are omitted, falls back to the Claude model list
+// for backwards compatibility with call-sites that haven't adopted the agents API yet.
+export function useModelSelector<T extends string = string>(
+  value?: T,
+  onChange?: (value: T) => void,
+  models?: AgentModel[],
+  defaultModelId?: string,
+) {
+  const items = useMemo<AgentModel[]>(() => {
+    if (models && models.length > 0) {
+      return models
+    }
+    return FALLBACK_MODELS
+  }, [models])
+
+  const fallbackDefault = defaultModelId ?? DEFAULT_CLAUDE_MODEL
 
   // Internal state for uncontrolled mode
-  const [internalValue, setInternalValue] = useState<ClaudeModel>(DEFAULT_CLAUDE_MODEL)
+  const [internalValue, setInternalValue] = useState<string>(fallbackDefault)
   const isControlled = value !== undefined
   const currentValue = isControlled ? value : internalValue
 
   const handleChange = useCallback(
     (newValue: string) => {
-      const modelValue = newValue as ClaudeModel
       if (!isControlled) {
-        setInternalValue(modelValue)
+        setInternalValue(newValue)
       }
-      onChange?.(modelValue)
+      onChange?.(newValue as T)
     },
     [isControlled, onChange],
   )
@@ -211,7 +211,7 @@ export function useModelSelector(value?: ClaudeModel, onChange?: (value: ClaudeM
 
   return useMemo(
     () => ({
-      value: currentValue,
+      value: currentValue as string,
       onChange: handleChange,
       placeholder: 'Select model',
       items,
@@ -282,16 +282,35 @@ export function useAgentModeSelector(
 export type AgentType = 'claude-code' | 'codex'
 export const DEFAULT_AGENT_TYPE: AgentType = 'claude-code'
 
-const AGENT_TYPE_ITEMS: Array<{ id: AgentType; label: string }> = [
+const FALLBACK_AGENT_ITEMS: Array<{ id: AgentType; label: string }> = [
   { id: 'claude-code', label: 'Claude Code' },
   { id: 'codex', label: 'Codex' },
 ]
 
+const DISCONNECTED_DESCRIPTION = 'Not connected — open Settings to add a token'
+
 // Agent type selector hook - controlled. Picks which agent CLI runs the task.
-export function useAgentTypeSelector(value?: AgentType, onChange?: (value: AgentType) => void) {
+// Accepts optional `agents` list from the backend catalog to drive availability.
+export function useAgentTypeSelector(
+  value?: AgentType,
+  onChange?: (value: AgentType) => void,
+  agents?: AgentDescriptor[],
+) {
   const [internalValue, setInternalValue] = useState<AgentType>(DEFAULT_AGENT_TYPE)
   const isControlled = value !== undefined
   const currentValue = isControlled ? value : internalValue
+
+  const items = useMemo(() => {
+    if (!agents) {
+      return FALLBACK_AGENT_ITEMS
+    }
+    return agents.map((agent) => ({
+      id: agent.id as AgentType,
+      label: agent.label,
+      description: agent.installed ? undefined : DISCONNECTED_DESCRIPTION,
+      disabled: !agent.installed,
+    }))
+  }, [agents])
 
   const handleChange = useCallback(
     (newValue: string) => {
@@ -305,8 +324,8 @@ export function useAgentTypeSelector(value?: AgentType, onChange?: (value: Agent
   )
 
   const selectedType = useMemo(
-    () => AGENT_TYPE_ITEMS.find((item) => item.id === currentValue),
-    [currentValue],
+    () => items.find((item) => item.id === currentValue),
+    [items, currentValue],
   )
 
   return useMemo(
@@ -314,7 +333,7 @@ export function useAgentTypeSelector(value?: AgentType, onChange?: (value: Agent
       value: currentValue,
       onChange: handleChange,
       placeholder: 'Agent',
-      items: AGENT_TYPE_ITEMS,
+      items,
       width: 'w-[120px]',
       loading: false,
       disabled: false,
@@ -322,7 +341,7 @@ export function useAgentTypeSelector(value?: AgentType, onChange?: (value: Agent
       tooltip: 'Choose which agent runs the task',
       displayValue: selectedType?.label || 'Select agent',
     }),
-    [currentValue, handleChange, selectedType],
+    [currentValue, handleChange, items, selectedType],
   )
 }
 

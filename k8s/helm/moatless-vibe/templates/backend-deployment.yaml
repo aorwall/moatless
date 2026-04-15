@@ -123,6 +123,12 @@ spec:
                   name: {{ include "moatless-vibe.secretsName" . }}
                   key: DATABASE_URL
                   optional: true
+            - name: SECRETS_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "moatless-vibe.secretsName" . }}
+                  key: SECRETS_ENCRYPTION_KEY
+                  optional: true
             - name: REDIS_URL
               value: {{ include "moatless-vibe.redisUrl" . | quote }}
             - name: REDIS_CONSUMER_GROUP
