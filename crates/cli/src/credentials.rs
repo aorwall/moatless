@@ -16,6 +16,11 @@ pub struct Profile {
     pub api_key: String,
     pub user_login: String,
     pub created_at: String,
+    /// Full API URL for this profile. Present for locally-registered profiles
+    /// (`moat login --local`) where there's no implicit scheme. If absent, the
+    /// URL is derived as `https://{host}` at read time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_url: Option<String>,
 }
 
 /// Path to the credentials file: `~/.config/moatless/credentials.json`.
@@ -36,6 +41,19 @@ pub fn load_credentials() -> CredentialsFile {
 
 /// Save credentials to disk with restricted permissions.
 pub fn save_credential(host: &str, api_key: &str, login: &str) -> Result<(), String> {
+    save_profile(host, api_key, login, None, false)
+}
+
+/// Save a profile with an explicit api_url (used by `moat login --local` where
+/// the URL isn't `https://{host}`). If `make_default` is true, this profile
+/// becomes the default host, replacing any previous default.
+pub fn save_profile(
+    host: &str,
+    api_key: &str,
+    login: &str,
+    api_url: Option<&str>,
+    make_default: bool,
+) -> Result<(), String> {
     let path = credentials_path().ok_or("Cannot determine config directory")?;
     let dir = path.parent().ok_or("Invalid credentials path")?;
     fs::create_dir_all(dir).map_err(|e| format!("Failed to create config dir: {e}"))?;
@@ -47,9 +65,10 @@ pub fn save_credential(host: &str, api_key: &str, login: &str) -> Result<(), Str
             api_key: api_key.to_string(),
             user_login: login.to_string(),
             created_at: chrono::Utc::now().to_rfc3339(),
+            api_url: api_url.map(std::string::ToString::to_string),
         },
     );
-    if creds.default.is_none() {
+    if make_default || creds.default.is_none() {
         creds.default = Some(host.to_string());
     }
 
@@ -89,8 +108,22 @@ pub fn delete_credential(host: &str) -> Result<bool, String> {
     Ok(removed)
 }
 
-/// Get the API key for a given host from the credentials file.
+/// Get the API key for a given host. Returns None for empty api_keys (used by
+/// local no-auth profiles registered with `moat login --local`).
 pub fn get_api_key(host: &str) -> Option<String> {
     let creds = load_credentials();
-    creds.profiles.get(host).map(|p| p.api_key.clone())
+    creds
+        .profiles
+        .get(host)
+        .map(|p| p.api_key.clone())
+        .filter(|k| !k.is_empty())
+}
+
+/// Default profile's api_url, if any. Used by config resolution when no env
+/// var is set — makes `moat login --local` actually stick as the default host.
+pub fn default_profile_url() -> Option<(String, Option<String>)> {
+    let creds = load_credentials();
+    let host = creds.default.as_ref()?.clone();
+    let profile = creds.profiles.get(&host)?;
+    Some((host, profile.api_url.clone()))
 }

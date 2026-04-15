@@ -16,7 +16,11 @@ use crate::output;
 
 /// Keys the installer manages. Other keys in `.env.example` get carried over
 /// verbatim; these are the ones we prompt for or auto-generate.
-const REQUIRED_KEYS: &[&str] = &["CLAUDE_CODE_OAUTH_TOKEN", "TASK_TOKEN_SECRET"];
+const REQUIRED_KEYS: &[&str] = &[
+    "CLAUDE_CODE_OAUTH_TOKEN",
+    "TASK_TOKEN_SECRET",
+    "SECRETS_ENCRYPTION_KEY",
+];
 
 #[derive(Serialize, Deserialize)]
 pub(super) struct InitReport {
@@ -112,6 +116,12 @@ pub(super) async fn run(args: InitArgs, json: bool) -> Result<(), ClientError> {
                     keys_generated.push(key.to_string());
                     v
                 }
+                "SECRETS_ENCRYPTION_KEY" => {
+                    // Backend expects base64 of 32 raw bytes (or 32 raw bytes).
+                    let v = generate_base64_32();
+                    keys_generated.push(key.to_string());
+                    v
+                }
                 "CLAUDE_CODE_OAUTH_TOKEN" => {
                     if args.non_interactive {
                         keys_missing.push(key.to_string());
@@ -170,6 +180,13 @@ fn generate_hex_secret() -> String {
         let _ = write!(&mut s, "{b:02x}");
     }
     s
+}
+
+fn generate_base64_32() -> String {
+    use base64::Engine as _;
+    let mut bytes = [0u8; 32];
+    rand::thread_rng().fill_bytes(&mut bytes);
+    base64::engine::general_purpose::STANDARD.encode(bytes)
 }
 
 fn print_human(r: &InitReport, source: ComposeDirSource) {

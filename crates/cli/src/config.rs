@@ -30,9 +30,18 @@ pub struct Config {
 
 impl Config {
     pub fn from_env() -> Self {
-        let api_url = std::env::var("MOATLESS_API_URL")
+        let env_url = std::env::var("MOATLESS_API_URL")
             .or_else(|_| std::env::var("BACKEND_API_URL"))
-            .unwrap_or_else(|_| "https://moatless.dev".to_string());
+            .ok();
+
+        // Fall back to the default profile's api_url (set by
+        // `moat login --local`) before the hardcoded default.
+        let api_url = env_url
+            .or_else(|| {
+                crate::credentials::default_profile_url()
+                    .and_then(|(host, url)| url.or_else(|| Some(format!("https://{host}"))))
+            })
+            .unwrap_or_else(|| "https://moatless.dev".to_string());
 
         let auth_mode = if let Ok(token) = std::env::var("USER_AUTH_TOKEN") {
             let task_id = std::env::var("TASK_ID").ok();
@@ -81,7 +90,7 @@ impl Config {
 }
 
 /// Extract host (with port if non-standard) from a URL.
-fn host_from_url(url: &str) -> String {
+pub fn host_from_url(url: &str) -> String {
     let without_scheme = url
         .strip_prefix("https://")
         .or_else(|| url.strip_prefix("http://"))

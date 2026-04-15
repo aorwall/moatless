@@ -11,7 +11,11 @@ use crate::client::ClientError;
 
 /// Keys that hold secrets. `env list` masks their values; `env set` writes them
 /// without echoing.
-pub(super) const SECRET_KEYS: &[&str] = &["CLAUDE_CODE_OAUTH_TOKEN", "TASK_TOKEN_SECRET"];
+pub(super) const SECRET_KEYS: &[&str] = &[
+    "CLAUDE_CODE_OAUTH_TOKEN",
+    "TASK_TOKEN_SECRET",
+    "SECRETS_ENCRYPTION_KEY",
+];
 
 pub(super) fn is_secret(key: &str) -> bool {
     SECRET_KEYS.contains(&key)

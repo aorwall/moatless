@@ -172,8 +172,18 @@ enum StandaloneCommands {
     #[command(flatten)]
     Shared(Box<SharedCommands>),
 
-    /// Authenticate with the Moatless API
-    Login,
+    /// Authenticate with the Moatless API.
+    ///
+    /// Probes the target URL's auth mode and picks the right flow:
+    /// - No providers configured (e.g. local Docker install) → saves a
+    ///   `local-user` profile, no browser needed.
+    /// - Providers configured → runs the browser-based OAuth flow.
+    Login {
+        /// URL to authenticate against. Defaults to the configured API URL
+        /// (env `MOATLESS_API_URL` or the default profile).
+        #[arg(long)]
+        url: Option<String>,
+    },
     /// Remove saved credentials
     Logout,
     /// Message management
@@ -314,7 +324,7 @@ async fn run_standalone(cli: StandaloneCli) -> Result<(), Box<dyn std::error::Er
 
     let needs_auth = !matches!(
         &cli.command,
-        StandaloneCommands::Login | StandaloneCommands::Logout
+        StandaloneCommands::Login { .. } | StandaloneCommands::Logout
     ) && !is_status_command_standalone(&cli.command);
     if needs_auth {
         auth::ensure_auth(&mut moat, &cfg).await?;
@@ -322,8 +332,8 @@ async fn run_standalone(cli: StandaloneCli) -> Result<(), Box<dyn std::error::Er
 
     match cli.command {
         StandaloneCommands::Shared(cmd) => run_shared(*cmd, &moat, &cfg, cli.opts.json).await?,
-        StandaloneCommands::Login => {
-            auth::login_browser(&cfg).await?;
+        StandaloneCommands::Login { url } => {
+            auth::login(&cfg, url).await?;
         }
         StandaloneCommands::Logout => {
             let host = cfg.host();

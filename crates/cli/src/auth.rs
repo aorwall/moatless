@@ -56,8 +56,71 @@ fn load_session(path: &str) -> Option<String> {
 }
 
 // ============================================================================
-// Standalone mode: browser-based OAuth login
+// Standalone mode: login dispatcher (OAuth vs local no-auth)
 // ============================================================================
+
+/// Top-level login entry point.
+///
+/// Probes `{url}/api/v1/auth/me` to decide the flow:
+/// - 200 with empty `providers` → backend has no auth configured; save a
+///   local-user profile.
+/// - 200 with non-empty `providers` or 401 → run the browser OAuth flow.
+///
+/// If `url_override` is `None`, uses the URL from `config` (env-resolved).
+pub async fn login(config: &Config, url_override: Option<String>) -> Result<(), ClientError> {
+    let url = url_override
+        .unwrap_or_else(|| config.api_url.clone())
+        .trim_end_matches('/')
+        .to_string();
+
+    match probe_auth_mode(&url).await? {
+        ProbedAuthMode::NoAuth => login_local(&url).await,
+        ProbedAuthMode::OAuth => login_browser(&url).await,
+    }
+}
+
+enum ProbedAuthMode {
+    NoAuth,
+    OAuth,
+}
+
+async fn probe_auth_mode(url: &str) -> Result<ProbedAuthMode, ClientError> {
+    let probe = format!("{url}/api/v1/auth/me");
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .map_err(|e| ClientError::Api {
+            status: 500,
+            body: format!("Failed to build HTTP client: {e}"),
+        })?;
+
+    let resp = client.get(&probe).send().await.map_err(|e| ClientError::Api {
+        status: 0,
+        body: format!("Failed to reach {url}: {e}. Is the backend running?"),
+    })?;
+
+    if !resp.status().is_success() {
+        // 401 / 403 / anything else → assume auth is required, try OAuth.
+        return Ok(ProbedAuthMode::OAuth);
+    }
+
+    // Parse providers to decide. Shape: `{"user": ..., "providers": [...], ...}`.
+    #[derive(serde::Deserialize)]
+    struct AuthMe {
+        #[serde(default)]
+        providers: Vec<serde_json::Value>,
+    }
+    let body: AuthMe = resp.json().await.map_err(|e| ClientError::Api {
+        status: 500,
+        body: format!("Failed to parse /auth/me response: {e}"),
+    })?;
+
+    if body.providers.is_empty() {
+        Ok(ProbedAuthMode::NoAuth)
+    } else {
+        Ok(ProbedAuthMode::OAuth)
+    }
+}
 
 /// Browser-based login for standalone CLI usage.
 ///
@@ -65,7 +128,7 @@ fn load_session(path: &str) -> Option<String> {
 /// 2. Open browser to `{api_url}/api/v1/auth/cli/login?port={port}`
 /// 3. Wait for callback with API key
 /// 4. Save credentials to disk
-pub async fn login_browser(config: &Config) -> Result<(), ClientError> {
+async fn login_browser(api_url: &str) -> Result<(), ClientError> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
 
@@ -84,10 +147,7 @@ pub async fn login_browser(config: &Config) -> Result<(), ClientError> {
         })?
         .port();
 
-    let login_url = format!(
-        "{}/api/v1/auth/cli/login?port={port}",
-        config.api_url.trim_end_matches('/')
-    );
+    let login_url = format!("{api_url}/api/v1/auth/cli/login?port={port}");
 
     println!("Opening browser to log in...");
     println!("If the browser doesn't open, visit: {login_url}");
@@ -129,13 +189,14 @@ pub async fn login_browser(config: &Config) -> Result<(), ClientError> {
 
     match result {
         Ok(Ok((api_key, login))) => {
-            let host = config.host();
-            crate::credentials::save_credential(&host, &api_key, &login).map_err(|e| {
-                ClientError::Api {
+            let host = crate::config::host_from_url(api_url);
+            // Store the full URL on the profile so future `moat` invocations
+            // pick up the right host without needing `MOATLESS_API_URL`.
+            crate::credentials::save_profile(&host, &api_key, &login, Some(api_url), true)
+                .map_err(|e| ClientError::Api {
                     status: 500,
                     body: format!("Failed to save credentials: {e}"),
-                }
-            })?;
+                })?;
             println!("Logged in as {login}");
             Ok(())
         }
@@ -145,6 +206,23 @@ pub async fn login_browser(config: &Config) -> Result<(), ClientError> {
             body: "Login timed out after 120 seconds".to_string(),
         }),
     }
+}
+
+/// Register a no-auth install as a profile. Called by `login` after the probe
+/// determines the backend has `AUTH_PROVIDER=` empty — no browser OAuth, the
+/// backend falls back to a seeded `local-user` admin for all requests.
+async fn login_local(url: &str) -> Result<(), ClientError> {
+    let host = crate::config::host_from_url(url);
+    crate::credentials::save_profile(&host, "", "local-user", Some(url), true).map_err(|e| {
+        ClientError::Api {
+            status: 500,
+            body: format!("Failed to save credentials: {e}"),
+        }
+    })?;
+
+    println!("Registered {url} as local-user (no auth required).");
+    println!("Subsequent `moat` commands will target this host by default.");
+    Ok(())
 }
 
 /// Parse the callback request to extract `key` and `login` query params.

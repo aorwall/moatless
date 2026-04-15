@@ -89,10 +89,13 @@ services:
       # GitHub PAT (for repository access)
       GITHUB_PAT: ${GITHUB_PAT:-}
 
+      # Secret Encryption (required for scoped secrets — CLAUDE_CODE_OAUTH_TOKEN etc.)
+      SECRETS_ENCRYPTION_KEY: ${SECRETS_ENCRYPTION_KEY:-}
+
       # Docker Configuration
       TASK_TOKEN_SECRET: ${TASK_TOKEN_SECRET:?TASK_TOKEN_SECRET must be set}
       DOCKER_SANDBOX_IMAGE: ${SANDBOX_IMAGE:-aorwall/moatless-vibe-sandbox-js:latest}
-      DOCKER_NETWORK: docker-compose_moatless
+      DOCKER_NETWORK: ${DOCKER_NETWORK:-moatless_moatless}
       DOCKER_BACKEND_HOSTNAME: moatless-backend
       SANDBOX_GRPC_PORT: ${SANDBOX_GRPC_PORT:-50052}
 

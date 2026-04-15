@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use super::env_file::{is_placeholder, is_secret, read_env_map, set_env, write_env_file};
 use super::helpers::{resolve_compose_dir, ComposeDirSource, ENV_EXAMPLE_FILE, ENV_FILE};
-use super::{EnvAction, EnvListArgs, EnvSetArgs};
+use super::{EnvAction, EnvListArgs, EnvSetArgs, EnvUnsetArgs};
 use crate::client::ClientError;
 use crate::output;
 
@@ -23,6 +23,14 @@ pub(super) struct EnvSetReport {
     pub(super) action: String, // "created" | "updated" | "unchanged"
     pub(super) was_placeholder: bool,
     pub(super) is_secret: bool,
+}
+
+#[derive(Serialize, Deserialize)]
+pub(super) struct EnvUnsetReport {
+    pub(super) compose_dir: String,
+    pub(super) env_file: String,
+    pub(super) key: String,
+    pub(super) action: String, // "removed" | "not_present"
 }
 
 #[derive(Serialize, Deserialize)]
@@ -45,8 +53,45 @@ pub(super) struct EnvKey {
 pub(super) async fn run(action: EnvAction, json: bool) -> Result<(), ClientError> {
     match action {
         EnvAction::Set(args) => run_set(args, json).await,
+        EnvAction::Unset(args) => run_unset(args, json).await,
         EnvAction::List(args) => run_list(args, json).await,
     }
+}
+
+async fn run_unset(args: EnvUnsetArgs, json: bool) -> Result<(), ClientError> {
+    let (compose_dir, _source) = resolve_compose_dir(args.compose_dir.as_deref())?;
+    let env_path = compose_dir.join(ENV_FILE);
+
+    if !env_path.is_file() {
+        return Err(ClientError::Other(format!(
+            "{} not found. Nothing to unset.",
+            env_path.display()
+        )));
+    }
+
+    let mut env = read_env_map(&env_path)?;
+    let before = env.len();
+    env.retain(|(k, _)| k != &args.key);
+    let action = if env.len() < before {
+        write_env_file(&env_path, &env)?;
+        "removed"
+    } else {
+        "not_present"
+    };
+
+    let report = EnvUnsetReport {
+        compose_dir: compose_dir.display().to_string(),
+        env_file: env_path.display().to_string(),
+        key: args.key.clone(),
+        action: action.to_string(),
+    };
+
+    if json {
+        output::print_json_typed(&report);
+    } else {
+        print_unset_human(&report);
+    }
+    Ok(())
 }
 
 async fn run_set(args: EnvSetArgs, json: bool) -> Result<(), ClientError> {
@@ -182,6 +227,14 @@ fn print_set_human(r: &EnvSetReport) {
     if r.is_secret {
         println!("Value:    (secret, not echoed)");
     }
+}
+
+fn print_unset_human(r: &EnvUnsetReport) {
+    println!("Docker env unset");
+    println!("================");
+    println!("Env file: {}", r.env_file);
+    println!("Key:      {}", r.key);
+    println!("Action:   {}", r.action);
 }
 
 fn print_list_human(r: &EnvListReport, source: ComposeDirSource) {

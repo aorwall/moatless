@@ -31,13 +31,18 @@ pub fn print_status(config: &Config) {
             println!("Mode:    standalone");
             let host = config.host();
             println!("Profile: {host}");
+            let creds = crate::credentials::load_credentials();
+            let profile = creds.profiles.get(&host);
             if api_key.is_some() {
-                let creds = crate::credentials::load_credentials();
-                if let Some(profile) = creds.profiles.get(&host) {
-                    println!("User:    {}", profile.user_login);
+                if let Some(p) = profile {
+                    println!("User:    {}", p.user_login);
                 } else {
                     println!("Auth:    API key set");
                 }
+            } else if let Some(p) = profile {
+                // Profile exists but api_key is empty — registered via
+                // `moat login --local` for a no-auth install.
+                println!("User:    {} (no auth)", p.user_login);
             } else {
                 println!("Auth:    not logged in (run `moat login`)");
             }

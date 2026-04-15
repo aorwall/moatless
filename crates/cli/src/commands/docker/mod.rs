@@ -51,6 +51,11 @@ pub enum EnvAction {
     /// Write or replace a key in `.env` (creates `.env` from `.env.example` if missing)
     Set(EnvSetArgs),
 
+    /// Remove a key from `.env` entirely. Distinct from `set KEY ""` — the next
+    /// `init` will treat the key as missing and regenerate auto-generated
+    /// secrets (e.g. `TASK_TOKEN_SECRET`, `SECRETS_ENCRYPTION_KEY`).
+    Unset(EnvUnsetArgs),
+
     /// Show all keys in `.env` with status (set / placeholder / empty); secrets are masked
     List(EnvListArgs),
 }
@@ -66,6 +71,16 @@ pub struct EnvSetArgs {
 
     /// Value to write (secret values are not echoed to stdout)
     pub value: String,
+}
+
+#[derive(clap::Args)]
+pub struct EnvUnsetArgs {
+    /// Explicit compose work dir
+    #[arg(long)]
+    pub compose_dir: Option<PathBuf>,
+
+    /// Key name to remove from `.env`
+    pub key: String,
 }
 
 #[derive(clap::Args)]

@@ -189,6 +189,16 @@ pub(super) fn copy_assets(
             continue;
         }
 
+        // Guard against the skill's assets being symlinks back to the
+        // destination (repo-checkout install where assets_dir lives inside the
+        // repo). fs::copy would truncate the destination before reading, so
+        // source and dest resolving to the same inode clobbers the file.
+        if let (Ok(src_canon), Ok(dst_canon)) = (fs::canonicalize(&src), fs::canonicalize(&dst)) {
+            if src_canon == dst_canon {
+                continue;
+            }
+        }
+
         fs::copy(&src, &dst).map_err(|e| {
             ClientError::Other(format!(
                 "Failed to copy {} → {}: {e}",
