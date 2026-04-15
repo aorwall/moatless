@@ -14,7 +14,7 @@ use bollard::models::EndpointSettings;
 use bollard::network::ConnectNetworkOptions;
 use futures::stream::BoxStream;
 use std::sync::Arc;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 use super::client::DockerClient;
 use super::container_builder;
@@ -198,31 +198,54 @@ impl SandboxProvider for DockerSandboxProvider {
                 .await?;
 
         if let Some(ref servers) = plan.repo_config.servers {
+            // Validate all server configs up front so we fail fast before
+            // kicking off any container create calls. Publishes a `failed`
+            // event per broken server so operators see the reason in
+            // `moat tasks diagnose` / the event feed.
+            let sandbox_image = plan.repo_config.docker_image.as_deref();
+            for server in servers {
+                if let Err(msg) = container_builder::validate_server_config(server, sandbox_image) {
+                    error!(
+                        task_id = %task_id,
+                        server = %server.name,
+                        "Invalid server config: {msg}"
+                    );
+                    self.publish_server_failed(task_id, &server.name, &msg).await;
+                    return Err(SandboxError::DockerError(msg));
+                }
+            }
+
             for server in servers {
                 if server_env_files.contains_key(&server.name)
                     && server.start_commands.as_ref().is_none_or(Vec::is_empty)
                 {
+                    // Validation above already rejects empty start_commands for
+                    // the default image. A custom image with its own baked-in
+                    // CMD can still source env via BASH_ENV, so just note it.
                     warn!(
                         task_id = %task_id,
                         server = %server.name,
-                        "Docker server has scoped secrets but no start_commands; image startup must source MOATLESS_SERVER_ENV_FILE or BASH_ENV"
+                        "Server has scoped secrets but no start_commands; custom image must source MOATLESS_SERVER_ENV_FILE or BASH_ENV itself"
                     );
                 }
                 if let Err(e) = self
                     .create_and_start_server_container(
                         task_id,
                         server,
-                        plan.repo_config.docker_image.as_deref(),
+                        sandbox_image,
                         server_env_files.get(&server.name).map(String::as_str),
                     )
                     .await
                 {
-                    warn!(
+                    let msg = format!("Failed to create server container: {e}");
+                    error!(
                         task_id = %task_id,
                         server = %server.name,
                         error = %e,
-                        "Failed to create server container (non-fatal)"
+                        "Failed to create server container"
                     );
+                    self.publish_server_failed(task_id, &server.name, &msg).await;
+                    return Err(e);
                 }
             }
         }
@@ -435,6 +458,27 @@ impl DockerSandboxProvider {
         if let Some(ref publisher) = self.event_publisher {
             publisher
                 .publish_sandbox_event(task_id, moatless_events::SandboxStatus::Ready, "Running")
+                .await;
+        }
+    }
+
+    /// Publish a server `failed` event with the operator-facing reason.
+    ///
+    /// Surfaces in `moat tasks diagnose` (via the `isError: true` filter on
+    /// the event feed) so crashes during provisioning don't require digging
+    /// through backend logs.
+    async fn publish_server_failed(&self, task_id: &str, server_name: &str, message: &str) {
+        if let Some(ref publisher) = self.event_publisher {
+            publisher
+                .publish_server_event(
+                    task_id,
+                    moatless_events::ServerSubType::Failed,
+                    &moatless_events::ServerEventPayload {
+                        server_name: server_name.to_string(),
+                        status: moatless_events::ServerSubType::Failed,
+                        message: message.to_string(),
+                    },
+                )
                 .await;
         }
     }

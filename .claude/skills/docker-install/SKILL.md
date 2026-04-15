@@ -68,15 +68,18 @@ moat docker init --assets-from <this-skill>/assets --non-interactive --json
 `init` does three things:
 1. If the work dir is empty (cache-dir mode), copy `docker-compose.yml` + `.env.example` from `--assets-from`.
 2. If `.env` is missing, copy `.env.example` → `.env`.
-3. Auto-generate `TASK_TOKEN_SECRET` if it's still the `your_*_here` placeholder.
+3. For each `your_*_here` placeholder, either auto-generate or flag as missing:
+   - **`TASK_TOKEN_SECRET`** — 64-char hex, auto-generated.
+   - **`SECRETS_ENCRYPTION_KEY`** — base64 of 32 random bytes, auto-generated. Not negotiable: without it the scoped-secrets subsystem stays off, `CLAUDE_CODE_OAUTH_TOKEN` never migrates to a stored secret, and the agent returns `Not logged in · Please run /login` on every message.
+   - **`CLAUDE_CODE_OAUTH_TOKEN`** — the only key the user must supply. Ends up in `keys_missing` on a fresh non-interactive install; set it in 2b.
 
-The JSON report lists `keys_generated`, `keys_missing`, and `copied_assets`. On a fresh install, `keys_missing` will contain `CLAUDE_CODE_OAUTH_TOKEN` — that's expected. Use `env list` at any time to see the current state:
+The JSON report lists `keys_generated`, `keys_missing`, and `copied_assets`. On a fresh install, `keys_generated` will contain `TASK_TOKEN_SECRET` and `SECRETS_ENCRYPTION_KEY`; `keys_missing` will contain `CLAUDE_CODE_OAUTH_TOKEN` — that's expected. Use `env list` at any time to see the current state:
 
 ```bash
 moat docker env list --json
 ```
 
-`env list` reports each key with `status: set | placeholder | empty`. Secret keys (`CLAUDE_CODE_OAUTH_TOKEN`, `TASK_TOKEN_SECRET`) are masked as `**** (N chars)` — the actual value is never printed. Non-secret keys show their value so ports / domains / paths can be sanity-checked.
+`env list` reports each key with `status: set | placeholder | empty`. Secret keys (`CLAUDE_CODE_OAUTH_TOKEN`, `TASK_TOKEN_SECRET`, `SECRETS_ENCRYPTION_KEY`) are masked as `**** (N chars)` — the actual value is never printed. Non-secret keys show their value so ports / domains / paths can be sanity-checked.
 
 #### 2b. Set `CLAUDE_CODE_OAUTH_TOKEN`
 
@@ -133,7 +136,95 @@ Once healthy, give the user the URLs:
 - **Backend**: http://localhost:8080 (API at `/api/`, health at `/health`)
 - **Dozzle** (log viewer): http://localhost:9999
 
-Then hand off to the `docker-testing` skill for task creation, preview debugging, and long-running ops.
+**Do not hand off yet.** Healthy containers ≠ working agent, and a completed task ≠ a working preview. Proceed to Step 5 (including 5e's preview-reachability check) to verify end-to-end before declaring the install done.
+
+### Step 5 — Verify end-to-end by creating a task
+
+A healthy `status` means containers are up; it does not prove the agent can reach Claude. `SECRETS_ENCRYPTION_KEY` misconfiguration, expired OAuth tokens, or broken sandbox images all produce green `status` but `Not logged in · Please run /login` on every task message. Confirm the full path (backend → sandbox → credentials → Claude CLI → real file output) with a smoke-test task.
+
+#### 5a. Register the local install as the default `moat` host
+
+```bash
+MOATLESS_API_URL=http://localhost:3000 moat login
+```
+
+`moat login` probes `/api/v1/auth/me`: a local install returns `providers: []` (no OAuth configured), so the CLI saves `http://localhost:3000` as a no-auth profile and makes it the default — no browser, no API key. Against a hosted install with OAuth configured, the same command kicks off the browser flow instead. Subsequent `moat` commands default to this host; no further `MOATLESS_API_URL` export needed. Confirm with:
+
+```bash
+moat status
+```
+
+Expect `API URL: http://localhost:3000` and `User: local-user (no auth)`.
+
+#### 5b. Create a smoke-test task
+
+```bash
+moat repos list --json | jq -r '.[] | {id, name}'
+moat tasks create --repo Moatable \
+  --name "Smoke test: todo app" \
+  --message "Create a simple todo app with add, complete, and delete. Use React and keep it minimal."
+```
+
+Capture the returned task ID and **give the user the task URL immediately** so they can watch progress in the UI while the agent runs:
+
+```
+http://localhost:3000/tasks/<task-id>
+```
+
+#### 5c. Poll until the agent settles
+
+```bash
+moat tasks get <task-id> --json | jq '{status, agentState, totalCostUsd}'
+```
+
+Typical completion: 60–90 s, cost ~$0.10. Interpret:
+
+- `status: "open"` + `agentState: "idle"` + `totalCostUsd > 0` → agent completed a real turn. Continue to 5d.
+- `status: "error"` → read `moat messages list <task-id>` for the failure. On fresh installs, the most common failure is `Not logged in · Please run /login` — that means `SECRETS_ENCRYPTION_KEY` isn't wired up. See `references/troubleshooting.md` §Agent-not-logged-in.
+- `status: "running"` / `agentState: "running"` → still in flight; poll again in ~15 s.
+
+#### 5d. Confirm the agent produced real output
+
+A task that completed with `totalCostUsd > 0` but no file changes is a hallucinated turn, not a working install.
+
+```bash
+moat tasks files <task-id> tree
+moat tasks files <task-id> read --path src/App.tsx
+```
+
+Only after seeing actual file content (`<App />` component with todo state, handlers, etc.) is step 5d satisfied. Continue to 5e.
+
+#### 5e. Confirm the preview server is reachable
+
+Files on disk aren't proof the generated app actually runs. The preview sidecar (Vite dev server, port 3000 inside the container → dynamic host port) must be `started` *and* respond to HTTP. Silent preview failures happen even when the agent completed successfully — a missed `startCommands` in the seed config, an arch-mismatched `node_modules/rollup` native binary on Apple Silicon, or a crash-looping container on exit 0 will all slip past Steps 5a–5d.
+
+```bash
+moat tasks status <task-id> --json | jq '.servers[] | {name, status, url, error}'
+```
+
+Expect the `preview` (or repo-configured default) server to report:
+
+```json
+{ "name": "preview", "status": "started", "url": "http://localhost:<dynamic-port>", "error": null }
+```
+
+Interpret:
+- `status: "started"` + non-null `url` → continue to the HTTP check below.
+- `status: "starting"` → vite is still booting (common right after task creation); re-poll after ~15 s. If it's still `starting` past ~60 s, treat it as a failure.
+- `status: "failed"` with `error: "Crash loop (restarts: N, exit M)"` → the start command is broken. Read logs (`moat tasks logs <task-id> --server preview`), fix the repo's `servers[].startCommands`, then `moat tasks redeploy <task-id>` to recreate the container from the updated config. A plain `moat tasks restart` is not enough — it reuses the existing container's stale `Cmd`.
+- `status: "failed"` with `error: "Server failed to become ready within timeout"` → the command runs but never binds the expected port. Check `moat tasks logs <task-id> --server preview` for the real error (common: `MODULE_NOT_FOUND` on rollup native bindings → fix via `moat tasks files <task-id> … rm -rf node_modules && bun install` or adjust the sandbox image arch).
+
+Once the server reports `started`, hit the URL and confirm vite is actually serving HTML:
+
+```bash
+curl -sSf <url>/ | head -c 300
+```
+
+Expect an HTML document containing `<script type="module" src="/@vite/client"></script>` and `<div id="root">`. An empty response, connection refused, or non-200 status means the TCP port is open but the app isn't running — surface the failure rather than declaring success.
+
+Only after both `status: "started"` *and* a successful HTML fetch is the install verified end-to-end. Report a one-line summary to the user — task URL, preview URL, elapsed time, cost, and "agent built todo app, preview reachable" — then hand off to the `docker-testing` skill for day-to-day ops.
+
+For detailed `moat tasks` / `moat messages` / `moat tasks files` / `moat tasks logs` / `moat tasks redeploy` semantics, cross-reference the `moat-cli` skill.
 
 ## JSON output fields
 
@@ -147,6 +238,7 @@ Skill-parseable fields per command:
 | `status` | `all_healthy`, `services[]` (`.name`, `.state`, `.health`), `endpoints[]` (`.ok`, `.detail`) |
 | `uninstall` | `volumes_purged`, `cache_purged` |
 | `env set` | `action` (`created`/`updated`/`unchanged`), `was_placeholder`, `is_secret`, `env_file` |
+| `env unset` | `action` (`removed`/`not_present`), `key`, `env_file` |
 | `env list` | `env_present`, `keys[]` (`.name`, `.status`, `.is_secret`, `.display`) |
 
 ## Safe retry
@@ -165,7 +257,9 @@ If any step fails, re-run **that step** with the fix applied, not the whole flow
 |---|---|---|
 | Port conflict on `install` | `moat docker preflight --json` — which port, which process | `references/troubleshooting.md` §Ports |
 | Sandbox image fails to start on M-series Mac | `docker inspect moatless-sandbox-js:latest` (check `Architecture`) | §Apple Silicon |
-| `CLAUDE_CODE_OAUTH_TOKEN` errors from backend | token expired or empty; refresh with `claude setup-token`, `moat docker init --overwrite` | §Claude token |
+| `CLAUDE_CODE_OAUTH_TOKEN` errors from backend | token expired or empty; refresh with `claude setup-token`, `moat docker env set CLAUDE_CODE_OAUTH_TOKEN <new>`, `moat docker install` (recreates backend) | §Claude token |
+| Agent says `Not logged in · Please run /login` in every task message | `SECRETS_ENCRYPTION_KEY` missing/malformed; `moat docker env unset SECRETS_ENCRYPTION_KEY && moat docker init --non-interactive && moat docker install` | §Agent-not-logged-in |
+| `.env` edit doesn't take effect after `docker restart` | Container env is frozen at creation time; must run `moat docker install` to recreate | §Stale-container-env |
 | Backend can't talk to Postgres | `moat docker status --json` → postgres endpoint detail; then `moat docker logs --service postgres` | §Database |
 | First-boot migration failure | `moat docker logs --service backend --since 5m` | §Migrations |
 

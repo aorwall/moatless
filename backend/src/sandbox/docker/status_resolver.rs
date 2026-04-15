@@ -217,12 +217,13 @@ impl DockerStatusResolver {
             .await
         {
             Ok(info) => {
-                let status_str = info
-                    .state
-                    .as_ref()
+                let state = info.state.as_ref();
+                let status_str = state
                     .and_then(|s| s.status.as_ref())
                     .map(std::string::ToString::to_string)
                     .unwrap_or_default();
+                let restart_count = info.restart_count.unwrap_or(0);
+                let max_restarts = self.config.sandbox.max_crash_restart_count;
 
                 // Extract the dynamically assigned host port
                 let host_port = info
@@ -239,20 +240,38 @@ impl DockerStatusResolver {
                     .as_ref()
                     .map(|port| format!("http://localhost:{port}"));
 
+                // Detect crash loop (applies to both "running" and "restarting"
+                // statuses) — a container that's restarting past the threshold
+                // is failing; Docker's "restarting" status otherwise masks it
+                // as Starting forever.
+                if max_restarts > 0 && restart_count as i32 >= max_restarts {
+                    let exit_code = state.and_then(|s| s.exit_code).unwrap_or(0);
+                    let state_error = state
+                        .and_then(|s| s.error.as_ref())
+                        .filter(|e| !e.is_empty())
+                        .cloned();
+                    let msg = match state_error {
+                        Some(e) => format!(
+                            "Crash loop (restarts: {restart_count}, exit {exit_code}): {e}"
+                        ),
+                        None => format!("Crash loop (restarts: {restart_count}, exit {exit_code})"),
+                    };
+                    return (ServerStatus::Failed, url, Some(msg));
+                }
+
                 let server_status = match status_str.as_str() {
                     "running" => {
-                        // Check if the port is actually reachable
-                        let port_open = if let Some(ref hp) = host_port {
-                            if let Ok(p) = hp.parse::<u16>() {
-                                tokio::net::TcpStream::connect(("127.0.0.1", p))
-                                    .await
-                                    .is_ok()
-                            } else {
-                                false
-                            }
-                        } else {
-                            false
-                        };
+                        // Check if the port is actually reachable via the shared
+                        // Docker network (container name → internal port). The
+                        // status resolver runs inside the backend container, so
+                        // `127.0.0.1:host_port` wouldn't work — that's the host
+                        // machine's loopback, not reachable from here.
+                        let port_open = tokio::net::TcpStream::connect((
+                            container_name,
+                            container_port,
+                        ))
+                        .await
+                        .is_ok();
 
                         if port_open {
                             ServerStatus::Started
@@ -284,6 +303,18 @@ impl DockerStatusResolver {
                     }
                     "created" | "restarting" => ServerStatus::Starting,
                     "dead" => ServerStatus::Failed,
+                    "exited" => {
+                        let exit_code = state.and_then(|s| s.exit_code).unwrap_or(0);
+                        if exit_code == 0 {
+                            ServerStatus::Stopped
+                        } else {
+                            return (
+                                ServerStatus::Failed,
+                                url,
+                                Some(format!("Container exited with code {exit_code}")),
+                            );
+                        }
+                    }
                     _ => ServerStatus::Stopped,
                 };
 

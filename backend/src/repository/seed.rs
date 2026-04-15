@@ -42,10 +42,11 @@ async fn seed_moatable(repos: &dyn RepoRepository) -> Result<(), sqlx::Error> {
         servers: Some(json!([{
             "name": "preview",
             "label": "Preview",
-            "start_commands": ["bun run dev"],
-            "startup_timeout_seconds": 30,
-            "auto_reload": true,
-            "enable_inspector": true,
+            "port": 3000,
+            "startCommands": ["bun run dev"],
+            "startupTimeoutSeconds": 30,
+            "autoReload": true,
+            "enableInspector": true,
             "default": true
         }])),
         plugins: None,

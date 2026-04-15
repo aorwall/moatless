@@ -254,7 +254,47 @@ fn build_repo_config_json(plan: &ProvisionPlan) -> Option<String> {
 }
 
 /// Default preview server image (matches K8s sidecar pattern).
-const DEFAULT_SERVER_IMAGE: &str = "aorwall/moatless-vibe-preview-server:latest";
+pub(super) const DEFAULT_SERVER_IMAGE: &str = "aorwall/moatless-vibe-preview-server:latest";
+
+/// Resolve the effective image for a server container using the same
+/// precedence as `build_server_container_config`: per-server override →
+/// repo-level override → default preview image.
+pub(super) fn resolve_server_image(server: &ServerConfig, sandbox_image: Option<&str>) -> String {
+    server
+        .docker_image
+        .clone()
+        .or_else(|| sandbox_image.map(String::from))
+        .unwrap_or_else(|| DEFAULT_SERVER_IMAGE.to_string())
+}
+
+/// Validate a server's configuration before we try to launch it.
+///
+/// The default preview image has no baked-in `CMD` — its entrypoint does
+/// `exec "$@"`, so an empty `start_commands` produces a crash loop. Reject
+/// that up front so the operator sees the error on `moat tasks diagnose`
+/// instead of having to read container logs.
+///
+/// Returns a human-readable message on failure.
+pub(super) fn validate_server_config(
+    server: &ServerConfig,
+    sandbox_image: Option<&str>,
+) -> Result<(), String> {
+    let image = resolve_server_image(server, sandbox_image);
+    let has_start_commands = server
+        .start_commands
+        .as_ref()
+        .is_some_and(|c| !c.is_empty());
+
+    if image == DEFAULT_SERVER_IMAGE && !has_start_commands {
+        return Err(format!(
+            "Server '{}' uses default preview image '{}' but has no start_commands. \
+             Set repositories.servers[].startCommands (camelCase) in the repo config.",
+            server.name, DEFAULT_SERVER_IMAGE
+        ));
+    }
+
+    Ok(())
+}
 
 /// Build a `bollard::container::Config` for a server sidecar container.
 ///
@@ -836,5 +876,44 @@ mod tests {
             .find(|m| m.target.as_deref() == Some("/var/run/docker.sock"))
             .unwrap();
         assert_eq!(socket_mount.source.as_deref(), Some("/custom/docker.sock"));
+    }
+
+    // ── Server config validation tests ──────────────────────────────
+
+    #[test]
+    fn validate_ok_with_start_commands_and_default_image() {
+        let server = test_server_config();
+        assert!(validate_server_config(&server, None).is_ok());
+    }
+
+    #[test]
+    fn validate_rejects_default_image_without_start_commands() {
+        let mut server = test_server_config();
+        server.start_commands = None;
+        let err = validate_server_config(&server, None).unwrap_err();
+        assert!(err.contains("preview"));
+        assert!(err.contains("startCommands"));
+    }
+
+    #[test]
+    fn validate_rejects_default_image_with_empty_start_commands() {
+        let mut server = test_server_config();
+        server.start_commands = Some(vec![]);
+        assert!(validate_server_config(&server, None).is_err());
+    }
+
+    #[test]
+    fn validate_allows_custom_image_without_start_commands() {
+        let mut server = test_server_config();
+        server.start_commands = None;
+        server.docker_image = Some("my-server:v1".into());
+        assert!(validate_server_config(&server, None).is_ok());
+    }
+
+    #[test]
+    fn validate_allows_repo_level_image_without_start_commands() {
+        let mut server = test_server_config();
+        server.start_commands = None;
+        assert!(validate_server_config(&server, Some("my-sandbox:v1")).is_ok());
     }
 }
