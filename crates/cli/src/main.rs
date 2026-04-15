@@ -95,6 +95,11 @@ enum SharedCommands {
         #[command(subcommand)]
         action: commands::k8s::K8sAction,
     },
+    /// Docker Compose installation workflow (preflight, init, install, status, logs)
+    Docker {
+        #[command(subcommand)]
+        action: commands::docker::DockerAction,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -396,6 +401,9 @@ async fn run_shared(
         SharedCommands::K8s { action } => {
             commands::k8s::run(action, json).await?;
         }
+        SharedCommands::Docker { action } => {
+            commands::docker::run(action, json).await?;
+        }
     }
 
     Ok(())
@@ -415,7 +423,12 @@ fn is_status_command_sandbox(cmd: &SandboxCommands) -> bool {
     matches!(
         cmd,
         SandboxCommands::Shared(c)
-            if matches!(**c, SharedCommands::Status | SharedCommands::K8s { .. })
+            if matches!(
+                **c,
+                SharedCommands::Status
+                    | SharedCommands::K8s { .. }
+                    | SharedCommands::Docker { .. }
+            )
     )
 }
 
@@ -423,7 +436,12 @@ fn is_status_command_standalone(cmd: &StandaloneCommands) -> bool {
     matches!(
         cmd,
         StandaloneCommands::Shared(c)
-            if matches!(**c, SharedCommands::Status | SharedCommands::K8s { .. })
+            if matches!(
+                **c,
+                SharedCommands::Status
+                    | SharedCommands::K8s { .. }
+                    | SharedCommands::Docker { .. }
+            )
     )
 }
 
