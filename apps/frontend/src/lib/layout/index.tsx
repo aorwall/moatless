@@ -9,8 +9,8 @@ type LayoutProps = {
 export const Layout = ({ children }: LayoutProps) => {
   return (
     <ThemeProvider>
-      <div className="flex h-screen w-full bg-background text-foreground">
-        <main className="flex-1 overflow-auto h-full">{children}</main>
+      <div className="flex h-dvh w-full bg-background text-foreground">
+        <main className="flex-1 overflow-hidden h-full">{children}</main>
       </div>
     </ThemeProvider>
   )

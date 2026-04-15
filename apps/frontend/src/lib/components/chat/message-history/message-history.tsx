@@ -265,7 +265,7 @@ function MessageHistoryComponent({
       <div className="h-full relative">
         <StickToBottom
           initial="instant"
-          className="h-full w-full overflow-y-auto [&::-webkit-scrollbar]:w-2.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:transition-colors"
+          className="h-full w-full overflow-y-auto overscroll-contain [&::-webkit-scrollbar]:w-2.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:transition-colors"
           style={{
             scrollbarWidth: 'thin',
             scrollbarColor: 'hsl(var(--border)) transparent',
