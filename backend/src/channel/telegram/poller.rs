@@ -44,7 +44,7 @@ pub fn spawn_telegram_poller(
         match api.delete_webhook().await {
             Ok(()) => info!("Telegram poller: cleared existing webhook"),
             Err(e) => {
-                warn!(error = %e, "Telegram poller: failed to delete webhook, continuing anyway")
+                warn!(error = %e, "Telegram poller: failed to delete webhook, continuing anyway");
             }
         }
 

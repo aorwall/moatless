@@ -120,20 +120,21 @@ pub async fn process_inbound(
                 state.repositories.as_ref(),
                 state.provider_tokens.as_ref(),
                 state.plugin_repos.as_ref(),
+                Some(&state.secrets),
                 &task_id,
             )
             .await
             {
                 Ok(request) => match state.sandbox.provision(&task_id, &request).await {
                     Ok(_) => {
-                        info!(task_id = %task_id, "Sandbox provisioning started for channel task")
+                        info!(task_id = %task_id, "Sandbox provisioning started for channel task");
                     }
                     Err(e) => {
-                        warn!(task_id = %task_id, error = %e, "Failed to provision sandbox for channel task")
+                        warn!(task_id = %task_id, error = %e, "Failed to provision sandbox for channel task");
                     }
                 },
                 Err(e) => {
-                    warn!(task_id = %task_id, error = %e, "Failed to build provision request for channel task")
+                    warn!(task_id = %task_id, error = %e, "Failed to build provision request for channel task");
                 }
             }
 
@@ -321,7 +322,9 @@ pub async fn process_inbound(
             message_text = format!("{ctx}\n\n---\n\n{message_text}");
         } else {
             // First message in a new session — label the context
-            message_text = format!("Thread context (previous messages):\n\n{ctx}\n\n---\n\nNew message:\n\n{message_text}");
+            message_text = format!(
+                "Thread context (previous messages):\n\n{ctx}\n\n---\n\nNew message:\n\n{message_text}"
+            );
         }
     }
 
@@ -572,20 +575,21 @@ pub async fn trigger_inbound(
         state.repositories.as_ref(),
         state.provider_tokens.as_ref(),
         state.plugin_repos.as_ref(),
+        Some(&state.secrets),
         &task_id,
     )
     .await
     {
         Ok(request) => match state.sandbox.provision(&task_id, &request).await {
             Ok(_) => {
-                info!(task_id = %task_id, "Sandbox provisioning started for triggered channel task")
+                info!(task_id = %task_id, "Sandbox provisioning started for triggered channel task");
             }
             Err(e) => {
-                warn!(task_id = %task_id, error = %e, "Failed to provision sandbox for triggered channel task")
+                warn!(task_id = %task_id, error = %e, "Failed to provision sandbox for triggered channel task");
             }
         },
         Err(e) => {
-            warn!(task_id = %task_id, error = %e, "Failed to build provision request for triggered channel task")
+            warn!(task_id = %task_id, error = %e, "Failed to build provision request for triggered channel task");
         }
     }
 
