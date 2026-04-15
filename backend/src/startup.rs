@@ -300,6 +300,7 @@ pub fn build_docker_sandbox_provider(
 /// All `*ApiDoc` structs register their paths via `#[openapi(paths(...))]`,
 /// so we can build the full spec without constructing any routers.
 pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
+    use crate::agent::routes::AgentApiDoc;
     use crate::auth::routes::AuthApiDoc;
     use crate::channel::routes::ChannelApiDoc;
     use crate::command::routes::CommandApiDoc;
@@ -368,6 +369,7 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     struct FeatureFlagsApiDoc;
 
     let mut merged = SandboxApiDoc::openapi();
+    merged.merge(AgentApiDoc::openapi());
     merged.merge(AuthApiDoc::openapi());
     merged.merge(TaskApiDoc::openapi());
     merged.merge(MessageApiDoc::openapi());

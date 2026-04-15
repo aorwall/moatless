@@ -11,6 +11,7 @@
 
 //! Sandbox Controller library — re-exports all modules for integration tests.
 
+pub mod agent;
 pub mod auth;
 pub mod channel;
 pub mod command;

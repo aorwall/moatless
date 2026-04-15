@@ -2,6 +2,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
+import { useAgentAvailability } from '@/features/agents'
 import { useCommandsList } from '@/features/commands/hooks/use-commands'
 import { FigmaImportDialog } from '@/features/figma/components/figma-import-dialog'
 import {
@@ -9,6 +10,7 @@ import {
   useRepositoriesList,
   useRepository,
 } from '@/features/repositories'
+import { SettingsDialog } from '@/features/settings'
 import { useRepositorySkills } from '@/features/skills'
 import { useTaskInputs } from '@/features/tasks/hooks/use-task-inputs'
 import { useCreateTask } from '@/features/tasks/hooks/use-tasks'
@@ -83,6 +85,15 @@ export function CreateCodeTask({
   const [message, setMessage] = useState(defaultMessage || '')
   const [branch, setBranch] = useState('')
   const [repoDialogOpen, setRepoDialogOpen] = useState(false)
+  const [settingsDialogOpen, setSettingsDialogOpen] = useState(false)
+
+  // Backend-driven agent catalog (availability + per-agent model list),
+  // plus model-reset-on-agent-change effect.
+  const { agents, selectedAgent, agentUnavailable, settingsSection } = useAgentAvailability({
+    agentType,
+    model,
+    onModelChange,
+  })
 
   // Fetch global commands for slash command autocomplete
   const { data: commands = [] } = useCommandsList()
@@ -159,16 +170,19 @@ export function CreateCodeTask({
   }, [repositoryError, onRepositoryChange])
 
   // Use controlled selectors
-  const modelSelector = useModelSelector(
+  const modelSelector = useModelSelector<ClaudeModel>(
     isModelSelectorEnabled ? model : DEFAULT_CLAUDE_MODEL,
     isModelSelectorEnabled
       ? onModelChange
       : () => {
           /* no-op: model selector disabled */
         },
+    selectedAgent?.models,
+    selectedAgent?.defaultModel ?? DEFAULT_CLAUDE_MODEL,
   )
   const agentModeSelector = useAgentModeSelector(agentMode, onAgentModeChange)
-  const agentTypeSelector = useAgentTypeSelector(agentType, onAgentTypeChange)
+  const agentTypeSelector = useAgentTypeSelector(agentType, onAgentTypeChange, agents)
+
   const repoSelector = useRepositorySelector(repositoryId, onRepositoryChange, true)
   const branchSelector = useBranchSelector(repositoryId, branch, setBranch, true, repositoryDetails)
 
@@ -214,21 +228,15 @@ export function CreateCodeTask({
   )
 
   const handleSubmit = () => {
-    if (!repositoryId) {
+    if (!canSubmit) {
       return
     }
 
-    // If a command was selected, send user text only (backend populates prompt)
-    let submitMessage = message.trim() || undefined
-    let submitAgentMode = agentMode
-    if (selectedCommand) {
-      const prefix = `/${selectedCommand.name} `
-      const userText = message.startsWith(prefix) ? message.slice(prefix.length).trim() : ''
-      submitMessage = userText || undefined
-      if (selectedCommand.agentMode) {
-        submitAgentMode = selectedCommand.agentMode as 'edit' | 'plan'
-      }
-    }
+    const { submitMessage, submitAgentMode } = resolveCommandSubmit(
+      message,
+      agentMode,
+      selectedCommand,
+    )
 
     createTask.mutate(
       {
@@ -259,17 +267,13 @@ export function CreateCodeTask({
     taskInputs.setFigmaDialogOpen(true)
   }
 
-  const canSubmit = !!repositoryId
+  const canSubmit = !!repositoryId && !agentUnavailable
 
   const placeholder = isTemplate
     ? 'Describe what you want to build...'
     : 'Describe your coding task or leave empty to just run the app...'
 
-  const chatInputClassName = maxHeight
-    ? `max-h-[${maxHeight}]`
-    : minHeight
-      ? `min-h-[${minHeight}]`
-      : undefined
+  const chatInputClassName = getChatInputClassName(maxHeight, minHeight)
 
   return (
     <div className={className}>
@@ -314,6 +318,20 @@ export function CreateCodeTask({
               files={taskInputs.uploadedFiles}
               onRemove={taskInputs.handleRemoveFile}
             />
+          )}
+
+          {agentUnavailable && (
+            <div className="text-xs text-muted-foreground px-1">
+              {selectedAgent?.missingCredentialHint ??
+                `Connect ${selectedAgent?.label ?? 'this agent'} to run tasks.`}{' '}
+              <button
+                type="button"
+                className="underline hover:text-foreground"
+                onClick={() => setSettingsDialogOpen(true)}
+              >
+                Open Settings
+              </button>
+            </div>
           )}
 
           <div className="flex items-center justify-between gap-2">
@@ -441,8 +459,24 @@ export function CreateCodeTask({
         onOpenChange={taskInputs.setFigmaDialogOpen}
         importMutation={taskInputs.figmaUrlImport}
       />
+
+      <SettingsDialog
+        open={settingsDialogOpen}
+        onOpenChange={setSettingsDialogOpen}
+        defaultSection={settingsSection}
+      />
     </div>
   )
+}
+
+function getChatInputClassName(maxHeight?: string, minHeight?: string): string | undefined {
+  if (maxHeight) {
+    return `max-h-[${maxHeight}]`
+  }
+  if (minHeight) {
+    return `min-h-[${minHeight}]`
+  }
+  return undefined
 }
 
 function getSubmitButtonText(isPending: boolean, message: string): string {
@@ -450,4 +484,22 @@ function getSubmitButtonText(isPending: boolean, message: string): string {
     return message.trim() ? 'Starting...' : 'Creating...'
   }
   return message.trim() ? 'Start Task' : 'Create Task'
+}
+
+// When a `/command` is selected, the backend populates the prompt — we only
+// submit the user's trailing text and optionally switch agent mode.
+function resolveCommandSubmit(
+  message: string,
+  agentMode: 'edit' | 'plan',
+  selectedCommand: { name: string; agentMode?: string | null } | null,
+): { submitMessage: string | undefined; submitAgentMode: 'edit' | 'plan' } {
+  if (!selectedCommand) {
+    return { submitMessage: message.trim() || undefined, submitAgentMode: agentMode }
+  }
+  const prefix = `/${selectedCommand.name} `
+  const userText = message.startsWith(prefix) ? message.slice(prefix.length).trim() : ''
+  return {
+    submitMessage: userText || undefined,
+    submitAgentMode: (selectedCommand.agentMode as 'edit' | 'plan') ?? agentMode,
+  }
 }

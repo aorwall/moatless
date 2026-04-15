@@ -51,6 +51,11 @@ export const queryKeys = {
   repositoryBranches: (repoId: string) =>
     [...queryKeys.repositories(), 'branches', repoId] as const,
 
+  agents: {
+    all: () => [...queryKeys.all, 'agents'] as const,
+    list: () => [...queryKeys.agents.all(), 'list'] as const,
+  },
+
   commands: () => [...queryKeys.all, 'commands'] as const,
   commandsList: () => [...queryKeys.commands(), 'list'] as const,
   commandDetail: (commandName: string) => [...queryKeys.commands(), 'detail', commandName] as const,

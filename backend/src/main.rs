@@ -11,6 +11,7 @@ use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
+use moatless_vibe_backend::agent;
 use moatless_vibe_backend::auth;
 use moatless_vibe_backend::channel;
 use moatless_vibe_backend::config::{Config, SandboxProviderType};
@@ -224,6 +225,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
 
         let modules = vec![
+            agent::routes::agent_router(app_state.clone()),
             task::routes::task_router(app_state.clone()),
             message::routes::message_router(app_state.clone()),
             command::routes::command_router(app_state.clone()),

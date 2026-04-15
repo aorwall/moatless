@@ -9,6 +9,7 @@
 //! - `openapi` — enables `utoipa::ToSchema` / `utoipa::IntoParams` derives
 //! - `database` — enables `sqlx` `Type`/`Encode`/`Decode` impls for enums
 
+pub mod agent;
 pub mod auth;
 pub mod channel;
 pub mod codex;

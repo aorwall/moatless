@@ -10,6 +10,7 @@ export interface SelectableItem {
   id: string
   label: string
   description?: string
+  disabled?: boolean
 }
 
 interface PopoverContentProps {
@@ -121,15 +122,29 @@ export function SimpleListPopoverContent({
         <Button
           key={item.id}
           variant="ghost"
+          disabled={item.disabled}
           className={cn(
             'w-full justify-between h-auto px-3 py-2 text-left overflow-hidden',
             value === item.id && 'bg-accent',
+            item.disabled && 'opacity-50 cursor-not-allowed',
           )}
-          onClick={() => handleSelect(item.id)}
+          onClick={() => {
+            if (item.disabled) {
+              return
+            }
+            handleSelect(item.id)
+          }}
         >
-          <div className="flex items-center gap-2">
-            <span className="font-medium whitespace-nowrap">{item.label}</span>
-            {value === item.id && <Check className="h-4 w-4 shrink-0" />}
+          <div className="flex flex-col items-start gap-0.5">
+            <div className="flex items-center gap-2">
+              <span className="font-medium whitespace-nowrap">{item.label}</span>
+              {value === item.id && <Check className="h-4 w-4 shrink-0" />}
+            </div>
+            {item.description && (
+              <span className="text-xs text-muted-foreground whitespace-nowrap">
+                {item.description}
+              </span>
+            )}
           </div>
         </Button>
       ))}
