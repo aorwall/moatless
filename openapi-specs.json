@@ -2314,6 +2314,46 @@
         }
       }
     },
+    "/api/v1/internal/secrets/resolve": {
+      "post": {
+        "tags": [
+          "secrets"
+        ],
+        "operationId": "resolve_task_secrets",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveSecretsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Resolved task-scoped credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResolveSecretsResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/repositories": {
       "get": {
         "tags": [
@@ -2710,6 +2750,247 @@
           },
           "404": {
             "description": "Repository not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/secrets": {
+      "get": {
+        "tags": [
+          "secrets"
+        ],
+        "operationId": "list_secrets",
+        "parameters": [
+          {
+            "name": "scope",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/SecretScopeType"
+            }
+          },
+          {
+            "name": "scopeId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List secret metadata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SecretMetadataResponse"
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "secrets"
+        ],
+        "operationId": "put_secret",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutSecretRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Secret created or replaced",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecretMutationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid secret",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/secrets/validate": {
+      "post": {
+        "tags": [
+          "secrets"
+        ],
+        "operationId": "validate_secrets",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ValidateSecretsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Secret coverage validation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidateSecretsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/secrets/{id}": {
+      "get": {
+        "tags": [
+          "secrets"
+        ],
+        "operationId": "get_secret",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Secret ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Secret metadata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecretMetadataResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Secret not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "secrets"
+        ],
+        "operationId": "delete_secret",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Secret ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Secret deleted"
+          },
+          "404": {
+            "description": "Secret not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "secrets"
+        ],
+        "operationId": "patch_secret",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Secret ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchSecretRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Secret updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecretMutationResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Secret not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -7187,6 +7468,45 @@
           }
         }
       },
+      "PatchSecretRequest": {
+        "type": "object",
+        "properties": {
+          "externalRef": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SecretKind"
+              }
+            ]
+          },
+          "provider": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "target": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "value": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "PendingMessageItem": {
         "type": "object",
         "description": "A pending message item (user message or result message).",
@@ -7311,6 +7631,53 @@
         "properties": {
           "status": {
             "$ref": "#/components/schemas/SandboxStatus"
+          }
+        }
+      },
+      "PutSecretRequest": {
+        "type": "object",
+        "required": [
+          "scope",
+          "key",
+          "kind",
+          "target"
+        ],
+        "properties": {
+          "externalRef": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "key": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/SecretKind"
+          },
+          "provider": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scope": {
+            "$ref": "#/components/schemas/SecretScopeType"
+          },
+          "scopeId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "target": {
+            "type": "string"
+          },
+          "value": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -7555,6 +7922,43 @@
           },
           "visibility": {
             "$ref": "#/components/schemas/Visibility"
+          }
+        }
+      },
+      "ResolveSecretsRequest": {
+        "type": "object",
+        "required": [
+          "taskId"
+        ],
+        "properties": {
+          "targets": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "taskId": {
+            "type": "string"
+          }
+        }
+      },
+      "ResolveSecretsResponse": {
+        "type": "object",
+        "required": [
+          "credentials"
+        ],
+        "properties": {
+          "credentials": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
           }
         }
       },
@@ -8051,6 +8455,102 @@
             "type": "string"
           }
         }
+      },
+      "SecretKind": {
+        "type": "string",
+        "description": "Secret value category.",
+        "enum": [
+          "env",
+          "provider_token",
+          "runtime_file",
+          "deployment"
+        ]
+      },
+      "SecretMetadataResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "scopeType",
+          "key",
+          "kind",
+          "target",
+          "source",
+          "version",
+          "updatedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/SecretKind"
+          },
+          "lastUsedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "provider": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scopeId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scopeType": {
+            "$ref": "#/components/schemas/SecretScopeType"
+          },
+          "source": {
+            "$ref": "#/components/schemas/SecretSource"
+          },
+          "target": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "SecretMutationResponse": {
+        "type": "object",
+        "required": [
+          "secret"
+        ],
+        "properties": {
+          "secret": {
+            "$ref": "#/components/schemas/SecretMetadataResponse"
+          }
+        }
+      },
+      "SecretScopeType": {
+        "type": "string",
+        "description": "Scope type for application-managed secrets.",
+        "enum": [
+          "global",
+          "team",
+          "user"
+        ]
+      },
+      "SecretSource": {
+        "type": "string",
+        "description": "Where a secret value is stored.",
+        "enum": [
+          "inline_encrypted",
+          "external_ref"
+        ]
       },
       "SendChannelMessageRequest": {
         "type": "object",
@@ -9949,6 +10449,57 @@
           "admin"
         ]
       },
+      "ValidateSecretsRequest": {
+        "type": "object",
+        "required": [
+          "scope",
+          "required"
+        ],
+        "properties": {
+          "required": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "scope": {
+            "$ref": "#/components/schemas/SecretScopeType"
+          },
+          "scopeId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "target": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ValidateSecretsResponse": {
+        "type": "object",
+        "required": [
+          "present",
+          "missing"
+        ],
+        "properties": {
+          "missing": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "present": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "Visibility": {
         "type": "string",
         "description": "Task visibility level.",
@@ -10049,6 +10600,10 @@
     {
       "name": "repositories",
       "description": "Repository CRUD operations"
+    },
+    {
+      "name": "secrets",
+      "description": "Scoped secret metadata and write-only value management"
     },
     {
       "name": "tags",
