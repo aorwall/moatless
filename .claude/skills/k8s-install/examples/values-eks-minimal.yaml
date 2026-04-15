@@ -1,0 +1,67 @@
+# Minimal EKS values for moatless-vibe.
+# Replace placeholders (domains, ACM cert ARN), then `moat k8s install`.
+image:
+  tag: v0.1.21
+sandboxImage:
+  tag: v0.1.21
+
+ingress:
+  enabled: true
+  className: alb
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:123456789012:certificate/REPLACE
+    alb.ingress.kubernetes.io/healthcheck-path: /health
+    alb.ingress.kubernetes.io/group.name: moatless-vibe
+  hosts:
+    - host: vibe.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+proxyIngress:
+  enabled: true
+  className: alb
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:123456789012:certificate/REPLACE
+    alb.ingress.kubernetes.io/group.name: moatless-vibe
+  host: "*.preview.example.com"
+  tls:
+    secretName: proxy-wildcard-tls
+    hosts: ["*.preview.example.com"]
+
+proxy:
+  domain: preview.example.com
+
+auth:
+  provider: github
+  frontendUrl: https://vibe.example.com
+  github:
+    enabled: true
+    callbackUrl: https://vibe.example.com/api/auth/github/callback
+
+database:
+  external: true
+redis:
+  external: true
+
+kubernetes:
+  sandboxStorage:
+    storageClass: gp3
+    size: 20Gi
+
+secrets:
+  create: false
+externalSecrets:
+  enabled: true
+
+imagePullSecrets:
+  - name: ghcr-secret

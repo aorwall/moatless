@@ -1,0 +1,53 @@
+# Minimal AKS values for moatless-vibe.
+# Edit the domain/proxyDomain placeholders, then `moat k8s install`.
+image:
+  tag: v0.1.21
+sandboxImage:
+  tag: v0.1.21
+
+ingress:
+  enabled: true
+  className: webapprouting.kubernetes.azure.com
+  annotations: {}
+  hosts:
+    - host: vibe.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+proxyIngress:
+  enabled: true
+  className: webapprouting.kubernetes.azure.com
+  host: "*.preview.example.com"
+  tls:
+    secretName: proxy-wildcard-tls
+    hosts: ["*.preview.example.com"]
+
+proxy:
+  domain: preview.example.com
+
+auth:
+  provider: github
+  frontendUrl: https://vibe.example.com
+  github:
+    enabled: true
+    callbackUrl: https://vibe.example.com/api/auth/github/callback
+
+database:
+  external: true
+redis:
+  external: true
+
+kubernetes:
+  sandboxStorage:
+    storageClass: ""   # use default (managed-csi)
+    size: 20Gi
+
+secrets:
+  create: false
+externalSecrets:
+  enabled: true
+
+imagePullSecrets:
+  - name: ghcr-secret

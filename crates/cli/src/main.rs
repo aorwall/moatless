@@ -90,6 +90,11 @@ enum SharedCommands {
     },
     /// List tags
     Tags,
+    /// Kubernetes installation workflow (preflight, init, secrets, install, status)
+    K8s {
+        #[command(subcommand)]
+        action: commands::k8s::K8sAction,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -388,6 +393,9 @@ async fn run_shared(
                 commands::misc::format_tags(&tags);
             }
         }
+        SharedCommands::K8s { action } => {
+            commands::k8s::run(action, json).await?;
+        }
     }
 
     Ok(())
@@ -404,11 +412,19 @@ fn require_task_id(cfg: &Config) -> Result<String, Box<dyn std::error::Error>> {
 }
 
 fn is_status_command_sandbox(cmd: &SandboxCommands) -> bool {
-    matches!(cmd, SandboxCommands::Shared(c) if matches!(**c, SharedCommands::Status))
+    matches!(
+        cmd,
+        SandboxCommands::Shared(c)
+            if matches!(**c, SharedCommands::Status | SharedCommands::K8s { .. })
+    )
 }
 
 fn is_status_command_standalone(cmd: &StandaloneCommands) -> bool {
-    matches!(cmd, StandaloneCommands::Shared(c) if matches!(**c, SharedCommands::Status))
+    matches!(
+        cmd,
+        StandaloneCommands::Shared(c)
+            if matches!(**c, SharedCommands::Status | SharedCommands::K8s { .. })
+    )
 }
 
 fn read_text_or_stdin(text: Option<String>) -> Result<String, Box<dyn std::error::Error>> {
