@@ -18,13 +18,31 @@ use super::api::SlackApi;
 use super::config::SlackProviderConfig;
 use super::signature;
 
-/// Build Slack-specific reply instructions, optionally including the bot's own
-/// Slack user ID so the agent can detect mentions and decide when to respond.
+/// Build Slack-specific reply instructions, with the bot's own Slack identity
+/// stated up-front so the agent always knows who it is in the thread.
 fn build_slack_reply_instructions(bot_user_id: Option<&str>) -> String {
-    let mut s = String::from(
-        "\
-## Slack-specific instructions
+    let mut s = String::from("## Slack-specific instructions\n\n### Your identity\n");
 
+    match bot_user_id {
+        Some(bot_id) => {
+            let _ = writeln!(
+                s,
+                "You are posting to Slack as user `<@{bot_id}>` (Slack user ID `{bot_id}`). \
+Any message from `<@{bot_id}>` in the thread is something you already said — do not treat it as a new request. \
+When someone writes `<@{bot_id}>` they are addressing you directly."
+            );
+        }
+        None => {
+            s.push_str(
+                "Your Slack user ID is not configured. \
+Rely on sender labels (`Name (login, Slack: U...): ...`) to tell yourself apart from other participants, \
+and when in doubt stay silent rather than replying to your own prior messages.\n",
+            );
+        }
+    }
+
+    s.push_str(
+        "\n\
 ### Mentioning users
 The message includes the sender's identity (e.g. \"Name (login, Slack: U12345): ...\"). \
 To mention them in your reply, use their Slack user ID with the format `<@U12345>`.
@@ -42,12 +60,13 @@ To include files (screenshots, logs, generated artifacts) in your reply, use the
             s,
             "\n\n\
 ### When to respond in thread conversations\n\
-Your Slack user ID is `{bot_id}`.\n\
-You will receive ALL messages in the thread, not just ones directed at you.\n\
-- **Always respond** if you are mentioned (the message contains `<@{bot_id}>`)\n\
-- **Always respond** if someone asks a question or requests help you can provide\n\
-- **Stay silent** if people are talking to each other and the conversation doesn't involve you\n\
-- **Stay silent** for simple acknowledgments, reactions, or off-topic chat\n\
+You will receive ALL messages in the thread, not just ones directed at you. \
+A message containing `<@{bot_id}>` or your handle references you, but that alone does not mean it's addressed to you — \
+people often mention the bot in passing (\"look at what @you said\", \"ask @you later\") without actually asking you anything.\n\
+- **Respond** when the message is addressed *to* you — a question, request, or instruction aimed at you\n\
+- **Respond** when someone asks a question or requests help only you can provide, even without a mention\n\
+- **Stay silent** when you are merely referenced or named in passing — the conversation is between other people\n\
+- **Stay silent** when people are talking to each other, for acknowledgments, reactions, or off-topic chat\n\
 - When in doubt, stay silent rather than interjecting\n\
 - To stay silent, simply do nothing — do NOT send a `moat reply`"
         );
@@ -118,6 +137,30 @@ impl SlackProvider {
             .get_channel_info(channel_id)
             .await?
             .map(|ch| ch.name))
+    }
+
+    /// Look up a local system user by email. Shared by the `ChannelProvider`
+    /// trait impl and by `parse_event` (which also inspects bot flags).
+    async fn resolve_user_by_email(
+        &self,
+        identity: &str,
+        email: &str,
+        db: &DbPool,
+    ) -> Result<Option<String>, ChannelError> {
+        let row: Option<(String, String)> =
+            sqlx::query_as("SELECT id, login FROM users WHERE email = $1 LIMIT 1")
+                .bind(email)
+                .fetch_optional(db)
+                .await
+                .map_err(|e| ChannelError::Internal(format!("User lookup failed: {e}")))?;
+
+        if let Some((id, login)) = row {
+            tracing::info!(slack_user = %identity, email = %email, user_id = %id, login = %login, "Resolved Slack user to system user");
+            Ok(Some(id))
+        } else {
+            warn!(slack_user = %identity, email = %email, "No system user found for Slack user email");
+            Ok(None)
+        }
     }
 
     /// Parse a Slack Events API webhook into an InboundMessage.
@@ -253,11 +296,36 @@ impl SlackProvider {
             return Ok(SlackWebhookResult::Ignore);
         }
 
-        // 10. Resolve Slack user → system user
-        let user_id = match self.resolve_user(user, db).await? {
+        // 10. Fetch user info once (bot flags + email) and resolve Slack user → system user.
+        let slack_user_info = self.api.get_user_info(user).await.ok().flatten();
+
+        // Drop bot/app-account senders: their messages should not drive task flow,
+        // and — critically — they share emails across deployments so the email-based
+        // user resolution is unsafe for them. This catches external deployment bots
+        // that slip past the earlier `bot_id` field filter.
+        if let Some(ref info) = slack_user_info {
+            if info.is_bot || info.is_app_user {
+                let is_own_bot = self.bot_user_id.as_deref() == Some(user);
+                info!(
+                    slack_user = %user,
+                    source_id = %channel,
+                    is_own_bot,
+                    handle = %info.handle.as_deref().unwrap_or(""),
+                    "Ignoring Slack message from bot/app account"
+                );
+                return Ok(SlackWebhookResult::Ignore);
+            }
+        }
+
+        let mapped_user = match slack_user_info.as_ref().and_then(|i| i.email.clone()) {
+            Some(email) => self.resolve_user_by_email(user, &email, db).await?,
+            None => None,
+        };
+
+        let user_id = match mapped_user {
             Some(uid) => uid,
             None if thread_ts.is_some() => {
-                // Thread reply from unmapped user — fall back to config owner
+                // Thread reply from unmapped human — fall back to config owner
                 // (user identity only matters for task creation)
                 info!(
                     slack_user = %user,
@@ -268,9 +336,9 @@ impl SlackProvider {
                 config.effective_user_id().to_string()
             }
             None => {
-                // Top-level message from unmapped user — block and notify
+                // Top-level message from unmapped human — block and notify
                 warn!(slack_user = %user, source_id = %channel, "Cannot process message: Slack user not mapped to system user");
-                let email = self.api.get_user_email(user).await.ok().flatten();
+                let email = slack_user_info.as_ref().and_then(|i| i.email.clone());
                 let error_msg = match email {
                     Some(ref email) => format!(
                         "Sorry, I couldn't find your account. Please make sure you're registered with the email address: {email}"
@@ -348,29 +416,29 @@ impl ChannelProvider for SlackProvider {
         identity: &str,
         db: &DbPool,
     ) -> Result<Option<String>, ChannelError> {
-        use tracing::info;
+        let Some(info) = self.api.get_user_info(identity).await? else {
+            warn!(slack_user = %identity, "Slack users.info returned no user");
+            return Ok(None);
+        };
 
-        // Look up Slack user email → find system user by email
-        let email = self.api.get_user_email(identity).await?;
-        let Some(email) = email else {
+        // Bot / app accounts share emails across deployments — never resolve them by email.
+        if info.is_bot || info.is_app_user {
+            tracing::info!(
+                slack_user = %identity,
+                is_bot = info.is_bot,
+                is_app_user = info.is_app_user,
+                handle = %info.handle.as_deref().unwrap_or(""),
+                "Slack user is a bot/app account — skipping email-based user mapping"
+            );
+            return Ok(None);
+        }
+
+        let Some(email) = info.email else {
             warn!(slack_user = %identity, "Slack API returned no email for user");
             return Ok(None);
         };
 
-        let row: Option<(String, String)> =
-            sqlx::query_as("SELECT id, login FROM users WHERE email = $1 LIMIT 1")
-                .bind(&email)
-                .fetch_optional(db)
-                .await
-                .map_err(|e| ChannelError::Internal(format!("User lookup failed: {e}")))?;
-
-        if let Some((id, login)) = row {
-            info!(slack_user = %identity, email = %email, user_id = %id, login = %login, "Resolved Slack user to system user");
-            Ok(Some(id))
-        } else {
-            warn!(slack_user = %identity, email = %email, "No system user found for Slack user email");
-            Ok(None)
-        }
+        self.resolve_user_by_email(identity, &email, db).await
     }
 
     async fn send_reply(
@@ -564,5 +632,35 @@ mod tests {
     fn strip_mention_no_mention_in_text() {
         let text = "fix the bug";
         assert_eq!(strip_bot_mention(text, Some("U123ABC")), "fix the bug");
+    }
+
+    #[test]
+    fn reply_instructions_include_identity_with_bot_id() {
+        let s = build_slack_reply_instructions(Some("U0000000002"));
+        // Identity section is present and appears before the mentioning-users block.
+        let identity_idx = s
+            .find("### Your identity")
+            .expect("Your identity section present");
+        let mentioning_idx = s
+            .find("### Mentioning users")
+            .expect("Mentioning users section present");
+        assert!(
+            identity_idx < mentioning_idx,
+            "identity must come before mentioning-users"
+        );
+        // The identity block names the bot's Slack ID explicitly.
+        assert!(s.contains("<@U0000000002>"));
+        assert!(s.contains("Slack user ID `U0000000002`"));
+        // Response guidance still references the ID.
+        assert!(s.contains("### When to respond"));
+    }
+
+    #[test]
+    fn reply_instructions_fallback_when_bot_id_missing() {
+        let s = build_slack_reply_instructions(None);
+        assert!(s.contains("### Your identity"));
+        assert!(s.contains("not configured"));
+        // Without a known ID the response-guidance block is skipped.
+        assert!(!s.contains("### When to respond"));
     }
 }

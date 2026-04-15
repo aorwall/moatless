@@ -132,17 +132,18 @@ impl ChannelProviders {
     /// Build channel providers from application config.
     ///
     /// Returns `None` when no providers are configured.
-    pub fn from_config(config: &crate::config::Config, db: DbPool) -> Option<Self> {
+    pub async fn from_config(config: &crate::config::Config, db: DbPool) -> Option<Self> {
         let mut providers = Self::new();
 
         if let (Some(ref token), Some(ref secret)) =
             (&config.slack.bot_token, &config.slack.signing_secret)
         {
-            let slack = super::slack::provider::SlackProvider::new(
+            let bot_user_id = resolve_slack_bot_user_id(
                 token,
-                secret,
-                config.slack.bot_user_id.clone(),
-            );
+                config.slack.bot_user_id.as_deref(),
+            )
+            .await;
+            let slack = super::slack::provider::SlackProvider::new(token, secret, bot_user_id);
             providers.register(Arc::new(slack));
             tracing::info!("Slack channel provider configured");
         }
@@ -196,3 +197,42 @@ impl ChannelProviders {
             .collect()
     }
 }
+
+/// Resolve the bot's Slack user ID.
+///
+/// Prefers the explicit env-var value; when absent, calls `auth.test` so the
+/// agent's system prompt always has the bot's identity available.
+async fn resolve_slack_bot_user_id(
+    bot_token: &str,
+    configured: Option<&str>,
+) -> Option<String> {
+    if let Some(id) = configured {
+        let id = id.trim();
+        if !id.is_empty() {
+            tracing::info!(bot_user_id = %id, "Slack bot identity from env var");
+            return Some(id.to_string());
+        }
+    }
+
+    let api = super::slack::api::SlackApi::new(bot_token);
+    match api.auth_test().await {
+        Ok(info) => {
+            tracing::info!(
+                bot_user_id = %info.user_id,
+                handle = %info.user.as_deref().unwrap_or(""),
+                team = %info.team.as_deref().unwrap_or(""),
+                "Slack bot identity resolved via auth.test"
+            );
+            Some(info.user_id)
+        }
+        Err(e) => {
+            tracing::warn!(
+                error = %e,
+                "Could not resolve Slack bot identity — set SLACK_BOT_USER_ID explicitly; \
+                 agent system prompt will fall back to an unknown-identity message"
+            );
+            None
+        }
+    }
+}
+

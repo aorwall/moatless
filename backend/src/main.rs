@@ -190,7 +190,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Domain routes (need DB)
     if let Some(pool) = db_pool {
         let channel_providers =
-            channel::provider::ChannelProviders::from_config(&config, pool.clone());
+            channel::provider::ChannelProviders::from_config(&config, pool.clone()).await;
         let app_state = AppState::new(
             pool,
             Arc::new(config.clone()),

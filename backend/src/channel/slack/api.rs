@@ -29,6 +29,9 @@ struct UserInfoResponse {
 
 #[derive(Deserialize)]
 struct UserProfile {
+    name: Option<String>,
+    is_bot: Option<bool>,
+    is_app_user: Option<bool>,
     profile: Option<ProfileInfo>,
 }
 
@@ -37,11 +40,40 @@ struct ProfileInfo {
     email: Option<String>,
 }
 
+/// Per-user info returned by `users.info` — email plus bot flags.
+#[derive(Debug, Clone)]
+pub struct SlackUserInfo {
+    pub email: Option<String>,
+    pub is_bot: bool,
+    pub is_app_user: bool,
+    /// The Slack display name / handle (e.g. "soapbot").
+    pub handle: Option<String>,
+}
+
 #[derive(Deserialize)]
 struct ConversationsRepliesResponse {
     ok: bool,
     error: Option<String>,
     messages: Option<Vec<SlackMessage>>,
+}
+
+#[derive(Deserialize)]
+struct AuthTestResponse {
+    ok: bool,
+    error: Option<String>,
+    user_id: Option<String>,
+    user: Option<String>,
+    team: Option<String>,
+    team_id: Option<String>,
+}
+
+/// Identity the current token authenticates as (from `auth.test`).
+#[derive(Debug, Clone)]
+pub struct AuthTestInfo {
+    pub user_id: String,
+    pub user: Option<String>,
+    pub team: Option<String>,
+    pub team_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -138,8 +170,43 @@ impl SlackApi {
         Ok(resp.ts)
     }
 
-    /// Get a user's email address from Slack.
-    pub async fn get_user_email(&self, user_id: &str) -> Result<Option<String>, ChannelError> {
+    /// Resolve the identity of the Slack token via `auth.test`.
+    pub async fn auth_test(&self) -> Result<AuthTestInfo, ChannelError> {
+        let resp: AuthTestResponse = self
+            .client
+            .post("https://slack.com/api/auth.test")
+            .bearer_auth(&self.token)
+            .send()
+            .await
+            .map_err(|e| ChannelError::ProviderApi(format!("auth.test failed: {e}")))?
+            .json()
+            .await
+            .map_err(|e| ChannelError::ProviderApi(format!("auth.test parse: {e}")))?;
+
+        if !resp.ok {
+            let err = resp.error.unwrap_or_default();
+            return Err(ChannelError::ProviderApi(format!("auth.test: {err}")));
+        }
+
+        let user_id = resp
+            .user_id
+            .ok_or_else(|| ChannelError::ProviderApi("auth.test: missing user_id".into()))?;
+
+        Ok(AuthTestInfo {
+            user_id,
+            user: resp.user,
+            team: resp.team,
+            team_id: resp.team_id,
+        })
+    }
+
+    /// Fetch user info from Slack (email + bot flags).
+    ///
+    /// Returns `Ok(None)` when the API call fails or the user is not found.
+    pub async fn get_user_info(
+        &self,
+        user_id: &str,
+    ) -> Result<Option<SlackUserInfo>, ChannelError> {
         let resp: UserInfoResponse = self
             .client
             .get("https://slack.com/api/users.info")
@@ -158,7 +225,12 @@ impl SlackApi {
             return Ok(None);
         }
 
-        Ok(resp.user.and_then(|u| u.profile).and_then(|p| p.email))
+        Ok(resp.user.map(|u| SlackUserInfo {
+            email: u.profile.and_then(|p| p.email),
+            is_bot: u.is_bot.unwrap_or(false),
+            is_app_user: u.is_app_user.unwrap_or(false),
+            handle: u.name,
+        }))
     }
 
     /// List Slack channels the bot is a member of.
@@ -452,4 +524,83 @@ struct GetUploadUrlResponse {
 struct CompleteUploadResponse {
     ok: bool,
     error: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A realistic `users.info` response for a regular human — no bot flags,
+    /// email present on the profile.
+    #[test]
+    fn user_info_human_parses_correctly() {
+        let body = serde_json::json!({
+            "ok": true,
+            "user": {
+                "id": "U123HUMAN",
+                "name": "alice",
+                "is_bot": false,
+                "is_app_user": false,
+                "profile": { "email": "alice@example.com" }
+            }
+        });
+        let resp: UserInfoResponse = serde_json::from_value(body).unwrap();
+        assert!(resp.ok);
+        let info = SlackUserInfo {
+            email: resp
+                .user
+                .as_ref()
+                .and_then(|u| u.profile.as_ref())
+                .and_then(|p| p.email.clone()),
+            is_bot: resp.user.as_ref().and_then(|u| u.is_bot).unwrap_or(false),
+            is_app_user: resp
+                .user
+                .as_ref()
+                .and_then(|u| u.is_app_user)
+                .unwrap_or(false),
+            handle: resp.user.and_then(|u| u.name),
+        };
+        assert_eq!(info.email.as_deref(), Some("alice@example.com"));
+        assert!(!info.is_bot);
+        assert!(!info.is_app_user);
+        assert_eq!(info.handle.as_deref(), Some("alice"));
+    }
+
+    /// A bot account response — `is_bot: true`, email may or may not be
+    /// present. Callers MUST key off the bot flag, not absence of email.
+    #[test]
+    fn user_info_bot_account_reports_is_bot_true() {
+        let body = serde_json::json!({
+            "ok": true,
+            "user": {
+                "id": "U0000000003",
+                "name": "soapbot",
+                "is_bot": true,
+                "is_app_user": false,
+                "profile": { "email": "bot@example.com" }
+            }
+        });
+        let resp: UserInfoResponse = serde_json::from_value(body).unwrap();
+        let user = resp.user.expect("user present");
+        assert_eq!(user.is_bot, Some(true));
+        assert_eq!(user.is_app_user, Some(false));
+        assert_eq!(user.name.as_deref(), Some("soapbot"));
+    }
+
+    /// Slack sometimes omits the bot flags for older accounts; treat missing
+    /// as false.
+    #[test]
+    fn user_info_missing_flags_default_to_false() {
+        let body = serde_json::json!({
+            "ok": true,
+            "user": {
+                "id": "U999",
+                "profile": {}
+            }
+        });
+        let resp: UserInfoResponse = serde_json::from_value(body).unwrap();
+        let user = resp.user.expect("user present");
+        assert_eq!(user.is_bot, None);
+        assert_eq!(user.is_app_user, None);
+    }
 }
