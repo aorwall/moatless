@@ -1,5 +1,6 @@
 import React, { type KeyboardEvent, useEffect, useLayoutEffect, useRef } from 'react'
 import { Textarea } from '@/lib/components/ui/textarea.tsx'
+import { useIsMobile } from '@/lib/hooks/use-mobile'
 import { cn } from '@/lib/utils'
 
 interface ChatInputProps {
@@ -39,6 +40,7 @@ export function ChatInput({
   const formRef = useRef<HTMLFormElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const internalTextareaRef = useRef<HTMLTextAreaElement>(null)
+  const isMobile = useIsMobile()
 
   // Use external ref if provided, otherwise use internal ref
   const textareaRef = externalTextareaRef || internalTextareaRef
@@ -83,7 +85,7 @@ export function ChatInput({
       return
     }
 
-    if (e.key === 'Enter' && !e.shiftKey && !loading) {
+    if (e.key === 'Enter' && !e.shiftKey && !loading && !isMobile) {
       e.preventDefault()
       if (canSubmit) {
         onSubmit()
