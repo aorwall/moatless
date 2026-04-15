@@ -22,8 +22,8 @@ use moatless_vibe_backend::sse::routes::sse_router;
 use moatless_vibe_backend::startup;
 use moatless_vibe_backend::state::AppState;
 use moatless_vibe_backend::{
-    command, figma, file_storage, message, plugin_repo, provider_settings, repository, skill, tag,
-    task, task_event, team,
+    command, figma, file_storage, message, plugin_repo, provider_settings, repository, secret,
+    skill, tag, task, task_event, team,
 };
 
 #[tokio::main]
@@ -156,6 +156,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::new(moatless_vibe_backend::plugin_repo::dao::PgPluginRepoRepository(p.clone()))
             as Arc<dyn moatless_vibe_backend::plugin_repo::dao::PluginRepoRepository>
     });
+    let sandbox_secrets: Option<Arc<moatless_vibe_backend::secret::service::SecretService>> =
+        db_pool.as_ref().map(|p| {
+            let secret_records: Arc<dyn moatless_vibe_backend::secret::dao::SecretRepository> =
+                Arc::new(moatless_vibe_backend::secret::dao::PgSecretRepository(
+                    p.clone(),
+                ));
+            let secret_audits: Arc<
+                dyn moatless_vibe_backend::secret::audit::SecretAuditRepository,
+            > = Arc::new(moatless_vibe_backend::secret::audit::PgSecretAuditRepository(p.clone()));
+            Arc::new(moatless_vibe_backend::secret::service::SecretService::new(
+                secret_records,
+                secret_audits,
+                moatless_vibe_backend::secret::service::LocalEnvelopeSecretCipher::from_config(
+                    &config.secrets,
+                ),
+            ))
+        });
+
+    // Migrate env var fallback credentials to global secrets on startup
+    if let Some(ref secrets) = sandbox_secrets {
+        secrets.migrate_env_fallbacks().await;
+    }
 
     let sandbox_state = sandbox::routes::SandboxApiState {
         provider: Arc::clone(&sandbox_provider),
@@ -163,6 +185,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         repos: sandbox_repos,
         provider_tokens: sandbox_provider_tokens,
         plugin_repos: sandbox_plugin_repos,
+        secrets: sandbox_secrets,
     };
     let (mut router, mut api) = sandbox::routes::api_router(sandbox_state);
 
@@ -207,6 +230,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             file_storage::routes::file_storage_router(app_state.clone()),
             figma::routes::figma_router(app_state.clone()),
             repository::routes::repository_router(app_state.clone()),
+            secret::routes::secret_router(app_state.clone()),
             tag::routes::tag_router(app_state.clone()),
             provider_settings::routes::provider_settings_router(app_state.clone()),
             channel::routes::channel_router(app_state.clone()),

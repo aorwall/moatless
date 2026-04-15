@@ -31,6 +31,7 @@ pub mod provider_settings;
 pub mod repository;
 pub mod sandbox;
 pub mod scope;
+pub mod secret;
 pub mod shared_models;
 pub mod skill;
 pub mod sse;

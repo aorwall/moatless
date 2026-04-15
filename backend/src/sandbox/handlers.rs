@@ -3,11 +3,11 @@
 //! Extracted from routes.rs for consistency with other modules
 //! (task/, message/, agent/, etc.).
 
+use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::IntoResponse;
-use axum::Json;
+use axum::response::sse::{Event, KeepAlive, Sse};
 use futures::stream::Stream;
 use serde::Deserialize;
 use tracing::{error, info, warn};
@@ -54,7 +54,7 @@ pub async fn provision_handler(
         _ => {
             return Err(SandboxError::Internal(
                 "Database not available for provisioning".into(),
-            ))
+            ));
         }
     };
 
@@ -63,6 +63,7 @@ pub async fn provision_handler(
         repos,
         provider_tokens,
         plugin_repos,
+        state.secrets.as_ref(),
         &task_id,
     )
     .await?;
@@ -220,7 +221,7 @@ pub async fn redeploy_handler(
         _ => {
             return Err(SandboxError::Internal(
                 "Database not available for redeployment".into(),
-            ))
+            ));
         }
     };
 
@@ -229,6 +230,7 @@ pub async fn redeploy_handler(
         repos,
         provider_tokens,
         plugin_repos,
+        state.secrets.as_ref(),
         &task_id,
     )
     .await?;

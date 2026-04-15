@@ -438,6 +438,33 @@ pub struct SkillConfig {
     pub cache_ttl_secs: u64,
 }
 
+/// Secrets feature bootstrap configuration.
+///
+/// Implements a custom `Debug` to redact encryption material.
+#[derive(Clone)]
+pub struct SecretsConfig {
+    /// Base64 or raw 32-byte key used by the local envelope cipher.
+    ///
+    /// This is a bootstrap value: it stays outside the database and is only
+    /// used until the deployment is moved to an external KMS-backed cipher.
+    pub encryption_key: Option<String>,
+    /// KMS key identifier or alias recorded on encrypted rows.
+    pub kms_key_id: Option<String>,
+}
+
+#[allow(clippy::missing_fields_in_debug)]
+impl fmt::Debug for SecretsConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SecretsConfig")
+            .field(
+                "encryption_key",
+                &self.encryption_key.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field("kms_key_id", &self.kms_key_id)
+            .finish()
+    }
+}
+
 // =========================================================================
 // Top-level Config
 // =========================================================================
@@ -462,6 +489,7 @@ pub struct Config {
     pub telegram: TelegramConfig,
     pub github_pr: GithubPrConfig,
     pub skill: SkillConfig,
+    pub secrets: SecretsConfig,
 }
 
 /// Configuration validation errors.
@@ -633,6 +661,11 @@ impl Config {
 
             skill: SkillConfig {
                 cache_ttl_secs: env_or("BACKEND_SKILL_CACHE_TTL_SECONDS", 3_600),
+            },
+
+            secrets: SecretsConfig {
+                encryption_key: env_opt("SECRETS_ENCRYPTION_KEY"),
+                kms_key_id: env_opt("SECRETS_KMS_KEY_ID").or_else(|| env_opt("AWS_KMS_KEY_ID")),
             },
         };
 
@@ -952,6 +985,10 @@ mod tests {
                 bot_token: None,
             },
             skill: SkillConfig { cache_ttl_secs: 60 },
+            secrets: SecretsConfig {
+                encryption_key: None,
+                kms_key_id: None,
+            },
         }
     }
 

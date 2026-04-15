@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use utoipa::ToSchema;
 
+use crate::sandbox::secrets::ServerSecretBundle;
+
 // Re-export pod_status functions that were previously defined here
 pub use crate::sandbox::k8s::pod_status::extract_container_observed_statuses;
 
@@ -13,6 +15,9 @@ pub use crate::sandbox::k8s::pod_status::extract_container_observed_statuses;
 pub struct ProvisionRequest {
     pub plan: ProvisionPlan,
     pub user_id: String,
+    #[serde(default, skip)]
+    #[schema(ignore)]
+    pub server_secrets: ServerSecretBundle,
 }
 
 /// Provision plan with all configuration needed to create a workspace
@@ -25,9 +30,6 @@ pub struct ProvisionPlan {
     /// Git provider name (e.g. "github", "gitlab", "gitness")
     #[serde(default = "default_git_provider")]
     pub git_provider: String,
-    pub git_provider_token: Option<String>,
-    pub claude_oauth_token: Option<String>,
-    pub anthropic_api_key: Option<String>,
     /// Custom environment variables
     pub env_vars: Option<HashMap<String, String>>,
 }

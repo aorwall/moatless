@@ -22,6 +22,9 @@ use crate::message::dao::{MessageRepository, PgMessageRepository};
 use crate::plugin_repo::dao::{PgPluginRepoRepository, PluginRepoRepository};
 use crate::repository::dao::{PgRepoRepository, RepoRepository};
 use crate::sandbox::provider::SandboxProvider;
+use crate::secret::audit::{PgSecretAuditRepository, SecretAuditRepository};
+use crate::secret::dao::{PgSecretRepository, SecretRepository};
+use crate::secret::service::{LocalEnvelopeSecretCipher, SecretService};
 use crate::skill::fetcher::{GitHubSkillFetcher, SkillFetcher};
 use crate::skill::service::SkillService;
 use crate::tag::dao::{PgTagRepository, TagRepository};
@@ -66,6 +69,9 @@ pub struct AppState {
     pub users: Arc<dyn UserRepository>,
     pub provider_tokens: Arc<dyn ProviderTokenRepository>,
     pub provider_token_auth: Arc<dyn ProviderTokenAuthRepository>,
+    pub secret_records: Arc<dyn SecretRepository>,
+    pub secret_audits: Arc<dyn SecretAuditRepository>,
+    pub secrets: Arc<SecretService>,
     pub teams: Arc<dyn TeamRepository>,
     pub task_events: Arc<dyn TaskEventRepository>,
     pub plugin_repos: Arc<dyn PluginRepoRepository>,
@@ -96,6 +102,15 @@ impl AppState {
             Arc::new(PgProviderTokenRepository(pool.clone()));
         let provider_token_auth: Arc<dyn ProviderTokenAuthRepository> =
             Arc::new(PgProviderTokenAuthRepository(pool.clone()));
+        let secret_records: Arc<dyn SecretRepository> = Arc::new(PgSecretRepository(pool.clone()));
+        let secret_audits: Arc<dyn SecretAuditRepository> =
+            Arc::new(PgSecretAuditRepository(pool.clone()));
+        let secret_cipher = LocalEnvelopeSecretCipher::from_config(&config.secrets);
+        let secrets = Arc::new(SecretService::new(
+            secret_records.clone(),
+            secret_audits.clone(),
+            secret_cipher,
+        ));
 
         let skill_http = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
@@ -108,8 +123,7 @@ impl AppState {
                 );
                 reqwest::Client::new()
             });
-        let skill_fetcher: Arc<dyn SkillFetcher> =
-            Arc::new(GitHubSkillFetcher::new(skill_http));
+        let skill_fetcher: Arc<dyn SkillFetcher> = Arc::new(GitHubSkillFetcher::new(skill_http));
         let skills = Arc::new(SkillService::new(
             repositories.clone(),
             plugin_repos.clone(),
@@ -133,6 +147,9 @@ impl AppState {
             users: Arc::new(PgUserRepository(pool.clone())),
             provider_tokens,
             provider_token_auth,
+            secret_records,
+            secret_audits,
+            secrets,
             teams: Arc::new(PgTeamRepository(pool.clone())),
             task_events: Arc::new(PgTaskEventRepository(pool.clone())),
             plugin_repos,

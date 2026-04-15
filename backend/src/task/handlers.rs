@@ -1,7 +1,7 @@
 //! Task HTTP handlers — coordinate repository calls + enrichment.
 
-use axum::extract::{Path, Query, State};
 use axum::Json;
+use axum::extract::{Path, Query, State};
 
 use moatless_events::{SandboxEventPayload, SandboxStatus, SandboxSubType, TaskSubType};
 
@@ -195,6 +195,7 @@ async fn insert_and_provision_task(
         state.repositories.as_ref(),
         state.provider_tokens.as_ref(),
         state.plugin_repos.as_ref(),
+        Some(&state.secrets),
         task_id,
     )
     .await
@@ -592,6 +593,7 @@ pub async fn start_task(
         state.repositories.as_ref(),
         state.provider_tokens.as_ref(),
         state.plugin_repos.as_ref(),
+        Some(&state.secrets),
         &task_id,
     )
     .await

@@ -19,6 +19,7 @@ use tracing::{info, warn};
 use super::client::DockerClient;
 use super::container_builder;
 use super::naming::{generate_container_name, generate_server_container_name};
+use super::secret_env;
 use super::status_resolver::DockerStatusResolver;
 use crate::config::Config;
 use crate::events::EventPublisher;
@@ -192,13 +193,27 @@ impl SandboxProvider for DockerSandboxProvider {
         }
 
         // 7. Create and start server sidecar containers
+        let server_env_files =
+            secret_env::write_server_env_files(&self.config, task_id, &request.server_secrets)
+                .await?;
+
         if let Some(ref servers) = plan.repo_config.servers {
             for server in servers {
+                if server_env_files.contains_key(&server.name)
+                    && server.start_commands.as_ref().is_none_or(Vec::is_empty)
+                {
+                    warn!(
+                        task_id = %task_id,
+                        server = %server.name,
+                        "Docker server has scoped secrets but no start_commands; image startup must source MOATLESS_SERVER_ENV_FILE or BASH_ENV"
+                    );
+                }
                 if let Err(e) = self
                     .create_and_start_server_container(
                         task_id,
                         server,
                         plan.repo_config.docker_image.as_deref(),
+                        server_env_files.get(&server.name).map(String::as_str),
                     )
                     .await
                 {
@@ -283,6 +298,9 @@ impl SandboxProvider for DockerSandboxProvider {
 
         // Remove server containers
         self.remove_server_containers(task_id).await;
+        if let Err(e) = secret_env::delete_server_env_dir(&self.config, task_id).await {
+            warn!(task_id = %task_id, error = %e, "Failed to delete Docker server env files during redeploy");
+        }
 
         // Remove sandbox container
         let container_name = generate_container_name(task_id);
@@ -297,6 +315,9 @@ impl SandboxProvider for DockerSandboxProvider {
 
         // Remove server containers first
         self.remove_server_containers(task_id).await;
+        if let Err(e) = secret_env::delete_server_env_dir(&self.config, task_id).await {
+            warn!(task_id = %task_id, error = %e, "Failed to delete Docker server env files");
+        }
 
         let container_name = generate_container_name(task_id);
 
@@ -424,6 +445,7 @@ impl DockerSandboxProvider {
         task_id: &str,
         server: &ServerConfig,
         sandbox_image: Option<&str>,
+        server_env_file: Option<&str>,
     ) -> Result<(), SandboxError> {
         let server_container_name = generate_server_container_name(task_id, &server.name);
 
@@ -455,6 +477,7 @@ impl DockerSandboxProvider {
             task_id,
             server,
             sandbox_image,
+            server_env_file,
         );
 
         self.client

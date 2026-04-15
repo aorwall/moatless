@@ -19,3 +19,4 @@ pub mod notify;
 pub mod provider;
 pub mod routes;
 pub mod schemas;
+pub mod secrets;

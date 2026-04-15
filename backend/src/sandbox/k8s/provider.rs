@@ -17,6 +17,7 @@ use super::pod_builder;
 use super::pod_reader;
 use super::pod_status::is_sandbox_container_ready;
 use super::pvc;
+use super::secret;
 use super::service;
 use super::status_resolver::StatusResolver;
 use crate::config::Config;
@@ -91,13 +92,17 @@ impl SandboxProvider for K8sSandboxProvider {
             }
         };
 
-        // 4. Build pod spec
+        // 4. Create per-task server Secret, then build pod spec
+        let server_secret_refs =
+            secret::create_task_server_secret(&self.k8s, task_id, &request.server_secrets).await?;
+
         let pod = pod_builder::build_pod(
             &self.config,
             task_id,
             plan,
             pvc_name.as_deref(),
             Some(&user_auth_token),
+            server_secret_refs.as_ref(),
         )
         .map_err(SandboxError::PodBuildError)?;
 
@@ -221,6 +226,9 @@ impl SandboxProvider for K8sSandboxProvider {
         if let Err(e) = ingress::delete_task_ingress_routes(&self.k8s, task_id).await {
             warn!(task_id = %task_id, error = %e, "Failed to delete IngressRoutes during redeploy");
         }
+        if let Err(e) = secret::delete_task_server_secret(&self.k8s, task_id).await {
+            warn!(task_id = %task_id, error = %e, "Failed to delete server Secret during redeploy");
+        }
         // 3. PVC is intentionally NOT deleted — workspace data is preserved
 
         // 4. Reprovision with fresh config (provision handles PVC reuse)
@@ -242,6 +250,9 @@ impl SandboxProvider for K8sSandboxProvider {
         }
         if let Err(e) = pvc::delete_task_pvc(&self.k8s, task_id).await {
             warn!(task_id = %task_id, error = %e, "Failed to delete PVC");
+        }
+        if let Err(e) = secret::delete_task_server_secret(&self.k8s, task_id).await {
+            warn!(task_id = %task_id, error = %e, "Failed to delete server Secret");
         }
 
         if let Some(ref publisher) = self.event_publisher {

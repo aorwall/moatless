@@ -4,9 +4,9 @@
 //! Server containers are created dynamically from the repo config.
 
 use k8s_openapi::api::core::v1::{
-    Capabilities, Container, ContainerPort, EmptyDirVolumeSource, EnvVar, HTTPGetAction,
-    PersistentVolumeClaimVolumeSource, Pod, PodSpec, Probe, ResourceRequirements, SecurityContext,
-    TCPSocketAction, Toleration, Volume, VolumeMount,
+    Capabilities, Container, ContainerPort, EmptyDirVolumeSource, EnvVar, EnvVarSource,
+    HTTPGetAction, PersistentVolumeClaimVolumeSource, Pod, PodSpec, Probe, ResourceRequirements,
+    SecretKeySelector, SecurityContext, TCPSocketAction, Toleration, Volume, VolumeMount,
 };
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
@@ -14,6 +14,7 @@ use std::collections::{BTreeMap, HashMap};
 use tracing::{debug, info};
 
 use super::naming::generate_pod_name;
+use super::secret::ServerSecretRefs;
 use crate::config::Config;
 use crate::sandbox::models::ProvisionPlan;
 
@@ -27,6 +28,7 @@ pub fn build_pod(
     plan: &ProvisionPlan,
     pvc_name: Option<&str>,
     user_auth_token: Option<&str>,
+    server_secret_refs: Option<&ServerSecretRefs>,
 ) -> Result<Pod, String> {
     let pod_name = generate_pod_name(&plan.repo_config.name, task_id);
     let namespace = config.sandbox.namespace.clone();
@@ -108,7 +110,7 @@ pub fn build_pod(
         build_sandbox_container(config, task_id, plan, pvc_name, user_auth_token)?;
 
     // ── Server containers ───────────────────────────────────────────
-    let server_containers = build_server_containers(config, plan, pvc_name)?;
+    let server_containers = build_server_containers(config, plan, pvc_name, server_secret_refs)?;
 
     // ── Assemble Pod ────────────────────────────────────────────────
     let mut all_containers = vec![sandbox_container];
@@ -214,11 +216,6 @@ fn build_sandbox_container(
 
     // Git provider (github, gitlab, gitness)
     env.push(env_var("GIT_PROVIDER", &plan.git_provider));
-
-    // Git token for clone authentication
-    if let Some(ref token) = plan.git_provider_token {
-        env.push(env_var("GIT_TOKEN", token));
-    }
 
     // REPO_CONFIG env var (pass-through for sandbox)
     if let Some(repo_config_json) = build_repo_config_json(plan) {
@@ -342,6 +339,7 @@ fn build_server_containers(
     config: &Config,
     plan: &ProvisionPlan,
     pvc_name: Option<&str>,
+    server_secret_refs: Option<&ServerSecretRefs>,
 ) -> Result<Vec<Container>, String> {
     let servers = match &plan.repo_config.servers {
         Some(s) if !s.is_empty() => s,
@@ -372,6 +370,14 @@ fn build_server_containers(
         if let Some(ref extra) = server.env_vars {
             for (k, v) in extra {
                 env.push(env_var(k, v));
+            }
+        }
+        if let Some(refs) = server_secret_refs {
+            if let Some(secret_refs) = refs.get(&server.name) {
+                for (key, secret_key) in secret_refs {
+                    env.retain(|existing| existing.name != *key);
+                    env.push(secret_key_ref_env_var(key, &refs.secret_name, secret_key));
+                }
             }
         }
 
@@ -585,6 +591,21 @@ fn env_var(name: &str, value: &str) -> EnvVar {
     }
 }
 
+fn secret_key_ref_env_var(name: &str, secret_name: &str, key: &str) -> EnvVar {
+    EnvVar {
+        name: name.to_string(),
+        value_from: Some(EnvVarSource {
+            secret_key_ref: Some(SecretKeySelector {
+                key: key.to_string(),
+                name: secret_name.to_string(),
+                optional: Some(false),
+            }),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
 /// Get current time as ISO 8601 string (no chrono dependency — use simple format).
 fn chrono_now_iso() -> String {
     let now = std::time::SystemTime::now()
@@ -603,4 +624,192 @@ pub fn build_servers_map(plan: &ProvisionPlan) -> HashMap<String, u16> {
         }
     }
     servers
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sandbox::models::{RepoConfig, ServerConfig};
+
+    fn test_config() -> Config {
+        use crate::config::*;
+        Config {
+            server: crate::config::ServerConfig {
+                port: 8080,
+                metrics_port: 9090,
+                grpc_port: 50051,
+            },
+            sandbox_provider: SandboxProviderType::Kubernetes,
+            sandbox: SandboxConfig {
+                namespace: "test".into(),
+                image: "sandbox:latest".into(),
+                image_pull_policy: "Never".into(),
+                grpc_port: 50052,
+                resources_cpu_limit: "500m".into(),
+                resources_memory_limit: "512Mi".into(),
+                resources_cpu_request: "100m".into(),
+                resources_memory_request: "128Mi".into(),
+                storage_enabled: false,
+                storage_size: "1Gi".into(),
+                storage_class: None,
+                pod_startup_timeout_secs: 10,
+                task_token_secret: Some("secret".into()),
+                file_mount_path: "/tmp".into(),
+                idle_reaper_enabled: false,
+                idle_timeout_minutes: 60,
+                idle_check_interval_secs: 300,
+                max_crash_restart_count: 5,
+                node_selector_json: None,
+                tolerations_json: None,
+                service_account_name: None,
+                default_model: None,
+            },
+            proxy: ProxyConfig {
+                domain: None,
+                protocol: "http".into(),
+                traefik_auth_middleware_name: "test".into(),
+                traefik_auth_middleware_namespace: "test".into(),
+                traefik_entry_point: "web".into(),
+            },
+            docker: DockerConfig {
+                network: "moatless".into(),
+                image: "sandbox:latest".into(),
+                data_dir: "/data".into(),
+                container_data_dir: "/data".into(),
+                backend_hostname: "moatless-backend".into(),
+                enable_socket_mount: false,
+                socket_path: "/var/run/docker.sock".into(),
+                extra_networks: vec![],
+            },
+            database_url: None,
+            database: DatabaseConfig {
+                url: None,
+                max_connections: 5,
+            },
+            redis: RedisConfig {
+                url: None,
+                max_stream_length: 100,
+            },
+            sse: SseConfig {
+                broadcast_capacity: 16,
+                consumer_id: "test".into(),
+            },
+            auth: AuthConfig {
+                provider: None,
+                github_client_id: None,
+                github_client_secret: None,
+                github_callback_url: None,
+                github_oauth_scope: "".into(),
+                github_required_org: None,
+                auth0_domain: None,
+                auth0_client_id: None,
+                auth0_client_secret: None,
+                auth0_callback_url: None,
+                auth0_audience: None,
+                auth0_groups_claim: "".into(),
+                default_team_slug: None,
+                session_max_age_secs: 3600,
+                frontend_url: "http://localhost:3000".into(),
+                cookie_domain: None,
+                session_cookie_name: "test".into(),
+                is_production: false,
+                cache_ttl_secs: 0,
+                session_jwt_secret: None,
+                test_api_key: None,
+                github_app_client_id: None,
+                github_app_client_secret: None,
+                github_app_callback_url: None,
+                github_app_id: None,
+                github_app_private_key: None,
+                github_app_default_installation_id: None,
+            },
+            s3: S3Config {
+                bucket_name: None,
+                key_prefix: "test".into(),
+                region: "us-east-1".into(),
+            },
+            slack: SlackConfig {
+                bot_token: None,
+                signing_secret: None,
+                bot_user_id: None,
+            },
+            telegram: TelegramConfig {
+                bot_token: None,
+                mode: "webhook".into(),
+            },
+            github_pr: crate::config::GithubPrConfig {
+                webhook_secret: None,
+                bot_token: None,
+            },
+            skill: crate::config::SkillConfig { cache_ttl_secs: 60 },
+            secrets: crate::config::SecretsConfig {
+                encryption_key: None,
+                kms_key_id: None,
+            },
+        }
+    }
+
+    fn test_plan() -> ProvisionPlan {
+        ProvisionPlan {
+            repo_config: RepoConfig {
+                name: "repo".into(),
+                docker_image: None,
+                servers: Some(vec![ServerConfig {
+                    name: "web".into(),
+                    port: 3000,
+                    start_commands: Some(vec!["bun run dev".into()]),
+                    ..Default::default()
+                }]),
+                plugin_ids: None,
+                system_prompt: None,
+                code_execution: None,
+                preview_config: None,
+                resources: None,
+                plugin_repos: None,
+                docker_access: None,
+                docker_networks: None,
+            },
+            git_clone_url: "https://github.com/test/repo.git".into(),
+            git_branch: None,
+            git_provider: "github".into(),
+            env_vars: None,
+        }
+    }
+
+    #[test]
+    fn server_container_gets_secret_key_refs_for_its_server() {
+        let config = test_config();
+        let plan = test_plan();
+        let refs = ServerSecretRefs {
+            secret_name: "task-secret".into(),
+            by_server: BTreeMap::from([(
+                "web".to_string(),
+                BTreeMap::from([("STRIPE_SECRET_KEY".to_string(), "web_STRIPE".to_string())]),
+            )]),
+        };
+
+        let containers = build_server_containers(&config, &plan, Some("pvc"), Some(&refs)).unwrap();
+        let env = containers
+            .iter()
+            .find(|container| container.name == "web-server")
+            .unwrap()
+            .env
+            .as_ref()
+            .unwrap();
+        let secret_env = env
+            .iter()
+            .find(|env_var| env_var.name == "STRIPE_SECRET_KEY")
+            .unwrap();
+        let selector = secret_env
+            .value_from
+            .as_ref()
+            .unwrap()
+            .secret_key_ref
+            .as_ref()
+            .unwrap();
+
+        assert_eq!(secret_env.value, None);
+        assert_eq!(selector.name, "task-secret");
+        assert_eq!(selector.key, "web_STRIPE");
+    }
 }

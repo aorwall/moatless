@@ -3,8 +3,6 @@
 //! Receives events from sandbox pods via gRPC (replaces direct Redis XADD
 //! from the sandbox) and serves pending messages (replaces HTTP polling).
 
-use std::collections::HashMap;
-use std::env;
 use std::sync::Arc;
 
 use serde_json::Value;
@@ -21,12 +19,13 @@ use sandbox_proto::{
 use crate::auth::github_app_service::GitHubAppService;
 use crate::auth::provider_token_dao::ProviderTokenRepository;
 use crate::auth::provider_tokens::ProviderTokenAuthRepository;
-use crate::auth::token_refresh::ensure_fresh_token;
 use crate::command::dao::CommandRepository;
 use crate::events::EventPublisher;
 use crate::message::dao::MessageRepository;
 use crate::message::send::enrich_pending_with_commands;
 use crate::sandbox::jwt;
+use crate::sandbox::secrets::{resolve_task_credentials, TaskCredentialInputs};
+use crate::secret::service::SecretService;
 use crate::shared_models::AgentType;
 use crate::task::dao::TaskRepository;
 
@@ -58,6 +57,8 @@ pub struct BackendSandboxServiceImpl {
     pub github_app_service: Option<Arc<GitHubAppService>>,
     /// Provider token auth persistence for persisting refreshed tokens.
     pub provider_token_auth: Option<Arc<dyn ProviderTokenAuthRepository>>,
+    /// Scoped secret resolver for global/team/user secrets.
+    pub secrets: Option<Arc<SecretService>>,
 }
 
 impl BackendSandboxServiceImpl {
@@ -85,22 +86,6 @@ impl BackendSandboxServiceImpl {
 
         jwt::verify_user_auth_token(token, secret)
             .map_err(|e| Status::unauthenticated(format!("Invalid token: {e}")))
-    }
-
-    /// Look up the team_id for a task. Returns None on any failure.
-    async fn resolve_task_team_id(&self, task_id: &str) -> Option<String> {
-        let tasks = self.tasks.as_ref()?;
-        match tasks.find_by_id_internal(task_id).await {
-            Ok(Some(task)) => task.team_id,
-            Ok(None) => {
-                warn!(task_id, "resolve_task_team_id: task not found");
-                None
-            }
-            Err(e) => {
-                warn!(task_id, error = %e, "resolve_task_team_id: DB error");
-                None
-            }
-        }
     }
 }
 
@@ -322,9 +307,9 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
     /// Return credentials for sandbox initialization.
     ///
     /// Resolution chain:
-    /// 1. Environment variables (from moatless-secrets) — admin-configured, take priority
-    /// 2. Team-level provider_tokens (if task belongs to a team)
-    /// 3. User-level provider_tokens (user-linked OAuth tokens)
+    /// 1. Scoped global/team/user secrets.
+    /// 2. Team-level provider_tokens compatibility reads.
+    /// 3. User-level provider_tokens compatibility reads.
     async fn get_credentials(
         &self,
         request: Request<GetCredentialsRequest>,
@@ -338,159 +323,16 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             "GetCredentials request"
         );
 
-        let mut credentials: HashMap<String, String> = HashMap::new();
-
-        // Step 1: Environment variables (from moatless-secrets) take priority
-        if let Ok(token) = env::var("GITHUB_PAT") {
-            credentials.insert(CredentialKey::GITHUB_TOKEN.to_string(), token);
-        }
-        if let Ok(token) = env::var("GITLAB_PAT") {
-            credentials.insert(CredentialKey::GITLAB_TOKEN.to_string(), token);
-        }
-        if let Ok(token) = env::var("GITNESS_PAT") {
-            credentials.insert(CredentialKey::GITNESS_TOKEN.to_string(), token);
-        }
-        if let Ok(key) = env::var("ANTHROPIC_API_KEY") {
-            credentials.insert(CredentialKey::ANTHROPIC_API_KEY.to_string(), key);
-        }
-        if let Ok(auth_json) = env::var("CODEX_AUTH_JSON") {
-            credentials.insert(CredentialKey::CODEX_AUTH_JSON.to_string(), auth_json);
-        }
-        if let Ok(key) = env::var("OPENAI_API_KEY") {
-            credentials.insert(CredentialKey::OPENAI_API_KEY.to_string(), key);
-        }
-        if let Ok(token) = env::var("CLAUDE_CODE_OAUTH_TOKEN") {
-            credentials.insert(CredentialKey::CLAUDE_CODE_OAUTH_TOKEN.to_string(), token);
-        }
-
-        // Step 2: Team-level provider_tokens (if task belongs to a team)
-        let team_id = self.resolve_task_team_id(&req.task_id).await;
-        if let (Some(ref team_id), Some(ref provider_tokens)) = (&team_id, &self.provider_tokens) {
-            for (provider, cred_key) in [
-                ("github", CredentialKey::GITHUB_TOKEN),
-                ("gitlab", CredentialKey::GITLAB_TOKEN),
-                ("gitness", CredentialKey::GITNESS_TOKEN),
-                ("codex", CredentialKey::CODEX_AUTH_JSON),
-                ("openai", CredentialKey::OPENAI_API_KEY),
-            ] {
-                if !credentials.contains_key(cred_key) {
-                    match provider_tokens.find_team_token(team_id, provider).await {
-                        Ok(Some(row)) => {
-                            credentials.insert(cred_key.to_string(), row.access_token);
-                        }
-                        Ok(None) => {}
-                        Err(e) => {
-                            warn!(error = %e, team_id, provider, "Failed to query team provider_token");
-                        }
-                    }
-                }
-            }
-
-            if !credentials.contains_key(CredentialKey::CLAUDE_CODE_OAUTH_TOKEN)
-                && !credentials.contains_key(CredentialKey::ANTHROPIC_API_KEY)
-            {
-                match provider_tokens.find_team_token(team_id, "claude").await {
-                    Ok(Some(row)) => {
-                        credentials.insert(
-                            CredentialKey::CLAUDE_CODE_OAUTH_TOKEN.to_string(),
-                            row.access_token,
-                        );
-                    }
-                    Ok(None) => {}
-                    Err(e) => {
-                        warn!(error = %e, team_id, "Failed to query team claude provider_token");
-                    }
-                }
-            }
-        }
-
-        // Step 3: User-level provider_tokens (fills remaining gaps)
-        if let Some(ref provider_tokens) = self.provider_tokens {
-            // GitHub: refresh expired GitHub App tokens before returning
-            if !credentials.contains_key(CredentialKey::GITHUB_TOKEN) {
-                let resolved = if let (Some(ref github_app), Some(ref token_auth)) =
-                    (&self.github_app_service, &self.provider_token_auth)
-                {
-                    match ensure_fresh_token(
-                        provider_tokens.as_ref(),
-                        token_auth.as_ref(),
-                        github_app,
-                        &claims.user_id,
-                    )
-                    .await
-                    {
-                        Ok(token) => Some(token),
-                        Err(e) => {
-                            warn!(
-                                error = %e,
-                                user_id = %claims.user_id,
-                                "GitHub App token refresh failed, falling back to raw token"
-                            );
-                            provider_tokens
-                                .find_provider_token(&claims.user_id, "github")
-                                .await
-                                .ok()
-                                .flatten()
-                                .map(|row| row.access_token)
-                        }
-                    }
-                } else {
-                    provider_tokens
-                        .find_provider_token(&claims.user_id, "github")
-                        .await
-                        .ok()
-                        .flatten()
-                        .map(|row| row.access_token)
-                };
-
-                if let Some(token) = resolved {
-                    credentials.insert(CredentialKey::GITHUB_TOKEN.to_string(), token);
-                }
-            }
-
-            // GitLab + Gitness: raw token lookup (PATs, no refresh needed)
-            for (provider, cred_key) in [
-                ("gitlab", CredentialKey::GITLAB_TOKEN),
-                ("gitness", CredentialKey::GITNESS_TOKEN),
-                ("codex", CredentialKey::CODEX_AUTH_JSON),
-                ("openai", CredentialKey::OPENAI_API_KEY),
-            ] {
-                if !credentials.contains_key(cred_key) {
-                    match provider_tokens
-                        .find_provider_token(&claims.user_id, provider)
-                        .await
-                    {
-                        Ok(Some(row)) => {
-                            credentials.insert(cred_key.to_string(), row.access_token);
-                        }
-                        Ok(None) => {}
-                        Err(e) => {
-                            warn!(error = %e, user_id = %claims.user_id, provider, "Failed to query provider_token");
-                        }
-                    }
-                }
-            }
-
-            if !credentials.contains_key(CredentialKey::CLAUDE_CODE_OAUTH_TOKEN)
-                && !credentials.contains_key(CredentialKey::ANTHROPIC_API_KEY)
-            {
-                match provider_tokens
-                    .find_provider_token(&claims.user_id, "claude")
-                    .await
-                {
-                    Ok(Some(row)) => {
-                        credentials.insert(
-                            CredentialKey::CLAUDE_CODE_OAUTH_TOKEN.to_string(),
-                            row.access_token,
-                        );
-                    }
-                    Ok(None) => {}
-                    Err(e) => {
-                        warn!(error = %e, user_id = %claims.user_id, "Failed to query claude provider_token");
-                    }
-                }
-            }
-        }
+        let credentials = resolve_task_credentials(TaskCredentialInputs {
+            task_id: &req.task_id,
+            user_id: &claims.user_id,
+            secrets: self.secrets.as_ref(),
+            provider_tokens: self.provider_tokens.as_ref(),
+            tasks: self.tasks.as_ref(),
+            github_app_service: self.github_app_service.as_ref(),
+            provider_token_auth: self.provider_token_auth.as_ref(),
+        })
+        .await;
 
         info!(
             task_id = %req.task_id,

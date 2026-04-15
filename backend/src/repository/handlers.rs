@@ -8,6 +8,7 @@ use tracing::{debug, info, warn};
 
 use crate::extractors::AuthUser;
 use crate::scope::Scope;
+use crate::secret::models::looks_like_secret_key;
 use crate::state::AppState;
 use crate::task::models::Visibility;
 
@@ -21,6 +22,22 @@ use super::schemas::*;
 fn to_json<T: serde::Serialize>(val: T) -> Result<serde_json::Value, RepositoryError> {
     serde_json::to_value(val)
         .map_err(|e| RepositoryError::BadRequest(format!("Serialization error: {e}")))
+}
+
+fn validate_non_secret_env_vars(
+    env_vars: Option<&std::collections::HashMap<String, String>>,
+) -> Result<(), RepositoryError> {
+    let Some(env_vars) = env_vars else {
+        return Ok(());
+    };
+    for key in env_vars.keys() {
+        if looks_like_secret_key(key) {
+            return Err(RepositoryError::BadRequest(format!(
+                "Repository env_vars are non-secret config only; move {key} to scoped secrets"
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// Create a new repository.
@@ -56,6 +73,7 @@ pub async fn create_repository(
     let has_servers = req.servers.is_some();
     let scope_ctx = auth.scope_context();
     let user_id = auth.user_id;
+    validate_non_secret_env_vars(req.env_vars.as_ref())?;
 
     // Determine scope: use explicit scope from request, or derive from visibility for backwards compat
     let scope = req.scope.unwrap_or(match req.visibility {
@@ -222,6 +240,7 @@ pub async fn update_repository(
         .find_by_id(&repository_id, &auth.scope_context())
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id.clone()))?;
+    validate_non_secret_env_vars(req.env_vars.as_ref())?;
 
     let patch = RepositoryPatch {
         name: req.name,
@@ -568,7 +587,8 @@ async fn fetch_github_branches(
             if status == reqwest::StatusCode::NOT_FOUND {
                 return Err(RepositoryError::Forbidden(
                     "Repository not found or not accessible. If this is a private repository, \
-                     ensure your GitHub token has access.".to_string(),
+                     ensure your GitHub token has access."
+                        .to_string(),
                 ));
             }
 
@@ -695,7 +715,8 @@ async fn fetch_gitlab_branches(
             if status == reqwest::StatusCode::NOT_FOUND {
                 return Err(RepositoryError::Forbidden(
                     "Repository not found or not accessible. If this is a private repository, \
-                     ensure your GitLab token has access.".to_string(),
+                     ensure your GitLab token has access."
+                        .to_string(),
                 ));
             }
 
@@ -807,7 +828,8 @@ async fn fetch_gitness_branches(
             if status == reqwest::StatusCode::NOT_FOUND {
                 return Err(RepositoryError::Forbidden(
                     "Repository not found or not accessible. If this is a private repository, \
-                     ensure your Gitness token has access.".to_string(),
+                     ensure your Gitness token has access."
+                        .to_string(),
                 ));
             }
 

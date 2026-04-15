@@ -24,6 +24,9 @@ use crate::message::dao::{MessageRepository, PgMessageRepository};
 use crate::metrics;
 use crate::sandbox::grpc_server::BackendSandboxServiceImpl;
 use crate::sandbox::k8s::client::K8sClient;
+use crate::secret::audit::{PgSecretAuditRepository, SecretAuditRepository};
+use crate::secret::dao::{PgSecretRepository, SecretRepository};
+use crate::secret::service::{LocalEnvelopeSecretCipher, SecretService};
 use crate::sse::consumer::RedisStreamConsumer;
 use crate::sse::routes::SseState;
 use crate::task::dao::{PgTaskRepository, TaskRepository};
@@ -189,6 +192,16 @@ pub fn spawn_grpc_server(
     let github_app_service = GitHubAppService::from_config(config).map(Arc::new);
     let provider_token_auth: Option<Arc<dyn ProviderTokenAuthRepository>> =
         db_pool.map(|pool| Arc::new(PgProviderTokenAuthRepository(pool.clone())) as _);
+    let secrets = db_pool.map(|pool| {
+        let secret_records: Arc<dyn SecretRepository> = Arc::new(PgSecretRepository(pool.clone()));
+        let secret_audits: Arc<dyn SecretAuditRepository> =
+            Arc::new(PgSecretAuditRepository(pool.clone()));
+        Arc::new(SecretService::new(
+            secret_records,
+            secret_audits,
+            LocalEnvelopeSecretCipher::from_config(&config.secrets),
+        ))
+    });
 
     tokio::spawn(async move {
         let svc = BackendSandboxServiceImpl {
@@ -200,6 +213,7 @@ pub fn spawn_grpc_server(
             task_token_secret: token_secret,
             github_app_service,
             provider_token_auth,
+            secrets,
         };
         let addr = SocketAddr::from(([0, 0, 0, 0], port));
         info!(port, "Starting backend gRPC server");
@@ -296,6 +310,7 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     use crate::provider_settings::routes::ProviderSettingsApiDoc;
     use crate::repository::routes::RepositoryApiDoc;
     use crate::sandbox::routes::SandboxApiDoc;
+    use crate::secret::routes::SecretApiDoc;
     use crate::skill::routes::SkillApiDoc;
     use crate::tag::routes::TagApiDoc;
     use crate::task::routes::TaskApiDoc;
@@ -360,6 +375,7 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     merged.merge(FileStorageApiDoc::openapi());
     merged.merge(FigmaApiDoc::openapi());
     merged.merge(RepositoryApiDoc::openapi());
+    merged.merge(SecretApiDoc::openapi());
     merged.merge(TagApiDoc::openapi());
     merged.merge(ProviderSettingsApiDoc::openapi());
     merged.merge(ChannelApiDoc::openapi());

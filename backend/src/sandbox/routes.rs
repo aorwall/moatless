@@ -4,8 +4,8 @@
 //! Public-facing endpoints are authenticated via Traefik ForwardAuth middleware —
 //! the controller itself doesn't validate auth tokens.
 
-use axum::response::IntoResponse;
 use axum::Json;
+use axum::response::IntoResponse;
 use std::sync::Arc;
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -16,6 +16,7 @@ use super::provider::SandboxProvider;
 use crate::auth::provider_token_dao::ProviderTokenRepository;
 use crate::plugin_repo::dao::PluginRepoRepository;
 use crate::repository::dao::RepoRepository;
+use crate::secret::service::SecretService;
 use crate::task::dao::TaskRepository;
 
 /// State shared across sandbox API handlers.
@@ -30,6 +31,8 @@ pub struct SandboxApiState {
     pub provider_tokens: Option<Arc<dyn ProviderTokenRepository>>,
     /// Optional plugin repo repository — enables plugin git URL resolution for provisioning.
     pub plugin_repos: Option<Arc<dyn PluginRepoRepository>>,
+    /// Optional scoped secret service — enables server-targeted secret delivery.
+    pub secrets: Option<Arc<SecretService>>,
 }
 
 #[derive(OpenApi)]

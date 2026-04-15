@@ -19,13 +19,21 @@ pub struct UserDisplay {
 // =============================================================================
 
 /// Lightweight provider token (access_token only) for credential resolution.
-#[derive(sqlx::FromRow, Debug)]
+#[derive(sqlx::FromRow)]
 pub struct ProviderAccessToken {
     pub access_token: String,
 }
 
+impl std::fmt::Debug for ProviderAccessToken {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProviderAccessToken")
+            .field("access_token", &"[REDACTED]")
+            .finish()
+    }
+}
+
 /// Full provider token row from the `provider_tokens` table.
-#[derive(sqlx::FromRow, Debug, Clone)]
+#[derive(sqlx::FromRow, Clone)]
 pub struct ProviderToken {
     pub user_id: String,
     pub provider: String,
@@ -37,6 +45,26 @@ pub struct ProviderToken {
     pub metadata: Option<serde_json::Value>,
     pub created_at: Option<DateTime<Utc>>,
     pub updated_at: Option<DateTime<Utc>>,
+}
+
+impl std::fmt::Debug for ProviderToken {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProviderToken")
+            .field("user_id", &self.user_id)
+            .field("provider", &self.provider)
+            .field("access_token", &"[REDACTED]")
+            .field(
+                "refresh_token",
+                &self.refresh_token.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field("token_type", &self.token_type)
+            .field("auth_method", &self.auth_method)
+            .field("expires_at", &self.expires_at)
+            .field("metadata", &self.metadata)
+            .field("created_at", &self.created_at)
+            .field("updated_at", &self.updated_at)
+            .finish()
+    }
 }
 
 // =============================================================================

@@ -61,18 +61,6 @@ pub fn build_container_config(
         env.push(format!("GIT_BRANCH={branch}"));
     }
 
-    if let Some(ref token) = plan.git_provider_token {
-        env.push(format!("GIT_TOKEN={token}"));
-    }
-
-    if let Some(ref token) = plan.claude_oauth_token {
-        env.push(format!("CLAUDE_CODE_OAUTH_TOKEN={token}"));
-    }
-
-    if let Some(ref key) = plan.anthropic_api_key {
-        env.push(format!("ANTHROPIC_API_KEY={key}"));
-    }
-
     if let Some(token) = user_auth_token {
         env.push(format!("USER_AUTH_TOKEN={token}"));
     }
@@ -278,6 +266,7 @@ pub fn build_server_container_config(
     task_id: &str,
     server: &ServerConfig,
     sandbox_image: Option<&str>,
+    server_env_file: Option<&str>,
 ) -> ContainerConfig<String> {
     let container_name = generate_server_container_name(task_id, &server.name);
 
@@ -300,6 +289,10 @@ pub fn build_server_container_config(
             env.push(format!("{k}={v}"));
         }
     }
+    if let Some(path) = server_env_file {
+        env.push(format!("MOATLESS_SERVER_ENV_FILE={path}"));
+        env.push(format!("BASH_ENV={path}"));
+    }
 
     // ── Command ──────────────────────────────────────────────────
     // Wait for workspace-ready sentinel, then run start commands.
@@ -307,11 +300,14 @@ pub fn build_server_container_config(
     let cmd = match &server.start_commands {
         Some(cmds) if !cmds.is_empty() => {
             let joined_cmd = cmds.join(" && ");
+            let source_env = server_env_file
+                .map(|path| format!(" && set -a && . {} && set +a", shell_quote(path)))
+                .unwrap_or_default();
             Some(vec![
                 "bash".to_string(),
                 "-c".to_string(),
                 format!(
-                    "until [ -f /opt/moatless/data/.workspace-ready ]; do sleep 2; done && \
+                    "until [ -f /opt/moatless/data/.workspace-ready ]; do sleep 2; done{source_env} && \
                      cd /opt/moatless/repo && {joined_cmd}"
                 ),
             ])
@@ -390,6 +386,10 @@ pub fn build_server_container_config(
         cmd,
         ..Default::default()
     }
+}
+
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
 }
 
 #[cfg(test)]
@@ -508,6 +508,10 @@ mod tests {
                 bot_token: None,
             },
             skill: crate::config::SkillConfig { cache_ttl_secs: 60 },
+            secrets: crate::config::SecretsConfig {
+                encryption_key: None,
+                kms_key_id: None,
+            },
         }
     }
 
@@ -529,9 +533,6 @@ mod tests {
             git_clone_url: "https://github.com/test/repo.git".into(),
             git_branch: Some("main".into()),
             git_provider: "github".into(),
-            git_provider_token: Some("gh_token".into()),
-            claude_oauth_token: None,
-            anthropic_api_key: Some("sk-ant-key".into()),
             env_vars: None,
         }
     }
@@ -563,9 +564,9 @@ mod tests {
         assert!(env.iter().any(|e| e.starts_with("GIT_CLONE_URL=")));
         assert!(env.iter().any(|e| e.starts_with("BACKEND_GRPC_URL=")));
         assert!(env.iter().any(|e| e == "GIT_BRANCH=main"));
-        assert!(env.iter().any(|e| e.starts_with("GIT_TOKEN=")));
-        assert!(env.iter().any(|e| e.starts_with("ANTHROPIC_API_KEY=")));
         assert!(env.iter().any(|e| e == "USER_AUTH_TOKEN=jwt-token"));
+        assert!(!env.iter().any(|e| e.starts_with("GIT_TOKEN=")));
+        assert!(!env.iter().any(|e| e.starts_with("ANTHROPIC_API_KEY=")));
     }
 
     #[test]
@@ -634,7 +635,7 @@ mod tests {
     fn server_config_uses_default_image() {
         let config = test_config();
         let server = test_server_config();
-        let cc = build_server_container_config(&config, "task-1", &server, None);
+        let cc = build_server_container_config(&config, "task-1", &server, None, None);
         assert_eq!(cc.image.unwrap(), DEFAULT_SERVER_IMAGE);
     }
 
@@ -643,7 +644,7 @@ mod tests {
         let config = test_config();
         let mut server = test_server_config();
         server.docker_image = Some("custom-server:v1".into());
-        let cc = build_server_container_config(&config, "task-1", &server, None);
+        let cc = build_server_container_config(&config, "task-1", &server, None, None);
         assert_eq!(cc.image.unwrap(), "custom-server:v1");
     }
 
@@ -656,6 +657,7 @@ mod tests {
             "task-1",
             &server,
             Some("aorwall/moatless-vibe-sandbox-js:latest"),
+            None,
         );
         assert_eq!(cc.image.unwrap(), "aorwall/moatless-vibe-sandbox-js:latest");
     }
@@ -670,6 +672,7 @@ mod tests {
             "task-1",
             &server,
             Some("aorwall/moatless-vibe-sandbox-js:latest"),
+            None,
         );
         assert_eq!(cc.image.unwrap(), "custom-server:v1");
     }
@@ -678,7 +681,7 @@ mod tests {
     fn server_config_has_correct_labels() {
         let config = test_config();
         let server = test_server_config();
-        let cc = build_server_container_config(&config, "task-1", &server, None);
+        let cc = build_server_container_config(&config, "task-1", &server, None, None);
         let labels = cc.labels.unwrap();
         assert_eq!(labels.get("moatless.service").unwrap(), "server");
         assert_eq!(labels.get("moatless.io/task-id").unwrap(), "task-1");
@@ -689,7 +692,7 @@ mod tests {
     fn server_config_has_workspace_ready_wait() {
         let config = test_config();
         let server = test_server_config();
-        let cc = build_server_container_config(&config, "task-1", &server, None);
+        let cc = build_server_container_config(&config, "task-1", &server, None, None);
         let cmd = cc.cmd.unwrap();
         assert_eq!(cmd[0], "bash");
         assert_eq!(cmd[1], "-c");
@@ -698,10 +701,36 @@ mod tests {
     }
 
     #[test]
+    fn server_config_sources_secret_env_file_without_raw_values() {
+        let config = test_config();
+        let server = test_server_config();
+        let cc = build_server_container_config(
+            &config,
+            "task-1",
+            &server,
+            None,
+            Some("/opt/moatless/data/server-env/preview.env"),
+        );
+        let env = cc.env.unwrap();
+        assert!(env.iter().any(|e| {
+            e == "MOATLESS_SERVER_ENV_FILE=/opt/moatless/data/server-env/preview.env"
+        }));
+        assert!(
+            env.iter()
+                .any(|e| e == "BASH_ENV=/opt/moatless/data/server-env/preview.env")
+        );
+        assert!(!env.iter().any(|e| e.contains("STRIPE_SECRET_KEY")));
+
+        let cmd = cc.cmd.unwrap();
+        assert!(cmd[2].contains(". '/opt/moatless/data/server-env/preview.env'"));
+        assert!(cmd[2].contains("bun run dev"));
+    }
+
+    #[test]
     fn server_config_exposes_server_port() {
         let config = test_config();
         let server = test_server_config();
-        let cc = build_server_container_config(&config, "task-1", &server, None);
+        let cc = build_server_container_config(&config, "task-1", &server, None, None);
         let ports = cc.exposed_ports.unwrap();
         assert!(ports.contains_key("3000/tcp"));
     }
@@ -710,7 +739,7 @@ mod tests {
     fn server_config_has_bind_mounts() {
         let config = test_config();
         let server = test_server_config();
-        let cc = build_server_container_config(&config, "task-1", &server, None);
+        let cc = build_server_container_config(&config, "task-1", &server, None, None);
         let host_config = cc.host_config.unwrap();
         let mounts = host_config.mounts.unwrap();
         assert_eq!(mounts.len(), 2);
@@ -722,7 +751,7 @@ mod tests {
     fn server_config_env_vars() {
         let config = test_config();
         let server = test_server_config();
-        let cc = build_server_container_config(&config, "task-1", &server, None);
+        let cc = build_server_container_config(&config, "task-1", &server, None, None);
         let env = cc.env.unwrap();
         assert!(env.iter().any(|e| e == "PORT=3000"));
         assert!(env.iter().any(|e| e == "WORKSPACE_PATH=/opt/moatless/repo"));
@@ -738,9 +767,11 @@ mod tests {
         let cc = build_container_config(&config, "task-1", &plan, None);
         let mounts = cc.host_config.unwrap().mounts.unwrap();
         assert_eq!(mounts.len(), 3);
-        assert!(!mounts
-            .iter()
-            .any(|m| m.target.as_deref() == Some("/var/run/docker.sock")));
+        assert!(
+            !mounts
+                .iter()
+                .any(|m| m.target.as_deref() == Some("/var/run/docker.sock"))
+        );
     }
 
     #[test]
@@ -769,9 +800,11 @@ mod tests {
         let cc = build_container_config(&config, "task-1", &plan, None);
         let mounts = cc.host_config.unwrap().mounts.unwrap();
         assert_eq!(mounts.len(), 4);
-        assert!(mounts
-            .iter()
-            .any(|m| m.target.as_deref() == Some("/var/run/docker.sock")));
+        assert!(
+            mounts
+                .iter()
+                .any(|m| m.target.as_deref() == Some("/var/run/docker.sock"))
+        );
     }
 
     #[test]
@@ -783,9 +816,11 @@ mod tests {
         let cc = build_container_config(&config, "task-1", &plan, None);
         let mounts = cc.host_config.unwrap().mounts.unwrap();
         assert_eq!(mounts.len(), 3);
-        assert!(!mounts
-            .iter()
-            .any(|m| m.target.as_deref() == Some("/var/run/docker.sock")));
+        assert!(
+            !mounts
+                .iter()
+                .any(|m| m.target.as_deref() == Some("/var/run/docker.sock"))
+        );
     }
 
     #[test]

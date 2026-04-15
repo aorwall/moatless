@@ -76,6 +76,12 @@ enum SharedCommands {
         #[command(subcommand)]
         action: commands::settings::SettingsAction,
     },
+    /// Secret management
+    #[command(name = "secret")]
+    Secrets {
+        #[command(subcommand)]
+        action: commands::secrets::SecretAction,
+    },
     /// Command management
     #[command(name = "commands")]
     Commands {
@@ -364,6 +370,9 @@ async fn run_shared(
         }
         SharedCommands::Settings { action } => {
             commands::settings::run(moat, action, json).await?;
+        }
+        SharedCommands::Secrets { action } => {
+            commands::secrets::run(moat, action, json).await?;
         }
         SharedCommands::Plugins { action } => {
             commands::plugins::run(moat, action, json).await?;

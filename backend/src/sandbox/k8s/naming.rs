@@ -39,6 +39,16 @@ pub fn generate_service_name(task_id: &str) -> String {
     truncate_k8s(format!("moatless-ws-{sanitized}"))
 }
 
+/// Generate a deterministic Kubernetes Secret name from a task ID.
+///
+/// Format: `moatless-secret-{sanitized_task_id}` (max 63 chars).
+pub fn generate_secret_name(task_id: &str) -> String {
+    let prefix = "moatless-secret-";
+    let max_id_len = 63 - prefix.len();
+    let sanitized = sanitize_k8s_name(task_id, max_id_len);
+    truncate_k8s(format!("{prefix}{sanitized}"))
+}
+
 /// Generate a unique PVC name for a task.
 ///
 /// Format: `moatless-sandbox-{sanitized_task_id}-{base36_timestamp}` (max 63 chars).
@@ -109,6 +119,12 @@ mod tests {
         let long_id = "a".repeat(100);
         let name = generate_service_name(&long_id);
         assert!(name.len() <= 63);
+    }
+
+    #[test]
+    fn test_generate_secret_name() {
+        assert_eq!(generate_secret_name("ABC_123"), "moatless-secret-abc-123");
+        assert!(generate_secret_name(&"a".repeat(100)).len() <= 63);
     }
 
     #[test]
