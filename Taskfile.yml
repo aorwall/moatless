@@ -83,7 +83,7 @@ tasks:
       - ./docker/build-sandbox.sh --tag {{.TAG}} --platform {{.PLATFORM}}
 
   build:servers:
-    desc: Build server Docker images (files-server, preview-server)
+    desc: Build preview-server Docker image
     cmds:
       - ./docker/build-servers.sh --tag {{.TAG}} --platform {{.PLATFORM}}
 
