@@ -1,9 +1,13 @@
 {{- if .Values.rbac.create -}}
+{{- $sandboxNamespace := include "moatless-vibe.sandboxNamespace" . -}}
+# Pod / PVC / secret / service / deployment management.
+# Role lives in the sandbox namespace; subject is the backend ServiceAccount in the release namespace.
+# When sandbox namespace == release namespace, this collapses to the original single-namespace setup.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: {{ include "moatless-vibe.fullname" . }}-pod-manager
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ $sandboxNamespace }}
   labels:
     {{- include "moatless-vibe.labels" . | nindent 4 }}
 rules:
@@ -13,7 +17,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: {{ include "moatless-vibe.fullname" . }}-pod-manager
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ $sandboxNamespace }}
   labels:
     {{- include "moatless-vibe.labels" . | nindent 4 }}
 subjects:
@@ -26,12 +30,12 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
 ---
 # Traefik IngressRoute management permissions
-# IngressRoutes are CRDs managed by the backend during workspace provisioning
+# IngressRoutes are CRDs created alongside sandbox workspaces — live in sandbox namespace.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: {{ include "moatless-vibe.fullname" . }}-ingressroute-manager
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ $sandboxNamespace }}
   labels:
     {{- include "moatless-vibe.labels" . | nindent 4 }}
 rules:
@@ -43,7 +47,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: {{ include "moatless-vibe.fullname" . }}-ingressroute-manager
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ $sandboxNamespace }}
   labels:
     {{- include "moatless-vibe.labels" . | nindent 4 }}
 subjects:
@@ -55,12 +59,12 @@ roleRef:
   name: {{ include "moatless-vibe.fullname" . }}-ingressroute-manager
   apiGroup: rbac.authorization.k8s.io
 ---
-# Observability permissions: K8s events + metrics-server pod metrics
+# Observability permissions: K8s events + metrics-server pod metrics — read from sandbox namespace.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: {{ include "moatless-vibe.fullname" . }}-observability
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ $sandboxNamespace }}
   labels:
     {{- include "moatless-vibe.labels" . | nindent 4 }}
 rules:
@@ -78,7 +82,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: {{ include "moatless-vibe.fullname" . }}-observability
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ $sandboxNamespace }}
   labels:
     {{- include "moatless-vibe.labels" . | nindent 4 }}
 subjects:

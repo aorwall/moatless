@@ -1,3 +1,4 @@
+{{- include "moatless-vibe.validateIngressMode" . }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -27,10 +28,18 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "moatless-vibe.serviceAccountName" . }}
+      {{- with .Values.backend.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: backend
           image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+          {{- with .Values.backend.containerSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           ports:
             - containerPort: 8080
               name: http
@@ -67,7 +76,7 @@ spec:
             - name: SANDBOX_IMAGE
               value: {{ include "moatless-vibe.sandboxImage" . | quote }}
             - name: SANDBOX_IMAGE_PULL_POLICY
-              value: {{ .Values.sandboxImage.pullPolicy | default "Always" | quote }}
+              value: {{ .Values.sandboxImage.pullPolicy | default "IfNotPresent" | quote }}
             - name: FILES_SERVER_IMAGE
               value: "{{ .Values.kubernetes.filesServerImage.repository }}:{{ .Values.kubernetes.filesServerImage.tag | default .Chart.AppVersion }}"
             - name: PREVIEW_SERVER_IMAGE
@@ -312,9 +321,6 @@ spec:
                   key: {{ $key }}
             {{- end }}
             {{- end }}
-          envFrom:
-            - secretRef:
-                name: {{ include "moatless-vibe.secretsName" . }}
           resources:
             {{- toYaml .Values.backend.resources | nindent 12 }}
           livenessProbe:
@@ -331,6 +337,16 @@ spec:
             initialDelaySeconds: 2
             periodSeconds: 5
             timeoutSeconds: 3
+          {{- if (and .Values.backend.containerSecurityContext .Values.backend.containerSecurityContext.readOnlyRootFilesystem) }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          {{- end }}
+      {{- if (and .Values.backend.containerSecurityContext .Values.backend.containerSecurityContext.readOnlyRootFilesystem) }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

@@ -1,0 +1,45 @@
+{{- /*
+ResourceQuota for the sandbox namespace. Caps the total cpu / memory / pod
+count that sandboxes can consume, preventing a runaway tenant or bug from
+scheduling thousands of workspaces.
+Off by default — opt in via kubernetes.resourceQuota.enabled=true.
+*/ -}}
+{{- if and .Values.kubernetes.enabled .Values.kubernetes.resourceQuota .Values.kubernetes.resourceQuota.enabled -}}
+{{- $rq := .Values.kubernetes.resourceQuota -}}
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: {{ include "moatless-vibe.fullname" . }}-sandbox-quota
+  namespace: {{ include "moatless-vibe.sandboxNamespace" . }}
+  labels:
+    {{- include "moatless-vibe.labels" . | nindent 4 }}
+spec:
+  hard:
+    {{- with $rq.pods }}
+    pods: {{ . | quote }}
+    {{- end }}
+    {{- with $rq.requestsCpu }}
+    requests.cpu: {{ . | quote }}
+    {{- end }}
+    {{- with $rq.requestsMemory }}
+    requests.memory: {{ . | quote }}
+    {{- end }}
+    {{- with $rq.limitsCpu }}
+    limits.cpu: {{ . | quote }}
+    {{- end }}
+    {{- with $rq.limitsMemory }}
+    limits.memory: {{ . | quote }}
+    {{- end }}
+    {{- with $rq.persistentVolumeClaims }}
+    persistentvolumeclaims: {{ . | quote }}
+    {{- end }}
+    {{- with $rq.requestsStorage }}
+    requests.storage: {{ . | quote }}
+    {{- end }}
+    {{- with $rq.services }}
+    services: {{ . | quote }}
+    {{- end }}
+    {{- with $rq.secrets }}
+    secrets: {{ . | quote }}
+    {{- end }}
+{{- end }}

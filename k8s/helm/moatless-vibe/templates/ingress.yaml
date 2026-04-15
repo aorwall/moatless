@@ -1,3 +1,4 @@
+{{- include "moatless-vibe.validateIngressMode" . -}}
 {{- if .Values.ingress.enabled -}}
 {{- $fullname := include "moatless-vibe.fullname" . -}}
 {{- $host := (index .Values.ingress.hosts 0).host -}}

@@ -1,9 +1,13 @@
-{{- if .Values.kubernetes.enabled }}
+{{- if and .Values.kubernetes.enabled .Values.networkPolicy.sandbox.enabled -}}
+{{- $sandboxNamespace := include "moatless-vibe.sandboxNamespace" . -}}
+{{- $releaseNamespace := .Release.Namespace -}}
+{{- $sandboxCats := .Values.networkPolicy.sandbox.categories -}}
+{{- $egressCidrs := index (fromYaml (include "moatless-vibe.sandboxEgressCidrs" .)) "cidrs" -}}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: {{ include "moatless-vibe.fullname" . }}-sandbox-egress
-  namespace: {{ .Release.Namespace }}
+  name: {{ include "moatless-vibe.fullname" . }}-sandbox
+  namespace: {{ $sandboxNamespace }}
   labels:
     {{- include "moatless-vibe.labels" . | nindent 4 }}
 spec:
@@ -13,8 +17,49 @@ spec:
       app.kubernetes.io/component: sandbox
   policyTypes:
     - Egress
+    {{- if .Values.networkPolicy.sandbox.restrictIngress }}
+    - Ingress
+    {{- end }}
+  {{- if .Values.networkPolicy.sandbox.restrictIngress }}
+  # ---------------- INGRESS: only backend + Traefik may dial sandboxes ----------------
+  ingress:
+    # Backend → sandbox gRPC (control plane) and sandbox HTTP health
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $releaseNamespace }}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: moatless-vibe
+              app.kubernetes.io/component: backend
+      ports:
+        - protocol: TCP
+          port: {{ .Values.kubernetes.sandboxGrpcPort }}
+        - protocol: TCP
+          port: 8001
+    # Traefik → sandbox dev servers (preview proxy routes to user dev servers)
+    {{- with .Values.networkPolicy.sandbox.ingressFromTraefik }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .namespace }}
+          {{- if .podLabels }}
+          podSelector:
+            matchLabels:
+              {{- toYaml .podLabels | nindent 14 }}
+          {{- end }}
+      ports:
+        {{- range .ports }}
+        - protocol: TCP
+          port: {{ . }}
+        {{- end }}
+    {{- end }}
+    {{- with .Values.networkPolicy.sandbox.extraIngress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- end }}
   egress:
-    # DNS (kube-dns in kube-system)
+    # ---------------- In-cluster: DNS ----------------
     - to:
         - namespaceSelector:
             matchLabels:
@@ -27,24 +72,42 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
-    # Backend service (Rust backend on port 8080)
+    # ---------------- In-cluster: backend (gRPC + HTTP) ----------------
+    # Sandboxes call backend on gRPC for events/credentials/message polling (primary)
+    # and on HTTP 8080 as a fallback for a few legacy endpoints.
     - to:
-        - podSelector:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $releaseNamespace }}
+          podSelector:
             matchLabels:
               app.kubernetes.io/name: moatless-vibe
               app.kubernetes.io/component: backend
       ports:
         - protocol: TCP
+          port: {{ .Values.backend.grpcPort }}
+        - protocol: TCP
           port: 8080
-    # Redis
+    # ---------------- In-cluster: Redis (only when redis.enabled) ----------------
+    {{- if .Values.redis.enabled }}
     - to:
-        - podSelector:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $releaseNamespace }}
+          podSelector:
             matchLabels:
               app.kubernetes.io/name: redis
       ports:
         - protocol: TCP
           port: 6379
-    # External internet (exclude private ranges)
+    {{- end }}
+    {{- with .Values.networkPolicy.sandbox.extraInClusterEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    # ---------------- External egress ----------------
+    {{- if .Values.networkPolicy.sandbox.broadEgress }}
+    # broadEgress=true: preserve prior behavior — any external :443 / :80 reachable.
+    # Private ranges excluded to prevent lateral movement into internal services.
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
@@ -52,9 +115,49 @@ spec:
               - 10.0.0.0/8
               - 172.16.0.0/12
               - 192.168.0.0/16
+              - 169.254.0.0/16
+              - 100.64.0.0/10
       ports:
         - protocol: TCP
           port: 443
+        {{- if $sandboxCats.ubuntuApt }}
         - protocol: TCP
           port: 80
+        {{- end }}
+    {{- else }}
+    # broadEgress=false: explicit allowlist per category. CIDRs are best-known
+    # ranges per registry; operators running Cilium/Calico should prefer the
+    # CiliumNetworkPolicy sibling (networkPolicy.sandbox.cilium.enabled=true)
+    # which supports FQDN matching instead of brittle CIDR lists.
+    {{- range $category, $enabled := $sandboxCats }}
+    {{- if $enabled }}
+    {{- $cats := index $egressCidrs $category }}
+    {{- if $cats }}
+    # category: {{ $category }}
+    - to:
+        {{- range $cats }}
+        - ipBlock:
+            cidr: {{ . }}
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: 443
+        {{- if eq $category "ubuntuApt" }}
+        - protocol: TCP
+          port: 80
+        {{- end }}
+    {{- end }}
+    {{- end }}
+    {{- end }}
+    {{- with .Values.networkPolicy.sandbox.extraAllowedCidrs }}
+    - to:
+        {{- range . }}
+        - ipBlock:
+            cidr: {{ . }}
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: 443
+    {{- end }}
+    {{- end }}
 {{- end }}

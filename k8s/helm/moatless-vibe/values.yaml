@@ -17,8 +17,11 @@ image:
 sandboxImage:
   # -- Docker image repository for sandbox pods
   repository: aorwall/moatless-vibe-sandbox
-  # -- Image pull policy for sandbox pods
-  pullPolicy: Always
+  # -- Image pull policy for sandbox pods.
+  # IfNotPresent is the recommended default because sandbox images are large
+  # (5-8GB) and kubernetes.imagePrepull pre-pulls them. Override to "Always"
+  # if you pin to a mutable tag (e.g. "latest").
+  pullPolicy: IfNotPresent
   # -- Overrides the sandbox image tag (default: same as main image tag)
   tag: ""
 
@@ -51,6 +54,27 @@ podSecurityContext:
 # Override if using custom images with different UIDs
 securityContext: {}
 
+# -- Pod-level security context for the frontend (nginx) deployment.
+# Hardened defaults: non-root, fsGroup set so nginx can write to emptyDir mounts.
+# Set to {} to disable hardening.
+frontendPodSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 101          # nginx image UID
+  runAsGroup: 101
+  fsGroup: 101
+  seccompProfile:
+    type: RuntimeDefault
+
+# -- Container-level security context for the frontend (nginx).
+# readOnlyRootFilesystem=true triggers emptyDir mounts for /var/cache/nginx,
+# /var/run and /tmp (managed by the deployment template).
+frontendContainerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
 service:
   # -- Service type
   type: ClusterIP
@@ -82,12 +106,16 @@ ingress:
       paths:
         - path: /
           pathType: Prefix
-  # -- TLS configuration
+  # -- TLS configuration. Required for HTTPS in production.
+  # Enable cert-manager by adding annotations above (cert-manager.io/cluster-issuer)
+  # and then listing the host(s) that should share a secret.
   tls: []
-  # Example:
+  # Example with cert-manager:
   #   - secretName: vibe-tls
   #     hosts:
   #       - vibe.example.com
+  # Example when TLS is terminated at an external LB (AWS ALB, Azure AGIC):
+  #   leave tls: [] and rely on the LB's certificate (set alb.ingress.kubernetes.io/certificate-arn).
 
 # Proxy ingress for preview environments (wildcard)
 proxyIngress:
@@ -138,14 +166,17 @@ backend:
     repository: aorwall/moatless-vibe-backend
     tag: ""
     pullPolicy: Always
-  # -- Resource limits for backend service (handles all API traffic)
+  # -- Resource limits for backend service.
+  # The backend is Rust + Tokio and handles HTTP, gRPC, SSE, Redis streams,
+  # and Kubernetes sandbox orchestration in a single process. Bumped from
+  # cpu=1/mem=512Mi after production memory pressure under orchestration load.
   resources:
     limits:
-      cpu: "1"
-      memory: 512Mi
+      cpu: "2"
+      memory: 1.5Gi
     requests:
-      cpu: 250m
-      memory: 128Mi
+      cpu: 500m
+      memory: 512Mi
   # -- gRPC port for backend-to-sandbox communication
   grpcPort: 50051
   # -- Log level (RUST_LOG format)
@@ -158,6 +189,37 @@ backend:
   sandboxImage: ""
   # -- Shared storage PVC name for plugins
   sharedStoragePvcName: ""
+  # -- Pod-level security context for the backend deployment.
+  # Set to {} to opt out of hardening.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+  # -- Container-level security context for the backend.
+  # readOnlyRootFilesystem=true triggers an emptyDir mount at /tmp.
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
+  # -- PodDisruptionBudget for the backend.
+  # Enable for production to survive voluntary drains (node upgrades, etc.).
+  podDisruptionBudget:
+    enabled: false
+    minAvailable: 1
+    # maxUnavailable: 1
+  # -- HorizontalPodAutoscaler for the backend.
+  # Requires metrics-server in the cluster.
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+    # targetMemoryUtilizationPercentage: 80
 
 # Traefik Dashboard (requires Traefik api.dashboard=true)
 traefikDashboard:
@@ -295,9 +357,11 @@ database:
 
 # Redis configuration (required for event streaming)
 redis:
-  # -- Enable Redis deployment (for development/testing)
-  # In production, use external Redis (AWS ElastiCache, Azure Cache, etc.)
-  enabled: false
+  # -- Enable the bundled Bitnami Redis subchart.
+  # Defaults to true so `helm install` works out of the box for dev/testing.
+  # For production, prefer an external Redis (AWS ElastiCache, Azure Cache, etc.):
+  # set redis.enabled=false and redis.url to the external connection string.
+  enabled: true
   # -- Redis connection URL (if using external Redis)
   # Leave empty to auto-generate from subchart service when redis.enabled=true
   # Examples:
@@ -332,8 +396,23 @@ redis:
 kubernetes:
   # -- Enable Kubernetes execution mode
   enabled: true
-  # -- Namespace for sandbox pods (defaults to release namespace)
+  # -- Namespace for sandbox pods (defaults to release namespace).
+  # Set to a separate namespace (e.g. "moatless-sandboxes") to isolate sandbox
+  # workloads from the backend. When set, RBAC Role/RoleBinding, NetworkPolicy,
+  # ResourceQuota and LimitRange all target this namespace instead.
   namespace: ""
+  # -- Create the sandbox namespace as part of the chart install.
+  # Only takes effect when namespace is set to something other than the release
+  # namespace. Leave false if the namespace is managed externally (GitOps,
+  # Terraform, etc.) and pre-created before install.
+  createNamespace: false
+  # -- Create the sandbox ServiceAccount (referenced by sandboxServiceAccount) in
+  # the sandbox namespace. Normally left false because sandbox pods don't need
+  # k8s API access; enable if you need a dedicated identity for admission
+  # controllers or image pull secrets.
+  createSandboxServiceAccount: false
+  # -- Annotations applied to the sandbox ServiceAccount when it is created.
+  sandboxServiceAccountAnnotations: {}
   # -- Sandbox image override (object format with repository + tag, or full image string)
   # Examples:
   #   --set kubernetes.sandboxImage.repository=aorwall/moatless-vibe-sandbox
@@ -439,6 +518,34 @@ kubernetes:
   imagePrepull:
     # -- Enable DaemonSet to pre-pull sandbox image on all nodes
     enabled: true
+  # -- ResourceQuota for the sandbox namespace.
+  # Caps the total resources sandboxes can consume. Disabled by default.
+  # Only meaningful when kubernetes.namespace is set to a dedicated namespace.
+  resourceQuota:
+    enabled: false
+    # Absolute caps across the whole sandbox namespace.
+    pods: "100"
+    requestsCpu: "50"
+    requestsMemory: "200Gi"
+    limitsCpu: "100"
+    limitsMemory: "400Gi"
+    persistentVolumeClaims: "100"
+    requestsStorage: "1Ti"
+    services: "200"
+    secrets: "200"
+  # -- LimitRange defaults for sandbox namespace.
+  # Applies sane per-pod defaults/caps when a workspace doesn't specify them.
+  limitRange:
+    enabled: false
+    default:
+      cpu: "2"
+      memory: 4Gi
+    defaultRequest:
+      cpu: 500m
+      memory: 1Gi
+    max:
+      cpu: "8"
+      memory: 16Gi
 
 # Secrets configuration
 secrets:
@@ -460,20 +567,118 @@ externalSecrets:
   # -- Name of existing secret
   secretName: "vibe-secrets"
 
-# Health checks (nginx /health endpoint)
+# Health checks for the frontend (nginx static bundle).
+# Probes hit "/" because the bundled nginx config does not define a /health
+# location; nginx returns the SPA entry point on /.
+# If your image exposes a dedicated /health endpoint, override path: /health.
 livenessProbe:
   httpGet:
-    path: /health
+    path: /
     port: http
   initialDelaySeconds: 5
   periodSeconds: 15
 
 readinessProbe:
   httpGet:
-    path: /health
+    path: /
     port: http
   initialDelaySeconds: 2
   periodSeconds: 5
+
+# -- PodDisruptionBudget for the frontend deployment. Off by default.
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+  # maxUnavailable: 1
+
+# -- HorizontalPodAutoscaler for the frontend. Requires metrics-server.
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+  # targetMemoryUtilizationPercentage: 80
+
+# NetworkPolicy configuration.
+# The chart applies a NetworkPolicy to sandbox pods to restrict egress
+# (where sandboxes can initiate connections to) and, optionally, ingress
+# (who can dial sandbox pods).
+#
+# Tier 1 (stock K8s, any CNI that supports NetworkPolicy):
+#   broadEgress=true   → single 0.0.0.0/0 rule (minus RFC1918) on :443 (and :80
+#                        when ubuntuApt is enabled). Matches prior behavior.
+#   broadEgress=false  → layered allowlist using static CIDR ranges per
+#                        category (registry/mirror). See _helpers.tpl for
+#                        the published IP ranges. Brittle as ranges drift —
+#                        prefer Tier 2 below for hardened environments.
+#
+# Tier 2 (Cilium CNI only):
+#   cilium.enabled=true → installs CiliumNetworkPolicy with FQDN matching.
+#                         Set cilium.fqdns to the hostnames you want to allow.
+#                         Pair with broadEgress=false + all categories=false so
+#                         the CNP is the single source of truth for external egress.
+#
+# In either tier, the in-cluster rules (kube-dns, backend gRPC/HTTP, Redis)
+# are always applied.
+networkPolicy:
+  sandbox:
+    # -- Gate for the sandbox NetworkPolicy resource.
+    enabled: true
+    # -- If true, allows any external destination on :443.
+    # Set to false to activate the category-based allowlist below.
+    broadEgress: true
+    # -- Also restrict ingress (who can dial sandboxes). Recommended.
+    restrictIngress: true
+    # -- Which ingress source Traefik preview-proxy traffic comes from.
+    # Adjust to match your Traefik install.
+    ingressFromTraefik:
+      namespace: traefik
+      podLabels:
+        app.kubernetes.io/name: traefik
+      # Dev server ports that preview URLs route to. Expand if needed.
+      ports:
+        - 3000
+        - 4000
+        - 5000
+        - 5173
+        - 8000
+        - 8080
+        - 8888
+    # -- Extra ingress rules appended verbatim.
+    extraIngress: []
+    # -- Extra in-cluster egress rules appended verbatim (before external block).
+    extraInClusterEgress: []
+    # -- External egress categories (only consulted when broadEgress=false).
+    # Each enabled category adds its CIDR block from helpers.
+    categories:
+      anthropic: true       # api.anthropic.com
+      github: true          # github.com + codeload + api.github.com
+      npm: true             # registry.npmjs.org
+      pypi: false
+      cratesIo: false
+      goModules: false
+      ubuntuApt: false      # opens port 80 (apt repo mirrors)
+      playwrightCdn: false
+    # -- Extra CIDR blocks allowed on :443. Use for corporate artifactories,
+    # self-hosted Git, etc.
+    extraAllowedCidrs: []
+    # -- Cilium FQDN-based policy (recommended for hardened environments).
+    # Requires Cilium with DNS proxy enabled.
+    cilium:
+      enabled: false
+      # Allowed FQDNs. Use "*.foo.com" for wildcard (matchPattern), otherwise
+      # matchName is used.
+      fqdns:
+        - api.anthropic.com
+        - "*.anthropic.com"
+        - github.com
+        - api.github.com
+        - codeload.github.com
+        - "*.githubusercontent.com"
+        - registry.npmjs.org
+        - "*.npmjs.org"
+      # Extra egress rules appended verbatim to the CiliumNetworkPolicy spec.
+      extraEgress: []
 
 # RBAC for managing sandbox pods, PVCs, secrets, and services
 rbac:
@@ -495,7 +700,7 @@ rbac:
       verbs: ["create", "delete", "get", "list"]
     - apiGroups: [""]
       resources: ["secrets"]
-      verbs: ["create", "delete", "get", "list", "update"]
+      verbs: ["create", "delete", "get", "list", "patch", "update"]
     - apiGroups: [""]
       resources: ["services"]
       verbs: ["create", "delete", "get", "list"]

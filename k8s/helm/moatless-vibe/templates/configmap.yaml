@@ -1,9 +1,0 @@
-{{- /* ConfigMap retained for backwards compatibility — no longer referenced by the frontend deployment */ -}}
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: {{ include "moatless-vibe.fullname" . }}-config
-  namespace: {{ .Release.Namespace }}
-  labels:
-    {{- include "moatless-vibe.labels" . | nindent 4 }}
-data: {}
