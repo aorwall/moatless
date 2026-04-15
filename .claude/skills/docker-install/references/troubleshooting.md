@@ -78,9 +78,10 @@ Symptoms: backend logs show `401` or `authentication failed` from the Claude API
 # Refresh token
 claude setup-token
 
-# Then re-run init with --overwrite to update .env, and restart the backend
-moat docker init --overwrite --assets-from <this-skill>/assets
-docker compose -p moatless restart backend
+# Write the new token and recreate the backend (restart alone is not enough —
+# see §Stale-container-env below)
+moat docker env set CLAUDE_CODE_OAUTH_TOKEN <new-token>
+moat docker install
 ```
 
 ### Verifying the token is read by the container
@@ -178,6 +179,85 @@ moat docker install --pull
 ```
 
 Check the release notes (`git tag --sort=-creatordate | head -5` and `gh release view <tag>`) before purging.
+
+## Stale-container-env
+
+Containers freeze their environment at creation time. `docker restart <name>` reuses that snapshot — so `.env` edits (even via `moat docker env set`) don't take effect after a restart.
+
+### Symptoms
+
+- Edited `.env`, the new value is present in the file, but the backend still behaves as if the old value is in effect.
+- Backend log still shows the old validation error (e.g. `SECRETS_ENCRYPTION_KEY must be base64 or raw 32 bytes`) after you just set a valid key.
+- `docker exec moatless-backend sh -c 'printenv SECRETS_ENCRYPTION_KEY'` returns the old value.
+
+### Fix
+
+`docker compose up -d` detects env drift and recreates only the affected container:
+
+```bash
+moat docker install
+```
+
+A plain `docker restart` is never enough after `moat docker env set`. `moat docker install` is idempotent — safe to run anytime.
+
+### Verification
+
+```bash
+docker inspect moatless-backend --format '{{range .Config.Env}}{{println .}}{{end}}' \
+  | grep <KEY>
+```
+
+The printed value should match what's in `.env`.
+
+## Agent-not-logged-in
+
+### Symptoms
+
+- Task runs, sandbox spawns, containers report healthy.
+- Every agent response is a synthetic `Not logged in · Please run /login` — no tool calls, no file changes.
+- `moat tasks get <id> --json | jq .totalCostUsd` stays at `0`.
+
+This means the sandbox has a Claude CLI but no credentials. The backend failed to hand `CLAUDE_CODE_OAUTH_TOKEN` to the pod via `GetCredentials`.
+
+### Root causes, in order of likelihood
+
+1. **`SECRETS_ENCRYPTION_KEY` missing or malformed.** The backend accepts base64-decoding-to-32-bytes or raw 32 bytes. Anything else (e.g. 64-char hex) is rejected. Backend log shows:
+
+    ```
+    SECRETS_ENCRYPTION_KEY must be base64 or raw 32 bytes
+    Failed to migrate env var to global secret ...
+    Secret encryption is not configured
+    ```
+
+    Fix — clear the bad value, let `init` regenerate it as valid base64, then recreate the backend so the migration runs:
+
+    ```bash
+    moat docker env unset SECRETS_ENCRYPTION_KEY
+    moat docker init --non-interactive
+    moat docker install
+    # Restart any task that errored under the old config:
+    moat tasks restart <task-id>
+    ```
+
+2. **`CLAUDE_CODE_OAUTH_TOKEN` is expired.** See §Claude token above.
+
+3. **Encryption configured, but the token never migrated.** On first boot with a valid `SECRETS_ENCRYPTION_KEY`, the backend logs:
+
+    ```
+    Migrated env var to global secret env_var=CLAUDE_CODE_OAUTH_TOKEN
+    ```
+
+    Absence of that line means the container started before the key was set (see §Stale-container-env) or the token itself is unset. Check `moat docker env list` for both `CLAUDE_CODE_OAUTH_TOKEN` and `SECRETS_ENCRYPTION_KEY` status = `set`, then `moat docker install` to recreate.
+
+### Verification after fix
+
+```bash
+# New task, watch for a real turn (totalCostUsd > 0)
+moat tasks create --repo Moatable --name "probe" --message "list files in src/"
+moat tasks get <id> --json | jq '{status, agentState, totalCostUsd}'
+```
+
+A working install returns `totalCostUsd > 0` within ~60 s. See `SKILL.md` §Step 5 for the full smoke-test recipe.
 
 ## Cache dir cleanup
 
