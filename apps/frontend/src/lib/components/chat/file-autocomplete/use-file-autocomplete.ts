@@ -1,6 +1,6 @@
-import type { FileSearchResult } from '@moatless/api-client/sandbox/model'
 import type React from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { FileAutocompleteItem } from './types'
 
 interface UseFileAutocompleteOptions {
   value: string
@@ -9,7 +9,7 @@ interface UseFileAutocompleteOptions {
   enabled?: boolean
   // Search behavior injected from outside
   onSearch: (searchTerm: string) => void
-  results: FileSearchResult[]
+  results: FileAutocompleteItem[]
   isLoading: boolean
   error: Error | null
 }
@@ -44,7 +44,7 @@ export function useFileAutocomplete({
   // Trigger search when search term changes (debounced)
   // biome-ignore lint/correctness/useExhaustiveDependencies: onSearch is expected to be stable from caller
   useEffect(() => {
-    if (!(enabled && state.isOpen && state.searchTerm) || state.searchTerm.length < 3) {
+    if (!(enabled && state.isOpen && state.searchTerm) || state.searchTerm.length < 2) {
       return
     }
 
@@ -116,7 +116,7 @@ export function useFileAutocomplete({
   )
 
   const selectFile = useCallback(
-    (file: FileSearchResult) => {
+    (file: FileAutocompleteItem) => {
       const { cursorPosition, searchTerm } = state
 
       // Replace @searchTerm with @filepath

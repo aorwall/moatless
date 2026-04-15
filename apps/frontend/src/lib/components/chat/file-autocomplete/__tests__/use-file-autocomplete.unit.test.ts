@@ -1,24 +1,15 @@
-import type { FileSearchResult } from '@moatless/api-client/sandbox/model'
 import { act, renderHook } from '@testing-library/react'
 import type React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { FileAutocompleteItem } from '../types'
 import { useFileAutocomplete } from '../use-file-autocomplete'
 
 describe('useFileAutocomplete - Tier 1 Tests', () => {
   // Mock file search results
-  const mockResults: FileSearchResult[] = [
-    {
-      path: 'src/components/button.tsx',
-      name: 'button.tsx',
-    },
-    {
-      path: 'src/hooks/use-tasks.ts',
-      name: 'use-tasks.ts',
-    },
-    {
-      path: 'src/utils/helpers.ts',
-      name: 'helpers.ts',
-    },
+  const mockResults: FileAutocompleteItem[] = [
+    { path: 'src/components/button.tsx' },
+    { path: 'src/hooks/use-tasks.ts' },
+    { path: 'src/utils/helpers.ts' },
   ]
 
   const defaultProps = {
@@ -192,7 +183,7 @@ describe('useFileAutocomplete - Tier 1 Tests', () => {
       expect(onSearch).toHaveBeenCalledTimes(1)
     })
 
-    it('should not search when term is less than 3 characters', async () => {
+    it('should not search when term is less than 2 characters', async () => {
       const onSearch = vi.fn()
       const { result } = renderHook(() =>
         useFileAutocomplete({
@@ -202,7 +193,7 @@ describe('useFileAutocomplete - Tier 1 Tests', () => {
       )
 
       await act(async () => {
-        result.current.handleInputChange('@ab', 3)
+        result.current.handleInputChange('@a', 2)
       })
 
       await act(async () => {

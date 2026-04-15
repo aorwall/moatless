@@ -10,8 +10,8 @@ use sandbox_proto::sandbox_service_client::SandboxServiceClient;
 use sandbox_proto::{
     ExecuteAgentRequest, GetAgentStatusRequest, GetAgentStatusResponse, GetFileTreeRequest,
     GetFileTreeResponse, ListFilesRequest, NotifyMessagesRequest, ReadFileRequest,
-    ReadFileResponse, SearchFilesByNameRequest, SearchFilesByNameResponse, SearchFilesRequest,
-    StopAgentRequest, WriteFileRequest,
+    ReadFileResponse, SearchFilesByNameRequest, SearchFilesByNameResponse, StopAgentRequest,
+    WriteFileRequest,
 };
 use tonic::transport::Channel;
 use tracing::debug;
@@ -243,29 +243,4 @@ impl SandboxClient {
         }
     }
 
-    /// Search files in the sandbox workspace.
-    pub async fn search_files(
-        &self,
-        query: &str,
-        limit: i32,
-    ) -> Result<Vec<String>, tonic::Status> {
-        let mut client = self.client.clone();
-        let result = tokio::time::timeout(Duration::from_secs(5), async {
-            client
-                .search_files(SearchFilesRequest {
-                    query: query.to_string(),
-                    limit,
-                })
-                .await
-        })
-        .await;
-
-        match result {
-            Ok(Ok(resp)) => Ok(resp.into_inner().files),
-            Ok(Err(e)) => Err(e),
-            Err(_) => Err(tonic::Status::deadline_exceeded(
-                "Search files gRPC request timed out",
-            )),
-        }
-    }
 }

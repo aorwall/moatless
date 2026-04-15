@@ -12,8 +12,8 @@ use sandbox_proto::{
     ExecuteAgentRequest, ExecuteAgentResponse, GetAgentStatusRequest, GetAgentStatusResponse,
     GetFileTreeRequest, GetFileTreeResponse, ListFilesRequest, ListFilesResponse,
     NotifyMessagesRequest, NotifyMessagesResponse, ReadFileRequest, ReadFileResponse,
-    SearchFilesByNameRequest, SearchFilesByNameResponse, SearchFilesRequest, SearchFilesResponse,
-    StopAgentRequest, StopAgentResponse, WriteFileRequest, WriteFileResponse,
+    SearchFilesByNameRequest, SearchFilesByNameResponse, StopAgentRequest, StopAgentResponse,
+    WriteFileRequest, WriteFileResponse,
 };
 
 use moatless_events::AgentSubType;
@@ -96,50 +96,6 @@ impl SandboxService for SandboxServiceImpl {
         });
         info!("Message processing triggered via gRPC");
         Ok(Response::new(NotifyMessagesResponse {}))
-    }
-
-    async fn search_files(
-        &self,
-        request: Request<SearchFilesRequest>,
-    ) -> Result<Response<SearchFilesResponse>, Status> {
-        let req = request.into_inner();
-        let workspace_dir = &self.state.config.workspace_dir;
-
-        // Reject path traversal attempts
-        if req.query.contains("..") {
-            return Err(Status::invalid_argument("Query must not contain '..'"));
-        }
-
-        let full_pattern = format!("{workspace_dir}/{}", req.query);
-        let workspace_path = std::path::Path::new(workspace_dir);
-
-        let files: Vec<String> = glob::glob(&full_pattern)
-            .map(|paths| {
-                paths
-                    .filter_map(Result::ok)
-                    .filter(|p| {
-                        // Ensure resolved path is within workspace directory
-                        p.canonicalize()
-                            .ok()
-                            .and_then(|canonical| {
-                                workspace_path
-                                    .canonicalize()
-                                    .ok()
-                                    .map(|ws| canonical.starts_with(ws))
-                            })
-                            .unwrap_or(false)
-                    })
-                    .take(req.limit.max(1) as usize)
-                    .filter_map(|p| {
-                        p.strip_prefix(workspace_dir)
-                            .ok()
-                            .map(|rel| rel.to_string_lossy().to_string())
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        Ok(Response::new(SearchFilesResponse { files }))
     }
 
     // ── File operations ──────────────────────────────────────────

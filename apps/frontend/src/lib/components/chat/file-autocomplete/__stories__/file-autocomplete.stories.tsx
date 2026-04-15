@@ -1,8 +1,8 @@
-import type { FileSearchResult } from '@moatless/api-client/sandbox/model'
 import type { Meta, StoryObj } from '@storybook/react-vite'
 import { useState } from 'react'
 import { fn } from 'storybook/test'
 import { FileAutocomplete } from '../file-autocomplete'
+import type { FileAutocompleteItem } from '../types'
 
 const meta = {
   title: 'Chat/FileAutocomplete',
@@ -28,7 +28,7 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 // Mock data for file search results (name-based path matching)
-const mockButtonResults: FileSearchResult[] = [
+const mockButtonResults: FileAutocompleteItem[] = [
   {
     path: 'src/components/button.tsx',
     absolutePath: '/project/src/components/button.tsx',
@@ -56,7 +56,7 @@ const mockButtonResults: FileSearchResult[] = [
   },
 ]
 
-const mockHookResults: FileSearchResult[] = [
+const mockHookResults: FileAutocompleteItem[] = [
   {
     path: 'src/hooks/use-tasks.ts',
     absolutePath: '/project/src/hooks/use-tasks.ts',
@@ -79,7 +79,7 @@ const mockHookResults: FileSearchResult[] = [
   },
 ]
 
-const mockTaskResults: FileSearchResult[] = [
+const mockTaskResults: FileAutocompleteItem[] = [
   {
     path: 'src/features/tasks/task-card.tsx',
     absolutePath: '/project/src/features/tasks/task-card.tsx',
@@ -112,7 +112,7 @@ const mockTaskResults: FileSearchResult[] = [
   },
 ]
 
-const mockManyResults: FileSearchResult[] = [
+const mockManyResults: FileAutocompleteItem[] = [
   {
     path: 'src/components/button.tsx',
     absolutePath: '/project/src/components/button.tsx',
@@ -205,7 +205,7 @@ const mockManyResults: FileSearchResult[] = [
   },
 ]
 
-const mockLongPathResults: FileSearchResult[] = [
+const mockLongPathResults: FileAutocompleteItem[] = [
   {
     path: 'src/features/authentication/components/config/auth-config-provider.tsx',
     absolutePath: '/project/src/features/authentication/components/config/auth-config-provider.tsx',
@@ -223,7 +223,7 @@ const mockLongPathResults: FileSearchResult[] = [
   },
 ]
 
-const mockReadmeResults: FileSearchResult[] = [
+const mockReadmeResults: FileAutocompleteItem[] = [
   { path: 'README.md', absolutePath: '/project/README.md', score: 0.95 },
   {
     path: 'docs/README.md',
@@ -232,7 +232,7 @@ const mockReadmeResults: FileSearchResult[] = [
   },
 ]
 
-const mockTestResults: FileSearchResult[] = [
+const mockTestResults: FileAutocompleteItem[] = [
   {
     path: 'src/components/button.test.tsx',
     absolutePath: '/project/src/components/button.test.tsx',

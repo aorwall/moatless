@@ -14,45 +14,6 @@ use super::error::SandboxError;
 use super::routes::SandboxApiState;
 use super::schemas::*;
 
-/// Search files in a task's sandbox workspace.
-#[utoipa::path(
-    post,
-    path = "/api/sandbox/v1/tasks/{task_id}/search-files",
-    tag = "sandbox",
-    params(
-        ("task_id" = String, Path, description = "Task identifier")
-    ),
-    request_body = SearchFilesRequest,
-    responses(
-        (status = 200, description = "File search results", body = Vec<FileSearchResult>),
-        (status = 503, description = "Sandbox not ready", body = crate::error::ErrorBody),
-        (status = 500, description = "Internal error", body = crate::error::ErrorBody)
-    )
-)]
-pub async fn search_files_handler(
-    State(state): State<SandboxApiState>,
-    Path(task_id): Path<String>,
-    Json(req): Json<SearchFilesRequest>,
-) -> Result<Json<Vec<FileSearchResult>>, SandboxError> {
-    let client = state.provider.sandbox_client(&task_id).await?;
-    let files = client
-        .search_files(&req.query, req.limit.unwrap_or(20) as i32)
-        .await
-        .map_err(|e| classify_grpc_error(e, "search_files"))?;
-    let results = files
-        .into_iter()
-        .map(|path| {
-            let name = path.rsplit('/').next().unwrap_or(&path).to_string();
-            FileSearchResult {
-                path,
-                name,
-                file_type: None,
-            }
-        })
-        .collect();
-    Ok(Json(results))
-}
-
 /// Query parameters for the file tree endpoint.
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct FileTreeQuery {

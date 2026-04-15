@@ -76,15 +76,6 @@ impl SandboxProvider for MockSandboxProvider {
         Err(SandboxError::Internal("mock: not implemented".into()))
     }
 
-    async fn search_files(
-        &self,
-        _task_id: &str,
-        _query: &str,
-        _limit: u32,
-    ) -> Result<Vec<FileSearchResult>, SandboxError> {
-        Err(SandboxError::Internal("mock: not implemented".into()))
-    }
-
     async fn sandbox_client(&self, _task_id: &str) -> Result<SandboxClient, SandboxError> {
         Err(SandboxError::Internal("mock: not implemented".into()))
     }

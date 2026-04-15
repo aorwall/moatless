@@ -1,12 +1,12 @@
-import type { FileSearchResult } from '@moatless/api-client/sandbox/model'
 import { AlertCircle, FileIcon } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 import { getErrorMessage } from '@/lib/utils/error'
+import type { FileAutocompleteItem } from './types'
 
 interface FileAutocompleteProps {
-  results: FileSearchResult[]
+  results: FileAutocompleteItem[]
   selectedIndex: number
-  onSelect: (file: FileSearchResult) => void
+  onSelect: (file: FileAutocompleteItem) => void
   isLoading: boolean
   error?: Error | null
   position?: 'above' | 'below'

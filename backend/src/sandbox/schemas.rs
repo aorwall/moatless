@@ -99,23 +99,6 @@ pub struct SandboxStatusFullResponse {
     pub runtime_events: Option<Vec<RuntimeEvent>>,
 }
 
-/// Request body for file search in sandbox.
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct SearchFilesRequest {
-    pub query: String,
-    pub limit: Option<u32>,
-}
-
-/// Single file search result from sandbox.
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct FileSearchResult {
-    pub path: String,
-    pub name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub file_type: Option<String>,
-}
-
 /// Server status response proxied from sandbox pod.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -384,33 +367,4 @@ mod tests {
         assert_eq!(json["error"], "not found");
     }
 
-    #[test]
-    fn file_search_result_roundtrip() {
-        let result = FileSearchResult {
-            path: "/src/main.rs".into(),
-            name: "main.rs".into(),
-            file_type: Some("file".into()),
-        };
-        let json = serde_json::to_string(&result).unwrap();
-        let back: FileSearchResult = serde_json::from_str(&json).unwrap();
-        assert_eq!(back.path, "/src/main.rs");
-        assert_eq!(back.name, "main.rs");
-        assert_eq!(back.file_type.as_deref(), Some("file"));
-    }
-
-    #[test]
-    fn search_files_request_deserializes() {
-        let json = r#"{"query": "main", "limit": 10}"#;
-        let req: SearchFilesRequest = serde_json::from_str(json).unwrap();
-        assert_eq!(req.query, "main");
-        assert_eq!(req.limit, Some(10));
-    }
-
-    #[test]
-    fn search_files_request_optional_limit() {
-        let json = r#"{"query": "test"}"#;
-        let req: SearchFilesRequest = serde_json::from_str(json).unwrap();
-        assert_eq!(req.query, "test");
-        assert!(req.limit.is_none());
-    }
 }

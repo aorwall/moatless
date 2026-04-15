@@ -512,71 +512,6 @@
         }
       }
     },
-    "/api/sandbox/v1/tasks/{task_id}/search-files": {
-      "post": {
-        "tags": [
-          "sandbox"
-        ],
-        "summary": "Search files in a task's sandbox workspace.",
-        "operationId": "search_files_handler",
-        "parameters": [
-          {
-            "name": "task_id",
-            "in": "path",
-            "description": "Task identifier",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SearchFilesRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "File search results",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/FileSearchResult"
-                  }
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Sandbox not ready",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/sandbox/v1/tasks/{task_id}/server/status": {
       "get": {
         "tags": [
@@ -753,6 +688,27 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/agents": {
+      "get": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "List supported agents with installed / credential status for the current user.",
+        "operationId": "list_agents_handler",
+        "responses": {
+          "200": {
+            "description": "List of agents",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListAgentsResponse"
                 }
               }
             }
@@ -5057,6 +5013,42 @@
           }
         }
       },
+      "AgentDescriptor": {
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "installed",
+          "defaultModel",
+          "models"
+        ],
+        "properties": {
+          "defaultModel": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "installed": {
+            "type": "boolean"
+          },
+          "label": {
+            "type": "string"
+          },
+          "missingCredentialHint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentModel"
+            }
+          }
+        }
+      },
       "AgentEventPayload": {
         "type": "object",
         "description": "Agent event payload — typed shape for `EventType::Agent` events.\n\nAgent payloads are pass-through from the sandbox (Claude CLI output).\nThis struct is primarily for OpenAPI schema generation; at runtime the\nbackend continues to forward `serde_json::Value` payloads.",
@@ -5123,6 +5115,21 @@
       "AgentMode": {
         "type": "string",
         "description": "Agent mode identifier (open-ended, e.g. \"plan\", \"code\")."
+      },
+      "AgentModel": {
+        "type": "object",
+        "required": [
+          "id",
+          "label"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          }
+        }
       },
       "AgentState": {
         "type": "string",
@@ -6822,28 +6829,6 @@
           }
         }
       },
-      "FileSearchResult": {
-        "type": "object",
-        "description": "Single file search result from sandbox.",
-        "required": [
-          "path",
-          "name"
-        ],
-        "properties": {
-          "fileType": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "name": {
-            "type": "string"
-          },
-          "path": {
-            "type": "string"
-          }
-        }
-      },
       "FileTreeNodeDto": {
         "type": "object",
         "description": "A node in the file tree (file or directory).",
@@ -7111,6 +7096,20 @@
           "url": {
             "type": "string",
             "description": "Full Figma URL (e.g., https://www.figma.com/file/{key}/Title?node-id={id})"
+          }
+        }
+      },
+      "ListAgentsResponse": {
+        "type": "object",
+        "required": [
+          "agents"
+        ],
+        "properties": {
+          "agents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentDescriptor"
+            }
           }
         }
       },
@@ -8433,26 +8432,6 @@
           "totalMatches": {
             "type": "integer",
             "format": "int32"
-          }
-        }
-      },
-      "SearchFilesRequest": {
-        "type": "object",
-        "description": "Request body for file search in sandbox.",
-        "required": [
-          "query"
-        ],
-        "properties": {
-          "limit": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32",
-            "minimum": 0
-          },
-          "query": {
-            "type": "string"
           }
         }
       },
@@ -10564,6 +10543,10 @@
     {
       "name": "sandbox",
       "description": "Sandbox lifecycle management"
+    },
+    {
+      "name": "agents",
+      "description": "Agent catalog and availability"
     },
     {
       "name": "auth",

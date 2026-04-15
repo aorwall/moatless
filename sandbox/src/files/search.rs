@@ -1,64 +1,127 @@
 //! File name search within the sandbox workspace.
 
-use super::tree;
+use std::path::PathBuf;
 
-/// A file name match result.
+use ignore::WalkBuilder;
+
+/// A file name match result. `matches` carries the ranking score so the
+/// frontend can order/highlight results.
 #[derive(Debug, Clone)]
 pub struct FileNameMatch {
     pub path: String,
     pub matches: i32,
 }
 
-/// Search for files by substring match on the file path.
+const DEFAULT_MAX_RESULTS: usize = 100;
+const HARD_MAX_RESULTS: usize = 500;
+
+/// Search for files by substring match on the file name or path.
 ///
-/// Lists all files recursively then filters by substring. Skips
-/// directories (paths ending with `/`). Returns at most `max_results`
-/// matches (default 100 if 0).
+/// Uses the `ignore` crate walker (respects `.gitignore`, skips hidden dirs).
+/// The walk runs on a blocking thread pool so the async runtime isn't
+/// blocked. Results are ranked by filename hit quality (exact > prefix >
+/// contains > path-contains) and capped at `max_results`.
 pub async fn search_files_by_name(
     workspace_dir: &str,
     query: &str,
     case_sensitive: bool,
     max_results: i32,
 ) -> Result<Vec<FileNameMatch>, std::io::Error> {
-    let all_files = tree::list_files(workspace_dir, ".", true).await?;
+    let workspace = PathBuf::from(workspace_dir);
+    let query = query.to_string();
 
-    let max = if max_results <= 0 {
-        100
-    } else {
-        max_results as usize
+    let max = match max_results {
+        n if n <= 0 => DEFAULT_MAX_RESULTS,
+        n => (n as usize).min(HARD_MAX_RESULTS),
     };
-    let query_normalized = if case_sensitive {
+
+    tokio::task::spawn_blocking(move || walk_and_rank(&workspace, &query, case_sensitive, max))
+        .await
+        .map_err(|e| std::io::Error::other(format!("search join failed: {e}")))
+}
+
+fn walk_and_rank(
+    workspace: &std::path::Path,
+    query: &str,
+    case_sensitive: bool,
+    max: usize,
+) -> Vec<FileNameMatch> {
+    if query.is_empty() {
+        return Vec::new();
+    }
+
+    let query_norm = if case_sensitive {
         query.to_string()
     } else {
         query.to_lowercase()
     };
 
-    let mut results = Vec::new();
+    let walker = WalkBuilder::new(workspace)
+        .hidden(false)
+        .git_ignore(true)
+        .git_global(true)
+        .git_exclude(true)
+        .parents(true)
+        .build();
 
-    for file_path in &all_files {
-        // Skip directories
-        if file_path.ends_with('/') {
+    let mut scored: Vec<(i32, usize, String)> = Vec::new();
+
+    for entry in walker.flatten() {
+        if !entry.file_type().is_some_and(|ft| ft.is_file()) {
             continue;
         }
 
-        let search_path = if case_sensitive {
-            file_path.clone()
+        let rel = match entry.path().strip_prefix(workspace) {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
+        let rel_str = rel.to_string_lossy().to_string();
+        if rel_str.is_empty() {
+            continue;
+        }
+
+        let filename = rel
+            .file_name()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_default();
+
+        let (path_cmp, filename_cmp) = if case_sensitive {
+            (rel_str.clone(), filename.clone())
         } else {
-            file_path.to_lowercase()
+            (rel_str.to_lowercase(), filename.to_lowercase())
         };
 
-        if search_path.contains(&query_normalized) {
-            results.push(FileNameMatch {
-                path: file_path.clone(),
-                matches: 1,
-            });
-            if results.len() >= max {
-                break;
-            }
+        let score = if filename_cmp == query_norm {
+            1000
+        } else if filename_cmp.starts_with(&query_norm) {
+            500
+        } else if filename_cmp.contains(&query_norm) {
+            200
+        } else if path_cmp.contains(&query_norm) {
+            50
+        } else {
+            continue;
+        };
+
+        scored.push((score, rel_str.len(), rel_str));
+
+        // Early exit: once we have ~10x the cap, stop walking. Ranking
+        // still picks the best ones. Keeps walks bounded on huge repos.
+        if scored.len() >= max.saturating_mul(10) {
+            break;
         }
     }
 
-    Ok(results)
+    scored.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+
+    scored
+        .into_iter()
+        .take(max)
+        .map(|(score, _, path)| FileNameMatch {
+            path,
+            matches: score,
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -90,6 +153,21 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(results.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn search_hard_ceiling_caps_max_results() {
+        let tmp = TempDir::new().unwrap();
+        for i in 0..5 {
+            std::fs::write(tmp.path().join(format!("file{i}.txt")), "").unwrap();
+        }
+
+        // Requesting more than HARD_MAX_RESULTS is clamped.
+        let results =
+            search_files_by_name(tmp.path().to_str().unwrap(), "file", false, 10_000)
+                .await
+                .unwrap();
+        assert!(results.len() <= HARD_MAX_RESULTS);
     }
 
     #[tokio::test]
@@ -126,8 +204,54 @@ mod tests {
         let results = search_files_by_name(tmp.path().to_str().unwrap(), "src", false, 0)
             .await
             .unwrap();
-        // Only src/main.rs should match (contains "src" in path), not the directory itself
+        // Only src/main.rs matches via path-contains; the directory itself is skipped.
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].path, "src/main.rs");
+    }
+
+    #[tokio::test]
+    async fn search_respects_gitignore() {
+        let tmp = TempDir::new().unwrap();
+        // Fake a git repo so gitignore kicks in.
+        std::fs::create_dir(tmp.path().join(".git")).unwrap();
+        std::fs::write(tmp.path().join(".gitignore"), "ignored.txt\ntarget/\n").unwrap();
+        std::fs::write(tmp.path().join("kept.txt"), "").unwrap();
+        std::fs::write(tmp.path().join("ignored.txt"), "").unwrap();
+        std::fs::create_dir(tmp.path().join("target")).unwrap();
+        std::fs::write(tmp.path().join("target/build.log"), "").unwrap();
+
+        let results = search_files_by_name(tmp.path().to_str().unwrap(), "txt", false, 0)
+            .await
+            .unwrap();
+        let paths: Vec<&str> = results.iter().map(|r| r.path.as_str()).collect();
+        assert!(paths.contains(&"kept.txt"));
+        assert!(!paths.iter().any(|p| p.contains("ignored.txt")));
+        assert!(!paths.iter().any(|p| p.contains("target/")));
+    }
+
+    #[tokio::test]
+    async fn search_ranks_filename_hits_above_path_hits() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir_all(tmp.path().join("lib")).unwrap();
+        std::fs::write(tmp.path().join("main.rs"), "").unwrap();
+        std::fs::write(tmp.path().join("lib/embedded-main-helper.rs"), "").unwrap();
+
+        let results = search_files_by_name(tmp.path().to_str().unwrap(), "main", false, 0)
+            .await
+            .unwrap();
+        assert!(!results.is_empty());
+        assert_eq!(results[0].path, "main.rs");
+        assert!(results[0].matches > results[1].matches);
+    }
+
+    #[tokio::test]
+    async fn empty_query_returns_empty() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("file.txt"), "").unwrap();
+
+        let results = search_files_by_name(tmp.path().to_str().unwrap(), "", false, 0)
+            .await
+            .unwrap();
+        assert!(results.is_empty());
     }
 }

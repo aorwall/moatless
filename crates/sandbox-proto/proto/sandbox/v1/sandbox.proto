@@ -102,7 +102,6 @@ service SandboxService {
   rpc StopAgent(StopAgentRequest) returns (StopAgentResponse);
   rpc GetAgentStatus(GetAgentStatusRequest) returns (GetAgentStatusResponse);
   rpc NotifyMessages(NotifyMessagesRequest) returns (NotifyMessagesResponse);
-  rpc SearchFiles(SearchFilesRequest) returns (SearchFilesResponse);
 
   // File operations (replaces file-explorer HTTP server)
   rpc GetFileTree(GetFileTreeRequest) returns (GetFileTreeResponse);
@@ -135,15 +134,6 @@ message GetAgentStatusResponse {
 
 message NotifyMessagesRequest {}
 message NotifyMessagesResponse {}
-
-message SearchFilesRequest {
-  string query = 1;
-  int32 limit = 2;
-}
-
-message SearchFilesResponse {
-  repeated string files = 1;
-}
 
 // ── File operations ──────────────────────────────────────────────
 

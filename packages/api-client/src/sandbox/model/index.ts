@@ -7,11 +7,13 @@
  */
 
 export * from './addTeamMemberRequest';
+export * from './agentDescriptor';
 export * from './agentEventPayload';
 export * from './agentEventPayloadMessage';
 export * from './agentEventPayloadResult';
 export * from './agentEventPayloadToolInput';
 export * from './agentMode';
+export * from './agentModel';
 export * from './agentState';
 export * from './agentSubType';
 export * from './agentType';
@@ -70,7 +72,6 @@ export * from './figmaImportDetailResponse';
 export * from './figmaImportResponse';
 export * from './fileContentResponse';
 export * from './fileNameMatchDto';
-export * from './fileSearchResult';
 export * from './fileTreeHandlerParams';
 export * from './fileTreeNodeDto';
 export * from './fileTreeResponse';
@@ -87,6 +88,7 @@ export * from './imageSource';
 export * from './imageSourceType';
 export * from './importClipboardRequest';
 export * from './importNodeRequest';
+export * from './listAgentsResponse';
 export * from './listConfigsParams';
 export * from './listFilesHandlerParams';
 export * from './listFilesResponse';
@@ -163,7 +165,6 @@ export * from './savePatRequest';
 export * from './scope';
 export * from './searchByNameRequest';
 export * from './searchByNameResponse';
-export * from './searchFilesRequest';
 export * from './secretKind';
 export * from './secretMetadataResponse';
 export * from './secretMutationResponse';

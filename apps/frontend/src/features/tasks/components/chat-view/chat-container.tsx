@@ -191,11 +191,7 @@ function ChatContainer({
     onValueChange: setMessage,
     enabled: true,
     onSearch: fileSearchMutation.mutate,
-    results:
-      fileSearchMutation.data?.files.map((file) => ({
-        path: file.path,
-        name: file.path.split('/').pop() ?? file.path,
-      })) || [],
+    results: fileSearchMutation.data?.files ?? [],
     isLoading: fileSearchMutation.isPending,
     error: fileSearchMutation.error,
   })

@@ -27,7 +27,6 @@ import type {
 import type {
   ErrorBody,
   FileContentResponse,
-  FileSearchResult,
   FileTreeHandlerParams,
   FileTreeResponse,
   ListFilesHandlerParams,
@@ -37,7 +36,6 @@ import type {
   SandboxStatusFullResponse,
   SearchByNameRequest,
   SearchByNameResponse,
-  SearchFilesRequest,
   ServerLogsHandlerParams,
   ServerStatusResponse,
   WriteFileRequestBody
@@ -1065,101 +1063,6 @@ export const useRestartHandler = <TError = ErrorType<ErrorBody>,
         TContext
       > => {
       return useMutation(getRestartHandlerMutationOptions(options), queryClient);
-    }
-    /**
- * @summary Search files in a task's sandbox workspace.
- */
-export type searchFilesHandlerResponse200 = {
-  data: FileSearchResult[]
-  status: 200
-}
-
-export type searchFilesHandlerResponse500 = {
-  data: ErrorBody
-  status: 500
-}
-
-export type searchFilesHandlerResponse503 = {
-  data: ErrorBody
-  status: 503
-}
-    
-export type searchFilesHandlerResponseSuccess = (searchFilesHandlerResponse200) & {
-  headers: Headers;
-};
-export type searchFilesHandlerResponseError = (searchFilesHandlerResponse500 | searchFilesHandlerResponse503) & {
-  headers: Headers;
-};
-
-export type searchFilesHandlerResponse = (searchFilesHandlerResponseSuccess | searchFilesHandlerResponseError)
-
-export const getSearchFilesHandlerUrl = (taskId: string,) => {
-
-
-  
-
-  return `/api/sandbox/v1/tasks/${taskId}/search-files`
-}
-
-export const searchFilesHandler = async (taskId: string,
-    searchFilesRequest: SearchFilesRequest, options?: RequestInit): Promise<searchFilesHandlerResponse> => {
-  
-  return customInstance<searchFilesHandlerResponse>(getSearchFilesHandlerUrl(taskId),
-  {      
-    ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(
-      searchFilesRequest,)
-  }
-);}
-
-
-
-
-export const getSearchFilesHandlerMutationOptions = <TError = ErrorType<ErrorBody>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof searchFilesHandler>>, TError,{taskId: string;data: SearchFilesRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
-): UseMutationOptions<Awaited<ReturnType<typeof searchFilesHandler>>, TError,{taskId: string;data: SearchFilesRequest}, TContext> => {
-
-const mutationKey = ['searchFilesHandler'];
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-      
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof searchFilesHandler>>, {taskId: string;data: SearchFilesRequest}> = (props) => {
-          const {taskId,data} = props ?? {};
-
-          return  searchFilesHandler(taskId,data,requestOptions)
-        }
-
-
-
-        
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type SearchFilesHandlerMutationResult = NonNullable<Awaited<ReturnType<typeof searchFilesHandler>>>
-    export type SearchFilesHandlerMutationBody = SearchFilesRequest
-    export type SearchFilesHandlerMutationError = ErrorType<ErrorBody>
-
-    /**
- * @summary Search files in a task's sandbox workspace.
- */
-export const useSearchFilesHandler = <TError = ErrorType<ErrorBody>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof searchFilesHandler>>, TError,{taskId: string;data: SearchFilesRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient): UseMutationResult<
-        Awaited<ReturnType<typeof searchFilesHandler>>,
-        TError,
-        {taskId: string;data: SearchFilesRequest},
-        TContext
-      > => {
-      return useMutation(getSearchFilesHandlerMutationOptions(options), queryClient);
     }
     /**
  * @summary Get server status for all servers in a task's sandbox.

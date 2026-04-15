@@ -1,8 +1,10 @@
-import type { FileSearchResult } from '@moatless/api-client/sandbox/model'
 import { ArrowUp, Circle, Loader2, Paperclip } from 'lucide-react'
 import type React from 'react'
 import { useRef } from 'react'
-import { FileAutocomplete } from '@/lib/components/chat/file-autocomplete'
+import {
+  FileAutocomplete,
+  type FileAutocompleteItem,
+} from '@/lib/components/chat/file-autocomplete'
 import { Button } from '@/lib/components/ui/button'
 import {
   Tooltip,
@@ -23,9 +25,9 @@ export function Selectors({ children }: SelectorsProps) {
 export { FileAttachments } from './file-attachments'
 
 interface AutocompleteProps {
-  results: FileSearchResult[]
+  results: FileAutocompleteItem[]
   selectedIndex: number
-  onSelect: (file: FileSearchResult) => void
+  onSelect: (file: FileAutocompleteItem) => void
   isLoading: boolean
   error?: Error | null
   position?: 'above' | 'below'
