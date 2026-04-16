@@ -40,7 +40,7 @@ RUN mkdir -p /usr/share/moatless-plugins
 # COPY dev-browser /usr/share/moatless-plugins/dev-browser
 
 # Install Playwright browsers
-# RUN npx playwright install --with-deps chromium
+RUN npx playwright install --with-deps chromium
 
 WORKDIR /opt/moatless
 
