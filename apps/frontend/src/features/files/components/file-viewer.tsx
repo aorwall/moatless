@@ -1,5 +1,5 @@
 import { type HighlightToken, highlightLine, SyntaxToken } from '@moatless/diff-viewer'
-import { Code, Eye, FileQuestion, GitCompareArrows } from 'lucide-react'
+import { Code, Eye, FileQuestion, GitCompareArrows, Music } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Skeleton } from '@/lib/components/ui/skeleton'
 import { cn } from '@/lib/utils'
@@ -16,6 +16,10 @@ function isMarkdownFile(filePath: string): boolean {
 
 function isImageMediaType(mediaType: string | undefined): boolean {
   return mediaType?.startsWith('image/') ?? false
+}
+
+function isAudioMediaType(mediaType: string | undefined): boolean {
+  return mediaType?.startsWith('audio/') ?? false
 }
 
 function getLanguageLabel(filePath: string): string {
@@ -90,6 +94,21 @@ function BinaryFileView({
           alt={filePath}
           className="max-w-full max-h-full object-contain"
         />
+      </div>
+    )
+  }
+
+  if (isAudioMediaType(mediaType)) {
+    return (
+      <div className="flex flex-col items-center justify-center p-8 gap-4">
+        <div className="flex items-center gap-2">
+          <Music className="w-5 h-5 text-muted-foreground" />
+          <span className="text-sm font-mono">{filePath.split('/').pop()}</span>
+        </div>
+        {/* biome-ignore lint/a11y/useMediaCaption: audio files from filesystem have no captions */}
+        <audio controls src={`data:${mediaType};base64,${content}`} className="w-full max-w-md">
+          Your browser does not support audio playback.
+        </audio>
       </div>
     )
   }
