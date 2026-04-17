@@ -18,6 +18,9 @@ use tracing::debug;
 
 use super::error::SandboxError;
 
+/// Raise from tonic's 4 MB default so binary files (audio, images) can round-trip.
+const MAX_GRPC_MESSAGE_SIZE: usize = 32 * 1024 * 1024;
+
 /// Errors that can occur when constructing a [`SandboxClient`].
 #[derive(Debug, thiserror::Error)]
 pub enum ClientError {
@@ -67,7 +70,9 @@ impl SandboxClient {
             .connect_lazy();
 
         Ok(Self {
-            client: SandboxServiceClient::new(channel),
+            client: SandboxServiceClient::new(channel)
+                .max_decoding_message_size(MAX_GRPC_MESSAGE_SIZE)
+                .max_encoding_message_size(MAX_GRPC_MESSAGE_SIZE),
         })
     }
 
