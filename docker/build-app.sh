@@ -15,6 +15,7 @@ PLATFORM="linux/amd64,linux/arm64"
 MULTI_ARCH=true
 PUSH=true
 USE_CACHE=true
+USE_REGISTRY_CACHE=false
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -41,6 +42,10 @@ while [[ $# -gt 0 ]]; do
       USE_CACHE=false
       shift
       ;;
+    --use-registry-cache)
+      USE_REGISTRY_CACHE=true
+      shift
+      ;;
     --help)
       echo "Usage: $0 [OPTIONS]"
       echo ""
@@ -52,6 +57,7 @@ while [[ $# -gt 0 ]]; do
       echo "  --local           Build single-arch locally (no push)"
       echo "  --push            Push to Docker registry after building"
       echo "  --no-cache        Build without using Docker build cache"
+      echo "  --use-registry-cache  Pull buildcache from registry (opt-in)"
       echo "  --help            Show this help message"
       echo ""
       echo "Examples:"
@@ -114,6 +120,11 @@ fi
 # Add cache options
 if [ "$USE_CACHE" = false ]; then
   BUILD_CMD="$BUILD_CMD --no-cache"
+fi
+
+# Opt-in registry-backed buildcache
+if [ "$USE_REGISTRY_CACHE" = true ]; then
+  BUILD_CMD="$BUILD_CMD --cache-from type=registry,ref=${REGISTRY}/${IMAGE_NAME}:buildcache"
 fi
 
 # Add build arguments

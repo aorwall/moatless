@@ -15,10 +15,15 @@ PLATFORM="linux/amd64,linux/arm64"
 MULTI_ARCH=true
 PUSH=true
 USE_CACHE=true
+USE_REGISTRY_CACHE=false
 BUILD_BASE=true
 BUILD_SANDBOX_JS=true
 DEV_BROWSER_DIR="${DEV_BROWSER_DIR:-}"
 CLEANUP_DEV_BROWSER=false
+
+# Pinned CLI versions (kept in sync with .github/workflows/build-sandbox-images.yml)
+CLAUDE_CLI_VERSION="${CLAUDE_CLI_VERSION:-2.1.114}"
+CODEX_CLI_VERSION="${CODEX_CLI_VERSION:-0.121.0}"
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -58,6 +63,10 @@ while [[ $# -gt 0 ]]; do
       USE_CACHE=false
       shift
       ;;
+    --use-registry-cache)
+      USE_REGISTRY_CACHE=true
+      shift
+      ;;
     --only)
       case $2 in
         base)
@@ -94,6 +103,7 @@ while [[ $# -gt 0 ]]; do
       echo "  --push            Push to Docker registry after building"
       echo "  --dev-browser-dir  Path to dev-browser plugin (default: \$DEV_BROWSER_DIR or auto-detect)"
       echo "  --no-cache        Build without using Docker build cache"
+      echo "  --use-registry-cache  Pull/push buildcache from registry (opt-in)"
       echo "  --only TARGET     Build only one target: base or sandbox-js"
       echo "  --skip-base       Skip building base (assumes it exists)"
       echo "  --help            Show this help message"
@@ -250,6 +260,12 @@ build_image() {
     BUILD_CMD="$BUILD_CMD --no-cache"
   fi
 
+  # Opt-in registry-backed buildcache (shared across dev machines).
+  # Pull-only to keep local builds from clobbering shared cache; CI writes it.
+  if [ "$USE_REGISTRY_CACHE" = true ]; then
+    BUILD_CMD="$BUILD_CMD --cache-from type=registry,ref=${REGISTRY}/${image_name}:buildcache"
+  fi
+
   if [ -n "$extra_args" ]; then
     BUILD_CMD="$BUILD_CMD $extra_args"
   fi
@@ -283,7 +299,10 @@ build_image() {
 
 # Build images in order
 if [ "$BUILD_BASE" = true ]; then
-  build_image "Dockerfile.sandbox" "moatless-vibe-sandbox" "--build-context binaries=${BINARIES_DIR}"
+  build_image "Dockerfile.sandbox" "moatless-vibe-sandbox" \
+    "--build-context binaries=${BINARIES_DIR} \
+     --build-arg CLAUDE_CLI_VERSION=${CLAUDE_CLI_VERSION} \
+     --build-arg CODEX_CLI_VERSION=${CODEX_CLI_VERSION}"
 fi
 
 if [ "$BUILD_SANDBOX_JS" = true ]; then

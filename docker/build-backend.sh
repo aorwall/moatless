@@ -21,6 +21,12 @@ cd "$(dirname "$0")/.."
 IMAGE_NAME="${1:-aorwall/moatless-vibe-backend}"
 IMAGE_TAG="${2:-latest}"
 
+# Opt-in registry-backed buildcache. Set USE_REGISTRY_CACHE=1 to enable.
+CACHE_ARGS=()
+if [ "${USE_REGISTRY_CACHE:-0}" = "1" ]; then
+    CACHE_ARGS+=(--cache-from "type=registry,ref=${IMAGE_NAME}:buildcache")
+fi
+
 echo -e "${YELLOW}==> Cross-compiling for x86_64-unknown-linux-gnu (glibc 2.36)...${NC}"
 cargo zigbuild -p moatless-vibe-backend --release --target x86_64-unknown-linux-gnu.2.36
 
@@ -32,6 +38,7 @@ echo -e "${YELLOW}==> Building Docker image ${IMAGE_NAME}:${IMAGE_TAG}...${NC}"
 docker buildx build \
     --platform linux/amd64 \
     --build-context "binary=${BINARY_DIR}" \
+    "${CACHE_ARGS[@]}" \
     -t "${IMAGE_NAME}:${IMAGE_TAG}" \
     --push \
     -f docker/Dockerfile.backend-cross \

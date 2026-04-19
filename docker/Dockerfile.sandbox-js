@@ -30,17 +30,17 @@ RUN npm install -g pnpm yarn typescript tsx
 # Set shared Playwright browser path (accessible by both root and moatless user)
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
 
-# Copy entrypoint and plugin sync scripts
-COPY docker/docker-entrypoint-sandbox.sh /usr/local/bin/
-COPY docker/sync-plugins.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/docker-entrypoint-sandbox.sh /usr/local/bin/sync-plugins.sh
-
 # Create plugins directory and copy dev-browser plugin
 RUN mkdir -p /usr/share/moatless-plugins
 # COPY dev-browser /usr/share/moatless-plugins/dev-browser
 
-# Install Playwright browsers
+# Install Playwright browsers (stable, ~300MB — keep before volatile script COPYs)
 RUN npx playwright install --with-deps chromium
+
+# Copy entrypoint and plugin sync scripts (volatile — edited frequently)
+COPY docker/docker-entrypoint-sandbox.sh /usr/local/bin/
+COPY docker/sync-plugins.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint-sandbox.sh /usr/local/bin/sync-plugins.sh
 
 WORKDIR /opt/moatless
 

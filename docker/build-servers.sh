@@ -17,6 +17,7 @@ PLATFORM="linux/amd64,linux/arm64"
 MULTI_ARCH=true
 PUSH=true
 USE_CACHE=true
+USE_REGISTRY_CACHE=false
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -46,6 +47,10 @@ while [[ $# -gt 0 ]]; do
       USE_CACHE=false
       shift
       ;;
+    --use-registry-cache)
+      USE_REGISTRY_CACHE=true
+      shift
+      ;;
     --help)
       echo "Usage: $0 [OPTIONS]"
       echo ""
@@ -60,6 +65,7 @@ while [[ $# -gt 0 ]]; do
       echo "  --local           Build single-arch locally (no push)"
       echo "  --push            Push to Docker Hub after building"
       echo "  --no-cache        Build without Docker cache"
+      echo "  --use-registry-cache  Pull buildcache from registry (opt-in)"
       echo "  --help            Show this help"
       echo ""
       echo "Examples:"
@@ -111,6 +117,10 @@ build_image() {
 
   if [ "$USE_CACHE" = false ]; then
     BUILD_CMD="$BUILD_CMD --no-cache"
+  fi
+
+  if [ "$USE_REGISTRY_CACHE" = true ]; then
+    BUILD_CMD="$BUILD_CMD --cache-from type=registry,ref=aorwall/${image_name}:buildcache"
   fi
 
   BUILD_CMD="$BUILD_CMD -f docker/${dockerfile} ."

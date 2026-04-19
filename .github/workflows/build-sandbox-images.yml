@@ -18,6 +18,9 @@ env:
   SANDBOX_JS_IMAGE: aorwall/moatless-vibe-sandbox-js
   SANDBOX_JAVA_IMAGE: aorwall/moatless-vibe-sandbox-java
   CARGO_INCREMENTAL: 0
+  # Pinned CLI versions baked into sandbox images. Bump to upgrade.
+  CLAUDE_CLI_VERSION: 2.1.114
+  CODEX_CLI_VERSION: 0.121.0
 
 jobs:
   # ── Detect which areas of code changed (push only) ──
@@ -113,21 +116,33 @@ jobs:
       - name: Prepare binaries
         run: chmod +x /tmp/sandbox-binaries/amd64/sandbox /tmp/sandbox-binaries/amd64/moat
 
+      - name: Compute short SHA
+        id: sha
+        run: echo "short=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Login to Docker Hub
-        run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push sandbox-tools image
-        run: |
-          SHORT_SHA="${GITHUB_SHA::7}"
-          docker build \
-            --platform linux/amd64 \
-            --build-context binaries=/tmp/sandbox-binaries \
-            -f docker/Dockerfile.sandbox-tools \
-            -t ${{ env.SANDBOX_TOOLS_IMAGE }}:latest \
-            -t ${{ env.SANDBOX_TOOLS_IMAGE }}:sha-${SHORT_SHA} \
-            .
-          docker push ${{ env.SANDBOX_TOOLS_IMAGE }}:latest
-          docker push ${{ env.SANDBOX_TOOLS_IMAGE }}:sha-${SHORT_SHA}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.sandbox-tools
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.SANDBOX_TOOLS_IMAGE }}:latest
+            ${{ env.SANDBOX_TOOLS_IMAGE }}:sha-${{ steps.sha.outputs.short }}
+          build-contexts: |
+            binaries=/tmp/sandbox-binaries
+          cache-from: type=gha,scope=sandbox-tools
+          cache-to: type=gha,mode=max,scope=sandbox-tools
 
   # ── Build sandbox variants in parallel (all COPY --from sandbox-tools) ──
   build-sandbox-base:
@@ -153,21 +168,36 @@ jobs:
       - name: Prepare binaries
         run: chmod +x /tmp/sandbox-binaries/amd64/sandbox /tmp/sandbox-binaries/amd64/moat
 
-      - name: Login to Docker Hub
-        run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+      - name: Compute short SHA
+        id: sha
+        run: echo "short=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
 
-      - name: Build and push
-        run: |
-          SHORT_SHA="${GITHUB_SHA::7}"
-          docker build \
-            --platform linux/amd64 \
-            --build-context binaries=/tmp/sandbox-binaries \
-            -f docker/Dockerfile.sandbox \
-            -t ${{ env.SANDBOX_BASE_IMAGE }}:latest \
-            -t ${{ env.SANDBOX_BASE_IMAGE }}:sha-${SHORT_SHA} \
-            .
-          docker push ${{ env.SANDBOX_BASE_IMAGE }}:latest
-          docker push ${{ env.SANDBOX_BASE_IMAGE }}:sha-${SHORT_SHA}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push sandbox base
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.sandbox
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.SANDBOX_BASE_IMAGE }}:latest
+            ${{ env.SANDBOX_BASE_IMAGE }}:sha-${{ steps.sha.outputs.short }}
+          build-args: |
+            CLAUDE_CLI_VERSION=${{ env.CLAUDE_CLI_VERSION }}
+            CODEX_CLI_VERSION=${{ env.CODEX_CLI_VERSION }}
+          build-contexts: |
+            binaries=/tmp/sandbox-binaries
+          cache-from: type=gha,scope=sandbox-base
+          cache-to: type=gha,mode=max,scope=sandbox-base
 
   build-sandbox-js:
     name: Build & push sandbox-js
@@ -177,21 +207,33 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Login to Docker Hub
-        run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+      - name: Compute short SHA
+        id: sha
+        run: echo "short=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
 
-      - name: Build and push
-        run: |
-          SHORT_SHA="${GITHUB_SHA::7}"
-          docker build \
-            --platform linux/amd64 \
-            -f docker/Dockerfile.sandbox-js \
-            --build-arg BASE_IMAGE=${{ env.SANDBOX_BASE_IMAGE }}:latest \
-            -t ${{ env.SANDBOX_JS_IMAGE }}:latest \
-            -t ${{ env.SANDBOX_JS_IMAGE }}:sha-${SHORT_SHA} \
-            .
-          docker push ${{ env.SANDBOX_JS_IMAGE }}:latest
-          docker push ${{ env.SANDBOX_JS_IMAGE }}:sha-${SHORT_SHA}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push sandbox-js
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.sandbox-js
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.SANDBOX_JS_IMAGE }}:latest
+            ${{ env.SANDBOX_JS_IMAGE }}:sha-${{ steps.sha.outputs.short }}
+          build-args: |
+            BASE_IMAGE=${{ env.SANDBOX_BASE_IMAGE }}:latest
+          cache-from: type=gha,scope=sandbox-js
+          cache-to: type=gha,mode=max,scope=sandbox-js
 
   build-sandbox-java:
     name: Build & push sandbox-java:${{ matrix.java-version }}
@@ -204,29 +246,43 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Login to Docker Hub
-        run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+      - name: Compute short SHA
+        id: sha
+        run: echo "short=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
 
-      - name: Build and push
+      - name: Compute tags
+        id: tags
         run: |
-          SHORT_SHA="${GITHUB_SHA::7}"
-          TAGS="-t ${{ env.SANDBOX_JAVA_IMAGE }}:${{ matrix.java-version }}"
-          TAGS="$TAGS -t ${{ env.SANDBOX_JAVA_IMAGE }}:${{ matrix.java-version }}-sha-${SHORT_SHA}"
+          {
+            echo "list<<EOF"
+            echo "${{ env.SANDBOX_JAVA_IMAGE }}:${{ matrix.java-version }}"
+            echo "${{ env.SANDBOX_JAVA_IMAGE }}:${{ matrix.java-version }}-sha-${{ steps.sha.outputs.short }}"
+            if [ "${{ matrix.java-version }}" = "25" ]; then
+              echo "${{ env.SANDBOX_JAVA_IMAGE }}:latest"
+            fi
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
 
-          # Tag java:25 also as :latest
-          if [ "${{ matrix.java-version }}" = "25" ]; then
-            TAGS="$TAGS -t ${{ env.SANDBOX_JAVA_IMAGE }}:latest"
-          fi
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-          docker build \
-            --platform linux/amd64 \
-            -f docker/Dockerfile.sandbox-java \
-            --build-arg BASE_IMAGE=eclipse-temurin:${{ matrix.java-version }}-jdk-noble \
-            --build-arg JAVA_VERSION=${{ matrix.java-version }} \
-            $TAGS \
-            .
-          docker push ${{ env.SANDBOX_JAVA_IMAGE }}:${{ matrix.java-version }}
-          docker push ${{ env.SANDBOX_JAVA_IMAGE }}:${{ matrix.java-version }}-sha-${SHORT_SHA}
-          if [ "${{ matrix.java-version }}" = "25" ]; then
-            docker push ${{ env.SANDBOX_JAVA_IMAGE }}:latest
-          fi
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push sandbox-java:${{ matrix.java-version }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.sandbox-java
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.tags.outputs.list }}
+          build-args: |
+            BASE_IMAGE=eclipse-temurin:${{ matrix.java-version }}-jdk-noble
+            JAVA_VERSION=${{ matrix.java-version }}
+            CLAUDE_CLI_VERSION=${{ env.CLAUDE_CLI_VERSION }}
+          cache-from: type=gha,scope=sandbox-java-${{ matrix.java-version }}
+          cache-to: type=gha,mode=max,scope=sandbox-java-${{ matrix.java-version }}

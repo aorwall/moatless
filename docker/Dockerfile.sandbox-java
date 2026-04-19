@@ -49,14 +49,20 @@ RUN userdel -r ubuntu 2>/dev/null || true \
     && mkdir -p /home/$USERNAME/.cache /home/$USERNAME/.config/gh \
     && chown -R $USERNAME:$USERNAME /home/$USERNAME
 
-# Copy moatless sandbox tools from published tools image
-COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/claude /usr/local/bin/claude
-COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/sandbox /usr/local/bin/sandbox
-COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/moat /usr/local/bin/moat
+# Install Claude Code CLI at a pinned version (stable layer — rarely changes)
+ARG CLAUDE_CLI_VERSION=2.1.114
+RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CLI_VERSION}" \
+    && ln -sf "$(which claude)" /usr/local/bin/claude
+
+# Copy moatless helper scripts from published tools image (stable)
 COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/docker-entrypoint-sandbox.sh /usr/local/bin/docker-entrypoint-sandbox.sh
 COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/sync-plugins.sh /usr/local/bin/sync-plugins.sh
-RUN chmod +x /usr/local/bin/claude /usr/local/bin/sandbox /usr/local/bin/moat \
-    /usr/local/bin/docker-entrypoint-sandbox.sh /usr/local/bin/sync-plugins.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint-sandbox.sh /usr/local/bin/sync-plugins.sh
+
+# Volatile layers last — our Rust binaries change on every code edit.
+COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/sandbox /usr/local/bin/sandbox
+COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/moat /usr/local/bin/moat
+RUN chmod +x /usr/local/bin/sandbox /usr/local/bin/moat
 
 # Environment
 ENV HOME=/home/moatless

@@ -77,22 +77,25 @@ RUN mkdir -p /home/$USERNAME/.cache \
     /home/$USERNAME/.config/gh \
     && chown -R $USERNAME:$USERNAME /home/$USERNAME
 
-# Copy pre-built binaries.
-# sandbox + moat: locally cross-compiled binaries (from --build-context binaries=...).
-# claude CLI: installed via npm for the correct architecture.
-# Scripts: from sandbox-tools image.
+# Stable layers first — Claude/Codex CLIs (pinned versions) and scripts from sandbox-tools.
+# Bump these args to upgrade the CLIs.
+ARG CLAUDE_CLI_VERSION=2.1.114
+ARG CODEX_CLI_VERSION=0.121.0
+RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CLI_VERSION}" "@openai/codex@${CODEX_CLI_VERSION}" \
+    && ln -sf "$(which claude)" /usr/local/bin/claude \
+    && ln -sf "$(which codex)" /usr/local/bin/codex \
+    && (claude --version 2>/dev/null || echo "unknown") > /opt/moatless/.claude-cli-version \
+    && (codex --version 2>/dev/null || echo "unknown") > /opt/moatless/.codex-cli-version
+
+COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/docker-entrypoint-sandbox.sh /usr/local/bin/docker-entrypoint-sandbox.sh
+COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/sync-plugins.sh /usr/local/bin/sync-plugins.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint-sandbox.sh /usr/local/bin/sync-plugins.sh
+
+# Volatile layers last — our Rust binaries change on every code edit.
 ARG TARGETARCH
 COPY --from=binaries ${TARGETARCH}/sandbox /usr/local/bin/sandbox
 COPY --from=binaries ${TARGETARCH}/moat /usr/local/bin/moat
-RUN npm install -g @anthropic-ai/claude-code@latest @openai/codex@latest \
-    && ln -sf "$(which claude)" /usr/local/bin/claude \
-    && ln -sf "$(which codex)" /usr/local/bin/codex
-COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/docker-entrypoint-sandbox.sh /usr/local/bin/docker-entrypoint-sandbox.sh
-COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/sync-plugins.sh /usr/local/bin/sync-plugins.sh
-RUN chmod +x /usr/local/bin/sandbox /usr/local/bin/moat \
-    /usr/local/bin/docker-entrypoint-sandbox.sh /usr/local/bin/sync-plugins.sh \
-    && (claude --version 2>/dev/null || echo "unknown") > /opt/moatless/.claude-cli-version \
-    && (codex --version 2>/dev/null || echo "unknown") > /opt/moatless/.codex-cli-version
+RUN chmod +x /usr/local/bin/sandbox /usr/local/bin/moat
 
 WORKDIR /home/moatless
 
