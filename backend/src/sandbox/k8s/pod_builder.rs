@@ -743,7 +743,7 @@ mod tests {
             },
             skill: crate::config::SkillConfig { cache_ttl_secs: 60 },
             secrets: crate::config::SecretsConfig {
-                encryption_key: None,
+                encryption_key: Some("0123456789abcdef0123456789abcdef".to_string()),
                 kms_key_id: None,
             },
         }

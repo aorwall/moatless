@@ -88,7 +88,7 @@ Pair flags:
 - `moat k8s secret pull-token` — creates `ghcr-secret` (dockerconfigjson) from a prompted GitHub PAT
 - `--env-file <path>` — use a `.env` file outside the repo root
 
-After bootstrap, confirm required keys are present with `moat k8s secret list --json` and verify `DATABASE_URL` appears as `source: cluster`. `ANTHROPIC_API_KEY` is **not** an install-time secret — users provide their own Claude credentials per task at runtime.
+After bootstrap, confirm required keys are present with `moat k8s secret list --json` and verify both `DATABASE_URL` and `SECRETS_ENCRYPTION_KEY` appear as `source: cluster`. The backend refuses to start without `SECRETS_ENCRYPTION_KEY`. `ANTHROPIC_API_KEY` is **not** an install-time secret — users provide their own Claude credentials per task at runtime.
 
 ### Step 4 — Install
 

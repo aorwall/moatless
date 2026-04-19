@@ -55,17 +55,8 @@ fn build_descriptor(
 
 /// Collect the set of credential keys visible to the caller across:
 ///   - Global / Team / User scoped secrets (metadata only).
-///   - Process environment fallback (dev mode).
 async fn collect_credential_keys(state: &AppState, ctx: &ScopeContext) -> HashSet<String> {
     let mut keys: HashSet<String> = HashSet::new();
-
-    for entry in catalog() {
-        for key in entry.credential_keys {
-            if std::env::var(key).is_ok() {
-                keys.insert((*key).to_string());
-            }
-        }
-    }
 
     match state.secret_records.list_by_scope("global", None).await {
         Ok(records) => keys.extend(records.into_iter().map(|r| r.key)),

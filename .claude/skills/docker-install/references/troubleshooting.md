@@ -221,33 +221,23 @@ This means the sandbox has a Claude CLI but no credentials. The backend failed t
 
 ### Root causes, in order of likelihood
 
-1. **`SECRETS_ENCRYPTION_KEY` missing or malformed.** The backend accepts base64-decoding-to-32-bytes or raw 32 bytes. Anything else (e.g. 64-char hex) is rejected. Backend log shows:
+1. **`SECRETS_ENCRYPTION_KEY` missing or malformed.** The backend refuses to start without a valid key. The key must be base64-decoding-to-32-bytes or raw 32 bytes. Backend log shows startup failure if missing:
 
     ```
-    SECRETS_ENCRYPTION_KEY must be base64 or raw 32 bytes
-    Failed to migrate env var to global secret ...
-    Secret encryption is not configured
+    SECRETS_ENCRYPTION_KEY is required
     ```
 
-    Fix — clear the bad value, let `init` regenerate it as valid base64, then recreate the backend so the migration runs:
+    Fix — ensure the key is set with a valid value. `moat docker init --non-interactive` auto-generates one if missing:
 
     ```bash
     moat docker env unset SECRETS_ENCRYPTION_KEY
     moat docker init --non-interactive
     moat docker install
-    # Restart any task that errored under the old config:
-    moat tasks restart <task-id>
     ```
 
 2. **`CLAUDE_CODE_OAUTH_TOKEN` is expired.** See §Claude token above.
 
-3. **Encryption configured, but the token never migrated.** On first boot with a valid `SECRETS_ENCRYPTION_KEY`, the backend logs:
-
-    ```
-    Migrated env var to global secret env_var=CLAUDE_CODE_OAUTH_TOKEN
-    ```
-
-    Absence of that line means the container started before the key was set (see §Stale-container-env) or the token itself is unset. Check `moat docker env list` for both `CLAUDE_CODE_OAUTH_TOKEN` and `SECRETS_ENCRYPTION_KEY` status = `set`, then `moat docker install` to recreate.
+3. **`CLAUDE_CODE_OAUTH_TOKEN` not configured as a secret.** The token must be stored in the secrets table via the UI settings page or `moat` CLI. Check `moat docker env list` for `SECRETS_ENCRYPTION_KEY` status = `set`, then verify the token is configured in the app settings.
 
 ### Verification after fix
 

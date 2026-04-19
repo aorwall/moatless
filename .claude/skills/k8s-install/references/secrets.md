@@ -18,6 +18,7 @@ After the Secret is bootstrapped, delete or `.gitignore` the `.env.local` file i
 | Key | Purpose | Where to get it |
 |---|---|---|
 | `DATABASE_URL` | Postgres connection string | Provider console (Azure Flexible Server, RDS, Supabase, etc.) |
+| `SECRETS_ENCRYPTION_KEY` | Master key for credential encryption at rest | `openssl rand -base64 32` |
 | `TASK_TOKEN_SECRET` | HMAC for task-scoped JWTs (auto-generated if missing) | Random 64-byte secret — `openssl rand -hex 32` |
 
 > `ANTHROPIC_API_KEY` is **not** collected at install time. Each user/task supplies its own Claude credentials at runtime — do not seed a cluster-wide key.
@@ -67,6 +68,7 @@ Place in repo root as `.env.local` and `moat k8s secret bootstrap` will offer to
 
 ```ini
 DATABASE_URL=postgres://user:pass@host:5432/db
+SECRETS_ENCRYPTION_KEY=<base64 of 32 random bytes — openssl rand -base64 32>
 TASK_TOKEN_SECRET=<64 hex chars>
 GITHUB_CLIENT_ID=Iv1.xxx
 GITHUB_CLIENT_SECRET=xxxxxxxx

@@ -70,7 +70,7 @@ moat docker init --assets-from <this-skill>/assets --non-interactive --json
 2. If `.env` is missing, copy `.env.example` → `.env`.
 3. For each `your_*_here` placeholder, either auto-generate or flag as missing:
    - **`TASK_TOKEN_SECRET`** — 64-char hex, auto-generated.
-   - **`SECRETS_ENCRYPTION_KEY`** — base64 of 32 random bytes, auto-generated. Not negotiable: without it the scoped-secrets subsystem stays off, `CLAUDE_CODE_OAUTH_TOKEN` never migrates to a stored secret, and the agent returns `Not logged in · Please run /login` on every message.
+   - **`SECRETS_ENCRYPTION_KEY`** — base64 of 32 random bytes, auto-generated. Not negotiable: without it the backend refuses to start.
    - **`CLAUDE_CODE_OAUTH_TOKEN`** — the only key the user must supply. Ends up in `keys_missing` on a fresh non-interactive install; set it in 2b.
 
 The JSON report lists `keys_generated`, `keys_missing`, and `copied_assets`. On a fresh install, `keys_generated` will contain `TASK_TOKEN_SECRET` and `SECRETS_ENCRYPTION_KEY`; `keys_missing` will contain `CLAUDE_CODE_OAUTH_TOKEN` — that's expected. Use `env list` at any time to see the current state:

@@ -762,6 +762,13 @@ impl Config {
             }
         }
 
+        // SECRETS_ENCRYPTION_KEY is always required
+        if self.secrets.encryption_key.is_none() {
+            return Err(ConfigError::Invalid(
+                "SECRETS_ENCRYPTION_KEY is required".into(),
+            ));
+        }
+
         Ok(())
     }
 }
@@ -986,10 +993,25 @@ mod tests {
             },
             skill: SkillConfig { cache_ttl_secs: 60 },
             secrets: SecretsConfig {
-                encryption_key: None,
+                encryption_key: Some("0123456789abcdef0123456789abcdef".to_string()),
                 kms_key_id: None,
             },
         }
+    }
+
+    #[test]
+    fn validate_missing_encryption_key_fails() {
+        let mut config = minimal_config();
+        config.secrets.encryption_key = None;
+        let err = config.validate().unwrap_err();
+        assert!(err.to_string().contains("SECRETS_ENCRYPTION_KEY"));
+    }
+
+    #[test]
+    fn validate_encryption_key_present_passes() {
+        let config = minimal_config();
+        // minimal_config() already has encryption_key set
+        assert!(config.validate().is_ok());
     }
 
     #[test]

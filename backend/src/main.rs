@@ -175,11 +175,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ))
         });
 
-    // Migrate env var fallback credentials to global secrets on startup
-    if let Some(ref secrets) = sandbox_secrets {
-        secrets.migrate_env_fallbacks().await;
-    }
-
     let sandbox_state = sandbox::routes::SandboxApiState {
         provider: Arc::clone(&sandbox_provider),
         tasks: sandbox_tasks,
