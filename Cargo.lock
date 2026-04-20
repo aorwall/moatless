@@ -3204,6 +3204,7 @@ dependencies = [
  "base64",
  "bollard",
  "chrono",
+ "clap",
  "claude-agent-sdk",
  "cookie",
  "cron",

@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TasksRouteImport } from './routes/tasks'
+import { Route as SecretsRouteImport } from './routes/secrets'
 import { Route as SandboxRouteImport } from './routes/sandbox'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as FigmaTestRouteImport } from './routes/figma-test'
@@ -26,6 +27,11 @@ import { Route as OauthFigmaCallbackRouteImport } from './routes/oauth/figma/cal
 const TasksRoute = TasksRouteImport.update({
   id: '/tasks',
   path: '/tasks',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SecretsRoute = SecretsRouteImport.update({
+  id: '/secrets',
+  path: '/secrets',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SandboxRoute = SandboxRouteImport.update({
@@ -95,20 +101,22 @@ export interface FileRoutesByFullPath {
   '/figma-test': typeof FigmaTestRoute
   '/login': typeof LoginRoute
   '/sandbox': typeof SandboxRouteWithChildren
+  '/secrets': typeof SecretsRoute
   '/tasks': typeof TasksRouteWithChildren
   '/auth/callback': typeof AuthCallbackRoute
   '/sandbox/': typeof SandboxIndexRoute
   '/tasks/': typeof TasksIndexRoute
   '/oauth/figma/callback': typeof OauthFigmaCallbackRoute
   '/oauth/github/callback': typeof OauthGithubCallbackRoute
-  '/sandbox/$task-id': typeof SandboxTaskIdIndexRoute
-  '/tasks/$task-id': typeof TasksTaskIdIndexRoute
+  '/sandbox/$task-id/': typeof SandboxTaskIdIndexRoute
+  '/tasks/$task-id/': typeof TasksTaskIdIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRoute
   '/figma-test': typeof FigmaTestRoute
   '/login': typeof LoginRoute
+  '/secrets': typeof SecretsRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/sandbox': typeof SandboxIndexRoute
   '/tasks': typeof TasksIndexRoute
@@ -124,6 +132,7 @@ export interface FileRoutesById {
   '/figma-test': typeof FigmaTestRoute
   '/login': typeof LoginRoute
   '/sandbox': typeof SandboxRouteWithChildren
+  '/secrets': typeof SecretsRoute
   '/tasks': typeof TasksRouteWithChildren
   '/auth/callback': typeof AuthCallbackRoute
   '/sandbox/': typeof SandboxIndexRoute
@@ -141,20 +150,22 @@ export interface FileRouteTypes {
     | '/figma-test'
     | '/login'
     | '/sandbox'
+    | '/secrets'
     | '/tasks'
     | '/auth/callback'
     | '/sandbox/'
     | '/tasks/'
     | '/oauth/figma/callback'
     | '/oauth/github/callback'
-    | '/sandbox/$task-id'
-    | '/tasks/$task-id'
+    | '/sandbox/$task-id/'
+    | '/tasks/$task-id/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/dashboard'
     | '/figma-test'
     | '/login'
+    | '/secrets'
     | '/auth/callback'
     | '/sandbox'
     | '/tasks'
@@ -169,6 +180,7 @@ export interface FileRouteTypes {
     | '/figma-test'
     | '/login'
     | '/sandbox'
+    | '/secrets'
     | '/tasks'
     | '/auth/callback'
     | '/sandbox/'
@@ -185,6 +197,7 @@ export interface RootRouteChildren {
   FigmaTestRoute: typeof FigmaTestRoute
   LoginRoute: typeof LoginRoute
   SandboxRoute: typeof SandboxRouteWithChildren
+  SecretsRoute: typeof SecretsRoute
   TasksRoute: typeof TasksRouteWithChildren
   AuthCallbackRoute: typeof AuthCallbackRoute
   OauthFigmaCallbackRoute: typeof OauthFigmaCallbackRoute
@@ -198,6 +211,13 @@ declare module '@tanstack/react-router' {
       path: '/tasks'
       fullPath: '/tasks'
       preLoaderRoute: typeof TasksRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/secrets': {
+      id: '/secrets'
+      path: '/secrets'
+      fullPath: '/secrets'
+      preLoaderRoute: typeof SecretsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/sandbox': {
@@ -259,14 +279,14 @@ declare module '@tanstack/react-router' {
     '/tasks/$task-id/': {
       id: '/tasks/$task-id/'
       path: '/$task-id'
-      fullPath: '/tasks/$task-id'
+      fullPath: '/tasks/$task-id/'
       preLoaderRoute: typeof TasksTaskIdIndexRouteImport
       parentRoute: typeof TasksRoute
     }
     '/sandbox/$task-id/': {
       id: '/sandbox/$task-id/'
       path: '/$task-id'
-      fullPath: '/sandbox/$task-id'
+      fullPath: '/sandbox/$task-id/'
       preLoaderRoute: typeof SandboxTaskIdIndexRouteImport
       parentRoute: typeof SandboxRoute
     }
@@ -318,6 +338,7 @@ const rootRouteChildren: RootRouteChildren = {
   FigmaTestRoute: FigmaTestRoute,
   LoginRoute: LoginRoute,
   SandboxRoute: SandboxRouteWithChildren,
+  SecretsRoute: SecretsRoute,
   TasksRoute: TasksRouteWithChildren,
   AuthCallbackRoute: AuthCallbackRoute,
   OauthFigmaCallbackRoute: OauthFigmaCallbackRoute,

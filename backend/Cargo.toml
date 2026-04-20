@@ -101,6 +101,9 @@ cron = "0.13"
 # ID generation
 nanoid = "0.4"
 
+# CLI parsing (secrets subcommand on the backend binary)
+clap = { version = "4", features = ["derive"] }
+
 # Figma clipboard parsing
 figma-clipboard = { path = "../crates/figma-clipboard" }
 

@@ -39,6 +39,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
+    // Dispatch `secrets …` subcommand before server runtime initialization.
+    if std::env::args().nth(1).as_deref() == Some("secrets") {
+        use clap::Parser;
+
+        #[derive(Parser)]
+        #[command(name = "moatless-vibe-backend")]
+        struct SecretsEntry {
+            #[command(subcommand)]
+            command: SecretsTop,
+        }
+
+        #[derive(clap::Subcommand)]
+        enum SecretsTop {
+            #[command(subcommand)]
+            Secrets(secret::cli::SecretsCommand),
+        }
+
+        let SecretsEntry {
+            command: SecretsTop::Secrets(cmd),
+        } = SecretsEntry::parse();
+        startup::init_tracing();
+        return secret::cli::run(secret::cli::SecretsCli { command: cmd }).await;
+    }
+
     // Install rustls crypto provider (required before any TLS operations)
     #[allow(clippy::expect_used)]
     // fail-fast: TLS provider must be installed before any networking

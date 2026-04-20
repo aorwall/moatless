@@ -296,7 +296,10 @@ impl EventHandlerConsumer {
             EventKey::Sandbox(_)
             | EventKey::Server(_)
             | EventKey::Agent(
-                AgentSubType::Started | AgentSubType::PendingResponse | AgentSubType::Retrying,
+                AgentSubType::Started
+                | AgentSubType::PendingResponse
+                | AgentSubType::Retrying
+                | AgentSubType::Scheduled,
             )
             | EventKey::Task(
                 TaskSubType::Open

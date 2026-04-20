@@ -101,4 +101,10 @@ export const queryKeys = {
     marketplaces: () => [...queryKeys.plugins.all(), 'marketplaces'] as const,
     marketplacesList: () => [...queryKeys.plugins.marketplaces(), 'list'] as const,
   },
+
+  secrets: {
+    all: () => [...queryKeys.all, 'secrets'] as const,
+    list: (params?: { scope: string; scopeId?: string }) =>
+      [...queryKeys.secrets.all(), 'list', params] as const,
+  },
 } as const
