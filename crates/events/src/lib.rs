@@ -174,6 +174,7 @@ pub enum AgentSubType {
     PendingResponse,
     SessionInit,
     Retrying,
+    Scheduled,
 }
 
 impl AgentSubType {
@@ -187,6 +188,7 @@ impl AgentSubType {
             Self::PendingResponse => "pending_response",
             Self::SessionInit => "session_init",
             Self::Retrying => "retrying",
+            Self::Scheduled => "scheduled",
         }
     }
 
@@ -214,6 +216,7 @@ impl TryFrom<&str> for AgentSubType {
             "pending_response" => Ok(Self::PendingResponse),
             "session_init" => Ok(Self::SessionInit),
             "retrying" => Ok(Self::Retrying),
+            "scheduled" => Ok(Self::Scheduled),
             other => Err(format!("unknown AgentSubType: {other}")),
         }
     }
