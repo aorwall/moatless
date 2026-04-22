@@ -1990,6 +1990,13 @@ fn make_user_message(text: &str, session_id: &str) -> UserMessage {
 }
 
 /// Extract result info: (is_error, session_id, sub_type, payload).
+///
+/// When `is_error: true` comes back in a `ResultMessage::Success` (e.g. the CLI
+/// rejects the message with `"Unknown command: ..."`), we route the event through
+/// the `AgentSubType::Error` path so the backend treats it as an error and the
+/// frontend renders the rejection text as a red error banner. We also inject
+/// `error` into the payload so `handle_agent_error` can read it without having
+/// to know the SDK-specific shape.
 fn extract_result_info(
     result: &ResultMessage,
     task_id: &str,
@@ -2006,19 +2013,31 @@ fn extract_result_info(
                     output = %truncate(&success.result, 500),
                     "Agent completed with error output"
                 );
-            } else {
-                info!(
-                    task_id = task_id,
-                    session_id = %success.session_id,
-                    num_turns = success.num_turns,
-                    duration_ms = success.duration_ms,
-                    cost_usd = success.total_cost_usd,
-                    output = %truncate(&success.result, 500),
-                    "Agent completed successfully"
+                let mut payload = serde_json::to_value(success).unwrap_or_default();
+                if let Some(obj) = payload.as_object_mut() {
+                    obj.insert(
+                        "error".to_string(),
+                        serde_json::Value::String(success.result.clone()),
+                    );
+                }
+                return (
+                    true,
+                    success.session_id.clone(),
+                    AgentSubType::Error,
+                    payload,
                 );
             }
+            info!(
+                task_id = task_id,
+                session_id = %success.session_id,
+                num_turns = success.num_turns,
+                duration_ms = success.duration_ms,
+                cost_usd = success.total_cost_usd,
+                output = %truncate(&success.result, 500),
+                "Agent completed successfully"
+            );
             (
-                success.is_error,
+                false,
                 success.session_id.clone(),
                 AgentSubType::Completed,
                 serde_json::to_value(success).unwrap_or_default(),
@@ -2533,5 +2552,38 @@ mod tests {
         let content: Vec<ContentBlock> = vec![];
         let result = extract_schedule_wakeup(&content);
         assert!(result.is_none());
+    }
+
+    // ── extract_result_info ─────────────────────────────────────────
+
+    #[test]
+    fn extract_result_info_success_is_error_true_routes_to_error_subtype() {
+        let result = make_result_success(true, 1, "Unknown command: /foo");
+        let (is_error, session_id, sub_type, payload) = extract_result_info(&result, "task-1");
+        assert!(is_error);
+        assert_eq!(session_id, "test-session");
+        assert_eq!(sub_type, AgentSubType::Error);
+        assert_eq!(payload["error"], "Unknown command: /foo");
+        assert_eq!(payload["result"], "Unknown command: /foo");
+        assert_eq!(payload["is_error"], true);
+    }
+
+    #[test]
+    fn extract_result_info_success_is_error_false_unchanged() {
+        let result = make_result_success(false, 1, "All done");
+        let (is_error, _, sub_type, payload) = extract_result_info(&result, "task-1");
+        assert!(!is_error);
+        assert_eq!(sub_type, AgentSubType::Completed);
+        assert!(payload.get("error").is_none());
+        assert_eq!(payload["result"], "All done");
+    }
+
+    #[test]
+    fn extract_result_info_explicit_error_variant_unchanged() {
+        let result = make_result_error("rate_limit", 1, vec!["429".to_string()]);
+        let (is_error, _, sub_type, payload) = extract_result_info(&result, "task-1");
+        assert!(is_error);
+        assert_eq!(sub_type, AgentSubType::Error);
+        assert_eq!(payload["subtype"], "rate_limit");
     }
 }

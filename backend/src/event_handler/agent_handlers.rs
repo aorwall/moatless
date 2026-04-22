@@ -11,29 +11,13 @@ use crate::task::models::TaskStatus;
 
 use super::models::{AgentEvent, SdkResultMessage};
 
-/// Check if a result message already exists for the current turn (after the last user message).
-/// Returns `true` if a duplicate should be skipped.
-async fn has_result_for_current_turn(state: &AppState, task_id: &str) -> bool {
-    let last_result = match state.messages.get_last_result(task_id).await {
-        Ok(Some(r)) => r,
-        _ => return false,
-    };
-
-    let (messages, _, _) = match state.messages.get_all(task_id).await {
-        Ok(data) => data,
-        Err(_) => return false,
-    };
-
-    let last_user_ts = messages
-        .iter()
-        .rev()
-        .find(|m| m.message_type == MessageType::User)
-        .map(|m| m.timestamp.as_str());
-
-    match last_user_ts {
-        Some(user_ts) => last_result.timestamp.as_str() >= user_ts,
-        None => true, // No user messages at all, result already exists
-    }
+/// Derive a deterministic uuid for a persisted message from the event id.
+///
+/// Dedup happens at the DB layer via `task_messages.uuid UNIQUE` +
+/// `ON CONFLICT (uuid) DO UPDATE`. Re-delivery of the same event upserts into
+/// the same row instead of creating a duplicate.
+fn message_uuid_for_event(event_id: &str) -> String {
+    format!("evt-{event_id}")
 }
 
 /// Handle `agent.completed` event.
@@ -41,11 +25,6 @@ async fn has_result_for_current_turn(state: &AppState, task_id: &str) -> bool {
 /// Parses the SDK result, determines turn status, appends result message,
 /// updates task, and emits events.
 pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
-    // Idempotency: skip if a result already exists for the current turn
-    if has_result_for_current_turn(state, &event.task_id).await {
-        tracing::debug!(task_id = %event.task_id, "Skipping agent.completed — result already exists for current turn");
-        return;
-    }
     let sdk_result: Option<SdkResultMessage> = match serde_json::from_value(event.payload.clone()) {
         Ok(r) => Some(r),
         Err(e) => {
@@ -110,7 +89,7 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
 
     // Append result message
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-    let msg_uuid = uuid::Uuid::new_v4().to_string();
+    let msg_uuid = message_uuid_for_event(&event.event_id);
 
     let content = serde_json::json!([{
         "type": "text",
@@ -225,14 +204,8 @@ pub async fn handle_agent_session_init(_state: &AppState, event: &AgentEvent) {
 
 /// Handle `agent.stopped` event — user requested stop.
 pub async fn handle_agent_stopped(state: &AppState, event: &AgentEvent) {
-    // Idempotency: skip if a result already exists for the current turn
-    if has_result_for_current_turn(state, &event.task_id).await {
-        tracing::debug!(task_id = %event.task_id, "Skipping agent.stopped — result already exists for current turn");
-        return;
-    }
-
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-    let msg_uuid = uuid::Uuid::new_v4().to_string();
+    let msg_uuid = message_uuid_for_event(&event.event_id);
 
     let content = serde_json::json!([{
         "type": "text",
@@ -306,23 +279,6 @@ pub async fn handle_agent_stopped(state: &AppState, event: &AgentEvent) {
 
 /// Handle `agent.error` or `sandbox.fatal` event.
 pub async fn handle_agent_error(state: &AppState, event: &AgentEvent) {
-    // Guard: only create error result if task has messages and last isn't already a result/error
-    match state.messages.get_last_message_type(&event.task_id).await {
-        Ok(None) => {
-            tracing::debug!(task_id = %event.task_id, "Skipping error — no messages exist for task");
-            return;
-        }
-        Ok(Some(MessageType::Result | MessageType::Error)) => {
-            tracing::debug!(task_id = %event.task_id, "Skipping error — last message is already a result/error");
-            return;
-        }
-        Ok(Some(_)) => {} // Has messages, last is not result/error — proceed
-        Err(e) => {
-            tracing::warn!(task_id = %event.task_id, error = %e, "Failed to check message state for error event");
-            return; // Fail safe: don't create orphan results
-        }
-    }
-
     let error_msg = event
         .payload
         .get("error")
@@ -330,7 +286,7 @@ pub async fn handle_agent_error(state: &AppState, event: &AgentEvent) {
         .unwrap_or("Unknown agent error");
 
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-    let msg_uuid = uuid::Uuid::new_v4().to_string();
+    let msg_uuid = message_uuid_for_event(&event.event_id);
 
     let content = serde_json::json!([{
         "type": "text",
@@ -1007,5 +963,24 @@ mod tests {
             duration_api_ms: None,
         };
         assert_eq!(build_result_text(&Some(r)), "OOM");
+    }
+
+    // ── message_uuid_for_event ───────────────────────────────────────
+
+    #[test]
+    fn message_uuid_deterministic_for_same_event_id() {
+        // Same event_id → same uuid → ON CONFLICT (uuid) DO UPDATE upserts
+        // instead of inserting a duplicate row on redelivery.
+        let a = message_uuid_for_event("1700000000-0");
+        let b = message_uuid_for_event("1700000000-0");
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn message_uuid_distinct_for_distinct_event_ids() {
+        // Different event_ids → different uuids → each event persists its own row.
+        let a = message_uuid_for_event("1700000000-0");
+        let b = message_uuid_for_event("1700000000-1");
+        assert_ne!(a, b);
     }
 }
