@@ -1,5 +1,7 @@
-// Safety: set_var is unsafe in multi-threaded context but this module runs
-// during single-threaded init phase before any agent execution starts.
+// Safety: set_var is unsafe in multi-threaded context. This module is called
+// during single-threaded init *and* then periodically by the credential
+// refresher loop (see `super::refresher`). There are no other writers of these
+// env vars after init — the refresher is a single serialized loop.
 #![allow(unsafe_code)]
 
 //! Credential fetching and application.
@@ -8,13 +10,36 @@
 //! sets them as environment variables, and writes credential files
 //! needed by the Claude CLI.
 
+use std::collections::HashMap;
 use std::time::Duration;
 
 use tokio::fs;
 use tracing::{info, warn};
 
+use super::gh_hosts;
+use super::server_env;
 use crate::config::Config;
 use crate::state::SandboxState;
+
+/// Keys that must NOT be inherited by the agent subprocess.
+///
+/// Git and `gh` operations inside the agent resolve auth via
+/// `gh auth git-credential` → `~/.config/gh/hosts.yml`, which is rewritten on
+/// each refresh cycle. Passing these as subprocess env would snapshot whatever
+/// value was current at spawn time and leak stale tokens into long-running turns.
+const AGENT_EXCLUDED_KEYS: &[&str] = &["GITHUB_TOKEN", "GH_TOKEN", "GIT_TOKEN"];
+
+/// Produce the credential map passed to the agent subprocess env.
+///
+/// Strips git-provider tokens that would otherwise freeze to whatever value was
+/// current when the agent subprocess was spawned.
+pub fn filter_agent_credentials(credentials: &HashMap<String, String>) -> HashMap<String, String> {
+    credentials
+        .iter()
+        .filter(|(k, _)| !AGENT_EXCLUDED_KEYS.contains(&k.as_str()))
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect()
+}
 
 /// Fetch credentials from backend and apply them.
 ///
@@ -42,10 +67,12 @@ pub async fn fetch_and_apply_credentials(state: &SandboxState) -> Result<(), Str
                     "Credentials fetched successfully"
                 );
 
-                // Set each credential as an env var
+                // Set each credential as an env var for the sandbox process itself
+                // (init-time git clone, `gh` invocations, etc.).
                 for (key, value) in &resp.credentials {
-                    // SAFETY: called during single-threaded init phase before
-                    // any agent tasks or async workers are spawned.
+                    // SAFETY: write is serialized — init runs first on the main thread,
+                    // then the single-loop refresher is the only caller. See module-level
+                    // note at the top of this file.
                     unsafe {
                         std::env::set_var(key, value);
                     }
@@ -53,44 +80,46 @@ pub async fn fetch_and_apply_credentials(state: &SandboxState) -> Result<(), Str
 
                 // Map provider-specific token to GIT_TOKEN based on GIT_PROVIDER
                 // so git.rs can use a single env var for clone authentication.
-                // Skip if GIT_TOKEN is already set (e.g. injected by pod builder).
-                if std::env::var("GIT_TOKEN").is_err() {
-                    let git_provider = state.config.git_provider.as_str();
-                    let provider_token_key = match git_provider {
-                        "gitlab" => "GITLAB_TOKEN",
-                        "gitness" => "GITNESS_TOKEN",
-                        _ => "GITHUB_TOKEN", // default to GitHub
-                    };
-                    if let Some(token) = resp.credentials.get(provider_token_key).cloned() {
-                        resp.credentials
-                            .entry("GIT_TOKEN".to_string())
-                            .or_insert_with(|| {
-                                // SAFETY: called during single-threaded init phase.
-                                unsafe {
-                                    std::env::set_var("GIT_TOKEN", &token);
-                                }
-                                token.clone()
-                            });
+                let git_provider = state.config.git_provider.as_str();
+                let provider_token_key = match git_provider {
+                    "gitlab" => "GITLAB_TOKEN",
+                    "gitness" => "GITNESS_TOKEN",
+                    _ => "GITHUB_TOKEN", // default to GitHub
+                };
+                if let Some(token) = resp.credentials.get(provider_token_key).cloned() {
+                    resp.credentials.insert("GIT_TOKEN".to_string(), token.clone());
+                    // SAFETY: see note at top of this file.
+                    unsafe {
+                        std::env::set_var("GIT_TOKEN", &token);
                     }
                 }
 
-                // Alias GITHUB_TOKEN → GH_TOKEN for `gh` CLI compatibility
+                // Alias GITHUB_TOKEN → GH_TOKEN for `gh` CLI compatibility.
                 if let Some(token) = resp.credentials.get("GITHUB_TOKEN").cloned() {
-                    resp.credentials
-                        .entry("GH_TOKEN".to_string())
-                        .or_insert_with(|| {
-                            // SAFETY: called during single-threaded init phase.
-                            unsafe {
-                                std::env::set_var("GH_TOKEN", &token);
-                            }
-                            token
-                        });
+                    resp.credentials.insert("GH_TOKEN".to_string(), token.clone());
+                    // SAFETY: see note at top of this file.
+                    unsafe {
+                        std::env::set_var("GH_TOKEN", &token);
+                    }
+
+                    // Write the current GitHub token into `~/.config/gh/hosts.yml`
+                    // so `gh auth git-credential` (used by git via
+                    // `gh auth setup-git`) reads a fresh token from disk on every
+                    // invocation, even if the caller's env is stale.
+                    if let Err(e) = gh_hosts::write_github_token(&state.config.home_dir, &token).await
+                    {
+                        warn!(error = %e, "Failed to refresh gh hosts.yml");
+                    }
                 }
 
-                // Store credentials in state for passing to agent subprocess
-                *state.credentials.write().await = resp.credentials.clone();
+                // Store credentials in state for passing to agent subprocess.
+                // Filter out git-provider tokens so the long-running Claude CLI
+                // subprocess doesn't snapshot a stale value at spawn time.
+                *state.credentials.write().await = filter_agent_credentials(&resp.credentials);
 
                 persist_agent_credentials(&state.config, &resp.credentials).await;
+
+                server_env::write_server_env_file(&state.config, &resp.server_env).await;
 
                 return Ok(());
             }
@@ -235,7 +264,7 @@ mod tests {
 
     use tempfile::TempDir;
 
-    use super::persist_agent_credentials;
+    use super::{filter_agent_credentials, persist_agent_credentials};
     use crate::config::{AgentConfig, Config, ProxyConfig};
 
     fn test_config(tmp: &TempDir) -> Config {
@@ -304,6 +333,41 @@ mod tests {
                 .and_then(serde_json::Value::as_str),
             Some("from-json")
         );
+    }
+
+    #[test]
+    fn filter_agent_credentials_strips_git_tokens() {
+        let mut credentials = HashMap::new();
+        credentials.insert("GITHUB_TOKEN".to_string(), "gh".to_string());
+        credentials.insert("GH_TOKEN".to_string(), "gh2".to_string());
+        credentials.insert("GIT_TOKEN".to_string(), "git".to_string());
+        credentials.insert("ANTHROPIC_API_KEY".to_string(), "anth".to_string());
+        credentials.insert(
+            "CLAUDE_CODE_OAUTH_TOKEN".to_string(),
+            "claude".to_string(),
+        );
+
+        let filtered = filter_agent_credentials(&credentials);
+
+        assert!(!filtered.contains_key("GITHUB_TOKEN"));
+        assert!(!filtered.contains_key("GH_TOKEN"));
+        assert!(!filtered.contains_key("GIT_TOKEN"));
+        assert_eq!(filtered.get("ANTHROPIC_API_KEY"), Some(&"anth".to_string()));
+        assert_eq!(
+            filtered.get("CLAUDE_CODE_OAUTH_TOKEN"),
+            Some(&"claude".to_string())
+        );
+    }
+
+    #[test]
+    fn filter_agent_credentials_noop_when_no_git_tokens() {
+        let mut credentials = HashMap::new();
+        credentials.insert("OPENAI_API_KEY".to_string(), "oai".to_string());
+
+        let filtered = filter_agent_credentials(&credentials);
+
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered.get("OPENAI_API_KEY"), Some(&"oai".to_string()));
     }
 
     #[tokio::test]

@@ -12,8 +12,11 @@
 
 pub(crate) mod credentials;
 mod dirs;
+pub(crate) mod gh_hosts;
 mod git;
 mod plugin_skills;
+pub(crate) mod refresher;
+pub(crate) mod server_env;
 mod workspace;
 
 use moatless_events::SandboxSubType;
@@ -145,6 +148,19 @@ pub async fn run_init(state: SandboxState) {
     }
 
     info!(task_id = %state.config.task_id, "Workspace setup complete");
+
+    // Spawn the periodic credential refresher. GitHub App installation tokens
+    // expire after 1h and user access tokens after 8h — long-running tasks
+    // would otherwise fail mid-turn on `git push` / `gh pr comment`.
+    // See `refresher.rs` for the full rationale.
+    let refresher_state = state.clone();
+    let refresher_cancel = state.lifecycle_cancel.clone();
+    let refresher_interval = refresher::read_interval_from_env();
+    tokio::spawn(refresher::run_credential_refresher(
+        refresher_state,
+        refresher_cancel,
+        refresher_interval,
+    ));
 }
 
 /// Phase 1: Core initialization.

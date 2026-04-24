@@ -14,6 +14,7 @@ use axum::routing::get;
 use axum::Router;
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
+use tokio_util::sync::CancellationToken;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
@@ -81,6 +82,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         backend_client,
         init_phase: Arc::new(RwLock::new(InitPhase::Starting)),
         credentials,
+        lifecycle_cancel: CancellationToken::new(),
     };
 
     // Start gRPC server for sandbox service (receives commands from backend)

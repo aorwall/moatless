@@ -791,7 +791,10 @@ async fn start_session(
     match backend_client.get_credentials(task_id).await {
         Ok(resp) => {
             crate::init::credentials::persist_agent_credentials(config, &resp.credentials).await;
-            *credentials.write().await = resp.credentials;
+            // Filter out git-provider tokens before passing to the agent subprocess env.
+            // Git/gh ops inside the agent read tokens fresh from `~/.config/gh/hosts.yml`.
+            *credentials.write().await =
+                crate::init::credentials::filter_agent_credentials(&resp.credentials);
         }
         Err(error) => {
             warn!(error = %error, "Failed to refresh credentials, using cached");

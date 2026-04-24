@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use tokio::sync::RwLock;
+use tokio_util::sync::CancellationToken;
 
 use crate::agent::agent_state::AgentState;
 use crate::agent::handle::AgentHandle;
@@ -30,5 +31,15 @@ pub struct SandboxState {
     /// Current initialization phase — tracked for health probes and consumer gating.
     pub init_phase: Arc<RwLock<InitPhase>>,
     /// Credentials fetched during init, passed to agent subprocess via `ClaudeOptions.env`.
+    ///
+    /// Git-provider tokens (`GITHUB_TOKEN`, `GH_TOKEN`, `GIT_TOKEN`) are intentionally
+    /// stripped from this map before it reaches the agent subprocess — git/gh operations
+    /// inside the agent read tokens fresh from disk (`~/.config/gh/hosts.yml`) so inherited
+    /// env would only risk staleness across long-running turns.
     pub credentials: Arc<RwLock<HashMap<String, String>>>,
+    /// Cancellation token tied to the sandbox lifecycle.
+    ///
+    /// Used by background tasks (e.g. the credential refresher) to shut down
+    /// cleanly when the pod is stopping.
+    pub lifecycle_cancel: CancellationToken,
 }

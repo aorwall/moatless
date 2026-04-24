@@ -21,6 +21,7 @@ use moatless_sandbox::state::SandboxState;
 
 use sandbox_proto::{GetCredentialsResponse, PendingMessage, PublishEventRequest};
 use tokio::sync::RwLock;
+use tokio_util::sync::CancellationToken;
 
 // =============================================================================
 // Mock BackendClient
@@ -85,6 +86,7 @@ impl BackendClient for MockBackendClient {
     ) -> Result<GetCredentialsResponse, tonic::Status> {
         Ok(GetCredentialsResponse {
             credentials: HashMap::new(),
+            server_env: HashMap::new(),
         })
     }
 }
@@ -167,6 +169,7 @@ fn test_state(backend: Arc<dyn BackendClient>) -> SandboxState {
         backend_client: backend,
         init_phase: Arc::new(RwLock::new(InitPhase::Ready)),
         credentials,
+        lifecycle_cancel: CancellationToken::new(),
     }
 }
 
