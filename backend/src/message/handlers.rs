@@ -87,6 +87,11 @@ pub async fn send_message(
     }))
 }
 
+/// Default page size when `limit` is not specified.
+const DEFAULT_MESSAGE_LIMIT: i32 = 50;
+/// Maximum allowed page size.
+const MAX_MESSAGE_LIMIT: i32 = 200;
+
 /// Query parameters for GET /messages.
 #[derive(Debug, Deserialize)]
 pub struct GetMessagesQuery {
@@ -94,19 +99,31 @@ pub struct GetMessagesQuery {
     /// and truncate tool result content. Useful for CLI/summary views.
     #[serde(default)]
     pub summary: bool,
+    /// Cursor: return only rows strictly older than this message id.
+    /// Omit for the most recent page.
+    #[serde(default)]
+    pub before_id: Option<i32>,
+    /// Page size. Defaults to 50, clamped to 1..=200.
+    #[serde(default)]
+    pub limit: Option<i32>,
 }
 
-/// Get all messages for a task.
+/// Get a chronological page of messages for a task.
+///
+/// Without query params returns the most recent `DEFAULT_MESSAGE_LIMIT` rows.
+/// Pass `before_id=<oldest_in_previous_page>` to fetch older pages.
 #[utoipa::path(
     get,
     path = "/api/v1/tasks/{task_id}/messages",
     tag = "messages",
     params(
         ("task_id" = String, Path, description = "Task identifier"),
-        ("summary" = Option<bool>, Query, description = "Strip heavy fields for summary view")
+        ("summary" = Option<bool>, Query, description = "Strip heavy fields for summary view"),
+        ("before_id" = Option<i32>, Query, description = "Return only rows strictly older than this id"),
+        ("limit" = Option<i32>, Query, description = "Page size (default 50, max 200)")
     ),
     responses(
-        (status = 200, description = "List of messages", body = GetMessagesResponse),
+        (status = 200, description = "Page of messages", body = GetMessagesResponse),
         (status = 404, description = "Task not found", body = crate::error::ErrorBody)
     )
 )]
@@ -116,15 +133,29 @@ pub async fn get_messages(
     Path(task_id): Path<String>,
     Query(query): Query<GetMessagesQuery>,
 ) -> Result<Json<GetMessagesResponse>, MessageError> {
-    let (messages, contexts, blocks) = state.messages.get_all(&task_id).await?;
+    let limit = query
+        .limit
+        .unwrap_or(DEFAULT_MESSAGE_LIMIT)
+        .clamp(1, MAX_MESSAGE_LIMIT);
+
+    let (messages, contexts, blocks) = state
+        .messages
+        .get_paginated(&task_id, query.before_id, limit)
+        .await?;
+
+    // `has_more` reflects whether the paginated query *filled* the page from
+    // the raw row count, not from the post-transform UI message count. The
+    // cursor must point at the oldest raw row; otherwise empty-content rows
+    // can desync the cursor and produce infinite empty pages.
+    let has_more = messages.len() as i32 == limit;
+    let next_before_id = if has_more {
+        messages.first().map(|m| m.id)
+    } else {
+        None
+    };
+
     let ui_messages: Vec<UiMessage> = transform::transform_to_ui(&messages, &contexts, &blocks)
         .into_iter()
-        .filter(|m| {
-            !m.content.is_empty()
-                || !m.tool_results.is_empty()
-                || m.result.is_some()
-                || m.has_pending_user_input == Some(true)
-        })
         .map(|m| {
             if query.summary {
                 strip_heavy_fields(m)
@@ -133,32 +164,156 @@ pub async fn get_messages(
             }
         })
         .collect();
-    let total_count = ui_messages.len();
 
     Ok(Json(GetMessagesResponse {
         messages: ui_messages,
-        total_count,
+        next_before_id,
+        has_more,
     }))
 }
 
 /// Strip heavy fields from a message for summary/CLI consumption.
+///
+/// Keeps a small preview of `tool_input` so the collapsed UI row can render the
+/// same compact "(arg)" suffix it does today, but without shipping full
+/// `Edit`/`Write` payloads or full `Bash` results across the wire on every
+/// list/SSE refresh.
 fn strip_heavy_fields(mut msg: UiMessage) -> UiMessage {
-    // Remove tool_input from content blocks
     for block in &mut msg.content {
-        block.tool_input = None;
+        if let Some(input) = block.tool_input.take() {
+            block.tool_input = Some(tool_input_preview(&input));
+        }
     }
     // Truncate tool result content and remove typed_result
     for tr in &mut msg.tool_results {
         tr.typed_result = None;
         if let Some(ref content) = tr.content {
             if content.len() > 200 {
-                tr.content = Some(format!("{}…", &content[..200]));
+                tr.content = Some(truncate_with_ellipsis(content, 200));
             }
         }
     }
     // Remove SDK metadata
     msg.sdk_metadata = None;
     msg
+}
+
+/// Build a compact preview from a `tool_input` JSON value: take the first
+/// (key, value) entry, stringify non-string values, and truncate strings to
+/// 100 chars (char-boundary safe). Returns the original value if it is not
+/// an object, or an empty object if it is empty.
+fn tool_input_preview(value: &serde_json::Value) -> serde_json::Value {
+    let Some(obj) = value.as_object() else {
+        return value.clone();
+    };
+
+    let Some((key, raw_value)) = obj.iter().next() else {
+        return serde_json::Value::Object(serde_json::Map::new());
+    };
+
+    let display = match raw_value {
+        serde_json::Value::String(s) => s.clone(),
+        other => serde_json::to_string(other).unwrap_or_default(),
+    };
+    let truncated = truncate_with_ellipsis(&display, 100);
+
+    let mut out = serde_json::Map::with_capacity(1);
+    out.insert(key.clone(), serde_json::Value::String(truncated));
+    serde_json::Value::Object(out)
+}
+
+/// Truncate a string at a UTF-8 char boundary, appending `…` when shortened.
+fn truncate_with_ellipsis(s: &str, max_chars: usize) -> String {
+    if s.chars().count() <= max_chars {
+        return s.to_string();
+    }
+    let mut out: String = s.chars().take(max_chars).collect();
+    out.push('…');
+    out
+}
+
+/// Get the full input + result for a single tool call within a task.
+#[utoipa::path(
+    get,
+    path = "/api/v1/tasks/{task_id}/tool-calls/{tool_use_id}",
+    tag = "messages",
+    params(
+        ("task_id" = String, Path, description = "Task identifier"),
+        ("tool_use_id" = String, Path, description = "Tool-use block identifier (unique within a task)")
+    ),
+    responses(
+        (status = 200, description = "Tool call detail", body = ToolCallDetailResponse),
+        (status = 404, description = "Tool call not found", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn get_tool_call_detail(
+    State(state): State<AppState>,
+    _auth: AuthUser,
+    Path((task_id, tool_use_id)): Path<(String, String)>,
+) -> Result<Json<ToolCallDetailResponse>, MessageError> {
+    let row = state
+        .messages
+        .find_tool_call(&task_id, &tool_use_id)
+        .await?
+        .ok_or_else(|| MessageError::NotFound(tool_use_id.clone()))?;
+
+    let typed_result = transform::enrich_codex_typed_result(
+        &row.tool_name,
+        Some(&row.tool_input),
+        row.tool_use_result,
+    );
+
+    Ok(Json(ToolCallDetailResponse {
+        tool_use_id: row.tool_use_id,
+        tool_name: row.tool_name,
+        tool_input: row.tool_input,
+        result_content: row.result_content,
+        is_error: row.is_error,
+        typed_result,
+    }))
+}
+
+#[cfg(test)]
+mod preview_tests {
+    use super::tool_input_preview;
+    use serde_json::json;
+
+    #[test]
+    fn scalar_value_is_stringified() {
+        let preview = tool_input_preview(&json!({ "n": 42 }));
+        assert_eq!(preview, json!({ "n": "42" }));
+    }
+
+    #[test]
+    fn long_string_is_truncated_with_ellipsis() {
+        let long = "x".repeat(150);
+        let preview = tool_input_preview(&json!({ "content": long }));
+        let value = preview["content"].as_str().unwrap();
+        assert_eq!(value.chars().count(), 101); // 100 chars + "…"
+        assert!(value.ends_with('…'));
+    }
+
+    #[test]
+    fn nested_object_is_stringified() {
+        let preview = tool_input_preview(&json!({ "todos": [{ "id": 1 }, { "id": 2 }] }));
+        let value = preview["todos"].as_str().unwrap();
+        assert!(value.starts_with('['));
+    }
+
+    #[test]
+    fn empty_input_returns_empty_object() {
+        let preview = tool_input_preview(&json!({}));
+        assert_eq!(preview, json!({}));
+    }
+
+    #[test]
+    fn truncation_respects_char_boundaries() {
+        // Multi-byte chars: "é" repeated past the limit must not split a code point.
+        let s = "é".repeat(150);
+        let preview = tool_input_preview(&json!({ "k": s }));
+        let value = preview["k"].as_str().unwrap();
+        assert_eq!(value.chars().count(), 101);
+    }
 }
 
 /// Get pending messages for a task.

@@ -3,10 +3,12 @@ import type {
   CommandResponse,
   CreateTaskRequest,
   CreateTaskResponse,
+  GetMessagesResponse,
   ListTasksResponse,
   MessageContextInput,
   SendMessageResponse,
   TaskResponse,
+  ToolCallDetailResponse,
   UiMessage,
 } from '@moatless/api-client'
 import { unwrapResponse } from '@moatless/api-client/custom-instance'
@@ -14,6 +16,7 @@ import { getAvailableCommands as getAvailableCommandsHandler } from '@moatless/a
 import {
   deleteQueuedMessage as deleteQueuedMessageHandler,
   getMessages as getMessagesHandler,
+  getToolCallDetail as getToolCallDetailHandler,
   sendMessage as sendMessageHandler,
 } from '@moatless/api-client/sandbox/messages/messages'
 import {
@@ -26,6 +29,12 @@ import {
   updateTaskMetadata as updateTaskMetadataHandler,
   updateVisibility as updateVisibilityHandler,
 } from '@moatless/api-client/sandbox/tasks/tasks'
+
+export interface MessagesPage {
+  messages: UiMessage[]
+  nextBeforeId?: number
+  hasMore: boolean
+}
 
 export const tasksApi = {
   async getActiveTasks(): Promise<string[]> {
@@ -102,9 +111,28 @@ export const tasksApi = {
     return { status: 'deleted' }
   },
 
-  async getTaskMessages(taskId: string): Promise<UiMessage[]> {
-    const response = await unwrapResponse<{ messages: UiMessage[] }>(getMessagesHandler(taskId))
-    return response.messages
+  async getTaskMessages(
+    taskId: string,
+    params?: { beforeId?: number; limit?: number },
+  ): Promise<MessagesPage> {
+    const response = await unwrapResponse<GetMessagesResponse>(
+      getMessagesHandler(taskId, {
+        before_id: params?.beforeId,
+        limit: params?.limit,
+        // Slim wire payload: full tool_input + result are fetched on demand
+        // via `getToolCallDetail` when a tool call is expanded.
+        summary: true,
+      }),
+    )
+    return {
+      messages: response.messages,
+      nextBeforeId: response.nextBeforeId ?? undefined,
+      hasMore: response.hasMore,
+    }
+  },
+
+  async getToolCallDetail(taskId: string, toolUseId: string): Promise<ToolCallDetailResponse> {
+    return await unwrapResponse(getToolCallDetailHandler(taskId, toolUseId))
   },
 
   async getTaskCommands(taskId: string): Promise<CommandResponse[]> {

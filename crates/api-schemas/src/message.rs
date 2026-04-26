@@ -135,7 +135,11 @@ pub struct UiResultMeta {
 #[serde(rename_all = "camelCase")]
 pub struct GetMessagesResponse {
     pub messages: Vec<UiMessage>,
-    pub total_count: usize,
+    /// Cursor for fetching the next older page; `None` when no older rows remain.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_before_id: Option<i32>,
+    /// Whether older messages exist beyond the returned page.
+    pub has_more: bool,
 }
 
 /// A pending message item (user message or result message).
@@ -172,6 +176,24 @@ pub struct GetPendingMessagesResponse {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct DeleteMessageResponse {
     pub status: String,
+}
+
+/// Full tool-call detail returned on demand (when a tool call is expanded).
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ToolCallDetailResponse {
+    pub tool_use_id: String,
+    pub tool_name: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = Object))]
+    pub tool_input: serde_json::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result_content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_error: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
+    pub typed_result: Option<serde_json::Value>,
 }
 
 // =========================================================================

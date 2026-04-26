@@ -18,8 +18,9 @@ export const queryKeys = {
     detail: (taskId: string) => [...queryKeys.tasks.all, 'detail', taskId] as const,
 
     // Sub-resources - automatically invalidated with parent
-    messages: (taskId: string, filters?: { limit?: number; offset?: number }) =>
-      [...queryKeys.tasks.detail(taskId), 'messages', filters] as const,
+    messages: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'messages'] as const,
+    toolCall: (taskId: string, toolUseId: string) =>
+      [...queryKeys.tasks.detail(taskId), 'tool-call', toolUseId] as const,
     sandboxStatus: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'sandbox'] as const,
     sandboxSetup: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'sandbox-setup'] as const,
     serverStatus: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'server'] as const,

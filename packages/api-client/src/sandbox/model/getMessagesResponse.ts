@@ -11,7 +11,12 @@ import type { UiMessage } from './uiMessage';
  * Response for GET /messages.
  */
 export interface GetMessagesResponse {
+  /** Whether older messages exist beyond the returned page. */
+  hasMore: boolean;
   messages: UiMessage[];
-  /** @minimum 0 */
-  totalCount: number;
+  /**
+   * Cursor for fetching the next older page; `None` when no older rows remain.
+   * @nullable
+   */
+  nextBeforeId?: number | null;
 }

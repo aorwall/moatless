@@ -104,10 +104,13 @@ pub fn transform_to_ui(
                 let ui_msg = transform_user(msg, &msg_blocks);
                 ui_messages.push(ui_msg);
             }
-            MessageType::System | MessageType::Result => {
+            MessageType::System => {
+                // System rows wrap tool_result content; they feed
+                // `tool_results_map` for the assistant transform above and are
+                // never rendered as independent bubbles.
                 continue;
             }
-            MessageType::Error => {
+            MessageType::Result | MessageType::Error => {
                 let ui_msg = transform_result(msg, &msg_blocks);
                 ui_messages.push(ui_msg);
             }
@@ -374,7 +377,7 @@ fn extract_text_from_content(content: &serde_json::Value) -> Vec<UiContentBlock>
 ///
 /// Falls back to the raw value when the tool name is not a codex tool or
 /// when deserialization fails — no message is ever dropped.
-fn enrich_codex_typed_result(
+pub(crate) fn enrich_codex_typed_result(
     tool_name: &str,
     tool_input: Option<&serde_json::Value>,
     raw_typed: Option<serde_json::Value>,
@@ -533,5 +536,138 @@ mod tests {
         let enriched = enrich_codex_typed_result("codex.web_search", Some(&input), None);
         // web_search has no tool_result → None in/out.
         assert!(enriched.is_none());
+    }
+
+    // ── transform: chronological render of all rows ─────────────────
+
+    use crate::message::models::MessageRole;
+
+    fn make_msg(
+        id: i32,
+        uuid: &str,
+        message_type: MessageType,
+        role: MessageRole,
+        turn: Option<i32>,
+        text: &str,
+    ) -> TaskMessage {
+        TaskMessage {
+            id,
+            task_id: "task-1".into(),
+            uuid: uuid.into(),
+            message_type,
+            user_type: "human".into(),
+            parent_uuid: None,
+            is_sidechain: None,
+            cwd: None,
+            session_id: None,
+            turn_number: turn,
+            version: None,
+            git_branch: None,
+            request_id: None,
+            timestamp: format!("2025-01-01T00:00:0{id}.000Z"),
+            message_role: role,
+            message_content: json!([{"type": "text", "text": text}]),
+            assistant_message_id: None,
+            assistant_message_type: None,
+            assistant_message_model: None,
+            assistant_stop_reason: None,
+            assistant_stop_sequence: None,
+            assistant_usage_input_tokens: None,
+            assistant_usage_output_tokens: None,
+            assistant_usage_cache_creation_input_tokens: None,
+            assistant_usage_cache_read_input_tokens: None,
+            tool_use_result: None,
+            sdk_metadata: None,
+            attachments: None,
+            agent_session_id: None,
+            will_not_resume: None,
+            run_metrics: None,
+            agent_mode: None,
+            model: None,
+            resume: true,
+            sent_at: None,
+            created_at: None,
+            channel_external_id: None,
+            channel_provider: None,
+            channel_source_name: None,
+            command_name: None,
+        }
+    }
+
+    #[test]
+    fn renders_all_rows_in_order() {
+        let messages = vec![
+            make_msg(1, "u1", MessageType::User, MessageRole::User, Some(1), "hi"),
+            make_msg(
+                2,
+                "a1",
+                MessageType::Assistant,
+                MessageRole::Assistant,
+                Some(1),
+                "step 1",
+            ),
+            make_msg(
+                3,
+                "a2",
+                MessageType::Assistant,
+                MessageRole::Assistant,
+                Some(1),
+                "step 2",
+            ),
+            make_msg(
+                4,
+                "r1",
+                MessageType::Result,
+                MessageRole::Assistant,
+                Some(1),
+                "done",
+            ),
+        ];
+
+        let ui = transform_to_ui(&messages, &[], &[]);
+        let types: Vec<_> = ui.iter().map(|m| m.message_type).collect();
+        assert_eq!(
+            types,
+            vec![
+                MessageType::User,
+                MessageType::Assistant,
+                MessageType::Assistant,
+                MessageType::Result,
+            ]
+        );
+    }
+
+    #[test]
+    fn renders_error_terminal_marker() {
+        let messages = vec![
+            make_msg(1, "u1", MessageType::User, MessageRole::User, Some(1), "hi"),
+            make_msg(
+                2,
+                "a1",
+                MessageType::Assistant,
+                MessageRole::Assistant,
+                Some(1),
+                "tried",
+            ),
+            make_msg(
+                3,
+                "e1",
+                MessageType::Error,
+                MessageRole::Assistant,
+                Some(1),
+                "boom",
+            ),
+        ];
+
+        let ui = transform_to_ui(&messages, &[], &[]);
+        let types: Vec<_> = ui.iter().map(|m| m.message_type).collect();
+        assert_eq!(
+            types,
+            vec![
+                MessageType::User,
+                MessageType::Assistant,
+                MessageType::Error,
+            ]
+        );
     }
 }

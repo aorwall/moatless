@@ -1,6 +1,5 @@
 export { AssistantMessageComponent } from './assistant-message.tsx'
 export { MessageHistory } from './message-history.tsx'
 export { MessageHistorySkeleton } from './message-history-skeleton.tsx'
-export { ResultMessageComponent } from './result-message.tsx'
 export { SystemMessageComponent } from './system-message.tsx'
 export { UserMessageComponent } from './user-message.tsx'

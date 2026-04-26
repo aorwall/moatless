@@ -8,9 +8,11 @@ import {
   Eye,
   FileText,
   HelpCircle,
+  Loader2,
   XCircle,
 } from 'lucide-react'
 import { useState } from 'react'
+import { useTaskToolCall } from '@/features/tasks/hooks/use-tasks'
 import type { UiMessageWithSubagents } from '@/features/tasks/utils/group-messages'
 import { Response } from '@/lib/components/ai-elements/response'
 import { type ImageContentBlock, isImageContentBlock } from '@/lib/types/content-guards'
@@ -20,12 +22,14 @@ import { ImageThumbnail } from './image-thumbnail'
 import { CodexToolCall, SubagentToolCall, type Todo, TodoList } from './tool-calls'
 
 interface AssistantMessageProps {
+  taskId?: string
   message: UiMessageWithSubagents
   expandedToolCalls: Set<string>
   onToggleToolCall: (toolUseId: string) => void
 }
 
 interface ToolCallProps {
+  taskId?: string
   content: UiContentBlock
   toolResult?: UiToolResult
   expanded: boolean
@@ -57,12 +61,20 @@ function parseImageFromToolResult(content: string | undefined): ImageContentBloc
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Component handles multiple tool types and states
 function ToolCallComponent({
+  taskId,
   content,
   toolResult,
   expanded,
   onToggle,
   hasPendingUserInput,
 }: ToolCallProps) {
+  // Fetch full tool input + result on demand when this tool call is expanded.
+  // The list endpoint returns a slim preview to keep page/SSE refresh payloads
+  // small; the detail query stays cached across collapse/re-expand.
+  const detailQuery = useTaskToolCall(taskId ?? '', content.toolUseId, expanded && !!taskId)
+  const detail = detailQuery.data
+  const detailIsLoading = detailQuery.isLoading
+
   // Codex tool calls use the `codex.*` namespace and are rendered via a
   // dedicated dispatch that knows how to pretty-print shell output and
   // file diffs. Unknown codex.* names fall through to the generic renderer.
@@ -285,9 +297,14 @@ function ToolCallComponent({
   }
 
   const hasResult = !!toolResult
-  const imageData = parseImageFromToolResult(toolResult?.content ?? undefined)
-  const resultLines = toolResult?.content?.split('\n') || []
-  const lineCount = resultLines.length
+  // Prefer the full content from the on-demand detail query when available,
+  // falling back to the slim preview shipped on the list. This keeps the line
+  // count + scroll height stable as the full data hydrates.
+  const expandedContent = detail?.resultContent ?? toolResult?.content ?? undefined
+  const imageData = parseImageFromToolResult(expandedContent)
+  const resultLines = (toolResult?.content ?? '').split('\n')
+  const lineCount = toolResult?.content ? resultLines.length : 0
+  const expandedLines = expandedContent ? expandedContent.split('\n') : resultLines
 
   // Format tool input for display
   const formatToolInput = () => {
@@ -363,7 +380,18 @@ function ToolCallComponent({
 
           {/* Result - only shown when expanded */}
           {hasResult && expanded && (
-            <div className="mt-1">
+            <div className="mt-1 space-y-1">
+              {detail?.toolInput && (
+                <pre className="bg-muted/20 p-1 text-muted-foreground whitespace-pre-wrap break-all">
+                  {JSON.stringify(detail.toolInput, null, 2)}
+                </pre>
+              )}
+              {detailIsLoading && !detail && (
+                <div className="flex items-center gap-1 text-muted-foreground py-1">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Loading…
+                </div>
+              )}
               {imageData ? (
                 <div className="p-1">
                   <ImageThumbnail
@@ -374,9 +402,9 @@ function ToolCallComponent({
                   />
                 </div>
               ) : (
-                lineCount > 0 && (
+                expandedLines.length > 0 && (
                   <div className="bg-muted/30 p-1 text-muted-foreground">
-                    {resultLines.map((line, index) => (
+                    {expandedLines.map((line, index) => (
                       <div
                         key={`${content.toolUseId}-${index}`}
                         className="whitespace-pre-wrap break-all"
@@ -429,6 +457,7 @@ function parseMessageContent(contentArray: UiContentBlock[]): {
  * Render tool calls list with result mapping
  */
 function renderToolCalls(
+  taskId: string | undefined,
   toolCalls: UiContentBlock[],
   toolResultMap: Map<string, UiToolResult>,
   expandedToolCalls: Set<string>,
@@ -460,6 +489,7 @@ function renderToolCalls(
         return (
           <ToolCallComponent
             key={toolCall.toolUseId}
+            taskId={taskId}
             content={toolCall}
             toolResult={toolCall.toolUseId ? toolResultMap.get(toolCall.toolUseId) : undefined}
             expanded={expandedToolCalls.has(toolCall.toolUseId || '')}
@@ -476,6 +506,7 @@ function renderToolCalls(
  * Render a collapsed message view (for hidden/transcript-only messages)
  */
 function renderCollapsedMessage(
+  taskId: string | undefined,
   isExpanded: boolean,
   setIsExpanded: (value: boolean) => void,
   isSummary: boolean,
@@ -534,6 +565,7 @@ function renderCollapsedMessage(
             )}
 
             {renderToolCalls(
+              taskId,
               toolCalls,
               toolResultMap,
               expandedToolCalls,
@@ -592,6 +624,7 @@ function CodexReasoningCard({ text }: { text: string }) {
 }
 
 export function AssistantMessageComponent({
+  taskId,
   message,
   expandedToolCalls,
   onToggleToolCall,
@@ -626,6 +659,7 @@ export function AssistantMessageComponent({
       textContent || (toolCalls.length > 0 ? `${toolCalls.length} tool calls` : '')
 
     return renderCollapsedMessage(
+      taskId,
       isExpanded,
       setIsExpanded,
       isSummary,
@@ -652,6 +686,7 @@ export function AssistantMessageComponent({
 
       {/* Tool calls */}
       {renderToolCalls(
+        taskId,
         toolCalls,
         toolResultMap,
         expandedToolCalls,

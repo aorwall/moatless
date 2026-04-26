@@ -271,9 +271,13 @@ impl EventHandlerConsumer {
             EventKey::Agent(AgentSubType::SessionInit) => {
                 agent_handlers::handle_agent_session_init(&self.state, event).await;
             }
-            EventKey::Agent(AgentSubType::Stopped)
-            | EventKey::TaskTurn(TaskTurnSubType::Stopped) => {
+            EventKey::Agent(AgentSubType::Stopped) => {
+                // handle_agent_stopped publishes task_turn.stopped — never
+                // re-handle that downstream event or we self-amplify into a loop.
                 agent_handlers::handle_agent_stopped(&self.state, event).await;
+            }
+            EventKey::TaskTurn(TaskTurnSubType::Stopped) => {
+                // Channel notification is handled by the agent via `moat reply`.
             }
             EventKey::Agent(AgentSubType::Error) => {
                 // handle_agent_error publishes task_turn.error,

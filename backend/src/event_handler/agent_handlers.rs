@@ -47,7 +47,6 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
     // and the session can be resumed for the next message.
     let will_not_resume = false;
 
-    // Build result text
     let result_text = build_result_text(&sdk_result);
 
     // Extract session_id from SDK result
@@ -96,6 +95,10 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
         "text": result_text
     }]);
 
+    // Result rows close the active turn — inherit it from the event when
+    // available, otherwise read the current turn from the DB.
+    let turn_number = resolve_turn_number(state, &event.task_id, event.turn_number).await;
+
     let msg_row = build_result_message_row(
         &event.task_id,
         &msg_uuid,
@@ -106,6 +109,7 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
         session_id,
         agent_mode,
         model,
+        turn_number,
     );
     let contexts: Vec<TaskMessageContext> = vec![];
     let blocks = vec![TaskMessageContentBlock {
@@ -218,6 +222,8 @@ pub async fn handle_agent_stopped(state: &AppState, event: &AgentEvent) {
         _ => None,
     };
 
+    let turn_number = resolve_turn_number(state, &event.task_id, event.turn_number).await;
+
     let msg_row = build_result_message_row(
         &event.task_id,
         &msg_uuid,
@@ -228,6 +234,7 @@ pub async fn handle_agent_stopped(state: &AppState, event: &AgentEvent) {
         None,
         agent_mode,
         None,
+        turn_number,
     );
     let contexts: Vec<TaskMessageContext> = vec![];
     let blocks = vec![TaskMessageContentBlock {
@@ -299,6 +306,8 @@ pub async fn handle_agent_error(state: &AppState, event: &AgentEvent) {
         _ => None,
     };
 
+    let turn_number = resolve_turn_number(state, &event.task_id, event.turn_number).await;
+
     // will_not_resume=false: harness-level errors (sandbox crash, pod eviction)
     // should not prevent session resumption. The Claude session is still valid.
     let msg_row = build_result_message_row(
@@ -311,6 +320,7 @@ pub async fn handle_agent_error(state: &AppState, event: &AgentEvent) {
         None,
         agent_mode,
         None,
+        turn_number,
     );
     let contexts: Vec<TaskMessageContext> = vec![];
     let blocks = vec![TaskMessageContentBlock {
@@ -498,7 +508,11 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
             .cloned()
     };
 
-    // 5. Build TaskMessage
+    // 5. Resolve turn number — events may carry one; otherwise inherit from
+    //    the current task turn so the row groups with its user message.
+    let turn_number = resolve_turn_number(state, &event.task_id, event.turn_number).await;
+
+    // 6. Build TaskMessage
     let msg_row = TaskMessage {
         id: 0,
         task_id: event.task_id.clone(),
@@ -509,7 +523,7 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
         is_sidechain: None,
         cwd: None,
         session_id,
-        turn_number: event.turn_number,
+        turn_number,
         version: None,
         git_branch: None,
         request_id: None,
@@ -554,14 +568,14 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
         command_name: None,
     };
 
-    // 6. Build content blocks from the content array
+    // 7. Build content blocks from the content array
     let blocks = build_content_blocks_from_payload(&content);
     let contexts: Vec<TaskMessageContext> = vec![];
 
-    // 7. Persist message
+    // 8. Persist message
     match state.messages.append(&msg_row, &contexts, &blocks).await {
         Ok(_) => {
-            tracing::info!(
+            tracing::debug!(
                 task_id = %event.task_id,
                 uuid = %uuid,
                 message_type = %message_type,
@@ -578,7 +592,7 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
         }
     }
 
-    // 8. Skill tagging (only for assistant messages)
+    // 9. Skill tagging (only for assistant messages)
     if message_type == MessageType::Assistant {
         let skill_names = extract_skill_names(&event.payload);
         if skill_names.is_empty() {
@@ -712,6 +726,28 @@ fn build_result_text(sdk_result: &Option<SdkResultMessage>) -> String {
     }
 }
 
+/// Resolve which turn a result/error/stopped row belongs to.
+///
+/// Prefers the explicit `event.turn_number` when present (future code paths may
+/// supply it). Falls back to the current max turn_number for the task, since a
+/// terminal row always belongs to the most recent in-flight turn.
+async fn resolve_turn_number(
+    state: &AppState,
+    task_id: &str,
+    event_turn_number: Option<i32>,
+) -> Option<i32> {
+    if let Some(t) = event_turn_number {
+        return Some(t);
+    }
+    match state.messages.current_turn_number(task_id).await {
+        Ok(t) => Some(t),
+        Err(e) => {
+            tracing::warn!(task_id, error = %e, "Failed to read current turn number");
+            None
+        }
+    }
+}
+
 /// Build a result message row for agent outcomes.
 #[allow(clippy::too_many_arguments)]
 fn build_result_message_row(
@@ -724,6 +760,7 @@ fn build_result_message_row(
     session_id: Option<String>,
     agent_mode: Option<AgentMode>,
     model: Option<String>,
+    turn_number: Option<i32>,
 ) -> TaskMessage {
     TaskMessage {
         id: 0,
@@ -735,7 +772,7 @@ fn build_result_message_row(
         is_sidechain: None,
         cwd: None,
         session_id: session_id.clone(),
-        turn_number: None,
+        turn_number,
         version: None,
         git_branch: None,
         request_id: None,

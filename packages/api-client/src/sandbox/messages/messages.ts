@@ -31,7 +31,8 @@ import type {
   GetMessagesResponse,
   GetPendingMessagesResponse,
   SendMessageRequest,
-  SendMessageResponse
+  SendMessageResponse,
+  ToolCallDetailResponse
 } from '.././model';
 
 import { customInstance } from '../../../custom-instance';
@@ -47,7 +48,9 @@ type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
 
 
 /**
- * @summary Get all messages for a task.
+ * Without query params returns the most recent `DEFAULT_MESSAGE_LIMIT` rows.
+Pass `before_id=<oldest_in_previous_page>` to fetch older pages.
+ * @summary Get a chronological page of messages for a task.
  */
 export type getMessagesResponse200 = {
   data: GetMessagesResponse
@@ -159,7 +162,7 @@ export function useGetMessages<TData = Awaited<ReturnType<typeof getMessages>>, 
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
 /**
- * @summary Get all messages for a task.
+ * @summary Get a chronological page of messages for a task.
  */
 
 export function useGetMessages<TData = Awaited<ReturnType<typeof getMessages>>, TError = ErrorType<ErrorBody>>(
@@ -176,7 +179,7 @@ export function useGetMessages<TData = Awaited<ReturnType<typeof getMessages>>, 
 }
 
 /**
- * @summary Get all messages for a task.
+ * @summary Get a chronological page of messages for a task.
  */
 export const prefetchGetMessagesQuery = async <TData = Awaited<ReturnType<typeof getMessages>>, TError = ErrorType<ErrorBody>>(
  queryClient: QueryClient, taskId: string,
@@ -505,4 +508,143 @@ export const useDeleteQueuedMessage = <TError = ErrorType<ErrorBody>,
       > => {
       return useMutation(getDeleteQueuedMessageMutationOptions(options), queryClient);
     }
+    /**
+ * @summary Get the full input + result for a single tool call within a task.
+ */
+export type getToolCallDetailResponse200 = {
+  data: ToolCallDetailResponse
+  status: 200
+}
+
+export type getToolCallDetailResponse404 = {
+  data: ErrorBody
+  status: 404
+}
     
+export type getToolCallDetailResponseSuccess = (getToolCallDetailResponse200) & {
+  headers: Headers;
+};
+export type getToolCallDetailResponseError = (getToolCallDetailResponse404) & {
+  headers: Headers;
+};
+
+export type getToolCallDetailResponse = (getToolCallDetailResponseSuccess | getToolCallDetailResponseError)
+
+export const getGetToolCallDetailUrl = (taskId: string,
+    toolUseId: string,) => {
+
+
+  
+
+  return `/api/v1/tasks/${taskId}/tool-calls/${toolUseId}`
+}
+
+export const getToolCallDetail = async (taskId: string,
+    toolUseId: string, options?: RequestInit): Promise<getToolCallDetailResponse> => {
+  
+  return customInstance<getToolCallDetailResponse>(getGetToolCallDetailUrl(taskId,toolUseId),
+  {      
+    ...options,
+    method: 'GET'
+    
+    
+  }
+);}
+
+
+
+
+
+export const getGetToolCallDetailQueryKey = (taskId: string,
+    toolUseId: string,) => {
+    return [
+    `/api/v1/tasks/${taskId}/tool-calls/${toolUseId}`
+    ] as const;
+    }
+
+    
+export const getGetToolCallDetailQueryOptions = <TData = Awaited<ReturnType<typeof getToolCallDetail>>, TError = ErrorType<ErrorBody>>(taskId: string,
+    toolUseId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getToolCallDetail>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetToolCallDetailQueryKey(taskId,toolUseId);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getToolCallDetail>>> = ({ signal }) => getToolCallDetail(taskId,toolUseId, { signal, ...requestOptions });
+
+      
+
+      
+
+   return  { queryKey, queryFn, enabled: !!(taskId && toolUseId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getToolCallDetail>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
+}
+
+export type GetToolCallDetailQueryResult = NonNullable<Awaited<ReturnType<typeof getToolCallDetail>>>
+export type GetToolCallDetailQueryError = ErrorType<ErrorBody>
+
+
+export function useGetToolCallDetail<TData = Awaited<ReturnType<typeof getToolCallDetail>>, TError = ErrorType<ErrorBody>>(
+ taskId: string,
+    toolUseId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getToolCallDetail>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getToolCallDetail>>,
+          TError,
+          Awaited<ReturnType<typeof getToolCallDetail>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useGetToolCallDetail<TData = Awaited<ReturnType<typeof getToolCallDetail>>, TError = ErrorType<ErrorBody>>(
+ taskId: string,
+    toolUseId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getToolCallDetail>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getToolCallDetail>>,
+          TError,
+          Awaited<ReturnType<typeof getToolCallDetail>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useGetToolCallDetail<TData = Awaited<ReturnType<typeof getToolCallDetail>>, TError = ErrorType<ErrorBody>>(
+ taskId: string,
+    toolUseId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getToolCallDetail>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+/**
+ * @summary Get the full input + result for a single tool call within a task.
+ */
+
+export function useGetToolCallDetail<TData = Awaited<ReturnType<typeof getToolCallDetail>>, TError = ErrorType<ErrorBody>>(
+ taskId: string,
+    toolUseId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getToolCallDetail>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
+
+  const queryOptions = getGetToolCallDetailQueryOptions(taskId,toolUseId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get the full input + result for a single tool call within a task.
+ */
+export const prefetchGetToolCallDetailQuery = async <TData = Awaited<ReturnType<typeof getToolCallDetail>>, TError = ErrorType<ErrorBody>>(
+ queryClient: QueryClient, taskId: string,
+    toolUseId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getToolCallDetail>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+
+  ): Promise<QueryClient> => {
+
+  const queryOptions = getGetToolCallDetailQueryOptions(taskId,toolUseId,options)
+
+  await queryClient.prefetchQuery(queryOptions);
+
+  return queryClient;
+}
+
+
+

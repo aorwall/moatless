@@ -7,16 +7,47 @@ import type {
   SandboxStatusFullResponse,
   SendMessageResponse,
   TaskResponse,
+  ToolCallDetailResponse,
   UiMessage,
 } from '@moatless/api-client'
 import { unwrapResponse } from '@moatless/api-client/custom-instance'
 import { sandboxStatusHandler } from '@moatless/api-client/sandbox/sandbox/sandbox'
-import type { UseMutationOptions, UseQueryOptions } from '@tanstack/react-query'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import type {
+  InfiniteData,
+  QueryClient,
+  UseMutationOptions,
+  UseQueryOptions,
+} from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { updateTaskInLists } from '@/features/tasks'
+import type { MessagesPage } from '@/features/tasks/api/tasks'
 import { tasksApi } from '@/features/tasks/api/tasks'
 import { queryKeys } from '@/lib/api/query-keys'
 import type { AskUserQuestionResponse, ExitPlanModeResponse } from '@/lib/types/user-input'
+
+export const MESSAGES_PAGE_SIZE = 50
+
+type MessagesInfiniteData = InfiniteData<MessagesPage, number | undefined>
+
+/**
+ * Update every page of an InfiniteData<MessagesPage> with `updater`.
+ * Used by optimistic mutations that need to add/remove rows.
+ */
+function mutateMessagePages(
+  data: MessagesInfiniteData | undefined,
+  updater: (messages: UiMessage[], pageIndex: number, pageCount: number) => UiMessage[],
+): MessagesInfiniteData | undefined {
+  if (!data) {
+    return data
+  }
+  return {
+    ...data,
+    pages: data.pages.map((page, idx, pages) => ({
+      ...page,
+      messages: updater(page.messages, idx, pages.length),
+    })),
+  }
+}
 
 /**
  * Task Query Invalidation Strategy:
@@ -90,9 +121,13 @@ export function useCreateTask(
             messageType: 'user',
           }
 
-          queryClient.setQueryData<UiMessage[]>(queryKeys.tasks.messages(response.taskId), [
-            initialMessage,
-          ])
+          queryClient.setQueryData<MessagesInfiniteData>(
+            queryKeys.tasks.messages(response.taskId),
+            {
+              pages: [{ messages: [initialMessage], hasMore: false, nextBeforeId: undefined }],
+              pageParams: [undefined],
+            },
+          )
         }
 
         // Seed sandbox status cache with initializing state for instant feedback
@@ -149,7 +184,10 @@ export function useSendMessage(
     SendMessageResponse,
     Error,
     SendMessageVariables,
-    { previousMessages: UiMessage[]; previousTask: TaskResponse | undefined }
+    {
+      previousMessages: MessagesInfiniteData | undefined
+      previousTask: TaskResponse | undefined
+    }
   >,
 ) {
   const queryClient = useQueryClient()
@@ -158,7 +196,10 @@ export function useSendMessage(
     SendMessageResponse,
     Error,
     SendMessageVariables,
-    { previousMessages: UiMessage[]; previousTask: TaskResponse | undefined }
+    {
+      previousMessages: MessagesInfiniteData | undefined
+      previousTask: TaskResponse | undefined
+    }
   >({
     ...options,
     mutationKey: ['tasks', taskId, 'sendMessage'],
@@ -172,11 +213,10 @@ export function useSendMessage(
         queryKey: queryKeys.tasks.detail(taskId),
       })
 
-      // Get current messages
-      const previousMessages =
-        queryClient.getQueryData<UiMessage[]>(queryKeys.tasks.messages(taskId)) || []
-
-      // Get current task state for rollback
+      // Snapshot current cache for rollback
+      const previousMessages = queryClient.getQueryData<MessagesInfiniteData>(
+        queryKeys.tasks.messages(taskId),
+      )
       const previousTask = queryClient.getQueryData<TaskResponse>(queryKeys.tasks.detail(taskId))
 
       // Create optimistic message — mark as queued when the agent is already running,
@@ -195,13 +235,20 @@ export function useSendMessage(
         ...(variables.commandName ? { commandName: variables.commandName } : {}),
       }
 
-      // Update cache with new message (running state is derived from messages + envStatus)
-      queryClient.setQueryData<UiMessage[]>(queryKeys.tasks.messages(taskId), [
-        ...previousMessages,
-        optimisticMessage,
-      ])
+      // Append the optimistic row to the LAST page (newest). If no pages are
+      // cached yet, seed an initial page.
+      queryClient.setQueryData<MessagesInfiniteData>(queryKeys.tasks.messages(taskId), (data) => {
+        if (!data) {
+          return {
+            pages: [{ messages: [optimisticMessage], hasMore: false, nextBeforeId: undefined }],
+            pageParams: [undefined],
+          }
+        }
+        return mutateMessagePages(data, (messages, idx, count) =>
+          idx === count - 1 ? [...messages, optimisticMessage] : messages,
+        )
+      })
 
-      // Return context for rollback
       return { previousMessages, previousTask }
     },
     onSuccess: (data, variables, onMutateResult, mutationContext) => {
@@ -211,7 +258,7 @@ export function useSendMessage(
     },
     onError: (error, variables, onMutateResult, mutationContext) => {
       // Rollback optimistic updates on error
-      if (onMutateResult?.previousMessages) {
+      if (onMutateResult?.previousMessages !== undefined) {
         queryClient.setQueryData(queryKeys.tasks.messages(taskId), onMutateResult.previousMessages)
       }
       if (onMutateResult?.previousTask) {
@@ -250,12 +297,17 @@ export function useDeleteMessage(
     { status: 'deleted' },
     Error,
     string,
-    { previousMessages: UiMessage[] }
+    { previousMessages: MessagesInfiniteData | undefined }
   >,
 ) {
   const queryClient = useQueryClient()
 
-  return useMutation<{ status: 'deleted' }, Error, string, { previousMessages: UiMessage[] }>({
+  return useMutation<
+    { status: 'deleted' },
+    Error,
+    string,
+    { previousMessages: MessagesInfiniteData | undefined }
+  >({
     ...options,
     mutationKey: ['tasks', taskId, 'deleteMessage'],
     mutationFn: (messageId: string) => tasksApi.deleteMessage(taskId, messageId),
@@ -264,20 +316,20 @@ export function useDeleteMessage(
         queryKey: queryKeys.tasks.messages(taskId),
       })
 
-      const previousMessages =
-        queryClient.getQueryData<UiMessage[]>(queryKeys.tasks.messages(taskId)) || []
-
-      // Optimistically remove the message from cache
-      queryClient.setQueryData<UiMessage[]>(
+      const previousMessages = queryClient.getQueryData<MessagesInfiniteData>(
         queryKeys.tasks.messages(taskId),
-        previousMessages.filter((m) => m.uuid !== messageId),
+      )
+
+      // Optimistically remove the message from whichever page contains it.
+      queryClient.setQueryData<MessagesInfiniteData>(queryKeys.tasks.messages(taskId), (data) =>
+        mutateMessagePages(data, (messages) => messages.filter((m) => m.uuid !== messageId)),
       )
 
       return { previousMessages }
     },
     onError: (error, _messageId, context, mutation) => {
       // Rollback on error
-      if (context?.previousMessages) {
+      if (context?.previousMessages !== undefined) {
         queryClient.setQueryData(queryKeys.tasks.messages(taskId), context.previousMessages)
       }
       options?.onError?.(error, _messageId, context, mutation)
@@ -285,14 +337,67 @@ export function useDeleteMessage(
   })
 }
 
-export function useTaskMessages(
-  taskId: string,
-  options?: Omit<UseQueryOptions<UiMessage[]>, 'queryKey' | 'queryFn'>,
-) {
-  return useQuery({
+export function useTaskMessages(taskId: string, options?: { enabled?: boolean }) {
+  return useInfiniteQuery({
     queryKey: queryKeys.tasks.messages(taskId),
-    queryFn: () => tasksApi.getTaskMessages(taskId),
-    enabled: !!taskId,
+    queryFn: ({ pageParam }) =>
+      tasksApi.getTaskMessages(taskId, { beforeId: pageParam, limit: MESSAGES_PAGE_SIZE }),
+    initialPageParam: undefined as number | undefined,
+    // Older pages are paginated. Newer messages arrive via targeted refetch
+    // of the newest page (see `refreshNewestMessagesPage`).
+    getPreviousPageParam: (firstPage) => (firstPage.hasMore ? firstPage.nextBeforeId : undefined),
+    getNextPageParam: () => undefined,
+    // Cap the cache so very long tasks don't drag the DOM; oldest pages drop
+    // when the user scrolls past the limit and re-fetch on demand.
+    maxPages: 10,
+    enabled: !!taskId && options?.enabled !== false,
+  })
+}
+
+/**
+ * Refetch only the newest page of messages and merge it into the cached
+ * infinite query, leaving older pages untouched. Used by SSE event handlers
+ * so that incoming agent activity does not reset the user's scroll position
+ * by invalidating the entire infinite query.
+ */
+export async function refreshNewestMessagesPage(
+  queryClient: QueryClient,
+  taskId: string,
+): Promise<void> {
+  const newest = await tasksApi.getTaskMessages(taskId, { limit: MESSAGES_PAGE_SIZE })
+  queryClient.setQueryData<MessagesInfiniteData>(queryKeys.tasks.messages(taskId), (data) => {
+    if (!data || data.pages.length === 0) {
+      return {
+        pages: [newest],
+        pageParams: [undefined],
+      }
+    }
+    const pages = [...data.pages]
+    const pageParams = [...data.pageParams]
+    pages[pages.length - 1] = newest
+    pageParams[pageParams.length - 1] = undefined
+    return { ...data, pages, pageParams }
+  })
+}
+
+/**
+ * Fetch the full input + result for a single tool call. Disabled until the
+ * caller actually expands the tool call so list pages stay slim. The query is
+ * keyed on `tool_use_id`, so re-collapsing and re-expanding within the same
+ * route hits the cache, and SSE-driven list refreshes don't drop this data.
+ */
+export function useTaskToolCall(
+  taskId: string,
+  toolUseId: string | null | undefined,
+  enabled: boolean,
+  options?: Omit<UseQueryOptions<ToolCallDetailResponse>, 'queryKey' | 'queryFn' | 'enabled'>,
+) {
+  const id = toolUseId ?? ''
+  return useQuery({
+    queryKey: queryKeys.tasks.toolCall(taskId, id),
+    queryFn: () => tasksApi.getToolCallDetail(taskId, id),
+    enabled: enabled && !!taskId && !!id,
+    staleTime: Number.POSITIVE_INFINITY,
     ...options,
   })
 }

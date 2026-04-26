@@ -8,6 +8,19 @@ use chrono::{DateTime, Utc};
 use super::models::{TaskMessage, TaskMessageContentBlock, TaskMessageContext};
 use crate::db::DbPool;
 
+/// Raw tool-call row assembled from the assistant tool_use block plus any
+/// matching tool_result row(s). Keeps JSON values un-transformed so the handler
+/// can decide which schema to apply.
+#[derive(Debug, Clone)]
+pub struct ToolCallRow {
+    pub tool_use_id: String,
+    pub tool_name: String,
+    pub tool_input: serde_json::Value,
+    pub result_content: Option<String>,
+    pub is_error: Option<bool>,
+    pub tool_use_result: Option<serde_json::Value>,
+}
+
 /// Repository trait for message persistence.
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
@@ -75,6 +88,39 @@ pub trait MessageRepository: Send + Sync {
     ) -> Result<bool, sqlx::Error>;
 
     async fn get_channel_external_ids(&self, task_id: &str) -> Result<Vec<String>, sqlx::Error>;
+
+    /// Next turn number for a new user-initiated turn: max + 1, or 1 if empty.
+    async fn next_turn_number(&self, task_id: &str) -> Result<i32, sqlx::Error>;
+
+    /// Current turn number for in-flight inserts (assistant/system/result rows
+    /// that should join the most recent turn): max, or 1 if empty.
+    async fn current_turn_number(&self, task_id: &str) -> Result<i32, sqlx::Error>;
+
+    /// Keyset-paginated page of messages strictly older than `before_id`
+    /// (or the most recent `limit` rows when `before_id` is `None`).
+    /// Returned rows are in chronological (oldest-first) order.
+    async fn get_paginated(
+        &self,
+        task_id: &str,
+        before_id: Option<i32>,
+        limit: i32,
+    ) -> Result<
+        (
+            Vec<TaskMessage>,
+            Vec<TaskMessageContext>,
+            Vec<TaskMessageContentBlock>,
+        ),
+        sqlx::Error,
+    >;
+
+    /// Look up a single tool call by its `tool_use_id` within a task. Returns
+    /// the assistant's tool_use input plus the matching tool_result content
+    /// (if a result has been recorded yet).
+    async fn find_tool_call(
+        &self,
+        task_id: &str,
+        tool_use_id: &str,
+    ) -> Result<Option<ToolCallRow>, sqlx::Error>;
 }
 
 /// PostgreSQL implementation of [`MessageRepository`].
@@ -102,23 +148,21 @@ impl MessageRepository for PgMessageRepository {
             .bind(task_id)
             .fetch_all(&self.0),
             sqlx::query_as::<_, TaskMessageContext>(
-                r#"SELECT c.id, c.task_message_id, c.type, c.reference_id, c.data, c.created_at
-                FROM task_message_contexts c
-                JOIN task_messages m ON c.task_message_id = m.id
-                WHERE m.task_id = $1
-                ORDER BY c.id"#,
+                r#"SELECT id, task_message_id, type, reference_id, data, created_at
+                FROM task_message_contexts
+                WHERE task_id = $1
+                ORDER BY id"#,
             )
             .bind(task_id)
             .fetch_all(&self.0),
             sqlx::query_as::<_, TaskMessageContentBlock>(
-                r#"SELECT b.id, b.task_message_id, b.sort_order, b.block_type,
-                    b.show_in_ui, b.text_content, b.tool_use_id,
-                    b.tool_result_content, b.tool_result_is_error,
-                    b.image_media_type, b.image_data, b.created_at
-                FROM task_message_content_blocks b
-                JOIN task_messages m ON b.task_message_id = m.id
-                WHERE m.task_id = $1
-                ORDER BY b.task_message_id, b.sort_order"#,
+                r#"SELECT id, task_message_id, sort_order, block_type,
+                    show_in_ui, text_content, tool_use_id,
+                    tool_result_content, tool_result_is_error,
+                    image_media_type, image_data, created_at
+                FROM task_message_content_blocks
+                WHERE task_id = $1
+                ORDER BY task_message_id, sort_order"#,
             )
             .bind(task_id)
             .fetch_all(&self.0),
@@ -208,10 +252,11 @@ impl MessageRepository for PgMessageRepository {
 
         for ctx in contexts {
             sqlx::query(
-                r#"INSERT INTO task_message_contexts (task_message_id, type, reference_id, data)
-                   VALUES ($1, $2, $3, $4)"#,
+                r#"INSERT INTO task_message_contexts (task_message_id, task_id, type, reference_id, data)
+                   VALUES ($1, $2, $3, $4, $5)"#,
             )
             .bind(message_id)
+            .bind(&msg.task_id)
             .bind(&ctx.context_type)
             .bind(&ctx.reference_id)
             .bind(&ctx.data)
@@ -222,12 +267,13 @@ impl MessageRepository for PgMessageRepository {
         for block in content_blocks {
             sqlx::query(
                 r#"INSERT INTO task_message_content_blocks (
-                    task_message_id, sort_order, block_type, show_in_ui,
+                    task_message_id, task_id, sort_order, block_type, show_in_ui,
                     text_content, tool_use_id, tool_result_content, tool_result_is_error,
                     image_media_type, image_data
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"#,
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"#,
             )
             .bind(message_id)
+            .bind(&msg.task_id)
             .bind(block.sort_order)
             .bind(block.block_type)
             .bind(block.show_in_ui)
@@ -456,6 +502,203 @@ impl MessageRepository for PgMessageRepository {
 
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
+
+    async fn next_turn_number(&self, task_id: &str) -> Result<i32, sqlx::Error> {
+        let row: (i32,) = sqlx::query_as(
+            r#"SELECT COALESCE(MAX(turn_number), 0) + 1 FROM task_messages WHERE task_id = $1"#,
+        )
+        .bind(task_id)
+        .fetch_one(&self.0)
+        .await?;
+        Ok(row.0)
+    }
+
+    async fn current_turn_number(&self, task_id: &str) -> Result<i32, sqlx::Error> {
+        let row: (i32,) = sqlx::query_as(
+            r#"SELECT COALESCE(MAX(turn_number), 1) FROM task_messages WHERE task_id = $1"#,
+        )
+        .bind(task_id)
+        .fetch_one(&self.0)
+        .await?;
+        Ok(row.0)
+    }
+
+    async fn get_paginated(
+        &self,
+        task_id: &str,
+        before_id: Option<i32>,
+        limit: i32,
+    ) -> Result<
+        (
+            Vec<TaskMessage>,
+            Vec<TaskMessageContext>,
+            Vec<TaskMessageContentBlock>,
+        ),
+        sqlx::Error,
+    > {
+        let mut messages = sqlx::query_as::<_, TaskMessage>(
+            r#"SELECT * FROM task_messages
+               WHERE task_id = $1
+                 AND ($2::int IS NULL OR id < $2)
+               ORDER BY id DESC
+               LIMIT $3"#,
+        )
+        .bind(task_id)
+        .bind(before_id)
+        .bind(limit)
+        .fetch_all(&self.0)
+        .await?;
+
+        if messages.is_empty() {
+            return Ok((Vec::new(), Vec::new(), Vec::new()));
+        }
+
+        // Reverse to chronological (oldest-first) order for the caller.
+        messages.reverse();
+
+        let message_ids: Vec<i32> = messages.iter().map(|m| m.id).collect();
+
+        let (contexts, blocks) = tokio::try_join!(
+            sqlx::query_as::<_, TaskMessageContext>(
+                r#"SELECT id, task_message_id, type, reference_id, data, created_at
+                   FROM task_message_contexts
+                   WHERE task_id = $1 AND task_message_id = ANY($2)
+                   ORDER BY id"#,
+            )
+            .bind(task_id)
+            .bind(&message_ids)
+            .fetch_all(&self.0),
+            sqlx::query_as::<_, TaskMessageContentBlock>(
+                r#"SELECT id, task_message_id, sort_order, block_type,
+                       show_in_ui, text_content, tool_use_id,
+                       tool_result_content, tool_result_is_error,
+                       image_media_type, image_data, created_at
+                   FROM task_message_content_blocks
+                   WHERE task_id = $1 AND task_message_id = ANY($2)
+                   ORDER BY task_message_id, sort_order"#,
+            )
+            .bind(task_id)
+            .bind(&message_ids)
+            .fetch_all(&self.0),
+        )?;
+
+        Ok((messages, contexts, blocks))
+    }
+
+    async fn find_tool_call(
+        &self,
+        task_id: &str,
+        tool_use_id: &str,
+    ) -> Result<Option<ToolCallRow>, sqlx::Error> {
+        // 1. Find the assistant message_content array containing the tool_use block.
+        let assistant_row: Option<(serde_json::Value,)> = sqlx::query_as(
+            r#"SELECT message_content
+               FROM task_messages
+               WHERE task_id = $1
+                 AND message_content @> jsonb_build_array(
+                       jsonb_build_object('id', $2::text, 'type', 'tool_use')
+                     )
+               ORDER BY id DESC
+               LIMIT 1"#,
+        )
+        .bind(task_id)
+        .bind(tool_use_id)
+        .fetch_optional(&self.0)
+        .await?;
+
+        let Some((assistant_content,)) = assistant_row else {
+            return Ok(None);
+        };
+
+        let (tool_name, tool_input) =
+            extract_tool_use_block(&assistant_content, tool_use_id).unwrap_or_else(|| {
+                // Defensive fallback: the @> match guarantees the block exists,
+                // but the JSON shape may have unexpected keys.
+                (String::new(), serde_json::Value::Null)
+            });
+
+        // 2. Find any tool_result row referencing the same tool_use_id.
+        let result_row: Option<(serde_json::Value, Option<serde_json::Value>)> = sqlx::query_as(
+            r#"SELECT message_content, tool_use_result
+               FROM task_messages
+               WHERE task_id = $1
+                 AND message_content @> jsonb_build_array(
+                       jsonb_build_object('tool_use_id', $2::text, 'type', 'tool_result')
+                     )
+               ORDER BY id ASC
+               LIMIT 1"#,
+        )
+        .bind(task_id)
+        .bind(tool_use_id)
+        .fetch_optional(&self.0)
+        .await?;
+
+        let (result_content, is_error, tool_use_result) = match result_row {
+            Some((content, raw_typed)) => {
+                let (text, err) = extract_tool_result(&content, tool_use_id);
+                (text, err, raw_typed)
+            }
+            None => (None, None, None),
+        };
+
+        Ok(Some(ToolCallRow {
+            tool_use_id: tool_use_id.to_string(),
+            tool_name,
+            tool_input,
+            result_content,
+            is_error,
+            tool_use_result,
+        }))
+    }
+}
+
+/// Pull `(name, input)` out of the `tool_use` block matching `tool_use_id`.
+fn extract_tool_use_block(
+    message_content: &serde_json::Value,
+    tool_use_id: &str,
+) -> Option<(String, serde_json::Value)> {
+    let arr = message_content.as_array()?;
+    for block in arr {
+        if block.get("type").and_then(|v| v.as_str()) != Some("tool_use") {
+            continue;
+        }
+        if block.get("id").and_then(|v| v.as_str()) != Some(tool_use_id) {
+            continue;
+        }
+        let name = block
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let input = block.get("input").cloned().unwrap_or(serde_json::Value::Null);
+        return Some((name, input));
+    }
+    None
+}
+
+/// Pull `(content, is_error)` out of the `tool_result` block matching `tool_use_id`.
+fn extract_tool_result(
+    message_content: &serde_json::Value,
+    tool_use_id: &str,
+) -> (Option<String>, Option<bool>) {
+    let Some(arr) = message_content.as_array() else {
+        return (None, None);
+    };
+    for block in arr {
+        if block.get("type").and_then(|v| v.as_str()) != Some("tool_result") {
+            continue;
+        }
+        if block.get("tool_use_id").and_then(|v| v.as_str()) != Some(tool_use_id) {
+            continue;
+        }
+        let content = block
+            .get("content")
+            .and_then(|v| v.as_str())
+            .map(std::string::ToString::to_string);
+        let is_error = block.get("is_error").and_then(serde_json::Value::as_bool);
+        return (content, is_error);
+    }
+    (None, None)
 }
 
 // =========================================================================

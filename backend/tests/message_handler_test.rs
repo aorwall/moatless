@@ -53,7 +53,46 @@ async fn get_messages_empty(pool: PgPool) {
     assert_eq!(resp.status(), StatusCode::OK);
     let body = body_json(resp).await;
     assert_eq!(body["messages"].as_array().unwrap().len(), 0);
-    assert_eq!(body["totalCount"], 0);
+    assert_eq!(body["hasMore"], false);
+}
+
+#[sqlx::test]
+async fn get_messages_pagination(pool: PgPool) {
+    seed_task(&pool, "task-1", "user-1").await;
+
+    // Seed 75 user messages so they cleanly survive the empty-content filter.
+    for i in 0..75 {
+        let msg = make_message_row("task-1", &format!("msg-{i:03}"));
+        message_dao::append(&pool, &msg, &[], &[]).await.unwrap();
+    }
+
+    // Page 1: latest 50.
+    let app = build_router(pool.clone());
+    let req = authed_request("GET", "/api/v1/tasks/task-1/messages?limit=50", "user-1");
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_json(resp).await;
+    let messages = body["messages"].as_array().unwrap();
+    assert_eq!(messages.len(), 50, "first page should be full");
+    assert_eq!(body["hasMore"], true);
+    let next_before_id = body["nextBeforeId"]
+        .as_i64()
+        .expect("nextBeforeId must be set when has_more=true");
+
+    // Page 2: remaining 25 strictly older than the cursor.
+    let app = build_router(pool);
+    let req = authed_request(
+        "GET",
+        &format!("/api/v1/tasks/task-1/messages?limit=50&before_id={next_before_id}"),
+        "user-1",
+    );
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_json(resp).await;
+    let messages = body["messages"].as_array().unwrap();
+    assert_eq!(messages.len(), 25, "second page should hold the remainder");
+    assert_eq!(body["hasMore"], false);
+    assert!(body.get("nextBeforeId").is_none() || body["nextBeforeId"].is_null());
 }
 
 #[sqlx::test]

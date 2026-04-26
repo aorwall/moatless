@@ -112,14 +112,27 @@ function ChatContainer({
   // Retry sandbox mutation for handling failed provisioning
   const retrySandboxMutation = useSandboxRetry(taskId)
 
-  // Fetch messages for this task
+  // Fetch messages for this task (infinite, cursor-paginated).
   const {
-    data: messages,
+    data: messagesData,
     isLoading: isLoadingMessages,
     error: messagesError,
-  } = useTaskMessages(taskId, {
-    enabled: !!taskId,
-  })
+    hasPreviousPage,
+    fetchPreviousPage,
+    isFetchingPreviousPage,
+  } = useTaskMessages(taskId, { enabled: !!taskId })
+
+  // Flatten loaded pages into a single chronological list.
+  // TanStack Query v5 prepends pages fetched via `fetchPreviousPage`
+  // (`addToStart`), so `pages[0]` is the OLDEST cached page and `pages[last]`
+  // is the newest. Each page is itself oldest-first. Plain flatMap therefore
+  // yields a chronological array — no reverse.
+  const messages = useMemo(() => {
+    if (!messagesData) {
+      return undefined
+    }
+    return messagesData.pages.flatMap((p) => p.messages)
+  }, [messagesData])
 
   // Agent running state: driven by sandbox status (updated via SSE events + backend gRPC)
   const isTaskRunning = sandboxStatus?.agentState === 'running'
@@ -499,6 +512,7 @@ function ChatContainer({
   return (
     <ChatView className={className}>
       <MessageHistory
+        taskId={taskId}
         messages={messages}
         isLoading={isLoadingMessages}
         error={messagesError as Error | null}
@@ -506,6 +520,9 @@ function ChatContainer({
         environmentStatus={envStatus}
         environmentError={sandboxStatus?.environmentError ?? undefined}
         onPreviewUrlClick={onPreviewUrlClick}
+        hasPreviousPage={hasPreviousPage}
+        isFetchingPreviousPage={isFetchingPreviousPage}
+        fetchPreviousPage={fetchPreviousPage}
       />
 
       {/* Sandbox error banner with retry button */}

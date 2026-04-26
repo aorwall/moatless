@@ -485,6 +485,18 @@ impl ApiClient {
             .await
     }
 
+    /// GET /api/v1/tasks/{task_id}/tool-calls/{tool_use_id}
+    pub async fn get_tool_call_detail(
+        &self,
+        task_id: &str,
+        tool_use_id: &str,
+    ) -> Result<moatless_api_schemas::message::ToolCallDetailResponse, ApiError> {
+        self.get(&format!(
+            "/api/v1/tasks/{task_id}/tool-calls/{tool_use_id}"
+        ))
+        .await
+    }
+
     // ========================================================================
     // Channels
     // ========================================================================
