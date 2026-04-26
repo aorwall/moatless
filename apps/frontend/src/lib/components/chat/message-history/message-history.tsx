@@ -60,9 +60,14 @@ function MessageHistoryComponent({
   // Tracks whether we've performed the initial scroll-to-bottom for the
   // current task so we don't re-pin to the bottom on every re-render.
   const initialScrolledForTaskRef = useRef<string | undefined>(undefined)
-  // Tracks whether the user is currently sticking to the bottom; updated on
-  // scroll. New SSE messages auto-scroll only while this is true.
-  const stickToBottomRef = useRef(true)
+  // Snapshot of the scroll container's metrics at the END of the previous
+  // commit (and updated eagerly from `handleScroll`). Read by the
+  // stick-to-bottom effect to decide whether the user was at the bottom
+  // BEFORE this commit's data change — avoiding the stale-ref race where a
+  // mid-scroll user gets snapped down because a queued `scroll` event hasn't
+  // run yet when SSE-driven re-render fires.
+  const prevScrollHeightRef = useRef(0)
+  const prevScrollTopRef = useRef(0)
   // Re-arms the previous-page fetch trigger only after the user scrolls past
   // `FETCH_THRESHOLD`. Prevents a runaway fetch loop when the prepended page
   // is short enough that the anchor-restored scroll position lands back
@@ -112,7 +117,6 @@ function MessageHistoryComponent({
     initialScrolledForTaskRef.current = taskId
     const el = scrollContainerRef.current
     el.scrollTop = el.scrollHeight
-    stickToBottomRef.current = true
     fetchArmedRef.current = true
     setAtBottom(true)
   }, [flattenedMessages.length, taskId])
@@ -134,11 +138,17 @@ function MessageHistoryComponent({
     prependAnchorRef.current = null
   }, [isFetchingPreviousPage, flattenedMessages.length])
 
-  // Stick-to-bottom: when the message list grows AND the user was at the
-  // bottom, scroll back to bottom. This handles SSE-driven new messages.
+  // Stick-to-bottom: snap to the new bottom only if the user was at the
+  // bottom JUST BEFORE this commit's data change. We compare prev-commit
+  // metrics (captured below in the snapshot effect, and updated eagerly by
+  // `handleScroll`) to dodge the race where a queued `scroll` event hasn't
+  // fired yet when an SSE-driven re-render lands — the old `stickToBottomRef`
+  // approach would yank the user down mid-scroll because the ref still held
+  // its previous value.
   // biome-ignore lint/correctness/useExhaustiveDependencies: explicit length dep
   useLayoutEffect(() => {
-    if (!(scrollContainerRef.current && stickToBottomRef.current)) {
+    const el = scrollContainerRef.current
+    if (!el) {
       return
     }
     if (prependAnchorRef.current) {
@@ -146,9 +156,28 @@ function MessageHistoryComponent({
       // scroll position instead.
       return
     }
-    const el = scrollContainerRef.current
+    const prevSH = prevScrollHeightRef.current
+    const prevST = prevScrollTopRef.current
+    const ch = el.clientHeight
+    const oldDistanceFromBottom = prevSH - prevST - ch
+    if (oldDistanceFromBottom > AT_BOTTOM_THRESHOLD) {
+      return
+    }
     el.scrollTop = el.scrollHeight
   }, [flattenedMessages.length])
+
+  // Snapshot the scroll container's metrics at the end of every commit so
+  // the next commit's stick-to-bottom decision sees the user's position
+  // BEFORE the upcoming data change. Declared after the stick-to-bottom
+  // effect so it runs after it within the same commit.
+  useLayoutEffect(() => {
+    const el = scrollContainerRef.current
+    if (!el) {
+      return
+    }
+    prevScrollHeightRef.current = el.scrollHeight
+    prevScrollTopRef.current = el.scrollTop
+  })
 
   const handleScroll = useCallback(() => {
     const el = scrollContainerRef.current
@@ -157,8 +186,12 @@ function MessageHistoryComponent({
     }
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
     const nowAtBottom = distanceFromBottom <= AT_BOTTOM_THRESHOLD
-    stickToBottomRef.current = nowAtBottom
     setAtBottom(nowAtBottom)
+    // Eagerly capture the user's scroll position so the next stick-to-bottom
+    // decision (which may run before the next React commit) reflects where
+    // the user actually is right now.
+    prevScrollHeightRef.current = el.scrollHeight
+    prevScrollTopRef.current = el.scrollTop
 
     // Re-arm the trigger once the user scrolls back away from the top.
     if (el.scrollTop > FETCH_THRESHOLD) {

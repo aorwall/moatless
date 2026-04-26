@@ -25,7 +25,7 @@ import { tasksApi } from '@/features/tasks/api/tasks'
 import { queryKeys } from '@/lib/api/query-keys'
 import type { AskUserQuestionResponse, ExitPlanModeResponse } from '@/lib/types/user-input'
 
-export const MESSAGES_PAGE_SIZE = 50
+export const MESSAGES_PAGE_SIZE = 200
 
 type MessagesInfiniteData = InfiniteData<MessagesPage, number | undefined>
 

@@ -1,5 +1,5 @@
 import type { ToolCallDetailResponse, UiMessage } from '@moatless/api-client'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MessageHistory } from '../message-history'
@@ -262,6 +262,71 @@ describe('MessageHistory - Tier 1 State Machine Tests', () => {
       expect(mockUseTaskToolCall).toHaveBeenCalledWith('task-1', 'tool-1', true)
       expect(screen.getByText(fullResult)).toBeInTheDocument()
       expect(screen.getByText(/\/full\/path\.txt/)).toBeInTheDocument()
+    })
+  })
+
+  describe('Stick-to-bottom behaviour', () => {
+    // Helper that overrides jsdom's flat scroll metrics on the live element
+    // so we can drive the stick-to-bottom decision from a unit test. jsdom
+    // does not compute layout so scrollHeight/clientHeight default to 0.
+    const setScrollMetrics = (
+      el: HTMLElement,
+      metrics: { scrollHeight: number; clientHeight: number; scrollTop: number },
+    ) => {
+      Object.defineProperty(el, 'scrollHeight', {
+        configurable: true,
+        get: () => metrics.scrollHeight,
+      })
+      Object.defineProperty(el, 'clientHeight', {
+        configurable: true,
+        get: () => metrics.clientHeight,
+      })
+      Object.defineProperty(el, 'scrollTop', {
+        configurable: true,
+        get: () => metrics.scrollTop,
+        set: (v: number) => {
+          metrics.scrollTop = v
+        },
+      })
+      return metrics
+    }
+
+    it('does not snap to bottom when content grows while user is scrolled away', () => {
+      const initialMessages: UiMessage[] = [
+        createUserMessage('1', 'msg one'),
+        createAssistantMessage('2', 'msg two'),
+      ]
+
+      const { container, rerender } = render(<MessageHistory messages={initialMessages} />)
+
+      const scrollContainer = container.querySelector('.overflow-y-auto') as HTMLDivElement | null
+      expect(scrollContainer).not.toBeNull()
+      if (!scrollContainer) {
+        return
+      }
+
+      // User has scrolled near the top: 4000 px above the bottom — well past
+      // AT_BOTTOM_THRESHOLD (50). Drive the scroll event so handleScroll
+      // captures these into the prev-metric refs.
+      const metrics = setScrollMetrics(scrollContainer, {
+        scrollHeight: 5000,
+        clientHeight: 900,
+        scrollTop: 100,
+      })
+      fireEvent.scroll(scrollContainer)
+
+      // SSE-driven update: page grows by one short message. Pre-commit
+      // metrics still place the user 4000 px from bottom → snap MUST skip.
+      metrics.scrollHeight = 5050
+
+      rerender(
+        <MessageHistory
+          messages={[...initialMessages, createAssistantMessage('3', 'msg three')]}
+        />,
+      )
+
+      // scrollTop unchanged. If snap had run, it would have written 5050.
+      expect(metrics.scrollTop).toBe(100)
     })
   })
 
