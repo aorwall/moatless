@@ -22,39 +22,33 @@ fn message_uuid_for_event(event_id: &str) -> String {
 
 /// Handle `agent.completed` event.
 ///
-/// Parses the SDK result, determines turn status, appends result message,
-/// updates task, and emits events.
+/// The final assistant message already carries the response text and usage,
+/// so we no longer persist a separate result row here. We just update task
+/// status / cost from the SDK result and emit follow-up events. If the
+/// payload fails to parse there's nothing to act on — skip.
 pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
-    let sdk_result: Option<SdkResultMessage> = match serde_json::from_value(event.payload.clone()) {
-        Ok(r) => Some(r),
+    let sdk_result: SdkResultMessage = match serde_json::from_value(event.payload.clone()) {
+        Ok(r) => r,
         Err(e) => {
             tracing::warn!(
                 task_id = %event.task_id,
                 error = %e,
-                "Failed to parse agent.completed payload — treating as error"
+                "Failed to parse agent.completed payload — skipping"
             );
-            None
+            return;
         }
     };
 
-    let (result_message_type, task_status) = match &sdk_result {
-        Some(r) if r.is_error.unwrap_or(false) => (MessageType::Error, TaskStatus::Error),
-        Some(_) => (MessageType::Result, TaskStatus::Open),
-        None => (MessageType::Error, TaskStatus::Error),
+    let is_error = sdk_result.is_error.unwrap_or(false);
+    let task_status = if is_error {
+        TaskStatus::Error
+    } else {
+        TaskStatus::Open
     };
-    // Never set will_not_resume on agent results — even error results don't
-    // invalidate the Claude session. The conversation history is still valid
-    // and the session can be resumed for the next message.
-    let will_not_resume = false;
-
-    let result_text = build_result_text(&sdk_result);
-
-    // Extract session_id from SDK result
-    let session_id = sdk_result.as_ref().and_then(|r| r.session_id.clone());
 
     // Fallback: set real Claude Code session_id on user messages
     // (in case session_init event was missed or arrived before messages were fetched)
-    if let Some(ref sid) = session_id {
+    if let Some(ref sid) = sdk_result.session_id {
         if let Err(e) = state
             .messages
             .set_session_id_for_task(&event.task_id, sid)
@@ -64,84 +58,16 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
         }
     }
 
-    // Extract model from SDK result payload (first key in model_usage map)
-    let model = event
-        .payload
-        .get("model_usage")
-        .or_else(|| event.payload.get("modelUsage"))
-        .and_then(|mu| mu.as_object())
-        .and_then(|obj| obj.keys().next())
-        .cloned()
-        .or_else(|| {
-            event
-                .payload
-                .get("model")
-                .and_then(serde_json::Value::as_str)
-                .map(std::string::ToString::to_string)
-        });
-
-    // Inherit agent_mode from the last user message for this task
-    let agent_mode = match state.messages.get_last_user_message(&event.task_id).await {
-        Ok(Some(user_msg)) => user_msg.agent_mode,
-        _ => None,
-    };
-
-    // Append result message
-    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-    let msg_uuid = message_uuid_for_event(&event.event_id);
-
-    let content = serde_json::json!([{
-        "type": "text",
-        "text": result_text
-    }]);
-
-    // Result rows close the active turn — inherit it from the event when
-    // available, otherwise read the current turn from the DB.
-    let turn_number = resolve_turn_number(state, &event.task_id, event.turn_number).await;
-
-    let msg_row = build_result_message_row(
-        &event.task_id,
-        &msg_uuid,
-        &now,
-        content,
-        result_message_type,
-        will_not_resume,
-        session_id,
-        agent_mode,
-        model,
-        turn_number,
-    );
-    let contexts: Vec<TaskMessageContext> = vec![];
-    let blocks = vec![TaskMessageContentBlock {
-        id: 0,
-        task_message_id: 0,
-        sort_order: 0,
-        block_type: ContentBlockType::Text,
-        show_in_ui: true,
-        text_content: Some(result_text),
-        tool_use_id: None,
-        tool_result_content: None,
-        tool_result_is_error: None,
-        image_media_type: None,
-        image_data: None,
-        created_at: None,
-    }];
-
-    if let Err(e) = state.messages.append(&msg_row, &contexts, &blocks).await {
-        tracing::warn!(task_id = %event.task_id, error = %e, "Failed to append result message");
-    }
-
     // Update task
+    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let mut patch = TaskPatch {
         status: Some(task_status),
-        last_message_at: Some(now.clone()),
+        last_message_at: Some(now),
         ..Default::default()
     };
 
-    if let Some(ref r) = sdk_result {
-        if let Some(cost) = r.total_cost_usd {
-            patch.total_cost_usd_increment = Some(cost);
-        }
+    if let Some(cost) = sdk_result.total_cost_usd {
+        patch.total_cost_usd_increment = Some(cost);
     }
 
     if let Err(e) = state.tasks.update_task(&event.task_id, &patch).await {
@@ -150,16 +76,11 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
 
     // Emit events
     if let Some(ref events) = state.events {
-        let turn_sub = match result_message_type {
-            MessageType::Error => TaskTurnSubType::Error,
-            _ => TaskTurnSubType::Completed,
+        let turn_sub = if is_error {
+            TaskTurnSubType::Error
+        } else {
+            TaskTurnSubType::Completed
         };
-
-        // Include message_id in payload for outbound channel tracking
-        let mut turn_payload = event.payload.clone();
-        if let Some(obj) = turn_payload.as_object_mut() {
-            obj.insert("message_id".to_string(), serde_json::json!(msg_uuid));
-        }
 
         events
             .publish_task_turn_event(
@@ -167,7 +88,7 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
                 turn_sub,
                 event.agent_type.as_deref(),
                 event.turn_number,
-                turn_payload,
+                event.payload.clone(),
             )
             .await;
 
@@ -718,14 +639,6 @@ fn build_content_blocks_from_payload(content: &serde_json::Value) -> Vec<TaskMes
         .collect()
 }
 
-/// Build result text from SDK result message.
-fn build_result_text(sdk_result: &Option<SdkResultMessage>) -> String {
-    match sdk_result {
-        Some(r) => r.result.clone().unwrap_or_default(),
-        None => String::new(),
-    }
-}
-
 /// Resolve which turn a result/error/stopped row belongs to.
 ///
 /// Prefers the explicit `event.turn_number` when present (future code paths may
@@ -945,61 +858,6 @@ mod tests {
             }]
         });
         assert!(extract_skill_names(&payload).is_empty());
-    }
-
-    // ── build_result_text ────────────────────────────────────────────
-
-    #[test]
-    fn build_result_text_none() {
-        assert_eq!(build_result_text(&None), "");
-    }
-
-    #[test]
-    fn build_result_text_with_detail() {
-        let r = SdkResultMessage {
-            session_id: None,
-            is_error: Some(false),
-            subtype: Some("completed".to_string()),
-            result: Some("All tasks done".to_string()),
-            total_cost_usd: None,
-            usage: None,
-            num_turns: None,
-            duration_ms: None,
-            duration_api_ms: None,
-        };
-        assert_eq!(build_result_text(&Some(r)), "All tasks done");
-    }
-
-    #[test]
-    fn build_result_text_empty_result() {
-        let r = SdkResultMessage {
-            session_id: None,
-            is_error: Some(false),
-            subtype: Some("finished".to_string()),
-            result: None,
-            total_cost_usd: None,
-            usage: None,
-            num_turns: None,
-            duration_ms: None,
-            duration_api_ms: None,
-        };
-        assert_eq!(build_result_text(&Some(r)), "");
-    }
-
-    #[test]
-    fn build_result_text_error() {
-        let r = SdkResultMessage {
-            session_id: None,
-            is_error: Some(true),
-            subtype: Some("crashed".to_string()),
-            result: Some("OOM".to_string()),
-            total_cost_usd: None,
-            usage: None,
-            num_turns: None,
-            duration_ms: None,
-            duration_api_ms: None,
-        };
-        assert_eq!(build_result_text(&Some(r)), "OOM");
     }
 
     // ── message_uuid_for_event ───────────────────────────────────────
