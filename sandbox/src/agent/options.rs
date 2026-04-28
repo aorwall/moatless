@@ -13,6 +13,7 @@ use crate::config::Config;
 
 use super::agent_state::AgentState;
 use super::permission_handler::InteractivePermissionHandler;
+use super::scheduled_job::ScheduledJobRegistry;
 
 /// Build ClaudeOptions from config + per-request overrides.
 pub fn build_options(
@@ -21,6 +22,7 @@ pub fn build_options(
     cancel_token: CancellationToken,
     agent_state: Arc<AgentState>,
     env: Option<HashMap<String, String>>,
+    scheduled_jobs: Arc<ScheduledJobRegistry>,
 ) -> ClaudeOptions {
     // Determine model: request > agentConfig > DEFAULT_CLAUDE_CODE_MODEL env
     let model = request
@@ -38,9 +40,16 @@ pub fn build_options(
     // Detect plan mode from agent_mode.
     let is_plan_mode = request.agent_mode.as_deref() == Some("plan");
 
-    // Build the permission handler for interactive prompts
-    let permission_handler =
-        InteractivePermissionHandler::with_plan_mode(agent_state, is_plan_mode);
+    // Build the permission handler for interactive prompts. The handler also
+    // intercepts `Monitor` tool calls and registers them as jobs against the
+    // shared `ScheduledJobRegistry`, then rewrites the input so the SDK's
+    // built-in implementation runs as a no-op.
+    let permission_handler = InteractivePermissionHandler::with_plan_mode(
+        agent_state,
+        is_plan_mode,
+        scheduled_jobs,
+        cancel_token.clone(),
+    );
 
     // Determine session resume
     let (resume, continue_conversation) = resolve_resume(request);

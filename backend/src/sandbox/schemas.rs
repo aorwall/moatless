@@ -80,6 +80,43 @@ pub struct ContainerDiagnostics {
     pub memory_mb: Option<u64>,
 }
 
+/// Monitor cron job armed by the agent.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct MonitorJobInfo {
+    pub description: String,
+    pub command_preview: String,
+    pub timeout_ms: u64,
+    pub persistent: bool,
+}
+
+/// Wakeup timer armed by the agent via `ScheduleWakeup`.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct WakeupJobInfo {
+    pub reason: String,
+    pub prompt_preview: String,
+    pub wakeup_at_unix_ms: i64,
+}
+
+/// Per-kind payload for a scheduled job.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum ScheduledJobKind {
+    Monitor(MonitorJobInfo),
+    Wakeup(WakeupJobInfo),
+}
+
+/// Snapshot of one scheduled job currently registered in the sandbox.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ScheduledJobInfo {
+    pub id: String,
+    pub registered_at_unix_ms: i64,
+    #[serde(flatten)]
+    pub kind: ScheduledJobKind,
+}
+
 /// Full sandbox status response to frontend (matches TS SandboxStatusFullResponse)
 #[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -97,6 +134,8 @@ pub struct SandboxStatusFullResponse {
     pub container_diagnostics: Option<Vec<ContainerDiagnostics>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub runtime_events: Option<Vec<RuntimeEvent>>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub scheduled_jobs: Vec<ScheduledJobInfo>,
 }
 
 /// Server status response proxied from sandbox pod.
@@ -367,4 +406,90 @@ mod tests {
         assert_eq!(json["error"], "not found");
     }
 
+    #[test]
+    fn scheduled_job_serializes_with_tagged_kind() {
+        let monitor = ScheduledJobInfo {
+            id: "j1".into(),
+            registered_at_unix_ms: 1,
+            kind: ScheduledJobKind::Monitor(MonitorJobInfo {
+                description: "tail".into(),
+                command_preview: "tail -f log".into(),
+                timeout_ms: 1000,
+                persistent: false,
+            }),
+        };
+        let json = serde_json::to_value(&monitor).unwrap();
+        assert_eq!(json["id"], "j1");
+        assert_eq!(json["registeredAtUnixMs"], 1);
+        assert_eq!(json["kind"], "monitor");
+        assert_eq!(json["description"], "tail");
+        assert_eq!(json["commandPreview"], "tail -f log");
+        assert_eq!(json["timeoutMs"], 1000);
+        assert_eq!(json["persistent"], false);
+
+        let wakeup = ScheduledJobInfo {
+            id: "j2".into(),
+            registered_at_unix_ms: 2,
+            kind: ScheduledJobKind::Wakeup(WakeupJobInfo {
+                reason: "ping".into(),
+                prompt_preview: "wake up".into(),
+                wakeup_at_unix_ms: 5,
+            }),
+        };
+        let json = serde_json::to_value(&wakeup).unwrap();
+        assert_eq!(json["kind"], "wakeup");
+        assert_eq!(json["reason"], "ping");
+        assert_eq!(json["promptPreview"], "wake up");
+        assert_eq!(json["wakeupAtUnixMs"], 5);
+    }
+
+    #[test]
+    fn empty_scheduled_jobs_omitted_from_response() {
+        let resp = SandboxStatusFullResponse {
+            sandbox_state: SandboxState::Exists,
+            environment_status: SandboxStatus::Ready,
+            environment_error: None,
+            agent_state: AgentState::Idle,
+            servers: vec![],
+            sandbox_ready: true,
+            can_execute: true,
+            resources: None,
+            container_diagnostics: None,
+            runtime_events: None,
+            scheduled_jobs: vec![],
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert!(json.get("scheduledJobs").is_none());
+    }
+
+    #[test]
+    fn populated_scheduled_jobs_serialized_in_response() {
+        let resp = SandboxStatusFullResponse {
+            sandbox_state: SandboxState::Exists,
+            environment_status: SandboxStatus::Ready,
+            environment_error: None,
+            agent_state: AgentState::Running,
+            servers: vec![],
+            sandbox_ready: true,
+            can_execute: true,
+            resources: None,
+            container_diagnostics: None,
+            runtime_events: None,
+            scheduled_jobs: vec![ScheduledJobInfo {
+                id: "j1".into(),
+                registered_at_unix_ms: 1,
+                kind: ScheduledJobKind::Monitor(MonitorJobInfo {
+                    description: "tail".into(),
+                    command_preview: "tail -f log".into(),
+                    timeout_ms: 1000,
+                    persistent: true,
+                }),
+            }],
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        let arr = json.get("scheduledJobs").and_then(|v| v.as_array()).unwrap();
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0]["kind"], "monitor");
+        assert_eq!(arr[0]["persistent"], true);
+    }
 }

@@ -108,8 +108,8 @@ export interface FileRoutesByFullPath {
   '/tasks/': typeof TasksIndexRoute
   '/oauth/figma/callback': typeof OauthFigmaCallbackRoute
   '/oauth/github/callback': typeof OauthGithubCallbackRoute
-  '/sandbox/$task-id/': typeof SandboxTaskIdIndexRoute
-  '/tasks/$task-id/': typeof TasksTaskIdIndexRoute
+  '/sandbox/$task-id': typeof SandboxTaskIdIndexRoute
+  '/tasks/$task-id': typeof TasksTaskIdIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -157,8 +157,8 @@ export interface FileRouteTypes {
     | '/tasks/'
     | '/oauth/figma/callback'
     | '/oauth/github/callback'
-    | '/sandbox/$task-id/'
-    | '/tasks/$task-id/'
+    | '/sandbox/$task-id'
+    | '/tasks/$task-id'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -279,14 +279,14 @@ declare module '@tanstack/react-router' {
     '/tasks/$task-id/': {
       id: '/tasks/$task-id/'
       path: '/$task-id'
-      fullPath: '/tasks/$task-id/'
+      fullPath: '/tasks/$task-id'
       preLoaderRoute: typeof TasksTaskIdIndexRouteImport
       parentRoute: typeof TasksRoute
     }
     '/sandbox/$task-id/': {
       id: '/sandbox/$task-id/'
       path: '/$task-id'
-      fullPath: '/sandbox/$task-id/'
+      fullPath: '/sandbox/$task-id'
       preLoaderRoute: typeof SandboxTaskIdIndexRouteImport
       parentRoute: typeof SandboxRoute
     }

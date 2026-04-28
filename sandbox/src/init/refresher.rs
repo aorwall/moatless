@@ -173,10 +173,15 @@ mod tests {
     }
 
     fn test_state(tmp: &tempfile::TempDir, backend: Arc<dyn BackendClient>) -> SandboxState {
+        use crate::agent::scheduled_job::{LateInjector, ScheduledJobRegistry};
+
         let events = GrpcEventPublisher::new(Arc::clone(&backend));
         let config = Arc::new(test_config(tmp));
         let agent_state = Arc::new(AgentState::new());
         let credentials = Arc::new(RwLock::new(HashMap::new()));
+
+        let late_injector = Arc::new(LateInjector::new());
+        let scheduled_jobs = Arc::new(ScheduledJobRegistry::new(Arc::clone(&late_injector) as _));
 
         let agent_handle = spawn_agent(
             Arc::clone(&config),
@@ -184,13 +189,16 @@ mod tests {
             events.clone(),
             Arc::clone(&credentials),
             Arc::clone(&backend),
+            Arc::clone(&scheduled_jobs),
         );
+        late_injector.set(Box::new(agent_handle.clone()));
 
         SandboxState {
             config,
             events,
             agent: agent_state,
             agent_handle,
+            scheduled_jobs,
             backend_client: backend,
             init_phase: Arc::new(RwLock::new(InitPhase::Ready)),
             credentials,

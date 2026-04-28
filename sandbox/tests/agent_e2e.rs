@@ -2,7 +2,8 @@
     clippy::unwrap_used,
     clippy::expect_used,
     clippy::print_stdout,
-    clippy::print_stderr
+    clippy::print_stderr,
+    clippy::ignore_without_reason
 )]
 //! End-to-end integration tests for the sandbox agent module.
 //!
@@ -31,8 +32,19 @@ use tokio_util::sync::CancellationToken;
 use moatless_sandbox::agent::agent_state::AgentState;
 use moatless_sandbox::agent::permission_handler::InteractivePermissionHandler;
 use moatless_sandbox::agent::prompt::{PendingPrompt, PromptResponse, PromptToolName};
+use moatless_sandbox::agent::scheduled_job::{JobInjector, ScheduledJobRegistry};
 use moatless_sandbox::agent::types::AgentStatus;
 use moatless_sandbox::error::SandboxError;
+
+/// Test-only registry that drops anything injected — these E2E tests do not
+/// exercise the deferred-job paths (Monitor / ScheduleWakeup).
+fn null_jobs_registry() -> Arc<ScheduledJobRegistry> {
+    struct NullInjector;
+    impl JobInjector for NullInjector {
+        fn inject(&self, _text: String) {}
+    }
+    Arc::new(ScheduledJobRegistry::new(Arc::new(NullInjector)))
+}
 
 // ---------------------------------------------------------------------------
 // Constants & Helpers
@@ -243,7 +255,11 @@ async fn test_basic_agent_execution() {
         let cancel_token = CancellationToken::new();
         agent_state.set_running(cancel_token.clone()).await;
 
-        let permission_handler = InteractivePermissionHandler::new(agent_state.clone());
+        let permission_handler = InteractivePermissionHandler::new(
+            agent_state.clone(),
+            null_jobs_registry(),
+            cancel_token.clone(),
+        );
 
         let options = ClaudeOptions {
             model: Some(TEST_MODEL.to_string()),
@@ -311,7 +327,11 @@ async fn test_ask_user_question_flow() {
         let cancel_token = CancellationToken::new();
         agent_state.set_running(cancel_token.clone()).await;
 
-        let permission_handler = InteractivePermissionHandler::new(agent_state.clone());
+        let permission_handler = InteractivePermissionHandler::new(
+            agent_state.clone(),
+            null_jobs_registry(),
+            cancel_token.clone(),
+        );
 
         // Use Default permission mode — AskUserQuestion will trigger the handler
         let options = ClaudeOptions {
@@ -403,8 +423,12 @@ async fn test_exit_plan_mode_flow() {
         agent_state.set_running(cancel_token.clone()).await;
 
         // Plan mode handler: blocks Write/Edit/Bash until ExitPlanMode is approved
-        let permission_handler =
-            InteractivePermissionHandler::with_plan_mode(agent_state.clone(), true);
+        let permission_handler = InteractivePermissionHandler::with_plan_mode(
+            agent_state.clone(),
+            true,
+            null_jobs_registry(),
+            cancel_token.clone(),
+        );
 
         // Use Plan permission mode — forces plan mode which triggers ExitPlanMode
         let options = ClaudeOptions {
@@ -509,7 +533,11 @@ async fn test_cancel_during_pending_prompt() {
         let cancel_token = CancellationToken::new();
         agent_state.set_running(cancel_token.clone()).await;
 
-        let permission_handler = InteractivePermissionHandler::new(agent_state.clone());
+        let permission_handler = InteractivePermissionHandler::new(
+            agent_state.clone(),
+            null_jobs_registry(),
+            cancel_token.clone(),
+        );
 
         let options = ClaudeOptions {
             model: Some(TEST_MODEL.to_string()),

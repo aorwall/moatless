@@ -1143,6 +1143,161 @@ async fn test_subagent_fields_captured() {
 }
 
 // ===========================================================================
+// Diagnostic: Empty result.result when turn ends after a tool_use
+// ===========================================================================
+
+/// Reproduces the bug observed in production: an assistant message that
+/// contains BOTH text and a tool_use, where the agent has nothing more to
+/// say after the tool returns. We want to know what the CLI sends in the
+/// final `result` message — is `result.result` populated with the assistant's
+/// text, or is it empty?
+///
+/// This test does NOT assert that the result is empty (the CLI may change).
+/// It prints everything so we can see the real behavior, plus asserts a
+/// MINIMAL invariant: a Result message arrives. Look at the eprintln! output
+/// (`-- --nocapture`) for the actual values.
+#[tokio::test]
+#[ignore]
+async fn test_diagnose_empty_result_after_trailing_tool_use() {
+    skip_unless_e2e!();
+    init_tracing();
+
+    let result = timeout(Duration::from_secs(90), async {
+        // Use a temp directory so the Bash tool can run without leaking.
+        let tmp = std::env::temp_dir().join("claude-sdk-e2e-empty-result");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+
+        let options = ClaudeOptions {
+            model: Some(TEST_MODEL.to_string()),
+            // Generous turns so the model can: turn1 = text+tool_use, then
+            // (optionally) turn2 = no further text. The bug appears if the
+            // CLI emits result.result="" even when an assistant text was
+            // produced earlier in the same turn.
+            max_turns: Some(3),
+            allow_dangerously_skip_permissions: Some(true),
+            allowed_tools: Some(vec!["Bash".to_string()]),
+            cwd: Some(tmp.to_string_lossy().to_string()),
+            env: auth_env(),
+            ..Default::default()
+        };
+
+        // Prompt engineered to mimic the production case:
+        //   - Give a textual answer (the "what model are you?" reply)
+        //   - Then run a benign Bash command (the "moat set-name" call)
+        //   - Explicitly tell the model to stop talking after the tool returns
+        let prompt = "Step 1: Answer the question \"what is 2+2?\" with a one-sentence \
+                      reply (e.g. \"2+2 equals 4.\"). \
+                      Step 2: Run the shell command `echo done` using the Bash tool. \
+                      Step 3: After the Bash tool returns, output absolutely no \
+                      additional text. Do not summarize, confirm, or comment. Just stop.";
+
+        let mut handle = query(prompt, options).await.expect("query failed");
+        let messages = collect_messages(&mut handle.messages).await;
+
+        // ── Diagnostic dump: print every message we received ──
+        eprintln!("\n=== EMPTY-RESULT DIAGNOSTIC ===");
+        eprintln!("Total messages: {}", messages.len());
+        for (i, msg) in messages.iter().enumerate() {
+            match msg {
+                SdkMessage::System(init) => {
+                    eprintln!("[{i}] System init: model={} session={}", init.model, init.session_id);
+                }
+                SdkMessage::Assistant(a) => {
+                    eprintln!(
+                        "[{i}] Assistant id={:?} model={:?} stop_reason={:?} blocks={}",
+                        a.message.id, a.message.model, a.message.stop_reason,
+                        a.message.content.len()
+                    );
+                    for (b, block) in a.message.content.iter().enumerate() {
+                        match block {
+                            ContentBlock::Text { text } => {
+                                let preview = &text[..text.len().min(120)];
+                                eprintln!("      block[{b}] text: {preview:?}");
+                            }
+                            ContentBlock::ToolUse { id, name, input } => {
+                                eprintln!(
+                                    "      block[{b}] tool_use id={id} name={name} input={}",
+                                    serde_json::to_string(input).unwrap_or_default()
+                                );
+                            }
+                            other => eprintln!("      block[{b}] {:?}", std::mem::discriminant(other)),
+                        }
+                    }
+                }
+                SdkMessage::User(u) => {
+                    eprintln!(
+                        "[{i}] User (tool result) blocks={} tool_use_result_present={}",
+                        u.message.content.len(), u.tool_use_result.is_some()
+                    );
+                    for (b, block) in u.message.content.iter().enumerate() {
+                        match block {
+                            ContentBlock::ToolResult { tool_use_id, content, is_error } => {
+                                let summary = match content {
+                                    Some(serde_json::Value::String(s)) => s.clone(),
+                                    Some(other) => other.to_string(),
+                                    None => "<no content>".to_string(),
+                                };
+                                let preview = &summary[..summary.len().min(120)];
+                                eprintln!(
+                                    "      block[{b}] tool_result id={tool_use_id} is_error={is_error:?} content={preview:?}"
+                                );
+                            }
+                            ContentBlock::Text { text } => {
+                                let preview = &text[..text.len().min(120)];
+                                eprintln!("      block[{b}] text: {preview:?}");
+                            }
+                            other => eprintln!("      block[{b}] {:?}", std::mem::discriminant(other)),
+                        }
+                    }
+                }
+                SdkMessage::Result(ResultMessage::Success(s)) => {
+                    eprintln!(
+                        "[{i}] Result:Success turns={} duration={}ms cost=${:.4} is_error={}",
+                        s.num_turns, s.duration_ms, s.total_cost_usd, s.is_error
+                    );
+                    eprintln!("      result.result.len() = {}", s.result.len());
+                    eprintln!("      result.result = {:?}", s.result);
+                    eprintln!("      model_usage keys: {:?}", s.model_usage.keys().collect::<Vec<_>>());
+                }
+                SdkMessage::Result(ResultMessage::Error(e)) => {
+                    eprintln!("[{i}] Result:Error subtype={} errors={:?}", e.subtype, e.errors);
+                }
+                other => eprintln!("[{i}] {:?}", std::mem::discriminant(other)),
+            }
+        }
+
+        // ── Cross-check: did assistant emit text? did it emit a tool_use? ──
+        let assistant_text = extract_assistant_text(&messages);
+        let assistant_emitted_tool_use = messages.iter().any(|m| {
+            if let SdkMessage::Assistant(a) = m {
+                a.message.content.iter().any(|b| matches!(b, ContentBlock::ToolUse { .. }))
+            } else {
+                false
+            }
+        });
+        let result_text = extract_result_text(&messages).unwrap_or_default();
+
+        eprintln!("--- summary ---");
+        eprintln!("assistant emitted text? {} (len={})", !assistant_text.is_empty(), assistant_text.len());
+        eprintln!("assistant emitted tool_use? {assistant_emitted_tool_use}");
+        eprintln!("result.result empty? {} (len={})", result_text.is_empty(), result_text.len());
+        eprintln!("=== END DIAGNOSTIC ===\n");
+
+        assert!(
+            messages.iter().any(|m| matches!(m, SdkMessage::Result(_))),
+            "Expected a Result message"
+        );
+
+        // Cleanup
+        let _ = std::fs::remove_dir_all(&tmp);
+    })
+    .await;
+
+    result.expect("Test timed out");
+}
+
+// ===========================================================================
 // Diagnostic: Cost field visibility
 // ===========================================================================
 

@@ -17,6 +17,46 @@ use tonic::transport::Channel;
 use tracing::debug;
 
 use super::error::SandboxError;
+use super::schemas::{
+    MonitorJobInfo as SchemaMonitorJobInfo, ScheduledJobInfo as SchemaScheduledJobInfo,
+    ScheduledJobKind, WakeupJobInfo as SchemaWakeupJobInfo,
+};
+
+impl SchemaScheduledJobInfo {
+    /// Convert a proto `ScheduledJobInfo` into the API schema.
+    ///
+    /// Returns `None` for forward-compat unknown variants (proto `kind` is `None`)
+    /// so callers can `flat_map` and silently drop them.
+    pub fn from_proto(proto: sandbox_proto::ScheduledJobInfo) -> Option<Self> {
+        let sandbox_proto::ScheduledJobInfo {
+            id,
+            registered_at_unix_ms,
+            kind,
+        } = proto;
+        let kind = match kind? {
+            sandbox_proto::scheduled_job_info::Kind::Monitor(m) => {
+                ScheduledJobKind::Monitor(SchemaMonitorJobInfo {
+                    description: m.description,
+                    command_preview: m.command_preview,
+                    timeout_ms: m.timeout_ms,
+                    persistent: m.persistent,
+                })
+            }
+            sandbox_proto::scheduled_job_info::Kind::Wakeup(w) => {
+                ScheduledJobKind::Wakeup(SchemaWakeupJobInfo {
+                    reason: w.reason,
+                    prompt_preview: w.prompt_preview,
+                    wakeup_at_unix_ms: w.wakeup_at_unix_ms,
+                })
+            }
+        };
+        Some(Self {
+            id,
+            registered_at_unix_ms,
+            kind,
+        })
+    }
+}
 
 /// Raise from tonic's 4 MB default so binary files (audio, images) can round-trip.
 const MAX_GRPC_MESSAGE_SIZE: usize = 32 * 1024 * 1024;
@@ -248,4 +288,109 @@ impl SandboxClient {
         }
     }
 
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn from_proto_maps_monitor_kind() {
+        let proto = sandbox_proto::ScheduledJobInfo {
+            id: "job-1".into(),
+            registered_at_unix_ms: 1_700_000_000_000,
+            kind: Some(sandbox_proto::scheduled_job_info::Kind::Monitor(
+                sandbox_proto::MonitorJobInfo {
+                    description: "Tail logs".into(),
+                    command_preview: "tail -f /var/log/app.log".into(),
+                    timeout_ms: 30_000,
+                    persistent: true,
+                },
+            )),
+        };
+
+        let job = SchemaScheduledJobInfo::from_proto(proto).expect("monitor kind");
+        assert_eq!(job.id, "job-1");
+        assert_eq!(job.registered_at_unix_ms, 1_700_000_000_000);
+        match job.kind {
+            ScheduledJobKind::Monitor(m) => {
+                assert_eq!(m.description, "Tail logs");
+                assert_eq!(m.command_preview, "tail -f /var/log/app.log");
+                assert_eq!(m.timeout_ms, 30_000);
+                assert!(m.persistent);
+            }
+            ScheduledJobKind::Wakeup(_) => panic!("expected monitor variant"),
+        }
+    }
+
+    #[test]
+    fn from_proto_maps_wakeup_kind() {
+        let proto = sandbox_proto::ScheduledJobInfo {
+            id: "job-2".into(),
+            registered_at_unix_ms: 1_700_000_000_000,
+            kind: Some(sandbox_proto::scheduled_job_info::Kind::Wakeup(
+                sandbox_proto::WakeupJobInfo {
+                    reason: "Check build".into(),
+                    prompt_preview: "Resume the loop".into(),
+                    wakeup_at_unix_ms: 1_700_000_300_000,
+                },
+            )),
+        };
+
+        let job = SchemaScheduledJobInfo::from_proto(proto).expect("wakeup kind");
+        match job.kind {
+            ScheduledJobKind::Wakeup(w) => {
+                assert_eq!(w.reason, "Check build");
+                assert_eq!(w.prompt_preview, "Resume the loop");
+                assert_eq!(w.wakeup_at_unix_ms, 1_700_000_300_000);
+            }
+            ScheduledJobKind::Monitor(_) => panic!("expected wakeup variant"),
+        }
+    }
+
+    #[test]
+    fn from_proto_drops_unknown_kind() {
+        let proto = sandbox_proto::ScheduledJobInfo {
+            id: "job-3".into(),
+            registered_at_unix_ms: 0,
+            kind: None,
+        };
+
+        assert!(SchemaScheduledJobInfo::from_proto(proto).is_none());
+    }
+
+    #[test]
+    fn collect_filters_unknown_jobs() {
+        let resp = sandbox_proto::GetAgentStatusResponse {
+            status: "idle".into(),
+            session_id: None,
+            last_error: None,
+            scheduled_jobs: vec![
+                sandbox_proto::ScheduledJobInfo {
+                    id: "good".into(),
+                    registered_at_unix_ms: 1,
+                    kind: Some(sandbox_proto::scheduled_job_info::Kind::Wakeup(
+                        sandbox_proto::WakeupJobInfo {
+                            reason: "go".into(),
+                            prompt_preview: "p".into(),
+                            wakeup_at_unix_ms: 2,
+                        },
+                    )),
+                },
+                sandbox_proto::ScheduledJobInfo {
+                    id: "unknown".into(),
+                    registered_at_unix_ms: 3,
+                    kind: None,
+                },
+            ],
+        };
+
+        let jobs: Vec<_> = resp
+            .scheduled_jobs
+            .into_iter()
+            .filter_map(SchemaScheduledJobInfo::from_proto)
+            .collect();
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].id, "good");
+    }
 }

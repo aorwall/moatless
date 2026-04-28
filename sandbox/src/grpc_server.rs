@@ -9,15 +9,17 @@ use tracing::info;
 
 use sandbox_proto::sandbox_service_server::SandboxService;
 use sandbox_proto::{
-    ExecuteAgentRequest, ExecuteAgentResponse, GetAgentStatusRequest, GetAgentStatusResponse,
-    GetFileTreeRequest, GetFileTreeResponse, ListFilesRequest, ListFilesResponse,
-    NotifyMessagesRequest, NotifyMessagesResponse, ReadFileRequest, ReadFileResponse,
-    SearchFilesByNameRequest, SearchFilesByNameResponse, StopAgentRequest, StopAgentResponse,
+    scheduled_job_info, ExecuteAgentRequest, ExecuteAgentResponse, GetAgentStatusRequest,
+    GetAgentStatusResponse, GetFileTreeRequest, GetFileTreeResponse, ListFilesRequest,
+    ListFilesResponse, MonitorJobInfo, NotifyMessagesRequest, NotifyMessagesResponse,
+    ReadFileRequest, ReadFileResponse, ScheduledJobInfo, SearchFilesByNameRequest,
+    SearchFilesByNameResponse, StopAgentRequest, StopAgentResponse, WakeupJobInfo,
     WriteFileRequest, WriteFileResponse,
 };
 
 use moatless_events::AgentSubType;
 
+use crate::agent::scheduled_job::JobSnapshot;
 use crate::agent::types::AgentStatus;
 use crate::files;
 use crate::state::SandboxState;
@@ -79,10 +81,40 @@ impl SandboxService for SandboxServiceImpl {
             AgentStatus::Stopped => "stopped",
         };
 
+        let scheduled_jobs = self
+            .state
+            .scheduled_jobs
+            .list()
+            .await
+            .into_iter()
+            .map(|snap| match snap {
+                JobSnapshot::Monitor(m) => ScheduledJobInfo {
+                    id: m.id,
+                    registered_at_unix_ms: m.registered_at_unix_ms,
+                    kind: Some(scheduled_job_info::Kind::Monitor(MonitorJobInfo {
+                        description: m.description,
+                        command_preview: m.command_preview,
+                        timeout_ms: m.timeout_ms,
+                        persistent: m.persistent,
+                    })),
+                },
+                JobSnapshot::Wakeup(w) => ScheduledJobInfo {
+                    id: w.id,
+                    registered_at_unix_ms: w.registered_at_unix_ms,
+                    kind: Some(scheduled_job_info::Kind::Wakeup(WakeupJobInfo {
+                        reason: w.reason,
+                        prompt_preview: w.prompt_preview,
+                        wakeup_at_unix_ms: w.wakeup_at_unix_ms,
+                    })),
+                },
+            })
+            .collect();
+
         Ok(Response::new(GetAgentStatusResponse {
             status: status.to_string(),
             session_id: self.state.agent.last_session_id().await,
             last_error: self.state.agent.last_error().await,
+            scheduled_jobs,
         }))
     }
 

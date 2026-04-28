@@ -21,4 +21,5 @@ export const AgentSubType = {
   pending_response: 'pending_response',
   session_init: 'session_init',
   retrying: 'retrying',
+  scheduled: 'scheduled',
 } as const;

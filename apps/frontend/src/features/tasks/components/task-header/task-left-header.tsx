@@ -19,6 +19,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/lib/components/ui/pop
 import { SidebarTrigger } from '@/lib/components/ui/sidebar'
 import { CreateRepoButton } from './create-repo-button'
 import { EditTaskDialog } from './edit-task-dialog'
+import { ScheduledJobsPill } from './scheduled-jobs-pill'
 
 export function TaskLeftHeader() {
   const taskId = useTaskId()
@@ -111,6 +112,7 @@ export function TaskLeftHeader() {
       </div>
 
       <div className="flex items-center gap-2">
+        <ScheduledJobsPill jobs={sandboxStatus?.scheduledJobs ?? []} />
         {/* Task actions menu */}
         <Popover open={isMenuOpen} onOpenChange={setIsMenuOpen}>
           <PopoverTrigger asChild>

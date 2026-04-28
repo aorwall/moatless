@@ -5,6 +5,8 @@
 //! Claude CLI, we test the dispatcher routing, acknowledgment logic,
 //! and multi-send actor channel mechanics.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -148,10 +150,15 @@ fn test_config() -> Config {
 }
 
 fn test_state(backend: Arc<dyn BackendClient>) -> SandboxState {
+    use moatless_sandbox::agent::scheduled_job::{LateInjector, ScheduledJobRegistry};
+
     let events = GrpcEventPublisher::new(Arc::clone(&backend));
     let config = Arc::new(test_config());
     let agent_state = Arc::new(AgentState::new());
     let credentials = Arc::new(RwLock::new(HashMap::new()));
+
+    let late_injector = Arc::new(LateInjector::new());
+    let scheduled_jobs = Arc::new(ScheduledJobRegistry::new(Arc::clone(&late_injector) as _));
 
     let agent_handle = spawn_agent(
         Arc::clone(&config),
@@ -159,13 +166,16 @@ fn test_state(backend: Arc<dyn BackendClient>) -> SandboxState {
         events.clone(),
         Arc::clone(&credentials),
         Arc::clone(&backend),
+        Arc::clone(&scheduled_jobs),
     );
+    late_injector.set(Box::new(agent_handle.clone()));
 
     SandboxState {
         config,
         events,
         agent: agent_state,
         agent_handle,
+        scheduled_jobs,
         backend_client: backend,
         init_phase: Arc::new(RwLock::new(InitPhase::Ready)),
         credentials,

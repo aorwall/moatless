@@ -40,7 +40,9 @@ use super::codex_exec::{
     McpToolCallStatus, PatchApplyStatus, ThreadItemDetails, TodoListItem, Usage, WebSearchItem,
 };
 use super::options::build_options;
+use super::scheduled_job::{JobKind, ScheduledJobRegistry};
 use super::types::{AgentRunRequest, ResumeSession};
+use super::wakeup_job::WakeupJob;
 
 const AGENT_TYPE_CLAUDE_CODE: &str = "claude-code";
 const AGENT_TYPE_CODEX: &str = "codex";
@@ -177,21 +179,6 @@ struct RetryState {
     retry_at: Instant,
 }
 
-/// Parsed ScheduleWakeup tool call from assistant message.
-#[derive(Debug, Clone)]
-struct ScheduledWakeup {
-    delay_seconds: u32,
-    prompt: String,
-    reason: String,
-}
-
-/// Pending wakeup state for scheduled agent resumption.
-struct WakeupState {
-    wakeup_at: Instant,
-    prompt: String,
-    reason: String,
-}
-
 /// Check if a `ResultMessage` represents a transient error worth retrying.
 ///
 /// Retryable when the API returned overloaded/rate-limit/server errors and the
@@ -273,19 +260,14 @@ fn compute_backoff(attempt: u32) -> std::time::Duration {
     std::time::Duration::from_secs_f64(secs)
 }
 
-/// Extract ScheduleWakeup from assistant message content blocks.
-fn extract_schedule_wakeup(content: &[ContentBlock]) -> Option<ScheduledWakeup> {
+/// Walk assistant content blocks for a `ScheduleWakeup` tool call and parse
+/// it into a `WakeupJob`. Returns `None` if no such block is present or any
+/// required field is missing.
+fn extract_wakeup_job(content: &[ContentBlock]) -> Option<WakeupJob> {
     for block in content {
-        if let ContentBlock::ToolUse { name, input, .. } = block {
+        if let ContentBlock::ToolUse { id, name, input, .. } = block {
             if name == "ScheduleWakeup" {
-                let delay_seconds = input.get("delaySeconds")?.as_u64()? as u32;
-                let prompt = input.get("prompt")?.as_str()?.to_string();
-                let reason = input.get("reason")?.as_str()?.to_string();
-                return Some(ScheduledWakeup {
-                    delay_seconds,
-                    prompt,
-                    reason,
-                });
+                return WakeupJob::from_tool_use(id, input);
             }
         }
     }
@@ -293,12 +275,14 @@ fn extract_schedule_wakeup(content: &[ContentBlock]) -> Option<ScheduledWakeup> 
 }
 
 /// Spawn the agent actor loop and return a handle.
+#[allow(clippy::too_many_arguments)] // reason: actor wiring; refactor pending
 pub fn spawn_agent(
     config: Arc<Config>,
     agent_state: Arc<AgentState>,
     events: GrpcEventPublisher,
     credentials: Arc<RwLock<HashMap<String, String>>>,
     backend_client: Arc<dyn BackendClient>,
+    scheduled_jobs: Arc<ScheduledJobRegistry>,
 ) -> AgentHandle {
     let (command_tx, command_rx) = mpsc::unbounded_channel();
 
@@ -309,6 +293,7 @@ pub fn spawn_agent(
         events,
         credentials,
         backend_client,
+        scheduled_jobs,
     ));
 
     AgentHandle { command_tx }
@@ -318,6 +303,7 @@ pub fn spawn_agent(
 ///
 /// Runs a `tokio::select!` that reads runtime messages from the active session
 /// and processes incoming commands. Manages the full session lifecycle.
+#[allow(clippy::too_many_arguments)] // reason: actor wiring; refactor pending
 async fn agent_loop(
     mut command_rx: mpsc::UnboundedReceiver<AgentCommand>,
     config: Arc<Config>,
@@ -325,6 +311,7 @@ async fn agent_loop(
     events: GrpcEventPublisher,
     credentials: Arc<RwLock<HashMap<String, String>>>,
     backend_client: Arc<dyn BackendClient>,
+    scheduled_jobs: Arc<ScheduledJobRegistry>,
 ) {
     let task_id = config.task_id.clone();
     let mut handle: Option<ActiveHandle> = None;
@@ -339,8 +326,11 @@ async fn agent_loop(
     let mut last_agent_mode: Option<String> = None;
     let mut retry_state: Option<RetryState> = None;
     let mut last_prompt: Option<String> = None;
-    let mut wakeup_state: Option<WakeupState> = None;
-    let mut pending_wakeup: Option<ScheduledWakeup> = None;
+    let mut pending_wakeup: Option<WakeupJob> = None;
+    // Latest per-session cancel token — refreshed by `start_session` and reused
+    // by post-turn wakeup arming so the registered wakeup honours the session's
+    // cancellation scope.
+    let mut run_cancel_for_loop: CancellationToken = CancellationToken::new();
 
     info!(task_id = %task_id, "Agent actor started");
 
@@ -364,11 +354,13 @@ async fn agent_loop(
                     send.agent_type.as_deref(),
                     send.agent_mode.as_deref(),
                     send.resume_session_id,
+                    Arc::clone(&scheduled_jobs),
                 )
                 .await
                 {
-                    Ok(new_handle) => {
+                    Ok((new_handle, run_cancel)) => {
                         handle = Some(new_handle);
+                        run_cancel_for_loop = run_cancel;
                     }
                     Err(error) => {
                         warn!(error = %error, "Failed to start agent session");
@@ -495,9 +487,11 @@ async fn agent_loop(
                             }
                         }
 
-                        // Set up wakeup timer if ScheduleWakeup was called and turn completed successfully
-                        if let Some(wakeup) = pending_wakeup.take() {
-                            // Only honor wakeup if the turn didn't end in error
+                        // Arm the ScheduleWakeup timer if one was queued and the
+                        // turn completed without error. Latest-wins: any prior
+                        // pending wakeup is cancelled before the new one is
+                        // registered.
+                        if let Some(job) = pending_wakeup.take() {
                             let is_error = retry_candidate
                                 .as_ref()
                                 .is_some_and(|r| matches!(r, ResultMessage::Error(_)) || matches!(r, ResultMessage::Success(s) if s.is_error));
@@ -505,24 +499,23 @@ async fn agent_loop(
                             if is_error {
                                 debug!("Ignoring ScheduleWakeup because turn ended with error");
                             } else {
+                                let reason = job.reason().to_string();
                                 info!(
-                                    delay_seconds = wakeup.delay_seconds,
-                                    reason = %wakeup.reason,
+                                    reason = %reason,
+                                    wakeup_at = ?job.wakeup_at(),
                                     "Scheduling wakeup"
                                 );
-                                wakeup_state = Some(WakeupState {
-                                    wakeup_at: Instant::now() + std::time::Duration::from_secs(wakeup.delay_seconds as u64),
-                                    prompt: wakeup.prompt,
-                                    reason: wakeup.reason.clone(),
-                                });
-                                events.publish_agent_event(
-                                    &task_id,
-                                    AgentSubType::Scheduled,
-                                    serde_json::json!({
-                                        "delay_seconds": wakeup.delay_seconds,
-                                        "reason": wakeup.reason,
-                                    }),
-                                ).await;
+                                scheduled_jobs.cancel_by_kind(JobKind::Wakeup).await;
+                                let registered = scheduled_jobs
+                                    .register(Box::new(job), run_cancel_for_loop.clone())
+                                    .await;
+                                if registered {
+                                    events.publish_agent_event(
+                                        &task_id,
+                                        AgentSubType::Scheduled,
+                                        serde_json::json!({ "reason": reason }),
+                                    ).await;
+                                }
                             }
                         }
                     }
@@ -600,9 +593,11 @@ async fn agent_loop(
                     state.agent_type.as_deref(),
                     state.agent_mode.as_deref(),
                     None,
+                    Arc::clone(&scheduled_jobs),
                 ).await {
-                    Ok(new_handle) => {
+                    Ok((new_handle, run_cancel)) => {
                         handle = Some(new_handle);
+                        run_cancel_for_loop = run_cancel;
                     }
                     Err(error) => {
                         warn!(error = %error, attempt = state.attempt, "Retry session start failed");
@@ -643,34 +638,6 @@ async fn agent_loop(
                         }
                     }
                 }
-            }
-
-            () = async {
-                match wakeup_state.as_ref() {
-                    Some(state) => tokio::time::sleep_until(state.wakeup_at).await,
-                    None => std::future::pending().await,
-                }
-            } => {
-                let Some(state) = wakeup_state.take() else {
-                    continue;
-                };
-
-                info!(reason = %state.reason, "Wakeup timer fired, starting new session");
-
-                // Clear any pending retry (wakeup takes precedence)
-                retry_state = None;
-
-                // Queue the wakeup prompt
-                let (ack_tx, _) = oneshot::channel();
-                queued_sends.push_back(QueuedSend {
-                    text: state.prompt,
-                    model: last_model.clone(),
-                    system_prompt: last_system_prompt.clone(),
-                    agent_type: last_agent_type.clone(),
-                    agent_mode: last_agent_mode.clone(),
-                    resume_session_id: None,
-                    ack: ack_tx,
-                });
             }
 
             cmd = command_rx.recv() => {
@@ -747,7 +714,7 @@ async fn agent_loop(
                     Some(AgentCommand::Stop) | None => {
                         info!("Agent actor stopping");
                         drop(retry_state.take());
-                        drop(wakeup_state.take());
+                        drop(pending_wakeup.take());
                         while let Some(send) = queued_sends.pop_front() {
                             drop(send.ack);
                         }
@@ -755,6 +722,7 @@ async fn agent_loop(
                         if let Some(active_handle) = handle.take() {
                             active_handle.close();
                         }
+                        scheduled_jobs.cancel_all().await;
                         agent_state.set_stopped().await;
                         events.publish_agent_event(
                             &task_id,
@@ -787,7 +755,8 @@ async fn start_session(
     agent_type: Option<&str>,
     agent_mode: Option<&str>,
     resume_session_id: Option<String>,
-) -> Result<ActiveHandle, AgentRuntimeError> {
+    scheduled_jobs: Arc<ScheduledJobRegistry>,
+) -> Result<(ActiveHandle, CancellationToken), AgentRuntimeError> {
     match backend_client.get_credentials(task_id).await {
         Ok(resp) => {
             crate::init::credentials::persist_agent_credentials(config, &resp.credentials).await;
@@ -853,7 +822,7 @@ async fn start_session(
     if agent_type == AGENT_TYPE_CODEX {
         return codex_exec::start(prompt, config, &request, env)
             .await
-            .map(ActiveHandle::Codex)
+            .map(|h| (ActiveHandle::Codex(h), cancel_token))
             .map_err(|error| {
                 AgentRuntimeError::Codex(format!("Failed to start Codex CLI: {error}"))
             });
@@ -865,21 +834,28 @@ async fn start_session(
         cancel_token.clone(),
         Arc::clone(&agent_state),
         env.clone(),
+        Arc::clone(&scheduled_jobs),
     );
 
     match claude_agent_sdk::query(prompt, options).await {
-        Ok(handle) => Ok(ActiveHandle::Claude(handle)),
+        Ok(handle) => Ok((ActiveHandle::Claude(handle), cancel_token)),
         Err(error) if request.resume == Some(ResumeSession::Last) => {
             warn!(error = %error, "Resume with --continue failed, starting fresh session");
             let fresh_request = AgentRunRequest {
                 resume: None,
                 ..request
             };
-            let fresh_options =
-                build_options(config, &fresh_request, cancel_token, agent_state, env);
+            let fresh_options = build_options(
+                config,
+                &fresh_request,
+                cancel_token.clone(),
+                agent_state,
+                env,
+                scheduled_jobs,
+            );
             claude_agent_sdk::query(prompt, fresh_options)
                 .await
-                .map(ActiveHandle::Claude)
+                .map(|h| (ActiveHandle::Claude(h), cancel_token))
                 .map_err(AgentRuntimeError::from)
         }
         Err(error) => Err(AgentRuntimeError::from(error)),
@@ -925,7 +901,7 @@ async fn process_claude_message(
     session_id: &mut String,
     handle: &mut Option<ActiveHandle>,
     consecutive_errors: &mut u32,
-    pending_wakeup: &mut Option<ScheduledWakeup>,
+    pending_wakeup: &mut Option<WakeupJob>,
 ) {
     match msg {
         SdkMessage::System(init) => {
@@ -947,13 +923,12 @@ async fn process_claude_message(
         }
         SdkMessage::Assistant(assistant) => {
             // Check for ScheduleWakeup tool call
-            if let Some(wakeup) = extract_schedule_wakeup(&assistant.message.content) {
+            if let Some(job) = extract_wakeup_job(&assistant.message.content) {
                 debug!(
-                    delay_seconds = wakeup.delay_seconds,
-                    reason = %wakeup.reason,
+                    reason = %job.reason(),
                     "ScheduleWakeup tool call detected"
                 );
-                *pending_wakeup = Some(wakeup);
+                *pending_wakeup = Some(job);
             }
 
             debug!(
@@ -2468,10 +2443,10 @@ mod tests {
         assert_eq!(payload["model"], "gpt-5");
     }
 
-    // ── extract_schedule_wakeup ─────────────────────────────────────
+    // ── extract_wakeup_job ──────────────────────────────────────────
 
     #[test]
-    fn extract_schedule_wakeup_returns_some_for_valid_tool_call() {
+    fn extract_wakeup_job_returns_some_for_valid_tool_call() {
         let content = vec![ContentBlock::ToolUse {
             id: "toolu_123".to_string(),
             name: "ScheduleWakeup".to_string(),
@@ -2481,36 +2456,31 @@ mod tests {
                 "reason": "waiting for build to complete"
             }),
         }];
-        let result = extract_schedule_wakeup(&content);
-        assert!(result.is_some());
-        let wakeup = result.unwrap();
-        assert_eq!(wakeup.delay_seconds, 120);
-        assert_eq!(wakeup.prompt, "check build status");
-        assert_eq!(wakeup.reason, "waiting for build to complete");
+        let job = extract_wakeup_job(&content).expect("expected wakeup job");
+        assert_eq!(job.id(), "toolu_123");
+        assert_eq!(job.reason(), "waiting for build to complete");
     }
 
     #[test]
-    fn extract_schedule_wakeup_returns_none_for_other_tool() {
+    fn extract_wakeup_job_returns_none_for_other_tool() {
         let content = vec![ContentBlock::ToolUse {
             id: "toolu_456".to_string(),
             name: "Bash".to_string(),
             input: serde_json::json!({ "command": "ls -la" }),
         }];
-        let result = extract_schedule_wakeup(&content);
-        assert!(result.is_none());
+        assert!(extract_wakeup_job(&content).is_none());
     }
 
     #[test]
-    fn extract_schedule_wakeup_returns_none_for_text_block() {
+    fn extract_wakeup_job_returns_none_for_text_block() {
         let content = vec![ContentBlock::Text {
             text: "Some text".to_string(),
         }];
-        let result = extract_schedule_wakeup(&content);
-        assert!(result.is_none());
+        assert!(extract_wakeup_job(&content).is_none());
     }
 
     #[test]
-    fn extract_schedule_wakeup_returns_none_for_missing_fields() {
+    fn extract_wakeup_job_returns_none_for_missing_fields() {
         let content = vec![ContentBlock::ToolUse {
             id: "toolu_789".to_string(),
             name: "ScheduleWakeup".to_string(),
@@ -2519,12 +2489,11 @@ mod tests {
                 // missing prompt and reason
             }),
         }];
-        let result = extract_schedule_wakeup(&content);
-        assert!(result.is_none());
+        assert!(extract_wakeup_job(&content).is_none());
     }
 
     #[test]
-    fn extract_schedule_wakeup_finds_in_mixed_content() {
+    fn extract_wakeup_job_finds_in_mixed_content() {
         let content = vec![
             ContentBlock::Text {
                 text: "I'll schedule a wakeup".to_string(),
@@ -2544,17 +2513,15 @@ mod tests {
                 }),
             },
         ];
-        let result = extract_schedule_wakeup(&content);
-        assert!(result.is_some());
-        let wakeup = result.unwrap();
-        assert_eq!(wakeup.delay_seconds, 300);
+        let job = extract_wakeup_job(&content).expect("expected wakeup job");
+        assert_eq!(job.id(), "toolu_wakeup");
+        assert_eq!(job.reason(), "cache cooldown");
     }
 
     #[test]
-    fn extract_schedule_wakeup_returns_none_for_empty_content() {
+    fn extract_wakeup_job_returns_none_for_empty_content() {
         let content: Vec<ContentBlock> = vec![];
-        let result = extract_schedule_wakeup(&content);
-        assert!(result.is_none());
+        assert!(extract_wakeup_job(&content).is_none());
     }
 
     // ── extract_result_info ─────────────────────────────────────────

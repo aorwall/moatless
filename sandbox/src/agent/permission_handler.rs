@@ -1,8 +1,14 @@
-//! Interactive permission handler for AskUserQuestion and ExitPlanMode tools.
+//! Interactive permission handler for AskUserQuestion, ExitPlanMode, and
+//! Monitor tools.
 //!
-//! When the agent encounters one of these tools, the handler creates a oneshot
-//! channel, stores it as a pending prompt in `AgentState`, and blocks until
-//! a response is received (or the agent is cancelled).
+//! When the agent encounters AskUserQuestion or ExitPlanMode, the handler
+//! creates a oneshot channel, stores it as a pending prompt in `AgentState`,
+//! and blocks until a response is received (or the agent is cancelled).
+//!
+//! When the agent encounters Monitor, the handler instead registers a cron
+//! job against the shared `ScheduledJobRegistry` and rewrites the tool input
+//! so the SDK's built-in implementation exits immediately. The cron's output
+//! is delivered back to the agent later as a synthetic user message.
 //!
 //! In plan mode, write tools (Write, Edit, Bash, etc.) are blocked until
 //! ExitPlanMode has been approved.
@@ -10,13 +16,20 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+use tokio_util::sync::CancellationToken;
+
 use super::agent_state::AgentState;
+use super::monitor_job::{noop_monitor_input, MonitorJob, MonitorRequest};
 use super::prompt::{PendingPrompt, PromptResponse, PromptToolName};
+use super::scheduled_job::ScheduledJobRegistry;
 
 /// Tools that require plan approval before use.
 const WRITE_TOOLS: &[&str] = &["Write", "Edit", "MultiEdit", "NotebookEdit", "Bash"];
 
-/// Permission handler that intercepts AskUserQuestion and ExitPlanMode tools.
+/// Built-in tool name we reroute into a sandbox cron.
+const MONITOR_TOOL: &str = "Monitor";
+
+/// Permission handler that intercepts AskUserQuestion, ExitPlanMode, and Monitor.
 ///
 /// When `plan_mode_active` is true, write tools are denied until the user
 /// approves the plan via ExitPlanMode.
@@ -24,20 +37,37 @@ pub struct InteractivePermissionHandler {
     pub agent_state: Arc<AgentState>,
     /// When true, write tools are blocked pending ExitPlanMode approval.
     pub plan_mode_active: Arc<AtomicBool>,
+    /// Registry that owns deferred-work jobs (Monitor crons, ScheduleWakeup
+    /// timers). Cancelled when the agent run ends.
+    pub scheduled_jobs: Arc<ScheduledJobRegistry>,
+    /// Cancellation token for the current agent run; passed into Monitor
+    /// jobs so they stop when the run does.
+    pub run_cancel: CancellationToken,
 }
 
 impl InteractivePermissionHandler {
     /// Create a handler with plan mode enforcement.
-    pub fn with_plan_mode(agent_state: Arc<AgentState>, plan_mode: bool) -> Self {
+    pub fn with_plan_mode(
+        agent_state: Arc<AgentState>,
+        plan_mode: bool,
+        scheduled_jobs: Arc<ScheduledJobRegistry>,
+        run_cancel: CancellationToken,
+    ) -> Self {
         Self {
             agent_state,
             plan_mode_active: Arc::new(AtomicBool::new(plan_mode)),
+            scheduled_jobs,
+            run_cancel,
         }
     }
 
     /// Create a handler without plan mode (all non-interactive tools auto-allowed).
-    pub fn new(agent_state: Arc<AgentState>) -> Self {
-        Self::with_plan_mode(agent_state, false)
+    pub fn new(
+        agent_state: Arc<AgentState>,
+        scheduled_jobs: Arc<ScheduledJobRegistry>,
+        run_cancel: CancellationToken,
+    ) -> Self {
+        Self::with_plan_mode(agent_state, false, scheduled_jobs, run_cancel)
     }
 }
 
@@ -49,6 +79,32 @@ impl claude_agent_sdk::PermissionHandler for InteractivePermissionHandler {
         input: &serde_json::Map<String, serde_json::Value>,
         context: claude_agent_sdk::types::permissions::PermissionContext,
     ) -> claude_agent_sdk::PermissionResult {
+        // Reroute Monitor calls into the sandbox-local cron registry. The
+        // SDK still invokes the tool with the rewritten no-op input so the
+        // model gets a normal tool_result; the actual recurring command runs
+        // in a background tokio task that injects results later.
+        if tool_name == MONITOR_TOOL {
+            match MonitorRequest::from_tool_input(&context.tool_use_id, input) {
+                Some(req) => {
+                    let job = MonitorJob::from_request(req);
+                    self.scheduled_jobs
+                        .register(Box::new(job), self.run_cancel.clone())
+                        .await;
+                    return claude_agent_sdk::PermissionResult::Allow {
+                        updated_input: Some(noop_monitor_input(input)),
+                        updated_permissions: None,
+                    };
+                }
+                None => {
+                    // Malformed Monitor input — let the SDK report it.
+                    return claude_agent_sdk::PermissionResult::Allow {
+                        updated_input: None,
+                        updated_permissions: None,
+                    };
+                }
+            }
+        }
+
         // Check if this is an interactive prompt tool
         if let Some(prompt_tool) = PromptToolName::from_tool_name(tool_name) {
             let input_value = serde_json::Value::Object(input.clone());
@@ -145,10 +201,34 @@ mod tests {
         serde_json::Map::new()
     }
 
+    fn null_jobs_registry() -> Arc<ScheduledJobRegistry> {
+        struct NullInjector;
+        impl super::super::scheduled_job::JobInjector for NullInjector {
+            fn inject(&self, _text: String) {}
+        }
+        Arc::new(ScheduledJobRegistry::new(Arc::new(NullInjector)))
+    }
+
+    fn test_handler(state: Arc<AgentState>) -> InteractivePermissionHandler {
+        InteractivePermissionHandler::new(state, null_jobs_registry(), CancellationToken::new())
+    }
+
+    fn test_handler_with_plan_mode(
+        state: Arc<AgentState>,
+        plan_mode: bool,
+    ) -> InteractivePermissionHandler {
+        InteractivePermissionHandler::with_plan_mode(
+            state,
+            plan_mode,
+            null_jobs_registry(),
+            CancellationToken::new(),
+        )
+    }
+
     #[tokio::test]
     async fn plan_mode_denies_write_tool() {
         let state = Arc::new(AgentState::new());
-        let handler = InteractivePermissionHandler::with_plan_mode(state, true);
+        let handler = test_handler_with_plan_mode(state, true);
         let result = handler
             .can_use_tool("Write", &empty_input(), test_context())
             .await;
@@ -161,7 +241,7 @@ mod tests {
     #[tokio::test]
     async fn plan_mode_denies_bash_tool() {
         let state = Arc::new(AgentState::new());
-        let handler = InteractivePermissionHandler::with_plan_mode(state, true);
+        let handler = test_handler_with_plan_mode(state, true);
         let result = handler
             .can_use_tool("Bash", &empty_input(), test_context())
             .await;
@@ -174,7 +254,7 @@ mod tests {
     #[tokio::test]
     async fn plan_mode_denies_edit_tool() {
         let state = Arc::new(AgentState::new());
-        let handler = InteractivePermissionHandler::with_plan_mode(state, true);
+        let handler = test_handler_with_plan_mode(state, true);
         let result = handler
             .can_use_tool("Edit", &empty_input(), test_context())
             .await;
@@ -187,7 +267,7 @@ mod tests {
     #[tokio::test]
     async fn plan_mode_allows_read_tool() {
         let state = Arc::new(AgentState::new());
-        let handler = InteractivePermissionHandler::with_plan_mode(state, true);
+        let handler = test_handler_with_plan_mode(state, true);
         let result = handler
             .can_use_tool("Read", &empty_input(), test_context())
             .await;
@@ -200,7 +280,7 @@ mod tests {
     #[tokio::test]
     async fn no_plan_mode_allows_write_tool() {
         let state = Arc::new(AgentState::new());
-        let handler = InteractivePermissionHandler::with_plan_mode(state, false);
+        let handler = test_handler_with_plan_mode(state, false);
         let result = handler
             .can_use_tool("Write", &empty_input(), test_context())
             .await;
@@ -213,7 +293,7 @@ mod tests {
     #[tokio::test]
     async fn non_interactive_tool_auto_allowed() {
         let state = Arc::new(AgentState::new());
-        let handler = InteractivePermissionHandler::new(state);
+        let handler = test_handler(state);
         let result = handler
             .can_use_tool("Grep", &empty_input(), test_context())
             .await;
@@ -229,7 +309,7 @@ mod tests {
     #[tokio::test]
     async fn ask_user_question_creates_pending_prompt() {
         let state = Arc::new(AgentState::new());
-        let handler = InteractivePermissionHandler::new(Arc::clone(&state));
+        let handler = test_handler(Arc::clone(&state));
 
         // Spawn handler in background — it will block on the oneshot
         let handle = tokio::spawn(async move {
@@ -258,7 +338,7 @@ mod tests {
     #[tokio::test]
     async fn exit_plan_mode_deactivates_plan_mode() {
         let state = Arc::new(AgentState::new());
-        let handler = InteractivePermissionHandler::with_plan_mode(Arc::clone(&state), true);
+        let handler = test_handler_with_plan_mode(Arc::clone(&state), true);
         let plan_mode = Arc::clone(&handler.plan_mode_active);
 
         assert!(plan_mode.load(std::sync::atomic::Ordering::SeqCst));
@@ -286,9 +366,66 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn monitor_tool_registers_cron_and_rewrites_input() {
+        use super::super::scheduled_job::JobInjector;
+
+        #[derive(Default, Clone)]
+        struct Capturing(Arc<std::sync::Mutex<Vec<String>>>);
+        impl JobInjector for Capturing {
+            fn inject(&self, text: String) {
+                self.0.lock().expect("mutex poisoned").push(text);
+            }
+        }
+
+        let injector = Capturing::default();
+        let registry = Arc::new(ScheduledJobRegistry::new(Arc::new(injector.clone())));
+        let handler = InteractivePermissionHandler::new(
+            Arc::new(AgentState::new()),
+            Arc::clone(&registry),
+            CancellationToken::new(),
+        );
+
+        let mut input = serde_json::Map::new();
+        input.insert(
+            "command".to_string(),
+            serde_json::Value::String("sleep 60".to_string()),
+        );
+        input.insert(
+            "description".to_string(),
+            serde_json::Value::String("waiting".to_string()),
+        );
+        input.insert(
+            "timeout_ms".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(600_000u64)),
+        );
+        input.insert("persistent".to_string(), serde_json::Value::Bool(false));
+
+        let result = handler.can_use_tool("Monitor", &input, test_context()).await;
+
+        match result {
+            claude_agent_sdk::PermissionResult::Allow {
+                updated_input: Some(updated),
+                ..
+            } => {
+                assert_eq!(
+                    updated.get("command").and_then(serde_json::Value::as_str),
+                    Some(":")
+                );
+                assert_eq!(
+                    updated.get("timeout_ms").and_then(serde_json::Value::as_u64),
+                    Some(1000)
+                );
+            }
+            other => panic!("expected Allow with rewritten input, got {other:?}"),
+        }
+
+        assert_eq!(registry.len().await, 1, "monitor should be registered");
+    }
+
+    #[tokio::test]
     async fn cancelled_prompt_returns_deny() {
         let state = Arc::new(AgentState::new());
-        let handler = InteractivePermissionHandler::new(Arc::clone(&state));
+        let handler = test_handler(Arc::clone(&state));
 
         let handle = tokio::spawn(async move {
             handler

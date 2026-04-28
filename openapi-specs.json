@@ -4035,7 +4035,8 @@
         "tags": [
           "messages"
         ],
-        "summary": "Get all messages for a task.",
+        "summary": "Get a chronological page of messages for a task.",
+        "description": "Without query params returns the most recent `DEFAULT_MESSAGE_LIMIT` rows.\nPass `before_id=<oldest_in_previous_page>` to fetch older pages.",
         "operationId": "get_messages",
         "parameters": [
           {
@@ -4055,11 +4056,31 @@
             "schema": {
               "type": "boolean"
             }
+          },
+          {
+            "name": "before_id",
+            "in": "query",
+            "description": "Return only rows strictly older than this id",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page size (default 50, max 200)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "List of messages",
+            "description": "Page of messages",
             "content": {
               "application/json": {
                 "schema": {
@@ -4349,6 +4370,57 @@
           },
           "404": {
             "description": "Task not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/tool-calls/{tool_use_id}": {
+      "get": {
+        "tags": [
+          "messages"
+        ],
+        "summary": "Get the full input + result for a single tool call within a task.",
+        "operationId": "get_tool_call_detail",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tool_use_id",
+            "in": "path",
+            "description": "Tool-use block identifier (unique within a task)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tool call detail",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolCallDetailResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Tool call not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -5151,7 +5223,8 @@
           "error",
           "pending_response",
           "session_init",
-          "retrying"
+          "retrying",
+          "scheduled"
         ]
       },
       "AgentType": {
@@ -6912,18 +6985,26 @@
         "description": "Response for GET /messages.",
         "required": [
           "messages",
-          "totalCount"
+          "hasMore"
         ],
         "properties": {
+          "hasMore": {
+            "type": "boolean",
+            "description": "Whether older messages exist beyond the returned page."
+          },
           "messages": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/UiMessage"
             }
           },
-          "totalCount": {
-            "type": "integer",
-            "minimum": 0
+          "nextBeforeId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Cursor for fetching the next older page; `None` when no older rows remain."
           }
         }
       },
@@ -7354,6 +7435,32 @@
           }
         }
       },
+      "MonitorJobInfo": {
+        "type": "object",
+        "description": "Monitor cron job armed by the agent.",
+        "required": [
+          "description",
+          "commandPreview",
+          "timeoutMs",
+          "persistent"
+        ],
+        "properties": {
+          "commandPreview": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "persistent": {
+            "type": "boolean"
+          },
+          "timeoutMs": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "OAuthUrlResponse": {
         "type": "object",
         "required": [
@@ -7487,12 +7594,6 @@
             ]
           },
           "provider": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "target": {
             "type": [
               "string",
               "null"
@@ -7638,8 +7739,7 @@
         "required": [
           "scope",
           "key",
-          "kind",
-          "target"
+          "kind"
         ],
         "properties": {
           "externalRef": {
@@ -7668,9 +7768,6 @@
               "string",
               "null"
             ]
-          },
-          "target": {
-            "type": "string"
           },
           "value": {
             "type": [
@@ -7930,15 +8027,6 @@
           "taskId"
         ],
         "properties": {
-          "targets": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "type": "string"
-            }
-          },
           "taskId": {
             "type": "string"
           }
@@ -8336,6 +8424,12 @@
           "sandboxState": {
             "$ref": "#/components/schemas/SandboxState"
           },
+          "scheduledJobs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScheduledJobInfo"
+            }
+          },
           "servers": {
             "type": "array",
             "items": {
@@ -8380,6 +8474,77 @@
             "type": "string"
           }
         }
+      },
+      "ScheduledJobInfo": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ScheduledJobKind"
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "registeredAtUnixMs"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "registeredAtUnixMs": {
+                "type": "integer",
+                "format": "int64"
+              }
+            }
+          }
+        ],
+        "description": "Snapshot of one scheduled job currently registered in the sandbox."
+      },
+      "ScheduledJobKind": {
+        "oneOf": [
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MonitorJobInfo"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "monitor"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/WakeupJobInfo"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "wakeup"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "description": "Per-kind payload for a scheduled job."
       },
       "Scope": {
         "type": "string",
@@ -8452,7 +8617,6 @@
           "scopeType",
           "key",
           "kind",
-          "target",
           "source",
           "version",
           "updatedAt"
@@ -8490,9 +8654,6 @@
           },
           "source": {
             "$ref": "#/components/schemas/SecretSource"
-          },
-          "target": {
-            "type": "string"
           },
           "updatedAt": {
             "type": "string"
@@ -9526,6 +9687,44 @@
           }
         }
       },
+      "ToolCallDetailResponse": {
+        "type": "object",
+        "description": "Full tool-call detail returned on demand (when a tool call is expanded).",
+        "required": [
+          "toolUseId",
+          "toolName",
+          "toolInput"
+        ],
+        "properties": {
+          "isError": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "resultContent": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "toolInput": {
+            "type": "object"
+          },
+          "toolName": {
+            "type": "string"
+          },
+          "toolUseId": {
+            "type": "string"
+          },
+          "typedResult": {
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        }
+      },
       "TriggerChannelRequest": {
         "type": "object",
         "description": "Request body for manually triggering a channel config.",
@@ -10449,12 +10648,6 @@
               "string",
               "null"
             ]
-          },
-          "target": {
-            "type": [
-              "string",
-              "null"
-            ]
           }
         }
       },
@@ -10486,6 +10679,27 @@
           "public",
           "private"
         ]
+      },
+      "WakeupJobInfo": {
+        "type": "object",
+        "description": "Wakeup timer armed by the agent via `ScheduleWakeup`.",
+        "required": [
+          "reason",
+          "promptPreview",
+          "wakeupAtUnixMs"
+        ],
+        "properties": {
+          "promptPreview": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "wakeupAtUnixMs": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
       },
       "WebhookPayload": {
         "type": "object",

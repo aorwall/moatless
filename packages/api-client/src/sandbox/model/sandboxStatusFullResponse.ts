@@ -11,6 +11,7 @@ import type { ResourceMetrics } from './resourceMetrics';
 import type { RuntimeEvent } from './runtimeEvent';
 import type { SandboxState } from './sandboxState';
 import type { SandboxStatus } from './sandboxStatus';
+import type { ScheduledJobInfo } from './scheduledJobInfo';
 import type { ServerEntry } from './serverEntry';
 
 /**
@@ -29,5 +30,6 @@ export interface SandboxStatusFullResponse {
   runtimeEvents?: RuntimeEvent[] | null;
   sandboxReady: boolean;
   sandboxState: SandboxState;
+  scheduledJobs?: ScheduledJobInfo[];
   servers: ServerEntry[];
 }

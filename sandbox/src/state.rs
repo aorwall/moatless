@@ -8,6 +8,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::agent::agent_state::AgentState;
 use crate::agent::handle::AgentHandle;
+use crate::agent::scheduled_job::ScheduledJobRegistry;
 use crate::backend_client::BackendClient;
 use crate::config::Config;
 use crate::events::GrpcEventPublisher;
@@ -26,6 +27,9 @@ pub struct SandboxState {
     pub agent: Arc<AgentState>,
     /// Actor-style agent handle — send messages via `agent_handle.send()`.
     pub agent_handle: AgentHandle,
+    /// Registry of deferred-work jobs (Monitor crons + ScheduleWakeup timers)
+    /// spawned by the permission handler / agent actor.
+    pub scheduled_jobs: Arc<ScheduledJobRegistry>,
     /// Backend client for gRPC communication (message polling, acknowledgment).
     pub backend_client: Arc<dyn BackendClient>,
     /// Current initialization phase — tracked for health probes and consumer gating.

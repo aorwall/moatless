@@ -20,6 +20,7 @@ use tracing_subscriber::EnvFilter;
 
 use moatless_sandbox::agent;
 use moatless_sandbox::agent::handle::spawn_agent;
+use moatless_sandbox::agent::scheduled_job::{LateInjector, ScheduledJobRegistry};
 use moatless_sandbox::backend_client::BackendGrpcClient;
 use moatless_sandbox::config::Config;
 use moatless_sandbox::events::GrpcEventPublisher;
@@ -66,19 +67,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config_arc = Arc::new(config.clone());
     let credentials = Arc::new(RwLock::new(std::collections::HashMap::new()));
 
+    // Build the scheduled-job registry that owns Monitor crons and
+    // ScheduleWakeup timers. The injector is late-bound: we need an
+    // `AgentHandle` to inject messages, but the actor (which produces the
+    // handle) needs the registry up front. The `LateInjector` breaks the
+    // cycle — we construct the registry around it, spawn the actor with the
+    // registry, then point the injector at the returned handle.
+    let late_injector = Arc::new(LateInjector::new());
+    let scheduled_jobs = Arc::new(ScheduledJobRegistry::new(Arc::clone(&late_injector) as _));
+
     let agent_handle = spawn_agent(
         Arc::clone(&config_arc),
         Arc::clone(&agent_state),
         event_publisher.clone(),
         Arc::clone(&credentials),
         Arc::clone(&backend_client),
+        Arc::clone(&scheduled_jobs),
     );
+    late_injector.set(Box::new(agent_handle.clone()));
 
     let state = SandboxState {
         config: config_arc,
         events: event_publisher,
         agent: agent_state,
         agent_handle,
+        scheduled_jobs,
         backend_client,
         init_phase: Arc::new(RwLock::new(InitPhase::Starting)),
         credentials,
