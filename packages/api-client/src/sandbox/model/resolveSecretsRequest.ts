@@ -7,7 +7,5 @@
  */
 
 export interface ResolveSecretsRequest {
-  /** @nullable */
-  targets?: string[] | null;
   taskId: string;
 }

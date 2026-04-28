@@ -33,7 +33,7 @@ pub enum SecretsCommand {
     List(ListArgs),
     /// Create or replace a secret value.
     Put(PutArgs),
-    /// Delete a secret by scope + key + target.
+    /// Delete a secret by scope + key.
     Delete(DeleteArgs),
     /// Migrate secret-like repository env_vars into the scoped secrets table.
     MigrateRepoEnvVars(MigrateArgs),
@@ -91,8 +91,6 @@ pub struct PutArgs {
     pub scope_id: Option<String>,
     #[arg(long)]
     pub key: String,
-    #[arg(long, default_value = "agent")]
-    pub target: String,
     #[arg(long, value_enum, default_value_t = CliKind::Env)]
     pub kind: CliKind,
     #[arg(long, conflicts_with = "value_stdin")]
@@ -110,8 +108,6 @@ pub struct DeleteArgs {
     pub scope_id: Option<String>,
     #[arg(long)]
     pub key: String,
-    #[arg(long, default_value = "agent")]
-    pub target: String,
 }
 
 #[derive(Args, Debug)]
@@ -189,17 +185,16 @@ async fn list(
         return Ok(());
     }
     println!(
-        "{:<44}  {:<10}  {:<32}  {:<24}  {:<16}  updated",
-        "ID", "SCOPE", "KEY", "SCOPE_ID", "TARGET"
+        "{:<44}  {:<10}  {:<32}  {:<24}  updated",
+        "ID", "SCOPE", "KEY", "SCOPE_ID"
     );
     for row in rows {
         println!(
-            "{:<44}  {:<10}  {:<32}  {:<24}  {:<16}  {}",
+            "{:<44}  {:<10}  {:<32}  {:<24}  {}",
             row.id,
             row.scope_type,
             row.key,
             row.scope_id.clone().unwrap_or_default(),
-            row.target,
             row.updated_at,
         );
     }
@@ -218,12 +213,11 @@ async fn put(
         key: args.key,
         kind: args.kind.into(),
         provider: None,
-        target: args.target,
         value: Some(value),
         external_ref: None,
     };
     let row = service.put_secret(ctx, CLI_ACTOR, req).await?;
-    println!("ok: secret {} @ {}/{}", row.key, row.scope_type, row.target);
+    println!("ok: secret {} @ {}", row.key, row.scope_type);
     Ok(())
 }
 
@@ -237,7 +231,7 @@ async fn delete(
         .await?;
     let match_id = rows
         .iter()
-        .find(|row| row.key == args.key && row.target == args.target)
+        .find(|row| row.key == args.key)
         .map(|row| row.id.clone());
     match match_id {
         Some(id) => {
@@ -245,7 +239,7 @@ async fn delete(
             println!("ok: deleted {id}");
         }
         None => {
-            println!("(no match: {} / {})", args.key, args.target);
+            println!("(no match: {})", args.key);
         }
     }
     Ok(())

@@ -21,7 +21,6 @@ export interface SecretMetadataResponse {
   scopeId?: string | null;
   scopeType: SecretScopeType;
   source: SecretSource;
-  target: string;
   updatedAt: string;
   version: number;
 }

@@ -10,5 +10,4 @@ pub mod container_builder;
 pub mod container_watcher;
 pub mod naming;
 pub mod provider;
-pub mod secret_env;
 pub mod status_resolver;

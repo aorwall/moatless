@@ -34,7 +34,7 @@ export function useSecretsList(params: ListSecretsParams, options?: { enabled?: 
 }
 
 /**
- * Create or replace a secret value. Backend replaces on (scope, scope_id, key, target) conflict.
+ * Create or replace a secret value. Backend replaces on (scope, scope_id, key) conflict.
  */
 export function usePutSecret(
   options?: UseMutationOptions<SecretMutationResponse, ErrorType<unknown>, PutSecretRequest>,
@@ -51,7 +51,7 @@ export function usePutSecret(
 }
 
 /**
- * Patch a secret's mutable fields (value/target/kind). Key and scope are immutable.
+ * Patch a secret's mutable fields (value/kind). Key and scope are immutable.
  */
 export function usePatchSecret(
   options?: UseMutationOptions<

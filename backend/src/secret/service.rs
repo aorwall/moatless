@@ -11,8 +11,8 @@ use super::audit::{SecretAuditInput, SecretAuditRepository};
 use super::dao::{SecretInsert, SecretReplace, SecretRepository};
 use super::error::SecretError;
 use super::models::{
-    is_reserved_key, is_valid_secret_key, is_valid_target, target_matches, EncryptedSecretValue,
-    ResolvedSecret, SecretKind, SecretRecord, SecretScopeType,
+    is_reserved_key, is_valid_secret_key, EncryptedSecretValue, ResolvedSecret, SecretKind,
+    SecretRecord, SecretScopeType,
 };
 use super::schemas::{
     PatchSecretRequest, PutSecretRequest, SecretMetadataResponse, ValidateSecretsRequest,
@@ -235,22 +235,11 @@ impl SecretService {
     ) -> Result<SecretMetadataResponse, SecretError> {
         let scope_id = normalize_scope_id(req.scope_type, req.scope_id.as_deref(), actor_id)?;
         ensure_scope_access(ctx, req.scope_type, scope_id.as_deref())?;
-        validate_secret_shape(
-            ctx,
-            &req.key,
-            req.target.as_str(),
-            req.value.as_ref(),
-            req.external_ref.as_ref(),
-        )?;
+        validate_secret_shape(&req.key, req.value.as_ref(), req.external_ref.as_ref())?;
 
         let id = self
             .secrets
-            .find_by_scope_key_target(
-                req.scope_type.as_str(),
-                scope_id.as_deref(),
-                &req.key,
-                &req.target,
-            )
+            .find_by_scope_key(req.scope_type.as_str(), scope_id.as_deref(), &req.key)
             .await?
             .map_or_else(|| uuid::Uuid::new_v4().to_string(), |existing| existing.id);
 
@@ -264,7 +253,6 @@ impl SecretService {
                     id: &id,
                     kind: req.kind.as_str(),
                     provider: req.provider.as_deref(),
-                    target: &req.target,
                     value_ciphertext: storage.value_ciphertext.as_deref(),
                     encryption_nonce: storage.encryption_nonce.as_deref(),
                     encrypted_data_key: storage.encrypted_data_key.as_deref(),
@@ -283,7 +271,6 @@ impl SecretService {
                     key: &req.key,
                     kind: req.kind.as_str(),
                     provider: req.provider.as_deref(),
-                    target: &req.target,
                     value_ciphertext: storage.value_ciphertext.as_deref(),
                     encryption_nonce: storage.encryption_nonce.as_deref(),
                     encrypted_data_key: storage.encrypted_data_key.as_deref(),
@@ -331,14 +318,7 @@ impl SecretService {
             SecretKind::try_from(existing.kind.as_str()).map_err(SecretError::Internal)?,
         );
         let provider = req.provider.or(existing.provider.clone());
-        let target = req.target.unwrap_or_else(|| existing.target.clone());
-        validate_secret_shape(
-            ctx,
-            &existing.key,
-            &target,
-            req.value.as_ref(),
-            req.external_ref.as_ref(),
-        )?;
+        validate_secret_shape(&existing.key, req.value.as_ref(), req.external_ref.as_ref())?;
 
         let storage = if req.value.is_some() || req.external_ref.is_some() {
             self.prepare_storage(
@@ -356,7 +336,6 @@ impl SecretService {
                 id: &existing.id,
                 kind: kind.as_str(),
                 provider: provider.as_deref(),
-                target: &target,
                 value_ciphertext: storage.value_ciphertext.as_deref(),
                 encryption_nonce: storage.encryption_nonce.as_deref(),
                 encrypted_data_key: storage.encrypted_data_key.as_deref(),
@@ -405,10 +384,8 @@ impl SecretService {
             .list_by_scope(req.scope_type.as_str(), scope_id.as_deref())
             .await?;
         let required: HashSet<String> = req.required.into_iter().collect();
-        let targets = req.target.map_or_else(Vec::new, |target| vec![target]);
         let present: HashSet<String> = records
             .into_iter()
-            .filter(|record| targets.is_empty() || target_matches(&record.target, &targets))
             .map(|record| record.key)
             .filter(|key| required.contains(key))
             .collect();
@@ -428,7 +405,6 @@ impl SecretService {
         actor_id: &str,
         scope_type: SecretScopeType,
         scope_id: Option<&str>,
-        targets: &[String],
     ) -> Result<Vec<ResolvedSecret>, SecretError> {
         let scope_id = normalize_scope_id(scope_type, scope_id, actor_id)?;
         let records = self
@@ -437,7 +413,7 @@ impl SecretService {
             .await?;
         let mut resolved = Vec::new();
         for record in records {
-            if record.target == "backend" || !target_matches(&record.target, targets) {
+            if is_reserved_key(&record.key) {
                 continue;
             }
             let value = match self.decrypt_record(&record) {
@@ -458,7 +434,6 @@ impl SecretService {
             resolved.push(ResolvedSecret {
                 key: record.key,
                 value,
-                target: record.target,
                 provider: record.provider,
             });
         }
@@ -469,25 +444,24 @@ impl SecretService {
         &self,
         actor_id: &str,
         team_id: Option<&str>,
-        targets: &[String],
     ) -> Result<HashMap<String, String>, SecretError> {
         let mut credentials = HashMap::new();
         for scope in self
-            .resolve_plaintext_scope(actor_id, SecretScopeType::Global, None, targets)
+            .resolve_plaintext_scope(actor_id, SecretScopeType::Global, None)
             .await?
         {
             credentials.insert(scope.key, scope.value);
         }
         if let Some(team_id) = team_id {
             for scope in self
-                .resolve_plaintext_scope(actor_id, SecretScopeType::Team, Some(team_id), targets)
+                .resolve_plaintext_scope(actor_id, SecretScopeType::Team, Some(team_id))
                 .await?
             {
                 credentials.entry(scope.key).or_insert(scope.value);
             }
         }
         for scope in self
-            .resolve_plaintext_scope(actor_id, SecretScopeType::User, Some(actor_id), targets)
+            .resolve_plaintext_scope(actor_id, SecretScopeType::User, Some(actor_id))
             .await?
         {
             credentials.entry(scope.key).or_insert(scope.value);
@@ -564,13 +538,11 @@ impl SecretService {
                 scope_type: &record.scope_type,
                 scope_id: record.scope_id.as_deref(),
                 key: &record.key,
-                target: &record.target,
                 result,
             })
             .await?;
         Ok(())
     }
-
 }
 
 struct ExistingStorage {
@@ -668,9 +640,7 @@ fn ensure_scope_access(
 }
 
 fn validate_secret_shape(
-    ctx: &ScopeContext,
     key: &str,
-    target: &str,
     value: Option<&String>,
     external_ref: Option<&String>,
 ) -> Result<(), SecretError> {
@@ -679,17 +649,7 @@ fn validate_secret_shape(
             "secret key must match ^[A-Z_][A-Z0-9_]*$: {key}"
         )));
     }
-    if !is_valid_target(target) {
-        return Err(SecretError::BadRequest(format!(
-            "invalid secret target: {target}"
-        )));
-    }
-    if target == "backend" && !ctx.is_admin {
-        return Err(SecretError::Forbidden(
-            "backend-targeted secrets require admin access".to_string(),
-        ));
-    }
-    if is_reserved_key(key) && !(ctx.is_admin && target == "backend") {
+    if is_reserved_key(key) {
         return Err(SecretError::BadRequest(format!(
             "reserved runtime key cannot be used as a sandbox secret: {key}"
         )));
@@ -722,7 +682,6 @@ mod tests {
             key: "TOKEN".to_string(),
             kind: "env".to_string(),
             provider: None,
-            target: "agent".to_string(),
             value_ciphertext: Some(encrypted.value_ciphertext),
             encryption_nonce: Some(encrypted.encryption_nonce),
             encrypted_data_key: Some(encrypted.encrypted_data_key),

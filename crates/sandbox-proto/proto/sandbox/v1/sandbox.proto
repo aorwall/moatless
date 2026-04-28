@@ -93,6 +93,9 @@ message GetCredentialsResponse {
   // Key = env var name (e.g. "GITHUB_TOKEN", "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN")
   // Extensible: add new credentials without proto changes
   map<string, string> credentials = 1;
+  // Shared env for all server sidecars; written by the sandbox to
+  // /opt/moatless/data/server.env at init time.
+  map<string, string> server_env = 2;
 }
 
 // ── Sandbox gRPC API (backend is the client) ────────────────────

@@ -14,7 +14,6 @@ pub struct SecretAuditRecord {
     pub scope_type: String,
     pub scope_id: Option<String>,
     pub key: String,
-    pub target: String,
     pub result: String,
     pub created_at: DateTime<Utc>,
 }
@@ -26,7 +25,6 @@ pub struct SecretAuditInput<'a> {
     pub scope_type: &'a str,
     pub scope_id: Option<&'a str>,
     pub key: &'a str,
-    pub target: &'a str,
     pub result: &'a str,
 }
 
@@ -43,8 +41,8 @@ impl SecretAuditRepository for PgSecretAuditRepository {
         let id = uuid::Uuid::new_v4().to_string();
         sqlx::query(
             r#"INSERT INTO secret_audit_events
-               (id, secret_id, actor_id, action, scope_type, scope_id, key, target, result, created_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())"#,
+               (id, secret_id, actor_id, action, scope_type, scope_id, key, result, created_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())"#,
         )
         .bind(id)
         .bind(input.secret_id)
@@ -53,7 +51,6 @@ impl SecretAuditRepository for PgSecretAuditRepository {
         .bind(input.scope_type)
         .bind(input.scope_id)
         .bind(input.key)
-        .bind(input.target)
         .bind(input.result)
         .execute(&self.0)
         .await?;

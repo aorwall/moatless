@@ -63,7 +63,6 @@ pub async fn provision_handler(
         repos,
         provider_tokens,
         plugin_repos,
-        state.secrets.as_ref(),
         &task_id,
     )
     .await?;
@@ -230,7 +229,6 @@ pub async fn redeploy_handler(
         repos,
         provider_tokens,
         plugin_repos,
-        state.secrets.as_ref(),
         &task_id,
     )
     .await?;

@@ -1,7 +1,6 @@
 //! Task credential resolution for sandbox runtime consumers.
 
-use std::collections::{BTreeMap, HashMap};
-use std::fmt;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use tracing::warn;
@@ -10,9 +9,7 @@ use crate::auth::github_app_service::GitHubAppService;
 use crate::auth::provider_token_dao::ProviderTokenRepository;
 use crate::auth::provider_tokens::ProviderTokenAuthRepository;
 use crate::auth::token_refresh::ensure_fresh_token;
-use crate::sandbox::models::ServerConfig;
-use crate::secret::error::SecretError;
-use crate::secret::models::{ResolvedSecret, SecretScopeType, is_reserved_key};
+use crate::secret::models::is_reserved_key;
 use crate::secret::service::SecretService;
 use crate::task::dao::TaskRepository;
 
@@ -24,136 +21,21 @@ pub const OPENAI_API_KEY: &str = "OPENAI_API_KEY";
 pub const ANTHROPIC_API_KEY: &str = "ANTHROPIC_API_KEY";
 pub const CLAUDE_CODE_OAUTH_TOKEN: &str = "CLAUDE_CODE_OAUTH_TOKEN";
 
-/// Plaintext server-targeted secrets for one provision request.
-///
-/// This type is internal-only and redacts values in Debug output.
-#[derive(Clone, Default, PartialEq, Eq)]
-pub struct ServerSecretBundle {
-    by_server: BTreeMap<String, BTreeMap<String, String>>,
-}
-
-impl ServerSecretBundle {
-    pub fn is_empty(&self) -> bool {
-        self.by_server.is_empty()
-    }
-
-    pub fn get(&self, server_name: &str) -> Option<&BTreeMap<String, String>> {
-        self.by_server.get(server_name)
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = (&String, &BTreeMap<String, String>)> {
-        self.by_server.iter()
-    }
-
-    pub fn secret_count(&self) -> usize {
-        self.by_server.values().map(BTreeMap::len).sum()
-    }
-}
-
-impl fmt::Debug for ServerSecretBundle {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let counts: BTreeMap<&str, usize> = self
-            .by_server
-            .iter()
-            .map(|(server, secrets)| (server.as_str(), secrets.len()))
-            .collect();
-        f.debug_struct("ServerSecretBundle")
-            .field("server_secret_counts", &counts)
-            .finish()
-    }
-}
-
-pub struct ServerSecretInputs<'a> {
+pub struct TaskCredentialInputs<'a> {
     pub task_id: &'a str,
     pub user_id: &'a str,
     pub team_id: Option<&'a str>,
     pub secrets: Option<&'a Arc<SecretService>>,
-    pub servers: &'a [ServerConfig],
-}
-
-pub struct TaskCredentialInputs<'a> {
-    pub task_id: &'a str,
-    pub user_id: &'a str,
-    pub secrets: Option<&'a Arc<SecretService>>,
     pub provider_tokens: Option<&'a Arc<dyn ProviderTokenRepository>>,
-    pub tasks: Option<&'a Arc<dyn TaskRepository>>,
     pub github_app_service: Option<&'a Arc<GitHubAppService>>,
     pub provider_token_auth: Option<&'a Arc<dyn ProviderTokenAuthRepository>>,
 }
 
-pub async fn resolve_server_secrets(
-    input: ServerSecretInputs<'_>,
-) -> Result<ServerSecretBundle, SecretError> {
-    let Some(secrets) = input.secrets else {
-        return Ok(ServerSecretBundle::default());
-    };
-    if input.servers.is_empty() {
-        return Ok(ServerSecretBundle::default());
-    }
-
-    let mut targets = vec!["all".to_string(), "all_servers".to_string()];
-    targets.extend(
-        input
-            .servers
-            .iter()
-            .map(|server| format!("server:{}", server.name)),
-    );
-
-    let mut candidates = Vec::new();
-    candidates.extend(
-        resolve_server_secret_scope(
-            secrets,
-            input.user_id,
-            SecretScopeType::Global,
-            None,
-            &targets,
-            ScopeRank::Global,
-        )
-        .await?,
-    );
-    if let Some(team_id) = input.team_id {
-        candidates.extend(
-            resolve_server_secret_scope(
-                secrets,
-                input.user_id,
-                SecretScopeType::Team,
-                Some(team_id),
-                &targets,
-                ScopeRank::Team,
-            )
-            .await?,
-        );
-    }
-    candidates.extend(
-        resolve_server_secret_scope(
-            secrets,
-            input.user_id,
-            SecretScopeType::User,
-            Some(input.user_id),
-            &targets,
-            ScopeRank::User,
-        )
-        .await?,
-    );
-
-    let bundle = build_server_secret_bundle(input.servers, candidates);
-    if !bundle.is_empty() {
-        tracing::info!(
-            task_id = input.task_id,
-            server_count = bundle.by_server.len(),
-            secret_count = bundle.secret_count(),
-            "Resolved server-targeted secrets"
-        );
-    }
-    Ok(bundle)
-}
-
 pub async fn resolve_task_credentials(input: TaskCredentialInputs<'_>) -> HashMap<String, String> {
-    let team_id = resolve_task_team_id(input.tasks, input.task_id).await;
     let mut credentials = resolve_scoped_secrets(
         input.secrets,
         input.user_id,
-        team_id.as_deref(),
+        input.team_id,
         input.task_id,
     )
     .await;
@@ -161,7 +43,7 @@ pub async fn resolve_task_credentials(input: TaskCredentialInputs<'_>) -> HashMa
     fill_provider_tokens(
         &mut credentials,
         input.provider_tokens,
-        team_id.as_deref(),
+        input.team_id,
         input.user_id,
         input.github_app_service,
         input.provider_token_auth,
@@ -171,160 +53,32 @@ pub async fn resolve_task_credentials(input: TaskCredentialInputs<'_>) -> HashMa
     credentials
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum ScopeRank {
-    Global,
-    Team,
-    User,
-}
-
-struct ScopedServerSecret {
-    secret: ResolvedSecret,
-    scope_rank: ScopeRank,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum TargetSpecificity {
-    Broad,
-    Server,
-}
-
-struct SelectedServerSecret {
-    value: String,
-    specificity: TargetSpecificity,
-    scope_rank: ScopeRank,
-}
-
-async fn resolve_server_secret_scope(
-    secrets: &Arc<SecretService>,
-    actor_id: &str,
-    scope_type: SecretScopeType,
-    scope_id: Option<&str>,
-    targets: &[String],
-    scope_rank: ScopeRank,
-) -> Result<Vec<ScopedServerSecret>, SecretError> {
-    let resolved = secrets
-        .resolve_plaintext_scope(actor_id, scope_type, scope_id, targets)
-        .await?;
-    Ok(resolved
-        .into_iter()
-        .map(|secret| ScopedServerSecret { secret, scope_rank })
-        .collect())
-}
-
-fn build_server_secret_bundle(
-    servers: &[ServerConfig],
-    candidates: Vec<ScopedServerSecret>,
-) -> ServerSecretBundle {
-    let server_names = servers
-        .iter()
-        .map(|server| server.name.as_str())
-        .collect::<Vec<_>>();
-    let mut selected: BTreeMap<String, BTreeMap<String, SelectedServerSecret>> = BTreeMap::new();
-
-    for candidate in candidates {
-        if is_reserved_key(&candidate.secret.key) {
-            warn!(
-                target = %candidate.secret.target,
-                key = %candidate.secret.key,
-                "Skipping reserved server-targeted secret key"
-            );
-            continue;
+/// Resolve the shared env delivered to every server sidecar.
+///
+/// Returns the full accessible scope chain (global > team > user) with
+/// reserved runtime keys filtered out. The agent env is a superset that
+/// additionally includes provider tokens.
+pub async fn resolve_server_env(
+    user_id: &str,
+    team_id: Option<&str>,
+    secrets: Option<&Arc<SecretService>>,
+) -> HashMap<String, String> {
+    let Some(secrets) = secrets else {
+        return HashMap::new();
+    };
+    match secrets.resolve_accessible_plaintext(user_id, team_id).await {
+        Ok(mut env) => {
+            env.retain(|key, _| !is_reserved_key(key));
+            env
         }
-
-        match server_secret_target(candidate.secret.target.as_str(), &server_names) {
-            ServerSecretTarget::AllServers => {
-                for server_name in &server_names {
-                    select_server_secret(
-                        &mut selected,
-                        server_name,
-                        &candidate.secret.key,
-                        &candidate.secret.value,
-                        TargetSpecificity::Broad,
-                        candidate.scope_rank,
-                    );
-                }
-            }
-            ServerSecretTarget::OneServer(server_name) => {
-                select_server_secret(
-                    &mut selected,
-                    server_name,
-                    &candidate.secret.key,
-                    &candidate.secret.value,
-                    TargetSpecificity::Server,
-                    candidate.scope_rank,
-                );
-            }
-            ServerSecretTarget::NotServer => {}
-        }
-    }
-
-    let by_server = selected
-        .into_iter()
-        .filter_map(|(server, secrets)| {
-            let values = secrets
-                .into_iter()
-                .map(|(key, selected)| (key, selected.value))
-                .collect::<BTreeMap<_, _>>();
-            (!values.is_empty()).then_some((server, values))
-        })
-        .collect();
-
-    ServerSecretBundle { by_server }
-}
-
-enum ServerSecretTarget<'a> {
-    AllServers,
-    OneServer(&'a str),
-    NotServer,
-}
-
-fn server_secret_target<'a>(target: &'a str, server_names: &[&'a str]) -> ServerSecretTarget<'a> {
-    match target {
-        "all" | "all_servers" => ServerSecretTarget::AllServers,
-        _ => {
-            let Some(server_name) = target.strip_prefix("server:") else {
-                return ServerSecretTarget::NotServer;
-            };
-            if server_names.contains(&server_name) {
-                ServerSecretTarget::OneServer(server_name)
-            } else {
-                ServerSecretTarget::NotServer
-            }
+        Err(e) => {
+            warn!(user_id, error = %e, "Failed to resolve server env secrets");
+            HashMap::new()
         }
     }
 }
 
-fn select_server_secret(
-    selected: &mut BTreeMap<String, BTreeMap<String, SelectedServerSecret>>,
-    server_name: &str,
-    key: &str,
-    value: &str,
-    specificity: TargetSpecificity,
-    scope_rank: ScopeRank,
-) {
-    let server = selected.entry(server_name.to_string()).or_default();
-    match server.get(key) {
-        Some(existing)
-            if existing.specificity > specificity
-                || (existing.specificity == specificity && existing.scope_rank <= scope_rank) =>
-        {
-            return;
-        }
-        _ => {}
-    }
-
-    server.insert(
-        key.to_string(),
-        SelectedServerSecret {
-            value: value.to_string(),
-            specificity,
-            scope_rank,
-        },
-    );
-}
-
-async fn resolve_task_team_id(
+pub(crate) async fn resolve_task_team_id(
     tasks: Option<&Arc<dyn TaskRepository>>,
     task_id: &str,
 ) -> Option<String> {
@@ -352,11 +106,7 @@ async fn resolve_scoped_secrets(
         return HashMap::new();
     };
 
-    let targets = vec!["agent".to_string(), "all".to_string()];
-    match secrets
-        .resolve_accessible_plaintext(user_id, team_id, &targets)
-        .await
-    {
+    match secrets.resolve_accessible_plaintext(user_id, team_id).await {
         Ok(credentials) => credentials,
         Err(e) => {
             warn!(task_id, error = %e, "Failed to resolve scoped secrets");
@@ -513,144 +263,5 @@ async fn fill_user_provider_tokens(
         Err(e) => {
             warn!(error = %e, user_id, "Failed to query claude provider_token");
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn server(name: &str) -> ServerConfig {
-        ServerConfig {
-            name: name.to_string(),
-            ..Default::default()
-        }
-    }
-
-    fn scoped_secret(
-        target: &str,
-        key: &str,
-        value: &str,
-        scope_rank: ScopeRank,
-    ) -> ScopedServerSecret {
-        ScopedServerSecret {
-            secret: ResolvedSecret {
-                key: key.to_string(),
-                value: value.to_string(),
-                target: target.to_string(),
-                provider: None,
-            },
-            scope_rank,
-        }
-    }
-
-    #[test]
-    fn all_servers_target_applies_to_every_server() {
-        let bundle = build_server_secret_bundle(
-            &[server("web"), server("api")],
-            vec![scoped_secret(
-                "all_servers",
-                "STRIPE_SECRET_KEY",
-                "secret",
-                ScopeRank::Global,
-            )],
-        );
-
-        assert_eq!(
-            bundle.get("web").unwrap().get("STRIPE_SECRET_KEY"),
-            Some(&"secret".to_string())
-        );
-        assert_eq!(
-            bundle.get("api").unwrap().get("STRIPE_SECRET_KEY"),
-            Some(&"secret".to_string())
-        );
-    }
-
-    #[test]
-    fn server_specific_target_overrides_broad_target() {
-        let bundle = build_server_secret_bundle(
-            &[server("web"), server("api")],
-            vec![
-                scoped_secret(
-                    "all_servers",
-                    "STRIPE_SECRET_KEY",
-                    "global",
-                    ScopeRank::Global,
-                ),
-                scoped_secret(
-                    "server:web",
-                    "STRIPE_SECRET_KEY",
-                    "team-web",
-                    ScopeRank::Team,
-                ),
-            ],
-        );
-
-        assert_eq!(
-            bundle.get("web").unwrap().get("STRIPE_SECRET_KEY"),
-            Some(&"team-web".to_string())
-        );
-        assert_eq!(
-            bundle.get("api").unwrap().get("STRIPE_SECRET_KEY"),
-            Some(&"global".to_string())
-        );
-    }
-
-    #[test]
-    fn higher_precedence_scope_wins_for_same_target_specificity() {
-        let bundle = build_server_secret_bundle(
-            &[server("web")],
-            vec![
-                scoped_secret(
-                    "server:web",
-                    "STRIPE_SECRET_KEY",
-                    "global-web",
-                    ScopeRank::Global,
-                ),
-                scoped_secret(
-                    "server:web",
-                    "STRIPE_SECRET_KEY",
-                    "team-web",
-                    ScopeRank::Team,
-                ),
-            ],
-        );
-
-        assert_eq!(
-            bundle.get("web").unwrap().get("STRIPE_SECRET_KEY"),
-            Some(&"global-web".to_string())
-        );
-    }
-
-    #[test]
-    fn reserved_keys_are_not_delivered_to_servers() {
-        let bundle = build_server_secret_bundle(
-            &[server("web")],
-            vec![scoped_secret(
-                "server:web",
-                "USER_AUTH_TOKEN",
-                "secret",
-                ScopeRank::Global,
-            )],
-        );
-
-        assert!(bundle.is_empty());
-    }
-
-    #[test]
-    fn server_secret_bundle_debug_redacts_values() {
-        let bundle = build_server_secret_bundle(
-            &[server("web")],
-            vec![scoped_secret(
-                "server:web",
-                "STRIPE_SECRET_KEY",
-                "super-secret",
-                ScopeRank::Global,
-            )],
-        );
-
-        let debug = format!("{bundle:?}");
-        assert!(debug.contains("server_secret_counts"));
-        assert!(!debug.contains("super-secret"));
     }
 }

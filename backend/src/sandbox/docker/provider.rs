@@ -19,7 +19,6 @@ use tracing::{error, info, warn};
 use super::client::DockerClient;
 use super::container_builder;
 use super::naming::{generate_container_name, generate_server_container_name};
-use super::secret_env;
 use super::status_resolver::DockerStatusResolver;
 use crate::config::Config;
 use crate::events::EventPublisher;
@@ -192,11 +191,9 @@ impl SandboxProvider for DockerSandboxProvider {
             }
         }
 
-        // 7. Create and start server sidecar containers
-        let server_env_files =
-            secret_env::write_server_env_files(&self.config, task_id, &request.server_secrets)
-                .await?;
-
+        // 7. Create and start server sidecar containers. Secrets are
+        //    materialized to `/opt/moatless/data/server.env` by the sandbox
+        //    init after it fetches them via gRPC `GetCredentials`.
         if let Some(ref servers) = plan.repo_config.servers {
             // Validate all server configs up front so we fail fast before
             // kicking off any container create calls. Publishes a `failed`
@@ -216,25 +213,8 @@ impl SandboxProvider for DockerSandboxProvider {
             }
 
             for server in servers {
-                if server_env_files.contains_key(&server.name)
-                    && server.start_commands.as_ref().is_none_or(Vec::is_empty)
-                {
-                    // Validation above already rejects empty start_commands for
-                    // the default image. A custom image with its own baked-in
-                    // CMD can still source env via BASH_ENV, so just note it.
-                    warn!(
-                        task_id = %task_id,
-                        server = %server.name,
-                        "Server has scoped secrets but no start_commands; custom image must source MOATLESS_SERVER_ENV_FILE or BASH_ENV itself"
-                    );
-                }
                 if let Err(e) = self
-                    .create_and_start_server_container(
-                        task_id,
-                        server,
-                        sandbox_image,
-                        server_env_files.get(&server.name).map(String::as_str),
-                    )
+                    .create_and_start_server_container(task_id, server, sandbox_image)
                     .await
                 {
                     let msg = format!("Failed to create server container: {e}");
@@ -321,9 +301,6 @@ impl SandboxProvider for DockerSandboxProvider {
 
         // Remove server containers
         self.remove_server_containers(task_id).await;
-        if let Err(e) = secret_env::delete_server_env_dir(&self.config, task_id).await {
-            warn!(task_id = %task_id, error = %e, "Failed to delete Docker server env files during redeploy");
-        }
 
         // Remove sandbox container
         let container_name = generate_container_name(task_id);
@@ -338,9 +315,6 @@ impl SandboxProvider for DockerSandboxProvider {
 
         // Remove server containers first
         self.remove_server_containers(task_id).await;
-        if let Err(e) = secret_env::delete_server_env_dir(&self.config, task_id).await {
-            warn!(task_id = %task_id, error = %e, "Failed to delete Docker server env files");
-        }
 
         let container_name = generate_container_name(task_id);
 
@@ -489,7 +463,6 @@ impl DockerSandboxProvider {
         task_id: &str,
         server: &ServerConfig,
         sandbox_image: Option<&str>,
-        server_env_file: Option<&str>,
     ) -> Result<(), SandboxError> {
         let server_container_name = generate_server_container_name(task_id, &server.name);
 
@@ -521,7 +494,6 @@ impl DockerSandboxProvider {
             task_id,
             server,
             sandbox_image,
-            server_env_file,
         );
 
         self.client

@@ -14,6 +14,21 @@ use crate::sandbox::k8s::pod_status::DEFAULT_SERVER_READINESS_TIMEOUT_SECS;
 use crate::sandbox::models::*;
 use crate::sandbox::schemas::*;
 
+/// Snapshot of the agent's gRPC status response — state + scheduled jobs.
+struct AgentStatusSnapshot {
+    state: AgentState,
+    scheduled_jobs: Vec<ScheduledJobInfo>,
+}
+
+impl AgentStatusSnapshot {
+    fn empty() -> Self {
+        Self {
+            state: AgentState::None,
+            scheduled_jobs: Vec::new(),
+        }
+    }
+}
+
 /// Read-only domain service for resolving sandbox status from Docker.
 pub struct DockerStatusResolver {
     client: DockerClient,
@@ -40,7 +55,10 @@ impl DockerStatusResolver {
         let is_running = env_status == SandboxStatus::Ready;
 
         if is_running {
-            let agent_state = self.fetch_agent_state(task_id).await;
+            let AgentStatusSnapshot {
+                state: agent_state,
+                scheduled_jobs,
+            } = self.fetch_agent_state(task_id).await;
             let servers = self.resolve_server_entries(task_id, server_configs).await;
 
             return SandboxStatusFullResponse {
@@ -54,6 +72,7 @@ impl DockerStatusResolver {
                 resources: None,
                 container_diagnostics: None,
                 runtime_events: None,
+                scheduled_jobs,
             };
         }
 
@@ -76,6 +95,7 @@ impl DockerStatusResolver {
             resources: None,
             container_diagnostics: None,
             runtime_events: None,
+            scheduled_jobs: Vec::new(),
         }
     }
 
@@ -140,7 +160,7 @@ impl DockerStatusResolver {
     }
 
     /// Query the sandbox container for current agent status via gRPC.
-    async fn fetch_agent_state(&self, task_id: &str) -> AgentState {
+    async fn fetch_agent_state(&self, task_id: &str) -> AgentStatusSnapshot {
         let container_name = generate_container_name(task_id);
         let url = format!(
             "http://{}:{}",
@@ -150,15 +170,22 @@ impl DockerStatusResolver {
             Ok(c) => c,
             Err(e) => {
                 debug!(task_id = %task_id, error = %e, "Failed to create gRPC client for agent status");
-                return AgentState::None;
+                return AgentStatusSnapshot::empty();
             }
         };
 
         match client.get_agent_status().await {
-            Ok(resp) => AgentState::from(resp.status.as_str()),
+            Ok(resp) => AgentStatusSnapshot {
+                state: AgentState::from(resp.status.as_str()),
+                scheduled_jobs: resp
+                    .scheduled_jobs
+                    .into_iter()
+                    .filter_map(ScheduledJobInfo::from_proto)
+                    .collect(),
+            },
             Err(e) => {
                 debug!(task_id = %task_id, error = %e, "Failed to fetch agent status via gRPC");
-                AgentState::None
+                AgentStatusSnapshot::empty()
             }
         }
     }

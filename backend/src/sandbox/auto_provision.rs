@@ -12,8 +12,6 @@ use crate::repository::dao::RepoRepository;
 use crate::repository::models::RepositoryProvider;
 use crate::sandbox::error::SandboxError;
 use crate::sandbox::models::{ProvisionRequest, ServerConfig};
-use crate::sandbox::secrets::{ServerSecretInputs, resolve_server_secrets};
-use crate::secret::service::SecretService;
 use crate::task::dao::TaskRepository;
 
 // Re-export the repo-config builders from k8s/auto_provision so existing
@@ -36,7 +34,6 @@ pub async fn build_provision_request(
     repos: &dyn RepoRepository,
     _provider_tokens: &dyn ProviderTokenRepository,
     plugin_repos: &dyn PluginRepoRepository,
-    secrets: Option<&std::sync::Arc<SecretService>>,
     task_id: &str,
 ) -> Result<ProvisionRequest, SandboxError> {
     // 1. Read task from DB
@@ -69,7 +66,6 @@ pub async fn build_provision_request(
     let git_clone_url = repo.remote_url.clone().unwrap_or_default();
     let git_branch = task.branch.clone().or(repo.default_branch.clone());
     let user_id = task.created_by.as_deref().unwrap_or("system").to_string();
-    let team_id = task.team_id.clone();
 
     let mut repo_config = build_repo_config(&repo);
     let env_vars = crate::sandbox::k8s::auto_provision::parse_env_vars(&repo);
@@ -98,16 +94,6 @@ pub async fn build_provision_request(
         }
     }
 
-    let server_secrets = resolve_server_secrets(ServerSecretInputs {
-        task_id,
-        user_id: &user_id,
-        team_id: team_id.as_deref(),
-        secrets,
-        servers: repo_config.servers.as_deref().unwrap_or(&[]),
-    })
-    .await
-    .map_err(|e| SandboxError::Internal(format!("Failed to resolve server secrets: {e}")))?;
-
     let plan = crate::sandbox::models::ProvisionPlan {
         repo_config,
         git_clone_url,
@@ -116,11 +102,7 @@ pub async fn build_provision_request(
         env_vars,
     };
 
-    Ok(ProvisionRequest {
-        plan,
-        user_id,
-        server_secrets,
-    })
+    Ok(ProvisionRequest { plan, user_id })
 }
 
 /// Get server configs for a task, returning an empty vec on any failure.

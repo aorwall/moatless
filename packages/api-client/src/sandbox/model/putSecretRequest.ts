@@ -18,7 +18,6 @@ export interface PutSecretRequest {
   scope: SecretScopeType;
   /** @nullable */
   scopeId?: string | null;
-  target: string;
   /** @nullable */
   value?: string | null;
 }

@@ -177,15 +177,11 @@ pub async fn resolve_task_secrets(
         .find_by_id_internal(&req.task_id)
         .await?
         .ok_or_else(|| SecretError::BadRequest(format!("task not found: {}", req.task_id)))?;
-    let targets = req
-        .targets
-        .unwrap_or_else(|| vec!["agent".to_string(), "all".to_string()]);
     let credentials = state
         .secrets
         .resolve_accessible_plaintext(
             task.created_by.as_deref().unwrap_or(&auth.user_id),
             task.team_id.as_deref(),
-            &targets,
         )
         .await?;
     Ok(Json(ResolveSecretsResponse { credentials }))

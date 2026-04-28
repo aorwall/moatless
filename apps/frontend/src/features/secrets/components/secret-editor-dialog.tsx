@@ -42,22 +42,15 @@ interface FormState {
   scope: EditorScope
   scopeId: string
   key: string
-  target: string
   kind: SecretKind
   value: string
 }
-
-const TARGET_OPTIONS = [
-  { value: 'agent', label: 'agent (Claude/tasks)' },
-  { value: 'all_servers', label: 'all_servers' },
-]
 
 function initialForm(defaultScope: EditorScope): FormState {
   return {
     scope: defaultScope,
     scopeId: '',
     key: '',
-    target: 'agent',
     kind: SecretKind.env,
     value: '',
   }
@@ -68,7 +61,6 @@ function formFromSecret(secret: SecretMetadataResponse): FormState {
     scope: secret.scopeType as EditorScope,
     scopeId: secret.scopeId ?? '',
     key: secret.key,
-    target: secret.target,
     kind: secret.kind,
     value: '',
   }
@@ -118,7 +110,6 @@ export function SecretEditorDialog({
     if (isEditing && editSecret) {
       const request: PatchSecretRequest = {
         value: form.value ? form.value : undefined,
-        target: form.target !== editSecret.target ? form.target : undefined,
         kind: form.kind !== editSecret.kind ? form.kind : undefined,
       }
       patchSecret.mutate(
@@ -141,7 +132,6 @@ export function SecretEditorDialog({
       scopeId: needsScopeId ? form.scopeId : null,
       key: form.key.trim(),
       kind: form.kind,
-      target: form.target,
       value: form.value,
     }
     putSecret.mutate(request, {
@@ -162,7 +152,7 @@ export function SecretEditorDialog({
           <DialogTitle>{isEditing ? 'Update Secret' : 'New Secret'}</DialogTitle>
           <DialogDescription>
             {isEditing
-              ? 'Replace the stored value or change the delivery target. Values are encrypted at rest and never returned by the API.'
+              ? 'Replace the stored value. Values are encrypted at rest and never returned by the API.'
               : 'Secrets are encrypted at rest and delivered to the sandbox at task start.'}
           </DialogDescription>
         </DialogHeader>
@@ -214,28 +204,6 @@ export function SecretEditorDialog({
             />
             <p className="text-xs text-muted-foreground">
               Environment variable name. Case-sensitive. Cannot be changed after creation.
-            </p>
-          </div>
-
-          <div className="space-y-2">
-            <Label>Target</Label>
-            <Select
-              value={form.target}
-              onValueChange={(v) => setForm((prev) => ({ ...prev, target: v }))}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {TARGET_OPTIONS.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              Which container receives this secret. Use <code>agent</code> for Claude runtime.
             </p>
           </div>
 

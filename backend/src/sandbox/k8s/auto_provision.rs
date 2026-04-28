@@ -96,11 +96,7 @@ pub async fn build_provision_request(
 
     let user_id = task.created_by.unwrap_or_else(|| "system".to_string());
 
-    Ok(ProvisionRequest {
-        plan,
-        user_id,
-        server_secrets: Default::default(),
-    })
+    Ok(ProvisionRequest { plan, user_id })
 }
 
 /// Build a `RepoConfig` from the database repository row.

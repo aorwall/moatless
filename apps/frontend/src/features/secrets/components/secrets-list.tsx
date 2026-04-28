@@ -94,7 +94,6 @@ export function SecretsList({ secrets, isLoading, error, onEdit }: SecretsListPr
             <TableRow>
               <TableHead>Key</TableHead>
               <TableHead>Kind</TableHead>
-              <TableHead>Target</TableHead>
               <TableHead>Updated</TableHead>
               <TableHead className="w-[100px] text-right">Actions</TableHead>
             </TableRow>
@@ -106,7 +105,6 @@ export function SecretsList({ secrets, isLoading, error, onEdit }: SecretsListPr
                 <TableCell>
                   <Badge variant="secondary">{secret.kind}</Badge>
                 </TableCell>
-                <TableCell className="text-sm text-muted-foreground">{secret.target}</TableCell>
                 <TableCell className="text-sm text-muted-foreground">
                   {formatUpdated(secret.updatedAt)}
                 </TableCell>

@@ -15,6 +15,5 @@ pub mod pod_status;
 pub mod pod_watcher;
 pub mod provider;
 pub mod pvc;
-pub mod secret;
 pub mod service;
 pub mod status_resolver;

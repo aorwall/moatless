@@ -12,6 +12,4 @@ export interface ValidateSecretsRequest {
   scope: SecretScopeType;
   /** @nullable */
   scopeId?: string | null;
-  /** @nullable */
-  target?: string | null;
 }

@@ -99,7 +99,6 @@ pub struct SecretRecord {
     pub key: String,
     pub kind: String,
     pub provider: Option<String>,
-    pub target: String,
     pub value_ciphertext: Option<Vec<u8>>,
     pub encryption_nonce: Option<Vec<u8>>,
     pub encrypted_data_key: Option<Vec<u8>>,
@@ -129,7 +128,6 @@ impl SecretRecord {
 pub struct ResolvedSecret {
     pub key: String,
     pub value: String,
-    pub target: String,
     pub provider: Option<String>,
 }
 
@@ -183,32 +181,6 @@ pub fn looks_like_secret_key(key: &str) -> bool {
         || upper.ends_with("_KEY")
 }
 
-/// Validate canonical secret targets.
-pub fn is_valid_target(target: &str) -> bool {
-    matches!(target, "agent" | "all_servers" | "all" | "backend")
-        || target
-            .strip_prefix("server:")
-            .is_some_and(is_valid_server_target_name)
-}
-
-fn is_valid_server_target_name(name: &str) -> bool {
-    !name.is_empty()
-        && name
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
-}
-
-pub fn target_matches(candidate: &str, requested: &[String]) -> bool {
-    if candidate == "all" {
-        return true;
-    }
-    requested.iter().any(|target| {
-        candidate == target
-            || (target == "server" && candidate == "all_servers")
-            || (target.starts_with("server:") && candidate == "all_servers")
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -222,18 +194,6 @@ mod tests {
         assert!(!is_valid_secret_key("stripe_key"));
         assert!(!is_valid_secret_key("1TOKEN"));
         assert!(!is_valid_secret_key("BAD-KEY"));
-    }
-
-    #[test]
-    fn rejects_invalid_targets() {
-        assert!(is_valid_target("agent"));
-        assert!(is_valid_target("server:web"));
-        assert!(is_valid_target("all_servers"));
-        assert!(is_valid_target("all"));
-        assert!(is_valid_target("backend"));
-        assert!(!is_valid_target("server:"));
-        assert!(!is_valid_target("servers"));
-        assert!(!is_valid_target("server:web/api"));
     }
 
     #[test]

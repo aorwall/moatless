@@ -14,7 +14,5 @@ export interface PatchSecretRequest {
   /** @nullable */
   provider?: string | null;
   /** @nullable */
-  target?: string | null;
-  /** @nullable */
   value?: string | null;
 }

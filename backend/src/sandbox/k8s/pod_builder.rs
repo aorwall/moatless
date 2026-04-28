@@ -4,9 +4,9 @@
 //! Server containers are created dynamically from the repo config.
 
 use k8s_openapi::api::core::v1::{
-    Capabilities, Container, ContainerPort, EmptyDirVolumeSource, EnvVar, EnvVarSource,
-    HTTPGetAction, PersistentVolumeClaimVolumeSource, Pod, PodSpec, Probe, ResourceRequirements,
-    SecretKeySelector, SecurityContext, TCPSocketAction, Toleration, Volume, VolumeMount,
+    Capabilities, Container, ContainerPort, EmptyDirVolumeSource, EnvVar, HTTPGetAction,
+    PersistentVolumeClaimVolumeSource, Pod, PodSpec, Probe, ResourceRequirements, SecurityContext,
+    TCPSocketAction, Toleration, Volume, VolumeMount,
 };
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
@@ -14,7 +14,6 @@ use std::collections::{BTreeMap, HashMap};
 use tracing::{debug, info};
 
 use super::naming::generate_pod_name;
-use super::secret::ServerSecretRefs;
 use crate::config::Config;
 use crate::sandbox::models::ProvisionPlan;
 
@@ -28,7 +27,6 @@ pub fn build_pod(
     plan: &ProvisionPlan,
     pvc_name: Option<&str>,
     user_auth_token: Option<&str>,
-    server_secret_refs: Option<&ServerSecretRefs>,
 ) -> Result<Pod, String> {
     let pod_name = generate_pod_name(&plan.repo_config.name, task_id);
     let namespace = config.sandbox.namespace.clone();
@@ -110,7 +108,7 @@ pub fn build_pod(
         build_sandbox_container(config, task_id, plan, pvc_name, user_auth_token)?;
 
     // ── Server containers ───────────────────────────────────────────
-    let server_containers = build_server_containers(config, plan, pvc_name, server_secret_refs)?;
+    let server_containers = build_server_containers(config, plan, pvc_name)?;
 
     // ── Assemble Pod ────────────────────────────────────────────────
     let mut all_containers = vec![sandbox_container];
@@ -339,7 +337,6 @@ fn build_server_containers(
     config: &Config,
     plan: &ProvisionPlan,
     pvc_name: Option<&str>,
-    server_secret_refs: Option<&ServerSecretRefs>,
 ) -> Result<Vec<Container>, String> {
     let servers = match &plan.repo_config.servers {
         Some(s) if !s.is_empty() => s,
@@ -372,26 +369,20 @@ fn build_server_containers(
                 env.push(env_var(k, v));
             }
         }
-        if let Some(refs) = server_secret_refs {
-            if let Some(secret_refs) = refs.get(&server.name) {
-                for (key, secret_key) in secret_refs {
-                    env.retain(|existing| existing.name != *key);
-                    env.push(secret_key_ref_env_var(key, &refs.secret_name, secret_key));
-                }
-            }
-        }
 
         // Command: always set command to override image ENTRYPOINT.
         // Server containers may use either the dedicated preview-server image
         // (ENTRYPOINT: server-entrypoint.sh) or the sandbox-js fallback image
         // (ENTRYPOINT: runs sandbox binary). We must override both.
         // The inline wait polls for the workspace-ready sentinel written by
-        // the sandbox container after setup commands complete.
+        // the sandbox container after setup commands complete, then sources
+        // the shared server.env file written by the sandbox init.
         let (command, args) = match &server.start_commands {
             Some(cmds) if !cmds.is_empty() => {
                 let joined_cmd = cmds.join(" && ");
                 let full_cmd = format!(
                     "until [ -f /opt/moatless/data/.workspace-ready ]; do sleep 2; done && \
+                     if [ -f /opt/moatless/data/server.env ]; then set -a && . /opt/moatless/data/server.env && set +a; fi && \
                      cd /opt/moatless/repo && {joined_cmd}"
                 );
                 (
@@ -591,21 +582,6 @@ fn env_var(name: &str, value: &str) -> EnvVar {
     }
 }
 
-fn secret_key_ref_env_var(name: &str, secret_name: &str, key: &str) -> EnvVar {
-    EnvVar {
-        name: name.to_string(),
-        value_from: Some(EnvVarSource {
-            secret_key_ref: Some(SecretKeySelector {
-                key: key.to_string(),
-                name: secret_name.to_string(),
-                optional: Some(false),
-            }),
-            ..Default::default()
-        }),
-        ..Default::default()
-    }
-}
-
 /// Get current time as ISO 8601 string (no chrono dependency — use simple format).
 fn chrono_now_iso() -> String {
     let now = std::time::SystemTime::now()
@@ -777,39 +753,25 @@ mod tests {
     }
 
     #[test]
-    fn server_container_gets_secret_key_refs_for_its_server() {
+    fn server_container_sources_server_env_in_startup() {
         let config = test_config();
         let plan = test_plan();
-        let refs = ServerSecretRefs {
-            secret_name: "task-secret".into(),
-            by_server: BTreeMap::from([(
-                "web".to_string(),
-                BTreeMap::from([("STRIPE_SECRET_KEY".to_string(), "web_STRIPE".to_string())]),
-            )]),
-        };
 
-        let containers = build_server_containers(&config, &plan, Some("pvc"), Some(&refs)).unwrap();
-        let env = containers
+        let containers = build_server_containers(&config, &plan, Some("pvc")).unwrap();
+        let web = containers
             .iter()
             .find(|container| container.name == "web-server")
-            .unwrap()
-            .env
-            .as_ref()
             .unwrap();
-        let secret_env = env
-            .iter()
-            .find(|env_var| env_var.name == "STRIPE_SECRET_KEY")
-            .unwrap();
-        let selector = secret_env
-            .value_from
-            .as_ref()
-            .unwrap()
-            .secret_key_ref
-            .as_ref()
-            .unwrap();
-
-        assert_eq!(secret_env.value, None);
-        assert_eq!(selector.name, "task-secret");
-        assert_eq!(selector.key, "web_STRIPE");
+        let args = web.args.as_ref().unwrap();
+        assert_eq!(args.len(), 1);
+        let startup = &args[0];
+        assert!(
+            startup.contains(". /opt/moatless/data/server.env"),
+            "expected server.env sourcing in startup command, got: {startup}"
+        );
+        assert!(
+            startup.contains(".workspace-ready"),
+            "expected workspace-ready gate in startup command, got: {startup}"
+        );
     }
 }

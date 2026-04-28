@@ -17,7 +17,6 @@ pub struct SecretMetadataResponse {
     pub key: String,
     pub kind: SecretKind,
     pub provider: Option<String>,
-    pub target: String,
     pub source: SecretSource,
     pub version: i32,
     pub updated_at: String,
@@ -37,7 +36,6 @@ impl TryFrom<SecretRecord> for SecretMetadataResponse {
             kind: SecretKind::try_from(record.kind.as_str())?,
             provider: record.provider,
             source,
-            target: record.target,
             version: record.version,
             updated_at: record.updated_at.to_rfc3339(),
             last_used_at: record.last_used_at.map(|dt| dt.to_rfc3339()),
@@ -63,7 +61,6 @@ pub struct PutSecretRequest {
     pub key: String,
     pub kind: SecretKind,
     pub provider: Option<String>,
-    pub target: String,
     pub value: Option<String>,
     pub external_ref: Option<String>,
 }
@@ -76,7 +73,6 @@ impl std::fmt::Debug for PutSecretRequest {
             .field("key", &self.key)
             .field("kind", &self.kind)
             .field("provider", &self.provider)
-            .field("target", &self.target)
             .field("value", &self.value.as_ref().map(|_| "[REDACTED]"))
             .field("external_ref", &self.external_ref)
             .finish()
@@ -88,7 +84,6 @@ impl std::fmt::Debug for PutSecretRequest {
 pub struct PatchSecretRequest {
     pub kind: Option<SecretKind>,
     pub provider: Option<String>,
-    pub target: Option<String>,
     pub value: Option<String>,
     pub external_ref: Option<String>,
 }
@@ -98,7 +93,6 @@ impl std::fmt::Debug for PatchSecretRequest {
         f.debug_struct("PatchSecretRequest")
             .field("kind", &self.kind)
             .field("provider", &self.provider)
-            .field("target", &self.target)
             .field("value", &self.value.as_ref().map(|_| "[REDACTED]"))
             .field("external_ref", &self.external_ref)
             .finish()
@@ -112,7 +106,6 @@ pub struct ValidateSecretsRequest {
     pub scope_type: SecretScopeType,
     pub scope_id: Option<String>,
     pub required: Vec<String>,
-    pub target: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
@@ -126,7 +119,6 @@ pub struct ValidateSecretsResponse {
 #[serde(rename_all = "camelCase")]
 pub struct ResolveSecretsRequest {
     pub task_id: String,
-    pub targets: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
@@ -153,7 +145,6 @@ mod tests {
             key: "STRIPE_SECRET_KEY".to_string(),
             kind: SecretKind::Env,
             provider: None,
-            target: "server:web".to_string(),
             value: Some("sk_live_secret".to_string()),
             external_ref: None,
         };
@@ -172,7 +163,6 @@ mod tests {
             key: "STRIPE_SECRET_KEY".to_string(),
             kind: SecretKind::Env,
             provider: None,
-            target: "server:web".to_string(),
             source: SecretSource::InlineEncrypted,
             version: 1,
             updated_at: Utc::now().to_rfc3339(),

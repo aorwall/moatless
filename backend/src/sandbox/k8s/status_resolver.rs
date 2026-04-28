@@ -22,6 +22,21 @@ use crate::sandbox::client::SandboxClient;
 use crate::sandbox::models::*;
 use crate::sandbox::schemas::*;
 
+/// Snapshot of the agent's gRPC status response — state + scheduled jobs.
+struct AgentStatusSnapshot {
+    state: AgentState,
+    scheduled_jobs: Vec<ScheduledJobInfo>,
+}
+
+impl AgentStatusSnapshot {
+    fn empty() -> Self {
+        Self {
+            state: AgentState::None,
+            scheduled_jobs: Vec::new(),
+        }
+    }
+}
+
 /// Read-only domain service for resolving sandbox status from the K8s API.
 ///
 /// Pure infrastructure — no database dependencies. Server configs are
@@ -84,7 +99,10 @@ impl StatusResolver {
                 .collect();
 
             // Query actual agent status from the sandbox pod via gRPC
-            let agent_state = self.fetch_agent_state(task_id).await;
+            let AgentStatusSnapshot {
+                state: agent_state,
+                scheduled_jobs,
+            } = self.fetch_agent_state(task_id).await;
 
             // Fetch all container statuses for diagnostics
             let container_diagnostics = self.fetch_container_diagnostics(task_id).await;
@@ -100,6 +118,7 @@ impl StatusResolver {
                 resources: None,
                 container_diagnostics,
                 runtime_events: None,
+                scheduled_jobs,
             };
         }
 
@@ -202,6 +221,7 @@ impl StatusResolver {
             resources: None,
             container_diagnostics,
             runtime_events,
+            scheduled_jobs: Vec::new(),
         }
     }
 
@@ -211,9 +231,9 @@ impl StatusResolver {
 
     /// Query the sandbox pod for current agent status via gRPC.
     ///
-    /// Returns `AgentState::None` on any gRPC error (timeout, unavailable, etc.)
-    /// so that status resolution remains resilient.
-    async fn fetch_agent_state(&self, task_id: &str) -> AgentState {
+    /// Returns an empty snapshot (`AgentState::None`, no jobs) on any gRPC error
+    /// (timeout, unavailable, etc.) so that status resolution remains resilient.
+    async fn fetch_agent_state(&self, task_id: &str) -> AgentStatusSnapshot {
         let service_name = generate_service_name(task_id);
         let client = match SandboxClient::for_service(
             &service_name,
@@ -223,15 +243,22 @@ impl StatusResolver {
             Ok(c) => c,
             Err(e) => {
                 debug!(task_id = %task_id, error = %e, "Failed to create gRPC client for agent status");
-                return AgentState::None;
+                return AgentStatusSnapshot::empty();
             }
         };
 
         match client.get_agent_status().await {
-            Ok(resp) => AgentState::from(resp.status.as_str()),
+            Ok(resp) => AgentStatusSnapshot {
+                state: AgentState::from(resp.status.as_str()),
+                scheduled_jobs: resp
+                    .scheduled_jobs
+                    .into_iter()
+                    .filter_map(ScheduledJobInfo::from_proto)
+                    .collect(),
+            },
             Err(e) => {
                 debug!(task_id = %task_id, error = %e, "Failed to fetch agent status via gRPC");
-                AgentState::None
+                AgentStatusSnapshot::empty()
             }
         }
     }

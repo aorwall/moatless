@@ -306,7 +306,6 @@ pub fn build_server_container_config(
     task_id: &str,
     server: &ServerConfig,
     sandbox_image: Option<&str>,
-    server_env_file: Option<&str>,
 ) -> ContainerConfig<String> {
     let container_name = generate_server_container_name(task_id, &server.name);
 
@@ -329,25 +328,19 @@ pub fn build_server_container_config(
             env.push(format!("{k}={v}"));
         }
     }
-    if let Some(path) = server_env_file {
-        env.push(format!("MOATLESS_SERVER_ENV_FILE={path}"));
-        env.push(format!("BASH_ENV={path}"));
-    }
 
     // ── Command ──────────────────────────────────────────────────
-    // Wait for workspace-ready sentinel, then run start commands.
-    // Mirrors K8s pod_builder inline wait pattern.
+    // Wait for workspace-ready sentinel, source the shared server.env
+    // file written by the sandbox init, then run start commands.
     let cmd = match &server.start_commands {
         Some(cmds) if !cmds.is_empty() => {
             let joined_cmd = cmds.join(" && ");
-            let source_env = server_env_file
-                .map(|path| format!(" && set -a && . {} && set +a", shell_quote(path)))
-                .unwrap_or_default();
             Some(vec![
                 "bash".to_string(),
                 "-c".to_string(),
                 format!(
-                    "until [ -f /opt/moatless/data/.workspace-ready ]; do sleep 2; done{source_env} && \
+                    "until [ -f /opt/moatless/data/.workspace-ready ]; do sleep 2; done && \
+                     if [ -f /opt/moatless/data/server.env ]; then set -a && . /opt/moatless/data/server.env && set +a; fi && \
                      cd /opt/moatless/repo && {joined_cmd}"
                 ),
             ])
@@ -426,10 +419,6 @@ pub fn build_server_container_config(
         cmd,
         ..Default::default()
     }
-}
-
-fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\\''"))
 }
 
 #[cfg(test)]
@@ -675,7 +664,7 @@ mod tests {
     fn server_config_uses_default_image() {
         let config = test_config();
         let server = test_server_config();
-        let cc = build_server_container_config(&config, "task-1", &server, None, None);
+        let cc = build_server_container_config(&config, "task-1", &server, None);
         assert_eq!(cc.image.unwrap(), DEFAULT_SERVER_IMAGE);
     }
 
@@ -684,7 +673,7 @@ mod tests {
         let config = test_config();
         let mut server = test_server_config();
         server.docker_image = Some("custom-server:v1".into());
-        let cc = build_server_container_config(&config, "task-1", &server, None, None);
+        let cc = build_server_container_config(&config, "task-1", &server, None);
         assert_eq!(cc.image.unwrap(), "custom-server:v1");
     }
 
@@ -697,7 +686,6 @@ mod tests {
             "task-1",
             &server,
             Some("aorwall/moatless-vibe-sandbox-js:latest"),
-            None,
         );
         assert_eq!(cc.image.unwrap(), "aorwall/moatless-vibe-sandbox-js:latest");
     }
@@ -712,7 +700,6 @@ mod tests {
             "task-1",
             &server,
             Some("aorwall/moatless-vibe-sandbox-js:latest"),
-            None,
         );
         assert_eq!(cc.image.unwrap(), "custom-server:v1");
     }
@@ -721,7 +708,7 @@ mod tests {
     fn server_config_has_correct_labels() {
         let config = test_config();
         let server = test_server_config();
-        let cc = build_server_container_config(&config, "task-1", &server, None, None);
+        let cc = build_server_container_config(&config, "task-1", &server, None);
         let labels = cc.labels.unwrap();
         assert_eq!(labels.get("moatless.service").unwrap(), "server");
         assert_eq!(labels.get("moatless.io/task-id").unwrap(), "task-1");
@@ -732,7 +719,7 @@ mod tests {
     fn server_config_has_workspace_ready_wait() {
         let config = test_config();
         let server = test_server_config();
-        let cc = build_server_container_config(&config, "task-1", &server, None, None);
+        let cc = build_server_container_config(&config, "task-1", &server, None);
         let cmd = cc.cmd.unwrap();
         assert_eq!(cmd[0], "bash");
         assert_eq!(cmd[1], "-c");
@@ -741,28 +728,16 @@ mod tests {
     }
 
     #[test]
-    fn server_config_sources_secret_env_file_without_raw_values() {
+    fn server_config_sources_shared_server_env_file() {
         let config = test_config();
         let server = test_server_config();
-        let cc = build_server_container_config(
-            &config,
-            "task-1",
-            &server,
-            None,
-            Some("/opt/moatless/data/server-env/preview.env"),
-        );
+        let cc = build_server_container_config(&config, "task-1", &server, None);
         let env = cc.env.unwrap();
-        assert!(env.iter().any(|e| {
-            e == "MOATLESS_SERVER_ENV_FILE=/opt/moatless/data/server-env/preview.env"
-        }));
-        assert!(
-            env.iter()
-                .any(|e| e == "BASH_ENV=/opt/moatless/data/server-env/preview.env")
-        );
-        assert!(!env.iter().any(|e| e.contains("STRIPE_SECRET_KEY")));
+        assert!(!env.iter().any(|e| e.starts_with("MOATLESS_SERVER_ENV_FILE=")));
+        assert!(!env.iter().any(|e| e.starts_with("BASH_ENV=")));
 
         let cmd = cc.cmd.unwrap();
-        assert!(cmd[2].contains(". '/opt/moatless/data/server-env/preview.env'"));
+        assert!(cmd[2].contains(". /opt/moatless/data/server.env"));
         assert!(cmd[2].contains("bun run dev"));
     }
 
@@ -770,7 +745,7 @@ mod tests {
     fn server_config_exposes_server_port() {
         let config = test_config();
         let server = test_server_config();
-        let cc = build_server_container_config(&config, "task-1", &server, None, None);
+        let cc = build_server_container_config(&config, "task-1", &server, None);
         let ports = cc.exposed_ports.unwrap();
         assert!(ports.contains_key("3000/tcp"));
     }
@@ -779,7 +754,7 @@ mod tests {
     fn server_config_has_bind_mounts() {
         let config = test_config();
         let server = test_server_config();
-        let cc = build_server_container_config(&config, "task-1", &server, None, None);
+        let cc = build_server_container_config(&config, "task-1", &server, None);
         let host_config = cc.host_config.unwrap();
         let mounts = host_config.mounts.unwrap();
         assert_eq!(mounts.len(), 2);
@@ -791,7 +766,7 @@ mod tests {
     fn server_config_env_vars() {
         let config = test_config();
         let server = test_server_config();
-        let cc = build_server_container_config(&config, "task-1", &server, None, None);
+        let cc = build_server_container_config(&config, "task-1", &server, None);
         let env = cc.env.unwrap();
         assert!(env.iter().any(|e| e == "PORT=3000"));
         assert!(env.iter().any(|e| e == "WORKSPACE_PATH=/opt/moatless/repo"));

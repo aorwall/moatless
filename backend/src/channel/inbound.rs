@@ -120,7 +120,6 @@ pub async fn process_inbound(
                 state.repositories.as_ref(),
                 state.provider_tokens.as_ref(),
                 state.plugin_repos.as_ref(),
-                Some(&state.secrets),
                 &task_id,
             )
             .await
@@ -575,7 +574,6 @@ pub async fn trigger_inbound(
         state.repositories.as_ref(),
         state.provider_tokens.as_ref(),
         state.plugin_repos.as_ref(),
-        Some(&state.secrets),
         &task_id,
     )
     .await
