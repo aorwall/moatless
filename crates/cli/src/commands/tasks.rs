@@ -8,7 +8,7 @@ use moatless_api_schemas::enums::TaskStatus;
 use moatless_api_schemas::sandbox::SandboxStatusFullResponse;
 use moatless_api_schemas::shared::AgentMode;
 use moatless_api_schemas::task::{
-    CreateTaskRequest, ListTasksQuery, ListTasksResponse, TaskResponse,
+    CreateTaskRequest, ListTasksQuery, ListTasksResponse, TaskResponse, UpdateTaskMetadataRequest,
 };
 
 use crate::client::{ClientError, MoatClient};
@@ -56,6 +56,14 @@ pub enum TaskAction {
     Stop { task_id: String },
     /// Close a task
     Close { task_id: String },
+    /// Update task name and/or description
+    Update {
+        task_id: String,
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long)]
+        description: Option<String>,
+    },
     /// Show full task status (environment, agent, servers)
     Status { task_id: String },
     /// Restart sandbox for a task
@@ -227,6 +235,25 @@ pub async fn run(
         TaskAction::Close { task_id } => {
             client.api().close_task(&task_id).await?;
             println!("Task {task_id} closed.");
+        }
+        TaskAction::Update {
+            task_id,
+            name,
+            description,
+        } => {
+            if name.is_none() && description.is_none() {
+                return Err(ClientError::Api {
+                    status: 400,
+                    body: "Provide --name and/or --description".to_string(),
+                });
+            }
+            let req = UpdateTaskMetadataRequest { name, description };
+            let updated = client.api().update_task_metadata(&task_id, &req).await?;
+            if json {
+                output::print_json_typed(&updated);
+            } else {
+                println!("Task {} updated.", updated.task_id);
+            }
         }
         TaskAction::Status { task_id } => {
             let status = client.api().sandbox_status(&task_id).await?;

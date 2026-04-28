@@ -58,7 +58,7 @@ export const EVENT_INVALIDATION_MAP = {
 
 // Status-affecting events now consider subType for granular control
 export const STATUS_AFFECTING_SUBTYPES = {
-  task: ['created', 'open', 'closed', 'updated'], // All task subtypes affect status
+  task: ['created', 'open', 'closed', 'updated', 'metadata.updated'], // All task subtypes affect status
   taskTurn: ['active', 'completed', 'error', 'updated'], // Execution changes and screenshot updates affect status
   agent: ['started', 'stopped', 'completed', 'error'], // Only state changes, not messages
   sandbox: ['ready', 'error', 'removed'], // Only final states affect status

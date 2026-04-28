@@ -427,7 +427,7 @@ pub async fn update_task_metadata(
         validate_task_name(name)?;
     }
 
-    let _existing = state
+    let existing = state
         .tasks
         .find_by_id(&task_id, &auth.scope_context())
         .await?
@@ -438,13 +438,27 @@ pub async fn update_task_metadata(
         .update_task(
             &task_id,
             &TaskPatch {
-                name: req.name,
-                description: req.description,
+                name: req.name.clone(),
+                description: req.description.clone(),
                 ..Default::default()
             },
         )
         .await?;
     tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Task metadata updated");
+
+    if let Some(ref events) = state.events {
+        events
+            .publish_task_event(
+                &task_id,
+                TaskSubType::MetadataUpdated,
+                Some(existing.agent_type.as_str()),
+                serde_json::json!({
+                    "name": req.name,
+                    "description": req.description,
+                }),
+            )
+            .await;
+    }
 
     let row = state
         .tasks

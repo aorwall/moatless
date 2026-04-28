@@ -131,10 +131,19 @@ export function GlobalEventStreamProvider({
         return
       }
 
-      // Special case: task.updated events should force refetch (metadata changed)
-      if (event.type === 'task' && event.subType === 'updated') {
+      // Special case: task.updated / task.metadata.updated events should force
+      // refetch (name/description/etc changed) and refresh task lists for
+      // observers other than the originating client.
+      if (
+        event.type === 'task' &&
+        (event.subType === 'updated' || event.subType === 'metadata.updated')
+      ) {
         queryClient.invalidateQueries({
           queryKey: queryKeys.tasks.detail(event.taskId),
+        })
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.tasks.lists(),
+          refetchType: 'active',
         })
         return // Skip optimistic updates for metadata changes
       }
