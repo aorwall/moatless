@@ -67,6 +67,7 @@ RUN wget -q "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" \
 
 # Install Java OpenJDK 21 and Maven
 RUN apt-get update \
+    && apt-get upgrade -y \
     && apt-get install -y openjdk-21-jdk maven \
     && rm -rf /var/lib/apt/lists/* \
     && ln -s /usr/lib/jvm/java-21-openjdk-* /usr/lib/jvm/default-java

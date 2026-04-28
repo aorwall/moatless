@@ -22,7 +22,7 @@ DEV_BROWSER_DIR="${DEV_BROWSER_DIR:-}"
 CLEANUP_DEV_BROWSER=false
 
 # Pinned CLI versions (kept in sync with .github/workflows/build-sandbox-images.yml)
-CLAUDE_CLI_VERSION="${CLAUDE_CLI_VERSION:-2.1.114}"
+CLAUDE_CLI_VERSION="${CLAUDE_CLI_VERSION:-2.1.121}"
 CODEX_CLI_VERSION="${CODEX_CLI_VERSION:-0.121.0}"
 
 # Parse command line arguments
