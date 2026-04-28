@@ -3,7 +3,12 @@ import { useQueryClient } from '@tanstack/react-query'
 import type React from 'react'
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { getInvalidationKeys, invalidateByTool, shouldInvalidateTaskList } from '@/features/events'
+import {
+  getInvalidationKeys,
+  invalidateByTool,
+  invalidateMessagesForEvent,
+  shouldInvalidateTaskList,
+} from '@/features/events'
 import { applyTaskEventUpdate } from '@/features/tasks/utils/query-helpers'
 import { queryKeys } from '@/lib/api/query-keys'
 import type { Event, EventType } from '@/lib/types/events'
@@ -181,6 +186,10 @@ export function GlobalEventStreamProvider({
 
       // Invalidate queries based on tools used in the event
       invalidateByTool(event, queryClient)
+
+      // Targeted refresh of the newest messages page (no full infinite query
+      // invalidation) for events that change what the user is actively reading.
+      invalidateMessagesForEvent(event, queryClient)
 
       const invalidationKeys = getInvalidationKeys(event)
 

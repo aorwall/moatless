@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import type { QueryClient } from '@tanstack/react-query'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { queryKeys } from '@/lib/api/query-keys'
 import type {
   AgentEvent,
@@ -9,9 +10,19 @@ import type {
 import {
   EVENT_INVALIDATION_MAP,
   getInvalidationKeys,
+  invalidateMessagesForEvent,
   isStatusAffectingEvent,
   shouldInvalidateTaskList,
 } from '../event-handlers'
+
+const refreshNewestMessagesPageMock = vi.fn((_queryClient: QueryClient, _taskId: string) =>
+  Promise.resolve(),
+)
+
+vi.mock('@/features/tasks/hooks/use-tasks', () => ({
+  refreshNewestMessagesPage: (queryClient: QueryClient, taskId: string) =>
+    refreshNewestMessagesPageMock(queryClient, taskId),
+}))
 
 describe('event-handlers', () => {
   describe('getInvalidationKeys', () => {
@@ -52,7 +63,7 @@ describe('event-handlers', () => {
       expect(keys[1]('task-456')).toEqual(queryKeys.tasks.sandboxStatus('task-456'))
     })
 
-    it('should return correct invalidation keys for AGENT MESSAGE event', () => {
+    it('should not invalidate messages key for AGENT MESSAGE event', () => {
       const event: Event = {
         eventId: 'event-3',
         type: 'agent',
@@ -64,11 +75,12 @@ describe('event-handlers', () => {
       } as AgentEvent
 
       const keys = getInvalidationKeys(event)
-      expect(keys).toHaveLength(1)
-      expect(keys[0]).toBe(queryKeys.tasks.messages)
+      // Messages refresh is handled via invalidateMessagesForEvent (newest-page
+      // refetch) instead of full infinite-query invalidation.
+      expect(keys).toHaveLength(0)
     })
 
-    it('should return messages invalidation for AGENT SESSION_INIT event', () => {
+    it('should not invalidate messages key for AGENT SESSION_INIT event', () => {
       const event: Event = {
         eventId: 'event-5',
         type: 'agent',
@@ -81,10 +93,7 @@ describe('event-handlers', () => {
       } as AgentEvent
 
       const keys = getInvalidationKeys(event)
-
-      // session_init should invalidate messages so frontend refreshes queued→sent status
-      expect(keys).toHaveLength(1)
-      expect(keys[0]).toBe(queryKeys.tasks.messages)
+      expect(keys).toHaveLength(0)
     })
 
     it('should return correct invalidation keys for SANDBOX event', () => {
@@ -168,6 +177,99 @@ describe('event-handlers', () => {
       const taskInvalidations = EVENT_INVALIDATION_MAP.task['*']
       expect(taskInvalidations).toHaveLength(1)
       expect(taskInvalidations[0]('task-123')).toEqual(queryKeys.tasks.detail('task-123'))
+    })
+
+    it('should not invalidate the messages key for any event', () => {
+      // Messages refresh now goes through invalidateMessagesForEvent which
+      // surgically refetches the newest page; no event should invalidate
+      // the entire messages infinite query.
+      for (const typeMapping of Object.values(EVENT_INVALIDATION_MAP)) {
+        const invalidationFns = Array.isArray(typeMapping)
+          ? typeMapping
+          : Object.values(typeMapping).flat()
+        for (const fn of invalidationFns) {
+          expect(fn).not.toBe(queryKeys.tasks.messages)
+        }
+      }
+    })
+  })
+
+  describe('invalidateMessagesForEvent', () => {
+    const queryClient = {} as QueryClient
+
+    beforeEach(() => {
+      refreshNewestMessagesPageMock.mockClear()
+    })
+
+    const trigger = (event: Event) => invalidateMessagesForEvent(event, queryClient)
+
+    it.each([
+      { type: 'taskTurn', subType: 'completed' },
+      { type: 'taskTurn', subType: 'error' },
+      { type: 'agent', subType: 'session_init' },
+      { type: 'agent', subType: 'message' },
+    ] as const)('refetches the newest page on $type/$subType events', ({ type, subType }) => {
+      trigger({
+        eventId: 'e',
+        type,
+        subType,
+        taskId: 'task-1',
+        agentType: 'test',
+        isError: false,
+        payload: {},
+      } as Event)
+
+      expect(refreshNewestMessagesPageMock).toHaveBeenCalledTimes(1)
+      expect(refreshNewestMessagesPageMock).toHaveBeenCalledWith(queryClient, 'task-1')
+    })
+
+    it.each([{ name: 'AskUserQuestion' }, { name: 'ExitPlanMode' }] as const)(
+      'refetches the newest page when $name appears in agent.message',
+      ({ name }) => {
+        trigger({
+          eventId: 'e',
+          type: 'agent',
+          subType: 'message',
+          taskId: 'task-tool',
+          agentType: 'test',
+          isError: false,
+          payload: {
+            message: {
+              content: [{ type: 'tool_use', toolUseId: 't1', toolName: name, toolInput: {} }],
+            },
+          },
+        } as unknown as Event)
+
+        expect(refreshNewestMessagesPageMock).toHaveBeenCalledWith(queryClient, 'task-tool')
+      },
+    )
+
+    it('ignores events outside the trigger set', () => {
+      trigger({
+        eventId: 'e',
+        type: 'agent',
+        subType: 'started',
+        taskId: 'task-x',
+        agentType: 'test',
+        isError: false,
+        payload: {},
+      } as AgentEvent)
+
+      expect(refreshNewestMessagesPageMock).not.toHaveBeenCalled()
+    })
+
+    it('ignores events with no taskId', () => {
+      trigger({
+        eventId: 'e',
+        type: 'taskTurn',
+        subType: 'completed',
+        taskId: '',
+        agentType: 'test',
+        isError: false,
+        payload: {},
+      } as Event)
+
+      expect(refreshNewestMessagesPageMock).not.toHaveBeenCalled()
     })
   })
 })

@@ -1,4 +1,5 @@
 import type { QueryClient } from '@tanstack/react-query'
+import { refreshNewestMessagesPage } from '@/features/tasks/hooks/use-tasks'
 import { queryKeys } from '@/lib/api/query-keys'
 import { extractToolNames, hasTools } from '@/lib/types/content-guards'
 import type { Event } from '@/lib/types/events'
@@ -8,7 +9,13 @@ export type InvalidationKeyFunction = (id: string) => readonly unknown[]
 
 type InvalidationMapping = Readonly<Record<string, readonly InvalidationKeyFunction[]>>
 
-// SubType-aware invalidation mapping - prevents unnecessary refetches
+// SubType-aware invalidation mapping - prevents unnecessary refetches.
+//
+// IMPORTANT: messages are NOT invalidated here. Invalidating an infinite
+// query refetches every loaded page and resets the user's scroll position.
+// The set of events that previously triggered messages-key invalidation now
+// triggers a targeted refetch of the newest page via
+// `invalidateMessagesForEvent` below.
 
 export const EVENT_INVALIDATION_MAP = {
   task: {
@@ -19,16 +26,16 @@ export const EVENT_INVALIDATION_MAP = {
     // Turn status changes affect task detail and potentially git
     created: [queryKeys.tasks.detail],
     active: [queryKeys.tasks.detail],
-    completed: [queryKeys.tasks.detail, queryKeys.tasks.messages],
-    error: [queryKeys.tasks.detail, queryKeys.tasks.messages],
+    completed: [queryKeys.tasks.detail],
+    error: [queryKeys.tasks.detail],
     updated: [queryKeys.tasks.detail], // Screenshot updates need task detail refresh
   },
   agent: {
     // Agent subtypes have different invalidation needs
     started: [queryKeys.tasks.sandboxStatus],
     stopped: [queryKeys.tasks.sandboxStatus],
-    session_init: [queryKeys.tasks.messages], // Refresh message status (queued → sent)
-    message: [queryKeys.tasks.messages], // Only messages, not status
+    session_init: [], // Newest-page refetch instead (see MESSAGE_REFRESH_TRIGGERS)
+    message: [], // Newest-page refetch instead (see MESSAGE_REFRESH_TRIGGERS)
     completed: [queryKeys.tasks.detail, queryKeys.tasks.sandboxStatus], // Full turn impact
     error: [queryKeys.tasks.detail, queryKeys.tasks.sandboxStatus],
   },
@@ -135,20 +142,71 @@ const TOOL_INVALIDATION_REGISTRY: Readonly<
       refetchType: 'active',
     })
   },
-  // User input tools - invalidate messages to refresh with hasPendingUserInput flag
-  AskUserQuestion: (taskId, queryClient) => {
-    queryClient.invalidateQueries({
-      queryKey: queryKeys.tasks.messages(taskId),
-      refetchType: 'active',
-    })
+  // User input tools - newest-page refetch via MESSAGE_REFRESH_TOOL_TRIGGERS;
+  // no-op here so the invalidation registry doesn't reset the infinite query.
+  AskUserQuestion: () => {
+    /* handled by invalidateMessagesForEvent */
   },
-  ExitPlanMode: (taskId, queryClient) => {
-    queryClient.invalidateQueries({
-      queryKey: queryKeys.tasks.messages(taskId),
-      refetchType: 'active',
-    })
+  ExitPlanMode: () => {
+    /* handled by invalidateMessagesForEvent */
   },
 } as const
+
+/**
+ * Events that should trigger a refetch of the newest messages page.
+ * Mirrors the set of triggers that previously invalidated the entire
+ * `tasks.messages` infinite query — restricted to type/subType pairs.
+ */
+const MESSAGE_REFRESH_EVENT_TRIGGERS: ReadonlyArray<{ type: Event['type']; subType: string }> = [
+  { type: 'taskTurn', subType: 'completed' },
+  { type: 'taskTurn', subType: 'error' },
+  { type: 'agent', subType: 'session_init' },
+  { type: 'agent', subType: 'message' },
+]
+
+/**
+ * Tool names that should trigger a refetch of the newest messages page when
+ * present in an `agent.message` event payload.
+ */
+const MESSAGE_REFRESH_TOOL_TRIGGERS: ReadonlySet<string> = new Set([
+  'AskUserQuestion',
+  'ExitPlanMode',
+])
+
+/**
+ * Refetch only the newest page of messages on events that affect what the
+ * user is actively reading, instead of invalidating the whole infinite
+ * query. Older pages stay cached, scroll position stays put.
+ */
+export function invalidateMessagesForEvent(event: Event, queryClient: QueryClient): void {
+  if (!event.taskId) {
+    return
+  }
+
+  const matchesEventTrigger = MESSAGE_REFRESH_EVENT_TRIGGERS.some(
+    (trigger) => trigger.type === event.type && trigger.subType === event.subType,
+  )
+
+  let matchesToolTrigger = false
+  if (event.type === 'agent' && event.subType === 'message') {
+    const payload = event.payload as { message?: { content?: unknown } }
+    const content = payload?.message?.content
+    if (Array.isArray(content) && hasTools(content)) {
+      matchesToolTrigger = extractToolNames(content).some((name) =>
+        MESSAGE_REFRESH_TOOL_TRIGGERS.has(name),
+      )
+    }
+  }
+
+  if (!(matchesEventTrigger || matchesToolTrigger)) {
+    return
+  }
+
+  // Fire-and-forget: errors here are logged elsewhere via the API client.
+  refreshNewestMessagesPage(queryClient, event.taskId).catch(() => {
+    /* swallow: refetch failures surface via the next stream event */
+  })
+}
 
 /**
  * Invalidate queries based on tools used in an agent message event
