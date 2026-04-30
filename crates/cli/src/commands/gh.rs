@@ -98,6 +98,7 @@ async fn run_with_connect(
     let stdout_str = String::from_utf8_lossy(&output.stdout);
     if let Some(pr) = parse_pr_url(&stdout_str) {
         try_connect_channel(client, task_id, &pr, json).await;
+        try_append_task_footer(real_gh, &pr).await;
     }
     Ok(())
 }
@@ -120,6 +121,19 @@ struct ParsedPr {
     repo: String,
     number: u64,
 }
+
+impl ParsedPr {
+    fn url(&self) -> String {
+        format!(
+            "https://github.com/{}/{}/pull/{}",
+            self.owner, self.repo, self.number
+        )
+    }
+}
+
+/// Footer marker so we can detect if the URL was already appended (and skip
+/// re-appending on a hypothetical retry). Stable across runs.
+const FOOTER_MARKER: &str = "Moatless task:";
 
 /// Detect whether `args` invoke `pr create`.
 ///
@@ -223,6 +237,87 @@ async fn try_connect_channel(client: &MoatClient, task_id: &str, pr: &ParsedPr, 
                 pr.number
             );
         }
+    }
+}
+
+/// Append a `Moatless task: <url>` footer to the PR description.
+///
+/// Reads the task URL from `MOAT_TASK_URL` (set by sandbox/agent env). If the
+/// env var is missing/empty, silently skips. Failures during fetch/edit are
+/// logged to stderr but never fail the command — the PR was already created.
+async fn try_append_task_footer(real_gh: &Path, pr: &ParsedPr) {
+    let task_url = match std::env::var("MOAT_TASK_URL") {
+        Ok(u) if !u.is_empty() => u,
+        _ => return,
+    };
+
+    let pr_url = pr.url();
+
+    // Fetch current body via `-q .body` so gh emits the raw string (with
+    // real newlines), not JSON.
+    let view = match Command::new(real_gh)
+        .args(["pr", "view", &pr_url, "--json", "body", "-q", ".body"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .await
+    {
+        Ok(o) => o,
+        Err(e) => {
+            eprintln!("[moat gh] Failed to read PR body for footer: {e}");
+            return;
+        }
+    };
+    if !view.status.success() {
+        eprintln!(
+            "[moat gh] gh pr view exited {} when reading body — skipping footer",
+            view.status.code().unwrap_or(-1)
+        );
+        return;
+    }
+    let existing_body = String::from_utf8_lossy(&view.stdout).trim_end().to_string();
+
+    if existing_body.contains(FOOTER_MARKER) {
+        // Footer already present — don't double-append.
+        return;
+    }
+
+    let new_body = compose_footer(&existing_body, &task_url);
+
+    let edit = Command::new(real_gh)
+        .args(["pr", "edit", &pr_url, "--body", &new_body])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .await;
+    match edit {
+        Ok(o) if o.status.success() => {
+            eprintln!("[moat gh] Appended task URL to PR #{} description", pr.number);
+        }
+        Ok(o) => {
+            let stderr = String::from_utf8_lossy(&o.stderr);
+            eprintln!(
+                "[moat gh] gh pr edit exited {}: {}",
+                o.status.code().unwrap_or(-1),
+                stderr.trim()
+            );
+        }
+        Err(e) => {
+            eprintln!("[moat gh] Failed to spawn gh pr edit: {e}");
+        }
+    }
+}
+
+/// Compose the new PR body: existing body + horizontal rule + task URL.
+/// Handles empty body (no leading separator) and double-blank-line trimming.
+fn compose_footer(existing: &str, task_url: &str) -> String {
+    let trimmed = existing.trim_end_matches('\n').to_string();
+    if trimmed.is_empty() {
+        format!("{FOOTER_MARKER} {task_url}\n")
+    } else {
+        format!("{trimmed}\n\n---\n{FOOTER_MARKER} {task_url}\n")
     }
 }
 
@@ -365,5 +460,43 @@ mod tests {
         assert!(is_under_shim_dir(Path::new("/opt/moatless/shims/sub/gh")));
         assert!(!is_under_shim_dir(Path::new("/usr/bin/gh")));
         assert!(!is_under_shim_dir(Path::new("/usr/local/bin/gh")));
+    }
+
+    fn pr(owner: &str, repo: &str, number: u64) -> ParsedPr {
+        ParsedPr {
+            owner: owner.to_string(),
+            repo: repo.to_string(),
+            number,
+        }
+    }
+
+    #[test]
+    fn parsed_pr_url() {
+        assert_eq!(
+            pr("foo", "bar", 42).url(),
+            "https://github.com/foo/bar/pull/42"
+        );
+    }
+
+    #[test]
+    fn footer_appends_to_existing_body() {
+        let body = "## Summary\nFix bug.\n\n## Test plan\n- [x] Tests";
+        let out = compose_footer(body, "https://moatless.dev/tasks/t_1");
+        assert!(out.starts_with("## Summary"));
+        assert!(out.contains("---\nMoatless task: https://moatless.dev/tasks/t_1\n"));
+        // Existing body content preserved verbatim
+        assert!(out.contains("- [x] Tests"));
+    }
+
+    #[test]
+    fn footer_handles_empty_body() {
+        let out = compose_footer("", "https://moatless.dev/tasks/t_2");
+        assert_eq!(out, "Moatless task: https://moatless.dev/tasks/t_2\n");
+    }
+
+    #[test]
+    fn footer_trims_trailing_newlines_before_separator() {
+        let out = compose_footer("body\n\n\n", "https://x/tasks/t");
+        assert_eq!(out, "body\n\n---\nMoatless task: https://x/tasks/t\n");
     }
 }
