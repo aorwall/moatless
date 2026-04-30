@@ -164,8 +164,18 @@ impl GithubPrProvider {
             }
         }
 
-        // Filter events from the run_as_user (prevents moat reply → webhook loop)
-        if !sender_login.is_empty() {
+        // Filter events from the run_as_user (prevents moat reply → webhook loop).
+        //
+        // Comment-style events skip this filter: same-task echo is handled per-row
+        // by `has_channel_external_id` (the agent tags its own tool_result rows in
+        // `message::hooks`), and we want sibling tasks connected to the same PR to
+        // still receive the comment.
+        let is_comment_event = matches!(
+            event_type,
+            "issue_comment" | "pull_request_review_comment" | "pull_request_review"
+        );
+
+        if !is_comment_event && !sender_login.is_empty() {
             if let Ok(Some(sender_user_id)) = self.resolve_user(sender_login, db).await {
                 if sender_user_id == config.effective_user_id() {
                     debug!(sender_login, run_as = %config.effective_user_id(), "Ignoring event from run_as user");

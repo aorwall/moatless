@@ -526,6 +526,14 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
                 message_type = %message_type,
                 "Agent message persisted"
             );
+            crate::message::hooks::on_agent_message_persisted(
+                state,
+                &event.task_id,
+                uuid,
+                message_type,
+                &content,
+            )
+            .await;
         }
         Err(e) => {
             tracing::warn!(

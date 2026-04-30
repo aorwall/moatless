@@ -9,8 +9,9 @@ use sqlx::PgPool;
 
 use moatless_vibe_backend::command::models::Command;
 use moatless_vibe_backend::config::{
-    AuthConfig, Config, DatabaseConfig, DockerConfig, ProxyConfig, RedisConfig, S3Config,
-    SandboxConfig, SandboxProviderType, ServerConfig, SlackConfig, SseConfig,
+    AuthConfig, Config, DatabaseConfig, DockerConfig, GithubPrConfig, ProxyConfig, RedisConfig,
+    S3Config, SandboxConfig, SandboxProviderType, SecretsConfig, ServerConfig, SkillConfig,
+    SlackConfig, SseConfig, TelegramConfig,
 };
 use moatless_vibe_backend::message::models::{MessageRole, MessageType, TaskMessage};
 use moatless_vibe_backend::repository::models::{Repository, RepositoryKind, RepositoryProvider};
@@ -45,7 +46,7 @@ impl SandboxProvider for MockSandboxProvider {
         &self,
         _task_id: &str,
         _server_configs: &[moatless_vibe_backend::sandbox::models::ServerConfig],
-    ) -> Result<WorkspaceStatusFullResponse, SandboxError> {
+    ) -> Result<SandboxStatusFullResponse, SandboxError> {
         Err(SandboxError::Internal("mock: not implemented".into()))
     }
 
@@ -54,6 +55,14 @@ impl SandboxProvider for MockSandboxProvider {
     }
 
     async fn restart(&self, _task_id: &str) -> Result<(), SandboxError> {
+        Err(SandboxError::Internal("mock: not implemented".into()))
+    }
+
+    async fn redeploy(
+        &self,
+        _task_id: &str,
+        _request: &ProvisionRequest,
+    ) -> Result<ProvisionResponse, SandboxError> {
         Err(SandboxError::Internal("mock: not implemented".into()))
     }
 
@@ -72,6 +81,7 @@ impl SandboxProvider for MockSandboxProvider {
         &self,
         _task_id: &str,
         _server_name: &str,
+        _previous: bool,
     ) -> Result<BoxStream<'static, Result<Event, SandboxError>>, SandboxError> {
         Err(SandboxError::Internal("mock: not implemented".into()))
     }
@@ -117,6 +127,7 @@ pub fn test_config() -> Config {
             node_selector_json: None,
             tolerations_json: None,
             service_account_name: None,
+            default_model: None,
         },
         docker: DockerConfig {
             network: "moatless".into(),
@@ -124,6 +135,9 @@ pub fn test_config() -> Config {
             data_dir: "/tmp/moatless-data".into(),
             container_data_dir: "/tmp/moatless-data".into(),
             backend_hostname: "backend".into(),
+            enable_socket_mount: false,
+            socket_path: "/var/run/docker.sock".into(),
+            extra_networks: vec![],
         },
         proxy: ProxyConfig {
             domain: None,
@@ -151,6 +165,7 @@ pub fn test_config() -> Config {
             github_client_secret: None,
             github_callback_url: None,
             github_oauth_scope: "".into(),
+            github_required_org: None,
             auth0_domain: None,
             auth0_client_id: None,
             auth0_client_secret: None,
@@ -182,6 +197,19 @@ pub fn test_config() -> Config {
             bot_token: None,
             signing_secret: None,
             bot_user_id: None,
+        },
+        telegram: TelegramConfig {
+            bot_token: None,
+            mode: "webhook".into(),
+        },
+        github_pr: GithubPrConfig {
+            webhook_secret: None,
+            bot_token: None,
+        },
+        skill: SkillConfig { cache_ttl_secs: 60 },
+        secrets: SecretsConfig {
+            encryption_key: Some("0123456789abcdef0123456789abcdef".to_string()),
+            kms_key_id: None,
         },
     }
 }
@@ -312,6 +340,10 @@ pub fn make_message_row(task_id: &str, uuid: &str) -> TaskMessage {
         resume: true,
         sent_at: None,
         created_at: None,
+        channel_external_id: None,
+        channel_provider: None,
+        channel_source_name: None,
+        command_name: None,
     }
 }
 

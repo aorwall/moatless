@@ -190,4 +190,33 @@ impl GithubPrApi {
             .await
             .map_err(|e| ChannelError::ProviderApi(format!("GitHub get_pr parse error: {e}")))
     }
+
+    /// Update a PR's body.
+    pub async fn update_pr_body(
+        &self,
+        owner: &str,
+        repo: &str,
+        pr_number: u64,
+        body: &str,
+    ) -> Result<(), ChannelError> {
+        let url = format!("https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}");
+
+        let resp = self
+            .request(reqwest::Method::PATCH, &url)
+            .json(&serde_json::json!({ "body": body }))
+            .send()
+            .await
+            .map_err(|e| ChannelError::ProviderApi(format!("GitHub update_pr_body failed: {e}")))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            warn!(status = %status, body = %text, "GitHub update_pr_body error");
+            return Err(ChannelError::ProviderApi(format!(
+                "GitHub update_pr_body returned {status}: {text}"
+            )));
+        }
+
+        Ok(())
+    }
 }
