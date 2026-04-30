@@ -31,6 +31,16 @@ pub trait ChannelProvider: Send + Sync {
         false
     }
 
+    /// Maximum length (in characters) for an outbound reply's text body.
+    ///
+    /// Replies longer than this are truncated with an ellipsis before being
+    /// handed to the provider. Default 4000 suits chat surfaces (Slack,
+    /// Telegram); providers like GitHub that allow much longer comments
+    /// should override this.
+    fn max_message_length(&self) -> usize {
+        4000
+    }
+
     /// Downcast support for provider-specific operations.
     fn as_any(&self) -> &dyn Any;
 

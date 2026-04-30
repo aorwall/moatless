@@ -876,6 +876,13 @@ impl ChannelProvider for GithubPrProvider {
         self
     }
 
+    /// GitHub allows up to 65536 chars per issue/PR comment. Leave headroom for
+    /// the agent marker and the optional task-URL footer that `send_reply`
+    /// prepends/appends.
+    fn max_message_length(&self) -> usize {
+        65_000
+    }
+
     async fn resolve_user(
         &self,
         identity: &str,

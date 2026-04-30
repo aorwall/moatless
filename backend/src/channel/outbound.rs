@@ -71,13 +71,6 @@ pub async fn send_to_channels(
 
     let files = resolve_files(state, file_ids).await;
 
-    let reply = OutboundReply {
-        text: truncate_text(text, 4000),
-        task_url: None,
-        is_error: false,
-        files,
-    };
-
     let mut sent_count = 0u32;
     let mut errors = Vec::new();
     let mut sent_config_ids: HashSet<String> = HashSet::new();
@@ -119,13 +112,20 @@ pub async fn send_to_channels(
         };
 
         // Reject if files are attached but the provider doesn't support them.
-        if !reply.files.is_empty() && !target_supports_files(&target) {
+        if !files.is_empty() && !target_supports_files(&target) {
             let provider_name = target_provider_type(&target);
             errors.push(format!(
                 "Provider {provider_name:?} does not support file attachments"
             ));
             continue;
         }
+
+        let reply = OutboundReply {
+            text: truncate_text(text, target_max_message_length(&target)),
+            task_url: None,
+            is_error: false,
+            files: files.clone(),
+        };
 
         match send_outbound_result(state, task_id, target, &reply).await {
             Ok(()) => sent_count += 1,
@@ -189,7 +189,7 @@ pub async fn direct_send_to_channel(
     }
 
     let reply = OutboundReply {
-        text: truncate_text(text, 4000),
+        text: truncate_text(text, provider.max_message_length()),
         task_url: None,
         is_error: false,
         files,
@@ -827,6 +827,15 @@ fn target_supports_files(target: &OutboundTarget<'_>) -> bool {
     match target {
         OutboundTarget::Reply { provider, .. } | OutboundTarget::NewMessage { provider, .. } => {
             provider.supports_files()
+        }
+    }
+}
+
+/// Maximum reply text length supported by the resolved target's provider.
+fn target_max_message_length(target: &OutboundTarget<'_>) -> usize {
+    match target {
+        OutboundTarget::Reply { provider, .. } | OutboundTarget::NewMessage { provider, .. } => {
+            provider.max_message_length()
         }
     }
 }

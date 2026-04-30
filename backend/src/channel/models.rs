@@ -92,7 +92,7 @@ pub struct InboundMessage {
 }
 
 /// Resolved file attachment for outbound channel messages.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct OutboundFile {
     pub filename: String,
     pub mime_type: String,
