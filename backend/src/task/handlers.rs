@@ -645,38 +645,39 @@ pub async fn stop_task(
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
-    // Stop the agent process via gRPC (keeps sandbox pod running)
+    // Stop the agent process via gRPC (keeps sandbox pod running). When this
+    // call succeeds the sandbox publishes `agent.stopped` itself, so we must
+    // not publish it again or the event fan-out doubles per request.
+    let mut sandbox_published_stop = false;
     match state.sandbox.sandbox_client(&task_id).await {
-        Ok(client) => {
-            if let Err(e) = client.stop_agent().await {
+        Ok(client) => match client.stop_agent().await {
+            Ok(()) => {
+                sandbox_published_stop = true;
+            }
+            Err(e) => {
                 tracing::warn!(task_id = %task_id, error = %e, "Failed to stop agent via gRPC");
             }
-        }
+        },
         Err(e) => {
             tracing::warn!(task_id = %task_id, error = %e, "Failed to get sandbox client for agent stop");
         }
     }
 
-    // Publish agent.stopped + taskTurn.stopped events
-    // (In Docker mode the container is killed before the sandbox can publish these)
-    if let Some(ref events) = state.events {
-        events
-            .publish_agent_event(
-                &task_id,
-                moatless_events::AgentSubType::Stopped,
-                None,
-                serde_json::json!({}),
-            )
-            .await;
-        events
-            .publish_task_turn_event(
-                &task_id,
-                moatless_events::TaskTurnSubType::Stopped,
-                None,
-                None,
-                serde_json::json!({}),
-            )
-            .await;
+    // Fallback publish only when the sandbox couldn't publish for us
+    // (Docker container killed mid-call, pod gone, gRPC unreachable).
+    // `handle_agent_stopped` is the sole owner of `taskTurn.stopped` —
+    // never publish it from here.
+    if !sandbox_published_stop {
+        if let Some(ref events) = state.events {
+            events
+                .publish_agent_event(
+                    &task_id,
+                    moatless_events::AgentSubType::Stopped,
+                    None,
+                    serde_json::json!({}),
+                )
+                .await;
+        }
     }
 
     // Update task status

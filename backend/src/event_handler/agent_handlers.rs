@@ -129,6 +129,30 @@ pub async fn handle_agent_session_init(_state: &AppState, event: &AgentEvent) {
 
 /// Handle `agent.stopped` event — user requested stop.
 pub async fn handle_agent_stopped(state: &AppState, event: &AgentEvent) {
+    // Idempotency: drop duplicate stop fan-out. Both the sandbox and the
+    // /stop HTTP handler can publish `agent.stopped` for a single user
+    // action, and a hammered /stop endpoint must never accumulate phantom
+    // rows. If the most recent message is already a stopped marker, this
+    // event has nothing to add.
+    match state
+        .messages
+        .last_is_stopped_marker(&event.task_id)
+        .await
+    {
+        Ok(true) => {
+            tracing::debug!(
+                task_id = %event.task_id,
+                event_id = %event.event_id,
+                "Dropping duplicate agent.stopped — task already stopped"
+            );
+            return;
+        }
+        Ok(false) => {}
+        Err(e) => {
+            tracing::warn!(task_id = %event.task_id, error = %e, "Failed to check last message; proceeding with stop append");
+        }
+    }
+
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let msg_uuid = message_uuid_for_event(&event.event_id);
 
