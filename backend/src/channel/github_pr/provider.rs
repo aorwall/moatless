@@ -1198,6 +1198,26 @@ async fn close_tasks_for_pr(state: &AppState, config_id: &str, pr_number: u64) {
             _ => {}
         }
 
+        // Skip when the task is connected to other channel threads (other PRs,
+        // Slack/email/etc.) — closing the task here would silently kill those
+        // routes. Only auto-close when this PR is the only thread.
+        match state.channel_threads.find_by_task_id(task_id).await {
+            Ok(other_threads) if other_threads.len() > 1 => {
+                info!(
+                    task_id = %task_id,
+                    pr_number,
+                    other_thread_count = other_threads.len() - 1,
+                    "PR closed but task has other connected threads — leaving task open"
+                );
+                continue;
+            }
+            Ok(_) => {}
+            Err(e) => {
+                warn!(task_id = %task_id, pr_number, error = %e, "Failed to look up sibling threads — skipping auto-close");
+                continue;
+            }
+        }
+
         if let Err(e) = state.sandbox.cleanup(task_id).await {
             warn!(task_id = %task_id, error = %e, "Failed to cleanup sandbox on PR close");
         }
