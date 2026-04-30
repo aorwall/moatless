@@ -65,6 +65,9 @@ ignore = "0.4"
 # Base64 encoding (binary file support)
 base64 = "0.22"
 
+# Resolving the real `gh` binary path for the agent shim
+which = "7"
+
 [dev-dependencies]
 tempfile = "3"
 tokio = { version = "1", features = ["full", "test-util"] }

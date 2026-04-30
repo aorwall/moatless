@@ -146,6 +146,8 @@ fn test_config() -> Config {
         plugin_repos: vec![],
         frontend_url: None,
         default_model: None,
+        gh_shim_dir: "/opt/moatless/shims".to_string(),
+        gh_real_path: None,
     }
 }
 

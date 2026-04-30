@@ -13,6 +13,7 @@
 pub(crate) mod credentials;
 mod dirs;
 pub(crate) mod gh_hosts;
+pub(crate) mod gh_shim;
 mod git;
 mod plugin_skills;
 pub(crate) mod refresher;
@@ -192,6 +193,10 @@ async fn run_core_init(state: &SandboxState) -> Result<(), InitError> {
         false,
     )
     .await;
+
+    // 3a. Install the agent's gh → moat gh shim (non-fatal). Done before
+    // git config so the shim is ready by the time the agent first runs.
+    gh_shim::install_gh_shim_or_warn(&state.config.gh_shim_dir).await;
 
     // 3. Configure git authentication (non-fatal)
     if let Err(e) = git::configure_git(&state.config).await {

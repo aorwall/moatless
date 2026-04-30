@@ -229,6 +229,41 @@ fn is_retryable_runtime_error(error: &AgentRuntimeError) -> bool {
     }
 }
 
+/// Augment the agent subprocess env so `gh` calls go through the shim →
+/// `moat gh` → real `gh`:
+///
+/// - `MOAT_GH_REAL`: absolute path to the real `gh` binary, resolved at
+///   sandbox startup before the shim is in PATH. Lets `moat gh` exec the
+///   real binary without re-entering the shim.
+/// - `PATH`: prepend the shim dir so the agent's `gh` resolves to our shim
+///   first. Existing PATH (from `env` if already set, else `parent_path`)
+///   is preserved.
+fn augment_agent_env(
+    env: &mut HashMap<String, String>,
+    shim_dir: &str,
+    real_gh: Option<&str>,
+    parent_path: Option<&str>,
+) {
+    if let Some(real) = real_gh {
+        env.insert("MOAT_GH_REAL".to_string(), real.to_string());
+    }
+
+    let existing_path = env
+        .get("PATH")
+        .cloned()
+        .or_else(|| parent_path.map(String::from))
+        .unwrap_or_default();
+
+    let new_path = if existing_path.is_empty() {
+        shim_dir.to_string()
+    } else if existing_path.split(':').any(|p| p == shim_dir) {
+        existing_path
+    } else {
+        format!("{shim_dir}:{existing_path}")
+    };
+    env.insert("PATH".to_string(), new_path);
+}
+
 fn normalize_agent_type(agent_type: Option<&str>) -> &'static str {
     match agent_type {
         Some(AGENT_TYPE_CODEX) => AGENT_TYPE_CODEX,
@@ -771,12 +806,16 @@ async fn start_session(
     }
 
     let creds = credentials.read().await;
-    let env = if creds.is_empty() {
-        None
-    } else {
-        Some(creds.clone())
-    };
+    let mut env_map = creds.clone();
     drop(creds);
+
+    augment_agent_env(
+        &mut env_map,
+        &config.gh_shim_dir,
+        config.gh_real_path.as_deref(),
+        std::env::var("PATH").ok().as_deref(),
+    );
+    let env = if env_map.is_empty() { None } else { Some(env_map) };
 
     let agent_type = normalize_agent_type(agent_type);
 
@@ -2066,6 +2105,57 @@ mod tests {
     use super::*;
     use claude_agent_sdk::types::content::Usage as ClaudeUsage;
     use claude_agent_sdk::types::messages::{ResultError, ResultSuccess};
+
+    // ---- augment_agent_env ----
+
+    #[test]
+    fn augment_agent_env_sets_moat_gh_real_when_present() {
+        let mut env = HashMap::new();
+        augment_agent_env(
+            &mut env,
+            "/opt/moatless/shims",
+            Some("/usr/bin/gh"),
+            Some("/usr/bin"),
+        );
+        assert_eq!(env.get("MOAT_GH_REAL").map(String::as_str), Some("/usr/bin/gh"));
+    }
+
+    #[test]
+    fn augment_agent_env_skips_moat_gh_real_when_unresolved() {
+        let mut env = HashMap::new();
+        augment_agent_env(&mut env, "/shims", None, Some("/usr/bin"));
+        assert!(env.get("MOAT_GH_REAL").is_none());
+    }
+
+    #[test]
+    fn augment_agent_env_prepends_shim_to_parent_path() {
+        let mut env = HashMap::new();
+        augment_agent_env(&mut env, "/shims", None, Some("/usr/bin:/bin"));
+        assert_eq!(env.get("PATH").map(String::as_str), Some("/shims:/usr/bin:/bin"));
+    }
+
+    #[test]
+    fn augment_agent_env_does_not_double_prepend() {
+        let mut env = HashMap::new();
+        env.insert("PATH".to_string(), "/shims:/usr/bin".to_string());
+        augment_agent_env(&mut env, "/shims", None, Some("/should/be/ignored"));
+        assert_eq!(env.get("PATH").map(String::as_str), Some("/shims:/usr/bin"));
+    }
+
+    #[test]
+    fn augment_agent_env_uses_existing_env_path_over_parent() {
+        let mut env = HashMap::new();
+        env.insert("PATH".to_string(), "/already/set".to_string());
+        augment_agent_env(&mut env, "/shims", None, Some("/parent/path"));
+        assert_eq!(env.get("PATH").map(String::as_str), Some("/shims:/already/set"));
+    }
+
+    #[test]
+    fn augment_agent_env_handles_empty_parent_path() {
+        let mut env = HashMap::new();
+        augment_agent_env(&mut env, "/shims", None, None);
+        assert_eq!(env.get("PATH").map(String::as_str), Some("/shims"));
+    }
 
     fn make_result_error(subtype: &str, num_turns: u32, errors: Vec<String>) -> ResultMessage {
         ResultMessage::Error(ResultError {
