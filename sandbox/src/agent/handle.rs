@@ -759,7 +759,16 @@ async fn start_session(
 ) -> Result<(ActiveHandle, CancellationToken), AgentRuntimeError> {
     match backend_client.get_credentials(task_id).await {
         Ok(resp) => {
-            crate::init::credentials::persist_agent_credentials(config, &resp.credentials).await;
+            // Refresh mode: keep a locally-rotated `~/.codex/auth.json`. The
+            // codex_watcher pushes rotations back to the backend; rewriting
+            // here from the (pre-rotation) backend copy would clobber them
+            // and trigger `refresh_token_reused` on the next codex call.
+            crate::init::credentials::persist_agent_credentials(
+                config,
+                &resp.credentials,
+                crate::init::credentials::PersistMode::Refresh,
+            )
+            .await;
             // Filter out git-provider tokens before passing to the agent subprocess env.
             // Git/gh ops inside the agent read tokens fresh from `~/.config/gh/hosts.yml`.
             *credentials.write().await =
@@ -1188,7 +1197,7 @@ async fn process_codex_message(
             );
 
             events
-                .publish_agent_event(task_id, AgentSubType::Completed, payload)
+                .publish_agent_event(task_id, AgentSubType::Error, payload)
                 .await;
 
             turn_output.clear();
@@ -1209,7 +1218,7 @@ async fn process_codex_message(
             );
 
             events
-                .publish_agent_event(task_id, AgentSubType::Completed, payload)
+                .publish_agent_event(task_id, AgentSubType::Error, payload)
                 .await;
 
             turn_output.clear();
@@ -1245,7 +1254,7 @@ async fn handle_codex_stream_error(
         requested_model,
     );
     events
-        .publish_agent_event(task_id, AgentSubType::Completed, payload)
+        .publish_agent_event(task_id, AgentSubType::Error, payload)
         .await;
 
     turn_output.clear();
@@ -1897,7 +1906,13 @@ fn codex_result_payload(
     }
     payload.insert("is_error".to_string(), serde_json::json!(is_error));
     payload.insert("subtype".to_string(), serde_json::json!(subtype));
-    payload.insert("result".to_string(), serde_json::json!(result));
+    payload.insert("result".to_string(), serde_json::json!(result.clone()));
+    // Mirror the Claude `extract_result_info` shape: when `is_error`, expose the
+    // text under `error` so `handle_agent_error` can read it without knowing
+    // SDK-specific layout (it falls back to "Unknown agent error" otherwise).
+    if is_error {
+        payload.insert("error".to_string(), serde_json::json!(result));
+    }
     payload.insert("total_cost_usd".to_string(), serde_json::json!(0.0));
     payload.insert("num_turns".to_string(), serde_json::json!(1));
     if let Some(model) = requested_model {
@@ -2438,9 +2453,28 @@ mod tests {
 
         assert_eq!(payload["session_id"], "thread-1");
         assert_eq!(payload["is_error"], false);
+        assert!(payload.get("error").is_none());
         assert_eq!(payload["usage"]["input_tokens"], 12);
         assert_eq!(payload["usage"]["cache_read_input_tokens"], 3);
         assert_eq!(payload["model"], "gpt-5");
+    }
+
+    #[test]
+    fn codex_result_payload_injects_error_key_when_failed() {
+        let payload = codex_result_payload(
+            Some("thread-2"),
+            true,
+            "failed",
+            "refresh_token_reused".to_string(),
+            None,
+            Some("gpt-5"),
+        );
+
+        assert_eq!(payload["is_error"], true);
+        assert_eq!(payload["result"], "refresh_token_reused");
+        // `error` mirrors `result` so backend `handle_agent_error` (which reads
+        // payload["error"]) renders the failure text instead of "Unknown agent error".
+        assert_eq!(payload["error"], "refresh_token_reused");
     }
 
     // ── extract_wakeup_job ──────────────────────────────────────────

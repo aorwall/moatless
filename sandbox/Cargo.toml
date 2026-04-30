@@ -62,6 +62,10 @@ async-trait = "0.1"
 # Filesystem walking (respects .gitignore, skips hidden dirs)
 ignore = "0.4"
 
+# Filesystem watch (detects Codex CLI rotating ~/.codex/auth.json so we can
+# write the rotated refresh token back to the backend).
+notify = "8"
+
 # Base64 encoding (binary file support)
 base64 = "0.22"
 

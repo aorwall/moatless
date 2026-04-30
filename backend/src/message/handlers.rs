@@ -165,10 +165,12 @@ pub async fn get_messages(
         })
         .collect();
 
+    let total_count = ui_messages.len();
     Ok(Json(GetMessagesResponse {
         messages: ui_messages,
         next_before_id,
         has_more,
+        total_count,
     }))
 }
 

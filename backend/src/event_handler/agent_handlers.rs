@@ -39,12 +39,16 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
         }
     };
 
-    let is_error = sdk_result.is_error.unwrap_or(false);
-    let task_status = if is_error {
-        TaskStatus::Error
-    } else {
-        TaskStatus::Open
-    };
+    // Defensive safety net: if the sandbox publishes an `is_error: true` result
+    // under `agent.completed` (older code paths or future agent runtimes), route
+    // it through the same error-message machinery as `handle_agent_error` so the
+    // failure is visible in chat instead of disappearing into status flips.
+    if sdk_result.is_error.unwrap_or(false) {
+        handle_agent_error(state, event).await;
+        return;
+    }
+
+    let task_status = TaskStatus::Open;
 
     // Fallback: set real Claude Code session_id on user messages
     // (in case session_init event was missed or arrived before messages were fetched)
@@ -74,18 +78,13 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
         tracing::warn!(task_id = %event.task_id, error = %e, "Failed to update task after completion");
     }
 
-    // Emit events
+    // Emit events. Error completions short-circuit through `handle_agent_error`
+    // above, so this path is success-only.
     if let Some(ref events) = state.events {
-        let turn_sub = if is_error {
-            TaskTurnSubType::Error
-        } else {
-            TaskTurnSubType::Completed
-        };
-
         events
             .publish_task_turn_event(
                 &event.task_id,
-                turn_sub,
+                TaskTurnSubType::Completed,
                 event.agent_type.as_deref(),
                 event.turn_number,
                 event.payload.clone(),

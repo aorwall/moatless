@@ -41,11 +41,34 @@ pub fn filter_agent_credentials(credentials: &HashMap<String, String>) -> HashMa
         .collect()
 }
 
+/// Whether `fetch_and_apply_credentials` is being called for the first time
+/// (during sandbox init) or by the periodic refresher.
+///
+/// On `Refresh`, Codex's `auth.json` is left alone — the watcher in
+/// `codex_watcher` is the source of truth for that file post-startup, and a
+/// refresher that re-wrote a stale blob from `provider_tokens` would clobber
+/// any rotation that happened locally.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum PersistMode {
+    Initial,
+    Refresh,
+}
+
 /// Fetch credentials from backend and apply them.
 ///
 /// Retries with exponential backoff (3s, 6s, 12s... up to 10 attempts).
 /// The backend may not be routable when the sandbox pod first starts.
 pub async fn fetch_and_apply_credentials(state: &SandboxState) -> Result<(), String> {
+    fetch_and_apply_credentials_with_mode(state, PersistMode::Initial).await
+}
+
+/// Like [`fetch_and_apply_credentials`] but lets the caller declare whether
+/// this is initial init or a periodic refresh, so write-once-only files (like
+/// Codex `auth.json`) can be skipped when appropriate.
+pub async fn fetch_and_apply_credentials_with_mode(
+    state: &SandboxState,
+    mode: PersistMode,
+) -> Result<(), String> {
     let backend_client = &state.backend_client;
     let task_id = &state.config.task_id;
     let max_retries = 10;
@@ -117,7 +140,7 @@ pub async fn fetch_and_apply_credentials(state: &SandboxState) -> Result<(), Str
                 // subprocess doesn't snapshot a stale value at spawn time.
                 *state.credentials.write().await = filter_agent_credentials(&resp.credentials);
 
-                persist_agent_credentials(&state.config, &resp.credentials).await;
+                persist_agent_credentials(&state.config, &resp.credentials, mode).await;
 
                 server_env::write_server_env_file(&state.config, &resp.server_env).await;
 
@@ -144,21 +167,34 @@ pub async fn fetch_and_apply_credentials(state: &SandboxState) -> Result<(), Str
 }
 
 /// Persist credential files used by local agent runtimes.
+///
+/// On `PersistMode::Refresh`, Codex's `auth.json` is intentionally left alone.
+/// Codex rotates its OAuth refresh token on every refresh; the in-pod watcher
+/// (`codex_watcher`) is the source of truth for that file post-startup. A
+/// refresher that re-wrote a stale blob from `provider_tokens` would actively
+/// undo rotation and cause `refresh_token_reused` failures.
 pub async fn persist_agent_credentials(
     config: &Config,
     credentials: &std::collections::HashMap<String, String>,
+    mode: PersistMode,
 ) {
     if let Some(oauth_token) = credentials.get("CLAUDE_CODE_OAUTH_TOKEN") {
         write_claude_credentials(&config.claude_config_dir, oauth_token).await;
     }
 
-    let wrote_codex_auth = if let Some(auth_json) = credentials.get("CODEX_AUTH_JSON") {
-        write_codex_auth_json(&config.codex_home_dir, auth_json).await
+    let wrote_codex_auth = if mode == PersistMode::Initial {
+        if let Some(auth_json) = credentials.get("CODEX_AUTH_JSON") {
+            write_codex_auth_json(&config.codex_home_dir, auth_json).await
+        } else {
+            false
+        }
     } else {
+        // Refresh path: skip Codex entirely so we don't clobber a locally-rotated
+        // auth.json with the (now stale) backend copy.
         false
     };
 
-    if !wrote_codex_auth {
+    if mode == PersistMode::Initial && !wrote_codex_auth {
         if let Some(api_key) = credentials.get("OPENAI_API_KEY") {
             write_codex_auth_from_api_key(&config.codex_home_dir, api_key).await;
         }
@@ -264,7 +300,7 @@ mod tests {
 
     use tempfile::TempDir;
 
-    use super::{filter_agent_credentials, persist_agent_credentials};
+    use super::{filter_agent_credentials, persist_agent_credentials, PersistMode};
     use crate::config::{AgentConfig, Config, ProxyConfig};
 
     fn test_config(tmp: &TempDir) -> Config {
@@ -314,7 +350,7 @@ mod tests {
         );
         credentials.insert("OPENAI_API_KEY".to_string(), "fallback-key".to_string());
 
-        persist_agent_credentials(&config, &credentials).await;
+        persist_agent_credentials(&config, &credentials, PersistMode::Initial).await;
 
         let auth_path = tmp.path().join("home/.codex/auth.json");
         let auth_json = tokio::fs::read_to_string(auth_path).await.unwrap();
@@ -371,6 +407,36 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn refresh_mode_does_not_overwrite_existing_codex_auth() {
+        let tmp = TempDir::new().unwrap();
+        let config = test_config(&tmp);
+
+        // Simulate a locally-rotated auth.json (what the codex CLI would write
+        // after a refresh).
+        let codex_dir = tmp.path().join("home/.codex");
+        tokio::fs::create_dir_all(&codex_dir).await.unwrap();
+        let auth_path = codex_dir.join("auth.json");
+        let local_rotated = r#"{"tokens":{"refresh_token":"rotated-locally"}}"#;
+        tokio::fs::write(&auth_path, local_rotated).await.unwrap();
+
+        // Backend still has the old (pre-rotation) blob, so a refresher cycle
+        // would overwrite the local file unless we explicitly skip it.
+        let mut credentials = HashMap::new();
+        credentials.insert(
+            "CODEX_AUTH_JSON".to_string(),
+            r#"{"tokens":{"refresh_token":"stale-from-backend"}}"#.to_string(),
+        );
+
+        persist_agent_credentials(&config, &credentials, PersistMode::Refresh).await;
+
+        let on_disk = tokio::fs::read_to_string(&auth_path).await.unwrap();
+        assert_eq!(
+            on_disk, local_rotated,
+            "Refresh mode must not clobber a locally-rotated auth.json"
+        );
+    }
+
+    #[tokio::test]
     async fn invalid_codex_auth_json_falls_back_to_openai_api_key() {
         let tmp = TempDir::new().unwrap();
         let config = test_config(&tmp);
@@ -378,7 +444,7 @@ mod tests {
         credentials.insert("CODEX_AUTH_JSON".to_string(), "{invalid".to_string());
         credentials.insert("OPENAI_API_KEY".to_string(), "fallback-key".to_string());
 
-        persist_agent_credentials(&config, &credentials).await;
+        persist_agent_credentials(&config, &credentials, PersistMode::Initial).await;
 
         let auth_path = tmp.path().join("home/.codex/auth.json");
         let auth_json = tokio::fs::read_to_string(auth_path).await.unwrap();

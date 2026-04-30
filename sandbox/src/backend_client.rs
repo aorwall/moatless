@@ -10,7 +10,7 @@ use std::time::Duration;
 use sandbox_proto::backend_sandbox_service_client::BackendSandboxServiceClient;
 use sandbox_proto::{
     AcknowledgeMessagesRequest, GetCredentialsRequest, GetCredentialsResponse,
-    GetPendingMessagesRequest, PendingMessage, PublishEventRequest,
+    GetPendingMessagesRequest, PendingMessage, PublishEventRequest, UpdateCredentialRequest,
 };
 use tonic::service::interceptor::InterceptedService;
 use tonic::transport::Channel;
@@ -49,6 +49,15 @@ pub trait BackendClient: Send + Sync {
     /// Fetch credentials for sandbox initialization.
     async fn get_credentials(&self, task_id: &str)
         -> Result<GetCredentialsResponse, tonic::Status>;
+
+    /// Push a credential rotated locally inside the sandbox back to the backend
+    /// so subsequent `get_credentials` calls return the rotated value.
+    async fn update_credential(
+        &self,
+        task_id: &str,
+        key: &str,
+        value: &str,
+    ) -> Result<(), tonic::Status>;
 }
 
 /// Auth interceptor that injects a Bearer token on every outbound gRPC call.
@@ -159,5 +168,22 @@ impl BackendClient for BackendGrpcClient {
             .await?;
 
         Ok(resp.into_inner())
+    }
+
+    async fn update_credential(
+        &self,
+        task_id: &str,
+        key: &str,
+        value: &str,
+    ) -> Result<(), tonic::Status> {
+        let mut client = self.client.clone();
+        client
+            .update_credential(UpdateCredentialRequest {
+                task_id: task_id.to_string(),
+                key: key.to_string(),
+                value: value.to_string(),
+            })
+            .await?;
+        Ok(())
     }
 }

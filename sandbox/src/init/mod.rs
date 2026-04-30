@@ -10,6 +10,7 @@
 //! prebuilt deps, sets up build cache, runs setup commands.
 //! These are non-fatal — failures are logged but don't affect health.
 
+pub(crate) mod codex_watcher;
 pub(crate) mod credentials;
 mod dirs;
 pub(crate) mod gh_hosts;
@@ -161,6 +162,32 @@ pub async fn run_init(state: SandboxState) {
         refresher_cancel,
         refresher_interval,
     ));
+
+    // Watch ~/.codex/auth.json for rotations. Codex rewrites this file every
+    // time it refreshes its OAuth token; the watcher pushes the rotated blob
+    // back to the backend so subsequent tasks (and pod restarts) see the new
+    // refresh_token instead of the now-invalidated stored copy.
+    spawn_codex_auth_watcher(&state).await;
+}
+
+async fn spawn_codex_auth_watcher(state: &SandboxState) {
+    let auth_path = std::path::PathBuf::from(format!("{}/auth.json", state.config.codex_home_dir));
+
+    // Capture the current on-disk value as the baseline so the first rotation
+    // (which produces a different blob) triggers the sync. If the file is
+    // absent — Codex isn't configured for this task — the watcher still runs
+    // and will pick up the file once it appears.
+    let initial_value = tokio::fs::read_to_string(&auth_path)
+        .await
+        .unwrap_or_default();
+
+    codex_watcher::spawn(
+        state.config.task_id.clone(),
+        auth_path,
+        initial_value,
+        std::sync::Arc::clone(&state.backend_client),
+        state.lifecycle_cancel.clone(),
+    );
 }
 
 /// Phase 1: Core initialization.

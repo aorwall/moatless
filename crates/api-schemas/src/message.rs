@@ -140,6 +140,10 @@ pub struct GetMessagesResponse {
     pub next_before_id: Option<i32>,
     /// Whether older messages exist beyond the returned page.
     pub has_more: bool,
+    /// Number of messages in this response. Required by the upstream
+    /// moatless-swarm-ui CLI which deserializes against a `totalCount: usize`
+    /// field; omitting it breaks `moat messages list <task_id>`.
+    pub total_count: usize,
 }
 
 /// A pending message item (user message or result message).

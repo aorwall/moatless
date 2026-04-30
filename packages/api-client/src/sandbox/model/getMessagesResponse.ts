@@ -19,4 +19,11 @@ export interface GetMessagesResponse {
    * @nullable
    */
   nextBeforeId?: number | null;
+  /**
+   * Number of messages in this response. Required by the upstream
+moatless-swarm-ui CLI which deserializes against a `totalCount: usize`
+field; omitting it breaks `moat messages list <task_id>`.
+   * @minimum 0
+   */
+  totalCount: number;
 }

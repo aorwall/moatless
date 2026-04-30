@@ -17,7 +17,7 @@ use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
-use super::credentials;
+use super::credentials::{self, PersistMode};
 use crate::state::SandboxState;
 
 /// Default refresh interval when the env var isn't set.
@@ -62,7 +62,7 @@ pub async fn run_credential_refresher(
 }
 
 async fn refresh_once(state: &SandboxState, interval: Duration) {
-    match credentials::fetch_and_apply_credentials(state).await {
+    match credentials::fetch_and_apply_credentials_with_mode(state, PersistMode::Refresh).await {
         Ok(()) => {
             let count = state.credentials.read().await.len();
             info!(
@@ -136,6 +136,15 @@ mod tests {
                 credentials: HashMap::new(),
                 server_env: HashMap::new(),
             })
+        }
+
+        async fn update_credential(
+            &self,
+            _task_id: &str,
+            _key: &str,
+            _value: &str,
+        ) -> Result<(), tonic::Status> {
+            Ok(())
         }
     }
 

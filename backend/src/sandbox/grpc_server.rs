@@ -13,7 +13,7 @@ use sandbox_proto::backend_sandbox_service_server::BackendSandboxService;
 use sandbox_proto::{
     AcknowledgeMessagesRequest, AcknowledgeMessagesResponse, GetCredentialsRequest,
     GetCredentialsResponse, GetPendingMessagesRequest, GetPendingMessagesResponse,
-    PublishEventRequest, PublishEventResponse,
+    PublishEventRequest, PublishEventResponse, UpdateCredentialRequest, UpdateCredentialResponse,
 };
 
 use crate::auth::github_app_service::GitHubAppService;
@@ -357,6 +357,112 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             credentials,
             server_env,
         }))
+    }
+
+    /// Persist a credential rotated locally inside the sandbox back into
+    /// `provider_tokens`.
+    ///
+    /// Called by the sandbox when a runtime (currently Codex) rotates its OAuth
+    /// refresh token. Without write-back the next backend-driven refresh would
+    /// overwrite the rotated value with the now-stale stored copy, permanently
+    /// invalidating the credential.
+    ///
+    /// Resolution mirrors `resolve_task_credentials`: if the task has a team
+    /// and the team owns a token for the provider, the team-level row is
+    /// updated; otherwise the user-level row is updated.
+    async fn update_credential(
+        &self,
+        request: Request<UpdateCredentialRequest>,
+    ) -> Result<Response<UpdateCredentialResponse>, Status> {
+        let claims = self.verify_auth(&request)?;
+        let req = request.into_inner();
+
+        let Some(provider) = credential_key_to_provider(&req.key) else {
+            warn!(
+                task_id = %req.task_id,
+                key = %req.key,
+                "UpdateCredential rejected: unsupported credential key"
+            );
+            return Err(Status::invalid_argument(format!(
+                "Unsupported credential key: {}",
+                req.key
+            )));
+        };
+
+        let Some(ref provider_tokens) = self.provider_tokens else {
+            return Err(Status::failed_precondition(
+                "Provider token repository not configured",
+            ));
+        };
+
+        let team_id = resolve_task_team_id(self.tasks.as_ref(), &req.task_id).await;
+
+        // Match the read-side precedence in `resolve_task_credentials`: prefer
+        // the team-level row when one exists, fall back to user-level otherwise.
+        let team_row_exists = if let Some(ref tid) = team_id {
+            match provider_tokens.find_team_token(tid, provider).await {
+                Ok(row) => row.is_some(),
+                Err(e) => {
+                    warn!(
+                        error = %e,
+                        team_id = %tid,
+                        provider,
+                        "UpdateCredential: failed to probe team token"
+                    );
+                    false
+                }
+            }
+        } else {
+            false
+        };
+
+        let result = if team_row_exists {
+            // SAFETY: team_id checked above for `team_row_exists` to be true.
+            let tid = team_id
+                .as_deref()
+                .ok_or_else(|| Status::internal("team_id missing after team_row_exists check"))?;
+            provider_tokens
+                .upsert_team_token(tid, provider, &req.value, None, None, None)
+                .await
+        } else {
+            provider_tokens
+                .upsert_token(&claims.user_id, provider, &req.value, None, None, None)
+                .await
+        };
+
+        if let Err(e) = result {
+            warn!(
+                error = %e,
+                task_id = %req.task_id,
+                user_id = %claims.user_id,
+                provider,
+                "Failed to persist rotated credential"
+            );
+            return Err(Status::internal("Failed to persist credential"));
+        }
+
+        info!(
+            task_id = %req.task_id,
+            user_id = %claims.user_id,
+            provider,
+            scope = if team_row_exists { "team" } else { "user" },
+            "Persisted rotated credential"
+        );
+
+        Ok(Response::new(UpdateCredentialResponse {}))
+    }
+}
+
+/// Map a credential env-var key (the public namespace shared with sandbox env)
+/// to the provider name used in the `provider_tokens` table.
+///
+/// Returns `None` for keys that are not write-back-eligible — only OAuth-style
+/// rotating credentials need this path. Static API keys are managed entirely
+/// in the backend.
+fn credential_key_to_provider(key: &str) -> Option<&'static str> {
+    match key {
+        CredentialKey::CODEX_AUTH_JSON => Some("codex"),
+        _ => None,
     }
 }
 

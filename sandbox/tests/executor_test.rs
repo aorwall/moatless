@@ -91,6 +91,15 @@ impl BackendClient for MockBackendClient {
             server_env: HashMap::new(),
         })
     }
+
+    async fn update_credential(
+        &self,
+        _task_id: &str,
+        _key: &str,
+        _value: &str,
+    ) -> Result<(), tonic::Status> {
+        Ok(())
+    }
 }
 
 // =============================================================================

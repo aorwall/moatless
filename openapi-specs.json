@@ -6985,7 +6985,8 @@
         "description": "Response for GET /messages.",
         "required": [
           "messages",
-          "hasMore"
+          "hasMore",
+          "totalCount"
         ],
         "properties": {
           "hasMore": {
@@ -7005,6 +7006,11 @@
             ],
             "format": "int32",
             "description": "Cursor for fetching the next older page; `None` when no older rows remain."
+          },
+          "totalCount": {
+            "type": "integer",
+            "description": "Number of messages in this response. Required by the upstream\nmoatless-swarm-ui CLI which deserializes against a `totalCount: usize`\nfield; omitting it breaks `moat messages list <task_id>`.",
+            "minimum": 0
           }
         }
       },
