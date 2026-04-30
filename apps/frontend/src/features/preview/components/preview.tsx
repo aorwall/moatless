@@ -113,6 +113,8 @@ export function Preview({
   activeServer,
   resources,
   sandboxEvents,
+  hideHeader = false,
+  hideConsole = false,
   className,
 }: PreviewProps) {
   // Hook for retrying/starting sandbox
@@ -574,21 +576,23 @@ export function Preview({
 
   return (
     <div className={cn('flex flex-col h-full', className)}>
-      <PreviewHeader
-        path={path}
-        onNavigate={navigatePreview}
-        isInspectorActive={isInspectorActive}
-        onToggleInspector={toggleInspector}
-        onRequestAvailabilityCheck={requestAvailabilityCheck}
-        onReload={reloadPreview}
-        isInspectorAvailable={isInspectorAvailable}
-        isInspectorDialogOpen={isInspectorDialogOpen}
-        onInspectorDialogOpenChange={setIsInspectorDialogOpen}
-        serverUrl={serverStatus?.url ?? undefined}
-        servers={servers}
-        capabilities={capabilities}
-        isSandboxRunning={isSandboxRunning}
-      />
+      {!hideHeader && (
+        <PreviewHeader
+          path={path}
+          onNavigate={navigatePreview}
+          isInspectorActive={isInspectorActive}
+          onToggleInspector={toggleInspector}
+          onRequestAvailabilityCheck={requestAvailabilityCheck}
+          onReload={reloadPreview}
+          isInspectorAvailable={isInspectorAvailable}
+          isInspectorDialogOpen={isInspectorDialogOpen}
+          onInspectorDialogOpenChange={setIsInspectorDialogOpen}
+          serverUrl={serverStatus?.url ?? undefined}
+          servers={servers}
+          capabilities={capabilities}
+          isSandboxRunning={isSandboxRunning}
+        />
+      )}
 
       <div className="flex-1 min-h-0 flex flex-col">
         <ResizablePanelGroup
@@ -692,10 +696,10 @@ export function Preview({
           </ResizablePanel>
 
           {/* Resize handle - only show when console is expanded */}
-          {isConsoleExpanded && <ResizableHandle withHandle />}
+          {!hideConsole && isConsoleExpanded && <ResizableHandle withHandle />}
 
           {/* Console panel - only show when expanded */}
-          {isConsoleExpanded && (
+          {!hideConsole && isConsoleExpanded && (
             <ResizablePanel defaultSize={20} minSize={5} maxSize={70}>
               <LogsPanel
                 className="h-full"
@@ -728,7 +732,7 @@ export function Preview({
         )}
 
         {/* Console panel collapsed state - fixed 40px */}
-        {!isConsoleExpanded && (
+        {!(hideConsole || isConsoleExpanded) && (
           <div className="h-10 flex-shrink-0 border-t">
             <LogsPanel
               className="h-full"

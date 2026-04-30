@@ -1,12 +1,22 @@
 import type { ServerEntry } from '@moatless/api-client'
+import { useNavigate, useSearch } from '@tanstack/react-router'
 import { useMemo } from 'react'
 import { useIsMobile } from '@/lib/hooks/use-mobile'
-import { Route } from '@/routes/tasks/$task-id'
+import type { TaskSearch } from '../types/task-search-schema'
 
 // Type exports for task view management
 // TaskView is a string: 'chat', 'diff', or any server name (e.g. 'files', 'preview', 'storybook')
 export type TaskView = string
 export type ViewportMode = 'mobile' | 'tablet' | 'desktop'
+
+/**
+ * Read the task search params from whichever task route is currently active
+ * (`/tasks/$task-id/` or `/tasks/$task-id/headless`). Both routes share the
+ * same `taskSearchSchema`, so casting the loose result is safe.
+ */
+function useTaskSearch(): TaskSearch {
+  return useSearch({ strict: false }) as TaskSearch
+}
 
 interface UseTaskViewOptions {
   servers?: ServerEntry[]
@@ -32,8 +42,8 @@ interface UseTaskViewReturn {
  * Note: The task page component keeps showing a skeleton while workspace status loads.
  */
 export function useTaskView({ servers }: UseTaskViewOptions = {}): UseTaskViewReturn {
-  const navigate = Route.useNavigate()
-  const search = Route.useSearch()
+  const navigate = useNavigate()
+  const search = useTaskSearch()
   const isMobile = useIsMobile()
 
   // Compute the effective view
@@ -65,7 +75,8 @@ export function useTaskView({ servers }: UseTaskViewOptions = {}): UseTaskViewRe
   // Function to update the view in URL
   const setView = (newView: TaskView) => {
     navigate({
-      search: (prev) => ({ ...prev, view: newView }),
+      to: '.',
+      search: (prev) => ({ ...prev, view: newView }) as TaskSearch,
       replace: true, // Use replace to avoid polluting browser history
     })
   }
@@ -87,21 +98,23 @@ interface UseSelectedFileReturn {
  * - Compatible with browser back/forward navigation
  */
 export function useSelectedFile(): UseSelectedFileReturn {
-  const navigate = Route.useNavigate()
-  const search = Route.useSearch()
+  const navigate = useNavigate()
+  const search = useTaskSearch()
 
   const selectedFile = search.file
 
   // Function to update the selected file in URL
   const setSelectedFile = (file: string | undefined) => {
     navigate({
+      to: '.',
       search: (prev) => {
+        const prevSearch = prev as TaskSearch
         // Remove file param if undefined, otherwise set it
         if (file === undefined) {
-          const { file: _, ...rest } = prev
+          const { file: _, ...rest } = prevSearch
           return rest
         }
-        return { ...prev, file }
+        return { ...prevSearch, file }
       },
       replace: true, // Use replace to avoid polluting browser history
     })
@@ -124,14 +137,15 @@ interface UsePreviewPathReturn {
  * - Compatible with browser back/forward navigation
  */
 export function usePreviewPath(): UsePreviewPathReturn {
-  const navigate = Route.useNavigate()
-  const search = Route.useSearch()
+  const navigate = useNavigate()
+  const search = useTaskSearch()
 
   const previewPath = search.path ?? '/'
 
   const setPreviewPath = (path: string) => {
     navigate({
-      search: (prev) => ({ ...prev, path }),
+      to: '.',
+      search: (prev) => ({ ...prev, path }) as TaskSearch,
       replace: true, // Use replace to avoid polluting browser history
     })
   }
@@ -153,14 +167,15 @@ interface UsePreviewViewportReturn {
  * - Compatible with browser back/forward navigation
  */
 export function usePreviewViewport(): UsePreviewViewportReturn {
-  const navigate = Route.useNavigate()
-  const search = Route.useSearch()
+  const navigate = useNavigate()
+  const search = useTaskSearch()
 
   const viewport = search.viewport ?? 'desktop'
 
   const setViewport = (mode: ViewportMode) => {
     navigate({
-      search: (prev) => ({ ...prev, viewport: mode }),
+      to: '.',
+      search: (prev) => ({ ...prev, viewport: mode }) as TaskSearch,
       replace: true, // Use replace to avoid polluting browser history
     })
   }

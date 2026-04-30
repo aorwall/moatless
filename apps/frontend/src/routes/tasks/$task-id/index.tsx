@@ -1,24 +1,8 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { z } from 'zod'
 import { AppSidebar } from '@/features/navigation/components/app-sidebar'
 import { TaskPage, TaskProviders } from '@/features/tasks'
+import { taskSearchSchema } from '@/features/tasks/types/task-search-schema'
 import { SidebarProvider } from '@/lib/components/ui/sidebar'
-
-/**
- * Search params for task detail page.
- * All params are optional and stored in URL for shareability.
- *
- * @property view - Current view: 'chat', 'diff', or a server name (e.g. 'files', 'preview', 'storybook')
- * @property file - Selected file path in file explorer
- * @property path - Current path in preview (e.g., /about)
- * @property viewport - Preview viewport mode: mobile/tablet/desktop
- */
-const taskSearchSchema = z.object({
-  view: z.string().optional(),
-  file: z.string().optional(),
-  path: z.string().optional(),
-  viewport: z.enum(['mobile', 'tablet', 'desktop']).optional(),
-})
 
 export const Route = createFileRoute('/tasks/$task-id/')({
   validateSearch: taskSearchSchema,

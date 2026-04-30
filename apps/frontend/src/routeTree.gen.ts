@@ -21,6 +21,7 @@ import { Route as SandboxIndexRouteImport } from './routes/sandbox/index'
 import { Route as AuthCallbackRouteImport } from './routes/auth/callback'
 import { Route as TasksTaskIdIndexRouteImport } from './routes/tasks/$task-id/index'
 import { Route as SandboxTaskIdIndexRouteImport } from './routes/sandbox/$task-id/index'
+import { Route as TasksTaskIdHeadlessRouteImport } from './routes/tasks/$task-id/headless'
 import { Route as OauthGithubCallbackRouteImport } from './routes/oauth/github/callback'
 import { Route as OauthFigmaCallbackRouteImport } from './routes/oauth/figma/callback'
 
@@ -84,6 +85,11 @@ const SandboxTaskIdIndexRoute = SandboxTaskIdIndexRouteImport.update({
   path: '/$task-id/',
   getParentRoute: () => SandboxRoute,
 } as any)
+const TasksTaskIdHeadlessRoute = TasksTaskIdHeadlessRouteImport.update({
+  id: '/$task-id/headless',
+  path: '/$task-id/headless',
+  getParentRoute: () => TasksRoute,
+} as any)
 const OauthGithubCallbackRoute = OauthGithubCallbackRouteImport.update({
   id: '/oauth/github/callback',
   path: '/oauth/github/callback',
@@ -108,6 +114,7 @@ export interface FileRoutesByFullPath {
   '/tasks/': typeof TasksIndexRoute
   '/oauth/figma/callback': typeof OauthFigmaCallbackRoute
   '/oauth/github/callback': typeof OauthGithubCallbackRoute
+  '/tasks/$task-id/headless': typeof TasksTaskIdHeadlessRoute
   '/sandbox/$task-id': typeof SandboxTaskIdIndexRoute
   '/tasks/$task-id': typeof TasksTaskIdIndexRoute
 }
@@ -122,6 +129,7 @@ export interface FileRoutesByTo {
   '/tasks': typeof TasksIndexRoute
   '/oauth/figma/callback': typeof OauthFigmaCallbackRoute
   '/oauth/github/callback': typeof OauthGithubCallbackRoute
+  '/tasks/$task-id/headless': typeof TasksTaskIdHeadlessRoute
   '/sandbox/$task-id': typeof SandboxTaskIdIndexRoute
   '/tasks/$task-id': typeof TasksTaskIdIndexRoute
 }
@@ -139,6 +147,7 @@ export interface FileRoutesById {
   '/tasks/': typeof TasksIndexRoute
   '/oauth/figma/callback': typeof OauthFigmaCallbackRoute
   '/oauth/github/callback': typeof OauthGithubCallbackRoute
+  '/tasks/$task-id/headless': typeof TasksTaskIdHeadlessRoute
   '/sandbox/$task-id/': typeof SandboxTaskIdIndexRoute
   '/tasks/$task-id/': typeof TasksTaskIdIndexRoute
 }
@@ -157,6 +166,7 @@ export interface FileRouteTypes {
     | '/tasks/'
     | '/oauth/figma/callback'
     | '/oauth/github/callback'
+    | '/tasks/$task-id/headless'
     | '/sandbox/$task-id'
     | '/tasks/$task-id'
   fileRoutesByTo: FileRoutesByTo
@@ -171,6 +181,7 @@ export interface FileRouteTypes {
     | '/tasks'
     | '/oauth/figma/callback'
     | '/oauth/github/callback'
+    | '/tasks/$task-id/headless'
     | '/sandbox/$task-id'
     | '/tasks/$task-id'
   id:
@@ -187,6 +198,7 @@ export interface FileRouteTypes {
     | '/tasks/'
     | '/oauth/figma/callback'
     | '/oauth/github/callback'
+    | '/tasks/$task-id/headless'
     | '/sandbox/$task-id/'
     | '/tasks/$task-id/'
   fileRoutesById: FileRoutesById
@@ -290,6 +302,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SandboxTaskIdIndexRouteImport
       parentRoute: typeof SandboxRoute
     }
+    '/tasks/$task-id/headless': {
+      id: '/tasks/$task-id/headless'
+      path: '/$task-id/headless'
+      fullPath: '/tasks/$task-id/headless'
+      preLoaderRoute: typeof TasksTaskIdHeadlessRouteImport
+      parentRoute: typeof TasksRoute
+    }
     '/oauth/github/callback': {
       id: '/oauth/github/callback'
       path: '/oauth/github/callback'
@@ -322,11 +341,13 @@ const SandboxRouteWithChildren =
 
 interface TasksRouteChildren {
   TasksIndexRoute: typeof TasksIndexRoute
+  TasksTaskIdHeadlessRoute: typeof TasksTaskIdHeadlessRoute
   TasksTaskIdIndexRoute: typeof TasksTaskIdIndexRoute
 }
 
 const TasksRouteChildren: TasksRouteChildren = {
   TasksIndexRoute: TasksIndexRoute,
+  TasksTaskIdHeadlessRoute: TasksTaskIdHeadlessRoute,
   TasksTaskIdIndexRoute: TasksTaskIdIndexRoute,
 }
 

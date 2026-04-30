@@ -57,6 +57,8 @@ interface ChatContainerProps {
   onContextItemsChange?: (contexts: MessageContextInput[]) => void
   onPreviewUrlClick?: (path: string) => void
   onCommandExecutorReady?: (executor: (commandName: string) => void) => void
+  /** Hide the agent edit/plan mode toggle in the chat input. */
+  hideAgentModeSelector?: boolean
 }
 
 // Helper function to determine placeholder text based on environment and task status
@@ -98,6 +100,7 @@ function ChatContainer({
   onContextItemsChange,
   onPreviewUrlClick,
   onCommandExecutorReady,
+  hideAgentModeSelector = false,
 }: ChatContainerProps) {
   const taskId = useTaskId()
 
@@ -652,20 +655,22 @@ function ChatContainer({
                 </PopoverSelector>
               )}
 
-              <PopoverSelector
-                icon={agentModeSelector.icon}
-                value={agentModeSelector.value}
-                displayValue={agentModeSelector.displayValue}
-                tooltip={agentModeSelector.tooltip}
-                loading={agentModeSelector.loading}
-                disabled={agentModeSelector.disabled}
-              >
-                <SimpleListPopoverContent
-                  items={agentModeSelector.items}
+              {!hideAgentModeSelector && (
+                <PopoverSelector
+                  icon={agentModeSelector.icon}
                   value={agentModeSelector.value}
-                  onChange={agentModeSelector.onChange}
-                />
-              </PopoverSelector>
+                  displayValue={agentModeSelector.displayValue}
+                  tooltip={agentModeSelector.tooltip}
+                  loading={agentModeSelector.loading}
+                  disabled={agentModeSelector.disabled}
+                >
+                  <SimpleListPopoverContent
+                    items={agentModeSelector.items}
+                    value={agentModeSelector.value}
+                    onChange={agentModeSelector.onChange}
+                  />
+                </PopoverSelector>
+              )}
             </Selectors>
 
             <div className="flex items-center gap-2">

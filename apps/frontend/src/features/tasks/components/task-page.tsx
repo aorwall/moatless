@@ -58,7 +58,16 @@ function isStartupEndSubType(subType: string | undefined): boolean {
   )
 }
 
-function TaskPageComponent() {
+interface TaskPageProps {
+  /**
+   * Render a chrome-less version of the task page: no task header, no preview
+   * header (address bar, server tabs, inspector), no console, no agent
+   * edit/plan mode selector. Used by the `/tasks/$task-id/headless` route.
+   */
+  headless?: boolean
+}
+
+function TaskPageComponent({ headless = false }: TaskPageProps) {
   const taskId = useTaskId()
 
   const taskQuery = useTaskDetailQuery(taskId)
@@ -339,6 +348,8 @@ function TaskPageComponent() {
           activeServer={activeServerName}
           resources={sandboxStatus?.resources ?? undefined}
           sandboxEvents={sandboxEvents}
+          hideHeader={headless}
+          hideConsole={headless}
         />
       </ErrorBoundary>
     )
@@ -346,7 +357,7 @@ function TaskPageComponent() {
 
   return (
     <TaskPageLayout
-      header={<TaskLeftHeader />}
+      header={headless ? null : <TaskLeftHeader />}
       chat={
         <ErrorBoundary componentName="Chat View">
           <ChatContainer
@@ -355,6 +366,7 @@ function TaskPageComponent() {
             onContextItemsChange={setContextItems}
             onPreviewUrlClick={handlePreviewUrlClick}
             onCommandExecutorReady={handleCommandExecutorReady}
+            hideAgentModeSelector={headless}
           />
         </ErrorBoundary>
       }

@@ -67,6 +67,10 @@ export interface PreviewProps {
   resources?: ResourceMetrics
   /** Sandbox and server lifecycle events for the Events tab / recent events box */
   sandboxEvents?: SandboxEvent[]
+  /** Hide the preview header (address bar, server tabs, inspector toggle, reload). */
+  hideHeader?: boolean
+  /** Hide the bottom logs/console panel entirely (no expanded panel, no collapsed bar). */
+  hideConsole?: boolean
   className?: string
 }
 
