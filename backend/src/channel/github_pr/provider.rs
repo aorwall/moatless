@@ -433,11 +433,12 @@ impl GithubPrProvider {
             .and_then(serde_json::Value::as_u64)
             .unwrap_or(0);
 
-        // Filter comments with agent marker
-        if comment_body.contains(AGENT_MARKER) {
-            debug!("Ignoring comment with agent marker");
-            return Ok(GithubPrWebhookResult::Ignore);
-        }
+        // Self-loop suppression is handled per-task by `has_channel_external_id`
+        // in `send_message_flow` — both `moat reply` (via `send_reply` returning
+        // the comment id) and the agent's own `gh pr/issue comment` invocations
+        // (via `message::hooks`) tag the originating row with the comment id.
+        // We deliberately do NOT short-circuit on `AGENT_MARKER` so sibling tasks
+        // connected to the same PR still receive the comment via fan-out.
 
         let user_id = self
             .resolve_user_or_fallback(ctx.sender_login, ctx.config, ctx.db)
@@ -513,10 +514,8 @@ impl GithubPrProvider {
             .get("in_reply_to_id")
             .and_then(serde_json::Value::as_u64);
 
-        // Filter comments with agent marker
-        if comment_body.contains(AGENT_MARKER) {
-            return Ok(GithubPrWebhookResult::Ignore);
-        }
+        // Self-loop suppression: handled per-task via `has_channel_external_id`
+        // (see `handle_issue_comment_event` for the rationale).
 
         // Build rich message text with author, file, line info
         let mut text = format!("**@{}** commented on `{path}`", ctx.sender_login);
@@ -607,10 +606,8 @@ impl GithubPrProvider {
             return Ok(GithubPrWebhookResult::Ignore);
         }
 
-        // Filter comments with agent marker
-        if review_body.contains(AGENT_MARKER) {
-            return Ok(GithubPrWebhookResult::Ignore);
-        }
+        // Self-loop suppression: handled per-task via `has_channel_external_id`
+        // (see `handle_issue_comment_event` for the rationale).
 
         let state_label = match review_state {
             "approved" => "Approved",
@@ -920,15 +917,20 @@ impl ChannelProvider for GithubPrProvider {
         let token = self.resolve_token(config).await?;
         let api = GithubPrApi::new(&token);
 
-        // Add agent marker and optional task URL
+        // Keep the agent marker so `fetch_context` can still exclude our own
+        // posts from the model's context window.
         let mut body = format!("{AGENT_MARKER}\n{}", message.text);
         if let Some(ref url) = message.task_url {
             let _ = write!(body, "\n\n---\n[View task]({url})");
         }
 
-        api.post_comment(&owner, &repo, pr_number, &body).await?;
+        let comment_id = api.post_comment(&owner, &repo, pr_number, &body).await?;
 
-        Ok(None)
+        // Return the comment id so `outbound.rs` can tag the originating
+        // message row with `channel_external_id`. The webhook echo is then
+        // deduped per-task by `has_channel_external_id`, while sibling tasks
+        // connected to the same PR still receive the comment via fan-out.
+        Ok(Some(comment_id.to_string()))
     }
 
     async fn fetch_context(
