@@ -229,56 +229,6 @@ fn is_retryable_runtime_error(error: &AgentRuntimeError) -> bool {
     }
 }
 
-/// Augment the agent subprocess env so `gh` calls go through the shim →
-/// `moat gh` → real `gh`:
-///
-/// - `MOAT_GH_REAL`: absolute path to the real `gh` binary, resolved at
-///   sandbox startup before the shim is in PATH. Lets `moat gh` exec the
-///   real binary without re-entering the shim.
-/// - `PATH`: prepend the shim dir so the agent's `gh` resolves to our shim
-///   first. Existing PATH (from `env` if already set, else `parent_path`)
-///   is preserved.
-/// - `MOAT_TASK_URL`: `<frontend_url>/tasks/<task_id>` — `moat gh pr create`
-///   appends this to the PR description footer so reviewers can jump back
-///   to the originating task.
-fn augment_agent_env(
-    env: &mut HashMap<String, String>,
-    shim_dir: &str,
-    real_gh: Option<&str>,
-    parent_path: Option<&str>,
-    frontend_url: Option<&str>,
-    task_id: &str,
-) {
-    if let Some(real) = real_gh {
-        env.insert("MOAT_GH_REAL".to_string(), real.to_string());
-    }
-
-    let existing_path = env
-        .get("PATH")
-        .cloned()
-        .or_else(|| parent_path.map(String::from))
-        .unwrap_or_default();
-
-    let new_path = if existing_path.is_empty() {
-        shim_dir.to_string()
-    } else if existing_path.split(':').any(|p| p == shim_dir) {
-        existing_path
-    } else {
-        format!("{shim_dir}:{existing_path}")
-    };
-    env.insert("PATH".to_string(), new_path);
-
-    if !task_id.is_empty() {
-        if let Some(base) = frontend_url.map(str::trim).filter(|s| !s.is_empty()) {
-            let trimmed = base.trim_end_matches('/');
-            env.insert(
-                "MOAT_TASK_URL".to_string(),
-                format!("{trimmed}/tasks/{task_id}"),
-            );
-        }
-    }
-}
-
 fn normalize_agent_type(agent_type: Option<&str>) -> &'static str {
     match agent_type {
         Some(AGENT_TYPE_CODEX) => AGENT_TYPE_CODEX,
@@ -821,18 +771,12 @@ async fn start_session(
     }
 
     let creds = credentials.read().await;
-    let mut env_map = creds.clone();
+    let env = if creds.is_empty() {
+        None
+    } else {
+        Some(creds.clone())
+    };
     drop(creds);
-
-    augment_agent_env(
-        &mut env_map,
-        &config.gh_shim_dir,
-        config.gh_real_path.as_deref(),
-        std::env::var("PATH").ok().as_deref(),
-        config.frontend_url.as_deref(),
-        &config.task_id,
-    );
-    let env = if env_map.is_empty() { None } else { Some(env_map) };
 
     let agent_type = normalize_agent_type(agent_type);
 
@@ -2122,121 +2066,6 @@ mod tests {
     use super::*;
     use claude_agent_sdk::types::content::Usage as ClaudeUsage;
     use claude_agent_sdk::types::messages::{ResultError, ResultSuccess};
-
-    // ---- augment_agent_env ----
-
-    fn aug(
-        env: &mut HashMap<String, String>,
-        shim_dir: &str,
-        real_gh: Option<&str>,
-        parent_path: Option<&str>,
-    ) {
-        augment_agent_env(env, shim_dir, real_gh, parent_path, None, "");
-    }
-
-    #[test]
-    fn augment_agent_env_sets_moat_gh_real_when_present() {
-        let mut env = HashMap::new();
-        aug(
-            &mut env,
-            "/opt/moatless/shims",
-            Some("/usr/bin/gh"),
-            Some("/usr/bin"),
-        );
-        assert_eq!(env.get("MOAT_GH_REAL").map(String::as_str), Some("/usr/bin/gh"));
-    }
-
-    #[test]
-    fn augment_agent_env_skips_moat_gh_real_when_unresolved() {
-        let mut env = HashMap::new();
-        aug(&mut env, "/shims", None, Some("/usr/bin"));
-        assert!(env.get("MOAT_GH_REAL").is_none());
-    }
-
-    #[test]
-    fn augment_agent_env_prepends_shim_to_parent_path() {
-        let mut env = HashMap::new();
-        aug(&mut env, "/shims", None, Some("/usr/bin:/bin"));
-        assert_eq!(env.get("PATH").map(String::as_str), Some("/shims:/usr/bin:/bin"));
-    }
-
-    #[test]
-    fn augment_agent_env_does_not_double_prepend() {
-        let mut env = HashMap::new();
-        env.insert("PATH".to_string(), "/shims:/usr/bin".to_string());
-        aug(&mut env, "/shims", None, Some("/should/be/ignored"));
-        assert_eq!(env.get("PATH").map(String::as_str), Some("/shims:/usr/bin"));
-    }
-
-    #[test]
-    fn augment_agent_env_uses_existing_env_path_over_parent() {
-        let mut env = HashMap::new();
-        env.insert("PATH".to_string(), "/already/set".to_string());
-        aug(&mut env, "/shims", None, Some("/parent/path"));
-        assert_eq!(env.get("PATH").map(String::as_str), Some("/shims:/already/set"));
-    }
-
-    #[test]
-    fn augment_agent_env_handles_empty_parent_path() {
-        let mut env = HashMap::new();
-        aug(&mut env, "/shims", None, None);
-        assert_eq!(env.get("PATH").map(String::as_str), Some("/shims"));
-    }
-
-    #[test]
-    fn augment_agent_env_sets_task_url_when_frontend_and_id_present() {
-        let mut env = HashMap::new();
-        augment_agent_env(
-            &mut env,
-            "/shims",
-            None,
-            None,
-            Some("https://moatless.dev"),
-            "t_abc",
-        );
-        assert_eq!(
-            env.get("MOAT_TASK_URL").map(String::as_str),
-            Some("https://moatless.dev/tasks/t_abc"),
-        );
-    }
-
-    #[test]
-    fn augment_agent_env_trims_trailing_slash_on_frontend_url() {
-        let mut env = HashMap::new();
-        augment_agent_env(
-            &mut env,
-            "/shims",
-            None,
-            None,
-            Some("https://moatless.dev/"),
-            "t_abc",
-        );
-        assert_eq!(
-            env.get("MOAT_TASK_URL").map(String::as_str),
-            Some("https://moatless.dev/tasks/t_abc"),
-        );
-    }
-
-    #[test]
-    fn augment_agent_env_skips_task_url_when_frontend_missing() {
-        let mut env = HashMap::new();
-        augment_agent_env(&mut env, "/shims", None, None, None, "t_abc");
-        assert!(env.get("MOAT_TASK_URL").is_none());
-    }
-
-    #[test]
-    fn augment_agent_env_skips_task_url_when_task_id_empty() {
-        let mut env = HashMap::new();
-        augment_agent_env(
-            &mut env,
-            "/shims",
-            None,
-            None,
-            Some("https://moatless.dev"),
-            "",
-        );
-        assert!(env.get("MOAT_TASK_URL").is_none());
-    }
 
     fn make_result_error(subtype: &str, num_turns: u32, errors: Vec<String>) -> ResultMessage {
         ResultMessage::Error(ResultError {

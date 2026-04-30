@@ -300,8 +300,6 @@ mod tests {
             setup_commands: Vec::new(),
             plugin_ids: Vec::new(),
             plugin_repos: Vec::new(),
-            gh_shim_dir: "/opt/moatless/shims".to_string(),
-            gh_real_path: None,
         }
     }
 

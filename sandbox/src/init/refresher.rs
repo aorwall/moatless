@@ -169,8 +169,6 @@ mod tests {
             setup_commands: vec![],
             plugin_ids: vec![],
             plugin_repos: vec![],
-            gh_shim_dir: "/opt/moatless/shims".to_string(),
-            gh_real_path: None,
         }
     }
 

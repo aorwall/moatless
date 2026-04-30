@@ -56,13 +56,6 @@ enum SharedCommands {
         #[command(subcommand)]
         action: commands::channels::ChannelAction,
     },
-    /// Proxy `gh` CLI; in a task sandbox, auto-connects channel threads on `pr create`
-    #[command(name = "gh")]
-    Gh {
-        /// Args forwarded verbatim to the real `gh` CLI
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        args: Vec<String>,
-    },
     /// Task event history
     Events {
         #[command(subcommand)]
@@ -388,9 +381,6 @@ async fn run_shared(
         }
         SharedCommands::Channels { action } => {
             commands::channels::run(moat, action, json).await?;
-        }
-        SharedCommands::Gh { args } => {
-            commands::gh::run(moat, cfg, args, json).await?;
         }
         SharedCommands::Events { action } => {
             commands::events::run(moat, action, json).await?;

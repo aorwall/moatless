@@ -2,7 +2,6 @@ pub mod channels;
 pub mod command_mgmt;
 pub mod docker;
 pub mod events;
-pub mod gh;
 pub mod info;
 pub mod k8s;
 pub mod messages;

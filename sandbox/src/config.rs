@@ -160,14 +160,6 @@ pub struct Config {
     pub plugin_ids: Vec<String>,
     /// Plugin git repo URLs from REPO_CONFIG.pluginRepos
     pub plugin_repos: Vec<String>,
-
-    /// Directory where the agent's `gh` shim is installed
-    /// (env: `MOAT_GH_SHIM_DIR`, default: `/opt/moatless/shims`).
-    pub gh_shim_dir: String,
-    /// Resolved absolute path to the real `gh` binary, exported to the agent
-    /// subprocess as `MOAT_GH_REAL` so `moat gh` never re-enters the shim.
-    /// Resolved at startup before the shim is on PATH.
-    pub gh_real_path: Option<String>,
 }
 
 impl Config {
@@ -241,31 +233,8 @@ impl Config {
             setup_commands: parsed.setup_commands,
             plugin_ids: parsed.plugin_ids,
             plugin_repos: parsed.plugin_repos,
-
-            gh_shim_dir: env::var("MOAT_GH_SHIM_DIR")
-                .unwrap_or_else(|_| "/opt/moatless/shims".to_string()),
-            gh_real_path: resolve_real_gh_path(),
         }
     }
-}
-
-/// Resolve the real `gh` binary path *before* the shim is installed.
-///
-/// Walks `which gh` candidates and skips anything under `/opt/moatless/shims`.
-/// Returns `None` if `gh` isn't installed — `moat gh` then falls back to
-/// `/usr/bin/gh` at call time.
-fn resolve_real_gh_path() -> Option<String> {
-    let shim_prefix = env::var("MOAT_GH_SHIM_DIR")
-        .unwrap_or_else(|_| "/opt/moatless/shims".to_string());
-
-    let candidates = which::which_all_global("gh").ok()?;
-    for path in candidates {
-        if path.starts_with(&shim_prefix) {
-            continue;
-        }
-        return path.to_str().map(String::from);
-    }
-    None
 }
 
 /// Parse REPO_CONFIG JSON env var into server configs, agent config, and setup commands.
