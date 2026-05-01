@@ -64,8 +64,8 @@ impl ProviderTokenAuthRepository for PgProviderTokenAuthRepository {
                 refresh_token = EXCLUDED.refresh_token,
                 token_type = EXCLUDED.token_type,
                 scope = EXCLUDED.scope,
-                provider_user_id = EXCLUDED.provider_user_id,
-                provider_login = EXCLUDED.provider_login,
+                provider_user_id = COALESCE(EXCLUDED.provider_user_id, provider_tokens.provider_user_id),
+                provider_login = COALESCE(EXCLUDED.provider_login, provider_tokens.provider_login),
                 connected_at = EXCLUDED.connected_at,
                 expires_at = EXCLUDED.expires_at
             "#,
