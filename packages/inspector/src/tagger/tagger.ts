@@ -106,7 +106,8 @@ export function transformComponentTags(
             const attributeString = ` data-component-id="${dataComponentId}" data-component-name="${elementName}"`
 
             const nameNode = jsxNode.name
-            const insertPosition = nameNode.end ?? 0
+            const typeArgs = jsxNode.typeArguments ?? jsxNode.typeParameters
+            const insertPosition = typeArgs?.end ?? nameNode.end ?? 0
             magicString.appendLeft(insertPosition, attributeString)
           }
         }
