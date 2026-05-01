@@ -31,14 +31,23 @@ pub struct TaskCredentialInputs<'a> {
     pub provider_token_auth: Option<&'a Arc<dyn ProviderTokenAuthRepository>>,
 }
 
+/// Resolve the credentials a task's sandbox needs.
+///
+/// Priority order (most-specific wins):
+/// 1. Per-user / team `provider_tokens` (OAuth-managed, e.g. a freshly-issued
+///    Codex `auth.json` from the device-code flow or a connected GitHub App
+///    user-token).
+/// 2. Scoped secrets — the `SecretService` already resolves these with
+///    user > team > global precedence internally; we only fill keys that
+///    aren't already covered by a `provider_token`.
+///
+/// Rationale: `provider_tokens` is the live OAuth/connection state and is
+/// inherently per-user; a generic global secret with the same key (e.g. a
+/// fallback `CODEX_AUTH_JSON` set by an admin) must NOT shadow it, otherwise
+/// users who explicitly reconnect their account see no effect. Globals
+/// remain a useful bottom-most fallback for users who haven't connected.
 pub async fn resolve_task_credentials(input: TaskCredentialInputs<'_>) -> HashMap<String, String> {
-    let mut credentials = resolve_scoped_secrets(
-        input.secrets,
-        input.user_id,
-        input.team_id,
-        input.task_id,
-    )
-    .await;
+    let mut credentials: HashMap<String, String> = HashMap::new();
 
     fill_provider_tokens(
         &mut credentials,
@@ -50,7 +59,28 @@ pub async fn resolve_task_credentials(input: TaskCredentialInputs<'_>) -> HashMa
     )
     .await;
 
+    let scoped = resolve_scoped_secrets(
+        input.secrets,
+        input.user_id,
+        input.team_id,
+        input.task_id,
+    )
+    .await;
+
+    fill_missing_from_scoped(&mut credentials, scoped);
     credentials
+}
+
+/// Merge scoped-secret values into `credentials` only for keys that aren't
+/// already covered by a provider_token. Extracted so the priority logic is
+/// directly unit-testable without standing up the full `SecretService`.
+fn fill_missing_from_scoped(
+    credentials: &mut HashMap<String, String>,
+    scoped: HashMap<String, String>,
+) {
+    for (key, value) in scoped {
+        credentials.entry(key).or_insert(value);
+    }
 }
 
 /// Resolve the shared env delivered to every server sidecar.
@@ -263,5 +293,70 @@ async fn fill_user_provider_tokens(
         Err(e) => {
             warn!(error = %e, user_id, "Failed to query claude provider_token");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn provider_token_value_wins_over_scoped_secret_with_same_key() {
+        // Repro of the global-secret-shadowing bug: a stale global secret with
+        // key CODEX_AUTH_JSON must NOT override a freshly-rotated per-user
+        // provider_token under the same key.
+        let mut credentials = HashMap::new();
+        credentials.insert(
+            CODEX_AUTH_JSON.to_string(),
+            "fresh-from-provider-token".to_string(),
+        );
+
+        let mut scoped = HashMap::new();
+        scoped.insert(
+            CODEX_AUTH_JSON.to_string(),
+            "stale-global-secret-april-9".to_string(),
+        );
+        scoped.insert("FOO".to_string(), "bar".to_string());
+
+        fill_missing_from_scoped(&mut credentials, scoped);
+
+        assert_eq!(
+            credentials[CODEX_AUTH_JSON],
+            "fresh-from-provider-token",
+            "provider_token must beat scoped secret with same key"
+        );
+        // Unique scoped keys still flow through.
+        assert_eq!(credentials["FOO"], "bar");
+    }
+
+    #[test]
+    fn scoped_secret_fills_in_when_no_provider_token() {
+        // Inverse: with no provider_token populated, the scoped secret should
+        // still serve as a usable fallback (e.g. a global CODEX_AUTH_JSON for
+        // users who haven't connected via OAuth).
+        let mut credentials = HashMap::new();
+
+        let mut scoped = HashMap::new();
+        scoped.insert(
+            CODEX_AUTH_JSON.to_string(),
+            "global-fallback".to_string(),
+        );
+
+        fill_missing_from_scoped(&mut credentials, scoped);
+
+        assert_eq!(credentials[CODEX_AUTH_JSON], "global-fallback");
+    }
+
+    #[test]
+    fn fill_missing_does_not_drop_unique_provider_keys() {
+        // Keys that appear ONLY on the provider_token side must remain.
+        let mut credentials = HashMap::new();
+        credentials.insert(GITHUB_TOKEN.to_string(), "ghs_x".to_string());
+
+        let scoped: HashMap<String, String> = HashMap::new();
+
+        fill_missing_from_scoped(&mut credentials, scoped);
+
+        assert_eq!(credentials[GITHUB_TOKEN], "ghs_x");
     }
 }
