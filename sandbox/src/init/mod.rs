@@ -11,6 +11,7 @@
 //! These are non-fatal — failures are logged but don't affect health.
 
 mod claude_code_settings;
+mod codex_config;
 pub(crate) mod codex_watcher;
 pub(crate) mod credentials;
 mod dirs;
@@ -212,6 +213,10 @@ async fn run_core_init(state: &SandboxState) -> Result<(), InitError> {
     // 2. Write the default Claude Code settings file. Static defaults; safe to
     //    overwrite on every start. Non-fatal — Claude CLI still runs without it.
     claude_code_settings::write_claude_code_settings(&state.config.claude_config_dir).await;
+
+    // 2b. Write the default Codex config.toml. Disables the broken
+    //     `codex_apps` MCP server. Non-fatal — Codex still runs without it.
+    codex_config::write_codex_config(&state.config.codex_home_dir).await;
 
     // 3. Fetch credentials from backend via gRPC
     {

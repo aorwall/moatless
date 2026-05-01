@@ -101,6 +101,14 @@ Before responding to the user's first message, you MUST run:
   `moat set-name \"<name>\"`
 Choose a short, descriptive name based on the user's request (under 50 characters).";
 
+/// Steers the agent away from the (broken) hosted GitHub MCP tools and toward
+/// the `gh` CLI, which the sandbox already authenticates from `GITHUB_TOKEN`.
+const GITHUB_CLI_HINT: &str = "\
+# GitHub Access
+
+The `gh` CLI is authenticated and is the only way to access GitHub from this sandbox.
+Use it via bash for all GitHub operations — do not rely on GitHub MCP tools.";
+
 /// CLI reference appended at the end of the system prompt.
 const SANDBOX_TOOLS_PROMPT: &str = "\
 # Sandbox CLI Reference
@@ -152,6 +160,9 @@ pub fn build_prompt_append(config: &Config, request: &AgentRunRequest) -> String
             config.task_id
         ));
     }
+
+    // GitHub access guidance (steer away from broken MCP tools).
+    append_parts.push(GITHUB_CLI_HINT.to_string());
 
     // CLI reference last
     append_parts.push(SANDBOX_TOOLS_PROMPT.to_string());
