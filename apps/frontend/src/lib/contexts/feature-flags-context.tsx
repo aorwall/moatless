@@ -40,6 +40,7 @@ export function FeatureFlagsProvider({ children }: FeatureFlagsProviderProps) {
           figma_clipboard_paste: false,
           gitlab_enabled: false,
           show_claude_settings: false,
+          show_codex_settings: true,
           show_model_selector: true,
         })
       } finally {

@@ -6,6 +6,7 @@ use axum::Json;
 use crate::extractors::AuthUser;
 use crate::state::AppState;
 
+use super::codex_oauth::{self, PollStatus};
 use super::error::ProviderSettingsError;
 use super::github_client;
 use super::gitness_client;
@@ -535,13 +536,35 @@ pub async fn get_codex_config(
         .await?;
 
     match token {
-        Some(row) => Ok(Json(CodexConfigResponse {
-            connected: true,
-            token_type: row.token_type,
-        })),
+        Some(row) => {
+            let metadata = row.metadata.as_ref();
+            let auth_method = metadata
+                .and_then(|m| m.get("auth_method"))
+                .and_then(|v| v.as_str())
+                .map(std::string::ToString::to_string);
+            let email = metadata
+                .and_then(|m| m.get("email"))
+                .and_then(|v| v.as_str())
+                .map(std::string::ToString::to_string);
+            let plan_type = metadata
+                .and_then(|m| m.get("plan_type"))
+                .and_then(|v| v.as_str())
+                .map(std::string::ToString::to_string);
+
+            Ok(Json(CodexConfigResponse {
+                connected: true,
+                token_type: row.token_type,
+                auth_method,
+                email,
+                plan_type,
+            }))
+        }
         None => Ok(Json(CodexConfigResponse {
             connected: false,
             token_type: None,
+            auth_method: None,
+            email: None,
+            plan_type: None,
         })),
     }
 }
@@ -565,6 +588,7 @@ pub async fn save_codex_auth(
 ) -> Result<Json<CodexConfigResponse>, ProviderSettingsError> {
     let parsed = parse_codex_auth_json(&req.auth_json)?;
     let metadata = serde_json::json!({
+        "auth_method": "auth_json",
         "has_openai_api_key": parsed.get("OPENAI_API_KEY").and_then(serde_json::Value::as_str).is_some(),
         "has_tokens": parsed.get("tokens").is_some_and(serde_json::Value::is_object),
     });
@@ -584,6 +608,9 @@ pub async fn save_codex_auth(
     Ok(Json(CodexConfigResponse {
         connected: true,
         token_type: Some("auth_json".to_string()),
+        auth_method: Some("auth_json".to_string()),
+        email: None,
+        plan_type: None,
     }))
 }
 
@@ -609,5 +636,112 @@ pub async fn delete_codex_config(
     Ok(Json(CodexConfigResponse {
         connected: false,
         token_type: None,
+        auth_method: None,
+        email: None,
+        plan_type: None,
     }))
+}
+
+// =========================================================================
+// Codex device-code OAuth handlers
+// =========================================================================
+
+/// Begin a Codex device-code OAuth flow. The frontend shows the returned
+/// `userCode` to the user and points them at `verificationUrl` to approve.
+#[utoipa::path(
+    post,
+    path = "/api/v1/settings/codex/login/start",
+    tag = "provider-settings",
+    responses(
+        (status = 200, description = "Device code issued", body = CodexDeviceCodeStartResponse),
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorBody),
+        (status = 502, description = "Codex OAuth provider error", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn start_codex_device_login(
+    State(state): State<AppState>,
+    _auth: AuthUser,
+) -> Result<Json<CodexDeviceCodeStartResponse>, ProviderSettingsError> {
+    let client = reqwest::Client::new();
+    let started = codex_oauth::request_device_code(
+        &client,
+        &state.config.codex_oauth.issuer,
+        &state.config.codex_oauth.client_id,
+    )
+    .await
+    .map_err(|e| ProviderSettingsError::ProviderError(e.to_string()))?;
+
+    Ok(Json(CodexDeviceCodeStartResponse {
+        device_auth_id: started.device_auth_id,
+        user_code: started.user_code,
+        verification_url: started.verification_url,
+        interval_secs: started.interval_secs,
+        expires_in_secs: started.expires_in_secs,
+    }))
+}
+
+/// Poll one tick of the Codex device-code flow. The frontend drives the
+/// cadence (~5s typical). On success, we persist the assembled auth.json blob
+/// to `provider_tokens` and return the connected metadata.
+#[utoipa::path(
+    post,
+    path = "/api/v1/settings/codex/login/poll",
+    tag = "provider-settings",
+    request_body = CodexDeviceCodePollRequest,
+    responses(
+        (status = 200, description = "Poll status", body = CodexDeviceCodePollResponse),
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorBody),
+        (status = 502, description = "Codex OAuth provider error", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn poll_codex_device_login(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Json(req): Json<CodexDeviceCodePollRequest>,
+) -> Result<Json<CodexDeviceCodePollResponse>, ProviderSettingsError> {
+    let client = reqwest::Client::new();
+    let outcome = codex_oauth::poll_once(
+        &client,
+        &state.config.codex_oauth.issuer,
+        &state.config.codex_oauth.client_id,
+        &req.device_auth_id,
+        &req.user_code,
+    )
+    .await
+    .map_err(|e| ProviderSettingsError::ProviderError(e.to_string()))?;
+
+    match outcome {
+        PollStatus::Pending => Ok(Json(CodexDeviceCodePollResponse::Pending)),
+        PollStatus::Expired => Ok(Json(CodexDeviceCodePollResponse::Expired)),
+        PollStatus::Success {
+            auth_json,
+            id_token_claims,
+        } => {
+            let metadata = serde_json::json!({
+                "auth_method": "device_code",
+                "has_tokens": true,
+                "email": id_token_claims.email,
+                "plan_type": id_token_claims.chatgpt_plan_type,
+                "account_id": id_token_claims.chatgpt_account_id,
+            });
+
+            state
+                .provider_tokens
+                .upsert_token(
+                    &auth.user_id,
+                    "codex",
+                    &auth_json.to_string(),
+                    None,
+                    Some("auth_json"),
+                    Some(&metadata),
+                )
+                .await?;
+
+            Ok(Json(CodexDeviceCodePollResponse::Success {
+                connected: true,
+                email: id_token_claims.email,
+                plan_type: id_token_claims.chatgpt_plan_type,
+            }))
+        }
+    }
 }

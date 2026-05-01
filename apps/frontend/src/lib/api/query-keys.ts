@@ -88,6 +88,10 @@ export const queryKeys = {
     claude: () => [...queryKeys.settings.all(), 'claude'] as const,
     claudeConfig: () => [...queryKeys.settings.all(), 'claude', 'config'] as const,
     claudeOAuthUrl: () => [...queryKeys.settings.all(), 'claude', 'oauth-url'] as const,
+    codex: () => [...queryKeys.settings.all(), 'codex'] as const,
+    codexConfig: () => [...queryKeys.settings.all(), 'codex', 'config'] as const,
+    codexDevicePoll: (deviceAuthId: string) =>
+      [...queryKeys.settings.all(), 'codex', 'device-poll', deviceAuthId] as const,
     github: () => [...queryKeys.settings.all(), 'github'] as const,
     gitlab: () => [...queryKeys.settings.all(), 'gitlab'] as const,
     gitness: () => [...queryKeys.settings.all(), 'gitness'] as const,

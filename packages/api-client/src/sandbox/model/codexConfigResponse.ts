@@ -7,7 +7,22 @@
  */
 
 export interface CodexConfigResponse {
+  /**
+   * "device_code" | "auth_json" | "api_key" — which save path produced the row.
+   * @nullable
+   */
+  authMethod?: string | null;
   connected: boolean;
+  /**
+   * Email reported by ChatGPT account on the id_token (device-code flow only).
+   * @nullable
+   */
+  email?: string | null;
+  /**
+   * ChatGPT plan type (e.g., "plus", "pro").
+   * @nullable
+   */
+  planType?: string | null;
   /** @nullable */
   tokenType?: string | null;
 }

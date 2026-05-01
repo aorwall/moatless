@@ -49,6 +49,54 @@ global.ResizeObserver = class ResizeObserver {
   }
 }
 
+// jsdom doesn't implement matchMedia; many components (use-mobile, theme
+// helpers) call it on mount, so stub it with the standard MediaQueryList shape.
+if (typeof window !== 'undefined' && typeof window.matchMedia !== 'function') {
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    configurable: true,
+    value: (query: string) => {
+      const noop = () => {
+        /* MediaQueryList listener stub */
+      }
+      return {
+        matches: false,
+        media: query,
+        onchange: null,
+        addListener: noop,
+        removeListener: noop,
+        addEventListener: noop,
+        removeEventListener: noop,
+        dispatchEvent: () => false,
+      }
+    },
+  })
+}
+
+// jsdom in some environments lacks a working localStorage; provide a minimal
+// in-memory shim so components that read user prefs (theme, recent tasks) work.
+if (typeof window !== 'undefined' && typeof window.localStorage?.getItem !== 'function') {
+  const store = new Map<string, string>()
+  Object.defineProperty(window, 'localStorage', {
+    writable: true,
+    configurable: true,
+    value: {
+      getItem: (key: string) => (store.has(key) ? (store.get(key) ?? null) : null),
+      setItem: (key: string, value: string) => {
+        store.set(key, String(value))
+      },
+      removeItem: (key: string) => {
+        store.delete(key)
+      },
+      clear: () => store.clear(),
+      key: (index: number) => Array.from(store.keys())[index] ?? null,
+      get length() {
+        return store.size
+      },
+    } satisfies Storage,
+  })
+}
+
 // Only mock the most problematic components globally
 // Individual tests can add their own mocks as needed
 

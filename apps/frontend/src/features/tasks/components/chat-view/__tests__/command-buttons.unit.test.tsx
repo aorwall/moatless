@@ -93,7 +93,7 @@ describe('CommandButtons', () => {
     for (const button of buttons) {
       const svg = button.querySelector('svg')
       expect(svg).toBeInTheDocument()
-      expect(svg).toHaveClass('h-4', 'w-4')
+      expect(svg).toHaveClass('size-3.5', 'shrink-0')
     }
   })
 
@@ -150,9 +150,9 @@ describe('CommandButtons', () => {
     )
 
     const wrapper = container.firstChild
-    expect(wrapper).toHaveClass('flex', 'justify-center', 'py-4')
+    expect(wrapper).toHaveClass('relative', 'w-full', 'rounded-t-lg', 'bg-background', 'py-2')
 
     const buttonContainer = wrapper?.firstChild
-    expect(buttonContainer).toHaveClass('flex', 'flex-wrap', 'gap-2', 'justify-center')
+    expect(buttonContainer).toHaveClass('flex', 'w-full', 'flex-nowrap', 'gap-2', 'overflow-x-auto')
   })
 })

@@ -15,6 +15,7 @@ export interface FeatureFlagsResponse {
   gitlab_enabled: boolean;
   netlify_publish: boolean;
   show_claude_settings: boolean;
+  show_codex_settings: boolean;
   show_model_selector: boolean;
   slack?: null | SlackConfig;
 }

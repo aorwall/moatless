@@ -722,6 +722,10 @@ mod tests {
                 encryption_key: Some("0123456789abcdef0123456789abcdef".to_string()),
                 kms_key_id: None,
             },
+            codex_oauth: crate::config::CodexOAuthConfig {
+                issuer: "https://auth.openai.com".into(),
+                client_id: "test-codex-client".into(),
+            },
         }
     }
 

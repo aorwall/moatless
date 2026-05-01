@@ -40,7 +40,7 @@ export function useAgentAvailability({
   // Only block once the catalog has loaded — undefined during fetch means
   // "unknown availability", which shouldn't flash a disabled state.
   const agentUnavailable = !!agents && !!selectedAgent && !selectedAgent.installed
-  const settingsSection = agentType === 'codex' ? 'api-keys' : 'claude'
+  const settingsSection = agentType === 'codex' ? 'codex' : 'claude'
 
   return { agents, selectedAgent, agentUnavailable, settingsSection }
 }

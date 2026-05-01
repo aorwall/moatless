@@ -7,6 +7,7 @@ import {
   Key,
   MessageSquare,
   Package,
+  Sparkles,
   Terminal,
   User,
 } from 'lucide-react'
@@ -15,6 +16,7 @@ import {
   ApiKeyConfigurationSection,
   ChannelConfigurationSection,
   ClaudeConfigurationSection,
+  CodexConfigurationSection,
   CommandConfigurationSection,
   FigmaConfigurationSection,
   GitHubConfigurationSection,
@@ -40,6 +42,7 @@ export function SettingsDialog({
 }: SettingsDialogProps) {
   const [activeSection, setActiveSection] = useState(defaultSection)
   const showClaudeSettings = useFeatureFlag('SHOW_CLAUDE_SETTINGS')
+  const showCodexSettings = useFeatureFlag('SHOW_CODEX_SETTINGS')
   const isGitLabEnabled = useFeatureFlag('GITLAB_ENABLED')
   const isGitnessEnabled = useFeatureFlag('GITNESS_ENABLED')
   const { data: channelProviders } = useChannelProviders()
@@ -61,6 +64,15 @@ export function SettingsDialog({
         id: 'claude',
         label: 'Claude',
         icon: <Bot className="h-4 w-4" />,
+      })
+    }
+
+    // Codex settings - controlled by SHOW_CODEX_SETTINGS flag
+    if (showCodexSettings) {
+      allSections.push({
+        id: 'codex',
+        label: 'Codex',
+        icon: <Sparkles className="h-4 w-4" />,
       })
     }
 
@@ -124,7 +136,13 @@ export function SettingsDialog({
     })
 
     return allSections
-  }, [showClaudeSettings, isGitLabEnabled, isGitnessEnabled, hasChannelProviders])
+  }, [
+    showClaudeSettings,
+    showCodexSettings,
+    isGitLabEnabled,
+    isGitnessEnabled,
+    hasChannelProviders,
+  ])
 
   return (
     <SidebarDialog open={open} onOpenChange={onOpenChange}>
@@ -146,6 +164,7 @@ export function SettingsDialog({
       <SidebarDialog.Content title={sections.find((s) => s.id === activeSection)?.label}>
         {activeSection === 'profile' && <ProfileConfigurationSection key="profile" />}
         {activeSection === 'claude' && <ClaudeConfigurationSection key="claude" />}
+        {activeSection === 'codex' && <CodexConfigurationSection key="codex" />}
         {activeSection === 'github' && <GitHubConfigurationSection key="github" />}
         {activeSection === 'gitlab' && <GitLabConfigurationSection key="gitlab" />}
         {activeSection === 'gitness' && <GitnessConfigurationSection key="gitness" />}

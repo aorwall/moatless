@@ -26,6 +26,9 @@ import type {
 
 import type {
   CodexConfigResponse,
+  CodexDeviceCodePollRequest,
+  CodexDeviceCodePollResponse,
+  CodexDeviceCodeStartResponse,
   ErrorBody,
   ExchangeTokenRequest,
   ExchangeTokenResponse,
@@ -361,6 +364,199 @@ export const useDeleteCodexConfig = <TError = ErrorType<ErrorBody>,
         TContext
       > => {
       return useMutation(getDeleteCodexConfigMutationOptions(options), queryClient);
+    }
+    /**
+ * @summary Poll one tick of the Codex device-code flow. The frontend drives the
+cadence (~5s typical). On success, we persist the assembled auth.json blob
+to `provider_tokens` and return the connected metadata.
+ */
+export type pollCodexDeviceLoginResponse200 = {
+  data: CodexDeviceCodePollResponse
+  status: 200
+}
+
+export type pollCodexDeviceLoginResponse401 = {
+  data: ErrorBody
+  status: 401
+}
+
+export type pollCodexDeviceLoginResponse502 = {
+  data: ErrorBody
+  status: 502
+}
+    
+export type pollCodexDeviceLoginResponseSuccess = (pollCodexDeviceLoginResponse200) & {
+  headers: Headers;
+};
+export type pollCodexDeviceLoginResponseError = (pollCodexDeviceLoginResponse401 | pollCodexDeviceLoginResponse502) & {
+  headers: Headers;
+};
+
+export type pollCodexDeviceLoginResponse = (pollCodexDeviceLoginResponseSuccess | pollCodexDeviceLoginResponseError)
+
+export const getPollCodexDeviceLoginUrl = () => {
+
+
+  
+
+  return `/api/v1/settings/codex/login/poll`
+}
+
+export const pollCodexDeviceLogin = async (codexDeviceCodePollRequest: CodexDeviceCodePollRequest, options?: RequestInit): Promise<pollCodexDeviceLoginResponse> => {
+  
+  return customInstance<pollCodexDeviceLoginResponse>(getPollCodexDeviceLoginUrl(),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      codexDeviceCodePollRequest,)
+  }
+);}
+
+
+
+
+export const getPollCodexDeviceLoginMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof pollCodexDeviceLogin>>, TError,{data: CodexDeviceCodePollRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof pollCodexDeviceLogin>>, TError,{data: CodexDeviceCodePollRequest}, TContext> => {
+
+const mutationKey = ['pollCodexDeviceLogin'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof pollCodexDeviceLogin>>, {data: CodexDeviceCodePollRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  pollCodexDeviceLogin(data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PollCodexDeviceLoginMutationResult = NonNullable<Awaited<ReturnType<typeof pollCodexDeviceLogin>>>
+    export type PollCodexDeviceLoginMutationBody = CodexDeviceCodePollRequest
+    export type PollCodexDeviceLoginMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Poll one tick of the Codex device-code flow. The frontend drives the
+cadence (~5s typical). On success, we persist the assembled auth.json blob
+to `provider_tokens` and return the connected metadata.
+ */
+export const usePollCodexDeviceLogin = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof pollCodexDeviceLogin>>, TError,{data: CodexDeviceCodePollRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof pollCodexDeviceLogin>>,
+        TError,
+        {data: CodexDeviceCodePollRequest},
+        TContext
+      > => {
+      return useMutation(getPollCodexDeviceLoginMutationOptions(options), queryClient);
+    }
+    /**
+ * @summary Begin a Codex device-code OAuth flow. The frontend shows the returned
+`userCode` to the user and points them at `verificationUrl` to approve.
+ */
+export type startCodexDeviceLoginResponse200 = {
+  data: CodexDeviceCodeStartResponse
+  status: 200
+}
+
+export type startCodexDeviceLoginResponse401 = {
+  data: ErrorBody
+  status: 401
+}
+
+export type startCodexDeviceLoginResponse502 = {
+  data: ErrorBody
+  status: 502
+}
+    
+export type startCodexDeviceLoginResponseSuccess = (startCodexDeviceLoginResponse200) & {
+  headers: Headers;
+};
+export type startCodexDeviceLoginResponseError = (startCodexDeviceLoginResponse401 | startCodexDeviceLoginResponse502) & {
+  headers: Headers;
+};
+
+export type startCodexDeviceLoginResponse = (startCodexDeviceLoginResponseSuccess | startCodexDeviceLoginResponseError)
+
+export const getStartCodexDeviceLoginUrl = () => {
+
+
+  
+
+  return `/api/v1/settings/codex/login/start`
+}
+
+export const startCodexDeviceLogin = async ( options?: RequestInit): Promise<startCodexDeviceLoginResponse> => {
+  
+  return customInstance<startCodexDeviceLoginResponse>(getStartCodexDeviceLoginUrl(),
+  {      
+    ...options,
+    method: 'POST'
+    
+    
+  }
+);}
+
+
+
+
+export const getStartCodexDeviceLoginMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startCodexDeviceLogin>>, TError,void, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof startCodexDeviceLogin>>, TError,void, TContext> => {
+
+const mutationKey = ['startCodexDeviceLogin'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof startCodexDeviceLogin>>, void> = () => {
+          
+
+          return  startCodexDeviceLogin(requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type StartCodexDeviceLoginMutationResult = NonNullable<Awaited<ReturnType<typeof startCodexDeviceLogin>>>
+    
+    export type StartCodexDeviceLoginMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Begin a Codex device-code OAuth flow. The frontend shows the returned
+`userCode` to the user and points them at `verificationUrl` to approve.
+ */
+export const useStartCodexDeviceLogin = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startCodexDeviceLogin>>, TError,void, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof startCodexDeviceLogin>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getStartCodexDeviceLoginMutationOptions(options), queryClient);
     }
     /**
  * @summary Get current GitHub configuration for the user.

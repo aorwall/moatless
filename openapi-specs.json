@@ -3067,6 +3067,98 @@
         }
       }
     },
+    "/api/v1/settings/codex/login/poll": {
+      "post": {
+        "tags": [
+          "provider-settings"
+        ],
+        "summary": "Poll one tick of the Codex device-code flow. The frontend drives the\ncadence (~5s typical). On success, we persist the assembled auth.json blob\nto `provider_tokens` and return the connected metadata.",
+        "operationId": "poll_codex_device_login",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CodexDeviceCodePollRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Poll status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CodexDeviceCodePollResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Codex OAuth provider error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/settings/codex/login/start": {
+      "post": {
+        "tags": [
+          "provider-settings"
+        ],
+        "summary": "Begin a Codex device-code OAuth flow. The frontend shows the returned\n`userCode` to the user and points them at `verificationUrl` to approve.",
+        "operationId": "start_codex_device_login",
+        "responses": {
+          "200": {
+            "description": "Device code issued",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CodexDeviceCodeStartResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Codex OAuth provider error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/settings/github/config": {
       "get": {
         "tags": [
@@ -5648,14 +5740,143 @@
           "connected"
         ],
         "properties": {
+          "authMethod": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "\"device_code\" | \"auth_json\" | \"api_key\" — which save path produced the row."
+          },
           "connected": {
             "type": "boolean"
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Email reported by ChatGPT account on the id_token (device-code flow only)."
+          },
+          "planType": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "ChatGPT plan type (e.g., \"plus\", \"pro\")."
           },
           "tokenType": {
             "type": [
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "CodexDeviceCodePollRequest": {
+        "type": "object",
+        "required": [
+          "deviceAuthId",
+          "userCode"
+        ],
+        "properties": {
+          "deviceAuthId": {
+            "type": "string"
+          },
+          "userCode": {
+            "type": "string"
+          }
+        }
+      },
+      "CodexDeviceCodePollResponse": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "pending"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "connected",
+              "status"
+            ],
+            "properties": {
+              "connected": {
+                "type": "boolean"
+              },
+              "email": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "plan_type": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "success"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "expired"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "CodexDeviceCodeStartResponse": {
+        "type": "object",
+        "required": [
+          "deviceAuthId",
+          "userCode",
+          "verificationUrl",
+          "intervalSecs",
+          "expiresInSecs"
+        ],
+        "properties": {
+          "deviceAuthId": {
+            "type": "string"
+          },
+          "expiresInSecs": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "intervalSecs": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "userCode": {
+            "type": "string"
+          },
+          "verificationUrl": {
+            "type": "string"
           }
         }
       },
@@ -6689,6 +6910,7 @@
         "required": [
           "netlify_publish",
           "show_claude_settings",
+          "show_codex_settings",
           "figma_clipboard_paste",
           "show_model_selector",
           "gitlab_enabled"
@@ -6704,6 +6926,9 @@
             "type": "boolean"
           },
           "show_claude_settings": {
+            "type": "boolean"
+          },
+          "show_codex_settings": {
             "type": "boolean"
           },
           "show_model_selector": {

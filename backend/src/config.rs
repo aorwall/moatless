@@ -438,6 +438,18 @@ pub struct SkillConfig {
     pub cache_ttl_secs: u64,
 }
 
+/// Codex (OpenAI) device-code OAuth configuration.
+///
+/// Defaults reuse the Codex CLI's public client_id so the flow works out of
+/// the box. Override via env vars to register a Moatless-owned OAuth client.
+#[derive(Debug, Clone)]
+pub struct CodexOAuthConfig {
+    /// OAuth issuer base URL (default: `https://auth.openai.com`).
+    pub issuer: String,
+    /// OAuth client_id (default: Codex CLI's `app_EMoamEEZ73f0CkXaXp7hrann`).
+    pub client_id: String,
+}
+
 /// Secrets feature bootstrap configuration.
 ///
 /// Implements a custom `Debug` to redact encryption material.
@@ -490,6 +502,7 @@ pub struct Config {
     pub github_pr: GithubPrConfig,
     pub skill: SkillConfig,
     pub secrets: SecretsConfig,
+    pub codex_oauth: CodexOAuthConfig,
 }
 
 /// Configuration validation errors.
@@ -666,6 +679,11 @@ impl Config {
             secrets: SecretsConfig {
                 encryption_key: env_opt("SECRETS_ENCRYPTION_KEY"),
                 kms_key_id: env_opt("SECRETS_KMS_KEY_ID").or_else(|| env_opt("AWS_KMS_KEY_ID")),
+            },
+
+            codex_oauth: CodexOAuthConfig {
+                issuer: env_str("CODEX_OAUTH_ISSUER", "https://auth.openai.com"),
+                client_id: env_str("CODEX_OAUTH_CLIENT_ID", "app_EMoamEEZ73f0CkXaXp7hrann"),
             },
         };
 
@@ -995,6 +1013,10 @@ mod tests {
             secrets: SecretsConfig {
                 encryption_key: Some("0123456789abcdef0123456789abcdef".to_string()),
                 kms_key_id: None,
+            },
+            codex_oauth: CodexOAuthConfig {
+                issuer: "https://auth.openai.com".into(),
+                client_id: "test-codex-client".into(),
             },
         }
     }
