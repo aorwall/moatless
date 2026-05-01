@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use moatless_events::{AgentSubType, SandboxSubType, TaskTurnSubType};
+use moatless_events::{AgentSubType, TaskTurnSubType};
 use tracing::{debug, info, warn};
 
 use crate::event_handler::models::{AgentEvent, EventKey};
@@ -375,9 +375,7 @@ pub async fn handle_channel_notification(
                 send_outbound(state, &event.task_id, target, &reply, message_id).await;
             }
 
-            EventKey::Agent(AgentSubType::Error)
-            | EventKey::TaskTurn(TaskTurnSubType::Error)
-            | EventKey::Sandbox(SandboxSubType::Error) => {
+            EventKey::Agent(AgentSubType::Error) | EventKey::TaskTurn(TaskTurnSubType::Error) => {
                 let error_msg = event
                     .payload
                     .get("error")

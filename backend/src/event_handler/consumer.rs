@@ -258,8 +258,8 @@ impl EventHandlerConsumer {
     async fn dispatch_event(&self, event: &AgentEvent) {
         match event.event_key() {
             EventKey::Agent(AgentSubType::Completed) => {
-                // handle_agent_completed publishes task_turn.completed,
-                // which triggers notify_channels below — so we don't notify here.
+                // handle_agent_completed publishes task_turn.completed; channel
+                // notification is handled by the agent via `moat reply`.
                 agent_handlers::handle_agent_completed(&self.state, event).await;
             }
             EventKey::TaskTurn(TaskTurnSubType::Completed) => {
@@ -280,8 +280,8 @@ impl EventHandlerConsumer {
                 // Channel notification is handled by the agent via `moat reply`.
             }
             EventKey::Agent(AgentSubType::Error) => {
-                // handle_agent_error publishes task_turn.error,
-                // which triggers notify_channels below — so we don't notify here.
+                // handle_agent_error publishes task_turn.error; channel
+                // notification is handled by the agent via `moat reply`.
                 agent_handlers::handle_agent_error(&self.state, event).await;
             }
             EventKey::TaskTurn(TaskTurnSubType::Error) => {
@@ -290,11 +290,10 @@ impl EventHandlerConsumer {
             EventKey::Task(TaskSubType::MetadataUpdated) => {
                 agent_handlers::handle_task_metadata_updated(&self.state, event).await;
             }
-            // Sandbox error — pod watcher detected a fatal crash (OOM, crash loop, etc.)
-            // Agent is dead and cannot use `moat reply`, so auto-notify channels.
+            // Sandbox error — pod watcher detected a fatal crash; transcript-only,
+            // do not auto-notify channels.
             EventKey::Sandbox(SandboxSubType::Error) => {
                 agent_handlers::handle_sandbox_fatal(&self.state, event).await;
-                self.notify_channels(event).await;
             }
             // Known SSE-only event types — forwarded to frontend but not processed here
             EventKey::Sandbox(_)
@@ -327,14 +326,6 @@ impl EventHandlerConsumer {
                     "Unhandled event type — event not processed"
                 );
             }
-        }
-    }
-
-    /// Notify channel providers about task events (if any channels are configured).
-    async fn notify_channels(&self, event: &AgentEvent) {
-        if let Some(ref providers) = self.state.channel_providers {
-            crate::channel::outbound::handle_channel_notification(&self.state, providers, event)
-                .await;
         }
     }
 }
