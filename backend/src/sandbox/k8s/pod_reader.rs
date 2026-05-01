@@ -303,8 +303,24 @@ pub async fn fetch_container_resource_usage(
 
     let response: PodMetrics = match k8s.client.request(request).await {
         Ok(resp) => resp,
+        Err(kube::Error::Api(ref e)) if e.code == 404 => {
+            debug!(
+                task_id,
+                pod_name,
+                "Pod metrics not yet available — metrics-server has not scraped this pod yet"
+            );
+            return HashMap::new();
+        }
+        Err(kube::Error::Api(ref e)) if e.code == 403 => {
+            warn!(
+                task_id,
+                error = %e,
+                "Missing RBAC for metrics.k8s.io/pods — observability Role not bound"
+            );
+            return HashMap::new();
+        }
         Err(e) => {
-            warn!(task_id, error = %e, "Failed to fetch pod metrics (metrics-server may not be installed)");
+            warn!(task_id, error = %e, "Failed to fetch pod metrics");
             return HashMap::new();
         }
     };
