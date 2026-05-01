@@ -10209,6 +10209,20 @@
           "provider"
         ],
         "properties": {
+          "externalId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Stable, type-namespaced external id (e.g. \"github:ic:12345\",\n\"slack:ts:1700000.000123\"). Present when the row was tagged by an\ninbound webhook or by the outbound dedup fix; absent for legacy\nrows written before the prefix scheme."
+          },
+          "externalLabel": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Human-readable rendering of `external_id` (e.g. \"Comment #12345\",\n\"PR #42 opened\", \"ts 1700000.000123\"). Falls back to the raw\n`external_id` for legacy or unknown prefix shapes."
+          },
           "provider": {
             "type": "string",
             "description": "Channel provider type (e.g. \"slack\", \"cron\", \"webhook\", \"github_pr\")."

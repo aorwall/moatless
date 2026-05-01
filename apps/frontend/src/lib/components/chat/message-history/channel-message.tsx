@@ -50,60 +50,13 @@ function getTextContent(message: UiMessage): string {
     .join('\n')
 }
 
-function formatGithubExternalId(kind: string, rest: string[], raw: string): string {
-  const single = rest.length === 1 ? rest[0] : null
-  switch (kind) {
-    case 'ic':
-      return single ? `Comment #${single}` : raw
-    case 'rc':
-    case 'rv':
-      return single ? `Review #${single}` : raw
-    case 'cr':
-      return single ? `Check #${single}` : raw
-    case 'cs':
-      return single ? `Suite #${single}` : raw
-    case 'pr':
-      if (rest.length === 2) {
-        return `PR #${rest[1]} ${rest[0]}`
-      }
-      if (rest.length === 3) {
-        return `PR #${rest[1]} ${rest[0]} ${rest[2]}`
-      }
-      return raw
-    default:
-      return raw
-  }
-}
-
-export function formatExternalId(raw: string): string {
-  const parts = raw.split(':')
-  if (parts.length < 2) {
-    return raw
-  }
-
-  const [namespace, kind, ...rest] = parts
-
-  if (namespace === 'github') {
-    return formatGithubExternalId(kind, rest, raw)
-  }
-
-  if (namespace === 'slack' && kind === 'ts' && rest.length === 1) {
-    return `ts ${rest[0]}`
-  }
-
-  if (namespace === 'tg' && kind === 'm' && rest.length === 1) {
-    return `msg #${rest[0]}`
-  }
-
-  return raw
-}
-
 export function ChannelMessageComponent({ message }: ChannelMessageProps) {
   const textContent = getTextContent(message)
   const channel = message.channel
   const provider = channel?.provider ?? 'channel'
   const sourceName = channel?.sourceName
   const externalId = channel?.externalId
+  const externalLabel = channel?.externalLabel ?? externalId
 
   return (
     <div className="w-full rounded-lg border-l-4 border-blue-500/50 bg-blue-500/5 dark:bg-blue-500/10 overflow-hidden">
@@ -111,12 +64,12 @@ export function ChannelMessageComponent({ message }: ChannelMessageProps) {
         <span className="text-blue-500/70">{getProviderIcon(provider)}</span>
         <span className="font-medium">via {getProviderLabel(provider)}</span>
         {sourceName && <span className="text-muted-foreground/70">{sourceName}</span>}
-        {externalId && (
+        {externalLabel && (
           <span
             className="ml-auto font-mono text-[10px] text-muted-foreground/60"
-            title={externalId}
+            title={externalId ?? externalLabel}
           >
-            {formatExternalId(externalId)}
+            {externalLabel}
           </span>
         )}
       </div>
