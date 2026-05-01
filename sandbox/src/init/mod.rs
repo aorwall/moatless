@@ -10,6 +10,7 @@
 //! prebuilt deps, sets up build cache, runs setup commands.
 //! These are non-fatal — failures are logged but don't affect health.
 
+mod claude_code_settings;
 pub(crate) mod codex_watcher;
 pub(crate) mod credentials;
 mod dirs;
@@ -194,15 +195,20 @@ async fn spawn_codex_auth_watcher(state: &SandboxState) {
 ///
 /// Performs essential steps that must complete before the pod is marked healthy:
 /// 1. Ensure directories and symlinks
-/// 2. Fetch and apply credentials (fatal on failure)
-/// 3. Configure git authentication (non-fatal)
-/// 4. Clone repository (fatal on failure)
-/// 5. Sync plugins (non-fatal)
+/// 2. Write the default Claude Code settings file (non-fatal)
+/// 3. Fetch and apply credentials (fatal on failure)
+/// 4. Configure git authentication (non-fatal)
+/// 5. Clone repository (fatal on failure)
+/// 6. Sync plugins (non-fatal)
 async fn run_core_init(state: &SandboxState) -> Result<(), InitError> {
     // 1. Ensure directories exist
     dirs::ensure_directories(&state.config);
 
-    // 2. Fetch credentials from backend via gRPC
+    // 2. Write the default Claude Code settings file. Static defaults; safe to
+    //    overwrite on every start. Non-fatal — Claude CLI still runs without it.
+    claude_code_settings::write_claude_code_settings(&state.config.claude_config_dir).await;
+
+    // 3. Fetch credentials from backend via gRPC
     {
         *state.init_phase.write().await = InitPhase::FetchingCredentials;
     }
