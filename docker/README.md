@@ -61,7 +61,7 @@ docker build -f docker/Dockerfile.app -t moatless-vibe:latest .
 Use the unified `build-sandbox.sh` script to build sandbox images in the correct order:
 
 ```bash
-# Build all images (sandbox → sandbox-js)
+# Build all images (sandbox-base → sandbox; the latter is also tagged sandbox-js)
 ./docker/build-sandbox.sh
 
 # Build with custom tag
@@ -70,8 +70,9 @@ Use the unified `build-sandbox.sh` script to build sandbox images in the correct
 # Build and push to registry
 ./docker/build-sandbox.sh --push
 
-# Build only specific image (assumes base exists)
-./docker/build-sandbox.sh --only sandbox-js
+# Build only specific target (assumes its dependencies exist in registry)
+./docker/build-sandbox.sh --only sandbox-base
+./docker/build-sandbox.sh --only sandbox
 
 # Skip base rebuild (use cached)
 ./docker/build-sandbox.sh --skip-base
@@ -117,41 +118,48 @@ Lightweight image for running the main web application server.
 docker build -f docker/Dockerfile.app -t moatless-vibe:latest .
 ```
 
-## moatless-vibe-sandbox (Base Sandbox)
+## moatless-vibe-sandbox-base (Stable Base)
 
-Minimal base image with essential tools. Used as the base for sandbox-js and sandbox-full.
+Stable base image extended by the runtime sandbox images. Holds every layer
+that doesn't depend on the Rust binaries, so cache hits are preserved across
+normal code changes — only the binary `COPY` in the leaf images invalidates.
 
 ### Contents
 - Ubuntu 24.04
 - Node.js 22 + npm
-- Claude Code CLI
+- Claude Code CLI, Codex CLI
+- Bun, pnpm, yarn, TypeScript, tsx
+- Playwright + Chromium
 - Git, curl, wget, jq, ripgrep
-- git-delta, GitHub CLI (gh)
+- git-delta, GitHub CLI (gh), Docker CLI
+- moatless user (UID 1000)
 
 ### Building
 
 ```bash
-./docker/build-sandbox.sh --only base
+./docker/build-sandbox.sh --only sandbox-base
 # or
-docker build -f docker/Dockerfile.sandbox -t moatless-vibe-sandbox:latest .
+docker build -f docker/Dockerfile.sandbox-base -t moatless-vibe-sandbox-base:latest .
 ```
 
-## moatless-vibe-sandbox-js (JS/TS Sandbox)
+## moatless-vibe-sandbox / moatless-vibe-sandbox-js (Runtime Sandbox)
 
-JavaScript/TypeScript-focused sandbox with Playwright for browser automation.
+The default runtime sandbox: `sandbox-base` plus entrypoint scripts and the
+Rust `sandbox` and `moat` binaries. Published under two repository names that
+point at the same image content:
 
-### Contents (in addition to base)
-- Bun, pnpm, yarn
-- TypeScript
-- Playwright + Chromium
+- `aorwall/moatless-vibe-sandbox:<tag>`
+- `aorwall/moatless-vibe-sandbox-js:<tag>` (alias kept for back-compat)
 
 ### Building
 
 ```bash
-./docker/build-sandbox.sh --only sandbox-js
-# or (requires sandbox to be built first)
-docker build -f docker/Dockerfile.sandbox-js \
-  --build-arg BASE_IMAGE=moatless-vibe-sandbox:latest \
+./docker/build-sandbox.sh --only sandbox
+# or
+docker build -f docker/Dockerfile.sandbox \
+  --build-arg SANDBOX_BASE=moatless-vibe-sandbox-base:latest \
+  --build-context binaries=/path/to/staged/binaries \
+  -t moatless-vibe-sandbox:latest \
   -t moatless-vibe-sandbox-js:latest .
 ```
 
@@ -159,19 +167,18 @@ docker build -f docker/Dockerfile.sandbox-js \
 
 Full development environment for executing agent tasks with all major languages.
 
-### Contents (in addition to base)
+### Contents (in addition to sandbox-base)
 - Python 3.12 (via pyenv)
 - Rust (via rustup)
 - Go 1.23
 - Java 21 + Maven
-- Bun, pnpm, yarn
-- Playwright + Chromium
 
 ### Building
 
 ```bash
 docker build -f docker/Dockerfile.sandbox-full \
-  --build-arg BASE_IMAGE=moatless-vibe-sandbox:latest \
+  --build-arg BASE_IMAGE=moatless-vibe-sandbox-base:latest \
+  --build-context binaries=/path/to/staged/binaries \
   -t moatless-vibe-sandbox-full:latest .
 ```
 

@@ -14,7 +14,12 @@ on:
 
 env:
   SANDBOX_TOOLS_IMAGE: aorwall/moatless-vibe-sandbox-tools
-  SANDBOX_BASE_IMAGE: aorwall/moatless-vibe-sandbox
+  # Stable base — only rebuilds on CLI version bumps. All sandbox leaf images
+  # extend this directly so their expensive layers (Bun, Playwright, etc.) cache
+  # across normal Rust code changes.
+  SANDBOX_BASE_IMAGE: aorwall/moatless-vibe-sandbox-base
+  # Minimal runtime sandbox = sandbox-base + scripts + Rust binaries.
+  SANDBOX_IMAGE: aorwall/moatless-vibe-sandbox
   SANDBOX_JS_IMAGE: aorwall/moatless-vibe-sandbox-js
   SANDBOX_JAVA_IMAGE: aorwall/moatless-vibe-sandbox-java
   CARGO_INCREMENTAL: 0
@@ -144,11 +149,59 @@ jobs:
           cache-from: type=gha,scope=sandbox-tools
           cache-to: type=gha,mode=max,scope=sandbox-tools
 
-  # ── Build sandbox variants in parallel (all COPY --from sandbox-tools) ──
+  # ── Build the truly stable base (Ubuntu + Node + CLIs + user setup) ──
+  # No binaries needed; rebuilds only when CLI versions or system deps bump.
   build-sandbox-base:
-    name: Build & push sandbox base
-    needs: [build-tools-image]
-    if: needs.build-tools-image.result == 'success'
+    name: Build & push sandbox-base (stable)
+    needs: [detect-changes]
+    if: >-
+      always() && (
+        needs.detect-changes.outputs.sandbox == 'true' ||
+        github.event_name == 'workflow_dispatch'
+      )
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute short SHA
+        id: sha
+        run: echo "short=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push sandbox-base
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.sandbox-base
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.SANDBOX_BASE_IMAGE }}:latest
+            ${{ env.SANDBOX_BASE_IMAGE }}:sha-${{ steps.sha.outputs.short }}
+          build-args: |
+            CLAUDE_CLI_VERSION=${{ env.CLAUDE_CLI_VERSION }}
+            CODEX_CLI_VERSION=${{ env.CODEX_CLI_VERSION }}
+          cache-from: type=gha,scope=sandbox-base
+          cache-to: type=gha,mode=max,scope=sandbox-base
+
+  # ── Build the runtime sandbox = sandbox-base + scripts + Rust binaries ──
+  # Pushed under both ${SANDBOX_IMAGE} and ${SANDBOX_JS_IMAGE} (same content,
+  # different repository name). The sandbox-js tag is kept for back-compat with
+  # downstream consumers; new consumers should use SANDBOX_IMAGE directly.
+  build-sandbox:
+    name: Build & push sandbox (+ sandbox-js alias)
+    needs: [build-tools-image, build-sandbox-base]
+    if: >-
+      needs.build-tools-image.result == 'success' &&
+      needs.build-sandbox-base.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -181,7 +234,7 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and push sandbox base
+      - name: Build and push sandbox (with sandbox-js alias)
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -189,51 +242,16 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: |
-            ${{ env.SANDBOX_BASE_IMAGE }}:latest
-            ${{ env.SANDBOX_BASE_IMAGE }}:sha-${{ steps.sha.outputs.short }}
-          build-args: |
-            CLAUDE_CLI_VERSION=${{ env.CLAUDE_CLI_VERSION }}
-            CODEX_CLI_VERSION=${{ env.CODEX_CLI_VERSION }}
-          build-contexts: |
-            binaries=/tmp/sandbox-binaries
-          cache-from: type=gha,scope=sandbox-base
-          cache-to: type=gha,mode=max,scope=sandbox-base
-
-  build-sandbox-js:
-    name: Build & push sandbox-js
-    needs: [build-sandbox-base]
-    if: needs.build-sandbox-base.result == 'success'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Compute short SHA
-        id: sha
-        run: echo "short=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Build and push sandbox-js
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: docker/Dockerfile.sandbox-js
-          platforms: linux/amd64
-          push: true
-          tags: |
+            ${{ env.SANDBOX_IMAGE }}:latest
+            ${{ env.SANDBOX_IMAGE }}:sha-${{ steps.sha.outputs.short }}
             ${{ env.SANDBOX_JS_IMAGE }}:latest
             ${{ env.SANDBOX_JS_IMAGE }}:sha-${{ steps.sha.outputs.short }}
           build-args: |
-            BASE_IMAGE=${{ env.SANDBOX_BASE_IMAGE }}:latest
-          cache-from: type=gha,scope=sandbox-js
-          cache-to: type=gha,mode=max,scope=sandbox-js
+            SANDBOX_BASE=${{ env.SANDBOX_BASE_IMAGE }}:latest
+          build-contexts: |
+            binaries=/tmp/sandbox-binaries
+          cache-from: type=gha,scope=sandbox
+          cache-to: type=gha,mode=max,scope=sandbox
 
   build-sandbox-java:
     name: Build & push sandbox-java:${{ matrix.java-version }}

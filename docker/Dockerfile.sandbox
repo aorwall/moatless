@@ -1,92 +1,26 @@
-# moatless-vibe-sandbox: Base image for sandbox containers (minimal essentials)
-# Only includes: Ubuntu, Node.js, npm, Claude Code CLI, git, essential tools
-# No Bun, pnpm, yarn, Python, Rust, Go, Java - those go in sandbox-js or sandbox-full
+# moatless-vibe-sandbox: Runtime sandbox image.
 #
-# Published as: aorwall/moatless-vibe-sandbox:latest
+# This is sandbox-base + entrypoint scripts + Rust binaries (sandbox, moat).
+# All the heavy tooling (Node, Bun, pnpm/yarn, TypeScript, Playwright + Chromium,
+# Claude/Codex CLIs) lives in sandbox-base so it caches across every code change —
+# only the binary COPY below invalidates per build.
+#
+# This same image is also published under the alias `aorwall/moatless-vibe-sandbox-js`
+# (built and pushed with both tags from the same Dockerfile).
+#
+# For richer language toolchains (Python/Rust/Go/Java) use sandbox-full, which
+# also extends sandbox-base directly (NOT this image), so a binary change here
+# does not invalidate its toolchain layers.
+#
+# Published as:
+#   - aorwall/moatless-vibe-sandbox:latest
+#   - aorwall/moatless-vibe-sandbox-js:latest  (same content, different tag)
 
-FROM ubuntu:24.04
+ARG SANDBOX_BASE=aorwall/moatless-vibe-sandbox-base:latest
+FROM ${SANDBOX_BASE}
 
-ENV LANG="C.UTF-8"
-ENV DEBIAN_FRONTEND=noninteractive
-
-# Install essential system packages
-RUN apt-get update \
-    && apt-get upgrade -y \
-    && apt-get install -y --no-install-recommends \
-        curl wget git git-lfs gnupg2 ca-certificates \
-        build-essential jq ripgrep unzip zip \
-        dnsutils iputils-ping netcat-openbsd openssh-client \
-        vim less procps lsof \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Node.js 22 from nodesource (includes npm)
-# IMPORTANT: Do NOT run apt-get update after setup_22.x — it already does that.
-# Running it again would re-fetch Ubuntu's repo which has nodejs 18 at higher priority.
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
-    && apt-get install -y nodejs \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install git-delta for better diffs
-RUN ARCH=$(dpkg --print-architecture) && \
-    wget -q "https://github.com/dandavison/delta/releases/download/0.18.2/git-delta_0.18.2_${ARCH}.deb" && \
-    dpkg -i "git-delta_0.18.2_${ARCH}.deb" && \
-    rm "git-delta_0.18.2_${ARCH}.deb"
-
-# Install GitHub CLI (gh) - automatically uses GITHUB_TOKEN env var
-RUN ARCH=$(dpkg --print-architecture) && \
-    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && \
-    chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg && \
-    echo "deb [arch=${ARCH} signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null && \
-    apt-get update && \
-    apt-get install -y gh && \
-    rm -rf /var/lib/apt/lists/*
-
-# Install Docker CLI (for managing sibling containers when docker socket is mounted)
-RUN install -m 0755 -d /etc/apt/keyrings && \
-    curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc && \
-    chmod a+r /etc/apt/keyrings/docker.asc && \
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null && \
-    apt-get update && \
-    apt-get install -y --no-install-recommends docker-ce-cli docker-compose-plugin && \
-    rm -rf /var/lib/apt/lists/*
-
-# Install Python build dependencies and pyenv
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libssl-dev zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev \
-    libncursesw5-dev xz-utils tk-dev libxml2-dev libxmlsec1-dev libffi-dev liblzma-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# Remove default ubuntu user (has UID/GID 1000 which we want for moatless)
-# Then create moatless user with UID 1000, no sudo, home in /home/moatless
-ARG USERNAME=moatless
-ARG USER_UID=1000
-ARG USER_GID=$USER_UID
-RUN userdel -r ubuntu 2>/dev/null || true \
-    && groupdel ubuntu 2>/dev/null || true \
-    && groupadd --gid $USER_GID $USERNAME \
-    && useradd --uid $USER_UID --gid $USER_GID -m -d /home/$USERNAME -s /bin/bash $USERNAME
-
-# Create /opt/moatless directories for data and config with proper ownership
-# NOTE: Do NOT create /opt/moatless/repo here - it must be empty for git clone to succeed
-# The entrypoint script will create the workspace directory if needed
-RUN mkdir -p /opt/moatless/data /mnt/plugins /usr/share/moatless-skills /etc/codex/skills \
-    && chown -R $USERNAME:$USERNAME /opt/moatless /mnt/plugins /etc/codex
-
-# Create cache and config directories in home (following Linux FHS standard)
-RUN mkdir -p /home/$USERNAME/.cache \
-    /home/$USERNAME/.config/gh \
-    && chown -R $USERNAME:$USERNAME /home/$USERNAME
-
-# Stable layers first — Claude/Codex CLIs (pinned versions) and scripts from sandbox-tools.
-# Bump these args to upgrade the CLIs.
-ARG CLAUDE_CLI_VERSION=2.1.121
-ARG CODEX_CLI_VERSION=0.124.0
-RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CLI_VERSION}" "@openai/codex@${CODEX_CLI_VERSION}" \
-    && ln -sf "$(which claude)" /usr/local/bin/claude \
-    && ln -sf "$(which codex)" /usr/local/bin/codex \
-    && (claude --version 2>/dev/null || echo "unknown") > /opt/moatless/.claude-cli-version \
-    && (codex --version 2>/dev/null || echo "unknown") > /opt/moatless/.codex-cli-version
-
+# Entrypoint scripts come from the sandbox-tools image so script edits don't
+# invalidate the binary COPY layer below (and vice versa).
 COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/docker-entrypoint-sandbox.sh /usr/local/bin/docker-entrypoint-sandbox.sh
 COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/sync-plugins.sh /usr/local/bin/sync-plugins.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint-sandbox.sh /usr/local/bin/sync-plugins.sh
@@ -97,18 +31,21 @@ COPY --from=binaries ${TARGETARCH}/sandbox /usr/local/bin/sandbox
 COPY --from=binaries ${TARGETARCH}/moat /usr/local/bin/moat
 RUN chmod +x /usr/local/bin/sandbox /usr/local/bin/moat
 
-WORKDIR /home/moatless
+WORKDIR /opt/moatless
 
-# Environment variables for sandbox paths
-# HOME: Standard Linux home directory
-# WORKSPACE_DIR: Repository workspace (separate from home)
-# CLAUDE_CONFIG_DIR: Claude Code configuration
-# DATA_DIR: Persistent data storage
-# CACHE_DIR: Claude CLI cache and MCP logs
+# Sandbox runtime paths
 ENV HOME=/home/moatless
 ENV WORKSPACE_DIR=/opt/moatless/repo
 ENV CLAUDE_CONFIG_DIR=/opt/moatless/.claude
 ENV CODEX_HOME=/home/moatless/.codex
 ENV CLAUDE_BIN_DIR=/usr/local/bin
 ENV DATA_DIR=/opt/moatless/data
+ENV DEVCONTAINER=true
+ENV NODE_ENV=production
+ENV TZ="UTC"
 ENV UV_THREADPOOL_SIZE=16
+
+# Expose ports: sandbox API (8001) and gRPC (50052)
+EXPOSE 8001 50052
+
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint-sandbox.sh"]

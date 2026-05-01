@@ -16,10 +16,17 @@ MULTI_ARCH=true
 PUSH=true
 USE_CACHE=true
 USE_REGISTRY_CACHE=false
-BUILD_BASE=true
-BUILD_SANDBOX_JS=true
+BUILD_SANDBOX_BASE=true
+BUILD_SANDBOX=true
 DEV_BROWSER_DIR="${DEV_BROWSER_DIR:-}"
 CLEANUP_DEV_BROWSER=false
+
+# Sandbox is published under two tags pointing at the same image:
+#   - aorwall/moatless-vibe-sandbox:<tag>
+#   - aorwall/moatless-vibe-sandbox-js:<tag>  (alias kept for back-compat with
+#     downstream consumers that still reference sandbox-js).
+SANDBOX_IMAGE_NAME="moatless-vibe-sandbox"
+SANDBOX_JS_ALIAS_NAME="moatless-vibe-sandbox-js"
 
 # Pinned CLI versions (kept in sync with .github/workflows/build-sandbox-images.yml)
 CLAUDE_CLI_VERSION="${CLAUDE_CLI_VERSION:-2.1.121}"
@@ -69,21 +76,22 @@ while [[ $# -gt 0 ]]; do
       ;;
     --only)
       case $2 in
-        base)
-          BUILD_SANDBOX_JS=false
+        sandbox-base|base)
+          BUILD_SANDBOX=false
           ;;
-        sandbox-js)
-          BUILD_BASE=false
+        sandbox|sandbox-js)
+          # sandbox-js is just an alias tag for sandbox; same build target.
+          BUILD_SANDBOX_BASE=false
           ;;
         *)
-          echo -e "${RED}Unknown target: $2. Use: base, sandbox-js${NC}"
+          echo -e "${RED}Unknown target: $2. Use: sandbox-base, sandbox${NC}"
           exit 1
           ;;
       esac
       shift 2
       ;;
     --skip-base)
-      BUILD_BASE=false
+      BUILD_SANDBOX_BASE=false
       shift
       ;;
     --help)
@@ -92,8 +100,9 @@ while [[ $# -gt 0 ]]; do
       echo "Build moatless-vibe sandbox Docker images."
       echo ""
       echo "Images built (in order):"
-      echo "  1. sandbox      - Minimal base (Ubuntu, Node.js, Claude Code)"
-      echo "  2. sandbox-js   - JS/TS environment (Bun, TypeScript, Playwright)"
+      echo "  1. sandbox-base - Stable base (Ubuntu, Node, Bun, pnpm, Playwright, CLIs)"
+      echo "  2. sandbox      - sandbox-base + entrypoint scripts + Rust binaries"
+      echo "                    Pushed under two tags: sandbox:<tag> and sandbox-js:<tag>"
       echo ""
       echo "Options:"
       echo "  --tag TAG         Docker image tag (default: latest)"
@@ -104,15 +113,15 @@ while [[ $# -gt 0 ]]; do
       echo "  --dev-browser-dir  Path to dev-browser plugin (default: \$DEV_BROWSER_DIR or auto-detect)"
       echo "  --no-cache        Build without using Docker build cache"
       echo "  --use-registry-cache  Pull/push buildcache from registry (opt-in)"
-      echo "  --only TARGET     Build only one target: base or sandbox-js"
-      echo "  --skip-base       Skip building base (assumes it exists)"
+      echo "  --only TARGET     Build only one target: sandbox-base or sandbox"
+      echo "  --skip-base       Skip building sandbox-base (assumes it exists)"
       echo "  --help            Show this help message"
       echo ""
       echo "Examples:"
       echo "  $0                        # Build multi-arch and push to Docker Hub (default)"
       echo "  $0 --local                # Build single-arch locally (no push)"
-      echo "  $0 --only sandbox-js      # Build only sandbox-js"
-      echo "  $0 --skip-base            # Build sandbox-js only (assumes base exists)"
+      echo "  $0 --only sandbox         # Build only sandbox (assumes sandbox-base exists)"
+      echo "  $0 --skip-base            # Skip sandbox-base; rebuild sandbox only"
       echo "  $0 --no-cache             # Force rebuild all layers (use after code changes)"
       exit 0
       ;;
@@ -158,8 +167,9 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Cross-compile Rust sandbox binary for target architectures (needed by Dockerfile.sandbox)
-if [ "$BUILD_BASE" = true ]; then
+# Cross-compile Rust sandbox binary for target architectures.
+# Needed by sandbox (the only leaf image that COPYs binaries here).
+if [ "$BUILD_SANDBOX" = true ]; then
   if ! command -v cargo-zigbuild &> /dev/null; then
     echo -e "${RED}Error: cargo-zigbuild required for cross-compilation.${NC}"
     echo -e "${RED}Install: cargo install cargo-zigbuild && pip3 install ziglang${NC}"
@@ -205,8 +215,8 @@ if [ "$BUILD_BASE" = true ]; then
   echo ""
 fi
 
-# Build sandbox-js prerequisites (file-explorer, dev-browser)
-if [ "$BUILD_SANDBOX_JS" = true ]; then
+# Build sandbox runtime prerequisites (file-explorer, dev-browser staging)
+if [ "$BUILD_SANDBOX" = true ]; then
   # Build file-explorer (still TypeScript)
   echo -e "${YELLOW}Building file-explorer...${NC}"
   bunx turbo run build --filter=@moatless/file-explorer
@@ -235,11 +245,15 @@ if [ "$BUILD_SANDBOX_JS" = true ]; then
   fi
 fi
 
-# Helper function to build an image
+# Helper function to build an image. Accepts an optional 4th argument: a
+# space-separated list of *additional* image names to tag (same registry, same
+# TAG) alongside the primary one — used to publish sandbox under both
+# moatless-vibe-sandbox and moatless-vibe-sandbox-js without rebuilding.
 build_image() {
   local dockerfile=$1
   local image_name=$2
   local extra_args="${3:-}"
+  local extra_tag_names="${4:-}"
   local full_image="${REGISTRY}/${image_name}:${TAG}"
 
   echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -254,6 +268,13 @@ build_image() {
     if [ -n "$PLATFORM" ]; then
       BUILD_CMD="$BUILD_CMD --platform $PLATFORM"
     fi
+  fi
+
+  # Add extra alias tags (same content, different repository name).
+  if [ -n "$extra_tag_names" ]; then
+    for alias_name in $extra_tag_names; do
+      BUILD_CMD="$BUILD_CMD -t ${REGISTRY}/${alias_name}:${TAG}"
+    done
   fi
 
   if [ "$USE_CACHE" = false ]; then
@@ -282,11 +303,24 @@ build_image() {
     if [ "$MULTI_ARCH" = false ] && [ "$PUSH" = true ]; then
       echo -e "${YELLOW}Pushing ${full_image}...${NC}"
       docker push "${full_image}"
-      if [ $? -eq 0 ]; then
-        echo -e "${GREEN}✓ Pushed ${full_image}${NC}"
-      else
+      if [ $? -ne 0 ]; then
         echo -e "${RED}✗ Push failed for ${full_image}${NC}"
         exit 1
+      fi
+      echo -e "${GREEN}✓ Pushed ${full_image}${NC}"
+
+      # Also push any alias tags.
+      if [ -n "$extra_tag_names" ]; then
+        for alias_name in $extra_tag_names; do
+          local alias_ref="${REGISTRY}/${alias_name}:${TAG}"
+          echo -e "${YELLOW}Pushing ${alias_ref}...${NC}"
+          docker push "${alias_ref}"
+          if [ $? -ne 0 ]; then
+            echo -e "${RED}✗ Push failed for ${alias_ref}${NC}"
+            exit 1
+          fi
+          echo -e "${GREEN}✓ Pushed ${alias_ref}${NC}"
+        done
       fi
     fi
     echo ""
@@ -297,16 +331,18 @@ build_image() {
   fi
 }
 
-# Build images in order
-if [ "$BUILD_BASE" = true ]; then
-  build_image "Dockerfile.sandbox" "moatless-vibe-sandbox" \
-    "--build-context binaries=${BINARIES_DIR} \
-     --build-arg CLAUDE_CLI_VERSION=${CLAUDE_CLI_VERSION} \
+# Build images in order: stable base first, then sandbox runtime (dual-tagged
+# as both sandbox and sandbox-js).
+if [ "$BUILD_SANDBOX_BASE" = true ]; then
+  build_image "Dockerfile.sandbox-base" "moatless-vibe-sandbox-base" \
+    "--build-arg CLAUDE_CLI_VERSION=${CLAUDE_CLI_VERSION} \
      --build-arg CODEX_CLI_VERSION=${CODEX_CLI_VERSION}"
 fi
 
-if [ "$BUILD_SANDBOX_JS" = true ]; then
-  build_image "Dockerfile.sandbox-js" "moatless-vibe-sandbox-js"
+if [ "$BUILD_SANDBOX" = true ]; then
+  build_image "Dockerfile.sandbox" "${SANDBOX_IMAGE_NAME}" \
+    "--build-context binaries=${BINARIES_DIR}" \
+    "${SANDBOX_JS_ALIAS_NAME}"
 fi
 
 # Summary
