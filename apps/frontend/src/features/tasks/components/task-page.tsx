@@ -162,6 +162,18 @@ function TaskPageComponent({ headless = false }: TaskPageProps) {
   // Ref for capturing preview navigation function (using ref to avoid re-render issues)
   const previewNavigateRef = useRef<((path: string) => void) | null>(null)
 
+  // Chat panel toggle wiring (used by headless header to collapse/expand chat)
+  const chatToggleRef = useRef<(() => void) | null>(null)
+  const [isChatCollapsed, setIsChatCollapsed] = useState(false)
+
+  const handleChatToggleReady = useCallback((toggle: () => void) => {
+    chatToggleRef.current = toggle
+  }, [])
+
+  const handleHeaderToggleChat = useCallback(() => {
+    chatToggleRef.current?.()
+  }, [])
+
   // Stable callback that uses the ref
   const handlePreviewUrlClick = useCallback((path: string) => {
     if (previewNavigateRef.current) {
@@ -357,7 +369,16 @@ function TaskPageComponent({ headless = false }: TaskPageProps) {
 
   return (
     <TaskPageLayout
-      header={headless ? null : <TaskLeftHeader />}
+      headless={headless}
+      onChatToggleReady={handleChatToggleReady}
+      onChatCollapsedChange={setIsChatCollapsed}
+      header={
+        <TaskLeftHeader
+          headless={headless}
+          onToggleChat={handleHeaderToggleChat}
+          isChatCollapsed={isChatCollapsed}
+        />
+      }
       chat={
         <ErrorBoundary componentName="Chat View">
           <ChatContainer
