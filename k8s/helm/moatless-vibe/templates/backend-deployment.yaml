@@ -345,7 +345,11 @@ spec:
             timeoutSeconds: 5
           readinessProbe:
             httpGet:
-              path: /health
+              # /ready also pings Redis and returns 503 when the event
+              # publisher is unhealthy. Liveness stays on /health so the pod
+              # isn't restarted into a crash loop while Redis is recovering;
+              # readiness fails so the Service stops sending it traffic.
+              path: /ready
               port: http
             initialDelaySeconds: 2
             periodSeconds: 5

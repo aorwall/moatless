@@ -63,6 +63,7 @@ fn is_exempt(path: &str) -> bool {
             | "/api/v1/channels/providers"
             | "/health"
             | "/healthz"
+            | "/ready"
             | "/openapi.json"
     )
 }
@@ -230,6 +231,7 @@ mod tests {
         assert!(is_exempt("/api/v1/feature-flags"));
         assert!(is_exempt("/health"));
         assert!(is_exempt("/healthz"));
+        assert!(is_exempt("/ready"));
         assert!(is_exempt("/openapi.json"));
     }
 

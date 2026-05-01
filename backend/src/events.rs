@@ -25,6 +25,16 @@ const MAX_RETRIES: usize = 2;
 /// Fixed delays (in ms) between retry attempts.
 const RETRY_DELAYS_MS: [u64; MAX_RETRIES] = [50, 200];
 
+/// Per-attempt timeout for the underlying Redis command. Caps how long any
+/// single publish can stall a calling handler when Redis is unhealthy — total
+/// worst case is roughly `(MAX_RETRIES + 1) * PUBLISH_ATTEMPT_TIMEOUT_MS` plus
+/// the retry sleeps. Keep it small: the publish is fire-and-forget, and any
+/// hang on a request handler hot path is worse than dropping an event.
+const PUBLISH_ATTEMPT_TIMEOUT_MS: u64 = 750;
+
+/// Timeout for the health-check `PING` used by `/ready`.
+const HEALTH_CHECK_TIMEOUT_MS: u64 = 500;
+
 /// Register Prometheus metric descriptions for event publishing counters.
 ///
 /// Call once at startup after the Prometheus recorder is installed.
@@ -110,6 +120,11 @@ pub trait EventPublisher: Send + Sync {
         turn_number: Option<i32>,
         payload: serde_json::Value,
     );
+
+    /// Probe the underlying transport. Returns `Ok(())` if a round-trip
+    /// completes within a short bound, `Err(message)` otherwise. Used by the
+    /// `/ready` Kubernetes readiness probe.
+    async fn health_check(&self) -> Result<(), String>;
 }
 
 /// Redis Streams implementation of [`EventPublisher`].
@@ -229,8 +244,8 @@ impl RedisEventPublisher {
             }
 
             let mut conn = self.conn.clone();
-            let result: Result<String, redis::RedisError> = redis::cmd("XADD")
-                .arg(&stream_key)
+            let mut cmd = redis::cmd("XADD");
+            cmd.arg(&stream_key)
                 .arg("MAXLEN")
                 .arg("~")
                 .arg(max_len)
@@ -240,9 +255,21 @@ impl RedisEventPublisher {
                 .arg("type")
                 .arg(event_type)
                 .arg("payload")
-                .arg(&event_json)
-                .query_async(&mut conn)
-                .await;
+                .arg(&event_json);
+
+            let cmd_future = cmd.query_async::<String>(&mut conn);
+            let result: Result<String, redis::RedisError> = match tokio::time::timeout(
+                std::time::Duration::from_millis(PUBLISH_ATTEMPT_TIMEOUT_MS),
+                cmd_future,
+            )
+            .await
+            {
+                Ok(redis_result) => redis_result,
+                Err(_elapsed) => Err(redis::RedisError::from((
+                    redis::ErrorKind::IoError,
+                    "publish timed out",
+                ))),
+            };
 
             match result {
                 Ok(_) => {
@@ -408,5 +435,23 @@ impl EventPublisher for RedisEventPublisher {
             payload,
         )
         .await;
+    }
+
+    async fn health_check(&self) -> Result<(), String> {
+        let mut conn = self.conn.clone();
+        let cmd = redis::cmd("PING");
+        let ping = cmd.query_async::<String>(&mut conn);
+        match tokio::time::timeout(
+            std::time::Duration::from_millis(HEALTH_CHECK_TIMEOUT_MS),
+            ping,
+        )
+        .await
+        {
+            Ok(Ok(_)) => Ok(()),
+            Ok(Err(e)) => Err(format!("redis ping failed: {e}")),
+            Err(_) => Err(format!(
+                "redis ping timed out after {HEALTH_CHECK_TIMEOUT_MS}ms"
+            )),
+        }
     }
 }

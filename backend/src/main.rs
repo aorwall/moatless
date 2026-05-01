@@ -266,6 +266,48 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         info!("Domain routes registered");
 
+        // Readiness probe — checks Redis connectivity. Distinct from /health
+        // which is a pure liveness probe (process up). When Redis is dead,
+        // task creation degrades silently because event publishes time out;
+        // /ready surfaces that to Kubernetes so traffic is shed.
+        let readiness_events = app_state.events.clone();
+        router = router.route(
+            "/ready",
+            axum::routing::get(move || {
+                let events = readiness_events.clone();
+                async move {
+                    use axum::http::StatusCode;
+                    use axum::response::IntoResponse;
+                    match events {
+                        Some(publisher) => match publisher.health_check().await {
+                            Ok(()) => (
+                                StatusCode::OK,
+                                axum::Json(serde_json::json!({"status": "ok"})),
+                            )
+                                .into_response(),
+                            Err(e) => {
+                                tracing::warn!(error = %e, "Readiness probe: event publisher unhealthy");
+                                (
+                                    StatusCode::SERVICE_UNAVAILABLE,
+                                    axum::Json(serde_json::json!({
+                                        "status": "unavailable",
+                                        "component": "events",
+                                        "error": e
+                                    })),
+                                )
+                                    .into_response()
+                            }
+                        },
+                        None => (
+                            StatusCode::OK,
+                            axum::Json(serde_json::json!({"status": "ok", "events": "disabled"})),
+                        )
+                            .into_response(),
+                    }
+                }
+            }),
+        );
+
         // Seed default repositories
         repository::seed::seed_default_repositories(&*app_state.repositories).await;
 
