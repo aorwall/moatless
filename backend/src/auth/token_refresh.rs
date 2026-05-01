@@ -19,7 +19,29 @@ use crate::auth::provider_tokens::ProviderTokenAuthRepository;
 /// and persists the new credentials.
 ///
 /// For OAuth or PAT tokens, returns the token as-is.
+///
+/// # Concurrency
+///
+/// This function does NOT serialize concurrent callers — two parallel
+/// invocations for the same user would both attempt to refresh, and the loser
+/// would get `bad_refresh_token` because GitHub invalidates the prior refresh
+/// token on every successful exchange. Callers that may race (e.g. parallel
+/// task provisions for the same user) should go through
+/// `crate::credentials::CredentialService::ensure_fresh`, which wraps this
+/// with a per-`(user, key)` mutex.
 pub async fn ensure_fresh_token(
+    token_dao: &dyn ProviderTokenRepository,
+    token_auth: &dyn ProviderTokenAuthRepository,
+    github_app_service: &GitHubAppService,
+    user_id: &str,
+) -> Result<String, AuthError> {
+    ensure_fresh_token_with_dao(token_dao, token_auth, github_app_service, user_id).await
+}
+
+/// Internal entry point used by `CredentialService::ensure_fresh` once it has
+/// acquired the per-`(user, key)` mutex. Callers outside the service should
+/// prefer the public `ensure_fresh_token` to keep the call-site uniform.
+pub async fn ensure_fresh_token_with_dao(
     token_dao: &dyn ProviderTokenRepository,
     token_auth: &dyn ProviderTokenAuthRepository,
     github_app_service: &GitHubAppService,

@@ -14,6 +14,7 @@ use crate::channel::provider::ChannelProviders;
 use crate::channel::thread_dao::{ChannelThreadRepository, PgChannelThreadRepository};
 use crate::command::dao::{CommandRepository, PgCommandRepository};
 use crate::config::Config;
+use crate::credentials::{BroadcastContext, CredentialService};
 use crate::db::DbPool;
 use crate::events::EventPublisher;
 use crate::figma::dao::{FigmaRepository, PgFigmaRepository};
@@ -53,6 +54,9 @@ pub struct AppState {
     pub channel_providers: Option<Arc<ChannelProviders>>,
     /// Optional GitHub App service for installation tokens and user token refresh.
     pub github_app_service: Option<Arc<GitHubAppService>>,
+    /// Generic credential service — serializes refreshes per `(user, key)` and
+    /// broadcasts rotations to running sandboxes.
+    pub credentials_svc: Arc<CredentialService>,
 
     // =========================================================================
     // Repository trait objects
@@ -112,6 +116,18 @@ impl AppState {
             secret_cipher,
         ));
 
+        let credentials_svc = Arc::new(CredentialService::new(
+            provider_tokens.clone(),
+            Some(provider_token_auth.clone()),
+            github_app_service.clone(),
+            Some(BroadcastContext {
+                provider: config.sandbox_provider,
+                sandbox_namespace: config.sandbox.namespace.clone(),
+                sandbox_grpc_port: config.sandbox.grpc_port,
+                tasks: Arc::new(PgTaskRepository(pool.clone())),
+            }),
+        ));
+
         let skill_http = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
             .user_agent("moatless-vibe-backend")
@@ -161,6 +177,7 @@ impl AppState {
             s3,
             channel_providers,
             github_app_service,
+            credentials_svc,
         }
     }
 }

@@ -20,6 +20,7 @@ use crate::auth::github_app_service::GitHubAppService;
 use crate::auth::provider_token_dao::ProviderTokenRepository;
 use crate::auth::provider_tokens::ProviderTokenAuthRepository;
 use crate::command::dao::CommandRepository;
+use crate::credentials::{CredentialService, WriteSource};
 use crate::events::EventPublisher;
 use crate::message::dao::MessageRepository;
 use crate::message::send::enrich_pending_with_commands;
@@ -61,6 +62,10 @@ pub struct BackendSandboxServiceImpl {
     pub provider_token_auth: Option<Arc<dyn ProviderTokenAuthRepository>>,
     /// Scoped secret resolver for global/team/user secrets.
     pub secrets: Option<Arc<SecretService>>,
+    /// Generic credential service — used to route sandbox-pushed rotations
+    /// through `store(.., WriteSource::SandboxRotation)` so the broadcast
+    /// fan-out picks them up automatically.
+    pub credentials_svc: Option<Arc<CredentialService>>,
 }
 
 impl BackendSandboxServiceImpl {
@@ -396,6 +401,42 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         };
 
         let team_id = resolve_task_team_id(self.tasks.as_ref(), &req.task_id).await;
+
+        // When the credential service is wired (production path), route through
+        // it so the broadcast fan-out fires for every running sandbox the user
+        // owns — minus the originating one (race-loop guard).
+        if team_id.is_none() {
+            if let Some(ref svc) = self.credentials_svc {
+                if let Err(e) = svc
+                    .store(
+                        &claims.user_id,
+                        &req.key,
+                        &req.value,
+                        WriteSource::SandboxRotation {
+                            task_id: req.task_id.clone(),
+                        },
+                    )
+                    .await
+                {
+                    warn!(
+                        error = %e,
+                        task_id = %req.task_id,
+                        user_id = %claims.user_id,
+                        provider,
+                        "CredentialService::store failed"
+                    );
+                    return Err(Status::internal("Failed to persist credential"));
+                }
+                info!(
+                    task_id = %req.task_id,
+                    user_id = %claims.user_id,
+                    provider,
+                    scope = "user",
+                    "Persisted rotated credential via CredentialService"
+                );
+                return Ok(Response::new(UpdateCredentialResponse {}));
+            }
+        }
 
         // Match the read-side precedence in `resolve_task_credentials`: prefer
         // the team-level row when one exists, fall back to user-level otherwise.

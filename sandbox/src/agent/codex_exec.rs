@@ -10,6 +10,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
 use crate::config::Config;
+use crate::credentials::recovery::CredentialFailureDetector;
 
 use super::options::build_prompt_append;
 use super::types::{AgentRunRequest, ResumeSession};
@@ -376,6 +377,7 @@ pub async fn start(
     config: &Config,
     request: &AgentRunRequest,
     env: Option<HashMap<String, String>>,
+    failure_detector: CredentialFailureDetector,
 ) -> Result<CodexCliSession, std::io::Error> {
     let mut command = Command::new(&config.codex_cli_path);
     command.kill_on_drop(true);
@@ -445,6 +447,10 @@ pub async fn start(
         tokio::spawn(async move {
             let mut lines = BufReader::new(stderr).lines();
             while let Ok(Some(line)) = lines.next_line().await {
+                // Scan for credential-failure markers (e.g. refresh_token_reused)
+                // before logging — sets the per-credential atomic flag the
+                // agent loop polls at turn-failure boundaries.
+                failure_detector.scan(&line);
                 info!(line, "Codex stderr");
             }
             info!("Codex stderr stream ended");

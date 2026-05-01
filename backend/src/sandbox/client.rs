@@ -10,8 +10,8 @@ use sandbox_proto::sandbox_service_client::SandboxServiceClient;
 use sandbox_proto::{
     ExecuteAgentRequest, GetAgentStatusRequest, GetAgentStatusResponse, GetFileTreeRequest,
     GetFileTreeResponse, ListFilesRequest, NotifyMessagesRequest, ReadFileRequest,
-    ReadFileResponse, SearchFilesByNameRequest, SearchFilesByNameResponse, StopAgentRequest,
-    WriteFileRequest,
+    ReadFileResponse, RefreshCredentialRequest, SearchFilesByNameRequest,
+    SearchFilesByNameResponse, StopAgentRequest, WriteFileRequest,
 };
 use tonic::transport::Channel;
 use tracing::debug;
@@ -256,6 +256,37 @@ impl SandboxClient {
             Ok(Err(e)) => Err(e),
             Err(_) => Err(tonic::Status::deadline_exceeded(
                 "List files gRPC request timed out",
+            )),
+        }
+    }
+
+    /// Push a freshly stored credential to the sandbox.
+    ///
+    /// Used by `CredentialService::broadcast` after a credential is rotated
+    /// (sandbox-side or via the UI) to keep every running pod's view fresh.
+    pub async fn refresh_credential(
+        &self,
+        task_id: &str,
+        key: &str,
+        value: &str,
+    ) -> Result<(), tonic::Status> {
+        let mut client = self.client.clone();
+        let result = tokio::time::timeout(Duration::from_secs(5), async {
+            client
+                .refresh_credential(RefreshCredentialRequest {
+                    task_id: task_id.to_string(),
+                    key: key.to_string(),
+                    value: value.to_string(),
+                })
+                .await
+        })
+        .await;
+
+        match result {
+            Ok(Ok(_)) => Ok(()),
+            Ok(Err(e)) => Err(e),
+            Err(_) => Err(tonic::Status::deadline_exceeded(
+                "RefreshCredential gRPC timed out",
             )),
         }
     }

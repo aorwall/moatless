@@ -99,6 +99,8 @@ mod tests {
     use crate::agent::handle::spawn_agent;
     use crate::backend_client::BackendClient;
     use crate::config::{AgentConfig, Config, ProxyConfig};
+    use crate::credentials::recovery::CredentialFailureDetector;
+    use crate::credentials::Dispatcher;
     use crate::events::GrpcEventPublisher;
     use crate::init::InitPhase;
     use crate::state::SandboxState;
@@ -192,6 +194,9 @@ mod tests {
         let late_injector = Arc::new(LateInjector::new());
         let scheduled_jobs = Arc::new(ScheduledJobRegistry::new(Arc::clone(&late_injector) as _));
 
+        let credential_failures = CredentialFailureDetector::default();
+        let credential_dispatcher = Arc::new(Dispatcher::new());
+
         let agent_handle = spawn_agent(
             Arc::clone(&config),
             Arc::clone(&agent_state),
@@ -199,6 +204,8 @@ mod tests {
             Arc::clone(&credentials),
             Arc::clone(&backend),
             Arc::clone(&scheduled_jobs),
+            credential_failures.clone(),
+            Arc::clone(&credential_dispatcher),
         );
         late_injector.set(Box::new(agent_handle.clone()));
 
@@ -212,6 +219,9 @@ mod tests {
             init_phase: Arc::new(RwLock::new(InitPhase::Ready)),
             credentials,
             lifecycle_cancel: CancellationToken::new(),
+            credential_dispatcher,
+            credential_failures,
+            codex_watcher_handle: Arc::new(RwLock::new(None)),
         }
     }
 

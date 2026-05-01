@@ -31,6 +31,23 @@ const CODEX_AUTH_KEY: &str = "CODEX_AUTH_JSON";
 /// debouncing avoids spamming the backend with intermediate states.
 const DEBOUNCE: Duration = Duration::from_millis(500);
 
+/// Handle returned by [`spawn`] so callers can seed the watcher's last-known
+/// value. Used by the credential dispatcher: when the backend pushes a
+/// rotated `auth.json`, the dispatcher writes the file and immediately calls
+/// `set_last_value(new)` so the resulting filesystem event is recognised as
+/// a no-op and not echoed back as a fresh `UpdateCredential` push.
+#[derive(Clone)]
+pub struct WatcherHandle {
+    pub(crate) last_value: Arc<Mutex<String>>,
+}
+
+impl WatcherHandle {
+    /// Replace the watcher's cached "last value" without triggering a sync.
+    pub async fn set_last_value(&self, value: String) {
+        *self.last_value.lock().await = value;
+    }
+}
+
 /// Spawn the watcher. Returns immediately; the watcher runs until `cancel`
 /// fires.
 ///
@@ -43,18 +60,23 @@ pub fn spawn(
     initial_value: String,
     backend_client: Arc<dyn BackendClient>,
     cancel: CancellationToken,
-) {
+) -> WatcherHandle {
+    let last_value: Arc<Mutex<String>> = Arc::new(Mutex::new(initial_value));
+    let handle = WatcherHandle {
+        last_value: Arc::clone(&last_value),
+    };
     tokio::spawn(async move {
-        if let Err(e) = run(task_id, auth_path, initial_value, backend_client, cancel).await {
+        if let Err(e) = run(task_id, auth_path, last_value, backend_client, cancel).await {
             warn!(error = %e, "Codex auth watcher exited with error");
         }
     });
+    handle
 }
 
 async fn run(
     task_id: String,
     auth_path: PathBuf,
-    initial_value: String,
+    last_value: Arc<Mutex<String>>,
     backend_client: Arc<dyn BackendClient>,
     cancel: CancellationToken,
 ) -> Result<(), String> {
@@ -98,8 +120,6 @@ async fn run(
         path = %auth_path.display(),
         "Codex auth watcher started"
     );
-
-    let last_value: Arc<Mutex<String>> = Arc::new(Mutex::new(initial_value));
 
     loop {
         tokio::select! {
@@ -284,6 +304,32 @@ mod tests {
         // Cache updated to the new value.
         let cached = last.lock().await.clone();
         assert_eq!(cached, rotated);
+    }
+
+    #[tokio::test]
+    async fn set_last_value_suppresses_subsequent_sync() {
+        // Simulates the dispatcher path: backend pushes a rotated blob, we
+        // write the file AND seed `set_last_value` BEFORE the watcher's debounce
+        // fires. The next `sync_if_changed` should see the cache match and not
+        // re-push the same value back to the backend (which would echo-loop).
+        let tmp = TempDir::new().unwrap();
+        let auth_path = tmp.path().join("auth.json");
+        let rotated = r#"{"tokens":{"refresh_token":"backend-pushed"}}"#.to_string();
+        tokio::fs::write(&auth_path, &rotated).await.unwrap();
+
+        let backend = Arc::new(RecordingBackend::new());
+        let last = Arc::new(Mutex::new("seed".to_string()));
+        let handle = WatcherHandle {
+            last_value: Arc::clone(&last),
+        };
+
+        // Dispatcher seeds the cache to match what's now on disk.
+        handle.set_last_value(rotated.clone()).await;
+
+        sync_if_changed("task-1", &auth_path, &last, backend.as_ref()).await;
+
+        // No push — the dispatcher's seed prevented echo-back.
+        assert_eq!(backend.update_count.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]

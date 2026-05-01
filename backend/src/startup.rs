@@ -18,6 +18,7 @@ use crate::auth::provider_token_dao::{PgProviderTokenRepository, ProviderTokenRe
 use crate::auth::provider_tokens::{PgProviderTokenAuthRepository, ProviderTokenAuthRepository};
 use crate::command::dao::{CommandRepository, PgCommandRepository};
 use crate::config::Config;
+use crate::credentials::{BroadcastContext, CredentialService};
 use crate::db::{self, DbPool};
 use crate::events::{EventPublisher, RedisEventPublisher};
 use crate::message::dao::{MessageRepository, PgMessageRepository};
@@ -203,6 +204,20 @@ pub fn spawn_grpc_server(
         ))
     });
 
+    let credentials_svc = provider_tokens.as_ref().map(|tokens| {
+        Arc::new(CredentialService::new(
+            tokens.clone(),
+            provider_token_auth.clone(),
+            github_app_service.clone(),
+            tasks.as_ref().map(|t| BroadcastContext {
+                provider: config.sandbox_provider,
+                sandbox_namespace: config.sandbox.namespace.clone(),
+                sandbox_grpc_port: config.sandbox.grpc_port,
+                tasks: t.clone(),
+            }),
+        ))
+    });
+
     tokio::spawn(async move {
         let svc = BackendSandboxServiceImpl {
             events: event_publisher,
@@ -214,6 +229,7 @@ pub fn spawn_grpc_server(
             github_app_service,
             provider_token_auth,
             secrets,
+            credentials_svc,
         };
         let addr = SocketAddr::from(([0, 0, 0, 0], port));
         info!(port, "Starting backend gRPC server");

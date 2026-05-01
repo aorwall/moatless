@@ -182,13 +182,18 @@ async fn spawn_codex_auth_watcher(state: &SandboxState) {
         .await
         .unwrap_or_default();
 
-    codex_watcher::spawn(
+    let handle = codex_watcher::spawn(
         state.config.task_id.clone(),
         auth_path,
         initial_value,
         std::sync::Arc::clone(&state.backend_client),
         state.lifecycle_cancel.clone(),
     );
+
+    // Stash the handle so the credential dispatcher can seed the watcher's
+    // cache when a backend-driven push lands — keeps backend writes from
+    // echoing back as fresh `UpdateCredential` calls.
+    *state.codex_watcher_handle.write().await = Some(handle);
 }
 
 /// Phase 1: Core initialization.

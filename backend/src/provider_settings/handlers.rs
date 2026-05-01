@@ -3,6 +3,7 @@
 use axum::extract::State;
 use axum::Json;
 
+use crate::credentials::WriteSource;
 use crate::extractors::AuthUser;
 use crate::state::AppState;
 
@@ -593,17 +594,34 @@ pub async fn save_codex_auth(
         "has_tokens": parsed.get("tokens").is_some_and(serde_json::Value::is_object),
     });
 
+    let serialized = parsed.to_string();
     state
         .provider_tokens
         .upsert_token(
             &auth.user_id,
             "codex",
-            &parsed.to_string(),
+            &serialized,
             None,
             Some("auth_json"),
             Some(&metadata),
         )
         .await?;
+
+    // Also push through CredentialService to broadcast to running sandboxes.
+    // Dedup inside `store` short-circuits since the value just landed in
+    // provider_tokens; only the broadcast fan-out fires.
+    if let Err(e) = state
+        .credentials_svc
+        .store(
+            &auth.user_id,
+            "CODEX_AUTH_JSON",
+            &serialized,
+            WriteSource::UserUiSave,
+        )
+        .await
+    {
+        tracing::warn!(error = %e, "Failed to broadcast Codex auth save to running sandboxes");
+    }
 
     Ok(Json(CodexConfigResponse {
         connected: true,
@@ -725,17 +743,37 @@ pub async fn poll_codex_device_login(
                 "account_id": id_token_claims.chatgpt_account_id,
             });
 
+            let serialized = auth_json.to_string();
             state
                 .provider_tokens
                 .upsert_token(
                     &auth.user_id,
                     "codex",
-                    &auth_json.to_string(),
+                    &serialized,
                     None,
                     Some("auth_json"),
                     Some(&metadata),
                 )
                 .await?;
+
+            // Broadcast the freshly-minted Codex auth.json to any running
+            // sandboxes the user owns so they pick up the new tokens without
+            // a restart.
+            if let Err(e) = state
+                .credentials_svc
+                .store(
+                    &auth.user_id,
+                    "CODEX_AUTH_JSON",
+                    &serialized,
+                    WriteSource::UserUiSave,
+                )
+                .await
+            {
+                tracing::warn!(
+                    error = %e,
+                    "Failed to broadcast Codex device-code login to running sandboxes"
+                );
+            }
 
             Ok(Json(CodexDeviceCodePollResponse::Success {
                 connected: true,

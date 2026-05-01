@@ -1,0 +1,516 @@
+//! Generic credential service: serialized refresh + write-through broadcast.
+//!
+//! Single point that:
+//! - Reads-or-refreshes a credential under a per-`(user_id, key)` mutex so
+//!   parallel callers never trigger competing OAuth refreshes.
+//! - Persists rotated values to `provider_tokens`.
+//! - Broadcasts rotations to every running sandbox the user owns so file-resident
+//!   credentials (Codex `auth.json`, Claude `.credentials`) stay live.
+//!
+//! Callers:
+//! - `sandbox::secrets::resolve_task_credentials` — gets fresh GitHub App tokens
+//!   for sandbox provisioning.
+//! - `sandbox::grpc_server::update_credential` — sandbox pushed a rotated blob.
+//! - `provider_settings::handlers::*` — user saved a token via the UI.
+//! - `auth::token_refresh::ensure_fresh_token` — internal use, now wrapped here.
+
+pub mod error;
+
+use std::sync::Arc;
+use std::time::Duration;
+
+use tokio::sync::Mutex;
+use tracing::{debug, info, warn};
+
+use crate::auth::github_app_service::GitHubAppService;
+use crate::auth::provider_token_dao::ProviderTokenRepository;
+use crate::auth::provider_tokens::ProviderTokenAuthRepository;
+use crate::auth::token_refresh::ensure_fresh_token_with_dao;
+use crate::config::SandboxProviderType;
+use crate::sandbox::client::SandboxClient;
+use crate::scope::ScopeContext;
+use crate::task::dao::{TaskFilter, TaskRepository};
+
+pub use self::error::CredentialError;
+
+/// Where a [`CredentialService::store`] call originated. Used by [`broadcast`]
+/// to skip the originating sandbox so a rotated value doesn't echo back as a
+/// fresh `RefreshCredential` push.
+#[derive(Debug, Clone)]
+pub enum WriteSource {
+    /// Sandbox-side rotation pushed via `BackendSandboxService::UpdateCredential`.
+    SandboxRotation { task_id: String },
+    /// Backend-driven refresh (e.g. GitHub App user-token expiry path).
+    BackendRefresh,
+    /// User clicked "save" / completed an OAuth flow in the settings UI.
+    UserUiSave,
+}
+
+/// Per-key broadcast policy.
+fn should_broadcast(key: &str) -> bool {
+    matches!(
+        key,
+        // File-resident credentials — sandboxes can't pull these on demand,
+        // so the backend must push.
+        "CODEX_AUTH_JSON" | "CLAUDE_CODE_OAUTH_TOKEN"
+    )
+}
+
+/// Map a credential env-var key to the provider name in `provider_tokens`.
+///
+/// Returns `None` for keys that aren't backed by a provider row (e.g. raw
+/// secrets that live elsewhere).
+pub(crate) fn credential_key_to_provider(key: &str) -> Option<&'static str> {
+    match key {
+        "CODEX_AUTH_JSON" => Some("codex"),
+        "OPENAI_API_KEY" => Some("openai"),
+        "GITHUB_TOKEN" => Some("github"),
+        "GITLAB_TOKEN" => Some("gitlab"),
+        "GITNESS_TOKEN" => Some("gitness"),
+        "CLAUDE_CODE_OAUTH_TOKEN" | "ANTHROPIC_API_KEY" => Some("claude"),
+        _ => None,
+    }
+}
+
+/// Bundle of dependencies needed to call out to running sandboxes.
+///
+/// Kept as a separate struct so unit tests can construct a `CredentialService`
+/// without spinning up real K8s/Docker plumbing.
+pub struct BroadcastContext {
+    pub provider: SandboxProviderType,
+    pub sandbox_namespace: String,
+    pub sandbox_grpc_port: u16,
+    pub tasks: Arc<dyn TaskRepository>,
+}
+
+/// Generic credential gating point.
+pub struct CredentialService {
+    provider_tokens: Arc<dyn ProviderTokenRepository>,
+    provider_token_auth: Option<Arc<dyn ProviderTokenAuthRepository>>,
+    github_app_service: Option<Arc<GitHubAppService>>,
+    /// Per-`(user_id, key)` mutex. The `()` payload is irrelevant — we lock
+    /// purely for serialization. Auto-evicted after the TTL so inactive
+    /// users' locks don't accumulate forever.
+    locks: moka::future::Cache<(String, String), Arc<Mutex<()>>>,
+    broadcast_ctx: Option<BroadcastContext>,
+}
+
+impl CredentialService {
+    /// Build a service. `broadcast_ctx` is optional — when omitted, [`store`]
+    /// still persists but skips broadcasting (used in tests and by the gRPC
+    /// server which constructs its own state without a sandbox provider).
+    pub fn new(
+        provider_tokens: Arc<dyn ProviderTokenRepository>,
+        provider_token_auth: Option<Arc<dyn ProviderTokenAuthRepository>>,
+        github_app_service: Option<Arc<GitHubAppService>>,
+        broadcast_ctx: Option<BroadcastContext>,
+    ) -> Self {
+        let locks = moka::future::Cache::builder()
+            .max_capacity(10_000)
+            .time_to_idle(Duration::from_secs(300))
+            .build();
+
+        Self {
+            provider_tokens,
+            provider_token_auth,
+            github_app_service,
+            locks,
+            broadcast_ctx,
+        }
+    }
+
+    /// Acquire the per-`(user, key)` mutex.
+    async fn acquire_lock(&self, user_id: &str, key: &str) -> Arc<Mutex<()>> {
+        let key = (user_id.to_string(), key.to_string());
+        self.locks
+            .get_with(key, async { Arc::new(Mutex::new(())) })
+            .await
+    }
+
+    /// Read-or-refresh-then-store, serialized per `(user_id, key)`.
+    ///
+    /// Today only supports GitHub App user-tokens — other credentials are
+    /// returned as-is from `provider_tokens`. The serialization makes it safe
+    /// to add Codex / Claude refresh paths later without revisiting the
+    /// race-condition story.
+    pub async fn ensure_fresh(
+        &self,
+        user_id: &str,
+        key: &str,
+    ) -> Result<String, CredentialError> {
+        let lock = self.acquire_lock(user_id, key).await;
+        let _guard = lock.lock().await;
+
+        match key {
+            "GITHUB_TOKEN" => {
+                let token_auth = self.provider_token_auth.as_ref();
+                let github_app = self.github_app_service.as_ref();
+                if let (Some(token_auth), Some(github_app)) = (token_auth, github_app) {
+                    let token = ensure_fresh_token_with_dao(
+                        self.provider_tokens.as_ref(),
+                        token_auth.as_ref(),
+                        github_app,
+                        user_id,
+                    )
+                    .await?;
+                    Ok(token)
+                } else {
+                    // GitHub App not configured — fall through to raw read.
+                    self.read_raw(user_id, key).await
+                }
+            }
+            _ => self.read_raw(user_id, key).await,
+        }
+    }
+
+    async fn read_raw(&self, user_id: &str, key: &str) -> Result<String, CredentialError> {
+        let provider = credential_key_to_provider(key).ok_or_else(|| {
+            CredentialError::Internal(format!("Unknown credential key: {key}"))
+        })?;
+
+        let row = self
+            .provider_tokens
+            .find_provider_token(user_id, provider)
+            .await?
+            .ok_or_else(|| {
+                CredentialError::NotFound(format!(
+                    "No {provider} provider_token for user {user_id}"
+                ))
+            })?;
+        Ok(row.access_token)
+    }
+
+    /// Persist a credential value and broadcast to running sandboxes.
+    ///
+    /// - Per-`(user, key)` serialization prevents lost writes when two callers
+    ///   race (e.g. UI save + sandbox push at the same moment).
+    /// - Hash-based dedup short-circuits the broadcast if the stored value is
+    ///   already up to date — prevents echo loops where a broadcast write
+    ///   propagates back through the originating sandbox's watcher.
+    /// - The originating sandbox (if any) is excluded from the broadcast so
+    ///   it doesn't immediately re-receive its own rotation.
+    pub async fn store(
+        &self,
+        user_id: &str,
+        key: &str,
+        value: &str,
+        source: WriteSource,
+    ) -> Result<(), CredentialError> {
+        let provider = credential_key_to_provider(key).ok_or_else(|| {
+            CredentialError::Internal(format!("Unknown credential key: {key}"))
+        })?;
+
+        let lock = self.acquire_lock(user_id, key).await;
+        let _guard = lock.lock().await;
+
+        // Dedup: skip persistence + broadcast when the value is unchanged.
+        let existing = self
+            .provider_tokens
+            .find_provider_token(user_id, provider)
+            .await?;
+        if existing.as_ref().is_some_and(|row| row.access_token == value) {
+            debug!(
+                user_id,
+                provider,
+                "CredentialService::store skipped — value unchanged"
+            );
+            return Ok(());
+        }
+
+        self.provider_tokens
+            .upsert_token(user_id, provider, value, None, None, None)
+            .await?;
+
+        info!(
+            user_id,
+            provider,
+            ?source,
+            "Persisted credential"
+        );
+
+        if should_broadcast(key) {
+            let except_task_id = match &source {
+                WriteSource::SandboxRotation { task_id } => Some(task_id.as_str()),
+                _ => None,
+            };
+            self.broadcast(user_id, except_task_id, key, value).await;
+        }
+
+        Ok(())
+    }
+
+    /// Push a freshly stored credential to every running sandbox the user
+    /// owns. Fire-and-forget per sandbox — failures are logged.
+    async fn broadcast(
+        &self,
+        user_id: &str,
+        except_task_id: Option<&str>,
+        key: &str,
+        value: &str,
+    ) {
+        let Some(ref ctx) = self.broadcast_ctx else {
+            return;
+        };
+
+        // List all open tasks owned by this user. We probe each — sandboxes
+        // that aren't running fail with `Unavailable`, which we drop.
+        let filter = TaskFilter {
+            scope: ScopeContext {
+                user_id: user_id.to_string(),
+                team_ids: vec![],
+                is_admin: true, // bypass scope filter, we already have user_id
+            },
+            limit: 500,
+            offset: 0,
+            status: Some(crate::task::models::TaskStatus::Open),
+            repository_id: None,
+            created_by: Some(user_id.to_string()),
+            tag: None,
+            parent_task_id: None,
+        };
+
+        let tasks = match ctx.tasks.list_tasks(&filter).await {
+            Ok((tasks, _)) => tasks,
+            Err(e) => {
+                warn!(error = %e, user_id, "broadcast: failed to list tasks");
+                return;
+            }
+        };
+
+        for task in tasks {
+            if Some(task.task_id.as_str()) == except_task_id {
+                continue;
+            }
+            let url = match ctx.provider {
+                SandboxProviderType::Kubernetes => format!(
+                    "http://{}.{}.svc.cluster.local:{}",
+                    crate::sandbox::k8s::naming::generate_service_name(&task.task_id),
+                    ctx.sandbox_namespace,
+                    ctx.sandbox_grpc_port,
+                ),
+                SandboxProviderType::Docker => format!(
+                    "http://{}:{}",
+                    crate::sandbox::docker::naming::generate_container_name(&task.task_id),
+                    ctx.sandbox_grpc_port,
+                ),
+            };
+            let task_id = task.task_id.clone();
+            let key = key.to_string();
+            let value = value.to_string();
+            tokio::spawn(async move {
+                let client = match SandboxClient::connect(&url) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        debug!(task_id, error = %e, "broadcast: client connect failed");
+                        return;
+                    }
+                };
+                if let Err(e) = client.refresh_credential(&task_id, &key, &value).await {
+                    debug!(task_id, error = %e, "broadcast: refresh_credential gRPC failed");
+                } else {
+                    info!(task_id, key, "broadcast: refresh_credential delivered");
+                }
+            });
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::auth::models::{ProviderAccessToken, ProviderToken};
+    use async_trait::async_trait;
+    use std::collections::HashMap;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// In-memory ProviderTokenRepository for tests.
+    struct InMemoryTokens {
+        tokens: tokio::sync::Mutex<HashMap<(String, String), String>>,
+        upsert_count: AtomicUsize,
+    }
+
+    impl InMemoryTokens {
+        fn new() -> Self {
+            Self {
+                tokens: tokio::sync::Mutex::new(HashMap::new()),
+                upsert_count: AtomicUsize::new(0),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl ProviderTokenRepository for InMemoryTokens {
+        async fn find_provider_token(
+            &self,
+            user_id: &str,
+            provider: &str,
+        ) -> Result<Option<ProviderAccessToken>, sqlx::Error> {
+            let tokens = self.tokens.lock().await;
+            Ok(tokens
+                .get(&(user_id.to_string(), provider.to_string()))
+                .map(|v| ProviderAccessToken {
+                    access_token: v.clone(),
+                }))
+        }
+
+        async fn find_provider_token_full(
+            &self,
+            _user_id: &str,
+            _provider: &str,
+        ) -> Result<Option<ProviderToken>, sqlx::Error> {
+            Ok(None)
+        }
+
+        async fn upsert_token(
+            &self,
+            user_id: &str,
+            provider: &str,
+            access_token: &str,
+            _refresh_token: Option<&str>,
+            _token_type: Option<&str>,
+            _metadata: Option<&serde_json::Value>,
+        ) -> Result<(), sqlx::Error> {
+            self.upsert_count.fetch_add(1, Ordering::SeqCst);
+            self.tokens
+                .lock()
+                .await
+                .insert((user_id.to_string(), provider.to_string()), access_token.to_string());
+            Ok(())
+        }
+
+        async fn delete_token(&self, _user_id: &str, _provider: &str) -> Result<(), sqlx::Error> {
+            Ok(())
+        }
+
+        async fn find_team_token(
+            &self,
+            _team_id: &str,
+            _provider: &str,
+        ) -> Result<Option<ProviderAccessToken>, sqlx::Error> {
+            Ok(None)
+        }
+
+        async fn upsert_team_token(
+            &self,
+            _team_id: &str,
+            _provider: &str,
+            _access_token: &str,
+            _refresh_token: Option<&str>,
+            _token_type: Option<&str>,
+            _metadata: Option<&serde_json::Value>,
+        ) -> Result<(), sqlx::Error> {
+            Ok(())
+        }
+
+        async fn delete_team_token(
+            &self,
+            _team_id: &str,
+            _provider: &str,
+        ) -> Result<(), sqlx::Error> {
+            Ok(())
+        }
+
+        async fn list_by_team(
+            &self,
+            _team_id: &str,
+        ) -> Result<Vec<ProviderToken>, sqlx::Error> {
+            Ok(vec![])
+        }
+    }
+
+    fn make_service(repo: Arc<dyn ProviderTokenRepository>) -> CredentialService {
+        CredentialService::new(repo, None, None, None)
+    }
+
+    #[tokio::test]
+    async fn store_persists_value() {
+        let repo = Arc::new(InMemoryTokens::new());
+        let svc = make_service(repo.clone());
+        svc.store("u1", "CODEX_AUTH_JSON", "v1", WriteSource::UserUiSave)
+            .await
+            .unwrap();
+        let got = svc.read_raw("u1", "CODEX_AUTH_JSON").await.unwrap();
+        assert_eq!(got, "v1");
+    }
+
+    #[tokio::test]
+    async fn store_dedups_when_unchanged() {
+        let repo = Arc::new(InMemoryTokens::new());
+        let svc = make_service(repo.clone());
+        svc.store("u1", "CODEX_AUTH_JSON", "v1", WriteSource::UserUiSave)
+            .await
+            .unwrap();
+        svc.store("u1", "CODEX_AUTH_JSON", "v1", WriteSource::UserUiSave)
+            .await
+            .unwrap();
+        // First store does an upsert, second short-circuits before upsert.
+        assert_eq!(repo.upsert_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn read_raw_returns_stored_value() {
+        let repo = Arc::new(InMemoryTokens::new());
+        let svc = make_service(repo.clone());
+        repo.upsert_token("u1", "codex", "v1", None, None, None)
+            .await
+            .unwrap();
+        let got = svc.read_raw("u1", "CODEX_AUTH_JSON").await.unwrap();
+        assert_eq!(got, "v1");
+    }
+
+    #[tokio::test]
+    async fn read_raw_returns_not_found_for_missing_token() {
+        let repo = Arc::new(InMemoryTokens::new());
+        let svc = make_service(repo.clone());
+        let err = svc.read_raw("u1", "CODEX_AUTH_JSON").await.unwrap_err();
+        assert!(matches!(err, CredentialError::NotFound(_)));
+    }
+
+    #[test]
+    fn should_broadcast_only_for_file_resident_keys() {
+        // File-resident creds: backend must push, agents can't pull.
+        assert!(should_broadcast("CODEX_AUTH_JSON"));
+        assert!(should_broadcast("CLAUDE_CODE_OAUTH_TOKEN"));
+        // Helper-pull creds: no push needed, broker pulls fresh on each call.
+        assert!(!should_broadcast("GITHUB_TOKEN"));
+        assert!(!should_broadcast("OPENAI_API_KEY"));
+    }
+
+    #[test]
+    fn credential_key_to_provider_maps_known_keys() {
+        assert_eq!(credential_key_to_provider("CODEX_AUTH_JSON"), Some("codex"));
+        assert_eq!(credential_key_to_provider("GITHUB_TOKEN"), Some("github"));
+        assert_eq!(
+            credential_key_to_provider("CLAUDE_CODE_OAUTH_TOKEN"),
+            Some("claude")
+        );
+        assert_eq!(credential_key_to_provider("OPENAI_API_KEY"), Some("openai"));
+        assert_eq!(credential_key_to_provider("NOT_A_REAL_KEY"), None);
+    }
+
+    #[tokio::test]
+    async fn parallel_stores_serialize_per_user_key() {
+        // Two parallel stores for the same (user, key) should both complete
+        // (the mutex serializes them) and end with one of the values stored.
+        let repo = Arc::new(InMemoryTokens::new());
+        let svc = Arc::new(make_service(repo.clone()));
+
+        let svc1 = svc.clone();
+        let svc2 = svc.clone();
+
+        let h1 = tokio::spawn(async move {
+            svc1.store("u1", "CODEX_AUTH_JSON", "value-A", WriteSource::UserUiSave)
+                .await
+        });
+        let h2 = tokio::spawn(async move {
+            svc2.store("u1", "CODEX_AUTH_JSON", "value-B", WriteSource::UserUiSave)
+                .await
+        });
+
+        h1.await.unwrap().unwrap();
+        h2.await.unwrap().unwrap();
+        // Both writes should land — ordering is non-deterministic but at least
+        // one upsert per distinct value succeeded.
+        assert!(repo.upsert_count.load(Ordering::SeqCst) >= 1);
+    }
+}

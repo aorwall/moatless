@@ -23,6 +23,11 @@ use moatless_sandbox::agent::handle::spawn_agent;
 use moatless_sandbox::agent::scheduled_job::{LateInjector, ScheduledJobRegistry};
 use moatless_sandbox::backend_client::BackendGrpcClient;
 use moatless_sandbox::config::Config;
+use moatless_sandbox::credentials::recovery::CredentialFailureDetector;
+use moatless_sandbox::credentials::sinks::{
+    ClaudeOauthSink, CodexAuthJsonSink, GitTokenSink,
+};
+use moatless_sandbox::credentials::Dispatcher;
 use moatless_sandbox::events::GrpcEventPublisher;
 use moatless_sandbox::grpc_server::SandboxServiceImpl;
 use moatless_sandbox::init::InitPhase;
@@ -76,6 +81,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let late_injector = Arc::new(LateInjector::new());
     let scheduled_jobs = Arc::new(ScheduledJobRegistry::new(Arc::clone(&late_injector) as _));
 
+    // Build the credential dispatcher and register sinks for every credential
+    // type the sandbox knows how to refresh. The watcher handle is set later
+    // by the init flow once the codex_watcher is spawned.
+    let codex_watcher_handle = Arc::new(RwLock::new(None));
+    let mut dispatcher = Dispatcher::new();
+    dispatcher.register(
+        "CODEX_AUTH_JSON",
+        Arc::new(CodexAuthJsonSink {
+            codex_home_dir: config.codex_home_dir.clone(),
+            watcher_handle: Arc::clone(&codex_watcher_handle),
+        }),
+    );
+    dispatcher.register(
+        "GITHUB_TOKEN",
+        Arc::new(GitTokenSink {
+            home_dir: config.home_dir.clone(),
+        }),
+    );
+    dispatcher.register("CLAUDE_CODE_OAUTH_TOKEN", Arc::new(ClaudeOauthSink));
+    let credential_dispatcher = Arc::new(dispatcher);
+    let credential_failures = CredentialFailureDetector::default();
+
     let agent_handle = spawn_agent(
         Arc::clone(&config_arc),
         Arc::clone(&agent_state),
@@ -83,6 +110,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::clone(&credentials),
         Arc::clone(&backend_client),
         Arc::clone(&scheduled_jobs),
+        credential_failures.clone(),
+        Arc::clone(&credential_dispatcher),
     );
     late_injector.set(Box::new(agent_handle.clone()));
 
@@ -96,6 +125,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         init_phase: Arc::new(RwLock::new(InitPhase::Starting)),
         credentials,
         lifecycle_cancel: CancellationToken::new(),
+        credential_dispatcher,
+        credential_failures,
+        codex_watcher_handle,
     };
 
     // Start gRPC server for sandbox service (receives commands from backend)

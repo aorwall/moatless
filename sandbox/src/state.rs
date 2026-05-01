@@ -11,7 +11,10 @@ use crate::agent::handle::AgentHandle;
 use crate::agent::scheduled_job::ScheduledJobRegistry;
 use crate::backend_client::BackendClient;
 use crate::config::Config;
+use crate::credentials::recovery::CredentialFailureDetector;
+use crate::credentials::Dispatcher;
 use crate::events::GrpcEventPublisher;
+use crate::init::codex_watcher::WatcherHandle;
 use crate::init::InitPhase;
 
 /// Shared state passed to all axum handlers via `State` extractor.
@@ -46,4 +49,18 @@ pub struct SandboxState {
     /// Used by background tasks (e.g. the credential refresher) to shut down
     /// cleanly when the pod is stopping.
     pub lifecycle_cancel: CancellationToken,
+    /// Generic dispatcher for backend-pushed credential refreshes.
+    ///
+    /// The gRPC server hands the rotated value to this dispatcher, which
+    /// routes to the appropriate sink (file write, env var update, etc.).
+    pub credential_dispatcher: Arc<Dispatcher>,
+    /// Tracks credential failures observed on agent stderr (e.g. Codex
+    /// `refresh_token_reused`). The agent loop reads + clears these flags at
+    /// turn-failure boundaries to decide whether to retry after pulling a
+    /// fresh credential from the backend.
+    pub credential_failures: CredentialFailureDetector,
+    /// Handle to the Codex auth watcher, used by [`crate::credentials::sinks`]
+    /// to seed the watcher cache after a backend-driven write so the resulting
+    /// filesystem event is recognised as a no-op.
+    pub codex_watcher_handle: Arc<RwLock<Option<WatcherHandle>>>,
 }

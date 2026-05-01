@@ -16,6 +16,7 @@ pub mod auth;
 pub mod channel;
 pub mod command;
 pub mod config;
+pub mod credentials;
 pub mod db;
 pub mod error;
 pub mod event_handler;

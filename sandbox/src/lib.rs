@@ -17,6 +17,7 @@
 pub mod agent;
 pub mod backend_client;
 pub mod config;
+pub mod credentials;
 pub mod error;
 pub mod events;
 pub mod files;

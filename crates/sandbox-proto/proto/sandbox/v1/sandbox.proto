@@ -123,6 +123,12 @@ service SandboxService {
   rpc GetAgentStatus(GetAgentStatusRequest) returns (GetAgentStatusResponse);
   rpc NotifyMessages(NotifyMessagesRequest) returns (NotifyMessagesResponse);
 
+  // Push a freshly stored credential to a running sandbox so it can apply it
+  // (atomic file write for file-resident credentials, env / helper update for
+  // pull-based credentials). Generic by `key` so future credentials are
+  // dispatcher-only changes.
+  rpc RefreshCredential(RefreshCredentialRequest) returns (RefreshCredentialResponse);
+
   // File operations (replaces file-explorer HTTP server)
   rpc GetFileTree(GetFileTreeRequest) returns (GetFileTreeResponse);
   rpc ReadFile(ReadFileRequest) returns (ReadFileResponse);
@@ -130,6 +136,16 @@ service SandboxService {
   rpc ListFiles(ListFilesRequest) returns (ListFilesResponse);
   rpc SearchFilesByName(SearchFilesByNameRequest) returns (SearchFilesByNameResponse);
 }
+
+message RefreshCredentialRequest {
+  string task_id = 1;
+  // Same key namespace as GetCredentialsResponse.credentials
+  // (e.g. "CODEX_AUTH_JSON", "GITHUB_TOKEN").
+  string key = 2;
+  string value = 3;
+}
+
+message RefreshCredentialResponse {}
 
 message ExecuteAgentRequest {
   repeated ContentBlock content = 1;

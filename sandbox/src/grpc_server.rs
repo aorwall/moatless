@@ -12,9 +12,9 @@ use sandbox_proto::{
     scheduled_job_info, ExecuteAgentRequest, ExecuteAgentResponse, GetAgentStatusRequest,
     GetAgentStatusResponse, GetFileTreeRequest, GetFileTreeResponse, ListFilesRequest,
     ListFilesResponse, MonitorJobInfo, NotifyMessagesRequest, NotifyMessagesResponse,
-    ReadFileRequest, ReadFileResponse, ScheduledJobInfo, SearchFilesByNameRequest,
-    SearchFilesByNameResponse, StopAgentRequest, StopAgentResponse, WakeupJobInfo,
-    WriteFileRequest, WriteFileResponse,
+    ReadFileRequest, ReadFileResponse, RefreshCredentialRequest, RefreshCredentialResponse,
+    ScheduledJobInfo, SearchFilesByNameRequest, SearchFilesByNameResponse, StopAgentRequest,
+    StopAgentResponse, WakeupJobInfo, WriteFileRequest, WriteFileResponse,
 };
 
 use moatless_events::AgentSubType;
@@ -128,6 +128,33 @@ impl SandboxService for SandboxServiceImpl {
         });
         info!("Message processing triggered via gRPC");
         Ok(Response::new(NotifyMessagesResponse {}))
+    }
+
+    /// Apply a backend-pushed credential refresh. Routes the value through
+    /// the sandbox-wide [`Dispatcher`] which writes files / updates env / etc.
+    /// per the sink registered for the credential key.
+    async fn refresh_credential(
+        &self,
+        request: Request<RefreshCredentialRequest>,
+    ) -> Result<Response<RefreshCredentialResponse>, Status> {
+        let req = request.into_inner();
+        info!(task_id = %req.task_id, key = %req.key, "RefreshCredential received");
+
+        match self
+            .state
+            .credential_dispatcher
+            .dispatch(&req.key, &req.value)
+            .await
+        {
+            Ok(true) => Ok(Response::new(RefreshCredentialResponse {})),
+            Ok(false) => Err(Status::invalid_argument(format!(
+                "No sink registered for credential key: {}",
+                req.key
+            ))),
+            Err(e) => Err(Status::internal(format!(
+                "Credential dispatch failed: {e}"
+            ))),
+        }
     }
 
     // ── File operations ──────────────────────────────────────────
