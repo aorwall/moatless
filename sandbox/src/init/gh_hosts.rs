@@ -16,8 +16,12 @@ use tracing::{debug, warn};
 /// `home_dir` is used to locate the resulting `hosts.yml` for permission tightening.
 /// Idempotent — safe to call every refresh cycle.
 pub async fn write_github_token(home_dir: &str, token: &str) -> Result<(), String> {
+    // gh refuses to persist credentials when GH_TOKEN/GITHUB_TOKEN is set in its env,
+    // and the refresher's caller has just exported both into the sandbox process env.
     let mut child = Command::new("gh")
         .args(["auth", "login", "--with-token"])
+        .env_remove("GH_TOKEN")
+        .env_remove("GITHUB_TOKEN")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
