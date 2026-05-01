@@ -72,8 +72,26 @@ pub struct IdTokenClaims {
 struct UserCodeResponse {
     device_auth_id: String,
     user_code: String,
+    /// `auth.openai.com` returns this as a JSON string ("5"), not a number, so
+    /// keep it loose and parse below.
     #[serde(default)]
-    interval: Option<u64>,
+    interval: Option<serde_json::Value>,
+    #[serde(default)]
+    expires_at: Option<String>,
+}
+
+fn parse_loose_u64(value: &serde_json::Value) -> Option<u64> {
+    match value {
+        serde_json::Value::Number(n) => n.as_u64(),
+        serde_json::Value::String(s) => s.parse::<u64>().ok(),
+        _ => None,
+    }
+}
+
+fn duration_until_rfc3339(value: &str) -> Option<u64> {
+    let target = chrono::DateTime::parse_from_rfc3339(value).ok()?;
+    let remaining = target.timestamp() - chrono::Utc::now().timestamp();
+    u64::try_from(remaining.max(0)).ok()
 }
 
 #[derive(Deserialize)]
@@ -88,6 +106,11 @@ struct OAuthTokenResponse {
     id_token: String,
     access_token: String,
     refresh_token: String,
+}
+
+#[derive(Deserialize)]
+struct TokenExchangeResponse {
+    access_token: String,
 }
 
 /// Step 1: ask `auth.openai.com` for a device_auth_id + user_code.
@@ -111,12 +134,24 @@ pub async fn request_device_code(
         .await
         .map_err(|e| CodexOAuthError::Decode(format!("usercode response: {e}")))?;
 
+    let interval_secs = parsed
+        .interval
+        .as_ref()
+        .and_then(parse_loose_u64)
+        .unwrap_or(FALLBACK_INTERVAL_SECS);
+    let expires_in_secs = parsed
+        .expires_at
+        .as_deref()
+        .and_then(duration_until_rfc3339)
+        .filter(|s| *s > 0)
+        .unwrap_or(EXPIRES_IN_SECS);
+
     Ok(DeviceCodeStart {
         device_auth_id: parsed.device_auth_id,
         user_code: parsed.user_code,
         verification_url: VERIFICATION_URL.to_string(),
-        interval_secs: parsed.interval.unwrap_or(FALLBACK_INTERVAL_SECS),
-        expires_in_secs: EXPIRES_IN_SECS,
+        interval_secs,
+        expires_in_secs,
     })
 }
 
@@ -172,9 +207,20 @@ pub async fn poll_once(
         IdTokenClaims::default()
     });
 
+    // Mint OPENAI_API_KEY via token-exchange — must happen here, otherwise the
+    // sandbox-side Codex CLI will try to refresh on startup and crash with
+    // refresh_token_reused once two of its subprocesses race.
+    let openai_api_key = match obtain_api_key(client, issuer, client_id, &tokens.id_token).await {
+        Ok(key) => Some(key),
+        Err(e) => {
+            warn!(error = %e, "Codex token-exchange for OPENAI_API_KEY failed (non-fatal)");
+            None
+        }
+    };
+
     let auth_json = serde_json::json!({
         "auth_mode": "chatgpt",
-        "OPENAI_API_KEY": serde_json::Value::Null,
+        "OPENAI_API_KEY": openai_api_key,
         "tokens": {
             "id_token": tokens.id_token,
             "access_token": tokens.access_token,
@@ -217,6 +263,54 @@ async fn exchange_code_for_tokens(
     resp.json::<OAuthTokenResponse>()
         .await
         .map_err(|e| CodexOAuthError::Decode(format!("token exchange response: {e}")))
+}
+
+/// Mint an `OPENAI_API_KEY` (sk-...) via the OAuth token-exchange grant.
+///
+/// Codex CLI does this immediately after the initial code exchange — without
+/// it, `auth.json` arrives with `OPENAI_API_KEY: null` and Codex falls back to
+/// a refresh-on-startup using the bearer tokens. Two parallel subprocesses
+/// then race to consume the (rotating) refresh token, and the loser gets
+/// `refresh_token_reused` and the session dies.
+///
+/// Does NOT consume the refresh_token — only `id_token` is sent as the
+/// subject_token. Failure here is non-fatal upstream; we mirror that and let
+/// the caller record `null` if this fails.
+async fn obtain_api_key(
+    client: &reqwest::Client,
+    issuer: &str,
+    client_id: &str,
+    id_token: &str,
+) -> Result<String, CodexOAuthError> {
+    let url = format!("{issuer}/oauth/token");
+    let form = [
+        (
+            "grant_type",
+            "urn:ietf:params:oauth:grant-type:token-exchange",
+        ),
+        ("client_id", client_id),
+        ("requested_token", "openai-api-key"),
+        ("subject_token", id_token),
+        (
+            "subject_token_type",
+            "urn:ietf:params:oauth:token-type:id_token",
+        ),
+    ];
+
+    let resp = client.post(&url).form(&form).send().await?;
+    let status = resp.status();
+
+    if !status.is_success() {
+        let body = resp.text().await.unwrap_or_default();
+        return Err(CodexOAuthError::RemoteStatus { status, body });
+    }
+
+    let parsed: TokenExchangeResponse = resp
+        .json()
+        .await
+        .map_err(|e| CodexOAuthError::Decode(format!("api-key exchange response: {e}")))?;
+
+    Ok(parsed.access_token)
 }
 
 impl IdTokenClaims {
@@ -303,5 +397,41 @@ mod tests {
     #[test]
     fn parse_rejects_malformed_jwt() {
         assert!(IdTokenClaims::parse("not-a-jwt").is_err());
+    }
+
+    #[test]
+    fn parse_loose_u64_accepts_string_and_number() {
+        assert_eq!(
+            parse_loose_u64(&serde_json::json!(5)),
+            Some(5),
+            "JSON number should parse"
+        );
+        assert_eq!(
+            parse_loose_u64(&serde_json::json!("5")),
+            Some(5),
+            "JSON string should parse"
+        );
+        assert_eq!(
+            parse_loose_u64(&serde_json::json!("not a number")),
+            None,
+            "non-numeric string should yield None"
+        );
+        assert_eq!(parse_loose_u64(&serde_json::json!(null)), None);
+    }
+
+    #[test]
+    fn user_code_response_decodes_real_openai_payload() {
+        // Captured from a live `auth.openai.com` response on 2026-05-01.
+        let body = serde_json::json!({
+            "device_auth_id": "deviceauth_69f4420b5fd88191911f124c85b83ef1",
+            "user_code": "CGSR-90ECR",
+            "interval": "5",
+            "expires_at": "2099-01-01T00:00:00+00:00"
+        });
+        let parsed: UserCodeResponse = serde_json::from_value(body).expect("decode");
+        assert_eq!(parsed.device_auth_id, "deviceauth_69f4420b5fd88191911f124c85b83ef1");
+        assert_eq!(parsed.user_code, "CGSR-90ECR");
+        assert_eq!(parse_loose_u64(parsed.interval.as_ref().unwrap()), Some(5));
+        assert!(duration_until_rfc3339(parsed.expires_at.as_deref().unwrap()).unwrap() > 0);
     }
 }
