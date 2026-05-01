@@ -96,3 +96,6 @@ issues/
 # Screenshot references (local design artifacts)
 task-files-view.png
 task-preview-view.png
+
+# Local direnv overrides
+.envrc
