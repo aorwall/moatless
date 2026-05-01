@@ -74,12 +74,28 @@ pub async fn send_message_flow(
     channel_source_name: Option<&str>,
     command_name: Option<&str>,
 ) -> Result<(), MessageError> {
-    // Dedup: if this channel message was already persisted, skip the insert entirely.
-    // Prevents duplicates from Slack retries or re-delivered webhooks.
+    // Dedup: if this channel message was already persisted (or was just sent
+    // outbound and is racing the webhook), skip the insert entirely. Prevents
+    // duplicates from Slack retries, re-delivered webhooks, and `moat reply`
+    // self-echoes.
     if let Some(ext_id) = channel_external_id {
+        // 1. In-memory race-window check — catches webhooks that land before
+        //    `set_channel_external_id` has committed.
+        if state.recently_sent.contains(task_id, ext_id) {
+            tracing::debug!(
+                task_id = %task_id,
+                channel_external_id = %ext_id,
+                "Filtered self-echo via recently_sent cache"
+            );
+            return Ok(());
+        }
+
+        // 2. DB check — tolerates both new prefixed format and any legacy
+        //    bare-int rows written before the prefix scheme.
+        let candidates = crate::channel::external_id::legacy_and_new(ext_id);
         let exists = state
             .messages
-            .has_channel_external_id(task_id, ext_id)
+            .has_any_channel_external_id(task_id, &candidates)
             .await
             .map_err(|e| MessageError::Internal(format!("Dedup check failed: {e}")))?;
         if exists {

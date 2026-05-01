@@ -238,13 +238,16 @@ fn transform_user(msg: &TaskMessage, blocks: &[&TaskMessageContentBlock]) -> UiM
             .collect()
     };
 
-    let channel = msg
-        .channel_provider
-        .as_ref()
-        .map(|provider| UiMessageChannel {
+    let channel = msg.channel_provider.as_ref().map(|provider| {
+        let external_id = msg.channel_external_id.clone();
+        let external_label = external_id.as_deref().map(format_external_label);
+        UiMessageChannel {
             provider: provider.clone(),
             source_name: msg.channel_source_name.clone(),
-        });
+            external_id,
+            external_label,
+        }
+    });
 
     UiMessage {
         uuid: msg.uuid.clone(),
@@ -412,6 +415,46 @@ pub(crate) fn enrich_codex_typed_result(
             Some(raw)
         }
         None => Some(raw),
+    }
+}
+
+/// Render a stable channel external id as a short human-readable label.
+///
+/// Mirrors the prefix scheme produced by inbound channel providers:
+/// `github:ic:N`, `github:rc:N`, `github:rv:N`, `github:cr:N`, `github:cs:N`,
+/// `github:pr:<action>:<number>[:<sha>]`, `slack:ts:<ts>`, `tg:m:<id>`.
+/// Falls back to the raw value for legacy bare-int rows or unknown shapes.
+pub(crate) fn format_external_label(raw: &str) -> String {
+    let parts: Vec<&str> = raw.split(':').collect();
+    if parts.len() < 2 {
+        return raw.to_string();
+    }
+
+    let namespace = parts[0];
+    let kind = parts[1];
+    let rest = &parts[2..];
+
+    match namespace {
+        "github" => format_github_label(kind, rest, raw),
+        "slack" if kind == "ts" && rest.len() == 1 => format!("ts {}", rest[0]),
+        "tg" if kind == "m" && rest.len() == 1 => format!("msg #{}", rest[0]),
+        _ => raw.to_string(),
+    }
+}
+
+fn format_github_label(kind: &str, rest: &[&str], raw: &str) -> String {
+    let single = if rest.len() == 1 { Some(rest[0]) } else { None };
+    match kind {
+        "ic" => single.map_or_else(|| raw.to_string(), |n| format!("Comment #{n}")),
+        "rc" | "rv" => single.map_or_else(|| raw.to_string(), |n| format!("Review #{n}")),
+        "cr" => single.map_or_else(|| raw.to_string(), |n| format!("Check #{n}")),
+        "cs" => single.map_or_else(|| raw.to_string(), |n| format!("Suite #{n}")),
+        "pr" => match rest.len() {
+            2 => format!("PR #{} {}", rest[1], rest[0]),
+            3 => format!("PR #{} {} {}", rest[1], rest[0], rest[2]),
+            _ => raw.to_string(),
+        },
+        _ => raw.to_string(),
     }
 }
 
@@ -634,6 +677,62 @@ mod tests {
                 MessageType::Assistant,
                 MessageType::Result,
             ]
+        );
+    }
+
+    #[test]
+    fn format_external_label_github_ic() {
+        assert_eq!(format_external_label("github:ic:12345"), "Comment #12345");
+    }
+
+    #[test]
+    fn format_external_label_github_rc_and_rv() {
+        assert_eq!(format_external_label("github:rc:99"), "Review #99");
+        assert_eq!(format_external_label("github:rv:7"), "Review #7");
+    }
+
+    #[test]
+    fn format_external_label_github_check_and_suite() {
+        assert_eq!(format_external_label("github:cr:55"), "Check #55");
+        assert_eq!(format_external_label("github:cs:66"), "Suite #66");
+    }
+
+    #[test]
+    fn format_external_label_github_pr_action() {
+        assert_eq!(
+            format_external_label("github:pr:opened:42"),
+            "PR #42 opened",
+        );
+    }
+
+    #[test]
+    fn format_external_label_github_pr_action_with_sha() {
+        assert_eq!(
+            format_external_label("github:pr:synchronize:42:abc1234"),
+            "PR #42 synchronize abc1234",
+        );
+    }
+
+    #[test]
+    fn format_external_label_slack() {
+        assert_eq!(
+            format_external_label("slack:ts:1700000.000123"),
+            "ts 1700000.000123",
+        );
+    }
+
+    #[test]
+    fn format_external_label_telegram() {
+        assert_eq!(format_external_label("tg:m:789"), "msg #789");
+    }
+
+    #[test]
+    fn format_external_label_legacy_and_unknown_fallback() {
+        assert_eq!(format_external_label("12345"), "12345");
+        assert_eq!(format_external_label("discord:msg:42"), "discord:msg:42");
+        assert_eq!(
+            format_external_label("github:unknown:42"),
+            "github:unknown:42",
         );
     }
 

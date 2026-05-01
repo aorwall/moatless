@@ -92,6 +92,16 @@ pub trait MessageRepository: Send + Sync {
         external_id: &str,
     ) -> Result<bool, sqlx::Error>;
 
+    /// Like [`Self::has_channel_external_id`] but matches any of the supplied
+    /// candidate ids. Used by the dedup gate to recognize both the new
+    /// `<provider>:<kind>:<id>` form and any legacy bare-int form for the
+    /// same row in a single round-trip.
+    async fn has_any_channel_external_id(
+        &self,
+        task_id: &str,
+        external_ids: &[String],
+    ) -> Result<bool, sqlx::Error>;
+
     async fn get_channel_external_ids(&self, task_id: &str) -> Result<Vec<String>, sqlx::Error>;
 
     /// Next turn number for a new user-initiated turn: max + 1, or 1 if empty.
@@ -516,6 +526,28 @@ impl MessageRepository for PgMessageRepository {
         )
         .bind(task_id)
         .bind(external_id)
+        .fetch_one(&self.0)
+        .await?;
+
+        Ok(row.0)
+    }
+
+    async fn has_any_channel_external_id(
+        &self,
+        task_id: &str,
+        external_ids: &[String],
+    ) -> Result<bool, sqlx::Error> {
+        if external_ids.is_empty() {
+            return Ok(false);
+        }
+        let row: (bool,) = sqlx::query_as(
+            r#"SELECT EXISTS(
+                SELECT 1 FROM task_messages
+                WHERE task_id = $1 AND channel_external_id = ANY($2)
+            )"#,
+        )
+        .bind(task_id)
+        .bind(external_ids)
         .fetch_one(&self.0)
         .await?;
 

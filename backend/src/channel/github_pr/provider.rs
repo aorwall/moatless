@@ -7,6 +7,7 @@ use moka::future::Cache;
 use tracing::{debug, info, warn};
 
 use crate::channel::error::ChannelError;
+use crate::channel::external_id;
 use crate::channel::inbound;
 use crate::channel::models::{ChannelConfig, ChannelThread, InboundMessage, OutboundReply};
 use crate::channel::provider::{ChannelProvider, ChannelType};
@@ -164,25 +165,9 @@ impl GithubPrProvider {
             }
         }
 
-        // Filter events from the run_as_user (prevents moat reply → webhook loop).
-        //
-        // Comment-style events skip this filter: same-task echo is handled per-row
-        // by `has_channel_external_id` (the agent tags its own tool_result rows in
-        // `message::hooks`), and we want sibling tasks connected to the same PR to
-        // still receive the comment.
-        let is_comment_event = matches!(
-            event_type,
-            "issue_comment" | "pull_request_review_comment" | "pull_request_review"
-        );
-
-        if !is_comment_event && !sender_login.is_empty() {
-            if let Ok(Some(sender_user_id)) = self.resolve_user(sender_login, db).await {
-                if sender_user_id == config.effective_user_id() {
-                    debug!(sender_login, run_as = %config.effective_user_id(), "Ignoring event from run_as user");
-                    return Ok(GithubPrWebhookResult::Ignore);
-                }
-            }
-        }
+        // (Per-config run_as filter removed. Self-echo is now handled per-thread
+        // in `inbound::process_inbound` and `listen::deliver_to_connected_threads`,
+        // so sibling watcher tasks connected to the same PR still receive events.)
 
         // Extract repo full_name → owner/repo
         let repo_full_name = payload
@@ -323,7 +308,7 @@ impl GithubPrProvider {
                 "pr_number": pr_number,
             }),
             provider_context: serde_json::json!({}),
-            channel_external_id: None,
+            channel_external_id: Some(external_id::github_pr_event(action, pr_number, None)),
         })))
     }
 
@@ -378,6 +363,7 @@ impl GithubPrProvider {
             .resolve_user_or_fallback(ctx.sender_login, ctx.config, ctx.db)
             .await;
 
+        let sync_sha = if after.is_empty() { None } else { Some(after) };
         Ok(GithubPrWebhookResult::Message(Box::new(InboundMessage {
             provider: ChannelType::GithubPr,
             source_id: ctx.config.source_id.clone(),
@@ -392,7 +378,11 @@ impl GithubPrProvider {
                 "pr_number": pr_number,
             }),
             provider_context: serde_json::json!({}),
-            channel_external_id: None,
+            channel_external_id: Some(external_id::github_pr_event(
+                "synchronize",
+                pr_number,
+                sync_sha,
+            )),
         })))
     }
 
@@ -459,7 +449,7 @@ impl GithubPrProvider {
                 "comment_id": comment_id,
             }),
             provider_context: serde_json::json!({}),
-            channel_external_id: Some(comment_id.to_string()),
+            channel_external_id: Some(external_id::github_issue_comment(comment_id)),
         })))
     }
 
@@ -565,7 +555,7 @@ impl GithubPrProvider {
                 "in_reply_to_id": in_reply_to_id,
             }),
             provider_context: serde_json::json!({}),
-            channel_external_id: Some(comment_id.to_string()),
+            channel_external_id: Some(external_id::github_review_comment(comment_id)),
         })))
     }
 
@@ -600,6 +590,10 @@ impl GithubPrProvider {
             .get("state")
             .and_then(serde_json::Value::as_str)
             .unwrap_or("");
+        let review_id = review
+            .get("id")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0);
 
         // Ignore reviews with empty body
         if review_body.is_empty() {
@@ -639,7 +633,7 @@ impl GithubPrProvider {
                 "pr_number": pr_number,
             }),
             provider_context: serde_json::json!({}),
-            channel_external_id: None,
+            channel_external_id: Some(external_id::github_review(review_id)),
         })))
     }
 
@@ -693,6 +687,10 @@ impl GithubPrProvider {
             return Ok(GithubPrWebhookResult::Ignore);
         };
 
+        let check_run_id = check_run
+            .get("id")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0);
         let name = check_run
             .get("name")
             .and_then(serde_json::Value::as_str)
@@ -765,7 +763,7 @@ impl GithubPrProvider {
                 "pr_number": pr_number,
             }),
             provider_context: serde_json::json!({}),
-            channel_external_id: None,
+            channel_external_id: Some(external_id::github_check_run(check_run_id)),
         })))
     }
 
@@ -815,6 +813,10 @@ impl GithubPrProvider {
             return Ok(GithubPrWebhookResult::Ignore);
         };
 
+        let check_suite_id = check_suite
+            .get("id")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0);
         let head_sha = check_suite
             .get("head_sha")
             .and_then(serde_json::Value::as_str)
@@ -849,7 +851,7 @@ impl GithubPrProvider {
                 "pr_number": pr_number,
             }),
             provider_context: serde_json::json!({}),
-            channel_external_id: None,
+            channel_external_id: Some(external_id::github_check_suite(check_suite_id)),
         })))
     }
 
@@ -926,11 +928,12 @@ impl ChannelProvider for GithubPrProvider {
 
         let comment_id = api.post_comment(&owner, &repo, pr_number, &body).await?;
 
-        // Return the comment id so `outbound.rs` can tag the originating
-        // message row with `channel_external_id`. The webhook echo is then
-        // deduped per-task by `has_channel_external_id`, while sibling tasks
-        // connected to the same PR still receive the comment via fan-out.
-        Ok(Some(comment_id.to_string()))
+        // Return the prefixed external id so `outbound.rs` tags the originating
+        // message row with the same form the inbound webhook will produce. The
+        // webhook echo is then deduped per-task by `has_any_channel_external_id`,
+        // while sibling tasks connected to the same PR still receive the comment
+        // via fan-out. Issue/PR conversation comments use the `github:ic:` ns.
+        Ok(Some(external_id::github_issue_comment(comment_id)))
     }
 
     async fn fetch_context(
@@ -962,8 +965,13 @@ impl ChannelProvider for GithubPrProvider {
                 c.body.as_deref().is_none_or(|b| !b.contains(AGENT_MARKER))
             })
             .filter(|c| {
-                // Exclude comments already delivered to the task
-                !exclude_external_ids.contains(&c.id.to_string())
+                // Exclude comments already delivered to the task. Match both
+                // the new prefixed form and the legacy bare-int form so old
+                // rows continue to suppress their own context replay.
+                let prefixed = external_id::github_issue_comment(c.id);
+                let bare = c.id.to_string();
+                !exclude_external_ids.contains(&prefixed)
+                    && !exclude_external_ids.contains(&bare)
             })
             .map(|c| format!("@{}: {}", c.author(), c.body.as_deref().unwrap_or("")))
             .collect::<Vec<_>>()

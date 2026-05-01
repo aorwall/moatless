@@ -466,11 +466,12 @@ async fn process_slash_command_background(
         "thread_ts": ts,
     });
 
+    let prefixed_ext_id = super::external_id::slack_ts(&ts);
     let msg = InboundMessage {
         provider: ChannelType::Slack,
         source_id: channel_id.to_string(),
         thread_id: None,
-        message_thread_id: ts.clone(),
+        message_thread_id: ts,
         user_id,
         text: user_text.to_string(),
         file_ids: vec![],
@@ -480,7 +481,7 @@ async fn process_slash_command_background(
             "is_bot_mentioned": true,
             "slash_command": true,
         }),
-        channel_external_id: Some(ts),
+        channel_external_id: Some(prefixed_ext_id),
     };
 
     // 5. Route through standard inbound pipeline with command info

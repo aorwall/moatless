@@ -5,6 +5,7 @@ use std::time::Duration;
 use tracing::{debug, info, warn};
 
 use crate::channel::error::ChannelError;
+use crate::channel::external_id;
 use crate::channel::models::{
     AccessDecision, ChannelAccessPolicy, ChannelConfig, ChannelThread, InboundMessage,
     OutboundReply,
@@ -275,7 +276,7 @@ impl TelegramProvider {
             file_ids: vec![],
             thread_properties,
             provider_context: serde_json::json!({}),
-            channel_external_id: Some(message_id.to_string()),
+            channel_external_id: Some(external_id::telegram_msg(message_id)),
         })))
     }
 }

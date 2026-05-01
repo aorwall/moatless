@@ -6,6 +6,9 @@ use moatless_events::{AgentSubType, TaskTurnSubType};
 use tracing::{debug, info, warn};
 
 use crate::event_handler::models::{AgentEvent, EventKey};
+use crate::message::models::{
+    ContentBlockType, MessageRole, MessageType, TaskMessage, TaskMessageContentBlock,
+};
 use crate::state::AppState;
 
 use super::error::ChannelError;
@@ -127,13 +130,81 @@ pub async fn send_to_channels(
             files: files.clone(),
         };
 
-        match send_outbound_result(state, task_id, target, &reply).await {
+        // Persist a stub assistant row up-front so we have a uuid to tag with
+        // the outbound `channel_external_id` once `send_reply` returns the id.
+        // Also makes the reply visible in the task's message timeline (parity
+        // with the agent-event-driven `send_outbound` path).
+        let stub_uuid = persist_outbound_stub(state, task_id, &reply.text, &config).await;
+
+        match send_outbound_result(state, task_id, target, &reply, stub_uuid.as_deref()).await {
             Ok(()) => sent_count += 1,
             Err(e) => errors.push(e),
         }
     }
 
     Ok((sent_count, errors))
+}
+
+/// Persist a visible assistant row representing an outbound channel reply.
+///
+/// Returns the row's uuid on success so the caller can later stamp it with
+/// `channel_external_id`. Failures are logged and `None` returned — the
+/// outbound send still happens, the dedup just falls back to the in-memory
+/// `recently_sent` cache + future webhook delivery.
+async fn persist_outbound_stub(
+    state: &AppState,
+    task_id: &str,
+    text: &str,
+    config: &ChannelConfig,
+) -> Option<String> {
+    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    let uuid = uuid::Uuid::new_v4().to_string();
+
+    let turn_number = match state.messages.current_turn_number(task_id).await {
+        Ok(t) => Some(t),
+        Err(e) => {
+            warn!(task_id, error = %e, "Failed to read turn number for outbound stub");
+            None
+        }
+    };
+
+    let content = serde_json::json!([{ "type": "text", "text": text }]);
+
+    let mut msg = TaskMessage::new_user_message(
+        task_id.to_string(),
+        uuid.clone(),
+        content,
+        now.clone(),
+    );
+    msg.message_type = MessageType::System;
+    msg.message_role = MessageRole::Assistant;
+    msg.user_type = "assistant".to_string();
+    msg.turn_number = turn_number;
+    msg.channel_provider = Some(config.provider.clone());
+    msg.channel_source_name = config.source_name.clone();
+
+    let block = TaskMessageContentBlock {
+        id: 0,
+        task_message_id: 0,
+        sort_order: 0,
+        block_type: ContentBlockType::Text,
+        show_in_ui: true,
+        text_content: Some(text.to_string()),
+        tool_use_id: None,
+        tool_result_content: None,
+        tool_result_is_error: None,
+        image_media_type: None,
+        image_data: None,
+        created_at: None,
+    };
+
+    match state.messages.append(&msg, &[], &[block]).await {
+        Ok(_) => Some(uuid),
+        Err(e) => {
+            warn!(task_id, error = %e, "Failed to persist outbound stub message");
+            None
+        }
+    }
 }
 
 /// Send a message directly to a channel config.
@@ -202,6 +273,10 @@ pub async fn direct_send_to_channel(
             .find_by_task_id_and_config(tid, config_id)
             .await?
         {
+            // Persist a visible stub row up-front so we can tag it with the
+            // outbound `channel_external_id` once the provider returns it.
+            let stub_uuid = persist_outbound_stub(state, tid, &reply.text, &config).await;
+
             // Existing thread — reply into it.
             let external_id = provider
                 .send_reply(&thread, &config, &reply)
@@ -212,6 +287,17 @@ pub async fn direct_send_to_channel(
                         config.provider
                     ))
                 })?;
+
+            // Tag the originating row + populate the recently_sent cache so
+            // the inbound webhook for this same comment/message is deduped.
+            if let (Some(ref ext_id), Some(ref msg_id)) = (&external_id, &stub_uuid) {
+                state.recently_sent.note(tid, ext_id);
+                if let Err(e) = state.messages.set_channel_external_id(msg_id, ext_id).await {
+                    warn!(task_id = %tid, error = %e, "Failed to tag outbound stub with channel_external_id");
+                }
+            } else if let Some(ref ext_id) = external_id {
+                state.recently_sent.note(tid, ext_id);
+            }
 
             // Advance cursor for context fetching.
             if let Some(ref ext_id) = external_id {
@@ -427,6 +513,10 @@ async fn send_outbound(
         } => {
             match provider.send_reply(&thread, &config, reply).await {
                 Ok(Some(external_id)) => {
+                    // Populate the recently_sent race-window cache before the
+                    // DB UPDATE so an in-flight webhook can short-circuit at
+                    // the in-memory check.
+                    state.recently_sent.note(task_id, &external_id);
                     if let Some(msg_id) = message_id {
                         if let Err(e) = state
                             .messages
@@ -538,11 +628,16 @@ async fn send_outbound(
 /// Send an outbound reply and return `Ok(())` on success or an error string on failure.
 ///
 /// Similar to [`send_outbound`] but returns errors instead of logging them.
+///
+/// When `message_id` is provided and `send_reply` returns an external id, the
+/// originating message row is tagged with that id so the inbound webhook for
+/// the same comment is deduped per-task by `send_message_flow`'s DB check.
 async fn send_outbound_result(
     state: &AppState,
     task_id: &str,
     target: OutboundTarget<'_>,
     reply: &OutboundReply,
+    message_id: Option<&str>,
 ) -> Result<(), String> {
     match target {
         OutboundTarget::Reply {
@@ -554,6 +649,17 @@ async fn send_outbound_result(
                 .send_reply(&thread, &config, reply)
                 .await
                 .map_err(|e| format!("Failed to send reply via {}: {e}", config.provider))?;
+
+            // Tag originating row + populate recently_sent cache so the
+            // inbound webhook for this same comment is deduped per-task.
+            if let Some(ref ext_id) = external_id {
+                state.recently_sent.note(task_id, ext_id);
+                if let Some(msg_id) = message_id {
+                    if let Err(e) = state.messages.set_channel_external_id(msg_id, ext_id).await {
+                        warn!(task_id = %task_id, error = %e, "Failed to tag outbound stub with channel_external_id");
+                    }
+                }
+            }
 
             // Advance cursor so future context fetches skip this reply
             if let Some(ref ext_id) = external_id {

@@ -11,6 +11,7 @@ use crate::auth::provider_tokens::{PgProviderTokenAuthRepository, ProviderTokenA
 use crate::auth::users::{PgUserRepository, UserRepository};
 use crate::channel::config_dao::{ChannelConfigRepository, PgChannelConfigRepository};
 use crate::channel::provider::ChannelProviders;
+use crate::channel::recently_sent::RecentlySent;
 use crate::channel::thread_dao::{ChannelThreadRepository, PgChannelThreadRepository};
 use crate::command::dao::{CommandRepository, PgCommandRepository};
 use crate::config::Config;
@@ -57,6 +58,10 @@ pub struct AppState {
     /// Generic credential service — serializes refreshes per `(user, key)` and
     /// broadcasts rotations to running sandboxes.
     pub credentials_svc: Arc<CredentialService>,
+    /// Short-lived in-memory cache of `(task_id, channel_external_id)` we
+    /// just sent outbound — closes the race where the inbound webhook lands
+    /// before `set_channel_external_id` commits. See [`RecentlySent`].
+    pub recently_sent: Arc<RecentlySent>,
 
     // =========================================================================
     // Repository trait objects
@@ -178,6 +183,7 @@ impl AppState {
             channel_providers,
             github_app_service,
             credentials_svc,
+            recently_sent: Arc::new(RecentlySent::new()),
         }
     }
 }

@@ -78,18 +78,24 @@ pub async fn on_agent_message_persisted(
             }
         };
 
-        if tool_call.tool_name != "Bash" {
-            continue;
-        }
-
-        let cmd = tool_call
+        let raw_cmd = tool_call
             .tool_input
             .get("command")
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        if cmd.is_empty() {
+        if raw_cmd.is_empty() {
             continue;
         }
+
+        // Claude Code's `Bash` and Codex's `codex.shell` use the same
+        // tool_input.command field, but Codex always wraps the command as
+        // `/bin/bash -lc '<inner>'` — unwrap it so the gh subcommand parser
+        // can match.
+        let cmd: &str = match tool_call.tool_name.as_str() {
+            "Bash" => raw_cmd,
+            "codex.shell" => unwrap_shell_wrapper(raw_cmd),
+            _ => continue,
+        };
 
         let result_text = block
             .get("content")
@@ -241,7 +247,10 @@ async fn handle_gh_comment(
         return;
     };
 
-    let external_id = comment_id.to_string();
+    // Wrap in the issue-comment namespace so the tagged row matches what the
+    // GitHub `issue_comment` webhook will produce for the same comment.
+    let external_id = crate::channel::external_id::github_issue_comment(comment_id);
+    state.recently_sent.note(task_id, &external_id);
     match state
         .messages
         .set_channel_external_id(message_uuid, &external_id)
@@ -324,6 +333,35 @@ fn matches_gh_subcommand(cmd: &str, expected: &[&str; 2]) -> bool {
         }
     }
     false
+}
+
+/// Strip a `<shell> -<flags> '<inner>'` wrapper that Codex always wraps
+/// shell commands in (production form: `/bin/bash -lc '<inner>'`). Falls
+/// through unchanged if no recognized wrapper is present.
+fn unwrap_shell_wrapper(cmd: &str) -> &str {
+    let trimmed = cmd.trim();
+    const PREFIXES: &[&str] = &[
+        "/bin/bash -lc ",
+        "/bin/bash -c ",
+        "/bin/sh -lc ",
+        "/bin/sh -c ",
+        "bash -lc ",
+        "bash -c ",
+        "sh -c ",
+    ];
+    for prefix in PREFIXES {
+        if let Some(rest) = trimmed.strip_prefix(prefix) {
+            let rest = rest.trim();
+            if let Some(inner) = rest.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')) {
+                return inner;
+            }
+            if let Some(inner) = rest.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
+                return inner;
+            }
+            return rest;
+        }
+    }
+    cmd
 }
 
 /// `KEY=VALUE` form, where KEY is an alphanumeric/underscore identifier.
@@ -518,5 +556,53 @@ mod tests {
     fn footer_trims_trailing_newlines_before_separator() {
         let out = compose_footer("body\n\n\n", "https://x/tasks/t");
         assert_eq!(out, "body\n\n---\nMoatless task: https://x/tasks/t\n");
+    }
+
+    #[test]
+    fn unwrap_shell_wrapper_strips_bin_bash_lc() {
+        assert_eq!(
+            unwrap_shell_wrapper("/bin/bash -lc 'gh pr create --title foo'"),
+            "gh pr create --title foo"
+        );
+    }
+
+    #[test]
+    fn unwrap_shell_wrapper_strips_double_quoted() {
+        assert_eq!(
+            unwrap_shell_wrapper("/bin/bash -c \"gh pr view 1\""),
+            "gh pr view 1"
+        );
+    }
+
+    #[test]
+    fn unwrap_shell_wrapper_passthrough_when_no_wrapper() {
+        assert_eq!(
+            unwrap_shell_wrapper("gh pr create --title foo"),
+            "gh pr create --title foo"
+        );
+    }
+
+    #[test]
+    fn is_gh_pr_create_codex_wrapped() {
+        let raw = "/bin/bash -lc 'gh pr create --title foo --body bar'";
+        assert!(is_gh_pr_create(unwrap_shell_wrapper(raw)));
+    }
+
+    #[test]
+    fn is_gh_pr_comment_codex_wrapped() {
+        let raw = "/bin/bash -lc 'gh pr comment 42 --body hi'";
+        assert!(is_gh_pr_comment(unwrap_shell_wrapper(raw)));
+    }
+
+    #[test]
+    fn is_gh_issue_comment_codex_wrapped() {
+        let raw = "/bin/bash -lc 'gh issue comment 1 --body hi'";
+        assert!(is_gh_issue_comment(unwrap_shell_wrapper(raw)));
+    }
+
+    #[test]
+    fn is_gh_pr_create_codex_with_repo_flag() {
+        let raw = "/bin/bash -lc 'gh -R o/r pr create'";
+        assert!(is_gh_pr_create(unwrap_shell_wrapper(raw)));
     }
 }

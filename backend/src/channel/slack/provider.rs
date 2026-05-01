@@ -7,6 +7,7 @@ use std::time::Duration;
 use tracing::{debug, info, warn};
 
 use crate::channel::error::ChannelError;
+use crate::channel::external_id;
 use crate::channel::models::{AccessDecision, ChannelTrigger};
 use crate::channel::models::{ChannelConfig, ChannelThread};
 use crate::channel::models::{InboundMessage, NewThreadInfo, OutboundReply};
@@ -375,7 +376,7 @@ impl SlackProvider {
                 "user_id": user,
                 "is_bot_mentioned": is_bot_mentioned,
             }),
-            channel_external_id: Some(ts.to_string()),
+            channel_external_id: Some(external_id::slack_ts(ts)),
         })))
     }
 }
@@ -484,7 +485,7 @@ impl ChannelProvider for SlackProvider {
             }
         }
 
-        Ok(ts)
+        Ok(ts.map(|t| external_id::slack_ts(&t)))
     }
 
     async fn send_message(
@@ -556,11 +557,14 @@ impl ChannelProvider for SlackProvider {
         let slack_config = SlackProviderConfig::from_config(config);
         let config_limit = slack_config.thread_context_limit.unwrap_or(limit as u64) as usize;
 
-        // Use last_channel_external_id as cursor — only fetch messages after it
-        let oldest = thread
+        // Use last_channel_external_id as cursor — only fetch messages after it.
+        // Strip the `slack:ts:` namespace prefix written by `send_reply` so the
+        // Slack API still receives a bare ts.
+        let oldest_raw = thread
             .properties
             .get("last_channel_external_id")
             .and_then(|v| v.as_str());
+        let oldest = oldest_raw.map(|s| s.strip_prefix("slack:ts:").unwrap_or(s));
 
         let replies = self
             .api
@@ -580,7 +584,8 @@ impl ChannelProvider for SlackProvider {
         // Slack always returns the parent message regardless of `oldest`,
         // so filter client-side to only include messages strictly after the cursor.
         // Also exclude messages already delivered to the task (e.g. the current
-        // message being processed) to avoid duplicates in the context.
+        // message being processed) to avoid duplicates in the context. Match
+        // both new prefixed and legacy bare-ts forms.
         let messages: Vec<&str> = replies
             .iter()
             .filter(|r| match (&r.ts, oldest) {
@@ -588,7 +593,11 @@ impl ChannelProvider for SlackProvider {
                 _ => true,
             })
             .filter(|r| match &r.ts {
-                Some(ts) => !exclude_external_ids.contains(ts),
+                Some(ts) => {
+                    let prefixed = external_id::slack_ts(ts);
+                    !exclude_external_ids.contains(&prefixed)
+                        && !exclude_external_ids.contains(ts)
+                }
                 None => true,
             })
             .map(|r| r.text.as_str())

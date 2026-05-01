@@ -60,6 +60,17 @@ pub struct UiMessageChannel {
     /// Human-readable channel name (e.g. "#engineering").
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_name: Option<String>,
+    /// Stable, type-namespaced external id (e.g. "github:ic:12345",
+    /// "slack:ts:1700000.000123"). Present when the row was tagged by an
+    /// inbound webhook or by the outbound dedup fix; absent for legacy
+    /// rows written before the prefix scheme.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub external_id: Option<String>,
+    /// Human-readable rendering of `external_id` (e.g. "Comment #12345",
+    /// "PR #42 opened", "ts 1700000.000123"). Falls back to the raw
+    /// `external_id` for legacy or unknown prefix shapes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub external_label: Option<String>,
 }
 
 /// Content block within a message.

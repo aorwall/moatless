@@ -93,6 +93,32 @@ pub async fn process_inbound(
             thread,
             config,
         } => {
+            // Self-echo guard: if this thread has a filter_user_id (or config
+            // default) matching msg.user_id, drop it. Otherwise the agent
+            // would receive its own outbound `moat reply` back as input.
+            if let Some(ref t) = thread {
+                if super::listen::should_filter_self_echo(&t.properties, &msg.user_id, &config) {
+                    debug!(
+                        task_id = %task_id,
+                        thread_id = t.id,
+                        user_id = %msg.user_id,
+                        provider = config.provider,
+                        "Filtered self-echo on primary path"
+                    );
+                    return Ok(task_id);
+                }
+            } else if !config.effective_user_id().is_empty()
+                && config.effective_user_id() == msg.user_id
+            {
+                debug!(
+                    task_id = %task_id,
+                    user_id = %msg.user_id,
+                    provider = config.provider,
+                    "Filtered self-echo on primary path (no thread)"
+                );
+                return Ok(task_id);
+            }
+
             info!(
                 task_id = %task_id,
                 provider = config.provider,
@@ -104,6 +130,24 @@ pub async fn process_inbound(
             (task_id, config, thread)
         }
         RoutingResult::NewTask { config } => {
+            // Self-echo guard for new-task routing: never spawn a fresh task
+            // from a webhook whose sender is the channel's own bot identity.
+            // We return an empty task_id so the caller's fan-out path (which
+            // excludes by task_id equality) treats it as a no-op for any
+            // sibling threads — and there are none here by construction since
+            // NewTask means no thread for this (config, external_thread_id).
+            if !config.effective_user_id().is_empty()
+                && config.effective_user_id() == msg.user_id
+            {
+                debug!(
+                    provider = config.provider,
+                    source_id = %config.source_id,
+                    user_id = %msg.user_id,
+                    "Filtered self-echo on new-task path (no existing thread)"
+                );
+                return Ok(String::new());
+            }
+
             info!(
                 provider = config.provider,
                 source_id = %config.source_id,

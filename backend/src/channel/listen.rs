@@ -78,10 +78,20 @@ pub async fn connect(
         }
     };
 
-    // 2. Merge filter_user_id into properties
-    if let Some(uid) = filter_user_id {
+    // 2. Merge filter_user_id into properties.
+    //
+    // When the caller does not specify one, default to the channel's
+    // effective user (run_as_user_id falls back to created_by). That user is
+    // who the agent posts as, so any inbound webhook whose user_id matches
+    // is by definition an echo of something this thread's task posted.
+    let resolved_filter_uid =
+        filter_user_id.map_or_else(|| config.effective_user_id().to_string(), str::to_string);
+    if !resolved_filter_uid.is_empty() {
         if let Some(obj) = thread_properties.as_object_mut() {
-            obj.insert("filter_user_id".into(), serde_json::json!(uid));
+            obj.insert(
+                "filter_user_id".into(),
+                serde_json::json!(resolved_filter_uid),
+            );
         }
     }
 
@@ -150,14 +160,29 @@ pub async fn deliver_to_connected_threads(
 
     let mut delivered_to = Vec::new();
 
+    // Look up the config once so we can default filter_user_id to its
+    // effective user when the thread doesn't carry an explicit one.
+    let config = match state.channel_configs.find_by_id(config_id).await {
+        Ok(Some(c)) => Some(c),
+        Ok(None) => None,
+        Err(e) => {
+            warn!(error = %e, config_id, "Failed to load channel config for fan-out");
+            None
+        }
+    };
+
     for thread in threads {
         // Skip the thread already handled by primary routing
         if thread.task_id == primary_task_id {
             continue;
         }
 
-        // Check per-thread filter_user_id
-        if let Some(filter_uid) = thread
+        // Check per-thread filter_user_id (with config fallback)
+        if let Some(ref cfg) = config {
+            if should_filter_self_echo(&thread.properties, &msg.user_id, cfg) {
+                continue;
+            }
+        } else if let Some(filter_uid) = thread
             .properties
             .get("filter_user_id")
             .and_then(|v| v.as_str())
@@ -215,6 +240,25 @@ pub async fn deliver_to_connected_threads(
     delivered_to
 }
 
+/// Returns true when an inbound message from `msg_user_id` should be skipped
+/// because it is the originating side of a self-echo.
+///
+/// Resolution: the thread's stored `filter_user_id`, or — when absent — the
+/// channel config's `effective_user_id()` (run_as_user_id ?? created_by).
+/// That user is who the agent posts as, so any inbound whose `msg.user_id`
+/// matches is by definition our own echo.
+pub fn should_filter_self_echo(
+    thread_properties: &serde_json::Value,
+    msg_user_id: &str,
+    config: &ChannelConfig,
+) -> bool {
+    let stored = thread_properties
+        .get("filter_user_id")
+        .and_then(|v| v.as_str());
+    let filter_uid = stored.unwrap_or_else(|| config.effective_user_id());
+    !filter_uid.is_empty() && filter_uid == msg_user_id
+}
+
 /// Create a minimal channel config for auto-connect.
 ///
 /// Auto-connect is explicit opt-in (the user ran `channel connect`), so we
@@ -269,4 +313,82 @@ async fn create_minimal_config(
     );
 
     Ok(config)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::scope::Scope;
+
+    fn cfg_with(run_as: Option<&str>, created_by: &str) -> ChannelConfig {
+        ChannelConfig {
+            id: "cfg-1".into(),
+            provider: "github_pr".into(),
+            source_id: "Frank-Penny/soap-config".into(),
+            source_name: None,
+            repository_id: "repo-1".into(),
+            routing_mode: RoutingMode::ThreadBased,
+            prompt_template: None,
+            active: true,
+            allow_direct_send: false,
+            provider_config: None,
+            ongoing_task_id: None,
+            response_config_id: None,
+            scope: Scope::Team,
+            team_id: None,
+            task_name: None,
+            tag_ids: vec![],
+            run_as_user_id: run_as.map(String::from),
+            agent_type: "claude-code".into(),
+            created_by: created_by.into(),
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        }
+    }
+
+    #[test]
+    fn should_filter_self_echo_explicit_filter() {
+        let cfg = cfg_with(None, "alice");
+        let props = serde_json::json!({"filter_user_id": "bot-user"});
+        assert!(should_filter_self_echo(&props, "bot-user", &cfg));
+        assert!(!should_filter_self_echo(&props, "other", &cfg));
+    }
+
+    #[test]
+    fn should_filter_self_echo_defaults_to_run_as_user() {
+        let cfg = cfg_with(Some("bot-user"), "alice");
+        let props = serde_json::json!({});
+        assert!(should_filter_self_echo(&props, "bot-user", &cfg));
+        assert!(!should_filter_self_echo(&props, "alice", &cfg));
+    }
+
+    #[test]
+    fn should_filter_self_echo_defaults_to_created_by_when_no_run_as() {
+        let cfg = cfg_with(None, "alice");
+        let props = serde_json::json!({});
+        assert!(should_filter_self_echo(&props, "alice", &cfg));
+        assert!(!should_filter_self_echo(&props, "bob", &cfg));
+    }
+
+    #[test]
+    fn should_filter_self_echo_explicit_overrides_default() {
+        // Explicit empty string in thread_properties — falls back to default
+        // since helper requires non-empty filter id.
+        let cfg = cfg_with(Some("bot-user"), "alice");
+        let props = serde_json::json!({"filter_user_id": ""});
+        assert!(!should_filter_self_echo(&props, "bot-user", &cfg));
+
+        // Explicit different filter overrides config default
+        let props = serde_json::json!({"filter_user_id": "explicit-bot"});
+        assert!(should_filter_self_echo(&props, "explicit-bot", &cfg));
+        assert!(!should_filter_self_echo(&props, "bot-user", &cfg));
+    }
+
+    #[test]
+    fn should_filter_self_echo_empty_user_id_is_safe() {
+        let cfg = cfg_with(Some(""), "");
+        let props = serde_json::json!({});
+        assert!(!should_filter_self_echo(&props, "anyone", &cfg));
+        assert!(!should_filter_self_echo(&props, "", &cfg));
+    }
 }
