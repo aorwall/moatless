@@ -5,14 +5,11 @@
  * Sandbox orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
-import type { MonitorJobInfo } from './monitorJobInfo';
 import type { WakeupJobInfo } from './wakeupJobInfo';
 
 /**
  * Per-kind payload for a scheduled job.
  */
-export type ScheduledJobKind = MonitorJobInfo & {
-  kind: 'monitor';
-} | WakeupJobInfo & {
+export type ScheduledJobKind = WakeupJobInfo & {
   kind: 'wakeup';
 };

@@ -11,10 +11,10 @@ use sandbox_proto::sandbox_service_server::SandboxService;
 use sandbox_proto::{
     scheduled_job_info, ExecuteAgentRequest, ExecuteAgentResponse, GetAgentStatusRequest,
     GetAgentStatusResponse, GetFileTreeRequest, GetFileTreeResponse, ListFilesRequest,
-    ListFilesResponse, MonitorJobInfo, NotifyMessagesRequest, NotifyMessagesResponse,
-    ReadFileRequest, ReadFileResponse, RefreshCredentialRequest, RefreshCredentialResponse,
-    ScheduledJobInfo, SearchFilesByNameRequest, SearchFilesByNameResponse, StopAgentRequest,
-    StopAgentResponse, WakeupJobInfo, WriteFileRequest, WriteFileResponse,
+    ListFilesResponse, NotifyMessagesRequest, NotifyMessagesResponse, ReadFileRequest,
+    ReadFileResponse, RefreshCredentialRequest, RefreshCredentialResponse, ScheduledJobInfo,
+    SearchFilesByNameRequest, SearchFilesByNameResponse, StopAgentRequest, StopAgentResponse,
+    WakeupJobInfo, WriteFileRequest, WriteFileResponse,
 };
 
 use moatless_events::AgentSubType;
@@ -88,16 +88,6 @@ impl SandboxService for SandboxServiceImpl {
             .await
             .into_iter()
             .map(|snap| match snap {
-                JobSnapshot::Monitor(m) => ScheduledJobInfo {
-                    id: m.id,
-                    registered_at_unix_ms: m.registered_at_unix_ms,
-                    kind: Some(scheduled_job_info::Kind::Monitor(MonitorJobInfo {
-                        description: m.description,
-                        command_preview: m.command_preview,
-                        timeout_ms: m.timeout_ms,
-                        persistent: m.persistent,
-                    })),
-                },
                 JobSnapshot::Wakeup(w) => ScheduledJobInfo {
                     id: w.id,
                     registered_at_unix_ms: w.registered_at_unix_ms,

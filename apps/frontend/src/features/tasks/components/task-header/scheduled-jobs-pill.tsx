@@ -1,5 +1,5 @@
 import type { ScheduledJobInfo } from '@moatless/api-client'
-import { Activity, Clock, Timer } from 'lucide-react'
+import { Clock, Timer } from 'lucide-react'
 import { Button } from '@/lib/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/lib/components/ui/popover'
 
@@ -29,26 +29,6 @@ export function ScheduledJobsPill({ jobs }: Props) {
 }
 
 function ScheduledJobRow({ job }: { job: ScheduledJobInfo }) {
-  if (job.kind === 'monitor') {
-    return (
-      <div className="flex gap-2 px-2 py-1.5 rounded-sm hover:bg-accent">
-        <Activity className="h-3.5 w-3.5 mt-0.5 shrink-0 text-muted-foreground" />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1">
-            <span className="text-xs font-medium truncate">{job.description}</span>
-            {job.persistent && (
-              <span className="text-[10px] uppercase tracking-wide text-muted-foreground border rounded px-1">
-                persist
-              </span>
-            )}
-          </div>
-          <div className="text-[11px] font-mono text-muted-foreground truncate">
-            {job.commandPreview}
-          </div>
-        </div>
-      </div>
-    )
-  }
   return (
     <div className="flex gap-2 px-2 py-1.5 rounded-sm hover:bg-accent">
       <Timer className="h-3.5 w-3.5 mt-0.5 shrink-0 text-muted-foreground" />

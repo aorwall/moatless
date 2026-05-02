@@ -80,16 +80,6 @@ pub struct ContainerDiagnostics {
     pub memory_mb: Option<u64>,
 }
 
-/// Monitor cron job armed by the agent.
-#[derive(Debug, Clone, Serialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct MonitorJobInfo {
-    pub description: String,
-    pub command_preview: String,
-    pub timeout_ms: u64,
-    pub persistent: bool,
-}
-
 /// Wakeup timer armed by the agent via `ScheduleWakeup`.
 #[derive(Debug, Clone, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -103,7 +93,6 @@ pub struct WakeupJobInfo {
 #[derive(Debug, Clone, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum ScheduledJobKind {
-    Monitor(MonitorJobInfo),
     Wakeup(WakeupJobInfo),
 }
 
@@ -408,25 +397,6 @@ mod tests {
 
     #[test]
     fn scheduled_job_serializes_with_tagged_kind() {
-        let monitor = ScheduledJobInfo {
-            id: "j1".into(),
-            registered_at_unix_ms: 1,
-            kind: ScheduledJobKind::Monitor(MonitorJobInfo {
-                description: "tail".into(),
-                command_preview: "tail -f log".into(),
-                timeout_ms: 1000,
-                persistent: false,
-            }),
-        };
-        let json = serde_json::to_value(&monitor).unwrap();
-        assert_eq!(json["id"], "j1");
-        assert_eq!(json["registeredAtUnixMs"], 1);
-        assert_eq!(json["kind"], "monitor");
-        assert_eq!(json["description"], "tail");
-        assert_eq!(json["commandPreview"], "tail -f log");
-        assert_eq!(json["timeoutMs"], 1000);
-        assert_eq!(json["persistent"], false);
-
         let wakeup = ScheduledJobInfo {
             id: "j2".into(),
             registered_at_unix_ms: 2,
@@ -437,6 +407,8 @@ mod tests {
             }),
         };
         let json = serde_json::to_value(&wakeup).unwrap();
+        assert_eq!(json["id"], "j2");
+        assert_eq!(json["registeredAtUnixMs"], 2);
         assert_eq!(json["kind"], "wakeup");
         assert_eq!(json["reason"], "ping");
         assert_eq!(json["promptPreview"], "wake up");
@@ -478,11 +450,10 @@ mod tests {
             scheduled_jobs: vec![ScheduledJobInfo {
                 id: "j1".into(),
                 registered_at_unix_ms: 1,
-                kind: ScheduledJobKind::Monitor(MonitorJobInfo {
-                    description: "tail".into(),
-                    command_preview: "tail -f log".into(),
-                    timeout_ms: 1000,
-                    persistent: true,
+                kind: ScheduledJobKind::Wakeup(WakeupJobInfo {
+                    reason: "ping".into(),
+                    prompt_preview: "wake up".into(),
+                    wakeup_at_unix_ms: 5,
                 }),
             }],
         };
@@ -492,7 +463,7 @@ mod tests {
             .and_then(|v| v.as_array())
             .unwrap();
         assert_eq!(arr.len(), 1);
-        assert_eq!(arr[0]["kind"], "monitor");
-        assert_eq!(arr[0]["persistent"], true);
+        assert_eq!(arr[0]["kind"], "wakeup");
+        assert_eq!(arr[0]["reason"], "ping");
     }
 }

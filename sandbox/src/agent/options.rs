@@ -13,7 +13,6 @@ use crate::config::Config;
 
 use super::agent_state::AgentState;
 use super::permission_handler::InteractivePermissionHandler;
-use super::scheduled_job::ScheduledJobRegistry;
 
 /// Build ClaudeOptions from config + per-request overrides.
 pub fn build_options(
@@ -22,7 +21,6 @@ pub fn build_options(
     cancel_token: CancellationToken,
     agent_state: Arc<AgentState>,
     env: Option<HashMap<String, String>>,
-    scheduled_jobs: Arc<ScheduledJobRegistry>,
 ) -> ClaudeOptions {
     // Determine model: request > agentConfig > DEFAULT_CLAUDE_CODE_MODEL env
     let model = request
@@ -40,16 +38,10 @@ pub fn build_options(
     // Detect plan mode from agent_mode.
     let is_plan_mode = request.agent_mode.as_deref() == Some("plan");
 
-    // Build the permission handler for interactive prompts. The handler also
-    // intercepts `Monitor` tool calls and registers them as jobs against the
-    // shared `ScheduledJobRegistry`, then rewrites the input so the SDK's
-    // built-in implementation runs as a no-op.
-    let permission_handler = InteractivePermissionHandler::with_plan_mode(
-        agent_state,
-        is_plan_mode,
-        scheduled_jobs,
-        cancel_token.clone(),
-    );
+    // Build the permission handler for interactive prompts (AskUserQuestion,
+    // ExitPlanMode). It also enforces plan-mode write blocking when active.
+    let permission_handler =
+        InteractivePermissionHandler::with_plan_mode(agent_state, is_plan_mode);
 
     // Determine session resume
     let (resume, continue_conversation) = resolve_resume(request);
@@ -88,6 +80,12 @@ pub fn build_options(
         max_turns: config.agent_config.timeout.map(|t| t as u32),
         init_timeout: Some(init_timeout),
         env,
+        // The CLI's built-in Monitor tool only delivers events while its own
+        // subprocess is alive. Our per-turn `--resume` model kills that
+        // subprocess at turn end, so the Monitor watcher dies before any
+        // events reach the agent. Disallow it so the agent gets a loud
+        // "tool not allowed" error and falls back to Bash background.
+        disallowed_tools: Some(vec!["Monitor".to_string()]),
         ..ClaudeOptions::default()
     }
 }

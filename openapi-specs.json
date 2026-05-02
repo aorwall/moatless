@@ -5528,6 +5528,287 @@
           }
         }
       }
+    },
+    "/api/v1/users/{login}/dm": {
+      "post": {
+        "tags": [
+          "channels"
+        ],
+        "summary": "Send a direct message to a moatless user via an external provider (e.g. Slack).",
+        "description": "The user must have a provider ID registered for the given provider.\nIf `task_id` is provided, a `task_subscription` is created so that replies\nto the DM thread are routed back to the task.",
+        "operationId": "send_user_dm_handler",
+        "parameters": [
+          {
+            "name": "login",
+            "in": "path",
+            "description": "Moatless username to send the DM to",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendDmRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "DM sent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SendDmResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Provider not configured or no provider ID for user",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "User not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/users/{login}/provider-ids": {
+      "get": {
+        "tags": [
+          "users"
+        ],
+        "summary": "List all provider ID mappings for a moatless user.",
+        "description": "Only the user themselves or an admin may call this.",
+        "operationId": "list_user_provider_ids_handler",
+        "parameters": [
+          {
+            "name": "login",
+            "in": "path",
+            "description": "Moatless username",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of provider ID mappings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/UserProviderIdItem"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "User not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/users/{login}/provider-ids/{provider}": {
+      "put": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Set (upsert) a provider-specific user ID for a moatless user.",
+        "description": "Only the user themselves or an admin may call this.",
+        "operationId": "set_user_provider_id_handler",
+        "parameters": [
+          {
+            "name": "login",
+            "in": "path",
+            "description": "Moatless username",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "provider",
+            "in": "path",
+            "description": "Provider name, e.g. 'slack'",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetProviderIdRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Provider ID set",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "User not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Delete a provider ID mapping for a moatless user.",
+        "description": "Only the user themselves or an admin may call this.",
+        "operationId": "delete_user_provider_id_handler",
+        "parameters": [
+          {
+            "name": "login",
+            "in": "path",
+            "description": "Moatless username",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "provider",
+            "in": "path",
+            "description": "Provider name, e.g. 'slack'",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Provider ID deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "User or mapping not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -8333,32 +8614,6 @@
           }
         }
       },
-      "MonitorJobInfo": {
-        "type": "object",
-        "description": "Monitor cron job armed by the agent.",
-        "required": [
-          "description",
-          "commandPreview",
-          "timeoutMs",
-          "persistent"
-        ],
-        "properties": {
-          "commandPreview": {
-            "type": "string"
-          },
-          "description": {
-            "type": "string"
-          },
-          "persistent": {
-            "type": "boolean"
-          },
-          "timeoutMs": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
-          }
-        }
-      },
       "MultipleTargetsErrorBody": {
         "type": "object",
         "description": "Body returned with HTTP 400 when `POST /channels/send` cannot pick a\nsingle destination because the task is wired to multiple channels.",
@@ -9471,27 +9726,6 @@
           {
             "allOf": [
               {
-                "$ref": "#/components/schemas/MonitorJobInfo"
-              },
-              {
-                "type": "object",
-                "required": [
-                  "kind"
-                ],
-                "properties": {
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "monitor"
-                    ]
-                  }
-                }
-              }
-            ]
-          },
-          {
-            "allOf": [
-              {
                 "$ref": "#/components/schemas/WakeupJobInfo"
               },
               {
@@ -9696,6 +9930,54 @@
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          }
+        }
+      },
+      "SendDmRequest": {
+        "type": "object",
+        "description": "Send a DM to a user via an external provider.",
+        "required": [
+          "provider",
+          "text"
+        ],
+        "properties": {
+          "provider": {
+            "type": "string",
+            "description": "Provider to send through (e.g. \"slack\")."
+          },
+          "task_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional task to associate the DM subscription with."
+          },
+          "text": {
+            "type": "string",
+            "description": "Message text."
+          }
+        }
+      },
+      "SendDmResponse": {
+        "type": "object",
+        "description": "Result of sending a DM.",
+        "required": [
+          "subscription_id",
+          "channel_id",
+          "message_ts"
+        ],
+        "properties": {
+          "channel_id": {
+            "type": "string",
+            "description": "DM channel ID opened (Slack: starts with \"D\")."
+          },
+          "message_ts": {
+            "type": "string",
+            "description": "Message timestamp (Slack ts)."
+          },
+          "subscription_id": {
+            "type": "string",
+            "description": "The created or updated task_subscription id."
           }
         }
       },
@@ -10134,6 +10416,19 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "SetProviderIdRequest": {
+        "type": "object",
+        "description": "Set or replace the provider-specific user ID for a moatless user.",
+        "required": [
+          "provider_user_id"
+        ],
+        "properties": {
+          "provider_user_id": {
+            "type": "string",
+            "description": "Provider-specific user ID (e.g. Slack user ID \"U0000000002\")."
           }
         }
       },
@@ -11635,6 +11930,26 @@
             "items": {
               "$ref": "#/components/schemas/UserListItem"
             }
+          }
+        }
+      },
+      "UserProviderIdItem": {
+        "type": "object",
+        "description": "A single provider ID mapping entry.",
+        "required": [
+          "provider",
+          "provider_user_id",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "provider_user_id": {
+            "type": "string"
           }
         }
       },

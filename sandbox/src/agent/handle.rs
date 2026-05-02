@@ -598,7 +598,6 @@ async fn agent_loop(
                     send.agent_type.as_deref(),
                     send.agent_mode.as_deref(),
                     send.resume_session_id,
-                    Arc::clone(&scheduled_jobs),
                     credential_failures.clone(),
                     Arc::clone(&system_prompt_cache),
                 )
@@ -874,7 +873,6 @@ async fn agent_loop(
                     state.agent_type.as_deref(),
                     state.agent_mode.as_deref(),
                     None,
-                    Arc::clone(&scheduled_jobs),
                     credential_failures.clone(),
                     Arc::clone(&system_prompt_cache),
                 ).await {
@@ -1033,7 +1031,6 @@ async fn start_session(
     agent_type: Option<&str>,
     agent_mode: Option<&str>,
     resume_session_id: Option<String>,
-    scheduled_jobs: Arc<ScheduledJobRegistry>,
     credential_failures: CredentialFailureDetector,
     system_prompt_cache: Arc<RwLock<Option<String>>>,
 ) -> Result<ActiveHandle, AgentRuntimeError> {
@@ -1140,7 +1137,6 @@ async fn start_session(
         cancel_token.clone(),
         Arc::clone(&agent_state),
         env.clone(),
-        Arc::clone(&scheduled_jobs),
     );
 
     match claude_agent_sdk::query(prompt, options).await {
@@ -1157,7 +1153,6 @@ async fn start_session(
                 cancel_token.clone(),
                 agent_state,
                 env,
-                scheduled_jobs,
             );
             claude_agent_sdk::query(prompt, fresh_options)
                 .await

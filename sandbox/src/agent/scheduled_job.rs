@@ -1,8 +1,10 @@
 //! Unified registry for sandbox-local "deferred work" jobs.
 //!
-//! Two concrete jobs share this surface:
-//! - `MonitorJob` — the cron poller driving the Claude Code `Monitor` tool.
-//! - `WakeupJob` — the one-shot timer driving the `ScheduleWakeup` tool.
+//! Today only `WakeupJob` (the one-shot timer driving the `ScheduleWakeup`
+//! tool) uses this surface. The registry was originally designed to also host
+//! Monitor crons, but the Claude CLI handles `Monitor` client-side and our
+//! per-turn subprocess model means events from the CLI's watcher never reach
+//! the agent — so Monitor is disallowed at the CLI flag level instead.
 //!
 //! Each job runs in its own tokio task and injects synthetic user messages
 //! back into the running Claude session via `JobInjector`. The registry owns
@@ -75,21 +77,7 @@ impl JobInjector for LateInjector {
 /// Discriminator for cancel-by-kind and status reporting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JobKind {
-    Monitor,
     Wakeup,
-}
-
-/// Read-only view of one Monitor job — kept here (not in `monitor_job.rs`) so
-/// the registry can store a single tagged-union snapshot type without
-/// dragging the monitor module into every consumer.
-#[derive(Debug, Clone)]
-pub struct MonitorSnapshot {
-    pub id: String,
-    pub registered_at_unix_ms: i64,
-    pub description: String,
-    pub command_preview: String,
-    pub timeout_ms: u64,
-    pub persistent: bool,
 }
 
 /// Read-only view of one Wakeup job.
@@ -105,7 +93,6 @@ pub struct WakeupSnapshot {
 /// Tagged union of registered job snapshots.
 #[derive(Debug, Clone)]
 pub enum JobSnapshot {
-    Monitor(MonitorSnapshot),
     Wakeup(WakeupSnapshot),
 }
 
@@ -249,7 +236,6 @@ mod tests {
 
     use tokio::time::Instant;
 
-    use super::super::monitor_job::{MonitorJob, MonitorRequest};
     use super::super::wakeup_job::WakeupJob;
     use super::*;
 
@@ -282,16 +268,6 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
         predicate()
-    }
-
-    fn monitor_request(tool_use_id: &str, command: &str) -> MonitorRequest {
-        MonitorRequest {
-            tool_use_id: tool_use_id.to_string(),
-            command: command.to_string(),
-            description: "test".to_string(),
-            timeout_ms: 60_000,
-            persistent: false,
-        }
     }
 
     #[tokio::test]
@@ -351,86 +327,6 @@ mod tests {
             injector.snapshot().is_empty(),
             "no prompt should have been injected"
         );
-    }
-
-    #[tokio::test]
-    async fn cancel_by_kind_only_cancels_matching_jobs() {
-        let injector = CapturingInjector::default();
-        let registry = ScheduledJobRegistry::new(Arc::new(injector));
-        let run_cancel = CancellationToken::new();
-
-        // Long-running monitor that won't terminate during the test.
-        let monitor = MonitorJob::from_request(monitor_request("toolu_mon_1", "sleep 30"));
-        registry
-            .register(Box::new(monitor), run_cancel.clone())
-            .await;
-
-        let wakeup = WakeupJob::new_for_test(
-            "toolu_wake_3".to_string(),
-            "later".to_string(),
-            "continue".to_string(),
-            Instant::now() + Duration::from_secs(60),
-        );
-        registry
-            .register(Box::new(wakeup), run_cancel.clone())
-            .await;
-
-        assert_eq!(registry.len().await, 2);
-
-        registry.cancel_by_kind(JobKind::Wakeup).await;
-
-        // Wait for the wakeup task to self-clean.
-        for _ in 0..50 {
-            if registry.len().await == 1 {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-        assert_eq!(
-            registry.len().await,
-            1,
-            "monitor should remain after cancel_by_kind(Wakeup)"
-        );
-
-        let snapshots = registry.list().await;
-        assert!(matches!(snapshots[0], JobSnapshot::Monitor(_)));
-
-        run_cancel.cancel();
-    }
-
-    #[tokio::test]
-    async fn list_returns_mixed_snapshot_variants() {
-        let injector = CapturingInjector::default();
-        let registry = ScheduledJobRegistry::new(Arc::new(injector));
-        let run_cancel = CancellationToken::new();
-
-        let monitor = MonitorJob::from_request(monitor_request("toolu_mon_2", "sleep 30"));
-        registry
-            .register(Box::new(monitor), run_cancel.clone())
-            .await;
-
-        let wakeup = WakeupJob::new_for_test(
-            "toolu_wake_4".to_string(),
-            "later".to_string(),
-            "continue".to_string(),
-            Instant::now() + Duration::from_secs(60),
-        );
-        registry
-            .register(Box::new(wakeup), run_cancel.clone())
-            .await;
-
-        let snapshots = registry.list().await;
-        assert_eq!(snapshots.len(), 2);
-        let has_monitor = snapshots
-            .iter()
-            .any(|s| matches!(s, JobSnapshot::Monitor(_)));
-        let has_wakeup = snapshots
-            .iter()
-            .any(|s| matches!(s, JobSnapshot::Wakeup(_)));
-        assert!(has_monitor, "expected one Monitor snapshot");
-        assert!(has_wakeup, "expected one Wakeup snapshot");
-
-        run_cancel.cancel();
     }
 
     #[tokio::test]

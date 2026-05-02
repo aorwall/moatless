@@ -18,8 +18,8 @@ use tracing::debug;
 
 use super::error::SandboxError;
 use super::schemas::{
-    MonitorJobInfo as SchemaMonitorJobInfo, ScheduledJobInfo as SchemaScheduledJobInfo,
-    ScheduledJobKind, WakeupJobInfo as SchemaWakeupJobInfo,
+    ScheduledJobInfo as SchemaScheduledJobInfo, ScheduledJobKind,
+    WakeupJobInfo as SchemaWakeupJobInfo,
 };
 
 impl SchemaScheduledJobInfo {
@@ -34,14 +34,6 @@ impl SchemaScheduledJobInfo {
             kind,
         } = proto;
         let kind = match kind? {
-            sandbox_proto::scheduled_job_info::Kind::Monitor(m) => {
-                ScheduledJobKind::Monitor(SchemaMonitorJobInfo {
-                    description: m.description,
-                    command_preview: m.command_preview,
-                    timeout_ms: m.timeout_ms,
-                    persistent: m.persistent,
-                })
-            }
             sandbox_proto::scheduled_job_info::Kind::Wakeup(w) => {
                 ScheduledJobKind::Wakeup(SchemaWakeupJobInfo {
                     reason: w.reason,
@@ -325,35 +317,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn from_proto_maps_monitor_kind() {
-        let proto = sandbox_proto::ScheduledJobInfo {
-            id: "job-1".into(),
-            registered_at_unix_ms: 1_700_000_000_000,
-            kind: Some(sandbox_proto::scheduled_job_info::Kind::Monitor(
-                sandbox_proto::MonitorJobInfo {
-                    description: "Tail logs".into(),
-                    command_preview: "tail -f /var/log/app.log".into(),
-                    timeout_ms: 30_000,
-                    persistent: true,
-                },
-            )),
-        };
-
-        let job = SchemaScheduledJobInfo::from_proto(proto).expect("monitor kind");
-        assert_eq!(job.id, "job-1");
-        assert_eq!(job.registered_at_unix_ms, 1_700_000_000_000);
-        match job.kind {
-            ScheduledJobKind::Monitor(m) => {
-                assert_eq!(m.description, "Tail logs");
-                assert_eq!(m.command_preview, "tail -f /var/log/app.log");
-                assert_eq!(m.timeout_ms, 30_000);
-                assert!(m.persistent);
-            }
-            ScheduledJobKind::Wakeup(_) => panic!("expected monitor variant"),
-        }
-    }
-
-    #[test]
     fn from_proto_maps_wakeup_kind() {
         let proto = sandbox_proto::ScheduledJobInfo {
             id: "job-2".into(),
@@ -368,13 +331,14 @@ mod tests {
         };
 
         let job = SchemaScheduledJobInfo::from_proto(proto).expect("wakeup kind");
+        assert_eq!(job.id, "job-2");
+        assert_eq!(job.registered_at_unix_ms, 1_700_000_000_000);
         match job.kind {
             ScheduledJobKind::Wakeup(w) => {
                 assert_eq!(w.reason, "Check build");
                 assert_eq!(w.prompt_preview, "Resume the loop");
                 assert_eq!(w.wakeup_at_unix_ms, 1_700_000_300_000);
             }
-            ScheduledJobKind::Monitor(_) => panic!("expected wakeup variant"),
         }
     }
 

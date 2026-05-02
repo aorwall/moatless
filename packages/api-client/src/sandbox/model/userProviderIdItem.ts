@@ -7,12 +7,10 @@
  */
 
 /**
- * Monitor cron job armed by the agent.
+ * A single provider ID mapping entry.
  */
-export interface MonitorJobInfo {
-  commandPreview: string;
-  description: string;
-  persistent: boolean;
-  /** @minimum 0 */
-  timeoutMs: number;
+export interface UserProviderIdItem {
+  created_at: string;
+  provider: string;
+  provider_user_id: string;
 }

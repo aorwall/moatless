@@ -181,28 +181,23 @@ message GetAgentStatusResponse {
   string status = 1;             // "idle", "running", "stopped"
   optional string session_id = 2;
   optional string last_error = 3;
-  // Deferred-work jobs currently registered in the sandbox (Monitor crons
-  // and ScheduleWakeup timers). Populated from the sandbox-local
+  // Deferred-work jobs currently registered in the sandbox (today only
+  // ScheduleWakeup timers). Populated from the sandbox-local
   // ScheduledJobRegistry — empty when no jobs are in flight.
   repeated ScheduledJobInfo scheduled_jobs = 4;
 }
 
 // Snapshot of one registered scheduled job — see sandbox/src/agent/scheduled_job.rs.
+// `kind` is a oneof to keep room for future job kinds; field tag 3 is reserved
+// for the now-removed MonitorJobInfo so existing wire payloads decode cleanly.
 message ScheduledJobInfo {
   string id = 1;
   int64 registered_at_unix_ms = 2;
+  reserved 3;
+  reserved "monitor";
   oneof kind {
-    MonitorJobInfo monitor = 3;
     WakeupJobInfo wakeup = 4;
   }
-}
-
-message MonitorJobInfo {
-  string description = 1;
-  // Command is truncated for status display.
-  string command_preview = 2;
-  uint64 timeout_ms = 3;
-  bool persistent = 4;
 }
 
 message WakeupJobInfo {

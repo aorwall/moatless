@@ -6,23 +6,30 @@
  * OpenAPI spec version: 0.1.0
  */
 import {
+  useMutation,
   useQuery
 } from '@tanstack/react-query';
 import type {
   DataTag,
   DefinedInitialDataOptions,
   DefinedUseQueryResult,
+  MutationFunction,
   QueryClient,
   QueryFunction,
   QueryKey,
   UndefinedInitialDataOptions,
+  UseMutationOptions,
+  UseMutationResult,
   UseQueryOptions,
   UseQueryResult
 } from '@tanstack/react-query';
 
 import type {
   ErrorBody,
-  UserListResponse
+  MessageResponse,
+  SetProviderIdRequest,
+  UserListResponse,
+  UserProviderIdItem
 } from '.././model';
 
 import { customInstance } from '../../../custom-instance';
@@ -168,3 +175,350 @@ export const prefetchListUsersHandlerQuery = async <TData = Awaited<ReturnType<t
 
 
 
+/**
+ * Only the user themselves or an admin may call this.
+ * @summary List all provider ID mappings for a moatless user.
+ */
+export type listUserProviderIdsHandlerResponse200 = {
+  data: UserProviderIdItem[]
+  status: 200
+}
+
+export type listUserProviderIdsHandlerResponse401 = {
+  data: ErrorBody
+  status: 401
+}
+
+export type listUserProviderIdsHandlerResponse403 = {
+  data: ErrorBody
+  status: 403
+}
+
+export type listUserProviderIdsHandlerResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+    
+export type listUserProviderIdsHandlerResponseSuccess = (listUserProviderIdsHandlerResponse200) & {
+  headers: Headers;
+};
+export type listUserProviderIdsHandlerResponseError = (listUserProviderIdsHandlerResponse401 | listUserProviderIdsHandlerResponse403 | listUserProviderIdsHandlerResponse404) & {
+  headers: Headers;
+};
+
+export type listUserProviderIdsHandlerResponse = (listUserProviderIdsHandlerResponseSuccess | listUserProviderIdsHandlerResponseError)
+
+export const getListUserProviderIdsHandlerUrl = (login: string,) => {
+
+
+  
+
+  return `/api/v1/users/${login}/provider-ids`
+}
+
+export const listUserProviderIdsHandler = async (login: string, options?: RequestInit): Promise<listUserProviderIdsHandlerResponse> => {
+  
+  return customInstance<listUserProviderIdsHandlerResponse>(getListUserProviderIdsHandlerUrl(login),
+  {      
+    ...options,
+    method: 'GET'
+    
+    
+  }
+);}
+
+
+
+
+
+export const getListUserProviderIdsHandlerQueryKey = (login: string,) => {
+    return [
+    `/api/v1/users/${login}/provider-ids`
+    ] as const;
+    }
+
+    
+export const getListUserProviderIdsHandlerQueryOptions = <TData = Awaited<ReturnType<typeof listUserProviderIdsHandler>>, TError = ErrorType<ErrorBody>>(login: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listUserProviderIdsHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListUserProviderIdsHandlerQueryKey(login);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listUserProviderIdsHandler>>> = ({ signal }) => listUserProviderIdsHandler(login, { signal, ...requestOptions });
+
+      
+
+      
+
+   return  { queryKey, queryFn, enabled: !!(login), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listUserProviderIdsHandler>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
+}
+
+export type ListUserProviderIdsHandlerQueryResult = NonNullable<Awaited<ReturnType<typeof listUserProviderIdsHandler>>>
+export type ListUserProviderIdsHandlerQueryError = ErrorType<ErrorBody>
+
+
+export function useListUserProviderIdsHandler<TData = Awaited<ReturnType<typeof listUserProviderIdsHandler>>, TError = ErrorType<ErrorBody>>(
+ login: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listUserProviderIdsHandler>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listUserProviderIdsHandler>>,
+          TError,
+          Awaited<ReturnType<typeof listUserProviderIdsHandler>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useListUserProviderIdsHandler<TData = Awaited<ReturnType<typeof listUserProviderIdsHandler>>, TError = ErrorType<ErrorBody>>(
+ login: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listUserProviderIdsHandler>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listUserProviderIdsHandler>>,
+          TError,
+          Awaited<ReturnType<typeof listUserProviderIdsHandler>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useListUserProviderIdsHandler<TData = Awaited<ReturnType<typeof listUserProviderIdsHandler>>, TError = ErrorType<ErrorBody>>(
+ login: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listUserProviderIdsHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+/**
+ * @summary List all provider ID mappings for a moatless user.
+ */
+
+export function useListUserProviderIdsHandler<TData = Awaited<ReturnType<typeof listUserProviderIdsHandler>>, TError = ErrorType<ErrorBody>>(
+ login: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listUserProviderIdsHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
+
+  const queryOptions = getListUserProviderIdsHandlerQueryOptions(login,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary List all provider ID mappings for a moatless user.
+ */
+export const prefetchListUserProviderIdsHandlerQuery = async <TData = Awaited<ReturnType<typeof listUserProviderIdsHandler>>, TError = ErrorType<ErrorBody>>(
+ queryClient: QueryClient, login: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listUserProviderIdsHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+
+  ): Promise<QueryClient> => {
+
+  const queryOptions = getListUserProviderIdsHandlerQueryOptions(login,options)
+
+  await queryClient.prefetchQuery(queryOptions);
+
+  return queryClient;
+}
+
+
+
+/**
+ * Only the user themselves or an admin may call this.
+ * @summary Set (upsert) a provider-specific user ID for a moatless user.
+ */
+export type setUserProviderIdHandlerResponse200 = {
+  data: MessageResponse
+  status: 200
+}
+
+export type setUserProviderIdHandlerResponse401 = {
+  data: ErrorBody
+  status: 401
+}
+
+export type setUserProviderIdHandlerResponse403 = {
+  data: ErrorBody
+  status: 403
+}
+
+export type setUserProviderIdHandlerResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+    
+export type setUserProviderIdHandlerResponseSuccess = (setUserProviderIdHandlerResponse200) & {
+  headers: Headers;
+};
+export type setUserProviderIdHandlerResponseError = (setUserProviderIdHandlerResponse401 | setUserProviderIdHandlerResponse403 | setUserProviderIdHandlerResponse404) & {
+  headers: Headers;
+};
+
+export type setUserProviderIdHandlerResponse = (setUserProviderIdHandlerResponseSuccess | setUserProviderIdHandlerResponseError)
+
+export const getSetUserProviderIdHandlerUrl = (login: string,
+    provider: string,) => {
+
+
+  
+
+  return `/api/v1/users/${login}/provider-ids/${provider}`
+}
+
+export const setUserProviderIdHandler = async (login: string,
+    provider: string,
+    setProviderIdRequest: SetProviderIdRequest, options?: RequestInit): Promise<setUserProviderIdHandlerResponse> => {
+  
+  return customInstance<setUserProviderIdHandlerResponse>(getSetUserProviderIdHandlerUrl(login,provider),
+  {      
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      setProviderIdRequest,)
+  }
+);}
+
+
+
+
+export const getSetUserProviderIdHandlerMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setUserProviderIdHandler>>, TError,{login: string;provider: string;data: SetProviderIdRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof setUserProviderIdHandler>>, TError,{login: string;provider: string;data: SetProviderIdRequest}, TContext> => {
+
+const mutationKey = ['setUserProviderIdHandler'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof setUserProviderIdHandler>>, {login: string;provider: string;data: SetProviderIdRequest}> = (props) => {
+          const {login,provider,data} = props ?? {};
+
+          return  setUserProviderIdHandler(login,provider,data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SetUserProviderIdHandlerMutationResult = NonNullable<Awaited<ReturnType<typeof setUserProviderIdHandler>>>
+    export type SetUserProviderIdHandlerMutationBody = SetProviderIdRequest
+    export type SetUserProviderIdHandlerMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Set (upsert) a provider-specific user ID for a moatless user.
+ */
+export const useSetUserProviderIdHandler = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setUserProviderIdHandler>>, TError,{login: string;provider: string;data: SetProviderIdRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof setUserProviderIdHandler>>,
+        TError,
+        {login: string;provider: string;data: SetProviderIdRequest},
+        TContext
+      > => {
+      return useMutation(getSetUserProviderIdHandlerMutationOptions(options), queryClient);
+    }
+    /**
+ * Only the user themselves or an admin may call this.
+ * @summary Delete a provider ID mapping for a moatless user.
+ */
+export type deleteUserProviderIdHandlerResponse200 = {
+  data: MessageResponse
+  status: 200
+}
+
+export type deleteUserProviderIdHandlerResponse401 = {
+  data: ErrorBody
+  status: 401
+}
+
+export type deleteUserProviderIdHandlerResponse403 = {
+  data: ErrorBody
+  status: 403
+}
+
+export type deleteUserProviderIdHandlerResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+    
+export type deleteUserProviderIdHandlerResponseSuccess = (deleteUserProviderIdHandlerResponse200) & {
+  headers: Headers;
+};
+export type deleteUserProviderIdHandlerResponseError = (deleteUserProviderIdHandlerResponse401 | deleteUserProviderIdHandlerResponse403 | deleteUserProviderIdHandlerResponse404) & {
+  headers: Headers;
+};
+
+export type deleteUserProviderIdHandlerResponse = (deleteUserProviderIdHandlerResponseSuccess | deleteUserProviderIdHandlerResponseError)
+
+export const getDeleteUserProviderIdHandlerUrl = (login: string,
+    provider: string,) => {
+
+
+  
+
+  return `/api/v1/users/${login}/provider-ids/${provider}`
+}
+
+export const deleteUserProviderIdHandler = async (login: string,
+    provider: string, options?: RequestInit): Promise<deleteUserProviderIdHandlerResponse> => {
+  
+  return customInstance<deleteUserProviderIdHandlerResponse>(getDeleteUserProviderIdHandlerUrl(login,provider),
+  {      
+    ...options,
+    method: 'DELETE'
+    
+    
+  }
+);}
+
+
+
+
+export const getDeleteUserProviderIdHandlerMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteUserProviderIdHandler>>, TError,{login: string;provider: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteUserProviderIdHandler>>, TError,{login: string;provider: string}, TContext> => {
+
+const mutationKey = ['deleteUserProviderIdHandler'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteUserProviderIdHandler>>, {login: string;provider: string}> = (props) => {
+          const {login,provider} = props ?? {};
+
+          return  deleteUserProviderIdHandler(login,provider,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteUserProviderIdHandlerMutationResult = NonNullable<Awaited<ReturnType<typeof deleteUserProviderIdHandler>>>
+    
+    export type DeleteUserProviderIdHandlerMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Delete a provider ID mapping for a moatless user.
+ */
+export const useDeleteUserProviderIdHandler = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteUserProviderIdHandler>>, TError,{login: string;provider: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof deleteUserProviderIdHandler>>,
+        TError,
+        {login: string;provider: string},
+        TContext
+      > => {
+      return useMutation(getDeleteUserProviderIdHandlerMutationOptions(options), queryClient);
+    }
+    

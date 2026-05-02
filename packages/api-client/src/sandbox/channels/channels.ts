@@ -45,6 +45,8 @@ import type {
   ProviderConnectionResponse,
   SendChannelMessageRequest,
   SendChannelMessageResponse,
+  SendDmRequest,
+  SendDmResponse,
   SetChannelDefaultsRequest,
   SlackChannelInfoResponse,
   TaskChannelResponse,
@@ -3308,5 +3310,103 @@ export const useSendToTaskChannel = <TError = ErrorType<ErrorBody>,
         TContext
       > => {
       return useMutation(getSendToTaskChannelMutationOptions(options), queryClient);
+    }
+    /**
+ * The user must have a provider ID registered for the given provider.
+If `task_id` is provided, a `task_subscription` is created so that replies
+to the DM thread are routed back to the task.
+ * @summary Send a direct message to a moatless user via an external provider (e.g. Slack).
+ */
+export type sendUserDmHandlerResponse200 = {
+  data: SendDmResponse
+  status: 200
+}
+
+export type sendUserDmHandlerResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
+export type sendUserDmHandlerResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+    
+export type sendUserDmHandlerResponseSuccess = (sendUserDmHandlerResponse200) & {
+  headers: Headers;
+};
+export type sendUserDmHandlerResponseError = (sendUserDmHandlerResponse400 | sendUserDmHandlerResponse404) & {
+  headers: Headers;
+};
+
+export type sendUserDmHandlerResponse = (sendUserDmHandlerResponseSuccess | sendUserDmHandlerResponseError)
+
+export const getSendUserDmHandlerUrl = (login: string,) => {
+
+
+  
+
+  return `/api/v1/users/${login}/dm`
+}
+
+export const sendUserDmHandler = async (login: string,
+    sendDmRequest: SendDmRequest, options?: RequestInit): Promise<sendUserDmHandlerResponse> => {
+  
+  return customInstance<sendUserDmHandlerResponse>(getSendUserDmHandlerUrl(login),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      sendDmRequest,)
+  }
+);}
+
+
+
+
+export const getSendUserDmHandlerMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendUserDmHandler>>, TError,{login: string;data: SendDmRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof sendUserDmHandler>>, TError,{login: string;data: SendDmRequest}, TContext> => {
+
+const mutationKey = ['sendUserDmHandler'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof sendUserDmHandler>>, {login: string;data: SendDmRequest}> = (props) => {
+          const {login,data} = props ?? {};
+
+          return  sendUserDmHandler(login,data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SendUserDmHandlerMutationResult = NonNullable<Awaited<ReturnType<typeof sendUserDmHandler>>>
+    export type SendUserDmHandlerMutationBody = SendDmRequest
+    export type SendUserDmHandlerMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Send a direct message to a moatless user via an external provider (e.g. Slack).
+ */
+export const useSendUserDmHandler = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendUserDmHandler>>, TError,{login: string;data: SendDmRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof sendUserDmHandler>>,
+        TError,
+        {login: string;data: SendDmRequest},
+        TContext
+      > => {
+      return useMutation(getSendUserDmHandlerMutationOptions(options), queryClient);
     }
     
