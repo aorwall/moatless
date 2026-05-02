@@ -220,7 +220,6 @@ export * from './toolCallDetailResponseToolInput';
 export * from './toolCallDetailResponseTypedResult';
 export * from './triggerChannelRequest';
 export * from './triggerChannelResponse';
-export * from './uiAssistantMeta';
 export * from './uiContentBlock';
 export * from './uiContentBlockToolInput';
 export * from './uiMessage';

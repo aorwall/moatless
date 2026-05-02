@@ -9988,46 +9988,6 @@
           }
         }
       },
-      "UiAssistantMeta": {
-        "type": "object",
-        "description": "Assistant message metadata.",
-        "properties": {
-          "messageId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "model": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "stopReason": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "stopSequence": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "usage": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/UiUsage"
-              }
-            ]
-          }
-        }
-      },
       "UiContentBlock": {
         "type": "object",
         "description": "Content block within a message.",
@@ -10088,17 +10048,6 @@
               }
             ]
           },
-          "assistant": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/UiAssistantMeta",
-                "description": "Assistant-specific metadata."
-              }
-            ]
-          },
           "channel": {
             "oneOf": [
               {
@@ -10136,6 +10085,13 @@
               "boolean",
               "null"
             ]
+          },
+          "messageId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Provider message id for assistant rows (e.g. `msg_abc...`)."
           },
           "messageType": {
             "$ref": "#/components/schemas/MessageType"
@@ -10180,6 +10136,20 @@
               "null"
             ]
           },
+          "stopReason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Provider stop reason for assistant rows (e.g. `end_turn`, `tool_use`)."
+          },
+          "stopSequence": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Provider stop sequence for assistant rows, when one was hit."
+          },
           "timestamp": {
             "type": "string"
           },
@@ -10196,6 +10166,17 @@
               "null"
             ],
             "format": "int32"
+          },
+          "usage": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/UiUsage",
+                "description": "Token usage stats for assistant rows."
+              }
+            ]
           },
           "uuid": {
             "type": "string"

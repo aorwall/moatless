@@ -8,19 +8,18 @@
 import type { AgentMode } from './agentMode';
 import type { MessageRole } from './messageRole';
 import type { MessageType } from './messageType';
-import type { UiAssistantMeta } from './uiAssistantMeta';
 import type { UiContentBlock } from './uiContentBlock';
 import type { UiMessageChannel } from './uiMessageChannel';
 import type { UiMessageSdkMetadata } from './uiMessageSdkMetadata';
 import type { UiResultMeta } from './uiResultMeta';
 import type { UiToolResult } from './uiToolResult';
+import type { UiUsage } from './uiUsage';
 
 /**
  * UI-facing message representation.
  */
 export interface UiMessage {
   agentMode?: null | AgentMode;
-  assistant?: null | UiAssistantMeta;
   channel?: null | UiMessageChannel;
   /**
    * Command name if this message was sent via a slash command.
@@ -36,6 +35,11 @@ export interface UiMessage {
   hasPendingUserInput?: boolean | null;
   /** @nullable */
   isQueued?: boolean | null;
+  /**
+   * Provider message id for assistant rows (e.g. `msg_abc...`).
+   * @nullable
+   */
+  messageId?: string | null;
   messageType: MessageType;
   /** @nullable */
   model?: string | null;
@@ -53,10 +57,21 @@ export interface UiMessage {
   sdkMetadata?: UiMessageSdkMetadata;
   /** @nullable */
   sessionId?: string | null;
+  /**
+   * Provider stop reason for assistant rows (e.g. `end_turn`, `tool_use`).
+   * @nullable
+   */
+  stopReason?: string | null;
+  /**
+   * Provider stop sequence for assistant rows, when one was hit.
+   * @nullable
+   */
+  stopSequence?: string | null;
   timestamp: string;
   /** Inline tool results (for assistant messages). */
   toolResults?: UiToolResult[];
   /** @nullable */
   turnNumber?: number | null;
+  usage?: null | UiUsage;
   uuid: string;
 }

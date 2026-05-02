@@ -29,9 +29,18 @@ pub struct UiMessage {
     /// Whether this assistant message has pending user input.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub has_pending_user_input: Option<bool>,
-    /// Assistant-specific metadata.
+    /// Provider message id for assistant rows (e.g. `msg_abc...`).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub assistant: Option<UiAssistantMeta>,
+    pub message_id: Option<String>,
+    /// Provider stop reason for assistant rows (e.g. `end_turn`, `tool_use`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stop_reason: Option<String>,
+    /// Provider stop sequence for assistant rows, when one was hit.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stop_sequence: Option<String>,
+    /// Token usage stats for assistant rows.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub usage: Option<UiUsage>,
     /// Result-specific metadata.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<UiResultMeta>,
@@ -105,18 +114,6 @@ pub struct UiToolResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
     pub typed_result: Option<serde_json::Value>,
-}
-
-/// Assistant message metadata.
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct UiAssistantMeta {
-    pub message_id: Option<String>,
-    pub model: Option<String>,
-    pub stop_reason: Option<String>,
-    pub stop_sequence: Option<String>,
-    pub usage: Option<UiUsage>,
 }
 
 /// Token usage stats.
