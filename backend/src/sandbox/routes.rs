@@ -4,8 +4,8 @@
 //! Public-facing endpoints are authenticated via Traefik ForwardAuth middleware —
 //! the controller itself doesn't validate auth tokens.
 
-use axum::Json;
 use axum::response::IntoResponse;
+use axum::Json;
 use std::sync::Arc;
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};

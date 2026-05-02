@@ -416,7 +416,8 @@ mod tests {
 
     #[test]
     fn mcp_input_from_tool_parses() {
-        let value = json!({ "server": "atlassian", "tool": "jira_search", "arguments": { "q": "foo" } });
+        let value =
+            json!({ "server": "atlassian", "tool": "jira_search", "arguments": { "q": "foo" } });
         let parsed = CodexToolInput::from_tool(CODEX_TOOL_MCP, &value)
             .expect("handled")
             .expect("ok");

@@ -95,30 +95,21 @@ impl SkillFetcher for GitHubSkillFetcher {
             });
         }
 
-        let (owner, repo) = parse_github_owner_repo(remote_url).ok_or_else(|| {
-            SkillError::Fetch {
+        let (owner, repo) =
+            parse_github_owner_repo(remote_url).ok_or_else(|| SkillError::Fetch {
                 git_url: remote_url.to_string(),
                 message: "cannot parse owner/repo from URL".to_string(),
-            }
-        })?;
+            })?;
 
         let skills_prefix = match layout {
             SkillLayout::Workspace => ".claude/skills".to_string(),
             SkillLayout::Plugin => {
-                resolve_plugin_skills_prefix(
-                    &self.client,
-                    &owner,
-                    &repo,
-                    token,
-                    remote_url,
-                )
-                .await?
+                resolve_plugin_skills_prefix(&self.client, &owner, &repo, token, remote_url).await?
             }
         };
 
-        let list_url = format!(
-            "https://api.github.com/repos/{owner}/{repo}/contents/{skills_prefix}"
-        );
+        let list_url =
+            format!("https://api.github.com/repos/{owner}/{repo}/contents/{skills_prefix}");
         let Some(entries) = send_github_json::<Vec<ContentEntry>>(
             &self.client,
             &list_url,
@@ -188,9 +179,8 @@ async fn resolve_plugin_skills_prefix(
     token: Option<&str>,
     git_url: &str,
 ) -> Result<String, SkillError> {
-    let manifest_url = format!(
-        "https://api.github.com/repos/{owner}/{repo}/contents/.claude-plugin/plugin.json"
-    );
+    let manifest_url =
+        format!("https://api.github.com/repos/{owner}/{repo}/contents/.claude-plugin/plugin.json");
     let Some(raw) = fetch_github_raw(client, &manifest_url, token, git_url).await? else {
         return Ok("skills".to_string());
     };

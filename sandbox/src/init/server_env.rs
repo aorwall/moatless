@@ -51,9 +51,7 @@ async fn set_secret_perms(path: &str) {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        if let Err(e) =
-            fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).await
-        {
+        if let Err(e) = fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).await {
             warn!(error = %e, path, "Failed to chmod server env file");
         }
     }

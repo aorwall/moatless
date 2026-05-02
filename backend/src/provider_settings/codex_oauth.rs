@@ -429,7 +429,10 @@ mod tests {
             "expires_at": "2099-01-01T00:00:00+00:00"
         });
         let parsed: UserCodeResponse = serde_json::from_value(body).expect("decode");
-        assert_eq!(parsed.device_auth_id, "deviceauth_69f4420b5fd88191911f124c85b83ef1");
+        assert_eq!(
+            parsed.device_auth_id,
+            "deviceauth_69f4420b5fd88191911f124c85b83ef1"
+        );
         assert_eq!(parsed.user_code, "CGSR-90ECR");
         assert_eq!(parse_loose_u64(parsed.interval.as_ref().unwrap()), Some(5));
         assert!(duration_until_rfc3339(parsed.expires_at.as_deref().unwrap()).unwrap() > 0);

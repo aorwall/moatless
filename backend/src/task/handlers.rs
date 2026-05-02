@@ -1,7 +1,7 @@
 //! Task HTTP handlers — coordinate repository calls + enrichment.
 
-use axum::Json;
 use axum::extract::{Path, Query, State};
+use axum::Json;
 
 use moatless_events::{SandboxEventPayload, SandboxStatus, SandboxSubType, TaskSubType};
 
@@ -357,6 +357,12 @@ pub async fn list_tasks(
                     provider: ChannelType::parse(&c.provider).unwrap_or(ChannelType::Slack),
                     source_id: c.source_id.clone(),
                     source_name: c.source_name.clone(),
+                    thread_id: None,
+                    external_thread_id: None,
+                    subject_key: None,
+                    subscription_id: None,
+                    created_reason: None,
+                    last_event_at: None,
                 })
                 .collect();
 
@@ -979,7 +985,9 @@ async fn resolve_task_channels(state: &AppState, task_id: &str) -> Vec<TaskChann
     let mut channels = Vec::new();
     for thread in &threads {
         if let Ok(Some(config)) = state.channel_configs.find_by_id(&thread.config_id).await {
-            channels.push(crate::channel::schemas::task_channel_from_model(&config));
+            channels.push(crate::channel::schemas::task_channel_from_thread(
+                &config, thread,
+            ));
         }
     }
     channels

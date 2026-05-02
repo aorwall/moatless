@@ -737,7 +737,9 @@ mod tests {
         let server = test_server_config();
         let cc = build_server_container_config(&config, "task-1", &server, None);
         let env = cc.env.unwrap();
-        assert!(!env.iter().any(|e| e.starts_with("MOATLESS_SERVER_ENV_FILE=")));
+        assert!(!env
+            .iter()
+            .any(|e| e.starts_with("MOATLESS_SERVER_ENV_FILE=")));
         assert!(!env.iter().any(|e| e.starts_with("BASH_ENV=")));
 
         let cmd = cc.cmd.unwrap();
@@ -786,11 +788,9 @@ mod tests {
         let cc = build_container_config(&config, "task-1", &plan, None);
         let mounts = cc.host_config.unwrap().mounts.unwrap();
         assert_eq!(mounts.len(), 3);
-        assert!(
-            !mounts
-                .iter()
-                .any(|m| m.target.as_deref() == Some("/var/run/docker.sock"))
-        );
+        assert!(!mounts
+            .iter()
+            .any(|m| m.target.as_deref() == Some("/var/run/docker.sock")));
     }
 
     #[test]
@@ -819,11 +819,9 @@ mod tests {
         let cc = build_container_config(&config, "task-1", &plan, None);
         let mounts = cc.host_config.unwrap().mounts.unwrap();
         assert_eq!(mounts.len(), 4);
-        assert!(
-            mounts
-                .iter()
-                .any(|m| m.target.as_deref() == Some("/var/run/docker.sock"))
-        );
+        assert!(mounts
+            .iter()
+            .any(|m| m.target.as_deref() == Some("/var/run/docker.sock")));
     }
 
     #[test]
@@ -835,11 +833,9 @@ mod tests {
         let cc = build_container_config(&config, "task-1", &plan, None);
         let mounts = cc.host_config.unwrap().mounts.unwrap();
         assert_eq!(mounts.len(), 3);
-        assert!(
-            !mounts
-                .iter()
-                .any(|m| m.target.as_deref() == Some("/var/run/docker.sock"))
-        );
+        assert!(!mounts
+            .iter()
+            .any(|m| m.target.as_deref() == Some("/var/run/docker.sock")));
     }
 
     #[test]

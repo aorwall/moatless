@@ -10,7 +10,10 @@ use super::{InitArgs, Provider};
 use crate::client::ClientError;
 
 pub(super) async fn run(args: InitArgs, json_out: bool) -> Result<(), ClientError> {
-    let output_path = args.output.clone().unwrap_or_else(|| DEFAULT_VALUES_FILE.to_string());
+    let output_path = args
+        .output
+        .clone()
+        .unwrap_or_else(|| DEFAULT_VALUES_FILE.to_string());
 
     if Path::new(&output_path).exists() && !args.force {
         return Err(ClientError::Other(format!(
@@ -19,12 +22,12 @@ pub(super) async fn run(args: InitArgs, json_out: bool) -> Result<(), ClientErro
     }
 
     let provider = resolve_provider(args.provider).await?;
-    let namespace = prompt_str(
-        args.namespace,
-        "Namespace",
-        DEFAULT_NAMESPACE,
+    let namespace = prompt_str(args.namespace, "Namespace", DEFAULT_NAMESPACE)?;
+    let domain = prompt_str(
+        args.domain,
+        "Main domain (e.g. vibe.example.com)",
+        "vibe.example.com",
     )?;
-    let domain = prompt_str(args.domain, "Main domain (e.g. vibe.example.com)", "vibe.example.com")?;
     let proxy_domain = prompt_str(
         args.proxy_domain,
         "Wildcard preview domain (e.g. preview.example.com)",
@@ -161,7 +164,11 @@ async fn detect_provider_from_cluster() -> Result<Option<Provider>, ClientError>
     Ok(None)
 }
 
-fn prompt_str(explicit: Option<String>, prompt: &str, default: &str) -> Result<String, ClientError> {
+fn prompt_str(
+    explicit: Option<String>,
+    prompt: &str,
+    default: &str,
+) -> Result<String, ClientError> {
     if let Some(s) = explicit {
         return Ok(s);
     }

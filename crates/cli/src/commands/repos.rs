@@ -366,9 +366,7 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
                         "Refusing to delete without --yes in non-interactive mode".to_string(),
                     ));
                 }
-                print!(
-                    "Delete repository '{name}' ({id})? This cannot be undone. [y/N] "
-                );
+                print!("Delete repository '{name}' ({id})? This cannot be undone. [y/N] ");
                 std::io::stdout()
                     .flush()
                     .map_err(|e| ClientError::Other(format!("Failed to flush stdout: {e}")))?;

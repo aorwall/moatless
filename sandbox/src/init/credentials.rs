@@ -110,7 +110,8 @@ pub async fn fetch_and_apply_credentials_with_mode(
                     _ => "GITHUB_TOKEN", // default to GitHub
                 };
                 if let Some(token) = resp.credentials.get(provider_token_key).cloned() {
-                    resp.credentials.insert("GIT_TOKEN".to_string(), token.clone());
+                    resp.credentials
+                        .insert("GIT_TOKEN".to_string(), token.clone());
                     // SAFETY: see note at top of this file.
                     unsafe {
                         std::env::set_var("GIT_TOKEN", &token);
@@ -119,7 +120,8 @@ pub async fn fetch_and_apply_credentials_with_mode(
 
                 // Alias GITHUB_TOKEN → GH_TOKEN for `gh` CLI compatibility.
                 if let Some(token) = resp.credentials.get("GITHUB_TOKEN").cloned() {
-                    resp.credentials.insert("GH_TOKEN".to_string(), token.clone());
+                    resp.credentials
+                        .insert("GH_TOKEN".to_string(), token.clone());
                     // SAFETY: see note at top of this file.
                     unsafe {
                         std::env::set_var("GH_TOKEN", &token);
@@ -129,7 +131,8 @@ pub async fn fetch_and_apply_credentials_with_mode(
                     // so `gh auth git-credential` (used by git via
                     // `gh auth setup-git`) reads a fresh token from disk on every
                     // invocation, even if the caller's env is stale.
-                    if let Err(e) = gh_hosts::write_github_token(&state.config.home_dir, &token).await
+                    if let Err(e) =
+                        gh_hosts::write_github_token(&state.config.home_dir, &token).await
                     {
                         warn!(error = %e, "Failed to refresh gh hosts.yml");
                     }
@@ -378,10 +381,7 @@ mod tests {
         credentials.insert("GH_TOKEN".to_string(), "gh2".to_string());
         credentials.insert("GIT_TOKEN".to_string(), "git".to_string());
         credentials.insert("ANTHROPIC_API_KEY".to_string(), "anth".to_string());
-        credentials.insert(
-            "CLAUDE_CODE_OAUTH_TOKEN".to_string(),
-            "claude".to_string(),
-        );
+        credentials.insert("CLAUDE_CODE_OAUTH_TOKEN".to_string(), "claude".to_string());
 
         let filtered = filter_agent_credentials(&credentials);
 

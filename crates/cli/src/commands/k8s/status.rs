@@ -36,7 +36,10 @@ struct Report {
 }
 
 pub(super) async fn run(args: StatusArgs, json_out: bool) -> Result<(), ClientError> {
-    let revision = helm_release_revision(&args.release, &args.namespace).await.ok().flatten();
+    let revision = helm_release_revision(&args.release, &args.namespace)
+        .await
+        .ok()
+        .flatten();
 
     let deployments = gather_deployments(&args.namespace, &args.release).await?;
     let ingresses = gather_ingresses(&args.namespace).await?;
@@ -68,7 +71,10 @@ pub(super) async fn run(args: StatusArgs, json_out: bool) -> Result<(), ClientEr
     Ok(())
 }
 
-async fn helm_release_revision(release: &str, namespace: &str) -> Result<Option<String>, ClientError> {
+async fn helm_release_revision(
+    release: &str,
+    namespace: &str,
+) -> Result<Option<String>, ClientError> {
     let out = helm(&["status", release, "-n", namespace, "-o", "json"]).await?;
     if !out.success() {
         return Ok(None);
@@ -77,7 +83,9 @@ async fn helm_release_revision(release: &str, namespace: &str) -> Result<Option<
         Ok(v) => v,
         Err(_) => return Ok(None),
     };
-    Ok(v.get("version").and_then(serde_json::Value::as_i64).map(|i| i.to_string()))
+    Ok(v.get("version")
+        .and_then(serde_json::Value::as_i64)
+        .map(|i| i.to_string()))
 }
 
 async fn gather_deployments(
@@ -86,7 +94,14 @@ async fn gather_deployments(
 ) -> Result<Vec<DeploymentStatus>, ClientError> {
     let selector = format!("app.kubernetes.io/instance={release}");
     let Some(v) = kubectl_json(&[
-        "-n", namespace, "get", "deployment", "-l", &selector, "-o", "json",
+        "-n",
+        namespace,
+        "get",
+        "deployment",
+        "-l",
+        &selector,
+        "-o",
+        "json",
     ])
     .await?
     else {
@@ -158,7 +173,11 @@ async fn gather_ingresses(namespace: &str) -> Result<Vec<IngressStatus>, ClientE
                 .or_else(|| item.pointer("/status/loadBalancer/ingress/0/ip"))
                 .and_then(|x| x.as_str())
                 .map(String::from);
-            out.push(IngressStatus { name, hosts, address });
+            out.push(IngressStatus {
+                name,
+                hosts,
+                address,
+            });
         }
     }
     Ok(out)
@@ -206,7 +225,11 @@ fn print_human(r: &Report) {
             .iter()
             .map(|d| {
                 vec![
-                    if d.healthy { "ok".to_string() } else { "fail".to_string() },
+                    if d.healthy {
+                        "ok".to_string()
+                    } else {
+                        "fail".to_string()
+                    },
                     d.name.clone(),
                     format!("{}/{}", d.ready, d.desired),
                     d.up_to_date.to_string(),
@@ -249,4 +272,3 @@ fn print_human(r: &Report) {
         println!("Some checks failed. Run with --json for the full report.");
     }
 }
-

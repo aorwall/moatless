@@ -487,7 +487,10 @@ mod tests {
             }],
         };
         let json = serde_json::to_value(&resp).unwrap();
-        let arr = json.get("scheduledJobs").and_then(|v| v.as_array()).unwrap();
+        let arr = json
+            .get("scheduledJobs")
+            .and_then(|v| v.as_array())
+            .unwrap();
         assert_eq!(arr.len(), 1);
         assert_eq!(arr[0]["kind"], "monitor");
         assert_eq!(arr[0]["persistent"], true);

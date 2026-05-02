@@ -122,7 +122,11 @@ async fn gather_services(compose_dir: &Path) -> Result<Vec<ServiceStatus>, Clien
 }
 
 fn parse_service(v: &serde_json::Value) -> Option<ServiceStatus> {
-    let name = v.get("Service").or_else(|| v.get("Name"))?.as_str()?.to_string();
+    let name = v
+        .get("Service")
+        .or_else(|| v.get("Name"))?
+        .as_str()?
+        .to_string();
     let state = v
         .get("State")
         .and_then(|s| s.as_str())
@@ -133,7 +137,11 @@ fn parse_service(v: &serde_json::Value) -> Option<ServiceStatus> {
         .and_then(|s| s.as_str())
         .filter(|s| !s.is_empty())
         .map(String::from);
-    Some(ServiceStatus { name, state, health })
+    Some(ServiceStatus {
+        name,
+        state,
+        health,
+    })
 }
 
 async fn gather_endpoints() -> Vec<EndpointStatus> {
@@ -145,18 +153,16 @@ async fn gather_endpoints() -> Vec<EndpointStatus> {
     out.push(http_probe("frontend", "http://localhost:3000/").await);
 
     // Postgres — pg_isready inside the container (avoids needing psql on host)
-    out.push(exec_probe(
-        "postgres",
-        &["exec", "moatless-postgres", "pg_isready", "-U", "moatless"],
-    )
-    .await);
+    out.push(
+        exec_probe(
+            "postgres",
+            &["exec", "moatless-postgres", "pg_isready", "-U", "moatless"],
+        )
+        .await,
+    );
 
     // Redis PING
-    out.push(exec_probe(
-        "redis",
-        &["exec", "moatless-redis", "redis-cli", "PING"],
-    )
-    .await);
+    out.push(exec_probe("redis", &["exec", "moatless-redis", "redis-cli", "PING"]).await);
 
     out
 }
@@ -227,10 +233,7 @@ fn print_human(r: &StatusReport, source: ComposeDirSource) {
     println!("Docker status");
     println!("=============");
     println!("Work dir:    {} ({})", r.compose_dir, source.as_str());
-    println!(
-        "All healthy: {}",
-        if r.all_healthy { "yes" } else { "no" }
-    );
+    println!("All healthy: {}", if r.all_healthy { "yes" } else { "no" });
     println!();
 
     if !r.services.is_empty() {
@@ -258,7 +261,11 @@ fn print_human(r: &StatusReport, source: ComposeDirSource) {
         .iter()
         .map(|e| {
             vec![
-                if e.ok { "ok".to_string() } else { "fail".to_string() },
+                if e.ok {
+                    "ok".to_string()
+                } else {
+                    "fail".to_string()
+                },
                 e.name.clone(),
                 e.detail.clone(),
             ]

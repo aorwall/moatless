@@ -383,6 +383,9 @@ mod tests {
         assert!(work.join(ENV_EXAMPLE_FILE).is_file());
 
         let second = copy_assets(&assets, &work, false).unwrap();
-        assert!(second.is_empty(), "should skip existing files without overwrite");
+        assert!(
+            second.is_empty(),
+            "should skip existing files without overwrite"
+        );
     }
 }

@@ -95,7 +95,11 @@ mod tests {
         }
     }
 
-    fn counting_sink() -> (Arc<AtomicUsize>, Arc<tokio::sync::Mutex<String>>, Arc<CountingSink>) {
+    fn counting_sink() -> (
+        Arc<AtomicUsize>,
+        Arc<tokio::sync::Mutex<String>>,
+        Arc<CountingSink>,
+    ) {
         let count = Arc::new(AtomicUsize::new(0));
         let last_value = Arc::new(tokio::sync::Mutex::new(String::new()));
         let sink = Arc::new(CountingSink {

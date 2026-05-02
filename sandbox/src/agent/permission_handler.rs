@@ -400,7 +400,9 @@ mod tests {
         );
         input.insert("persistent".to_string(), serde_json::Value::Bool(false));
 
-        let result = handler.can_use_tool("Monitor", &input, test_context()).await;
+        let result = handler
+            .can_use_tool("Monitor", &input, test_context())
+            .await;
 
         match result {
             claude_agent_sdk::PermissionResult::Allow {
@@ -412,7 +414,9 @@ mod tests {
                     Some(":")
                 );
                 assert_eq!(
-                    updated.get("timeout_ms").and_then(serde_json::Value::as_u64),
+                    updated
+                        .get("timeout_ms")
+                        .and_then(serde_json::Value::as_u64),
                     Some(1000)
                 );
             }

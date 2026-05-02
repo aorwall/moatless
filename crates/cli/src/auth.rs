@@ -94,10 +94,14 @@ async fn probe_auth_mode(url: &str) -> Result<ProbedAuthMode, ClientError> {
             body: format!("Failed to build HTTP client: {e}"),
         })?;
 
-    let resp = client.get(&probe).send().await.map_err(|e| ClientError::Api {
-        status: 0,
-        body: format!("Failed to reach {url}: {e}. Is the backend running?"),
-    })?;
+    let resp = client
+        .get(&probe)
+        .send()
+        .await
+        .map_err(|e| ClientError::Api {
+            status: 0,
+            body: format!("Failed to reach {url}: {e}. Is the backend running?"),
+        })?;
 
     if !resp.status().is_success() {
         // 401 / 403 / anything else → assume auth is required, try OAuth.

@@ -133,11 +133,7 @@ pub async fn handle_agent_stopped(state: &AppState, event: &AgentEvent) {
     // action, and a hammered /stop endpoint must never accumulate phantom
     // rows. If the most recent message is already a stopped marker, this
     // event has nothing to add.
-    match state
-        .messages
-        .last_is_stopped_marker(&event.task_id)
-        .await
-    {
+    match state.messages.last_is_stopped_marker(&event.task_id).await {
         Ok(true) => {
             tracing::debug!(
                 task_id = %event.task_id,

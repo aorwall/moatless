@@ -163,10 +163,9 @@ mod tests {
         }
 
         // Requesting more than HARD_MAX_RESULTS is clamped.
-        let results =
-            search_files_by_name(tmp.path().to_str().unwrap(), "file", false, 10_000)
-                .await
-                .unwrap();
+        let results = search_files_by_name(tmp.path().to_str().unwrap(), "file", false, 10_000)
+            .await
+            .unwrap();
         assert!(results.len() <= HARD_MAX_RESULTS);
     }
 

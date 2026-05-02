@@ -53,7 +53,10 @@ impl SkillService {
         fetcher: Arc<dyn SkillFetcher>,
         ttl: Duration,
     ) -> Self {
-        let cache = Cache::builder().time_to_live(ttl).max_capacity(1024).build();
+        let cache = Cache::builder()
+            .time_to_live(ttl)
+            .max_capacity(1024)
+            .build();
         Self {
             repositories,
             plugin_repos,
@@ -293,6 +296,9 @@ mod tests {
     fn provider_to_token_key_matches_column_values() {
         assert_eq!(provider_to_token_key(RepositoryProvider::Github), "github");
         assert_eq!(provider_to_token_key(RepositoryProvider::Gitlab), "gitlab");
-        assert_eq!(provider_to_token_key(RepositoryProvider::Gitness), "gitness");
+        assert_eq!(
+            provider_to_token_key(RepositoryProvider::Gitness),
+            "gitness"
+        );
     }
 }

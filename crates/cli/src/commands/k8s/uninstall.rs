@@ -19,7 +19,11 @@ pub(super) async fn run(args: UninstallArgs, json_out: bool) -> Result<(), Clien
                 "Uninstall release '{}' from namespace '{}'{}?",
                 args.release,
                 args.namespace,
-                if args.purge { " (and purge Secret + PVCs)" } else { "" }
+                if args.purge {
+                    " (and purge Secret + PVCs)"
+                } else {
+                    ""
+                }
             ))
             .default(false)
             .interact()
@@ -42,12 +46,27 @@ pub(super) async fn run(args: UninstallArgs, json_out: bool) -> Result<(), Clien
 
     if args.purge {
         // Delete the app secret (best-effort).
-        let _ = kubectl(&["-n", &args.namespace, "delete", "secret", SECRET_NAME, "--ignore-not-found"])
-            .await;
+        let _ = kubectl(&[
+            "-n",
+            &args.namespace,
+            "delete",
+            "secret",
+            SECRET_NAME,
+            "--ignore-not-found",
+        ])
+        .await;
         purged.push(format!("secret/{SECRET_NAME}"));
 
         for pvc in &orphaned_pvcs {
-            let _ = kubectl(&["-n", &args.namespace, "delete", "pvc", pvc, "--ignore-not-found"]).await;
+            let _ = kubectl(&[
+                "-n",
+                &args.namespace,
+                "delete",
+                "pvc",
+                pvc,
+                "--ignore-not-found",
+            ])
+            .await;
             purged.push(format!("pvc/{pvc}"));
         }
     }
@@ -60,7 +79,10 @@ pub(super) async fn run(args: UninstallArgs, json_out: bool) -> Result<(), Clien
             "orphanedPvcs": if args.purge { Vec::<String>::new() } else { orphaned_pvcs },
         }));
     } else {
-        println!("Uninstalled release {} from namespace {}.", args.release, args.namespace);
+        println!(
+            "Uninstalled release {} from namespace {}.",
+            args.release, args.namespace
+        );
         if args.purge {
             if purged.is_empty() {
                 println!("No additional resources to purge.");

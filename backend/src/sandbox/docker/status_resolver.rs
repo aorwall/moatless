@@ -278,9 +278,9 @@ impl DockerStatusResolver {
                         .filter(|e| !e.is_empty())
                         .cloned();
                     let msg = match state_error {
-                        Some(e) => format!(
-                            "Crash loop (restarts: {restart_count}, exit {exit_code}): {e}"
-                        ),
+                        Some(e) => {
+                            format!("Crash loop (restarts: {restart_count}, exit {exit_code}): {e}")
+                        }
                         None => format!("Crash loop (restarts: {restart_count}, exit {exit_code})"),
                     };
                     return (ServerStatus::Failed, url, Some(msg));
@@ -293,12 +293,10 @@ impl DockerStatusResolver {
                         // status resolver runs inside the backend container, so
                         // `127.0.0.1:host_port` wouldn't work — that's the host
                         // machine's loopback, not reachable from here.
-                        let port_open = tokio::net::TcpStream::connect((
-                            container_name,
-                            container_port,
-                        ))
-                        .await
-                        .is_ok();
+                        let port_open =
+                            tokio::net::TcpStream::connect((container_name, container_port))
+                                .await
+                                .is_ok();
 
                         if port_open {
                             ServerStatus::Started

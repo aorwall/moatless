@@ -207,7 +207,8 @@ impl SandboxProvider for DockerSandboxProvider {
                         server = %server.name,
                         "Invalid server config: {msg}"
                     );
-                    self.publish_server_failed(task_id, &server.name, &msg).await;
+                    self.publish_server_failed(task_id, &server.name, &msg)
+                        .await;
                     return Err(SandboxError::DockerError(msg));
                 }
             }
@@ -224,7 +225,8 @@ impl SandboxProvider for DockerSandboxProvider {
                         error = %e,
                         "Failed to create server container"
                     );
-                    self.publish_server_failed(task_id, &server.name, &msg).await;
+                    self.publish_server_failed(task_id, &server.name, &msg)
+                        .await;
                     return Err(e);
                 }
             }

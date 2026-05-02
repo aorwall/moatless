@@ -166,8 +166,8 @@ mod tests {
     #[test]
     fn tolerates_bom_and_crlf() {
         let body = "\u{feff}---\r\nname: bom\r\ndescription: BOM handled\r\n---\r\n";
-        let skill = parse_skill(body, "bom", SkillSource::Workspace, None, None)
-            .expect("bom+crlf parses");
+        let skill =
+            parse_skill(body, "bom", SkillSource::Workspace, None, None).expect("bom+crlf parses");
         assert_eq!(skill.name, "bom");
     }
 }

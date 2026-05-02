@@ -59,13 +59,8 @@ pub async fn resolve_task_credentials(input: TaskCredentialInputs<'_>) -> HashMa
     )
     .await;
 
-    let scoped = resolve_scoped_secrets(
-        input.secrets,
-        input.user_id,
-        input.team_id,
-        input.task_id,
-    )
-    .await;
+    let scoped =
+        resolve_scoped_secrets(input.secrets, input.user_id, input.team_id, input.task_id).await;
 
     fill_missing_from_scoped(&mut credentials, scoped);
     credentials
@@ -321,8 +316,7 @@ mod tests {
         fill_missing_from_scoped(&mut credentials, scoped);
 
         assert_eq!(
-            credentials[CODEX_AUTH_JSON],
-            "fresh-from-provider-token",
+            credentials[CODEX_AUTH_JSON], "fresh-from-provider-token",
             "provider_token must beat scoped secret with same key"
         );
         // Unique scoped keys still flow through.
@@ -337,10 +331,7 @@ mod tests {
         let mut credentials = HashMap::new();
 
         let mut scoped = HashMap::new();
-        scoped.insert(
-            CODEX_AUTH_JSON.to_string(),
-            "global-fallback".to_string(),
-        );
+        scoped.insert(CODEX_AUTH_JSON.to_string(), "global-fallback".to_string());
 
         fill_missing_from_scoped(&mut credentials, scoped);
 

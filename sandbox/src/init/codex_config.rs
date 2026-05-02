@@ -32,7 +32,7 @@ pub(super) async fn write_codex_config(codex_home_dir: &str) {
 mod tests {
     use tempfile::TempDir;
 
-    use super::{CONFIG_TOML, write_codex_config};
+    use super::{write_codex_config, CONFIG_TOML};
 
     #[tokio::test]
     async fn writes_expected_config() {

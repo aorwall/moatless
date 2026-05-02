@@ -226,10 +226,9 @@ async fn bootstrap(args: BootstrapArgs, json_out: bool) -> Result<(), ClientErro
     let specs = keys_for_values(values.as_ref());
 
     // Step 2: snapshot existing cluster secret.
-    let existing =
-        load_cluster_secret(&args.namespace, SECRET_NAME)
-            .await
-            .unwrap_or_default();
+    let existing = load_cluster_secret(&args.namespace, SECRET_NAME)
+        .await
+        .unwrap_or_default();
 
     // Step 3: discover .env files (unless skipped).
     let env_values = if args.no_env_file {
@@ -316,7 +315,10 @@ async fn bootstrap(args: BootstrapArgs, json_out: bool) -> Result<(), ClientErro
         }));
     } else {
         println!();
-        println!("Applied Secret/{SECRET_NAME} to namespace {}.", args.namespace);
+        println!(
+            "Applied Secret/{SECRET_NAME} to namespace {}.",
+            args.namespace
+        );
         let headers = ["KEY", "SOURCE"];
         let rows: Vec<Vec<String>> = specs
             .iter()
@@ -462,7 +464,10 @@ data:
     if json_out {
         output::print_json_typed(&json!({ "applied": true, "secret": PULL_SECRET_NAME }));
     } else {
-        println!("Applied Secret/{PULL_SECRET_NAME} (dockerconfigjson) to {}.", args.namespace);
+        println!(
+            "Applied Secret/{PULL_SECRET_NAME} (dockerconfigjson) to {}.",
+            args.namespace
+        );
         println!("Add `imagePullSecrets: [{{name: {PULL_SECRET_NAME}}}]` to values.local.yaml if not already set.");
     }
     Ok(())
@@ -487,9 +492,8 @@ async fn load_cluster_secret(
             let decoded = B64
                 .decode(b64)
                 .map_err(|e| ClientError::Other(format!("Invalid base64 for {k}: {e}")))?;
-            let s = String::from_utf8(decoded).map_err(|e| {
-                ClientError::Other(format!("Non-UTF8 value for {k}: {e}"))
-            })?;
+            let s = String::from_utf8(decoded)
+                .map_err(|e| ClientError::Other(format!("Non-UTF8 value for {k}: {e}")))?;
             out.insert(k.clone(), s);
         }
     }
@@ -582,7 +586,9 @@ fn read_env_file(path: &Path) -> Result<BTreeMap<String, String>, ClientError> {
 
 fn is_env_key(s: &str) -> bool {
     !s.is_empty()
-        && s.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && s.chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
         && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
@@ -612,8 +618,14 @@ mod tests {
         )
         .unwrap();
         let map = read_env_file(&path).unwrap();
-        assert_eq!(map.get("ANTHROPIC_API_KEY").map(String::as_str), Some("sk-ant-abc"));
-        assert_eq!(map.get("DATABASE_URL").map(String::as_str), Some("postgres://a:b@h/c"));
+        assert_eq!(
+            map.get("ANTHROPIC_API_KEY").map(String::as_str),
+            Some("sk-ant-abc")
+        );
+        assert_eq!(
+            map.get("DATABASE_URL").map(String::as_str),
+            Some("postgres://a:b@h/c")
+        );
         assert_eq!(map.get("EMPTY").map(String::as_str), Some(""));
     }
 

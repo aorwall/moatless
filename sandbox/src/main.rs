@@ -24,9 +24,7 @@ use moatless_sandbox::agent::scheduled_job::{LateInjector, ScheduledJobRegistry}
 use moatless_sandbox::backend_client::BackendGrpcClient;
 use moatless_sandbox::config::Config;
 use moatless_sandbox::credentials::recovery::CredentialFailureDetector;
-use moatless_sandbox::credentials::sinks::{
-    ClaudeOauthSink, CodexAuthJsonSink, GitTokenSink,
-};
+use moatless_sandbox::credentials::sinks::{ClaudeOauthSink, CodexAuthJsonSink, GitTokenSink};
 use moatless_sandbox::credentials::Dispatcher;
 use moatless_sandbox::events::GrpcEventPublisher;
 use moatless_sandbox::grpc_server::SandboxServiceImpl;

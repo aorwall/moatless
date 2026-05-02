@@ -92,11 +92,7 @@ pub enum SecretAction {
     },
 }
 
-pub async fn run(
-    client: &MoatClient,
-    action: SecretAction,
-    json: bool,
-) -> Result<(), ClientError> {
+pub async fn run(client: &MoatClient, action: SecretAction, json: bool) -> Result<(), ClientError> {
     match action {
         SecretAction::List { scope, scope_id } => {
             list_secrets(client, &scope, scope_id.as_deref(), json).await
@@ -130,14 +126,32 @@ pub async fn run(
             scope,
             scope_id,
             target,
-        } => get_secret(client, &key, &scope, scope_id.as_deref(), target.as_deref(), json).await,
+        } => {
+            get_secret(
+                client,
+                &key,
+                &scope,
+                scope_id.as_deref(),
+                target.as_deref(),
+                json,
+            )
+            .await
+        }
         SecretAction::Remove {
             key,
             scope,
             scope_id,
             target,
         } => {
-            remove_secret(client, &key, &scope, scope_id.as_deref(), target.as_deref(), json).await
+            remove_secret(
+                client,
+                &key,
+                &scope,
+                scope_id.as_deref(),
+                target.as_deref(),
+                json,
+            )
+            .await
         }
     }
 }
@@ -400,12 +414,7 @@ async fn find_secrets_by_key(
 }
 
 fn print_secret_detail(secret: &serde_json::Value) {
-    let get_str = |key: &str| -> &str {
-        secret
-            .get(key)
-            .and_then(|v| v.as_str())
-            .unwrap_or("-")
-    };
+    let get_str = |key: &str| -> &str { secret.get(key).and_then(|v| v.as_str()).unwrap_or("-") };
 
     println!("ID:         {}", get_str("id"));
     println!("Key:        {}", get_str("key"));

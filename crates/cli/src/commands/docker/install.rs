@@ -90,10 +90,16 @@ pub(super) async fn run(args: InstallArgs, json: bool) -> Result<(), ClientError
     Ok(())
 }
 
-async fn wait_for_healthy(compose_dir: &std::path::Path, timeout: Duration) -> Result<bool, ClientError> {
+async fn wait_for_healthy(
+    compose_dir: &std::path::Path,
+    timeout: Duration,
+) -> Result<bool, ClientError> {
     let deadline = Instant::now() + timeout;
     loop {
-        if super::status::quick_all_healthy(compose_dir).await.unwrap_or(false) {
+        if super::status::quick_all_healthy(compose_dir)
+            .await
+            .unwrap_or(false)
+        {
             return Ok(true);
         }
         if Instant::now() >= deadline {
@@ -119,7 +125,11 @@ fn print_human(r: &InstallReport, source: ComposeDirSource) {
     } else if let Some(h) = r.all_healthy {
         println!(
             "Quick health:    {}",
-            if h { "all healthy" } else { "some still starting" }
+            if h {
+                "all healthy"
+            } else {
+                "some still starting"
+            }
         );
     }
     if let Some(err) = &r.stderr {

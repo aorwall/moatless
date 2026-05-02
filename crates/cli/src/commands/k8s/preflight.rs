@@ -41,7 +41,9 @@ pub(super) struct Check {
 }
 
 pub(super) async fn run(args: PreflightArgs, json: bool) -> Result<(), ClientError> {
-    let namespace = args.namespace.unwrap_or_else(|| DEFAULT_NAMESPACE.to_string());
+    let namespace = args
+        .namespace
+        .unwrap_or_else(|| DEFAULT_NAMESPACE.to_string());
     let report = gather(&namespace).await?;
 
     if json {
@@ -60,7 +62,10 @@ async fn gather(namespace: &str) -> Result<PreflightReport, ClientError> {
     let kubectl_ok = require_binary("kubectl");
     checks.push(check_from_result(
         "kubectl installed",
-        kubectl_ok.as_ref().map(|()| String::new()).map_err(ToString::to_string),
+        kubectl_ok
+            .as_ref()
+            .map(|()| String::new())
+            .map_err(ToString::to_string),
         Some("Install kubectl: https://kubernetes.io/docs/tasks/tools/"),
     ));
     kubectl_ok?;
@@ -68,7 +73,10 @@ async fn gather(namespace: &str) -> Result<PreflightReport, ClientError> {
     let helm_ok = require_binary("helm");
     checks.push(check_from_result(
         "helm installed",
-        helm_ok.as_ref().map(|()| String::new()).map_err(ToString::to_string),
+        helm_ok
+            .as_ref()
+            .map(|()| String::new())
+            .map_err(ToString::to_string),
         Some("Install helm: https://helm.sh/docs/intro/install/"),
     ));
     helm_ok?;
@@ -206,16 +214,16 @@ async fn gather(namespace: &str) -> Result<PreflightReport, ClientError> {
     })
 }
 
-fn check_from_result(
-    name: &str,
-    result: Result<String, String>,
-    hint: Option<&str>,
-) -> Check {
+fn check_from_result(name: &str, result: Result<String, String>, hint: Option<&str>) -> Check {
     match result {
         Ok(detail) => Check {
             name: name.to_string(),
             ok: true,
-            detail: if detail.is_empty() { "ok".to_string() } else { detail },
+            detail: if detail.is_empty() {
+                "ok".to_string()
+            } else {
+                detail
+            },
             hint: None,
         },
         Err(err) => Check {
@@ -228,7 +236,9 @@ fn check_from_result(
 }
 
 fn detect_provider(nodes: &Option<serde_json::Value>) -> Provider {
-    let Some(v) = nodes else { return Provider::Generic };
+    let Some(v) = nodes else {
+        return Provider::Generic;
+    };
     let Some(items) = v.get("items").and_then(|i| i.as_array()) else {
         return Provider::Generic;
     };
@@ -323,9 +333,20 @@ async fn detect_crds() -> Result<CrdStatus, ClientError> {
 fn print_human(r: &PreflightReport) {
     println!("Preflight report");
     println!("================");
-    println!("Context:         {}", r.context.as_deref().unwrap_or("<none>"));
+    println!(
+        "Context:         {}",
+        r.context.as_deref().unwrap_or("<none>")
+    );
     println!("Cluster type:    {}", r.cluster_type.as_str());
-    println!("Target namespace: {} ({})", r.namespace, if r.namespace_exists { "exists" } else { "missing" });
+    println!(
+        "Target namespace: {} ({})",
+        r.namespace,
+        if r.namespace_exists {
+            "exists"
+        } else {
+            "missing"
+        }
+    );
     println!();
 
     let headers = ["STATUS", "CHECK", "DETAIL"];
@@ -334,7 +355,11 @@ fn print_human(r: &PreflightReport) {
         .iter()
         .map(|c| {
             vec![
-                if c.ok { "ok".to_string() } else { "fail".to_string() },
+                if c.ok {
+                    "ok".to_string()
+                } else {
+                    "fail".to_string()
+                },
                 c.name.clone(),
                 c.detail.clone(),
             ]
@@ -342,7 +367,11 @@ fn print_human(r: &PreflightReport) {
         .collect();
     output::print_table(&headers, &rows);
 
-    let hints: Vec<&Check> = r.checks.iter().filter(|c| !c.ok && c.hint.is_some()).collect();
+    let hints: Vec<&Check> = r
+        .checks
+        .iter()
+        .filter(|c| !c.ok && c.hint.is_some())
+        .collect();
     if !hints.is_empty() {
         println!();
         println!("Hints:");

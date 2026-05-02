@@ -103,11 +103,7 @@ fn build_plan(rows: &[RepoEnvRow], global_threshold: usize) -> Vec<KeyPlan> {
     let mut by_key: BTreeMap<String, BTreeMap<String, Vec<RepoRef>>> = BTreeMap::new();
 
     for row in rows {
-        let Some(map) = row
-            .env_vars
-            .as_ref()
-            .and_then(|v| v.as_object())
-        else {
+        let Some(map) = row.env_vars.as_ref().and_then(|v| v.as_object()) else {
             continue;
         };
         for (key, value) in map {
@@ -168,12 +164,7 @@ fn print_plan(plans: &[KeyPlan], opts: MigrateOptions) {
                 GroupAction::User => "→ user",
                 GroupAction::SkipNoOwner => "skip (no owner)",
             };
-            println!(
-                "  {:<32}  {:>4} repos   {}",
-                tag,
-                group.repos.len(),
-                action
-            );
+            println!("  {:<32}  {:>4} repos   {}", tag, group.repos.len(), action);
         }
     }
 }
@@ -229,11 +220,7 @@ async fn put_user(
     Ok(())
 }
 
-async fn strip_from_repos(
-    pool: &DbPool,
-    key: &str,
-    repos: &[RepoRef],
-) -> Result<(), sqlx::Error> {
+async fn strip_from_repos(pool: &DbPool, key: &str, repos: &[RepoRef]) -> Result<(), sqlx::Error> {
     if repos.is_empty() {
         return Ok(());
     }
@@ -266,7 +253,11 @@ mod tests {
     #[test]
     fn promotes_shared_values_to_global() {
         let rows = vec![
-            row("r1", Some("u1"), json!({"OPENAI_API_KEY": "sk-abc", "NODE_ENV": "prod"})),
+            row(
+                "r1",
+                Some("u1"),
+                json!({"OPENAI_API_KEY": "sk-abc", "NODE_ENV": "prod"}),
+            ),
             row("r2", Some("u2"), json!({"OPENAI_API_KEY": "sk-abc"})),
             row("r3", Some("u3"), json!({"OPENAI_API_KEY": "sk-abc"})),
         ];
@@ -310,6 +301,9 @@ mod tests {
         let rows = vec![row("r1", None, json!({"OPENAI_API_KEY": "sk-abc"}))];
         let plans = build_plan(&rows, 3);
         assert_eq!(plans.len(), 1);
-        assert!(matches!(plans[0].groups[0].action, GroupAction::SkipNoOwner));
+        assert!(matches!(
+            plans[0].groups[0].action,
+            GroupAction::SkipNoOwner
+        ));
     }
 }

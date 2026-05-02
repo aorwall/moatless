@@ -68,7 +68,9 @@ async fn gather(args: PreflightArgs) -> Result<PreflightReport, ClientError> {
     checks.push(Check {
         name: "docker compose available".to_string(),
         ok: compose.is_ok(),
-        detail: compose_command.clone().unwrap_or_else(|| "not found".to_string()),
+        detail: compose_command
+            .clone()
+            .unwrap_or_else(|| "not found".to_string()),
         hint: if compose.is_err() {
             Some(
                 "Install the Docker Compose v2 plugin: https://docs.docker.com/compose/install/"
@@ -234,7 +236,11 @@ fn print_human(r: &PreflightReport) {
         .iter()
         .map(|c| {
             vec![
-                if c.ok { "ok".to_string() } else { "fail".to_string() },
+                if c.ok {
+                    "ok".to_string()
+                } else {
+                    "fail".to_string()
+                },
                 c.name.clone(),
                 c.detail.clone(),
             ]
@@ -253,4 +259,3 @@ fn print_human(r: &PreflightReport) {
         }
     }
 }
-

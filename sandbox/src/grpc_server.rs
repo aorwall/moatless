@@ -151,9 +151,7 @@ impl SandboxService for SandboxServiceImpl {
                 "No sink registered for credential key: {}",
                 req.key
             ))),
-            Err(e) => Err(Status::internal(format!(
-                "Credential dispatch failed: {e}"
-            ))),
+            Err(e) => Err(Status::internal(format!("Credential dispatch failed: {e}"))),
         }
     }
 

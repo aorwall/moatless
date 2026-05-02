@@ -37,10 +37,7 @@ pub(super) struct InitReport {
 pub(super) async fn run(args: InitArgs, json: bool) -> Result<(), ClientError> {
     let (compose_dir, source) = resolve_compose_dir(args.compose_dir.as_deref())?;
     fs::create_dir_all(&compose_dir).map_err(|e| {
-        ClientError::Other(format!(
-            "Failed to create {}: {e}",
-            compose_dir.display()
-        ))
+        ClientError::Other(format!("Failed to create {}: {e}", compose_dir.display()))
     })?;
 
     // 1. Ensure install assets are present. Repo checkouts already have them;

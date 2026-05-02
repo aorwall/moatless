@@ -48,7 +48,10 @@ mod tests {
         let parsed: serde_json::Value = serde_json::from_str(&contents).unwrap();
 
         let env = parsed.get("env").and_then(|v| v.as_object()).unwrap();
-        assert_eq!(env.get("CLAUDE_CODE_AUTO_COMPACT_WINDOW").unwrap(), "300000");
+        assert_eq!(
+            env.get("CLAUDE_CODE_AUTO_COMPACT_WINDOW").unwrap(),
+            "300000"
+        );
         assert_eq!(
             env.get("CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING").unwrap(),
             "1"

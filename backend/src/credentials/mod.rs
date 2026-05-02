@@ -133,11 +133,7 @@ impl CredentialService {
     /// returned as-is from `provider_tokens`. The serialization makes it safe
     /// to add Codex / Claude refresh paths later without revisiting the
     /// race-condition story.
-    pub async fn ensure_fresh(
-        &self,
-        user_id: &str,
-        key: &str,
-    ) -> Result<String, CredentialError> {
+    pub async fn ensure_fresh(&self, user_id: &str, key: &str) -> Result<String, CredentialError> {
         let lock = self.acquire_lock(user_id, key).await;
         let _guard = lock.lock().await;
 
@@ -164,9 +160,8 @@ impl CredentialService {
     }
 
     async fn read_raw(&self, user_id: &str, key: &str) -> Result<String, CredentialError> {
-        let provider = credential_key_to_provider(key).ok_or_else(|| {
-            CredentialError::Internal(format!("Unknown credential key: {key}"))
-        })?;
+        let provider = credential_key_to_provider(key)
+            .ok_or_else(|| CredentialError::Internal(format!("Unknown credential key: {key}")))?;
 
         let row = self
             .provider_tokens
@@ -196,9 +191,8 @@ impl CredentialService {
         value: &str,
         source: WriteSource,
     ) -> Result<(), CredentialError> {
-        let provider = credential_key_to_provider(key).ok_or_else(|| {
-            CredentialError::Internal(format!("Unknown credential key: {key}"))
-        })?;
+        let provider = credential_key_to_provider(key)
+            .ok_or_else(|| CredentialError::Internal(format!("Unknown credential key: {key}")))?;
 
         let lock = self.acquire_lock(user_id, key).await;
         let _guard = lock.lock().await;
@@ -208,11 +202,13 @@ impl CredentialService {
             .provider_tokens
             .find_provider_token(user_id, provider)
             .await?;
-        if existing.as_ref().is_some_and(|row| row.access_token == value) {
+        if existing
+            .as_ref()
+            .is_some_and(|row| row.access_token == value)
+        {
             debug!(
                 user_id,
-                provider,
-                "CredentialService::store skipped — value unchanged"
+                provider, "CredentialService::store skipped — value unchanged"
             );
             return Ok(());
         }
@@ -221,12 +217,7 @@ impl CredentialService {
             .upsert_token(user_id, provider, value, None, None, None)
             .await?;
 
-        info!(
-            user_id,
-            provider,
-            ?source,
-            "Persisted credential"
-        );
+        info!(user_id, provider, ?source, "Persisted credential");
 
         if should_broadcast(key) {
             let except_task_id = match &source {
@@ -241,13 +232,7 @@ impl CredentialService {
 
     /// Push a freshly stored credential to every running sandbox the user
     /// owns. Fire-and-forget per sandbox — failures are logged.
-    async fn broadcast(
-        &self,
-        user_id: &str,
-        except_task_id: Option<&str>,
-        key: &str,
-        value: &str,
-    ) {
+    async fn broadcast(&self, user_id: &str, except_task_id: Option<&str>, key: &str, value: &str) {
         let Some(ref ctx) = self.broadcast_ctx else {
             return;
         };
@@ -371,10 +356,10 @@ mod tests {
             _metadata: Option<&serde_json::Value>,
         ) -> Result<(), sqlx::Error> {
             self.upsert_count.fetch_add(1, Ordering::SeqCst);
-            self.tokens
-                .lock()
-                .await
-                .insert((user_id.to_string(), provider.to_string()), access_token.to_string());
+            self.tokens.lock().await.insert(
+                (user_id.to_string(), provider.to_string()),
+                access_token.to_string(),
+            );
             Ok(())
         }
 
@@ -410,10 +395,7 @@ mod tests {
             Ok(())
         }
 
-        async fn list_by_team(
-            &self,
-            _team_id: &str,
-        ) -> Result<Vec<ProviderToken>, sqlx::Error> {
+        async fn list_by_team(&self, _team_id: &str) -> Result<Vec<ProviderToken>, sqlx::Error> {
             Ok(vec![])
         }
     }

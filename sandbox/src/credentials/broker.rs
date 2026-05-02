@@ -56,7 +56,10 @@ async fn get_credential(
     match state.backend_client.get_credentials(&state.task_id).await {
         Ok(resp) => match resp.credentials.get(&q.key) {
             Some(value) => (StatusCode::OK, format!("{value}\n")),
-            None => (StatusCode::NOT_FOUND, format!("no credential for {}\n", q.key)),
+            None => (
+                StatusCode::NOT_FOUND,
+                format!("no credential for {}\n", q.key),
+            ),
         },
         Err(e) => {
             warn!(error = %e, key = %q.key, "broker: get_credentials failed");
@@ -171,21 +174,13 @@ mod tests {
         ) -> Result<(), tonic::Status> {
             Ok(())
         }
-        async fn get_credentials(
-            &self,
-            _: &str,
-        ) -> Result<GetCredentialsResponse, tonic::Status> {
+        async fn get_credentials(&self, _: &str) -> Result<GetCredentialsResponse, tonic::Status> {
             Ok(GetCredentialsResponse {
                 credentials: self.creds.clone(),
                 server_env: HashMap::new(),
             })
         }
-        async fn update_credential(
-            &self,
-            _: &str,
-            _: &str,
-            _: &str,
-        ) -> Result<(), tonic::Status> {
+        async fn update_credential(&self, _: &str, _: &str, _: &str) -> Result<(), tonic::Status> {
             Ok(())
         }
     }
