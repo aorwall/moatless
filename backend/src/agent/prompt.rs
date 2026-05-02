@@ -45,6 +45,7 @@ const SANDBOX_TOOLS_PROMPT: &str = "\
 Available `moat` commands:
 - `moat set-name \"<name>\"` — Update the task name
 - `moat set-tags <tag1> <tag2> ...` — Set tags on this task
+- `moat reply --text \"<text>\"` — Send a reply back to the channel that triggered this task (Slack, etc.)
 - `moat tasks status $TASK_ID` — Show sandbox status including server states
 - `moat tasks logs $TASK_ID --server <name>` — Stream server logs (e.g., `--server preview`)
 - `moat tasks diagnose $TASK_ID` — Diagnose sandbox issues (status + container diagnostics + recent errors)";
@@ -363,6 +364,7 @@ mod tests {
         let prompt = build_append_system_prompt(&inputs);
         assert!(prompt.contains("# GitHub Access"));
         assert!(prompt.contains("# Sandbox CLI Reference"));
+        assert!(prompt.contains("`moat reply"));
     }
 
     #[test]

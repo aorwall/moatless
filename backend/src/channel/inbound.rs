@@ -35,17 +35,19 @@ pub struct CommandInfo {
 const CHANNEL_REPLY_INSTRUCTIONS: &str = "\
 # Channel Reply Instructions
 
-This task was created from a channel message. Send your responses back \
-to the channel using the `moat reply` command.
+This task was created from a channel message. You MUST call `moat reply` to deliver \
+your response — a plain text assistant reply is NOT sent to the channel.
 
-- Use `moat reply --text \"<your response>\"` when this task has exactly one channel.
+## Required: Reply via CLI
+For the initial message that created this task, **always** run:
+  `moat reply --text \"<your response>\"`
+
+- When this task has exactly one channel, `moat reply --text \"...\"` is sufficient.
 - If `moat reply` reports multiple targets, list them with \
 `moat channels subscriptions --task $TASK_ID` and pick one with \
-`moat reply --thread <id> --text \"...\"` (or `--subscription <id>` for \
-GitHub PR ingress, or `--pr owner/repo#N`).
-- For the initial message that created this task, always send a reply.
+`moat reply --thread <id> --text \"...\"` (or `--subscription <id>` / `--pr owner/repo#N`).
 - For follow-up thread messages, reply if you are mentioned or have useful information. \
-If the message is not directed at you and you have nothing to add, stay silent (do not send a reply).
+If the message is not directed at you and you have nothing to add, stay silent.
 - Keep replies concise — the recipient is reading in a messaging app.
 - You may send multiple replies for progress updates on long-running tasks.";
 
@@ -348,6 +350,17 @@ pub(crate) async fn deliver_to_task(
     };
     if let Some(label) = sender_label {
         message_text = format!("{label}: {message_text}");
+    }
+
+    let is_bot_mentioned = msg
+        .provider_context
+        .get("is_bot_mentioned")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+    if is_bot_mentioned {
+        message_text = format!(
+            "[You were @mentioned — a reply via `moat reply` is required]\n\n{message_text}"
+        );
     }
 
     if msg.thread_id.is_some() {

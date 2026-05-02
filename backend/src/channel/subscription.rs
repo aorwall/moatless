@@ -412,6 +412,17 @@ async fn deliver_to_subscription(
         message_text = format!("{label}: {message_text}");
     }
 
+    let is_bot_mentioned = msg
+        .provider_context
+        .get("is_bot_mentioned")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+    if is_bot_mentioned {
+        message_text = format!(
+            "[You were @mentioned — a reply via `moat reply` is required]\n\n{message_text}"
+        );
+    }
+
     if msg.thread_id.is_some() {
         if let Some(providers) = state.channel_providers.as_ref() {
             if let Some(provider) = providers.get_by_name(provider_label) {
@@ -450,6 +461,7 @@ async fn deliver_to_subscription(
         Some(provider_label),
         config.source_name.as_deref(),
         cmd_name,
+        None,
     )
     .await
     .map_err(|e| ChannelError::Internal(format!("Failed to send message: {e}")))?;
