@@ -115,6 +115,13 @@ impl SlackProvider {
         &self.signing_secret
     }
 
+    /// Resolve the identity of the current Slack bot token via `auth.test`.
+    /// The returned `team_id` is the Slack workspace ID (e.g. "T0000000002"),
+    /// needed to build `task_subscriptions.subject_key` for DM replies.
+    pub async fn auth_test(&self) -> Result<super::api::AuthTestInfo, ChannelError> {
+        self.api.auth_test().await
+    }
+
     /// List Slack channels the bot is a member of.
     pub async fn list_channels(&self) -> Result<Vec<super::api::SlackChannelInfo>, ChannelError> {
         self.api.list_conversations().await

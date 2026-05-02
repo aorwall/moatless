@@ -2077,6 +2077,62 @@ async fn ensure_chat_provider_connection(
     Ok(repo.upsert(&connection).await?)
 }
 
+/// Ensure the connection's `transport_config.slack_workspace_id` is populated.
+///
+/// Reads the cached value from `transport_config` if present; otherwise calls
+/// Slack's `auth.test`, merges the workspace ID into `transport_config`, and
+/// persists the row. The connection passed in is mutated in place so callers
+/// see the updated `transport_config` without re-fetching.
+async fn ensure_slack_workspace_id(
+    state: &AppState,
+    slack: &super::slack::provider::SlackProvider,
+    connection: &mut super::models::ProviderConnection,
+) -> Result<String, ChannelError> {
+    if let Some(existing) = connection
+        .transport_config
+        .get("slack_workspace_id")
+        .and_then(|v| v.as_str())
+    {
+        if !existing.is_empty() {
+            return Ok(existing.to_string());
+        }
+    }
+
+    let info = slack.auth_test().await?;
+    let workspace_id = info.team_id.ok_or_else(|| {
+        ChannelError::ProviderApi("Slack auth.test returned no team_id".into())
+    })?;
+
+    match connection.transport_config.as_object_mut() {
+        Some(obj) => {
+            obj.insert(
+                "slack_workspace_id".to_string(),
+                serde_json::Value::String(workspace_id.clone()),
+            );
+        }
+        None => {
+            connection.transport_config = serde_json::json!({
+                "slack_workspace_id": workspace_id,
+            });
+        }
+    }
+    connection.updated_at = chrono::Utc::now();
+
+    let repo = super::provider_connection_dao::PgProviderConnectionRepository(state.db.clone());
+    let saved = repo.upsert(connection).await.map_err(|e| {
+        ChannelError::Internal(format!("Failed to persist Slack workspace_id: {e}"))
+    })?;
+    *connection = saved;
+
+    tracing::info!(
+        connection_id = %connection.id,
+        workspace_id = %workspace_id,
+        "Persisted Slack workspace_id to provider_connections.transport_config",
+    );
+
+    Ok(workspace_id)
+}
+
 /// Create or upsert an ingress rule.
 #[utoipa::path(
     post,
@@ -2332,7 +2388,7 @@ pub async fn send_user_dm_handler(
         .ok_or_else(|| ChannelError::Internal("Slack provider type mismatch".into()))?;
 
     // Ensure a provider connection exists for Slack
-    let connection =
+    let mut connection =
         ensure_chat_provider_connection(&state, &auth.user_id, "slack", "default", None).await?;
 
     // Open DM channel
@@ -2351,9 +2407,12 @@ pub async fn send_user_dm_handler(
         "Sent DM to user via Slack"
     );
 
-    // Optionally create a task_subscription so replies route back to the task
+    // Optionally create a task_subscription so replies route back to the task.
+    // The subject_key MUST match the format produced by `subscription::slack_subject_key`
+    // during inbound routing: `{slack_workspace_id}:{channel}:{thread_ts}`.
     let subscription_id = if let Some(ref task_id) = body.task_id {
-        let subject_key = format!("default:{dm_channel_id}:{ts}");
+        let workspace_id = ensure_slack_workspace_id(&state, slack, &mut connection).await?;
+        let subject_key = format!("{workspace_id}:{dm_channel_id}:{ts}");
         let reply_target = serde_json::json!({
             "channel": dm_channel_id,
             "thread_ts": ts,

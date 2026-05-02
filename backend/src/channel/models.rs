@@ -72,6 +72,15 @@ pub struct ProviderConnection {
     pub scope_value: String,
     pub credential_ref: Option<String>,
     pub webhook_secret: Option<String>,
+    /// Provider-specific transport metadata (JSONB). Each provider stores its
+    /// own flat bag of identifiers and config here so we don't need
+    /// per-provider columns on this table.
+    ///
+    /// Conventions in use today:
+    /// - `source`: `"env"` | `"oauth"` — where the credential came from.
+    /// - `slack_workspace_id`: e.g. `"T0000000002"` — the Slack workspace ID.
+    ///   Used to build `task_subscriptions.subject_key` for DM replies so that
+    ///   inbound webhook events route back to the originating task.
     pub transport_config: serde_json::Value,
     pub created_by: String,
     pub scope: Scope,
