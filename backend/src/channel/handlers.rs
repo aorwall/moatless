@@ -1556,9 +1556,61 @@ pub async fn send_to_task_channels(
 
     let total = threads.len() + subscriptions.len();
     match total {
-        0 => Err(ChannelError::ConfigNotFound(format!(
-            "Task {task_id} has no channels"
-        ))),
+        0 => {
+            // No channels — fall back to parent task if one exists.
+            let task = state
+                .tasks
+                .find_by_id_internal(&task_id)
+                .await
+                .map_err(|e| ChannelError::Internal(format!("Failed to look up task: {e}")))?
+                .ok_or_else(|| ChannelError::NotFound(format!("Task {task_id} not found")))?;
+
+            if let Some(parent_id) = task.parent_task_id {
+                tracing::debug!(
+                    task_id = %task_id,
+                    parent_task_id = %parent_id,
+                    "No channels on task, routing moat reply to parent task"
+                );
+                crate::message::send::send_message_flow(
+                    &state,
+                    &parent_id,
+                    &req.text,
+                    None,
+                    None,
+                    &req.file_ids,
+                    &[],
+                    true,
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some(&task_id),
+                )
+                .await
+                .map_err(|e| {
+                    ChannelError::Internal(format!("Failed to send to parent task: {e}"))
+                })?;
+
+                if let Err(e) =
+                    crate::sandbox::notify::ensure_sandbox_and_notify(&state, &parent_id).await
+                {
+                    tracing::warn!(
+                        parent_task_id = %parent_id,
+                        error = %e,
+                        "Failed to notify parent sandbox after moat reply fallback"
+                    );
+                }
+
+                Ok(Json(SendChannelMessageResponse {
+                    sent_count: 1,
+                    errors: vec![],
+                }))
+            } else {
+                Err(ChannelError::ConfigNotFound(format!(
+                    "Task {task_id} has no channels"
+                )))
+            }
+        }
         1 if subscriptions.len() == 1 => {
             let (sent_count, errors) = super::outbound::send_to_subscription(
                 &state,
