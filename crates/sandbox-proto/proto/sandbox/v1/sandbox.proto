@@ -16,6 +16,12 @@ service BackendSandboxService {
   // Fetch credentials for sandbox initialization (auth via gRPC metadata)
   rpc GetCredentials(GetCredentialsRequest) returns (GetCredentialsResponse);
 
+  // Fetch the assembled append-system-prompt for a task. Backend owns assembly
+  // (task name, repo prompt, channel prompt, server section, task URL, CLI
+  // hints); sandbox calls this once per agent run and caches the result for
+  // fallback on subsequent gRPC failures.
+  rpc GetSystemPrompt(GetSystemPromptRequest) returns (GetSystemPromptResponse);
+
   // Push a credential rotated locally inside the sandbox back to the backend.
   // Used for OAuth flows (e.g. Codex) that rotate refresh tokens on every use:
   // without write-back, the backend's stored value goes stale on the next
@@ -114,6 +120,15 @@ message UpdateCredentialRequest {
 }
 
 message UpdateCredentialResponse {}
+
+message GetSystemPromptRequest {
+  string task_id = 1;
+  // auth via gRPC metadata (authorization: Bearer <token>), not message fields
+}
+
+message GetSystemPromptResponse {
+  string system_prompt = 1;
+}
 
 // ── Sandbox gRPC API (backend is the client) ────────────────────
 

@@ -268,6 +268,9 @@ mod tests {
             *self.last_value.lock().await = Some(value.to_string());
             Ok(())
         }
+        async fn get_system_prompt(&self, _task_id: &str) -> Result<String, tonic::Status> {
+            Ok(String::new())
+        }
     }
 
     #[tokio::test]

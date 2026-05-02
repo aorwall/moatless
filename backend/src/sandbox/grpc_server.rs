@@ -13,7 +13,8 @@ use sandbox_proto::backend_sandbox_service_server::BackendSandboxService;
 use sandbox_proto::{
     AcknowledgeMessagesRequest, AcknowledgeMessagesResponse, GetCredentialsRequest,
     GetCredentialsResponse, GetPendingMessagesRequest, GetPendingMessagesResponse,
-    PublishEventRequest, PublishEventResponse, UpdateCredentialRequest, UpdateCredentialResponse,
+    GetSystemPromptRequest, GetSystemPromptResponse, PublishEventRequest, PublishEventResponse,
+    UpdateCredentialRequest, UpdateCredentialResponse,
 };
 
 use crate::agent::prompt;
@@ -205,14 +206,6 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             |t| t.agent_type.0.clone(),
         );
 
-        let task_system_prompt = prompt::build_for_task(
-            &req.task_id,
-            task.as_ref(),
-            self.repositories.as_ref(),
-            self.backend_config.as_ref(),
-        )
-        .await;
-
         // Fetch pending user messages from DB
         let mut pending = messages.get_pending_user(&req.task_id).await.map_err(|e| {
             warn!(error = %e, task_id = %req.task_id, "Failed to fetch pending messages");
@@ -269,7 +262,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
                 Some(sandbox_proto::PendingMessage {
                     content,
                     model: row.model.clone(),
-                    system_prompt: Some(task_system_prompt.clone()),
+                    system_prompt: None,
                     resume,
                     agent_type: Some(task_agent_type.clone()),
                     is_error: None,
@@ -507,6 +500,36 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         );
 
         Ok(Response::new(UpdateCredentialResponse {}))
+    }
+
+    /// Build and return the assembled append-system-prompt for a task.
+    ///
+    /// The sandbox calls this once per agent run (in `start_session`) and
+    /// caches the result for fallback on subsequent failures. Assembly
+    /// reads `Task.name`, `Task.append_system_prompt`, `Repository.system_prompt`,
+    /// `Repository.servers`, and the configured frontend/proxy URLs.
+    async fn get_system_prompt(
+        &self,
+        request: Request<GetSystemPromptRequest>,
+    ) -> Result<Response<GetSystemPromptResponse>, Status> {
+        let _claims = self.verify_auth(&request)?;
+        let req = request.into_inner();
+
+        let task = if let Some(ref tasks) = self.tasks {
+            tasks.find_by_id_internal(&req.task_id).await.ok().flatten()
+        } else {
+            None
+        };
+
+        let system_prompt = prompt::build_for_task(
+            &req.task_id,
+            task.as_ref(),
+            self.repositories.as_ref(),
+            self.backend_config.as_ref(),
+        )
+        .await;
+
+        Ok(Response::new(GetSystemPromptResponse { system_prompt }))
     }
 }
 

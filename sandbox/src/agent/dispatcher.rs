@@ -43,10 +43,9 @@ pub async fn dispatch_pending_messages(state: SandboxState) {
         return;
     }
 
-    // Extract UUIDs, text content, system_prompt, and resume_session_id
+    // Extract UUIDs, text content, and resume_session_id
     let uuids: Vec<String> = messages.iter().filter_map(|m| m.uuid.clone()).collect();
     let text = extract_text_from_messages(&messages);
-    let system_prompt = extract_system_prompt(&messages);
     let model = extract_model(&messages);
     let agent_type = extract_agent_type(&messages);
     let agent_mode = extract_agent_mode(&messages);
@@ -59,7 +58,6 @@ pub async fn dispatch_pending_messages(state: SandboxState) {
     info!(
         message_count = messages.len(),
         text_len = text.len(),
-        has_system_prompt = system_prompt.is_some(),
         model = ?model,
         agent_type = ?agent_type,
         agent_mode = ?agent_mode,
@@ -69,14 +67,9 @@ pub async fn dispatch_pending_messages(state: SandboxState) {
 
     // Send to agent actor — it handles injection vs new session.
     // Ack is deferred until the agent confirms it processed the message.
-    let ack_rx = state.agent_handle.send(
-        text,
-        model,
-        system_prompt,
-        agent_type,
-        agent_mode,
-        resume_session_id,
-    );
+    let ack_rx = state
+        .agent_handle
+        .send(text, model, agent_type, agent_mode, resume_session_id);
 
     if !uuids.is_empty() {
         let task_id = task_id.to_string();
@@ -121,7 +114,7 @@ async fn resolve_pending_prompt(state: &SandboxState) {
         info!("Pending prompt was already consumed, dispatching normally");
         let text = extract_text_from_messages(&proto_messages);
         // Drop the ack receiver — no UUIDs to acknowledge in this race path
-        drop(state.agent_handle.send(text, None, None, None, None, None));
+        drop(state.agent_handle.send(text, None, None, None, None));
         return;
     };
 
@@ -143,11 +136,6 @@ async fn resolve_pending_prompt(state: &SandboxState) {
     };
 
     let _ = prompt.sender.send(response);
-}
-
-/// Extract the system_prompt from proto pending messages (first non-None wins).
-fn extract_system_prompt(messages: &[sandbox_proto::PendingMessage]) -> Option<String> {
-    messages.iter().find_map(|m| m.system_prompt.clone())
 }
 
 fn extract_model(messages: &[sandbox_proto::PendingMessage]) -> Option<String> {

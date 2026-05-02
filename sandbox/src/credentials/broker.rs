@@ -183,6 +183,9 @@ mod tests {
         async fn update_credential(&self, _: &str, _: &str, _: &str) -> Result<(), tonic::Status> {
             Ok(())
         }
+        async fn get_system_prompt(&self, _: &str) -> Result<String, tonic::Status> {
+            Ok(String::new())
+        }
     }
 
     fn make_state(creds: HashMap<String, String>) -> BrokerState {

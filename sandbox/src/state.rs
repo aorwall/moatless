@@ -63,4 +63,8 @@ pub struct SandboxState {
     /// to seed the watcher cache after a backend-driven write so the resulting
     /// filesystem event is recognised as a no-op.
     pub codex_watcher_handle: Arc<RwLock<Option<WatcherHandle>>>,
+    /// Last system prompt fetched from the backend. Used as a fallback when
+    /// `BackendClient::get_system_prompt` fails on a subsequent agent run.
+    /// Refreshed on every successful fetch in `start_session`.
+    pub system_prompt_cache: Arc<RwLock<Option<String>>>,
 }

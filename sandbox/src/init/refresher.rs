@@ -148,6 +148,10 @@ mod tests {
         ) -> Result<(), tonic::Status> {
             Ok(())
         }
+
+        async fn get_system_prompt(&self, _task_id: &str) -> Result<String, tonic::Status> {
+            Ok(String::new())
+        }
     }
 
     fn test_config(tmp: &tempfile::TempDir) -> Config {
@@ -196,6 +200,7 @@ mod tests {
 
         let credential_failures = CredentialFailureDetector::default();
         let credential_dispatcher = Arc::new(Dispatcher::new());
+        let system_prompt_cache: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
 
         let agent_handle = spawn_agent(
             Arc::clone(&config),
@@ -206,6 +211,7 @@ mod tests {
             Arc::clone(&scheduled_jobs),
             credential_failures.clone(),
             Arc::clone(&credential_dispatcher),
+            Arc::clone(&system_prompt_cache),
         );
         late_injector.set(Box::new(agent_handle.clone()));
 
@@ -222,6 +228,7 @@ mod tests {
             credential_dispatcher,
             credential_failures,
             codex_watcher_handle: Arc::new(RwLock::new(None)),
+            system_prompt_cache,
         }
     }
 

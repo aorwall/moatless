@@ -97,7 +97,6 @@ enum AgentCommand {
     Send {
         text: String,
         model: Option<String>,
-        system_prompt: Option<String>,
         agent_type: Option<String>,
         agent_mode: Option<String>,
         /// Session ID from the backend for resuming after pod restart.
@@ -112,7 +111,6 @@ enum AgentCommand {
 struct QueuedSend {
     text: String,
     model: Option<String>,
-    system_prompt: Option<String>,
     agent_type: Option<String>,
     agent_mode: Option<String>,
     resume_session_id: Option<String>,
@@ -140,7 +138,6 @@ impl AgentHandle {
         &self,
         text: String,
         model: Option<String>,
-        system_prompt: Option<String>,
         agent_type: Option<String>,
         agent_mode: Option<String>,
         resume_session_id: Option<String>,
@@ -149,7 +146,6 @@ impl AgentHandle {
         let _ = self.command_tx.send(AgentCommand::Send {
             text,
             model,
-            system_prompt,
             agent_type,
             agent_mode,
             resume_session_id,
@@ -190,7 +186,6 @@ async fn try_credential_recovery_retry(
     task_id: &str,
     last_prompt: &Option<String>,
     last_model: &Option<String>,
-    last_system_prompt: &Option<String>,
     last_agent_type: &Option<String>,
     last_agent_mode: &Option<String>,
     retry_state: &mut Option<RetryState>,
@@ -293,7 +288,6 @@ async fn try_credential_recovery_retry(
     *retry_state = Some(RetryState {
         prompt,
         model: last_model.clone(),
-        system_prompt: last_system_prompt.clone(),
         agent_type: last_agent_type.clone(),
         agent_mode: last_agent_mode.clone(),
         attempt: 0,
@@ -405,7 +399,6 @@ async fn value_actually_changed(key: &str, new_value: &str, config: &Config) -> 
 struct RetryState {
     prompt: String,
     model: Option<String>,
-    system_prompt: Option<String>,
     agent_type: Option<String>,
     agent_mode: Option<String>,
     attempt: u32,
@@ -521,6 +514,7 @@ pub fn spawn_agent(
     scheduled_jobs: Arc<ScheduledJobRegistry>,
     credential_failures: CredentialFailureDetector,
     credential_dispatcher: Arc<Dispatcher>,
+    system_prompt_cache: Arc<RwLock<Option<String>>>,
 ) -> AgentHandle {
     let (command_tx, command_rx) = mpsc::unbounded_channel();
 
@@ -534,6 +528,7 @@ pub fn spawn_agent(
         scheduled_jobs,
         credential_failures,
         credential_dispatcher,
+        system_prompt_cache,
     ));
 
     AgentHandle { command_tx }
@@ -554,6 +549,7 @@ async fn agent_loop(
     scheduled_jobs: Arc<ScheduledJobRegistry>,
     credential_failures: CredentialFailureDetector,
     credential_dispatcher: Arc<Dispatcher>,
+    system_prompt_cache: Arc<RwLock<Option<String>>>,
 ) {
     let task_id = config.task_id.clone();
     let mut handle: Option<ActiveHandle> = None;
@@ -570,7 +566,6 @@ async fn agent_loop(
     let mut queued_sends: VecDeque<QueuedSend> = VecDeque::new();
     let mut codex_turn_output = String::new();
     let mut last_model: Option<String> = None;
-    let mut last_system_prompt: Option<String> = None;
     let mut last_agent_type: Option<String> = None;
     let mut last_agent_mode: Option<String> = None;
     let mut retry_state: Option<RetryState> = None;
@@ -602,12 +597,12 @@ async fn agent_loop(
                     &task_id,
                     &session_id,
                     send.model.as_deref(),
-                    send.system_prompt.as_deref(),
                     send.agent_type.as_deref(),
                     send.agent_mode.as_deref(),
                     send.resume_session_id,
                     Arc::clone(&scheduled_jobs),
                     credential_failures.clone(),
+                    Arc::clone(&system_prompt_cache),
                 )
                 .await
                 {
@@ -628,7 +623,6 @@ async fn agent_loop(
                             retry_state = Some(RetryState {
                                 prompt: send.text,
                                 model: send.model,
-                                system_prompt: send.system_prompt,
                                 agent_type: send.agent_type,
                                 agent_mode: send.agent_mode,
                                 attempt: 0,
@@ -714,7 +708,6 @@ async fn agent_loop(
                                         retry_state = Some(RetryState {
                                             prompt: prompt.clone(),
                                             model: last_model.clone(),
-                                            system_prompt: last_system_prompt.clone(),
                                             agent_type: last_agent_type.clone(),
                                             agent_mode: last_agent_mode.clone(),
                                             attempt,
@@ -808,7 +801,6 @@ async fn agent_loop(
                                 &task_id,
                                 &last_prompt,
                                 &last_model,
-                                &last_system_prompt,
                                 &last_agent_type,
                                 &last_agent_mode,
                                 &mut retry_state,
@@ -841,7 +833,6 @@ async fn agent_loop(
                             &task_id,
                             &last_prompt,
                             &last_model,
-                            &last_system_prompt,
                             &last_agent_type,
                             &last_agent_mode,
                             &mut retry_state,
@@ -883,12 +874,12 @@ async fn agent_loop(
                     &task_id,
                     &session_id,
                     state.model.as_deref(),
-                    state.system_prompt.as_deref(),
                     state.agent_type.as_deref(),
                     state.agent_mode.as_deref(),
                     None,
                     Arc::clone(&scheduled_jobs),
                     credential_failures.clone(),
+                    Arc::clone(&system_prompt_cache),
                 ).await {
                     Ok((new_handle, run_cancel)) => {
                         handle = Some(new_handle);
@@ -907,7 +898,6 @@ async fn agent_loop(
                             retry_state = Some(RetryState {
                                 prompt: state.prompt,
                                 model: state.model,
-                                system_prompt: state.system_prompt,
                                 agent_type: state.agent_type,
                                 agent_mode: state.agent_mode,
                                 attempt: next_attempt,
@@ -937,7 +927,7 @@ async fn agent_loop(
 
             cmd = command_rx.recv() => {
                 match cmd {
-                    Some(AgentCommand::Send { text, model, system_prompt, agent_type, agent_mode, resume_session_id, ack }) => {
+                    Some(AgentCommand::Send { text, model, agent_type, agent_mode, resume_session_id, ack }) => {
                         if retry_state.is_some() {
                             info!("New send command cancels pending retry");
                             retry_state = None;
@@ -946,9 +936,6 @@ async fn agent_loop(
 
                         if model.is_some() {
                             last_model = model.clone();
-                        }
-                        if system_prompt.is_some() {
-                            last_system_prompt = system_prompt.clone();
                         }
                         if agent_type.is_some() {
                             last_agent_type = agent_type.clone();
@@ -980,7 +967,6 @@ async fn agent_loop(
                         let effective_send = QueuedSend {
                             text: text.clone(),
                             model: last_model.clone(),
-                            system_prompt: last_system_prompt.clone(),
                             agent_type: last_agent_type.clone(),
                             agent_mode: last_agent_mode.clone(),
                             resume_session_id,
@@ -1047,13 +1033,32 @@ async fn start_session(
     task_id: &str,
     previous_session_id: &str,
     model: Option<&str>,
-    system_prompt: Option<&str>,
     agent_type: Option<&str>,
     agent_mode: Option<&str>,
     resume_session_id: Option<String>,
     scheduled_jobs: Arc<ScheduledJobRegistry>,
     credential_failures: CredentialFailureDetector,
+    system_prompt_cache: Arc<RwLock<Option<String>>>,
 ) -> Result<(ActiveHandle, CancellationToken), AgentRuntimeError> {
+    // Fetch the assembled append-system-prompt from the backend. On failure,
+    // fall back to whatever was last cached in this pod. Cache is purely a
+    // resilience layer — every successful run refreshes it.
+    let system_prompt = match backend_client.get_system_prompt(task_id).await {
+        Ok(prompt) => {
+            *system_prompt_cache.write().await = Some(prompt.clone());
+            Some(prompt)
+        }
+        Err(error) => {
+            let cached = system_prompt_cache.read().await.clone();
+            warn!(
+                error = %error,
+                has_cache = cached.is_some(),
+                "Failed to fetch system prompt; using cached fallback"
+            );
+            cached
+        }
+    };
+
     match backend_client.get_credentials(task_id).await {
         Ok(resp) => {
             // Refresh mode: keep a locally-rotated `~/.codex/auth.json`. The
@@ -1100,7 +1105,7 @@ async fn start_session(
     let request = AgentRunRequest {
         content: Vec::new(),
         model: model.map(std::string::ToString::to_string),
-        system_prompt: system_prompt.map(ToString::to_string),
+        system_prompt,
         resume,
         agent_type: Some(agent_type.to_string()),
         agent_mode: agent_mode.map(std::string::ToString::to_string),

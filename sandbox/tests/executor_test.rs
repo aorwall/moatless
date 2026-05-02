@@ -17,6 +17,8 @@ use moatless_sandbox::agent::handle::spawn_agent;
 use moatless_sandbox::agent::types::AgentStatus;
 use moatless_sandbox::backend_client::BackendClient;
 use moatless_sandbox::config::Config;
+use moatless_sandbox::credentials::recovery::CredentialFailureDetector;
+use moatless_sandbox::credentials::Dispatcher;
 use moatless_sandbox::events::GrpcEventPublisher;
 use moatless_sandbox::init::InitPhase;
 use moatless_sandbox::state::SandboxState;
@@ -100,6 +102,10 @@ impl BackendClient for MockBackendClient {
     ) -> Result<(), tonic::Status> {
         Ok(())
     }
+
+    async fn get_system_prompt(&self, _task_id: &str) -> Result<String, tonic::Status> {
+        Ok(String::new())
+    }
 }
 
 // =============================================================================
@@ -169,6 +175,10 @@ fn test_state(backend: Arc<dyn BackendClient>) -> SandboxState {
     let late_injector = Arc::new(LateInjector::new());
     let scheduled_jobs = Arc::new(ScheduledJobRegistry::new(Arc::clone(&late_injector) as _));
 
+    let credential_failures = CredentialFailureDetector::default();
+    let credential_dispatcher = Arc::new(Dispatcher::new());
+    let system_prompt_cache: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+
     let agent_handle = spawn_agent(
         Arc::clone(&config),
         Arc::clone(&agent_state),
@@ -176,6 +186,9 @@ fn test_state(backend: Arc<dyn BackendClient>) -> SandboxState {
         Arc::clone(&credentials),
         Arc::clone(&backend),
         Arc::clone(&scheduled_jobs),
+        credential_failures.clone(),
+        Arc::clone(&credential_dispatcher),
+        Arc::clone(&system_prompt_cache),
     );
     late_injector.set(Box::new(agent_handle.clone()));
 
@@ -189,6 +202,10 @@ fn test_state(backend: Arc<dyn BackendClient>) -> SandboxState {
         init_phase: Arc::new(RwLock::new(InitPhase::Ready)),
         credentials,
         lifecycle_cancel: CancellationToken::new(),
+        credential_dispatcher,
+        credential_failures,
+        codex_watcher_handle: Arc::new(RwLock::new(None)),
+        system_prompt_cache,
     }
 }
 
@@ -240,7 +257,7 @@ async fn agent_handle_send_triggers_actor() {
     // Drop the ack receiver since we don't need it.
     let _ack_rx = state
         .agent_handle
-        .send("test message".to_string(), None, None, None, None, None);
+        .send("test message".to_string(), None, None, None, None);
 
     // Give the actor loop time to process
     tokio::time::sleep(Duration::from_millis(500)).await;
@@ -280,7 +297,7 @@ async fn agent_handle_rapid_fire_send_no_panic() {
         let _ack_rx =
             state
                 .agent_handle
-                .send(format!("rapid message {i}"), None, None, None, None, None);
+                .send(format!("rapid message {i}"), None, None, None, None);
     }
 
     // Give the actor time to attempt processing
@@ -306,17 +323,12 @@ async fn agent_handle_send_after_stop_does_not_panic() {
 
     // Sending after stop should be silently ignored (command channel closed,
     // ack receiver will get RecvError immediately).
-    let ack1 = state.agent_handle.send(
-        "should be ignored".to_string(),
-        None,
-        None,
-        None,
-        None,
-        None,
-    );
+    let ack1 = state
+        .agent_handle
+        .send("should be ignored".to_string(), None, None, None, None);
     let ack2 = state
         .agent_handle
-        .send("also ignored".to_string(), None, None, None, None, None);
+        .send("also ignored".to_string(), None, None, None, None);
 
     // Ack receivers should resolve with error (sender dropped)
     assert!(ack1.await.is_err(), "ack should fail after stop");
@@ -339,7 +351,7 @@ async fn agent_handle_concurrent_send_from_multiple_tasks() {
     for i in 0..5 {
         let handle = state.agent_handle.clone();
         join_handles.push(tokio::spawn(async move {
-            let _ack_rx = handle.send(format!("concurrent task {i}"), None, None, None, None, None);
+            let _ack_rx = handle.send(format!("concurrent task {i}"), None, None, None, None);
         }));
     }
 

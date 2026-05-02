@@ -30,7 +30,7 @@ impl JobInjector for AgentHandle {
     fn inject(&self, text: String) {
         // The job has nothing to ack; drop the receiver so the actor doesn't
         // wait. The actor's own session-id resolution still works.
-        drop(self.send(text, None, None, None, None, None));
+        drop(self.send(text, None, None, None, None));
     }
 }
 

@@ -100,6 +100,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dispatcher.register("CLAUDE_CODE_OAUTH_TOKEN", Arc::new(ClaudeOauthSink));
     let credential_dispatcher = Arc::new(dispatcher);
     let credential_failures = CredentialFailureDetector::default();
+    let system_prompt_cache: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
 
     let agent_handle = spawn_agent(
         Arc::clone(&config_arc),
@@ -110,6 +111,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::clone(&scheduled_jobs),
         credential_failures.clone(),
         Arc::clone(&credential_dispatcher),
+        Arc::clone(&system_prompt_cache),
     );
     late_injector.set(Box::new(agent_handle.clone()));
 
@@ -126,6 +128,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         credential_dispatcher,
         credential_failures,
         codex_watcher_handle,
+        system_prompt_cache,
     };
 
     // Start gRPC server for sandbox service (receives commands from backend)

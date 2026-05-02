@@ -10,7 +10,8 @@ use std::time::Duration;
 use sandbox_proto::backend_sandbox_service_client::BackendSandboxServiceClient;
 use sandbox_proto::{
     AcknowledgeMessagesRequest, GetCredentialsRequest, GetCredentialsResponse,
-    GetPendingMessagesRequest, PendingMessage, PublishEventRequest, UpdateCredentialRequest,
+    GetPendingMessagesRequest, GetSystemPromptRequest, PendingMessage, PublishEventRequest,
+    UpdateCredentialRequest,
 };
 use tonic::service::interceptor::InterceptedService;
 use tonic::transport::Channel;
@@ -58,6 +59,11 @@ pub trait BackendClient: Send + Sync {
         key: &str,
         value: &str,
     ) -> Result<(), tonic::Status>;
+
+    /// Fetch the assembled append-system-prompt for a task. Called once per
+    /// agent run; the result is cached locally as a fallback for transient
+    /// gRPC failures.
+    async fn get_system_prompt(&self, task_id: &str) -> Result<String, tonic::Status>;
 }
 
 /// Auth interceptor that injects a Bearer token on every outbound gRPC call.
@@ -185,5 +191,15 @@ impl BackendClient for BackendGrpcClient {
             })
             .await?;
         Ok(())
+    }
+
+    async fn get_system_prompt(&self, task_id: &str) -> Result<String, tonic::Status> {
+        let mut client = self.client.clone();
+        let resp = client
+            .get_system_prompt(GetSystemPromptRequest {
+                task_id: task_id.to_string(),
+            })
+            .await?;
+        Ok(resp.into_inner().system_prompt)
     }
 }
