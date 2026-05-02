@@ -41,7 +41,78 @@ pub fn task_channel_from_model(config: &super::models::ChannelConfig) -> TaskCha
         provider,
         source_id: config.source_id.clone(),
         source_name: config.source_name.clone(),
+        thread_id: None,
+        external_thread_id: None,
+        subject_key: None,
+        subscription_id: None,
+        created_reason: None,
+        last_event_at: None,
     }
+}
+
+pub fn task_channel_from_thread(
+    config: &super::models::ChannelConfig,
+    thread: &super::models::ChannelThread,
+) -> TaskChannelResponse {
+    let provider = ChannelType::parse(&config.provider).unwrap_or(ChannelType::Slack);
+    TaskChannelResponse {
+        config_id: config.id.clone(),
+        provider,
+        source_id: config.source_id.clone(),
+        source_name: config.source_name.clone(),
+        thread_id: Some(thread.id),
+        external_thread_id: Some(thread.external_thread_id.clone()),
+        subject_key: build_subject_key(config, thread),
+        subscription_id: None,
+        created_reason: None,
+        last_event_at: None,
+    }
+}
+
+pub fn task_channel_from_subscription(
+    subscription: &super::models::TaskSubscription,
+    rule: Option<&super::models::IngressRule>,
+) -> TaskChannelResponse {
+    let provider = ChannelType::GithubPr;
+    let source_id = rule.map_or_else(
+        || subscription.subject_key.clone(),
+        |r| r.scope_matcher.clone(),
+    );
+    let pr_number = subscription
+        .reply_target
+        .get("pr_number")
+        .and_then(serde_json::Value::as_u64)
+        .map(|n| n.to_string());
+
+    TaskChannelResponse {
+        config_id: rule.map(|r| r.id.clone()).unwrap_or_default(),
+        provider,
+        source_id: source_id.clone(),
+        source_name: Some(source_id),
+        thread_id: None,
+        external_thread_id: pr_number,
+        subject_key: Some(subscription.subject_key.clone()),
+        subscription_id: Some(subscription.id.clone()),
+        created_reason: Some(subscription.created_reason.clone()),
+        last_event_at: Some(subscription.last_event_at.to_rfc3339()),
+    }
+}
+
+fn build_subject_key(
+    config: &super::models::ChannelConfig,
+    thread: &super::models::ChannelThread,
+) -> Option<String> {
+    if config.provider != "github_pr" {
+        return None;
+    }
+
+    let owner = thread.properties.get("owner").and_then(|v| v.as_str())?;
+    let repo = thread.properties.get("repo").and_then(|v| v.as_str())?;
+    let pr_number = thread
+        .properties
+        .get("pr_number")
+        .and_then(serde_json::Value::as_u64)?;
+    Some(format!("{owner}/{repo}#{pr_number}"))
 }
 
 pub fn pairing_request_from_model(

@@ -60,6 +60,77 @@ pub struct ChannelThread {
 }
 
 // =============================================================================
+// Target architecture tables (DB)
+// =============================================================================
+
+/// Row from the `provider_connections` table.
+#[derive(sqlx::FromRow, Debug, Clone)]
+pub struct ProviderConnection {
+    pub id: String,
+    pub provider: String,
+    pub connection_kind: String,
+    pub scope_value: String,
+    pub credential_ref: Option<String>,
+    pub webhook_secret: Option<String>,
+    pub transport_config: serde_json::Value,
+    pub created_by: String,
+    pub scope: Scope,
+    pub team_id: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Row from the `ingress_rules` table.
+#[derive(sqlx::FromRow, Debug, Clone)]
+pub struct IngressRule {
+    pub id: String,
+    pub provider: String,
+    pub connection_id: String,
+    pub scope_matcher: String,
+    pub event_filter: serde_json::Value,
+    pub repository_id: String,
+    pub prompt_template: Option<String>,
+    pub task_name: Option<String>,
+    pub tag_ids: Vec<String>,
+    pub run_as_user_id: Option<String>,
+    pub agent_type: String,
+    pub close_task_on_close: bool,
+    pub notify_on_success: bool,
+    pub active: bool,
+    pub created_by: String,
+    pub scope: Scope,
+    pub team_id: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl IngressRule {
+    /// The user ID to attribute tasks to when the actual sender cannot be resolved.
+    /// Falls back to `created_by` when `run_as_user_id` is not set.
+    pub fn effective_user_id(&self) -> &str {
+        self.run_as_user_id.as_deref().unwrap_or(&self.created_by)
+    }
+}
+
+/// Row from the `task_subscriptions` table.
+#[derive(sqlx::FromRow, Debug, Clone)]
+pub struct TaskSubscription {
+    pub id: String,
+    pub task_id: String,
+    pub provider: String,
+    pub subject_kind: String,
+    pub subject_key: String,
+    pub connection_id: String,
+    pub ingress_rule_id: Option<String>,
+    pub reply_target: serde_json::Value,
+    pub metadata: serde_json::Value,
+    pub last_channel_external_id: Option<String>,
+    pub created_reason: String,
+    pub created_at: DateTime<Utc>,
+    pub last_event_at: DateTime<Utc>,
+}
+
+// =============================================================================
 // Domain types (internal, not serialized to API)
 // =============================================================================
 

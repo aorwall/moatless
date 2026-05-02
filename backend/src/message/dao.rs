@@ -110,6 +110,16 @@ pub trait MessageRepository: Send + Sync {
 
     async fn get_channel_external_ids(&self, task_id: &str) -> Result<Vec<String>, sqlx::Error>;
 
+    /// Find the owning task for any one of the supplied external IDs.
+    ///
+    /// Used by GitHub webhook delivery to suppress only the task that authored
+    /// a comment or PR event, while still allowing sibling subscriptions on the
+    /// same subject to receive it.
+    async fn find_task_id_by_any_channel_external_id(
+        &self,
+        external_ids: &[String],
+    ) -> Result<Option<String>, sqlx::Error>;
+
     /// Next turn number for a new user-initiated turn: max + 1, or 1 if empty.
     async fn next_turn_number(&self, task_id: &str) -> Result<i32, sqlx::Error>;
 
@@ -578,6 +588,26 @@ impl MessageRepository for PgMessageRepository {
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
+    async fn find_task_id_by_any_channel_external_id(
+        &self,
+        external_ids: &[String],
+    ) -> Result<Option<String>, sqlx::Error> {
+        if external_ids.is_empty() {
+            return Ok(None);
+        }
+
+        sqlx::query_scalar::<_, String>(
+            r#"SELECT task_id
+               FROM task_messages
+               WHERE channel_external_id = ANY($1)
+               ORDER BY id DESC
+               LIMIT 1"#,
+        )
+        .bind(external_ids)
+        .fetch_optional(&self.0)
+        .await
+    }
+
     async fn next_turn_number(&self, task_id: &str) -> Result<i32, sqlx::Error> {
         let row: (i32,) = sqlx::query_as(
             r#"SELECT COALESCE(MAX(turn_number), 0) + 1 FROM task_messages WHERE task_id = $1"#,
@@ -685,8 +715,8 @@ impl MessageRepository for PgMessageRepository {
             return Ok(None);
         };
 
-        let (tool_name, tool_input) =
-            extract_tool_use_block(&assistant_content, tool_use_id).unwrap_or_else(|| {
+        let (tool_name, tool_input) = extract_tool_use_block(&assistant_content, tool_use_id)
+            .unwrap_or_else(|| {
                 // Defensive fallback: the @> match guarantees the block exists,
                 // but the JSON shape may have unexpected keys.
                 (String::new(), serde_json::Value::Null)
@@ -746,7 +776,10 @@ fn extract_tool_use_block(
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
-        let input = block.get("input").cloned().unwrap_or(serde_json::Value::Null);
+        let input = block
+            .get("input")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
         return Some((name, input));
     }
     None

@@ -595,8 +595,7 @@ impl ChannelProvider for SlackProvider {
             .filter(|r| match &r.ts {
                 Some(ts) => {
                     let prefixed = external_id::slack_ts(ts);
-                    !exclude_external_ids.contains(&prefixed)
-                        && !exclude_external_ids.contains(ts)
+                    !exclude_external_ids.contains(&prefixed) && !exclude_external_ids.contains(ts)
                 }
                 None => true,
             })

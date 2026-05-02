@@ -15,7 +15,6 @@ use tracing::{debug, info, warn};
 use super::models::MessageType;
 use crate::auth::models::ProviderAccessToken;
 use crate::channel::github_pr::api::GithubPrApi;
-use crate::channel::provider::ChannelType;
 use crate::state::AppState;
 
 /// Footer marker so we can detect if the URL was already appended (and skip
@@ -103,10 +102,7 @@ pub async fn on_agent_message_persisted(
             _ => continue,
         };
 
-        let result_text = block
-            .get("content")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let result_text = block.get("content").and_then(|v| v.as_str()).unwrap_or("");
 
         let parent_uuid = tool_call.parent_message_uuid.as_str();
 
@@ -140,28 +136,26 @@ async fn handle_gh_pr_create(
         "pr_number": pr.number,
     });
 
-    match crate::channel::listen::connect(
+    match crate::channel::listen::connect_github_subscription(
         state,
-        ChannelType::GithubPr,
         &source_id,
         task_id,
-        &pr.number.to_string(),
         thread_properties,
         None,
     )
     .await
     {
-        Ok((config_id, thread)) => {
+        Ok((rule, subscription)) => {
             info!(
                 task_id,
                 pr_number = pr.number,
-                config_id = %config_id,
-                thread_id = thread.id,
-                "Auto-connected channel thread for PR created by agent"
+                rule_id = %rule.id,
+                subscription_id = %subscription.id,
+                "Auto-connected GitHub PR subscription for PR created by agent"
             );
         }
         Err(e) => {
-            warn!(task_id, pr_number = pr.number, error = %e, "Failed to auto-connect channel thread for PR");
+            warn!(task_id, pr_number = pr.number, error = %e, "Failed to auto-connect GitHub PR subscription");
         }
     }
 
@@ -228,7 +222,10 @@ async fn try_append_task_footer(state: &AppState, task_id: &str, pr: &ParsedPr) 
     {
         Ok(Some(t)) => t,
         Ok(None) => {
-            warn!(task_id, user_id, "No GitHub provider token for user — skipping PR footer");
+            warn!(
+                task_id,
+                user_id, "No GitHub provider token for user — skipping PR footer"
+            );
             return;
         }
         Err(e) => {
@@ -259,7 +256,11 @@ async fn try_append_task_footer(state: &AppState, task_id: &str, pr: &ParsedPr) 
         warn!(task_id, pr_url = %pr.pr_url(), error = %e, "Failed to update PR body with footer");
         return;
     }
-    info!(task_id, pr_number = pr.number, "Appended task URL footer to PR body");
+    info!(
+        task_id,
+        pr_number = pr.number,
+        "Appended task URL footer to PR body"
+    );
 }
 
 fn compose_footer(existing: &str, task_url: &str) -> String {
@@ -277,12 +278,7 @@ fn compose_footer(existing: &str, task_url: &str) -> String {
 // gh pr comment / gh issue comment
 // =============================================================================
 
-async fn handle_gh_comment(
-    state: &AppState,
-    task_id: &str,
-    parent_uuid: &str,
-    result_text: &str,
-) {
+async fn handle_gh_comment(state: &AppState, task_id: &str, parent_uuid: &str, result_text: &str) {
     let Some(parsed) = parse_comment_id(result_text) else {
         debug!(task_id, "gh comment result had no comment URL");
         return;
@@ -556,9 +552,7 @@ mod tests {
     #[test]
     fn is_gh_pr_create_simple() {
         assert!(is_gh_pr_create("gh pr create"));
-        assert!(is_gh_pr_create(
-            "gh pr create --title foo --body bar"
-        ));
+        assert!(is_gh_pr_create("gh pr create --title foo --body bar"));
     }
 
     #[test]
@@ -584,7 +578,9 @@ mod tests {
 
     #[test]
     fn is_gh_pr_create_with_env_prefix() {
-        assert!(is_gh_pr_create("GH_REPO=Frank-Penny/foo gh pr create --title bar"));
+        assert!(is_gh_pr_create(
+            "GH_REPO=Frank-Penny/foo gh pr create --title bar"
+        ));
         assert!(is_gh_pr_create(
             "GH_REPO=Frank-Penny/foo   gh pr create --base main --head fix/foo --title \"x y\" --body-file /tmp/b.md 2>&1 | tee /tmp/out"
         ));

@@ -8,15 +8,16 @@ use tracing::{debug, info, warn};
 
 use crate::channel::error::ChannelError;
 use crate::channel::external_id;
-use crate::channel::inbound;
-use crate::channel::models::{ChannelConfig, ChannelThread, InboundMessage, OutboundReply};
+use crate::channel::models::{
+    ChannelConfig, ChannelThread, InboundMessage, IngressRule, OutboundReply, ProviderConnection,
+    TaskSubscription,
+};
 use crate::channel::provider::{ChannelProvider, ChannelType};
 use crate::db::DbPool;
 use crate::state::AppState;
-use crate::task::models::TaskStatus;
 
 use super::api::GithubPrApi;
-use super::config::GithubPrProviderConfig;
+use super::config::GithubPrRuleConfig;
 
 /// Agent comment marker to filter self-replies.
 const AGENT_MARKER: &str = "<!-- moatless-agent -->";
@@ -33,7 +34,7 @@ pub enum GithubPrWebhookResult {
 
 /// Context passed through event handlers to avoid too many function arguments.
 struct EventContext<'a> {
-    config: &'a ChannelConfig,
+    rule: &'a IngressRule,
     owner: &'a str,
     repo: &'a str,
     sender_login: &'a str,
@@ -43,6 +44,7 @@ struct EventContext<'a> {
 /// GitHub PR channel provider.
 pub struct GithubPrProvider {
     /// Global webhook secret from env (`GITHUB_CHANNEL_WEBHOOK_SECRET`).
+    /// Used as a fallback when the org connection has no `webhook_secret` set.
     global_webhook_secret: Option<String>,
     /// Global bot token from env (`GITHUB_CHANNEL_TOKEN`).
     global_bot_token: Option<String>,
@@ -69,13 +71,10 @@ impl GithubPrProvider {
         }
     }
 
-    /// Resolve a GitHub token for API calls.
+    /// Resolve a GitHub token for API calls keyed by user id.
     ///
-    /// Order: effective user's provider_token → global env.
-    async fn resolve_token(&self, config: &ChannelConfig) -> Result<String, ChannelError> {
-        // 1. Effective user's provider_token for "github"
-        //    (run_as_user_id if set, otherwise created_by)
-        let user_id = config.effective_user_id();
+    /// Order: provider_tokens(user_id) → global env.
+    async fn resolve_token_for_user(&self, user_id: &str) -> Result<String, ChannelError> {
         let row = sqlx::query_scalar::<_, String>(
             "SELECT access_token FROM provider_tokens WHERE user_id = $1 AND provider = 'github' LIMIT 1",
         )
@@ -88,7 +87,6 @@ impl GithubPrProvider {
             return Ok(token);
         }
 
-        // 2. Global env token
         if let Some(ref token) = self.global_bot_token {
             return Ok(token.clone());
         }
@@ -98,7 +96,8 @@ impl GithubPrProvider {
         )))
     }
 
-    /// Extract owner, repo, and PR number from thread properties.
+    /// Extract owner, repo, and PR number from a `ChannelThread`'s properties.
+    /// Used by the synthetic-thread path in `runtime.rs::deliver_to_subscription`.
     fn parse_thread_props(thread: &ChannelThread) -> Result<(String, String, u64), ChannelError> {
         let owner = thread
             .properties
@@ -122,16 +121,42 @@ impl GithubPrProvider {
         Ok((owner, repo, pr_number))
     }
 
+    /// Extract owner, repo, pr_number from a `TaskSubscription`'s `reply_target`.
+    fn parse_subscription_target(
+        subscription: &TaskSubscription,
+    ) -> Result<(String, String, u64), ChannelError> {
+        let owner = subscription
+            .reply_target
+            .get("owner")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| ChannelError::Internal("Missing owner in subscription reply_target".into()))?
+            .to_string();
+        let repo = subscription
+            .reply_target
+            .get("repo")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| ChannelError::Internal("Missing repo in subscription reply_target".into()))?
+            .to_string();
+        let pr_number = subscription
+            .reply_target
+            .get("pr_number")
+            .and_then(serde_json::Value::as_u64)
+            .ok_or_else(|| {
+                ChannelError::Internal("Missing pr_number in subscription reply_target".into())
+            })?;
+        Ok((owner, repo, pr_number))
+    }
+
     /// Parse a GitHub webhook into an `InboundMessage`.
     pub async fn parse_webhook(
         &self,
         delivery_id: &str,
         event_type: &str,
         payload: &serde_json::Value,
-        config: &ChannelConfig,
+        rule: &IngressRule,
         db: &DbPool,
     ) -> Result<GithubPrWebhookResult, ChannelError> {
-        let provider_config = GithubPrProviderConfig::from_config(config);
+        let rule_config = GithubPrRuleConfig::from_rule(rule);
 
         // Dedup by delivery ID
         if self.dedup_cache.get(delivery_id).await.is_some() {
@@ -141,35 +166,26 @@ impl GithubPrProvider {
         self.dedup_cache.insert(delivery_id.to_string(), ()).await;
 
         // Filter by events_filter config
-        if !provider_config.events_filter.is_empty()
-            && !provider_config
+        if !rule_config.events_filter.is_empty()
+            && !rule_config
                 .events_filter
                 .iter()
                 .any(|e| e == event_type)
         {
-            debug!(event_type, "GitHub event filtered out by config");
+            debug!(event_type, "GitHub event filtered out by ingress rule");
             return Ok(GithubPrWebhookResult::Ignore);
         }
 
-        // Extract sender login for bot self-reply detection
+        // Extract sender login (used by handlers for message text + user resolution).
         let sender_login = payload
             .pointer("/sender/login")
             .and_then(serde_json::Value::as_str)
             .unwrap_or("");
 
-        // Filter bot self-replies
-        if let Some(ref bot_username) = provider_config.bot_username {
-            if sender_login == bot_username {
-                debug!(sender_login, "Ignoring bot's own event");
-                return Ok(GithubPrWebhookResult::Ignore);
-            }
-        }
+        // (Per-config bot_username self-filter dropped. Self-echo is now handled
+        // per-task in `send_message_flow` via `has_channel_external_id`, so sibling
+        // watcher tasks connected to the same PR still receive events.)
 
-        // (Per-config run_as filter removed. Self-echo is now handled per-thread
-        // in `inbound::process_inbound` and `listen::deliver_to_connected_threads`,
-        // so sibling watcher tasks connected to the same PR still receive events.)
-
-        // Extract repo full_name → owner/repo
         let repo_full_name = payload
             .pointer("/repository/full_name")
             .and_then(serde_json::Value::as_str)
@@ -180,7 +196,7 @@ impl GithubPrProvider {
             .ok_or_else(|| ChannelError::BadRequest("Missing repository.full_name".into()))?;
 
         let ctx = EventContext {
-            config,
+            rule,
             owner,
             repo,
             sender_login,
@@ -188,17 +204,13 @@ impl GithubPrProvider {
         };
 
         match event_type {
-            "pull_request" => {
-                self.handle_pull_request_event(payload, &ctx, &provider_config)
-                    .await
-            }
+            "pull_request" => self.handle_pull_request_event(payload, &ctx, &rule_config).await,
             "issue_comment" => self.handle_issue_comment_event(payload, &ctx).await,
             "pull_request_review_comment" => self.handle_review_comment_event(payload, &ctx).await,
             "pull_request_review" => self.handle_review_event(payload, &ctx).await,
             "check_run" => self.handle_check_run_event(payload, &ctx).await,
             "check_suite" => {
-                self.handle_check_suite_event(payload, &ctx, &provider_config)
-                    .await
+                self.handle_check_suite_event(payload, &ctx, &rule_config).await
             }
             _ => {
                 debug!(event_type, "Unsupported GitHub event type");
@@ -211,7 +223,7 @@ impl GithubPrProvider {
         &self,
         payload: &serde_json::Value,
         ctx: &EventContext<'_>,
-        provider_config: &GithubPrProviderConfig,
+        rule_config: &GithubPrRuleConfig,
     ) -> Result<GithubPrWebhookResult, ChannelError> {
         let action = payload
             .get("action")
@@ -223,7 +235,7 @@ impl GithubPrProvider {
         }
 
         if action == "closed" {
-            if provider_config.close_task_on_close {
+            if rule_config.close_task_on_close {
                 let pr_number = payload
                     .pointer("/pull_request/number")
                     .and_then(serde_json::Value::as_u64)
@@ -273,7 +285,6 @@ impl GithubPrProvider {
             .and_then(serde_json::Value::as_str)
             .unwrap_or("");
 
-        // Build rich message text
         let mut text = format!(
             "## New Pull Request: #{pr_number}\n\n\
              **Title:** {title}\n\
@@ -291,13 +302,13 @@ impl GithubPrProvider {
         }
 
         let user_id = self
-            .resolve_user_or_fallback(ctx.sender_login, ctx.config, ctx.db)
+            .resolve_user_or_fallback(ctx.sender_login, ctx.rule, ctx.db)
             .await;
 
         Ok(GithubPrWebhookResult::Message(Box::new(InboundMessage {
             provider: ChannelType::GithubPr,
-            source_id: ctx.config.source_id.clone(),
-            thread_id: None, // New thread
+            source_id: ctx.rule.scope_matcher.clone(),
+            thread_id: None,
             message_thread_id: pr_number.to_string(),
             user_id,
             text,
@@ -312,7 +323,6 @@ impl GithubPrProvider {
         })))
     }
 
-    /// Handle `pull_request` `synchronize` action (new commits pushed).
     async fn handle_pull_request_sync(
         &self,
         payload: &serde_json::Value,
@@ -360,13 +370,13 @@ impl GithubPrProvider {
         }
 
         let user_id = self
-            .resolve_user_or_fallback(ctx.sender_login, ctx.config, ctx.db)
+            .resolve_user_or_fallback(ctx.sender_login, ctx.rule, ctx.db)
             .await;
 
         let sync_sha = if after.is_empty() { None } else { Some(after) };
         Ok(GithubPrWebhookResult::Message(Box::new(InboundMessage {
             provider: ChannelType::GithubPr,
-            source_id: ctx.config.source_id.clone(),
+            source_id: ctx.rule.scope_matcher.clone(),
             thread_id: Some(pr_number.to_string()),
             message_thread_id: pr_number.to_string(),
             user_id,
@@ -400,7 +410,6 @@ impl GithubPrProvider {
             return Ok(GithubPrWebhookResult::Ignore);
         }
 
-        // Only process comments on PRs (issue_comment fires for both issues and PRs)
         if payload.pointer("/issue/pull_request").is_none() {
             return Ok(GithubPrWebhookResult::Ignore);
         }
@@ -423,20 +432,13 @@ impl GithubPrProvider {
             .and_then(serde_json::Value::as_u64)
             .unwrap_or(0);
 
-        // Self-loop suppression is handled per-task by `has_channel_external_id`
-        // in `send_message_flow` — both `moat reply` (via `send_reply` returning
-        // the comment id) and the agent's own `gh pr/issue comment` invocations
-        // (via `message::hooks`) tag the originating row with the comment id.
-        // We deliberately do NOT short-circuit on `AGENT_MARKER` so sibling tasks
-        // connected to the same PR still receive the comment via fan-out.
-
         let user_id = self
-            .resolve_user_or_fallback(ctx.sender_login, ctx.config, ctx.db)
+            .resolve_user_or_fallback(ctx.sender_login, ctx.rule, ctx.db)
             .await;
 
         Ok(GithubPrWebhookResult::Message(Box::new(InboundMessage {
             provider: ChannelType::GithubPr,
-            source_id: ctx.config.source_id.clone(),
+            source_id: ctx.rule.scope_matcher.clone(),
             thread_id: Some(pr_number.to_string()),
             message_thread_id: pr_number.to_string(),
             user_id,
@@ -504,10 +506,6 @@ impl GithubPrProvider {
             .get("in_reply_to_id")
             .and_then(serde_json::Value::as_u64);
 
-        // Self-loop suppression: handled per-task via `has_channel_external_id`
-        // (see `handle_issue_comment_event` for the rationale).
-
-        // Build rich message text with author, file, line info
         let mut text = format!("**@{}** commented on `{path}`", ctx.sender_login);
 
         match (start_line, line) {
@@ -536,12 +534,12 @@ impl GithubPrProvider {
         let _ = write!(text, "\n{comment_body}");
 
         let user_id = self
-            .resolve_user_or_fallback(ctx.sender_login, ctx.config, ctx.db)
+            .resolve_user_or_fallback(ctx.sender_login, ctx.rule, ctx.db)
             .await;
 
         Ok(GithubPrWebhookResult::Message(Box::new(InboundMessage {
             provider: ChannelType::GithubPr,
-            source_id: ctx.config.source_id.clone(),
+            source_id: ctx.rule.scope_matcher.clone(),
             thread_id: Some(pr_number.to_string()),
             message_thread_id: pr_number.to_string(),
             user_id,
@@ -595,13 +593,9 @@ impl GithubPrProvider {
             .and_then(serde_json::Value::as_u64)
             .unwrap_or(0);
 
-        // Ignore reviews with empty body
         if review_body.is_empty() {
             return Ok(GithubPrWebhookResult::Ignore);
         }
-
-        // Self-loop suppression: handled per-task via `has_channel_external_id`
-        // (see `handle_issue_comment_event` for the rationale).
 
         let state_label = match review_state {
             "approved" => "Approved",
@@ -616,12 +610,12 @@ impl GithubPrProvider {
         );
 
         let user_id = self
-            .resolve_user_or_fallback(ctx.sender_login, ctx.config, ctx.db)
+            .resolve_user_or_fallback(ctx.sender_login, ctx.rule, ctx.db)
             .await;
 
         Ok(GithubPrWebhookResult::Message(Box::new(InboundMessage {
             provider: ChannelType::GithubPr,
-            source_id: ctx.config.source_id.clone(),
+            source_id: ctx.rule.scope_matcher.clone(),
             thread_id: Some(pr_number.to_string()),
             message_thread_id: pr_number.to_string(),
             user_id,
@@ -647,7 +641,6 @@ impl GithubPrProvider {
     /// Maximum length for check_run output summary in the message.
     const CHECK_RUN_SUMMARY_MAX_LEN: usize = 2000;
 
-    /// Handle `check_run` `completed` events with failure conclusions.
     async fn handle_check_run_event(
         &self,
         payload: &serde_json::Value,
@@ -677,7 +670,6 @@ impl GithubPrProvider {
             return Ok(GithubPrWebhookResult::Ignore);
         }
 
-        // Extract PR number — ignore if not PR-related
         let pr_number = check_run
             .pointer("/pull_requests/0/number")
             .and_then(serde_json::Value::as_u64);
@@ -718,7 +710,6 @@ impl GithubPrProvider {
             .and_then(serde_json::Value::as_str)
             .unwrap_or("");
 
-        // Build rich message
         let mut text = format!(
             "## CI Check Failed: {name}\n\n\
              **Conclusion:** {conclusion}\n\
@@ -746,12 +737,12 @@ impl GithubPrProvider {
         }
 
         let user_id = self
-            .resolve_user_or_fallback(ctx.sender_login, ctx.config, ctx.db)
+            .resolve_user_or_fallback(ctx.sender_login, ctx.rule, ctx.db)
             .await;
 
         Ok(GithubPrWebhookResult::Message(Box::new(InboundMessage {
             provider: ChannelType::GithubPr,
-            source_id: ctx.config.source_id.clone(),
+            source_id: ctx.rule.scope_matcher.clone(),
             thread_id: Some(pr_number.to_string()),
             message_thread_id: pr_number.to_string(),
             user_id,
@@ -767,13 +758,11 @@ impl GithubPrProvider {
         })))
     }
 
-    /// Handle `check_suite` `completed` events with a successful conclusion.
-    /// Gated on `notify_on_success` so existing configs keep failure-only behavior.
     async fn handle_check_suite_event(
         &self,
         payload: &serde_json::Value,
         ctx: &EventContext<'_>,
-        provider_config: &GithubPrProviderConfig,
+        rule_config: &GithubPrRuleConfig,
     ) -> Result<GithubPrWebhookResult, ChannelError> {
         let action = payload
             .get("action")
@@ -785,7 +774,7 @@ impl GithubPrProvider {
             return Ok(GithubPrWebhookResult::Ignore);
         }
 
-        if !provider_config.notify_on_success {
+        if !rule_config.notify_on_success {
             debug!("Ignoring check_suite: notify_on_success disabled");
             return Ok(GithubPrWebhookResult::Ignore);
         }
@@ -800,7 +789,10 @@ impl GithubPrProvider {
             .unwrap_or("");
 
         if conclusion != Self::CHECK_SUITE_SUCCESS_CONCLUSION {
-            debug!(conclusion, "Ignoring check_suite with non-success conclusion");
+            debug!(
+                conclusion,
+                "Ignoring check_suite with non-success conclusion"
+            );
             return Ok(GithubPrWebhookResult::Ignore);
         }
 
@@ -834,12 +826,12 @@ impl GithubPrProvider {
         );
 
         let user_id = self
-            .resolve_user_or_fallback(ctx.sender_login, ctx.config, ctx.db)
+            .resolve_user_or_fallback(ctx.sender_login, ctx.rule, ctx.db)
             .await;
 
         Ok(GithubPrWebhookResult::Message(Box::new(InboundMessage {
             provider: ChannelType::GithubPr,
-            source_id: ctx.config.source_id.clone(),
+            source_id: ctx.rule.scope_matcher.clone(),
             thread_id: Some(pr_number.to_string()),
             message_thread_id: pr_number.to_string(),
             user_id,
@@ -855,11 +847,12 @@ impl GithubPrProvider {
         })))
     }
 
-    /// Resolve a GitHub login to a system user, falling back to config owner.
+    /// Resolve a GitHub login to a system user, falling back to the rule's
+    /// effective user (run_as_user_id ?? created_by).
     async fn resolve_user_or_fallback(
         &self,
         github_login: &str,
-        config: &ChannelConfig,
+        rule: &IngressRule,
         db: &DbPool,
     ) -> String {
         if let Ok(Some(user_id)) = self.resolve_user(github_login, db).await {
@@ -867,10 +860,10 @@ impl GithubPrProvider {
         } else {
             debug!(
                 github_login,
-                fallback = %config.effective_user_id(),
-                "GitHub user not mapped, using config owner"
+                fallback = %rule.effective_user_id(),
+                "GitHub user not mapped, using rule owner"
             );
-            config.effective_user_id().to_string()
+            rule.effective_user_id().to_string()
         }
     }
 }
@@ -886,8 +879,8 @@ impl ChannelProvider for GithubPrProvider {
     }
 
     /// GitHub allows up to 65536 chars per issue/PR comment. Leave headroom for
-    /// the agent marker and the optional task-URL footer that `send_reply`
-    /// prepends/appends.
+    /// the agent marker and the optional task-URL footer that
+    /// `send_reply_for_subscription` prepends/appends.
     fn max_message_length(&self) -> usize {
         65_000
     }
@@ -897,7 +890,6 @@ impl ChannelProvider for GithubPrProvider {
         identity: &str,
         db: &DbPool,
     ) -> Result<Option<String>, ChannelError> {
-        // Look up by provider_login (GitHub username)
         let user_id = sqlx::query_scalar::<_, String>(
             "SELECT user_id FROM provider_tokens WHERE provider = 'github' AND provider_login = $1 LIMIT 1",
         )
@@ -909,30 +901,52 @@ impl ChannelProvider for GithubPrProvider {
         Ok(user_id)
     }
 
+    /// Legacy thread-based outbound is not supported for GitHub. Outbound
+    /// goes through `send_reply_for_subscription` instead.
     async fn send_reply(
         &self,
-        thread: &ChannelThread,
-        config: &ChannelConfig,
+        _thread: &ChannelThread,
+        _config: &ChannelConfig,
+        _message: &OutboundReply,
+    ) -> Result<Option<String>, ChannelError> {
+        Err(ChannelError::BadRequest(
+            "GitHub provider uses subscription-based outbound; \
+             call send_reply_for_subscription"
+                .into(),
+        ))
+    }
+
+    async fn send_reply_for_subscription(
+        &self,
+        subscription: &TaskSubscription,
+        _connection: &ProviderConnection,
+        rule: Option<&IngressRule>,
         message: &OutboundReply,
     ) -> Result<Option<String>, ChannelError> {
-        let (owner, repo, pr_number) = Self::parse_thread_props(thread)?;
-        let token = self.resolve_token(config).await?;
+        let (owner, repo, pr_number) = Self::parse_subscription_target(subscription)?;
+        let user_id = match rule {
+            Some(r) => r.effective_user_id().to_string(),
+            None => subscription
+                .metadata
+                .get("filter_user_id")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+        };
+        if user_id.is_empty() {
+            return Err(ChannelError::ProviderApi(
+                "Cannot resolve GitHub token: no ingress rule attached to subscription".into(),
+            ));
+        }
+        let token = self.resolve_token_for_user(&user_id).await?;
         let api = GithubPrApi::new(&token);
 
-        // Keep the agent marker so `fetch_context` can still exclude our own
-        // posts from the model's context window.
         let mut body = format!("{AGENT_MARKER}\n{}", message.text);
         if let Some(ref url) = message.task_url {
             let _ = write!(body, "\n\n---\n[View task]({url})");
         }
 
         let comment_id = api.post_comment(&owner, &repo, pr_number, &body).await?;
-
-        // Return the prefixed external id so `outbound.rs` tags the originating
-        // message row with the same form the inbound webhook will produce. The
-        // webhook echo is then deduped per-task by `has_any_channel_external_id`,
-        // while sibling tasks connected to the same PR still receive the comment
-        // via fan-out. Issue/PR conversation comments use the `github:ic:` ns.
         Ok(Some(external_id::github_issue_comment(comment_id)))
     }
 
@@ -945,7 +959,8 @@ impl ChannelProvider for GithubPrProvider {
     ) -> Result<Option<String>, ChannelError> {
         let (owner, repo, pr_number) = Self::parse_thread_props(thread)?;
 
-        let token = match self.resolve_token(config).await {
+        let user_id = config.effective_user_id();
+        let token = match self.resolve_token_for_user(user_id).await {
             Ok(t) => t,
             Err(_) => return Ok(None),
         };
@@ -961,17 +976,12 @@ impl ChannelProvider for GithubPrProvider {
         let context = comments
             .iter()
             .filter(|c| {
-                // Exclude agent's own comments from context
                 c.body.as_deref().is_none_or(|b| !b.contains(AGENT_MARKER))
             })
             .filter(|c| {
-                // Exclude comments already delivered to the task. Match both
-                // the new prefixed form and the legacy bare-int form so old
-                // rows continue to suppress their own context replay.
                 let prefixed = external_id::github_issue_comment(c.id);
                 let bare = c.id.to_string();
-                !exclude_external_ids.contains(&prefixed)
-                    && !exclude_external_ids.contains(&bare)
+                !exclude_external_ids.contains(&prefixed) && !exclude_external_ids.contains(&bare)
             })
             .map(|c| format!("@{}: {}", c.author(), c.body.as_deref().unwrap_or("")))
             .collect::<Vec<_>>()
@@ -994,13 +1004,11 @@ pub async fn resolve_and_process_github_webhook(
     headers: &axum::http::HeaderMap,
     body: &[u8],
 ) -> Result<(), ChannelError> {
-    // Extract delivery ID for dedup
     let delivery_id = headers
         .get("x-github-delivery")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
 
-    // Extract event type
     let event_type = headers
         .get("x-github-event")
         .and_then(|v| v.to_str().ok())
@@ -1012,7 +1020,6 @@ pub async fn resolve_and_process_github_webhook(
         ));
     }
 
-    // Quick-parse to get repo full_name for config lookup
     let payload: serde_json::Value = serde_json::from_slice(body)
         .map_err(|e| ChannelError::BadRequest(format!("Invalid JSON: {e}")))?;
 
@@ -1025,93 +1032,40 @@ pub async fn resolve_and_process_github_webhook(
         event_type,
         repo = repo_full_name,
         delivery_id,
-        "GitHub PR webhook received"
+        "GitHub webhook received"
     );
 
-    // Look up config
-    let config = state
-        .channel_configs
-        .find_by_provider_source("github_pr", repo_full_name)
-        .await?;
+    let owner_login = payload
+        .pointer("/repository/owner/login")
+        .and_then(serde_json::Value::as_str)
+        .or_else(|| repo_full_name.split('/').next())
+        .ok_or_else(|| ChannelError::BadRequest("Missing repository.owner.login".into()))?;
 
-    // Extract sender login early for auto-creation `created_by` field
-    let sender_login = payload
-        .pointer("/sender/login")
-        .and_then(serde_json::Value::as_str);
-
-    let config = match config {
-        Some(c) if c.active => c,
-        Some(_) => {
-            info!(
-                repo = repo_full_name,
-                "GitHub PR webhook ignored: config inactive"
-            );
-            return Ok(());
-        }
-        None => {
-            // Try auto-create from wildcard template (only if auto_create is enabled)
-            let wildcard = state
-                .channel_configs
-                .find_wildcard("github_pr", None)
-                .await
-                .map_err(ChannelError::Db)?;
-
-            let Some(template) = wildcard else {
-                info!(
-                    repo = repo_full_name,
-                    "GitHub PR webhook ignored: no config and no wildcard"
-                );
-                return Ok(());
-            };
-
-            let template_config = GithubPrProviderConfig::from_config(&template);
-            if !template_config.auto_create {
-                info!(
-                    repo = repo_full_name,
-                    "GitHub PR webhook ignored: wildcard exists but auto_create is disabled"
-                );
-                return Ok(());
-            }
-
-            match super::super::defaults::create_config_from_wildcard(
-                &*state.channel_configs,
-                "github_pr",
-                repo_full_name,
-                Some(repo_full_name.to_string()),
-                template.team_id.as_deref(),
-                sender_login.unwrap_or("system"),
-            )
-            .await
-            {
-                Ok(Some(config)) => {
-                    info!(config_id = %config.id, repo = repo_full_name, "Auto-created GitHub PR config from wildcard");
-                    config
-                }
-                Ok(None) => {
-                    info!(
-                        repo = repo_full_name,
-                        "GitHub PR webhook ignored: wildcard clone returned None"
-                    );
-                    return Ok(());
-                }
-                Err(e) => {
-                    warn!(repo = repo_full_name, error = %e, "Failed to auto-create GitHub PR config from wildcard");
-                    return Ok(());
-                }
-            }
-        }
+    let resolved = super::runtime::resolve_ingress(state, owner_login, repo_full_name).await?;
+    let Some((connection, rule)) = resolved else {
+        info!(
+            repo = repo_full_name,
+            owner = owner_login,
+            "GitHub webhook ignored: no provider_connection / ingress_rule"
+        );
+        return Ok(());
     };
 
-    // Verify webhook signature
+    if !rule.active {
+        info!(
+            repo = repo_full_name,
+            "GitHub webhook ignored: ingress rule inactive"
+        );
+        return Ok(());
+    }
+
+    // Verify webhook signature against the org connection's secret.
     let signature = headers
         .get("x-hub-signature-256")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
 
-    let provider_config = GithubPrProviderConfig::from_config(&config);
-
-    // Resolve secret: per-config → global → skip with warning
-    let secret = provider_config
+    let secret = connection
         .webhook_secret
         .as_deref()
         .or(github_provider.global_webhook_secret.as_deref());
@@ -1121,49 +1075,40 @@ pub async fn resolve_and_process_github_webhook(
     } else if !signature.is_empty() {
         warn!(
             repo = repo_full_name,
-            "GitHub webhook has signature but no secret configured, skipping verification"
+            "GitHub webhook has signature but no secret configured on connection, refusing"
         );
+        return Err(ChannelError::BadRequest(
+            "Webhook signature provided but no secret configured for connection".into(),
+        ));
     }
 
-    // Parse the webhook event
     let result = github_provider
-        .parse_webhook(delivery_id, event_type, &payload, &config, &state.db)
+        .parse_webhook(delivery_id, event_type, &payload, &rule, &state.db)
         .await?;
 
     match result {
         GithubPrWebhookResult::Message(msg) => {
-            let config_id = config.id.clone();
+            let connection = connection.clone();
+            let rule = rule.clone();
             let state_clone = state.clone();
             tokio::spawn(async move {
-                // Extract the external_thread_id before process_inbound consumes the msg
-                let external_thread_id = msg.thread_id.clone();
-                let msg_clone_for_fanout = (*msg).clone();
-
-                match inbound::process_inbound(&state_clone, *msg, None).await {
-                    Ok(primary_task_id) => {
-                        // Fan out to additional tasks connected to the same PR
-                        if let Some(ref ext_tid) = external_thread_id {
-                            super::super::listen::deliver_to_connected_threads(
-                                &state_clone,
-                                &config_id,
-                                ext_tid,
-                                &primary_task_id,
-                                &msg_clone_for_fanout,
-                            )
-                            .await;
-                        }
-                    }
-                    Err(e) => {
-                        warn!(error = %e, "Failed to process GitHub PR inbound message");
-                    }
+                if let Err(e) =
+                    super::runtime::route_inbound_message(&state_clone, &connection, &rule, *msg)
+                        .await
+                {
+                    warn!(error = %e, "Failed to route GitHub PR inbound message");
                 }
             });
         }
         GithubPrWebhookResult::CloseTask { pr_number } => {
+            let rule = rule.clone();
             let state_clone = state.clone();
-            let config_id = config.id.clone();
             tokio::spawn(async move {
-                close_tasks_for_pr(&state_clone, &config_id, pr_number).await;
+                if let Err(e) =
+                    super::runtime::close_tasks_for_pr(&state_clone, &rule, pr_number).await
+                {
+                    warn!(error = %e, "Failed to close GitHub PR tasks");
+                }
             });
         }
         GithubPrWebhookResult::Ignore => {
@@ -1172,92 +1117,4 @@ pub async fn resolve_and_process_github_webhook(
     }
 
     Ok(())
-}
-
-/// Close all tasks associated with a PR thread.
-async fn close_tasks_for_pr(state: &AppState, config_id: &str, pr_number: u64) {
-    let threads = match state
-        .channel_threads
-        .find_all_by_config_and_thread(config_id, &pr_number.to_string())
-        .await
-    {
-        Ok(t) => t,
-        Err(e) => {
-            warn!(config_id, pr_number, error = %e, "Failed to look up threads for PR close");
-            return;
-        }
-    };
-
-    for thread in threads {
-        let task_id = &thread.task_id;
-
-        // Skip already-closed tasks
-        match state.tasks.find_by_id_internal(task_id).await {
-            Ok(Some(task)) if task.status == TaskStatus::Closed => {
-                debug!(task_id, pr_number, "Task already closed, skipping");
-                continue;
-            }
-            Ok(None) => {
-                warn!(task_id, pr_number, "Task not found for PR close");
-                continue;
-            }
-            Err(e) => {
-                warn!(task_id, pr_number, error = %e, "Failed to fetch task for PR close");
-                continue;
-            }
-            _ => {}
-        }
-
-        // Skip when the task is connected to other channel threads (other PRs,
-        // Slack/email/etc.) — closing the task here would silently kill those
-        // routes. Only auto-close when this PR is the only thread.
-        match state.channel_threads.find_by_task_id(task_id).await {
-            Ok(other_threads) if other_threads.len() > 1 => {
-                info!(
-                    task_id = %task_id,
-                    pr_number,
-                    other_thread_count = other_threads.len() - 1,
-                    "PR closed but task has other connected threads — leaving task open"
-                );
-                continue;
-            }
-            Ok(_) => {}
-            Err(e) => {
-                warn!(task_id = %task_id, pr_number, error = %e, "Failed to look up sibling threads — skipping auto-close");
-                continue;
-            }
-        }
-
-        if let Err(e) = state.sandbox.cleanup(task_id).await {
-            warn!(task_id = %task_id, error = %e, "Failed to cleanup sandbox on PR close");
-        }
-
-        if let Err(e) = state
-            .tasks
-            .update_task(
-                task_id,
-                &crate::task::dao::TaskPatch {
-                    status: Some(TaskStatus::Closed),
-                    ..Default::default()
-                },
-            )
-            .await
-        {
-            warn!(task_id = %task_id, error = %e, "Failed to close task on PR close");
-            continue;
-        }
-
-        if let Some(ref events) = state.events {
-            events
-                .publish_task_event(
-                    task_id,
-                    moatless_events::TaskSubType::Closed,
-                    Some("claude-code"),
-                    serde_json::json!({"reason": "pr_closed", "pr_number": pr_number}),
-                )
-                .await;
-        }
-
-        info!(task_id = %task_id, pr_number, "Task closed due to PR close");
-    }
 }

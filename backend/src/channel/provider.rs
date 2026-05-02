@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use std::any::Any;
 
-use super::models::{ChannelConfig, ChannelThread};
+use super::models::{ChannelConfig, ChannelThread, IngressRule, ProviderConnection, TaskSubscription};
 use crate::db::DbPool;
 
 use super::error::ChannelError;
@@ -61,6 +61,23 @@ pub trait ChannelProvider: Send + Sync {
         config: &ChannelConfig,
         message: &OutboundReply,
     ) -> Result<Option<String>, ChannelError>;
+
+    /// Send a reply back to the subject identified by a `TaskSubscription`.
+    ///
+    /// Used by providers that have moved off `channel_threads` (currently only
+    /// GitHub PR). The default impl returns a `BadRequest` so legacy providers
+    /// keep using `send_reply` exclusively.
+    async fn send_reply_for_subscription(
+        &self,
+        _subscription: &TaskSubscription,
+        _connection: &ProviderConnection,
+        _rule: Option<&IngressRule>,
+        _message: &OutboundReply,
+    ) -> Result<Option<String>, ChannelError> {
+        Err(ChannelError::BadRequest(
+            "Provider does not implement subscription-based outbound".into(),
+        ))
+    }
 
     /// Send a new top-level message to a channel (no existing thread).
     ///
@@ -148,11 +165,8 @@ impl ChannelProviders {
         if let (Some(ref token), Some(ref secret)) =
             (&config.slack.bot_token, &config.slack.signing_secret)
         {
-            let bot_user_id = resolve_slack_bot_user_id(
-                token,
-                config.slack.bot_user_id.as_deref(),
-            )
-            .await;
+            let bot_user_id =
+                resolve_slack_bot_user_id(token, config.slack.bot_user_id.as_deref()).await;
             let slack = super::slack::provider::SlackProvider::new(token, secret, bot_user_id);
             providers.register(Arc::new(slack));
             tracing::info!("Slack channel provider configured");
@@ -212,10 +226,7 @@ impl ChannelProviders {
 ///
 /// Prefers the explicit env-var value; when absent, calls `auth.test` so the
 /// agent's system prompt always has the bot's identity available.
-async fn resolve_slack_bot_user_id(
-    bot_token: &str,
-    configured: Option<&str>,
-) -> Option<String> {
+async fn resolve_slack_bot_user_id(bot_token: &str, configured: Option<&str>) -> Option<String> {
     if let Some(id) = configured {
         let id = id.trim();
         if !id.is_empty() {
@@ -245,4 +256,3 @@ async fn resolve_slack_bot_user_id(
         }
     }
 }
-

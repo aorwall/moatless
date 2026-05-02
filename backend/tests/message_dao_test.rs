@@ -9,7 +9,9 @@
 
 mod common;
 
-use moatless_vibe_backend::message::dao::{self as message_dao, MessageRepository, PgMessageRepository};
+use moatless_vibe_backend::message::dao::{
+    self as message_dao, MessageRepository, PgMessageRepository,
+};
 use moatless_vibe_backend::message::models::{
     ContentBlockType, MessageRole, MessageType, TaskMessageContentBlock, TaskMessageContext,
 };
@@ -243,7 +245,10 @@ async fn set_channel_metadata_writes_all_columns_and_is_idempotent(pool: PgPool)
 
     let (rows, _, _) = message_dao::get_all(&pool, "task-1").await.unwrap();
     let row = rows.iter().find(|m| m.uuid == "tag-msg-1").unwrap();
-    assert_eq!(row.channel_external_id.as_deref(), Some("github:pr:opened:42"));
+    assert_eq!(
+        row.channel_external_id.as_deref(),
+        Some("github:pr:opened:42")
+    );
     assert_eq!(row.channel_provider.as_deref(), Some("github_pr"));
     assert_eq!(row.channel_source_name.as_deref(), Some("foo/bar"));
 
@@ -261,8 +266,49 @@ async fn set_channel_metadata_writes_all_columns_and_is_idempotent(pool: PgPool)
 
     let (rows2, _, _) = message_dao::get_all(&pool, "task-1").await.unwrap();
     let row2 = rows2.iter().find(|m| m.uuid == "tag-msg-1").unwrap();
-    assert_eq!(row2.channel_external_id.as_deref(), Some("github:pr:opened:42"));
+    assert_eq!(
+        row2.channel_external_id.as_deref(),
+        Some("github:pr:opened:42")
+    );
     assert_eq!(row2.channel_source_name.as_deref(), Some("foo/bar"));
+}
+
+#[sqlx::test]
+async fn find_task_id_by_any_channel_external_id_matches_globally(pool: PgPool) {
+    seed_task(&pool, "task-1", "user-1").await;
+    let task2 = make_task_row("task-2", "user-2");
+    moatless_vibe_backend::task::dao::insert_task(&pool, &task2)
+        .await
+        .unwrap();
+
+    let msg1 = make_message_row("task-1", "tag-origin-1");
+    message_dao::append(&pool, &msg1, &[], &[]).await.unwrap();
+    let msg2 = make_message_row("task-2", "tag-origin-2");
+    message_dao::append(&pool, &msg2, &[], &[]).await.unwrap();
+
+    let repo = PgMessageRepository(pool.clone());
+    repo.set_channel_metadata(
+        "tag-origin-1",
+        "github:ic:555",
+        "github_pr",
+        Some("foo/bar"),
+    )
+    .await
+    .unwrap();
+    repo.set_channel_metadata(
+        "tag-origin-2",
+        "github:ic:777",
+        "github_pr",
+        Some("foo/bar"),
+    )
+    .await
+    .unwrap();
+
+    let found = repo
+        .find_task_id_by_any_channel_external_id(&["github:ic:555".to_string(), "555".to_string()])
+        .await
+        .unwrap();
+    assert_eq!(found.as_deref(), Some("task-1"));
 }
 
 #[sqlx::test]
@@ -283,7 +329,9 @@ async fn find_tool_call_returns_parent_message_uuid(pool: PgPool) {
             "input": { "command": "echo hi" }
         }
     ]);
-    message_dao::append(&pool, &assistant, &[], &[]).await.unwrap();
+    message_dao::append(&pool, &assistant, &[], &[])
+        .await
+        .unwrap();
 
     // System tool_result row (the "hidden" row in the UI).
     let mut system = make_message_row("task-1", "system-uuid");
@@ -301,7 +349,11 @@ async fn find_tool_call_returns_parent_message_uuid(pool: PgPool) {
     message_dao::append(&pool, &system, &[], &[]).await.unwrap();
 
     let repo = PgMessageRepository(pool.clone());
-    let found = repo.find_tool_call("task-1", "tu-123").await.unwrap().unwrap();
+    let found = repo
+        .find_tool_call("task-1", "tu-123")
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(found.tool_use_id, "tu-123");
     assert_eq!(found.tool_name, "Bash");
     assert_eq!(found.parent_message_uuid, "assistant-uuid");

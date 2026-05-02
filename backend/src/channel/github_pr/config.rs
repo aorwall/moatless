@@ -1,136 +1,109 @@
-//! Typed GitHub PR provider config — deserialized from `channel_configs.provider_config`.
+//! Typed view of GitHub PR ingress rule fields used by the webhook parser.
 
-use serde::{Deserialize, Serialize};
+use crate::channel::models::IngressRule;
 
-use crate::channel::models::ChannelConfig;
-
-/// Typed representation of `provider_config` JSONB for GitHub PR channels.
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct GithubPrProviderConfig {
-    /// Per-config webhook secret override (takes precedence over global env var).
-    pub webhook_secret: Option<String>,
-    /// Bot token for API calls. Falls back to env `GITHUB_CHANNEL_TOKEN`,
-    /// then to the config owner's provider_token for "github".
-    pub bot_token: Option<String>,
-    /// Bot's GitHub login (used to filter self-replies).
-    pub bot_username: Option<String>,
+/// Extracted GitHub-specific knobs from an `IngressRule`.
+#[derive(Debug, Clone)]
+pub struct GithubPrRuleConfig {
     /// Filter which events to process. Empty means all supported events.
-    /// Possible values: "pull_request", "issue_comment", "pull_request_review_comment",
-    ///   "pull_request_review", "check_run", "check_suite"
-    #[serde(default)]
+    /// Possible values: "pull_request", "issue_comment",
+    /// "pull_request_review_comment", "pull_request_review",
+    /// "check_run", "check_suite".
     pub events_filter: Vec<String>,
-    /// Whether to auto-create channel configs for unconfigured repos from this wildcard template.
-    #[serde(default)]
-    pub auto_create: bool,
     /// Automatically close the associated task when the PR is merged or closed.
-    #[serde(default = "default_true")]
     pub close_task_on_close: bool,
     /// Emit an inbound message when a check_suite completes successfully.
     /// Failures are always reported via check_run regardless of this flag.
-    #[serde(default)]
     pub notify_on_success: bool,
 }
 
-fn default_true() -> bool {
-    true
-}
-
-impl Default for GithubPrProviderConfig {
-    fn default() -> Self {
+impl GithubPrRuleConfig {
+    /// Parse from an `IngressRule`'s `event_filter` JSONB column plus
+    /// scalar boolean columns.
+    pub fn from_rule(rule: &IngressRule) -> Self {
+        let events_filter = rule
+            .event_filter
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
         Self {
-            webhook_secret: None,
-            bot_token: None,
-            bot_username: None,
-            events_filter: vec![],
-            auto_create: false,
-            close_task_on_close: true,
-            notify_on_success: false,
+            events_filter,
+            close_task_on_close: rule.close_task_on_close,
+            notify_on_success: rule.notify_on_success,
         }
-    }
-}
-
-impl GithubPrProviderConfig {
-    /// Parse from a `ChannelConfig`'s `provider_config` field.
-    /// Returns default config if field is absent or unparseable.
-    pub fn from_config(config: &ChannelConfig) -> Self {
-        config
-            .provider_config
-            .as_ref()
-            .and_then(|v| serde_json::from_value(v.clone()).ok())
-            .unwrap_or_default()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::scope::Scope;
+    use chrono::Utc;
+
+    fn rule_with(
+        events_filter: serde_json::Value,
+        close_task_on_close: bool,
+        notify_on_success: bool,
+    ) -> IngressRule {
+        IngressRule {
+            id: "ir_test".into(),
+            provider: "github".into(),
+            connection_id: "pc_test".into(),
+            scope_matcher: "Frank-Penny/repo".into(),
+            event_filter: events_filter,
+            repository_id: "repo-1".into(),
+            prompt_template: None,
+            task_name: None,
+            tag_ids: vec![],
+            run_as_user_id: None,
+            agent_type: "claude-code".into(),
+            close_task_on_close,
+            notify_on_success,
+            active: true,
+            created_by: "alice".into(),
+            scope: Scope::User,
+            team_id: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
 
     #[test]
-    fn deserialize_defaults_for_empty_object() {
-        let json = serde_json::json!({});
-        let cfg: GithubPrProviderConfig = serde_json::from_value(json).unwrap();
-
-        assert!(cfg.webhook_secret.is_none());
-        assert!(cfg.bot_token.is_none());
-        assert!(cfg.bot_username.is_none());
-        assert!(cfg.events_filter.is_empty());
+    fn parses_event_filter_array() {
+        let rule = rule_with(
+            serde_json::json!(["pull_request", "issue_comment"]),
+            true,
+            false,
+        );
+        let cfg = GithubPrRuleConfig::from_rule(&rule);
+        assert_eq!(cfg.events_filter, vec!["pull_request", "issue_comment"]);
         assert!(cfg.close_task_on_close);
         assert!(!cfg.notify_on_success);
     }
 
     #[test]
-    fn deserialize_full_config() {
-        let json = serde_json::json!({
-            "webhook_secret": "whsec_123",
-            "bot_token": "ghp_abc",
-            "bot_username": "my-bot[bot]",
-            "events_filter": ["pull_request", "issue_comment"],
-            "notify_on_success": true,
-        });
-        let cfg: GithubPrProviderConfig = serde_json::from_value(json).unwrap();
-
-        assert_eq!(cfg.webhook_secret.as_deref(), Some("whsec_123"));
-        assert_eq!(cfg.bot_token.as_deref(), Some("ghp_abc"));
-        assert_eq!(cfg.bot_username.as_deref(), Some("my-bot[bot]"));
-        assert_eq!(cfg.events_filter, vec!["pull_request", "issue_comment"]);
-        assert!(cfg.notify_on_success);
+    fn empty_event_filter() {
+        let rule = rule_with(serde_json::json!([]), true, false);
+        let cfg = GithubPrRuleConfig::from_rule(&rule);
+        assert!(cfg.events_filter.is_empty());
     }
 
     #[test]
-    fn deserialize_close_task_on_close_false() {
-        let json = serde_json::json!({ "close_task_on_close": false });
-        let cfg: GithubPrProviderConfig = serde_json::from_value(json).unwrap();
+    fn non_array_event_filter_treated_as_empty() {
+        let rule = rule_with(serde_json::json!({}), true, false);
+        let cfg = GithubPrRuleConfig::from_rule(&rule);
+        assert!(cfg.events_filter.is_empty());
+    }
 
+    #[test]
+    fn close_task_on_close_false_propagates() {
+        let rule = rule_with(serde_json::json!([]), false, true);
+        let cfg = GithubPrRuleConfig::from_rule(&rule);
         assert!(!cfg.close_task_on_close);
-    }
-
-    #[test]
-    fn from_config_with_none_provider_config() {
-        let config = ChannelConfig {
-            id: "test".into(),
-            provider: "github_pr".into(),
-            source_id: "owner/repo".into(),
-            source_name: None,
-            repository_id: "repo1".into(),
-            routing_mode: crate::channel::models::RoutingMode::ThreadBased,
-            prompt_template: None,
-            active: true,
-            allow_direct_send: false,
-            provider_config: None,
-            ongoing_task_id: None,
-            response_config_id: None,
-            scope: crate::scope::Scope::User,
-            team_id: None,
-            task_name: None,
-            tag_ids: vec![],
-            run_as_user_id: None,
-            agent_type: "claude-code".into(),
-            created_by: "owner".into(),
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
-        };
-
-        let cfg = GithubPrProviderConfig::from_config(&config);
-        assert!(cfg.bot_username.is_none());
+        assert!(cfg.notify_on_success);
     }
 }

@@ -2,18 +2,19 @@
 
 use std::collections::HashSet;
 
-use moatless_events::{AgentSubType, TaskTurnSubType};
 use tracing::{debug, info, warn};
 
-use crate::event_handler::models::{AgentEvent, EventKey};
 use crate::message::models::{
     ContentBlockType, MessageRole, MessageType, TaskMessage, TaskMessageContentBlock,
 };
 use crate::state::AppState;
 
 use super::error::ChannelError;
+use super::ingress_rule_dao::PgIngressRuleRepository;
 use super::models::{ChannelConfig, ChannelThread, OutboundFile, OutboundReply};
 use super::provider::{ChannelProvider, ChannelProviders};
+use super::provider_connection_dao::PgProviderConnectionRepository;
+use super::task_subscription_dao::PgTaskSubscriptionRepository;
 
 /// Resolved outbound target for a channel notification.
 pub(crate) enum OutboundTarget<'a> {
@@ -50,15 +51,24 @@ pub async fn send_to_channels(
     config_id: Option<&str>,
 ) -> Result<(u32, Vec<String>), ChannelError> {
     let threads = if let Some(cid) = config_id {
-        match state
+        let matching: Vec<_> = state
             .channel_threads
-            .find_by_task_id_and_config(task_id, cid)
+            .find_by_task_id(task_id)
             .await?
-        {
-            Some(t) => vec![t],
-            None => {
+            .into_iter()
+            .filter(|thread| thread.config_id == cid)
+            .collect();
+
+        match matching.len() {
+            0 => {
                 return Err(ChannelError::ConfigNotFound(format!(
                     "No channel thread for task {task_id} and config {cid}"
+                )));
+            }
+            1 => matching,
+            _ => {
+                return Err(ChannelError::BadRequest(format!(
+                    "Task {task_id} has multiple channel threads for config {cid}; target a specific thread or send to all task channels"
                 )));
             }
         }
@@ -76,7 +86,7 @@ pub async fn send_to_channels(
 
     let mut sent_count = 0u32;
     let mut errors = Vec::new();
-    let mut sent_config_ids: HashSet<String> = HashSet::new();
+    let mut sent_target_keys: HashSet<String> = HashSet::new();
 
     for thread in &threads {
         let config = match state.channel_configs.find_by_id(&thread.config_id).await {
@@ -91,16 +101,12 @@ pub async fn send_to_channels(
             }
         };
 
-        // Deduplicate by effective target config: if a config has response_config_id,
-        // that's the actual target; otherwise the config itself is the target.
-        // This prevents duplicate sends when both a cross-channel thread (e.g. cron)
-        // and its response config's direct thread exist for the same task.
-        let effective_config_id = config.response_config_id.as_deref().unwrap_or(&config.id);
-        if !sent_config_ids.insert(effective_config_id.to_string()) {
+        let dedup_key = outbound_target_key(&config, thread);
+        if !sent_target_keys.insert(dedup_key.clone()) {
             debug!(
                 config_id = %config.id,
-                effective_config_id = %effective_config_id,
-                "Skipping duplicate send to already-targeted config"
+                dedup_key = %dedup_key,
+                "Skipping duplicate send to already-targeted outbound subject"
             );
             continue;
         }
@@ -145,6 +151,73 @@ pub async fn send_to_channels(
     Ok((sent_count, errors))
 }
 
+/// Send a message to one exact channel thread for a task.
+///
+/// This is the precise outbound path used when a task has multiple subscriptions
+/// under the same channel config, such as multiple GitHub PR subscriptions.
+pub async fn send_to_channel_thread(
+    state: &AppState,
+    providers: &ChannelProviders,
+    task_id: &str,
+    thread_id: i32,
+    text: &str,
+    file_ids: &[String],
+) -> Result<(u32, Vec<String>), ChannelError> {
+    let thread = state
+        .channel_threads
+        .find_by_id(thread_id)
+        .await?
+        .ok_or_else(|| ChannelError::ConfigNotFound(format!("No channel thread {thread_id}")))?;
+
+    if thread.task_id != task_id {
+        return Err(ChannelError::BadRequest(format!(
+            "Channel thread {thread_id} does not belong to task {task_id}"
+        )));
+    }
+
+    let config = state
+        .channel_configs
+        .find_by_id(&thread.config_id)
+        .await?
+        .ok_or_else(|| ChannelError::ConfigNotFound(thread.config_id.clone()))?;
+
+    let target = resolve_outbound_target(state, providers, &config, &thread, task_id)
+        .await
+        .ok_or_else(|| ChannelError::ProviderNotConfigured(config.provider.clone()))?;
+
+    let files = resolve_files(state, file_ids).await;
+    if !files.is_empty() && !target_supports_files(&target) {
+        return Ok((
+            0,
+            vec![format!(
+                "Provider {:?} does not support file attachments",
+                target_provider_type(&target)
+            )],
+        ));
+    }
+
+    let reply = OutboundReply {
+        text: truncate_text(text, target_max_message_length(&target)),
+        task_url: None,
+        is_error: false,
+        files,
+    };
+
+    let stub_uuid = persist_outbound_stub(state, task_id, &reply.text, &config).await;
+
+    match send_outbound_result(state, task_id, target, &reply, stub_uuid.as_deref()).await {
+        Ok(()) => Ok((1, vec![])),
+        Err(e) => Ok((0, vec![e])),
+    }
+}
+
+fn outbound_target_key(config: &ChannelConfig, _thread: &ChannelThread) -> String {
+    config
+        .response_config_id
+        .clone()
+        .unwrap_or_else(|| config.id.clone())
+}
+
 /// Persist a visible assistant row representing an outbound channel reply.
 ///
 /// Returns the row's uuid on success so the caller can later stamp it with
@@ -170,12 +243,8 @@ async fn persist_outbound_stub(
 
     let content = serde_json::json!([{ "type": "text", "text": text }]);
 
-    let mut msg = TaskMessage::new_user_message(
-        task_id.to_string(),
-        uuid.clone(),
-        content,
-        now.clone(),
-    );
+    let mut msg =
+        TaskMessage::new_user_message(task_id.to_string(), uuid.clone(), content, now.clone());
     msg.message_type = MessageType::System;
     msg.message_role = MessageRole::Assistant;
     msg.user_type = "assistant".to_string();
@@ -372,271 +441,6 @@ pub async fn direct_send_to_channel(
     }
 
     Ok(Some(thread_info.external_thread_id))
-}
-
-/// Handle a channel notification triggered by an agent event.
-///
-/// Called from `event_handler/consumer.rs` after standard event processing.
-/// Looks up channel threads for the task and sends replies/status updates.
-///
-/// Supports cross-channel routing: when a config has `response_config_id`,
-/// the reply is sent via the response config's provider instead of the
-/// originating config's provider.
-pub async fn handle_channel_notification(
-    state: &AppState,
-    providers: &ChannelProviders,
-    event: &AgentEvent,
-) {
-    // Find threads for this task
-    let threads = match state.channel_threads.find_by_task_id(&event.task_id).await {
-        Ok(t) => t,
-        Err(e) => {
-            debug!(task_id = %event.task_id, error = %e, "Failed to look up channel threads");
-            return;
-        }
-    };
-
-    if threads.is_empty() {
-        return; // Task not from a channel
-    }
-
-    let key = event.event_key();
-
-    // Only include the task URL on the first completion (new task).
-    let is_first_reply = state
-        .messages
-        .get_last_result(&event.task_id)
-        .await
-        .ok()
-        .flatten()
-        .is_none();
-
-    let mut sent_config_ids: HashSet<String> = HashSet::new();
-
-    for thread in &threads {
-        // Load config for this thread
-        let config = match state.channel_configs.find_by_id(&thread.config_id).await {
-            Ok(Some(c)) => c,
-            _ => continue,
-        };
-
-        // Deduplicate by effective target config (see send_to_channels).
-        let effective_config_id = config.response_config_id.as_deref().unwrap_or(&config.id);
-        if !sent_config_ids.insert(effective_config_id.to_string()) {
-            debug!(
-                task_id = %event.task_id,
-                config_id = %config.id,
-                effective_config_id = %effective_config_id,
-                "Skipping duplicate notification to already-targeted config"
-            );
-            continue;
-        }
-
-        let task_url = build_task_url(state, &event.task_id);
-
-        // Resolve outbound target: use response_config_id if set
-        let target = match resolve_outbound_target(
-            state,
-            providers,
-            &config,
-            thread,
-            &event.task_id,
-        )
-        .await
-        {
-            Some(t) => t,
-            None => continue,
-        };
-
-        // Extract message_id from payload (injected by agent_handlers for outbound tracking)
-        let message_id = event.payload.get("message_id").and_then(|v| v.as_str());
-
-        match &key {
-            EventKey::TaskTurn(TaskTurnSubType::Completed)
-            | EventKey::Agent(AgentSubType::Completed) => {
-                let result_text = event
-                    .payload
-                    .get("result")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("Task completed");
-
-                let reply = OutboundReply {
-                    text: truncate_text(result_text, 2000),
-                    task_url: if is_first_reply { Some(task_url) } else { None },
-                    is_error: false,
-                    files: vec![],
-                };
-
-                send_outbound(state, &event.task_id, target, &reply, message_id).await;
-            }
-
-            EventKey::Agent(AgentSubType::Error) | EventKey::TaskTurn(TaskTurnSubType::Error) => {
-                let error_msg = event
-                    .payload
-                    .get("error")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("An error occurred");
-
-                let reply = OutboundReply {
-                    text: format!("Error: {}", truncate_text(error_msg, 1900)),
-                    task_url: if is_first_reply { Some(task_url) } else { None },
-                    is_error: true,
-                    files: vec![],
-                };
-
-                send_outbound(state, &event.task_id, target, &reply, message_id).await;
-            }
-
-            _ => {
-                debug!(
-                    task_id = %event.task_id,
-                    event_type = %event.event_type,
-                    sub_type = %event.sub_type,
-                    "Event type not handled for channel notifications"
-                );
-            }
-        }
-    }
-}
-
-/// Send an outbound reply via the resolved target.
-///
-/// For `Reply` targets, uses `send_reply` on an existing thread.
-/// For `NewMessage` targets, uses `send_message` to post a top-level message
-/// and persists the thread for future replies.
-///
-/// If `message_id` is provided and the provider returns an external ID,
-/// stores the mapping via `set_channel_external_id` for outbound tracking.
-async fn send_outbound(
-    state: &AppState,
-    task_id: &str,
-    target: OutboundTarget<'_>,
-    reply: &OutboundReply,
-    message_id: Option<&str>,
-) {
-    match target {
-        OutboundTarget::Reply {
-            provider,
-            config,
-            thread,
-        } => {
-            match provider.send_reply(&thread, &config, reply).await {
-                Ok(Some(external_id)) => {
-                    // Populate the recently_sent race-window cache before the
-                    // DB UPDATE so an in-flight webhook can short-circuit at
-                    // the in-memory check.
-                    state.recently_sent.note(task_id, &external_id);
-                    if let Some(msg_id) = message_id {
-                        if let Err(e) = state
-                            .messages
-                            .set_channel_metadata(
-                                msg_id,
-                                &external_id,
-                                &config.provider,
-                                config.source_name.as_deref(),
-                            )
-                            .await
-                        {
-                            warn!(task_id = %task_id, error = %e, "Failed to store outbound external ID");
-                        }
-                    }
-                    // Advance cursor so future context fetches skip this reply
-                    if let Err(e) = state
-                        .channel_threads
-                        .touch(
-                            thread.id,
-                            Some(&serde_json::json!({"last_channel_external_id": external_id})),
-                        )
-                        .await
-                    {
-                        warn!(task_id = %task_id, error = %e, "Failed to update last_channel_external_id on thread");
-                    }
-                }
-                Ok(None) => {}
-                Err(e) => {
-                    warn!(task_id = %task_id, error = %e, "Failed to send channel reply");
-                }
-            }
-        }
-        OutboundTarget::NewMessage {
-            provider,
-            config,
-            originating_config_id,
-            task_id: ref tid,
-            pending_thread_id,
-        } => {
-            let thread_info = match provider.send_message(&config, reply).await {
-                Ok(info) => info,
-                Err(e) => {
-                    warn!(
-                        task_id = %task_id,
-                        config_id = %config.id,
-                        error = %e,
-                        "Failed to send new channel message"
-                    );
-                    return;
-                }
-            };
-
-            // Persist the thread so future replies thread under this message.
-            // If a pending thread exists (created during inbound for non-replyable
-            // providers like cron), update it with the real thread info.
-            if let Some(thread_id) = pending_thread_id {
-                match state
-                    .channel_threads
-                    .update_thread_info(
-                        thread_id,
-                        &thread_info.external_thread_id,
-                        &thread_info.properties,
-                    )
-                    .await
-                {
-                    Ok(()) => {
-                        info!(
-                            task_id = %task_id,
-                            config_id = %config.id,
-                            originating_config_id = %originating_config_id,
-                            "Pending thread updated with real channel info"
-                        );
-                    }
-                    Err(e) => {
-                        warn!(
-                            task_id = %task_id,
-                            error = %e,
-                            "Failed to update pending thread after send_message"
-                        );
-                    }
-                }
-            } else {
-                match state
-                    .channel_threads
-                    .insert(
-                        &config.id,
-                        tid,
-                        &thread_info.external_thread_id,
-                        &thread_info.properties,
-                    )
-                    .await
-                {
-                    Ok(_thread) => {
-                        info!(
-                            task_id = %task_id,
-                            config_id = %config.id,
-                            originating_config_id = %originating_config_id,
-                            "Channel message sent and thread created"
-                        );
-                    }
-                    Err(e) => {
-                        warn!(
-                            task_id = %task_id,
-                            error = %e,
-                            "Failed to persist channel thread after send_message"
-                        );
-                    }
-                }
-            }
-        }
-    }
 }
 
 /// Send an outbound reply and return `Ok(())` on success or an error string on failure.
@@ -882,11 +686,6 @@ fn resolve_direct<'a>(
     }
 }
 
-/// Build the task URL for linking in channel replies.
-pub(crate) fn build_task_url(state: &AppState, task_id: &str) -> String {
-    format!("{}/tasks/{}", state.config.auth.frontend_url, task_id)
-}
-
 /// Truncate text to a max length, appending "..." if truncated.
 pub(crate) fn truncate_text(text: &str, max: usize) -> String {
     if text.len() <= max {
@@ -972,6 +771,191 @@ fn target_provider_type(target: &OutboundTarget<'_>) -> super::provider::Channel
     match target {
         OutboundTarget::Reply { provider, .. } | OutboundTarget::NewMessage { provider, .. } => {
             provider.channel_type()
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Subscription-based outbound (used by GitHub PR)
+// ---------------------------------------------------------------------------
+
+/// Send a reply to the channel referenced by a `TaskSubscription`.
+///
+/// Loads the subscription, its `ProviderConnection`, and its optional
+/// `IngressRule`, then calls `send_reply_for_subscription` on the matching
+/// provider. Persists a visible assistant stub up front, tags it with the
+/// returned external id, populates the recently_sent race-window cache, and
+/// advances the subscription cursor.
+///
+/// Returns `(sent_count, errors)` mirroring [`send_to_channels`].
+pub async fn send_to_subscription(
+    state: &AppState,
+    providers: &ChannelProviders,
+    task_id: &str,
+    subscription_id: &str,
+    text: &str,
+    file_ids: &[String],
+) -> Result<(u32, Vec<String>), ChannelError> {
+    let subscription_repo = PgTaskSubscriptionRepository(state.db.clone());
+    let subscription = subscription_repo
+        .find_by_id(subscription_id)
+        .await?
+        .ok_or_else(|| {
+            ChannelError::ConfigNotFound(format!("No task subscription {subscription_id}"))
+        })?;
+
+    if subscription.task_id != task_id {
+        return Err(ChannelError::BadRequest(format!(
+            "Subscription {subscription_id} does not belong to task {task_id}"
+        )));
+    }
+
+    let connection = PgProviderConnectionRepository(state.db.clone())
+        .find_by_id(&subscription.connection_id)
+        .await?
+        .ok_or_else(|| {
+            ChannelError::ConfigNotFound(format!(
+                "Provider connection {} not found",
+                subscription.connection_id
+            ))
+        })?;
+
+    let rule = if let Some(ref rule_id) = subscription.ingress_rule_id {
+        PgIngressRuleRepository(state.db.clone())
+            .find_by_id(rule_id)
+            .await?
+    } else {
+        None
+    };
+
+    // The subscription's provider is e.g. "github". The runtime uses
+    // `CHANNEL_PROVIDER_LABEL = "github_pr"` as the ChannelType key, so do
+    // the same translation here.
+    let provider = match subscription.provider.as_str() {
+        "github" => providers.get_by_name("github_pr"),
+        other => providers.get_by_name(other),
+    }
+    .ok_or_else(|| ChannelError::ProviderNotConfigured(subscription.provider.clone()))?;
+
+    let files = resolve_files(state, file_ids).await;
+    if !files.is_empty() && !provider.supports_files() {
+        return Ok((
+            0,
+            vec![format!(
+                "Provider {:?} does not support file attachments",
+                provider.channel_type()
+            )],
+        ));
+    }
+
+    let reply = OutboundReply {
+        text: truncate_text(text, provider.max_message_length()),
+        task_url: None,
+        is_error: false,
+        files,
+    };
+
+    // Persist a visible stub up front so the row shows in the task timeline
+    // and we have a uuid to tag with the outbound `channel_external_id`.
+    let stub_uuid =
+        persist_outbound_stub_for_subscription(state, task_id, &reply.text, &subscription).await;
+
+    let external_id = match provider
+        .send_reply_for_subscription(&subscription, &connection, rule.as_ref(), &reply)
+        .await
+    {
+        Ok(id) => id,
+        Err(e) => {
+            return Ok((
+                0,
+                vec![format!(
+                    "Failed to send reply via {}: {e}",
+                    subscription.provider
+                )],
+            ));
+        }
+    };
+
+    if let Some(ref ext_id) = external_id {
+        state.recently_sent.note(task_id, ext_id);
+        if let Some(ref msg_id) = stub_uuid {
+            if let Err(e) = state
+                .messages
+                .set_channel_metadata(
+                    msg_id,
+                    ext_id,
+                    "github_pr",
+                    Some(subscription.subject_key.as_str()),
+                )
+                .await
+            {
+                warn!(task_id = %task_id, error = %e, "Failed to tag outbound stub with channel_external_id");
+            }
+        }
+        if let Err(e) = subscription_repo
+            .touch_cursor(&subscription.id, ext_id)
+            .await
+        {
+            warn!(
+                subscription_id = %subscription.id,
+                error = %e,
+                "Failed to advance subscription cursor"
+            );
+        }
+    }
+
+    Ok((1, vec![]))
+}
+
+/// Persist a visible assistant row for a subscription-based outbound reply.
+async fn persist_outbound_stub_for_subscription(
+    state: &AppState,
+    task_id: &str,
+    text: &str,
+    subscription: &super::models::TaskSubscription,
+) -> Option<String> {
+    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    let uuid = uuid::Uuid::new_v4().to_string();
+
+    let turn_number = match state.messages.current_turn_number(task_id).await {
+        Ok(t) => Some(t),
+        Err(e) => {
+            warn!(task_id, error = %e, "Failed to read turn number for outbound stub");
+            None
+        }
+    };
+
+    let content = serde_json::json!([{ "type": "text", "text": text }]);
+
+    let mut msg =
+        TaskMessage::new_user_message(task_id.to_string(), uuid.clone(), content, now.clone());
+    msg.message_type = MessageType::System;
+    msg.message_role = MessageRole::Assistant;
+    msg.user_type = "assistant".to_string();
+    msg.turn_number = turn_number;
+    msg.channel_provider = Some("github_pr".to_string());
+    msg.channel_source_name = Some(subscription.subject_key.clone());
+
+    let block = TaskMessageContentBlock {
+        id: 0,
+        task_message_id: 0,
+        sort_order: 0,
+        block_type: ContentBlockType::Text,
+        show_in_ui: true,
+        text_content: Some(text.to_string()),
+        tool_use_id: None,
+        tool_result_content: None,
+        tool_result_is_error: None,
+        image_media_type: None,
+        image_data: None,
+        created_at: None,
+    };
+
+    match state.messages.append(&msg, &[], &[block]).await {
+        Ok(_) => Some(uuid),
+        Err(e) => {
+            warn!(task_id, error = %e, "Failed to persist outbound stub message");
+            None
         }
     }
 }

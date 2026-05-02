@@ -142,10 +142,8 @@ fn transform_assistant(
                                 if rb.get("tool_use_id").and_then(|v| v.as_str())
                                     == Some(tool_use_id)
                                 {
-                                    let raw_typed = tool_use_result_map
-                                        .get(tool_use_id)
-                                        .copied()
-                                        .cloned();
+                                    let raw_typed =
+                                        tool_use_result_map.get(tool_use_id).copied().cloned();
                                     let tool_name =
                                         block.get("name").and_then(|v| v.as_str()).unwrap_or("");
                                     let typed_result = enrich_codex_typed_result(
@@ -530,9 +528,8 @@ mod tests {
     fn enrich_codex_malformed_result_falls_back_to_raw() {
         let input = json!({ "command": "ls" });
         let raw = json!({ "garbage": true });
-        let enriched =
-            enrich_codex_typed_result("codex.shell", Some(&input), Some(raw.clone()))
-                .expect("keeps raw");
+        let enriched = enrich_codex_typed_result("codex.shell", Some(&input), Some(raw.clone()))
+            .expect("keeps raw");
         assert_eq!(enriched, raw);
     }
 
@@ -564,9 +561,8 @@ mod tests {
             "status": "failed",
             "errorMessage": "timeout",
         });
-        let enriched =
-            enrich_codex_typed_result("codex.mcp_tool_call", Some(&input), Some(raw))
-                .expect("typed");
+        let enriched = enrich_codex_typed_result("codex.mcp_tool_call", Some(&input), Some(raw))
+            .expect("typed");
         assert_eq!(enriched["status"], "failed");
         assert_eq!(enriched["errorMessage"], "timeout");
     }
@@ -583,9 +579,8 @@ mod tests {
             "status": "completed",
             "agentsStates": {"sub": {"status": "completed"}}
         });
-        let enriched =
-            enrich_codex_typed_result("codex.collab_tool_call", Some(&input), Some(raw))
-                .expect("typed");
+        let enriched = enrich_codex_typed_result("codex.collab_tool_call", Some(&input), Some(raw))
+            .expect("typed");
         assert_eq!(enriched["status"], "completed");
         assert_eq!(enriched["agentsStates"]["sub"]["status"], "completed");
     }

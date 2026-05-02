@@ -11,6 +11,9 @@ use crate::db::DbPool;
 /// correct lifetimes for `Option<&serde_json::Value>` in `touch`.
 #[async_trait]
 pub trait ChannelThreadRepository: Send + Sync {
+    /// Find a thread by its primary key.
+    async fn find_by_id(&self, id: i32) -> Result<Option<ChannelThread>, sqlx::Error>;
+
     /// Find a thread by config_id + external_thread_id.
     /// With the relaxed unique constraint (multi-task), returns the first match.
     async fn find_by_config_and_thread(
@@ -97,6 +100,13 @@ pub struct PgChannelThreadRepository(pub DbPool);
 
 #[async_trait]
 impl ChannelThreadRepository for PgChannelThreadRepository {
+    async fn find_by_id(&self, id: i32) -> Result<Option<ChannelThread>, sqlx::Error> {
+        sqlx::query_as::<_, ChannelThread>("SELECT * FROM channel_threads WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&self.0)
+            .await
+    }
+
     async fn find_by_config_and_thread(
         &self,
         config_id: &str,
