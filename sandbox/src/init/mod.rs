@@ -340,9 +340,6 @@ async fn run_core_init(state: &SandboxState) -> Result<(), InitError> {
 /// 2. Set up build cache
 /// 3. Run setup commands
 async fn run_workspace_setup(state: &SandboxState) {
-    workspace::copy_prebuilt_deps(&state.config).await;
-    workspace::setup_build_cache(&state.config).await;
-
     for cmd in &state.config.setup_commands {
         publish_sandbox_event(
             state,
