@@ -38,7 +38,11 @@ const CHANNEL_REPLY_INSTRUCTIONS: &str = "\
 This task was created from a channel message. Send your responses back \
 to the channel using the `moat reply` command.
 
-- Use `moat reply --text \"<your response>\"` to send your response.
+- Use `moat reply --text \"<your response>\"` when this task has exactly one channel.
+- If `moat reply` reports multiple targets, list them with \
+`moat channels subscriptions --task $TASK_ID` and pick one with \
+`moat reply --thread <id> --text \"...\"` (or `--subscription <id>` for \
+GitHub PR ingress, or `--pr owner/repo#N`).
 - For the initial message that created this task, always send a reply.
 - For follow-up thread messages, reply if you are mentioned or have useful information. \
 If the message is not directed at you and you have nothing to add, stay silent (do not send a reply).
@@ -244,25 +248,47 @@ pub async fn process_inbound(
             .await?
     };
 
+    deliver_to_task(
+        state,
+        &task_id,
+        &config,
+        &thread,
+        &msg,
+        effective_command.as_ref(),
+        is_new_task,
+    )
+    .await?;
+
+    info!(task_id = %task_id, provider = config.provider, "Channel message routed to task");
+    Ok(task_id)
+}
+
+pub(crate) async fn deliver_to_task(
+    state: &AppState,
+    task_id: &str,
+    config: &ChannelConfig,
+    thread: &crate::channel::models::ChannelThread,
+    msg: &InboundMessage,
+    command: Option<&CommandInfo>,
+    is_new_task: bool,
+) -> Result<(), ChannelError> {
     // Fetch thread context for replies, excluding messages already delivered to the task.
     let thread_context = if msg.thread_id.is_some() {
         if let Some(ref providers) = state.channel_providers {
             if let Some(provider) = providers.get_by_name(&config.provider) {
-                let mut exclude_ids = match state.messages.get_channel_external_ids(&task_id).await
-                {
+                let mut exclude_ids = match state.messages.get_channel_external_ids(task_id).await {
                     Ok(ids) => ids,
                     Err(e) => {
                         warn!(error = %e, "Failed to fetch channel external IDs, fetching full context");
                         vec![]
                     }
                 };
-                // Also exclude the current message (not yet stored in DB)
                 if let Some(ref ext_id) = msg.channel_external_id {
                     exclude_ids.push(ext_id.clone());
                 }
 
                 match provider
-                    .fetch_context(&thread, &config, 20, &exclude_ids)
+                    .fetch_context(thread, config, 20, &exclude_ids)
                     .await
                 {
                     Ok(ctx) => ctx,
@@ -281,17 +307,13 @@ pub async fn process_inbound(
         None
     };
 
-    // Use the raw message text — prompt_template is passed as append_system_prompt on the task
     let has_cursor = thread
         .properties
         .get("last_channel_external_id")
         .and_then(|v| v.as_str())
         .is_some();
 
-    // When a command is detected, strip the /command prefix from the text used
-    // for sender-label enrichment. The command name is passed separately to
-    // send_message_flow.
-    let base_text = match &effective_command {
+    let base_text = match command {
         Some(cmd) => {
             let prefix = format!("/{}", cmd.name);
             msg.text
@@ -304,7 +326,6 @@ pub async fn process_inbound(
         None => msg.text.clone(),
     };
 
-    // Look up sender identity for agent context
     let mut message_text = base_text;
     let sender_label = match state.users.get_user(&msg.user_id).await {
         Ok(Some(user)) => {
@@ -329,12 +350,10 @@ pub async fn process_inbound(
         message_text = format!("{label}: {message_text}");
     }
 
-    // For thread replies, let the provider decide whether to prepend a hint
-    // so the agent knows it can stay silent.
     if msg.thread_id.is_some() {
         if let Some(providers) = state.channel_providers.as_ref() {
             if let Some(provider) = providers.get_by_name(&config.provider) {
-                if let Some(hint) = provider.thread_reply_hint(&msg) {
+                if let Some(hint) = provider.thread_reply_hint(msg) {
                     message_text = format!("{hint}\n\n{message_text}");
                 }
             }
@@ -343,24 +362,22 @@ pub async fn process_inbound(
 
     if let Some(ctx) = thread_context {
         if has_cursor {
-            // Subsequent message — just prepend the new thread messages
             message_text = format!("{ctx}\n\n---\n\n{message_text}");
         } else {
-            // First message in a new session — label the context
             message_text = format!(
                 "Thread context (previous messages):\n\n{ctx}\n\n---\n\nNew message:\n\n{message_text}"
             );
         }
     }
 
-    let (cmd_resume, cmd_agent_mode, cmd_name) = match &effective_command {
+    let (cmd_resume, cmd_agent_mode, cmd_name) = match command {
         Some(cmd) => (cmd.resume, cmd.agent_mode.as_ref(), Some(cmd.name.as_str())),
         None => (true, None, None),
     };
 
     if let Err(e) = crate::message::send::send_message_flow(
         state,
-        &task_id,
+        task_id,
         &message_text,
         None,
         cmd_agent_mode,
@@ -374,13 +391,12 @@ pub async fn process_inbound(
     )
     .await
     {
-        warn!(task_id = %task_id, provider = config.provider, source_id = %config.source_id, error = %e, "Failed to send channel message to task");
+        warn!(task_id, provider = config.provider, source_id = %config.source_id, error = %e, "Failed to send channel message to task");
         return Err(ChannelError::Internal(format!(
             "Failed to send message: {e}"
         )));
     }
 
-    // Advance the cursor so future fetch_context calls only return newer messages.
     if let Some(ref ext_id) = msg.channel_external_id {
         if let Err(e) = state
             .channel_threads
@@ -390,25 +406,21 @@ pub async fn process_inbound(
             )
             .await
         {
-            warn!(task_id = %task_id, error = %e, "Failed to update last_channel_external_id on thread");
+            warn!(task_id, error = %e, "Failed to update last_channel_external_id on thread");
         }
     }
 
-    // Ensure sandbox is running and notify about the new message.
-    // Skip for new tasks — the sandbox was just provisioned above and will
-    // fetch pending messages on startup.
     if !is_new_task {
-        if let Err(e) = crate::sandbox::notify::ensure_sandbox_and_notify(state, &task_id).await {
-            warn!(task_id = %task_id, error = %e, "Failed to ensure sandbox for channel message");
+        if let Err(e) = crate::sandbox::notify::ensure_sandbox_and_notify(state, task_id).await {
+            warn!(task_id, error = %e, "Failed to ensure sandbox for channel message");
         }
     }
 
-    info!(task_id = %task_id, provider = config.provider, "Channel message routed to task");
-    Ok(task_id)
+    Ok(())
 }
 
 /// Create a new task from a channel message.
-async fn create_task_for_channel(
+pub(crate) async fn create_task_for_channel(
     state: &AppState,
     config: &ChannelConfig,
     msg: &InboundMessage,
@@ -539,37 +551,16 @@ pub async fn trigger_inbound(
     let provider_type = super::provider::ChannelType::parse(&config.provider)
         .unwrap_or(super::provider::ChannelType::Cron);
 
-    // For github_pr channels, thread_properties must include owner, repo, and pr_number
-    let resolved_thread_properties = if provider_type == super::provider::ChannelType::GithubPr {
-        let props = thread_properties.ok_or_else(|| {
-            ChannelError::BadRequest(
-                "github_pr channels require thread_properties with owner, repo, and pr_number"
-                    .into(),
-            )
-        })?;
-        if props.get("owner").and_then(|v| v.as_str()).is_none() {
-            return Err(ChannelError::BadRequest(
-                "thread_properties missing required field: owner".into(),
-            ));
-        }
-        if props.get("repo").and_then(|v| v.as_str()).is_none() {
-            return Err(ChannelError::BadRequest(
-                "thread_properties missing required field: repo".into(),
-            ));
-        }
-        if props
-            .get("pr_number")
-            .and_then(serde_json::Value::as_u64)
-            .is_none()
-        {
-            return Err(ChannelError::BadRequest(
-                "thread_properties missing required field: pr_number (must be a number)".into(),
-            ));
-        }
-        props
-    } else {
-        thread_properties.unwrap_or_else(|| serde_json::json!({"trigger": "manual"}))
-    };
+    if provider_type == super::provider::ChannelType::GithubPr {
+        return Err(ChannelError::BadRequest(
+            "GitHub channels are not triggerable via channel_configs; \
+             use the rules-based ingress flow instead"
+                .into(),
+        ));
+    }
+
+    let resolved_thread_properties =
+        thread_properties.unwrap_or_else(|| serde_json::json!({"trigger": "manual"}));
 
     let thread_id = uuid::Uuid::new_v4().to_string();
 

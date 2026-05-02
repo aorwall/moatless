@@ -491,10 +491,8 @@ impl ApiClient {
         task_id: &str,
         tool_use_id: &str,
     ) -> Result<moatless_api_schemas::message::ToolCallDetailResponse, ApiError> {
-        self.get(&format!(
-            "/api/v1/tasks/{task_id}/tool-calls/{tool_use_id}"
-        ))
-        .await
+        self.get(&format!("/api/v1/tasks/{task_id}/tool-calls/{tool_use_id}"))
+            .await
     }
 
     // ========================================================================
@@ -600,6 +598,36 @@ impl ApiClient {
         .await
     }
 
+    /// POST /api/v1/tasks/{task_id}/channels/threads/{thread_id}/send
+    pub async fn send_to_task_channel_thread(
+        &self,
+        task_id: &str,
+        thread_id: i32,
+        req: &moatless_api_schemas::channel::SendChannelMessageRequest,
+    ) -> Result<moatless_api_schemas::channel::SendChannelMessageResponse, ApiError> {
+        self.post(
+            &format!("/api/v1/tasks/{task_id}/channels/threads/{thread_id}/send"),
+            req,
+        )
+        .await
+    }
+
+    /// POST /api/v1/tasks/{task_id}/channels/subscriptions/{subscription_id}/send
+    pub async fn send_to_task_channel_subscription(
+        &self,
+        task_id: &str,
+        subscription_id: &str,
+        req: &moatless_api_schemas::channel::SendChannelMessageRequest,
+    ) -> Result<moatless_api_schemas::channel::SendChannelMessageResponse, ApiError> {
+        self.post(
+            &format!(
+                "/api/v1/tasks/{task_id}/channels/subscriptions/{subscription_id}/send"
+            ),
+            req,
+        )
+        .await
+    }
+
     /// POST /api/v1/channels/connect
     pub async fn connect_channel(
         &self,
@@ -615,6 +643,43 @@ impl ApiClient {
         req: &moatless_api_schemas::channel::DirectSendRequest,
     ) -> Result<moatless_api_schemas::channel::DirectSendResponse, ApiError> {
         self.post(&format!("/api/v1/channels/configs/{config_id}/send"), req)
+            .await
+    }
+
+    /// POST /api/v1/channels/rules
+    pub async fn create_ingress_rule(
+        &self,
+        req: &moatless_api_schemas::channel::CreateIngressRuleRequest,
+    ) -> Result<moatless_api_schemas::channel::IngressRuleResponse, ApiError> {
+        self.post("/api/v1/channels/rules", req).await
+    }
+
+    /// GET /api/v1/channels/rules
+    pub async fn list_ingress_rules(
+        &self,
+        provider: Option<&str>,
+    ) -> Result<Vec<moatless_api_schemas::channel::IngressRuleResponse>, ApiError> {
+        let qs = provider
+            .map(|p| format!("?provider={p}"))
+            .unwrap_or_default();
+        self.get(&format!("/api/v1/channels/rules{qs}")).await
+    }
+
+    /// DELETE /api/v1/channels/rules/{id}
+    pub async fn delete_ingress_rule(&self, id: &str) -> Result<(), ApiError> {
+        self.delete_request(&format!("/api/v1/channels/rules/{id}"))
+            .await
+    }
+
+    /// GET /api/v1/channels/connections
+    pub async fn list_provider_connections(
+        &self,
+        provider: Option<&str>,
+    ) -> Result<Vec<moatless_api_schemas::channel::ProviderConnectionResponse>, ApiError> {
+        let qs = provider
+            .map(|p| format!("?provider={p}"))
+            .unwrap_or_default();
+        self.get(&format!("/api/v1/channels/connections{qs}"))
             .await
     }
 

@@ -2,8 +2,9 @@
 
 use clap::Subcommand;
 use moatless_api_schemas::channel::{
-    ChannelConfigResponse, ConnectChannelRequest, CreateChannelConfigRequest, DirectSendRequest,
-    SendChannelMessageRequest, TriggerChannelRequest, UpdateChannelConfigRequest,
+    ChannelConfigResponse, ConnectChannelRequest, CreateChannelConfigRequest,
+    CreateIngressRuleRequest, DirectSendRequest, IngressRuleResponse, SendChannelMessageRequest,
+    TriggerChannelRequest, UpdateChannelConfigRequest,
 };
 use moatless_api_schemas::enums::{ChannelType, RoutingMode};
 
@@ -14,6 +15,12 @@ use crate::output;
 pub enum ChannelAction {
     /// List channel configs
     List,
+    /// List channel subscriptions connected to a task
+    Subscriptions {
+        /// Task ID (uses TASK_ID env var if omitted)
+        #[arg(long)]
+        task: Option<String>,
+    },
     /// Create a channel config
     Create {
         #[arg(long)]
@@ -95,6 +102,15 @@ pub enum ChannelAction {
         /// Channel config ID (sends to all task channels if omitted)
         #[arg(long)]
         channel: Option<String>,
+        /// Exact channel thread ID (preferred when a task has multiple subscriptions)
+        #[arg(long)]
+        thread: Option<i32>,
+        /// Exact task subscription ID (alternative to --thread / --pr)
+        #[arg(long)]
+        subscription: Option<String>,
+        /// Exact GitHub PR subscription to target, in owner/repo#123 format
+        #[arg(long)]
+        pr: Option<String>,
         /// Message text (reads from stdin if omitted and stdin is piped)
         #[arg(long)]
         text: Option<String>,
@@ -116,7 +132,8 @@ pub enum ChannelAction {
         #[arg(long)]
         thread_properties: Option<String>,
     },
-    /// Connect a task to an existing external thread (e.g. a GitHub PR)
+    /// Subscribe a task to a GitHub PR
+    #[command(visible_alias = "subscribe")]
     Connect {
         /// PR number to connect to
         #[arg(long)]
@@ -135,6 +152,69 @@ pub enum ChannelAction {
     Defaults {
         #[command(subcommand)]
         action: ChannelDefaultsAction,
+    },
+    /// Manage GitHub-native ingress rules (replaces `channels create --provider github`)
+    Rules {
+        #[command(subcommand)]
+        action: RulesAction,
+    },
+}
+
+#[derive(Subcommand)]
+#[allow(clippy::large_enum_variant)] // reason: clap expands subcommand variants from large structs; boxing complicates derive
+pub enum RulesAction {
+    /// List ingress rules
+    List {
+        /// Filter by provider (defaults to "github")
+        #[arg(long)]
+        provider: Option<String>,
+    },
+    /// Create or upsert an ingress rule for a GitHub repo
+    Create {
+        /// Provider (only "github" is supported today)
+        #[arg(long, default_value = "github")]
+        provider: String,
+        /// Repo full name in `owner/repo` form (or `owner/*` wildcard)
+        #[arg(long)]
+        repo: String,
+        /// Repository ID in moatless to route messages to
+        #[arg(long = "repository-id")]
+        repository_id: String,
+        /// Default task name for tasks created from this rule
+        #[arg(long = "task-name")]
+        task_name: Option<String>,
+        /// Comma-separated tag IDs to auto-assign to tasks
+        #[arg(long = "tag-ids", value_delimiter = ',')]
+        tag_ids: Option<Vec<String>>,
+        /// System prompt template appended to channel-originated tasks
+        #[arg(long = "prompt-template")]
+        prompt_template: Option<String>,
+        /// Agent type (default: claude-code)
+        #[arg(long = "agent-type")]
+        agent_type: Option<String>,
+        /// User to run tasks as (falls back to created_by)
+        #[arg(long = "run-as-user")]
+        run_as_user_id: Option<String>,
+        /// Auto-close the task when the PR is closed (default: true)
+        #[arg(long = "close-task-on-close")]
+        close_task_on_close: Option<bool>,
+        /// Notify when a check_suite completes successfully
+        #[arg(long = "notify-on-success")]
+        notify_on_success: bool,
+        /// Comma-separated event filter (empty means all)
+        #[arg(long = "event-filter", value_delimiter = ',')]
+        event_filter: Option<Vec<String>>,
+        /// Team ID to scope the rule to (auto-resolved when single-team)
+        #[arg(long)]
+        team: Option<String>,
+        /// Disable the rule on creation (default: enabled)
+        #[arg(long)]
+        inactive: bool,
+    },
+    /// Delete an ingress rule by id
+    Delete {
+        /// Rule id (e.g. `ir_...`)
+        id: String,
     },
 }
 
@@ -185,6 +265,19 @@ pub async fn run(
                 format_channels(&configs);
             }
         }
+        ChannelAction::Subscriptions { task } => {
+            let task_id = task
+                .or_else(|| std::env::var("TASK_ID").ok())
+                .ok_or_else(|| {
+                    ClientError::Other("Task ID required: use --task or set TASK_ID env var".into())
+                })?;
+            let channels = client.api().list_task_channels(&task_id).await?;
+            if json {
+                output::print_json_typed(&channels);
+            } else {
+                format_task_channels(&task_id, &channels);
+            }
+        }
         ChannelAction::Create {
             provider,
             source,
@@ -198,6 +291,13 @@ pub async fn run(
             allow_direct_send,
             agent_type,
         } => {
+            if provider == "github" || provider == "github_pr" {
+                return Err(ClientError::Other(
+                    "Use `moat channels rules create --repo owner/repo` for GitHub. \
+                     The legacy per-repo channel_configs path was removed in 0034."
+                        .into(),
+                ));
+            }
             let parsed_config =
                 parse_provider_config(provider_config.as_deref())?.map(serde_json::Value::Object);
 
@@ -268,6 +368,9 @@ pub async fn run(
         ChannelAction::Send {
             task,
             channel,
+            thread,
+            subscription,
+            pr,
             text,
             files,
             direct,
@@ -314,6 +417,11 @@ pub async fn run(
             }
 
             if direct {
+                if thread.is_some() || pr.is_some() || subscription.is_some() {
+                    return Err(ClientError::Other(
+                        "--thread / --subscription / --pr cannot be used with --direct send".into(),
+                    ));
+                }
                 let config_id = channel.ok_or_else(|| {
                     ClientError::Other("--channel is required for --direct send".into())
                 })?;
@@ -350,14 +458,16 @@ pub async fn run(
                     file_ids,
                 };
 
-                let resp = if let Some(config_id) = channel {
-                    client
-                        .api()
-                        .send_to_task_channel(&task_id, &config_id, &req)
-                        .await?
-                } else {
-                    client.api().send_to_task_channels(&task_id, &req).await?
-                };
+                let resp = send_to_task_channel_target(
+                    client,
+                    &task_id,
+                    channel.as_deref(),
+                    thread,
+                    subscription.as_deref(),
+                    pr.as_deref(),
+                    &req,
+                )
+                .await?;
 
                 if json {
                     output::print_json_typed(&resp);
@@ -437,9 +547,14 @@ pub async fn run(
             let resp = client.api().connect_channel(&req).await?;
             if json {
                 output::print_json_typed(&resp);
+            } else if let Some(repo) = repo.as_deref() {
+                println!(
+                    "Subscribed task {} to GitHub PR {}#{} (config: {}, thread: {})",
+                    task_id, repo, pr, resp.config_id, resp.thread_id
+                );
             } else {
                 println!(
-                    "Connected task {} to PR #{} (config: {}, thread: {})",
+                    "Subscribed task {} to GitHub PR #{} (config: {}, thread: {})",
                     task_id, pr, resp.config_id, resp.thread_id
                 );
             }
@@ -447,8 +562,104 @@ pub async fn run(
         ChannelAction::Defaults { action: defaults } => {
             run_defaults(client, defaults, json).await?;
         }
+        ChannelAction::Rules { action: rules } => {
+            run_rules(client, rules, json).await?;
+        }
     }
     Ok(())
+}
+
+async fn run_rules(
+    client: &MoatClient,
+    action: RulesAction,
+    json: bool,
+) -> Result<(), ClientError> {
+    match action {
+        RulesAction::List { provider } => {
+            let rules = client
+                .api()
+                .list_ingress_rules(provider.as_deref())
+                .await?;
+            if json {
+                output::print_json_typed(&rules);
+            } else {
+                format_ingress_rules(&rules);
+            }
+        }
+        RulesAction::Create {
+            provider,
+            repo,
+            repository_id,
+            task_name,
+            tag_ids,
+            prompt_template,
+            agent_type,
+            run_as_user_id,
+            close_task_on_close,
+            notify_on_success,
+            event_filter,
+            team,
+            inactive,
+        } => {
+            let req = CreateIngressRuleRequest {
+                provider,
+                scope_matcher: repo,
+                repository_id,
+                task_name,
+                tag_ids,
+                prompt_template,
+                agent_type,
+                run_as_user_id,
+                close_task_on_close,
+                notify_on_success: Some(notify_on_success),
+                active: Some(!inactive),
+                event_filter,
+                team_id: team,
+            };
+            let created = client.api().create_ingress_rule(&req).await?;
+            if json {
+                output::print_json_typed(&created);
+            } else {
+                println!(
+                    "Ingress rule upserted: {} (scope_matcher={}, active={})",
+                    created.id, created.scope_matcher, created.active
+                );
+            }
+        }
+        RulesAction::Delete { id } => {
+            client.api().delete_ingress_rule(&id).await?;
+            println!("Ingress rule deleted: {id}");
+        }
+    }
+    Ok(())
+}
+
+fn format_ingress_rules(rules: &[IngressRuleResponse]) {
+    if rules.is_empty() {
+        println!("No ingress rules.");
+        return;
+    }
+    println!(
+        "{:<28} {:<28} {:<24} {:<7}",
+        "ID", "SCOPE_MATCHER", "REPOSITORY_ID", "ACTIVE"
+    );
+    for rule in rules {
+        println!(
+            "{:<28} {:<28} {:<24} {:<7}",
+            truncate_label(&rule.id, 28),
+            truncate_label(&rule.scope_matcher, 28),
+            truncate_label(&rule.repository_id, 24),
+            rule.active
+        );
+    }
+}
+
+fn truncate_label(s: &str, max: usize) -> String {
+    if s.len() <= max {
+        s.to_string()
+    } else {
+        format!("{}…", &s[..max.saturating_sub(1)])
+    }
 }
 
 async fn run_defaults(
@@ -511,6 +722,125 @@ async fn run_defaults(
     Ok(())
 }
 
+pub async fn send_to_task_channel_target(
+    client: &MoatClient,
+    task_id: &str,
+    channel: Option<&str>,
+    thread: Option<i32>,
+    subscription: Option<&str>,
+    pr: Option<&str>,
+    req: &SendChannelMessageRequest,
+) -> Result<moatless_api_schemas::channel::SendChannelMessageResponse, ClientError> {
+    let target_count = usize::from(channel.is_some())
+        + usize::from(thread.is_some())
+        + usize::from(subscription.is_some())
+        + usize::from(pr.is_some());
+    if target_count > 1 {
+        return Err(ClientError::Other(
+            "Use only one of --channel, --thread, --subscription, or --pr".into(),
+        ));
+    }
+
+    if let Some(thread_id) = thread {
+        return client
+            .api()
+            .send_to_task_channel_thread(task_id, thread_id, req)
+            .await
+            .map_err(ClientError::from);
+    }
+
+    if let Some(sub_id) = subscription {
+        return client
+            .api()
+            .send_to_task_channel_subscription(task_id, sub_id, req)
+            .await
+            .map_err(ClientError::from);
+    }
+
+    if let Some(subject_key) = pr {
+        let channels = client.api().list_task_channels(task_id).await?;
+        let matches: Vec<_> = channels
+            .into_iter()
+            .filter(|channel| {
+                channel.provider == ChannelType::GithubPr
+                    && channel.subject_key.as_deref() == Some(subject_key)
+            })
+            .collect();
+
+        let channel = match matches.as_slice() {
+            [] => {
+                return Err(ClientError::Other(format!(
+                    "Task {task_id} is not subscribed to GitHub PR {subject_key}"
+                )));
+            }
+            [channel] => channel,
+            _ => {
+                return Err(ClientError::Other(format!(
+                    "Task {task_id} has multiple subscriptions for {subject_key}; \
+                     use --subscription <id>"
+                )));
+            }
+        };
+
+        if let Some(sub_id) = channel.subscription_id.as_deref() {
+            return client
+                .api()
+                .send_to_task_channel_subscription(task_id, sub_id, req)
+                .await
+                .map_err(ClientError::from);
+        }
+
+        if let Some(thread_id) = channel.thread_id {
+            return client
+                .api()
+                .send_to_task_channel_thread(task_id, thread_id, req)
+                .await
+                .map_err(ClientError::from);
+        }
+
+        return Err(ClientError::Other(format!(
+            "GitHub PR subscription {subject_key} has no addressable id; \
+             list channels via `moat channels subscriptions --task {task_id}`"
+        )));
+    }
+
+    if let Some(config_id) = channel {
+        return client
+            .api()
+            .send_to_task_channel(task_id, config_id, req)
+            .await
+            .map_err(ClientError::from);
+    }
+
+    match client.api().send_to_task_channels(task_id, req).await {
+        Ok(resp) => Ok(resp),
+        Err(err) => Err(map_send_to_channels_error(err)),
+    }
+}
+
+/// Translate a `POST /channels/send` failure into `ClientError`. When the
+/// backend returns the structured `MultipleTargets` body, render it as a
+/// multi-line message so the agent sees exactly which flags to use.
+fn map_send_to_channels_error(err: moatless_api_client::ApiError) -> ClientError {
+    if let moatless_api_client::ApiError::Api { status: 400, body } = &err {
+        if let Ok(parsed) =
+            serde_json::from_str::<moatless_api_schemas::channel::MultipleTargetsErrorBody>(body)
+        {
+            let mut lines = vec![
+                parsed.error,
+                parsed.hint,
+                String::new(),
+                "Targets:".to_string(),
+            ];
+            for target in &parsed.targets {
+                lines.push(format!("  - {} ({})", target.label, target.flag_hint));
+            }
+            return ClientError::Other(lines.join("\n"));
+        }
+    }
+    ClientError::from(err)
+}
+
 fn format_defaults(provider: &str, v: &serde_json::Value) {
     println!("Provider:       {provider}");
     println!(
@@ -553,6 +883,7 @@ fn parse_channel_type(s: &str) -> ChannelType {
     match s {
         "email" => ChannelType::Email,
         "telegram" => ChannelType::Telegram,
+        "github" => ChannelType::GithubPr,
         "github_pr" => ChannelType::GithubPr,
         "webhook" => ChannelType::Webhook,
         "cron" => ChannelType::Cron,
@@ -574,7 +905,7 @@ fn format_channels(configs: &[ChannelConfigResponse]) {
         .map(|c| {
             vec![
                 c.id.clone(),
-                c.provider.to_string(),
+                display_channel_type(c.provider),
                 c.source_id.clone(),
                 c.routing_mode.to_string(),
                 if c.allow_direct_send {
@@ -587,4 +918,70 @@ fn format_channels(configs: &[ChannelConfigResponse]) {
         .collect();
 
     output::print_table(&["ID", "PROVIDER", "SOURCE", "MODE", "SENDABLE"], &rows);
+    if configs
+        .iter()
+        .any(|config| config.provider == ChannelType::GithubPr)
+    {
+        println!();
+        println!(
+            "GitHub channel configs are ingress configs. Use `moat channels subscriptions --task <task>` to inspect PR subscriptions."
+        );
+    }
+}
+
+fn format_task_channels(
+    task_id: &str,
+    channels: &[moatless_api_schemas::channel::TaskChannelResponse],
+) {
+    if channels.is_empty() {
+        println!("No channel subscriptions for task {task_id}.");
+        return;
+    }
+
+    let rows: Vec<Vec<String>> = channels
+        .iter()
+        .map(|channel| {
+            vec![
+                display_channel_type(channel.provider),
+                channel.config_id.clone(),
+                channel
+                    .thread_id
+                    .map_or_else(|| "-".to_string(), |id| id.to_string()),
+                channel
+                    .subject_key
+                    .clone()
+                    .or_else(|| channel.external_thread_id.clone())
+                    .unwrap_or_else(|| "-".to_string()),
+                channel.source_id.clone(),
+                channel
+                    .created_reason
+                    .clone()
+                    .unwrap_or_else(|| "-".to_string()),
+                channel
+                    .last_event_at
+                    .clone()
+                    .unwrap_or_else(|| "-".to_string()),
+            ]
+        })
+        .collect();
+
+    output::print_table(
+        &[
+            "PROVIDER",
+            "CONFIG",
+            "THREAD",
+            "SUBJECT",
+            "SOURCE",
+            "REASON",
+            "LAST_EVENT",
+        ],
+        &rows,
+    );
+}
+
+fn display_channel_type(provider: ChannelType) -> String {
+    match provider {
+        ChannelType::GithubPr => "github".to_string(),
+        _ => provider.to_string(),
+    }
 }

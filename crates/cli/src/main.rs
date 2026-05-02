@@ -144,6 +144,15 @@ enum SandboxCommands {
         /// Channel config ID (sends to all channels if omitted)
         #[arg(long)]
         channel: Option<String>,
+        /// Exact channel thread ID (preferred when a task has multiple subscriptions)
+        #[arg(long)]
+        thread: Option<i32>,
+        /// Exact task subscription ID to target (alternative to --thread / --pr)
+        #[arg(long)]
+        subscription: Option<String>,
+        /// Exact GitHub PR subscription to target, in owner/repo#123 format
+        #[arg(long)]
+        pr: Option<String>,
         /// Message text (reads from stdin if omitted and stdin is piped)
         #[arg(long)]
         text: Option<String>,
@@ -258,6 +267,9 @@ async fn run_sandbox(cli: SandboxCli) -> Result<(), Box<dyn std::error::Error>> 
         }
         SandboxCommands::Reply {
             channel,
+            thread,
+            subscription,
+            pr,
             text,
             files,
         } => {
@@ -293,13 +305,16 @@ async fn run_sandbox(cli: SandboxCli) -> Result<(), Box<dyn std::error::Error>> 
                 text: message_text,
                 file_ids,
             };
-            let resp = if let Some(config_id) = channel {
-                moat.api()
-                    .send_to_task_channel(&task_id, &config_id, &req)
-                    .await?
-            } else {
-                moat.api().send_to_task_channels(&task_id, &req).await?
-            };
+            let resp = commands::channels::send_to_task_channel_target(
+                &moat,
+                &task_id,
+                channel.as_deref(),
+                thread,
+                subscription.as_deref(),
+                pr.as_deref(),
+                &req,
+            )
+            .await?;
             if cli.opts.json {
                 output::print_json_typed(&resp);
             } else {

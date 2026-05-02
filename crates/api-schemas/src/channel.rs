@@ -96,6 +96,34 @@ pub struct SendChannelMessageResponse {
     pub errors: Vec<String>,
 }
 
+/// One outbound destination listed in a [`MultipleTargetsErrorBody`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelTargetDescriptor {
+    /// `"thread"` for legacy `channel_threads` rows, `"subscription"` for
+    /// `task_subscriptions` rows.
+    pub kind: String,
+    /// Stable identifier — `thread_id` (stringified i32) or `subscription_id`.
+    pub id: String,
+    /// Human-readable label such as `"slack #ops"` or `"github_pr owner/repo#42"`.
+    pub label: String,
+    /// CLI flag the caller should add to disambiguate, e.g.
+    /// `"--thread 42"` or `"--subscription sub_xyz"`.
+    pub flag_hint: String,
+}
+
+/// Body returned with HTTP 400 when `POST /channels/send` cannot pick a
+/// single destination because the task is wired to multiple channels.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct MultipleTargetsErrorBody {
+    pub error: String,
+    pub targets: Vec<ChannelTargetDescriptor>,
+    pub hint: String,
+}
+
 /// Request to send a message directly to a channel config.
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
@@ -121,7 +149,7 @@ pub struct DirectSendResponse {
     pub external_message_id: Option<String>,
 }
 
-/// Channel connected to a task (via channel_threads).
+/// Channel connected to a task (via channel_threads or task_subscriptions).
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
@@ -130,6 +158,25 @@ pub struct TaskChannelResponse {
     pub provider: ChannelType,
     pub source_id: String,
     pub source_name: Option<String>,
+    /// Internal channel thread identifier. Use this for exact outbound targeting
+    /// when a task has multiple subscriptions under the same config.
+    pub thread_id: Option<i32>,
+    /// Provider thread identifier such as GitHub PR number or Slack thread ts.
+    pub external_thread_id: Option<String>,
+    /// Provider-specific subject key such as `owner/repo#123` for GitHub PR subscriptions.
+    pub subject_key: Option<String>,
+    /// `task_subscriptions.id` (string surrogate) when this row originated from
+    /// the GitHub subscription model. None for legacy thread-based providers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subscription_id: Option<String>,
+    /// `task_subscriptions.created_reason` (e.g. `ingress`, `connected_thread`).
+    /// None for legacy thread-based providers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_reason: Option<String>,
+    /// ISO-8601 timestamp of the last event seen on the subscription. None for
+    /// legacy thread-based providers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_event_at: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -250,6 +297,79 @@ pub struct PairingRequestResponse {
     pub status: String,
     #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
     pub meta: Option<serde_json::Value>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+// ---------------------------------------------------------------------------
+// Provider connections + ingress rules (GitHub-native flow)
+// ---------------------------------------------------------------------------
+
+/// One row from `provider_connections` — describes a transport/auth scope
+/// (e.g. one GitHub org webhook).
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderConnectionResponse {
+    pub id: String,
+    pub provider: String,
+    pub connection_kind: String,
+    pub scope_value: String,
+    pub created_by: String,
+    pub scope: Scope,
+    pub team_id: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// Request body for `POST /api/v1/channels/rules`.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct CreateIngressRuleRequest {
+    /// Provider value, e.g. `"github"`.
+    pub provider: String,
+    /// Repo full name (`owner/repo`) or `*` wildcard.
+    pub scope_matcher: String,
+    pub repository_id: String,
+    pub task_name: Option<String>,
+    pub tag_ids: Option<Vec<String>>,
+    pub prompt_template: Option<String>,
+    /// Defaults to `"claude-code"` when omitted.
+    pub agent_type: Option<String>,
+    pub run_as_user_id: Option<String>,
+    pub close_task_on_close: Option<bool>,
+    pub notify_on_success: Option<bool>,
+    pub active: Option<bool>,
+    /// Optional event filter — empty means all supported events.
+    pub event_filter: Option<Vec<String>>,
+    /// Required when the caller belongs to multiple teams. Defaults to the
+    /// caller's only team when single-team.
+    pub team_id: Option<String>,
+}
+
+/// One row from `ingress_rules`.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct IngressRuleResponse {
+    pub id: String,
+    pub provider: String,
+    pub connection_id: String,
+    pub scope_matcher: String,
+    pub repository_id: String,
+    pub task_name: Option<String>,
+    pub tag_ids: Vec<String>,
+    pub prompt_template: Option<String>,
+    pub agent_type: String,
+    pub run_as_user_id: Option<String>,
+    pub close_task_on_close: bool,
+    pub notify_on_success: bool,
+    pub active: bool,
+    pub event_filter: Vec<String>,
+    pub created_by: String,
+    pub scope: Scope,
+    pub team_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }

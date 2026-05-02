@@ -904,6 +904,14 @@ pub async fn create_config(
 ) -> Result<Json<ChannelConfigResponse>, ChannelError> {
     info!(provider = %req.provider, source_id = %req.source_id, "Creating channel config");
 
+    if req.provider == ChannelType::GithubPr {
+        return Err(ChannelError::BadRequest(
+            "Use POST /api/v1/channels/rules for GitHub. The legacy per-repo \
+             channel_configs path was removed in migration 0034."
+                .into(),
+        ));
+    }
+
     // Validate cron schedule if applicable
     validate_cron_schedule(req.provider.as_str(), req.provider_config.as_ref())?;
 
@@ -1061,6 +1069,14 @@ pub async fn update_config(
         .find_by_id_scoped(&id, &auth.scope_context())
         .await?
         .ok_or_else(|| ChannelError::ConfigNotFound(id.clone()))?;
+
+    if existing.provider == "github_pr" {
+        return Err(ChannelError::BadRequest(
+            "Use /api/v1/channels/rules for GitHub. The legacy per-repo \
+             channel_configs path was removed in migration 0034."
+                .into(),
+        ));
+    }
 
     // Validate cron schedule if updating provider_config on a cron channel
     validate_cron_schedule(&existing.provider, req.provider_config.as_ref())?;
@@ -1275,6 +1291,14 @@ pub async fn set_defaults(
 ) -> Result<Json<ChannelConfigResponse>, ChannelError> {
     info!(provider = %provider, "Setting channel defaults");
 
+    if provider == "github" || provider == "github_pr" {
+        return Err(ChannelError::BadRequest(
+            "Use POST /api/v1/channels/rules with scope_matcher='*' for GitHub defaults. \
+             channel_configs no longer back GitHub channels."
+                .into(),
+        ));
+    }
+
     // Validate cron schedule if applicable
     validate_cron_schedule(&provider, req.provider_config.as_ref())?;
 
@@ -1382,11 +1406,19 @@ pub async fn delete_config(
 ) -> Result<StatusCode, ChannelError> {
     info!(config_id = %id, "Deleting channel config");
 
-    state
+    let existing = state
         .channel_configs
         .find_by_id_scoped(&id, &auth.scope_context())
         .await?
         .ok_or_else(|| ChannelError::ConfigNotFound(id.clone()))?;
+
+    if existing.provider == "github_pr" {
+        return Err(ChannelError::BadRequest(
+            "Use DELETE /api/v1/channels/rules/{id} for GitHub. The legacy \
+             channel_configs path was removed in migration 0034."
+                .into(),
+        ));
+    }
 
     state.channel_configs.delete(&id).await?;
 
@@ -1422,14 +1454,37 @@ pub async fn list_task_channels(
     let mut channels = Vec::new();
     for thread in &threads {
         if let Ok(Some(config)) = state.channel_configs.find_by_id(&thread.config_id).await {
-            channels.push(super::schemas::task_channel_from_model(&config));
+            channels.push(super::schemas::task_channel_from_thread(&config, thread));
         }
+    }
+
+    let subscriptions = super::task_subscription_dao::PgTaskSubscriptionRepository(state.db.clone())
+        .find_by_task_id(&task_id)
+        .await?;
+    for subscription in &subscriptions {
+        let rule = if let Some(ref rule_id) = subscription.ingress_rule_id {
+            super::ingress_rule_dao::PgIngressRuleRepository(state.db.clone())
+                .find_by_id(rule_id)
+                .await?
+        } else {
+            None
+        };
+        channels.push(super::schemas::task_channel_from_subscription(
+            subscription,
+            rule.as_ref(),
+        ));
     }
 
     Ok(Json(channels))
 }
 
-/// Send a message to all channels connected to a task.
+/// Send a message to the single channel connected to a task.
+///
+/// **Behavior:**
+/// - 0 destinations → 404 `ConfigNotFound`.
+/// - 1 destination (legacy thread or subscription) → routed automatically.
+/// - 2+ destinations → 400 `MultipleTargets` listing every target so the
+///   caller can re-issue with `--thread`, `--subscription`, or `--pr`.
 #[utoipa::path(
     post,
     path = "/api/v1/tasks/{task_id}/channels/send",
@@ -1440,6 +1495,7 @@ pub async fn list_task_channels(
     request_body = SendChannelMessageRequest,
     responses(
         (status = 200, description = "Message sent", body = SendChannelMessageResponse),
+        (status = 400, description = "Multiple destinations — pick one", body = moatless_api_schemas::channel::MultipleTargetsErrorBody),
         (status = 404, description = "No channels for task", body = crate::error::ErrorBody),
         (status = 502, description = "All providers failed", body = crate::error::ErrorBody)
     )
@@ -1454,21 +1510,78 @@ pub async fn send_to_task_channels(
         ChannelError::ProviderNotConfigured("No channel providers configured".into())
     })?;
 
-    let (sent_count, errors) = super::outbound::send_to_channels(
-        &state,
-        providers,
-        &task_id,
-        &req.text,
-        &req.file_ids,
-        None,
-    )
-    .await?;
+    let threads = state.channel_threads.find_by_task_id(&task_id).await?;
+    let subscriptions = super::task_subscription_dao::PgTaskSubscriptionRepository(state.db.clone())
+        .find_by_task_id(&task_id)
+        .await?;
 
-    if sent_count == 0 && !errors.is_empty() {
-        return Err(ChannelError::ProviderApi(errors.join("; ")));
+    let total = threads.len() + subscriptions.len();
+    match total {
+        0 => Err(ChannelError::ConfigNotFound(format!(
+            "Task {task_id} has no channels"
+        ))),
+        1 if subscriptions.len() == 1 => {
+            let (sent_count, errors) = super::outbound::send_to_subscription(
+                &state,
+                providers,
+                &task_id,
+                &subscriptions[0].id,
+                &req.text,
+                &req.file_ids,
+            )
+            .await?;
+            if sent_count == 0 && !errors.is_empty() {
+                return Err(ChannelError::ProviderApi(errors.join("; ")));
+            }
+            Ok(Json(SendChannelMessageResponse { sent_count, errors }))
+        }
+        1 => {
+            let (sent_count, errors) = super::outbound::send_to_channels(
+                &state,
+                providers,
+                &task_id,
+                &req.text,
+                &req.file_ids,
+                None,
+            )
+            .await?;
+            if sent_count == 0 && !errors.is_empty() {
+                return Err(ChannelError::ProviderApi(errors.join("; ")));
+            }
+            Ok(Json(SendChannelMessageResponse { sent_count, errors }))
+        }
+        _ => {
+            let mut targets = Vec::with_capacity(total);
+            for thread in &threads {
+                let label = match state.channel_configs.find_by_id(&thread.config_id).await {
+                    Ok(Some(config)) => format!(
+                        "{} {}",
+                        config.provider,
+                        config
+                            .source_name
+                            .as_deref()
+                            .unwrap_or(config.source_id.as_str())
+                    ),
+                    _ => format!("thread {} (config {})", thread.id, thread.config_id),
+                };
+                targets.push(moatless_api_schemas::channel::ChannelTargetDescriptor {
+                    kind: "thread".to_string(),
+                    id: thread.id.to_string(),
+                    label,
+                    flag_hint: format!("--thread {}", thread.id),
+                });
+            }
+            for sub in &subscriptions {
+                targets.push(moatless_api_schemas::channel::ChannelTargetDescriptor {
+                    kind: "subscription".to_string(),
+                    id: sub.id.clone(),
+                    label: format!("{} {}", sub.subject_kind, sub.subject_key),
+                    flag_hint: format!("--subscription {}", sub.id),
+                });
+            }
+            Err(ChannelError::MultipleTargets { targets })
+        }
     }
-
-    Ok(Json(SendChannelMessageResponse { sent_count, errors }))
 }
 
 /// Send a message to a specific channel connected to a task.
@@ -1504,6 +1617,98 @@ pub async fn send_to_task_channel(
         &req.text,
         &req.file_ids,
         Some(&config_id),
+    )
+    .await?;
+
+    if sent_count == 0 && !errors.is_empty() {
+        return Err(ChannelError::ProviderApi(errors.join("; ")));
+    }
+
+    Ok(Json(SendChannelMessageResponse { sent_count, errors }))
+}
+
+/// Send a message to one exact channel thread connected to a task.
+///
+/// This is the precise outbound route for task subscriptions such as GitHub PRs,
+/// where several connected subjects may share the same channel config.
+#[utoipa::path(
+    post,
+    path = "/api/v1/tasks/{task_id}/channels/threads/{thread_id}/send",
+    tag = "channels",
+    params(
+        ("task_id" = String, Path, description = "Task ID"),
+        ("thread_id" = i32, Path, description = "Channel thread ID")
+    ),
+    request_body = SendChannelMessageRequest,
+    responses(
+        (status = 200, description = "Message sent", body = SendChannelMessageResponse),
+        (status = 404, description = "Channel thread not found", body = crate::error::ErrorBody),
+        (status = 502, description = "Provider failed", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn send_to_task_channel_thread(
+    State(state): State<AppState>,
+    _auth: AuthUser,
+    Path((task_id, thread_id)): Path<(String, i32)>,
+    Json(req): Json<SendChannelMessageRequest>,
+) -> Result<Json<SendChannelMessageResponse>, ChannelError> {
+    let providers = state.channel_providers.as_ref().ok_or_else(|| {
+        ChannelError::ProviderNotConfigured("No channel providers configured".into())
+    })?;
+
+    let (sent_count, errors) = super::outbound::send_to_channel_thread(
+        &state,
+        providers,
+        &task_id,
+        thread_id,
+        &req.text,
+        &req.file_ids,
+    )
+    .await?;
+
+    if sent_count == 0 && !errors.is_empty() {
+        return Err(ChannelError::ProviderApi(errors.join("; ")));
+    }
+
+    Ok(Json(SendChannelMessageResponse { sent_count, errors }))
+}
+
+/// Send a message to one exact `task_subscriptions` row.
+///
+/// Used by the GitHub PR ingress flow where each task may have several PR
+/// subscriptions and the agent picks one with `moat reply --subscription <id>`.
+#[utoipa::path(
+    post,
+    path = "/api/v1/tasks/{task_id}/channels/subscriptions/{subscription_id}/send",
+    tag = "channels",
+    params(
+        ("task_id" = String, Path, description = "Task ID"),
+        ("subscription_id" = String, Path, description = "Task subscription ID")
+    ),
+    request_body = SendChannelMessageRequest,
+    responses(
+        (status = 200, description = "Message sent", body = SendChannelMessageResponse),
+        (status = 404, description = "Subscription not found", body = crate::error::ErrorBody),
+        (status = 502, description = "Provider failed", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn send_to_task_channel_subscription(
+    State(state): State<AppState>,
+    _auth: AuthUser,
+    Path((task_id, subscription_id)): Path<(String, String)>,
+    Json(req): Json<SendChannelMessageRequest>,
+) -> Result<Json<SendChannelMessageResponse>, ChannelError> {
+    let providers = state.channel_providers.as_ref().ok_or_else(|| {
+        ChannelError::ProviderNotConfigured("No channel providers configured".into())
+    })?;
+
+    let (sent_count, errors) = super::outbound::send_to_subscription(
+        &state,
+        providers,
+        &task_id,
+        &subscription_id,
+        &req.text,
+        &req.file_ids,
     )
     .await?;
 
@@ -1714,4 +1919,242 @@ fn validate_cron_schedule(
     })?;
 
     Ok(())
+}
+
+// =========================================================================
+// GitHub-native ingress rules + provider connections
+// =========================================================================
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListIngressRulesQuery {
+    pub provider: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListProviderConnectionsQuery {
+    pub provider: Option<String>,
+}
+
+fn ingress_rule_to_response(rule: &super::models::IngressRule) -> IngressRuleResponse {
+    let event_filter = rule
+        .event_filter
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+    IngressRuleResponse {
+        id: rule.id.clone(),
+        provider: rule.provider.clone(),
+        connection_id: rule.connection_id.clone(),
+        scope_matcher: rule.scope_matcher.clone(),
+        repository_id: rule.repository_id.clone(),
+        task_name: rule.task_name.clone(),
+        tag_ids: rule.tag_ids.clone(),
+        prompt_template: rule.prompt_template.clone(),
+        agent_type: rule.agent_type.clone(),
+        run_as_user_id: rule.run_as_user_id.clone(),
+        close_task_on_close: rule.close_task_on_close,
+        notify_on_success: rule.notify_on_success,
+        active: rule.active,
+        event_filter,
+        created_by: rule.created_by.clone(),
+        scope: rule.scope,
+        team_id: rule.team_id.clone(),
+        created_at: rule.created_at.to_rfc3339(),
+        updated_at: rule.updated_at.to_rfc3339(),
+    }
+}
+
+fn connection_to_response(
+    conn: &super::models::ProviderConnection,
+) -> ProviderConnectionResponse {
+    ProviderConnectionResponse {
+        id: conn.id.clone(),
+        provider: conn.provider.clone(),
+        connection_kind: conn.connection_kind.clone(),
+        scope_value: conn.scope_value.clone(),
+        created_by: conn.created_by.clone(),
+        scope: conn.scope,
+        team_id: conn.team_id.clone(),
+        created_at: conn.created_at.to_rfc3339(),
+        updated_at: conn.updated_at.to_rfc3339(),
+    }
+}
+
+/// Create or upsert an ingress rule.
+#[utoipa::path(
+    post,
+    path = "/api/v1/channels/rules",
+    tag = "channels",
+    request_body = CreateIngressRuleRequest,
+    responses(
+        (status = 200, description = "Rule created or updated", body = IngressRuleResponse),
+        (status = 400, description = "Invalid request", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn create_ingress_rule(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Json(req): Json<CreateIngressRuleRequest>,
+) -> Result<Json<IngressRuleResponse>, ChannelError> {
+    if req.provider != "github" {
+        return Err(ChannelError::BadRequest(format!(
+            "Only 'github' is supported for ingress rules; got '{}'",
+            req.provider
+        )));
+    }
+
+    let owner = req.scope_matcher.split('/').next().ok_or_else(|| {
+        ChannelError::BadRequest(format!(
+            "scope_matcher must be 'owner/repo' or 'owner/*', got '{}'",
+            req.scope_matcher
+        ))
+    })?;
+
+    let connection = super::provider_connection_dao::PgProviderConnectionRepository(
+        state.db.clone(),
+    )
+    .find_by_scope_value("github", owner)
+    .await?
+    .ok_or_else(|| {
+        ChannelError::BadRequest(format!(
+            "No GitHub provider_connection for org '{owner}' — \
+             register the org webhook and run the 0034 migration first"
+        ))
+    })?;
+
+    state
+        .repositories
+        .find_repository_by_id(&req.repository_id)
+        .await?
+        .ok_or_else(|| {
+            ChannelError::BadRequest(format!("Repository not found: {}", req.repository_id))
+        })?;
+
+    let team_id = match req.team_id.as_deref() {
+        Some(tid) => Some(tid.to_string()),
+        None if auth.team_ids.len() == 1 => Some(auth.team_ids[0].clone()),
+        None if auth.team_ids.len() > 1 => {
+            return Err(ChannelError::BadRequest(
+                "You belong to multiple teams. Please specify teamId.".to_string(),
+            ));
+        }
+        None => None,
+    };
+
+    let now = chrono::Utc::now();
+    let id = format!("ir_{}", nanoid::nanoid!(21));
+    let event_filter = serde_json::json!(req.event_filter.unwrap_or_default());
+
+    let rule = super::models::IngressRule {
+        id,
+        provider: "github".to_string(),
+        connection_id: connection.id.clone(),
+        scope_matcher: req.scope_matcher,
+        event_filter,
+        repository_id: req.repository_id,
+        prompt_template: req.prompt_template,
+        task_name: req.task_name,
+        tag_ids: req.tag_ids.unwrap_or_default(),
+        run_as_user_id: req.run_as_user_id,
+        agent_type: req
+            .agent_type
+            .unwrap_or_else(|| "claude-code".to_string()),
+        close_task_on_close: req.close_task_on_close.unwrap_or(true),
+        notify_on_success: req.notify_on_success.unwrap_or(false),
+        active: req.active.unwrap_or(true),
+        created_by: auth.user_id.clone(),
+        scope: connection.scope,
+        team_id,
+        created_at: now,
+        updated_at: now,
+    };
+
+    let saved = super::ingress_rule_dao::PgIngressRuleRepository(state.db.clone())
+        .upsert(&rule)
+        .await?;
+    info!(rule_id = %saved.id, scope_matcher = %saved.scope_matcher, "Ingress rule upserted");
+    Ok(Json(ingress_rule_to_response(&saved)))
+}
+
+/// List ingress rules.
+#[utoipa::path(
+    get,
+    path = "/api/v1/channels/rules",
+    tag = "channels",
+    params(
+        ("provider" = Option<String>, Query, description = "Filter by provider (defaults to 'github')")
+    ),
+    responses(
+        (status = 200, description = "Rules", body = Vec<IngressRuleResponse>)
+    )
+)]
+pub async fn list_ingress_rules(
+    State(state): State<AppState>,
+    _auth: AuthUser,
+    Query(query): Query<ListIngressRulesQuery>,
+) -> Result<Json<Vec<IngressRuleResponse>>, ChannelError> {
+    let provider = query.provider.unwrap_or_else(|| "github".to_string());
+    let rules = super::ingress_rule_dao::PgIngressRuleRepository(state.db.clone())
+        .list_by_provider(&provider)
+        .await?;
+    Ok(Json(rules.iter().map(ingress_rule_to_response).collect()))
+}
+
+/// Delete an ingress rule by id.
+#[utoipa::path(
+    delete,
+    path = "/api/v1/channels/rules/{id}",
+    tag = "channels",
+    params(
+        ("id" = String, Path, description = "Ingress rule ID")
+    ),
+    responses(
+        (status = 204, description = "Rule deleted"),
+        (status = 404, description = "Rule not found", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn delete_ingress_rule(
+    State(state): State<AppState>,
+    _auth: AuthUser,
+    Path(id): Path<String>,
+) -> Result<StatusCode, ChannelError> {
+    let repo = super::ingress_rule_dao::PgIngressRuleRepository(state.db.clone());
+    let rule = repo
+        .find_by_id(&id)
+        .await?
+        .ok_or_else(|| ChannelError::ConfigNotFound(id.clone()))?;
+    repo.delete(&rule.id).await?;
+    info!(rule_id = %id, "Ingress rule deleted (subscriptions, if any, become orphaned)");
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// List provider connections (read-only — connections are bootstrapped by
+/// migration 0034).
+#[utoipa::path(
+    get,
+    path = "/api/v1/channels/connections",
+    tag = "channels",
+    params(
+        ("provider" = Option<String>, Query, description = "Filter by provider (defaults to 'github')")
+    ),
+    responses(
+        (status = 200, description = "Connections", body = Vec<ProviderConnectionResponse>)
+    )
+)]
+pub async fn list_provider_connections(
+    State(state): State<AppState>,
+    _auth: AuthUser,
+    Query(query): Query<ListProviderConnectionsQuery>,
+) -> Result<Json<Vec<ProviderConnectionResponse>>, ChannelError> {
+    let provider = query.provider.unwrap_or_else(|| "github".to_string());
+    let conns = super::provider_connection_dao::PgProviderConnectionRepository(state.db.clone())
+        .list_by_provider(&provider)
+        .await?;
+    Ok(Json(conns.iter().map(connection_to_response).collect()))
 }
