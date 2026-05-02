@@ -1,20 +1,31 @@
-//! Sandbox-local cron for the Claude Code `Monitor` tool.
+//! Sandbox-local streaming watcher for the Claude Code `Monitor` tool.
 //!
 //! When the agent invokes `Monitor`, `InteractivePermissionHandler` rewrites
 //! the tool input to a no-op (so the SDK's built-in implementation exits
 //! immediately) and registers a `MonitorJob` against the shared
-//! `ScheduledJobRegistry`. The job runs the supplied shell command on a fixed
-//! 60s interval and stops once the command exits 0 with non-empty stdout, or
-//! once `timeout_ms` elapses. Each terminal result is injected back into the
-//! running Claude session as a `<task-notification>` user message that
-//! mirrors the real Monitor envelope.
+//! `ScheduledJobRegistry`. The job spawns the supplied shell command **once**
+//! as a long-running process and streams its stdout back to the running
+//! Claude session as `<task-notification>` user messages — one notification
+//! per 200ms-batched group of lines, plus a terminal envelope on process
+//! exit, timeout, or cancellation. Stderr is captured to a per-job log file
+//! (with `[stderr] ` prefix) but never produces an event; the agent reads
+//! that file via the `Read` tool when stderr matters.
+//!
+//! Behavior matches the hosted Claude Code Monitor (verified empirically):
+//! `persistent: false` runs until the process exits or `timeout_ms` elapses
+//! (it does NOT cut off after the first event); `persistent: true` ignores
+//! `timeout_ms` and runs until the process exits or the agent run ends.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::Value;
+use tokio::fs::OpenOptions;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
+use tokio::sync::{mpsc, Mutex};
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
@@ -23,18 +34,21 @@ use super::scheduled_job::{
     JobContext, JobInjector, JobKind, JobSnapshot, MonitorSnapshot, ScheduledJob,
 };
 
-/// Polling interval — every tick we run the registered command once.
-const TICK_INTERVAL: Duration = Duration::from_secs(60);
-/// Per-tick command timeout. Less than `TICK_INTERVAL` so tick N+1 never
-/// races with tick N's child process.
-const TICK_TIMEOUT: Duration = Duration::from_secs(50);
-/// Maximum bytes of stdout we forward inline in the `<event>` block.
+/// Stdout lines arriving within this window coalesce into a single
+/// `<task-notification>` event. Matches the hosted Monitor batching window.
+const BATCH_WINDOW: Duration = Duration::from_millis(200);
+/// Maximum bytes of stdout we forward inline in the `<event>` block. Anything
+/// over this is truncated and the agent is pointed at the output file.
 const MAX_INLINE_OUTPUT: usize = 16 * 1024;
 /// Hard cap on the registered Monitor's deadline. Mirrors the SDK schema's
 /// `timeout_ms` maximum (3 600 000 ms).
 const MAX_TIMEOUT: Duration = Duration::from_secs(3600);
-/// Where truncated payloads are written for the agent to fetch out of band.
-const OVERFLOW_LOG_DIR: &str = "/tmp";
+/// Where the per-job stdout/stderr log is persisted. The agent reads this via
+/// the `Read` tool when it needs the full stream or stderr.
+const OUTPUT_LOG_DIR: &str = "/tmp";
+/// Prefix applied to stderr lines in the output file. Matches the hosted
+/// Monitor's format so agents have one consistent convention.
+const STDERR_PREFIX: &str = "[stderr] ";
 
 /// Parsed Monitor tool input.
 #[derive(Debug, Clone)]
@@ -79,7 +93,7 @@ impl MonitorRequest {
     }
 }
 
-/// Cron job driving one Monitor tool invocation.
+/// Streaming watcher driving one Monitor tool invocation.
 pub struct MonitorJob {
     request: MonitorRequest,
     cron_id: String,
@@ -134,7 +148,18 @@ impl ScheduledJob for MonitorJob {
     }
 }
 
-/// Worker loop for one registered Monitor.
+/// Terminal outcome for one Monitor run. `Cancelled` is the only variant that
+/// suppresses the terminal envelope — it matches today's "silent stop on
+/// agent run end" behavior.
+#[derive(Debug)]
+enum TerminalStatus {
+    Completed,
+    Failed { exit_code: Option<i32> },
+    Timeout,
+    Cancelled,
+}
+
+/// Streaming watcher for one registered Monitor.
 async fn run_monitor_job(
     req: MonitorRequest,
     cron_id: String,
@@ -142,185 +167,410 @@ async fn run_monitor_job(
     job_cancel: CancellationToken,
     run_cancel: CancellationToken,
 ) {
-    let timeout = Duration::from_millis(req.timeout_ms).min(MAX_TIMEOUT);
-    let deadline = Instant::now() + timeout;
-    let mut interval = tokio::time::interval(TICK_INTERVAL);
-    // First tick fires immediately — match what a user would expect from
-    // "run this on a schedule" without an extra 60s delay before the first run.
-    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let output_path = output_log_path(&cron_id);
 
-    loop {
-        // Wait for either the next scheduled tick, the deadline, or a cancel.
-        tokio::select! {
-            biased;
-            () = job_cancel.cancelled() => {
-                debug!(cron_id = %cron_id, "Monitor cancelled (job token)");
-                return;
-            }
-            () = run_cancel.cancelled() => {
-                debug!(cron_id = %cron_id, "Monitor cancelled (run token)");
-                return;
-            }
-            () = tokio::time::sleep_until(deadline), if !req.persistent => {
-                let notification = format_timeout(&cron_id, &req);
-                injector.inject(notification);
-                info!(cron_id = %cron_id, "Monitor timed out, injected timeout notification");
-                return;
-            }
-            _ = interval.tick() => {}
-        }
-
-        // Run the command, but keep watching for cancel/deadline so a long
-        // command (e.g. `sleep 5`) doesn't pin the worker.
-        let outcome = tokio::select! {
-            biased;
-            () = job_cancel.cancelled() => {
-                debug!(cron_id = %cron_id, "Monitor cancelled mid-tick (job token)");
-                return;
-            }
-            () = run_cancel.cancelled() => {
-                debug!(cron_id = %cron_id, "Monitor cancelled mid-tick (run token)");
-                return;
-            }
-            () = tokio::time::sleep_until(deadline), if !req.persistent => {
-                let notification = format_timeout(&cron_id, &req);
-                injector.inject(notification);
-                info!(cron_id = %cron_id, "Monitor timed out mid-tick, injected timeout notification");
-                return;
-            }
-            result = run_command_once(&req.command) => result,
-        };
-
-        match outcome {
-            Ok(TickOutcome::SuccessWithOutput(stdout)) => {
-                let notification = format_completed(&cron_id, &req, &stdout);
-                injector.inject(notification);
-                info!(cron_id = %cron_id, "Monitor completed, injected result");
-                return;
-            }
-            Ok(TickOutcome::EmptyOrNonZero {
-                exit_code,
-                stderr_summary,
-            }) => {
-                debug!(
-                    cron_id = %cron_id,
-                    exit_code = ?exit_code,
-                    stderr = %stderr_summary,
-                    "Monitor tick produced no terminal output, polling again"
-                );
-            }
-            Err(error) => {
-                warn!(cron_id = %cron_id, error = %error, "Monitor tick failed");
-            }
-        }
-    }
-}
-
-/// What a single command tick produced.
-enum TickOutcome {
-    /// Exit 0 with non-empty stdout — the terminal event we forward.
-    SuccessWithOutput(String),
-    /// Either non-zero exit, empty stdout, or both. Keep polling.
-    EmptyOrNonZero {
-        exit_code: Option<i32>,
-        stderr_summary: String,
-    },
-}
-
-async fn run_command_once(command: &str) -> Result<TickOutcome, std::io::Error> {
-    let child = Command::new("/bin/sh")
-        .arg("-c")
-        .arg(command)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()?;
-
-    let wait = child.wait_with_output();
-    let output = match tokio::time::timeout(TICK_TIMEOUT, wait).await {
-        Ok(result) => result?,
-        Err(_) => {
-            // wait_with_output() owns the child; on timeout it gets dropped
-            // here and `kill_on_drop(true)` reaps it.
-            return Ok(TickOutcome::EmptyOrNonZero {
-                exit_code: None,
-                stderr_summary: format!("tick exceeded {}s", TICK_TIMEOUT.as_secs()),
-            });
+    // Open the output log truncating. If this fails the streaming events
+    // still flow; the terminal envelope's `<output-file>` reference will
+    // dangle, which the agent will discover when it tries to Read it.
+    let output_file = match OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .open(&output_path)
+        .await
+    {
+        Ok(f) => Some(Arc::new(Mutex::new(f))),
+        Err(e) => {
+            warn!(
+                error = %e,
+                path = %output_path.display(),
+                cron_id = %cron_id,
+                "Failed to open Monitor output log; continuing without disk capture",
+            );
+            None
         }
     };
 
-    let exit_code = output.status.code();
-    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-    if output.status.success() && !stdout.trim().is_empty() {
-        Ok(TickOutcome::SuccessWithOutput(stdout))
+    let mut command = Command::new("/bin/sh");
+    command
+        .arg("-c")
+        .arg(&req.command)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    #[cfg(unix)]
+    command.process_group(0);
+
+    let mut child = match command.spawn() {
+        Ok(c) => c,
+        Err(e) => {
+            warn!(
+                cron_id = %cron_id,
+                error = %e,
+                "Failed to spawn Monitor command",
+            );
+            let term = format_terminal(
+                &cron_id,
+                &req,
+                &output_path,
+                TerminalStatus::Failed { exit_code: None },
+            );
+            injector.inject(term);
+            return;
+        }
+    };
+
+    let (Some(stdout), Some(stderr)) = (child.stdout.take(), child.stderr.take()) else {
+        // Unreachable in practice — both pipes were configured Stdio::piped()
+        // immediately above — but a panic here would crash the agent run.
+        warn!(
+            cron_id = %cron_id,
+            "Monitor child spawned without stdout/stderr pipes; aborting watcher",
+        );
+        let _ = child.start_kill();
+        let _ = child.wait().await;
+        let term = format_terminal(
+            &cron_id,
+            &req,
+            &output_path,
+            TerminalStatus::Failed { exit_code: None },
+        );
+        injector.inject(term);
+        return;
+    };
+
+    let (line_tx, mut line_rx) = mpsc::unbounded_channel::<String>();
+
+    // Stdout reader: forward every line to the event channel AND mirror to
+    // the output file.
+    let stdout_writer = output_file.clone();
+    let stdout_handle = tokio::spawn(async move {
+        let mut reader = BufReader::new(stdout).lines();
+        loop {
+            match reader.next_line().await {
+                Ok(Some(line)) => {
+                    if let Some(file) = &stdout_writer {
+                        let mut guard = file.lock().await;
+                        let _ = guard.write_all(line.as_bytes()).await;
+                        let _ = guard.write_all(b"\n").await;
+                        let _ = guard.flush().await;
+                    }
+                    if line_tx.send(line).is_err() {
+                        // Worker has gone away — stop reading.
+                        break;
+                    }
+                }
+                Ok(None) => break,
+                Err(e) => {
+                    warn!(error = %e, "Monitor stdout read error");
+                    break;
+                }
+            }
+        }
+    });
+
+    // Stderr reader: writes to the output file, never produces events.
+    let stderr_writer = output_file.clone();
+    let stderr_handle = tokio::spawn(async move {
+        let mut reader = BufReader::new(stderr).lines();
+        loop {
+            match reader.next_line().await {
+                Ok(Some(line)) => {
+                    if let Some(file) = &stderr_writer {
+                        let mut guard = file.lock().await;
+                        let _ = guard.write_all(STDERR_PREFIX.as_bytes()).await;
+                        let _ = guard.write_all(line.as_bytes()).await;
+                        let _ = guard.write_all(b"\n").await;
+                        let _ = guard.flush().await;
+                    }
+                }
+                Ok(None) => break,
+                Err(e) => {
+                    warn!(error = %e, "Monitor stderr read error");
+                    break;
+                }
+            }
+        }
+    });
+
+    let timeout_at: Option<Instant> = if req.persistent {
+        None
     } else {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let stderr_summary = stderr.lines().take(3).collect::<Vec<_>>().join(" | ");
-        Ok(TickOutcome::EmptyOrNonZero {
-            exit_code,
-            stderr_summary,
-        })
+        Some(Instant::now() + Duration::from_millis(req.timeout_ms).min(MAX_TIMEOUT))
+    };
+
+    let mut buffer: Vec<String> = Vec::new();
+    let mut buffer_bytes: usize = 0;
+    let mut flush_at: Option<Instant> = None;
+    // Once the stdout reader closes line_tx, recv() returns None forever;
+    // without a guard the biased select would starve child.wait().
+    let mut stdout_closed = false;
+
+    info!(
+        cron_id = %cron_id,
+        persistent = req.persistent,
+        timeout_ms = req.timeout_ms,
+        "Monitor started",
+    );
+
+    let terminal: TerminalStatus = loop {
+        tokio::select! {
+            biased;
+
+            () = job_cancel.cancelled() => {
+                debug!(cron_id = %cron_id, "Monitor cancelled (job token)");
+                break TerminalStatus::Cancelled;
+            }
+            () = run_cancel.cancelled() => {
+                debug!(cron_id = %cron_id, "Monitor cancelled (run token)");
+                break TerminalStatus::Cancelled;
+            }
+
+            () = sleep_until_or_pending(timeout_at) => {
+                debug!(cron_id = %cron_id, "Monitor timeout reached");
+                if !buffer.is_empty() {
+                    flush_buffer(
+                        &mut buffer,
+                        &mut buffer_bytes,
+                        &cron_id,
+                        &req.description,
+                        &output_path,
+                        injector.as_ref(),
+                    );
+                }
+                break TerminalStatus::Timeout;
+            }
+
+            () = sleep_until_or_pending(flush_at) => {
+                flush_at = None;
+                if !buffer.is_empty() {
+                    flush_buffer(
+                        &mut buffer,
+                        &mut buffer_bytes,
+                        &cron_id,
+                        &req.description,
+                        &output_path,
+                        injector.as_ref(),
+                    );
+                }
+            }
+
+            line = line_rx.recv(), if !stdout_closed => {
+                match line {
+                    Some(line) => {
+                        buffer_bytes += line.len() + 1;
+                        buffer.push(line);
+                        if buffer_bytes >= MAX_INLINE_OUTPUT {
+                            flush_buffer(
+                                &mut buffer,
+                                &mut buffer_bytes,
+                                &cron_id,
+                                &req.description,
+                                &output_path,
+                                injector.as_ref(),
+                            );
+                            flush_at = None;
+                        } else if flush_at.is_none() {
+                            flush_at = Some(Instant::now() + BATCH_WINDOW);
+                        }
+                    }
+                    None => {
+                        // stdout reader finished. Disarm this arm and wait
+                        // for child.wait to fire; its arm handles the final
+                        // drain + flush + status mapping.
+                        stdout_closed = true;
+                    }
+                }
+            }
+
+            status = child.wait() => {
+                // Drain anything the reader has already pushed but we
+                // haven't pulled yet, then await the reader so no tail
+                // line is missed.
+                while let Ok(line) = line_rx.try_recv() {
+                    buffer_bytes += line.len() + 1;
+                    buffer.push(line);
+                }
+                let _ = stdout_handle.await;
+                while let Ok(line) = line_rx.try_recv() {
+                    buffer_bytes += line.len() + 1;
+                    buffer.push(line);
+                }
+                if !buffer.is_empty() {
+                    flush_buffer(
+                        &mut buffer,
+                        &mut buffer_bytes,
+                        &cron_id,
+                        &req.description,
+                        &output_path,
+                        injector.as_ref(),
+                    );
+                }
+                break match status {
+                    Ok(exit) if exit.success() => TerminalStatus::Completed,
+                    Ok(exit) => TerminalStatus::Failed { exit_code: exit.code() },
+                    Err(e) => {
+                        warn!(cron_id = %cron_id, error = %e, "Monitor child wait failed");
+                        TerminalStatus::Failed { exit_code: None }
+                    }
+                };
+            }
+        }
+    };
+
+    match terminal {
+        TerminalStatus::Cancelled => {
+            // Match today's behavior: cancel = silent stop, no envelope.
+            let _ = child.start_kill();
+            let _ = child.wait().await;
+            let _ = stderr_handle.await;
+            return;
+        }
+        TerminalStatus::Timeout => {
+            let _ = child.start_kill();
+            let _ = child.wait().await;
+        }
+        _ => {}
+    }
+
+    // Wait for the stderr reader to finish flushing whatever was in flight.
+    // (The stdout reader was already awaited inside the child.wait arm.)
+    let _ = stderr_handle.await;
+
+    info!(
+        cron_id = %cron_id,
+        ?terminal,
+        "Monitor terminated",
+    );
+
+    let term = format_terminal(&cron_id, &req, &output_path, terminal);
+    injector.inject(term);
+}
+
+/// Sleep until the deadline, or never if `deadline` is `None`. Lets a
+/// `select!` arm be conditionally armed without juggling `Box::pin`.
+async fn sleep_until_or_pending(deadline: Option<Instant>) {
+    match deadline {
+        Some(t) => tokio::time::sleep_until(t).await,
+        None => std::future::pending().await,
     }
 }
 
-/// Format the `<task-notification>` envelope emitted on successful completion.
-fn format_completed(cron_id: &str, req: &MonitorRequest, stdout: &str) -> String {
+/// Build and inject a streaming `<task-notification>` event from the buffered
+/// stdout lines, then clear the buffer.
+fn flush_buffer(
+    buffer: &mut Vec<String>,
+    buffer_bytes: &mut usize,
+    cron_id: &str,
+    description: &str,
+    output_path: &Path,
+    injector: &dyn JobInjector,
+) {
+    if buffer.is_empty() {
+        return;
+    }
+    let body = buffer.join("\n");
+    buffer.clear();
+    *buffer_bytes = 0;
+    let envelope = format_streaming_event(cron_id, description, &body, output_path);
+    injector.inject(envelope);
+}
+
+/// Format the streaming `<task-notification>` for one batch of stdout lines.
+fn format_streaming_event(
+    cron_id: &str,
+    description: &str,
+    body: &str,
+    output_path: &Path,
+) -> String {
     use std::fmt::Write as _;
-    let (event_text, overflow_path) = prepare_event_text(cron_id, stdout);
-    let mut buf = String::with_capacity(event_text.len() + 256);
+    let inline = truncate_event_body(body, output_path);
+    let mut buf = String::with_capacity(inline.len() + 256);
     buf.push_str("<task-notification>\n");
     let _ = writeln!(buf, "<task-id>{cron_id}</task-id>");
-    let _ = writeln!(buf, "<tool-use-id>{}</tool-use-id>", req.tool_use_id);
     let _ = writeln!(
         buf,
-        "<summary>Monitor cron \"{}\" produced output</summary>",
-        escape_xml(&req.description)
+        "<summary>Monitor event: \"{}\"</summary>",
+        escape_xml(description)
     );
-    let _ = writeln!(buf, "<event>{}</event>", escape_xml(&event_text));
-    if let Some(path) = overflow_path {
-        let _ = writeln!(buf, "<output-file>{path}</output-file>");
-    }
-    buf.push_str("<status>completed</status>\n");
+    let _ = writeln!(buf, "<event>{}</event>", escape_xml(&inline));
     buf.push_str("</task-notification>");
     buf
 }
 
-/// Format the timeout envelope.
-fn format_timeout(cron_id: &str, req: &MonitorRequest) -> String {
+/// Format the terminal `<task-notification>` (completed / failed / timeout).
+fn format_terminal(
+    cron_id: &str,
+    req: &MonitorRequest,
+    output_path: &Path,
+    status: TerminalStatus,
+) -> String {
+    use std::fmt::Write as _;
+    let (tag, summary) = match status {
+        TerminalStatus::Completed => (
+            "completed",
+            format!(
+                "Monitor \"{}\" stream ended",
+                escape_xml(&req.description)
+            ),
+        ),
+        TerminalStatus::Failed {
+            exit_code: Some(code),
+        } => (
+            "failed",
+            format!(
+                "Monitor \"{}\" script failed (exit {code})",
+                escape_xml(&req.description)
+            ),
+        ),
+        TerminalStatus::Failed { exit_code: None } => (
+            "failed",
+            format!(
+                "Monitor \"{}\" script killed by signal",
+                escape_xml(&req.description)
+            ),
+        ),
+        TerminalStatus::Timeout => (
+            "timeout",
+            format!(
+                "Monitor \"{}\" timed out after {}ms",
+                escape_xml(&req.description),
+                req.timeout_ms
+            ),
+        ),
+        TerminalStatus::Cancelled => unreachable!("Cancelled never produces a terminal envelope"),
+    };
+    let mut buf = String::with_capacity(summary.len() + 256);
+    buf.push_str("<task-notification>\n");
+    let _ = writeln!(buf, "<task-id>{cron_id}</task-id>");
+    let _ = writeln!(buf, "<tool-use-id>{}</tool-use-id>", req.tool_use_id);
+    let _ = writeln!(buf, "<output-file>{}</output-file>", output_path.display());
+    let _ = writeln!(buf, "<status>{tag}</status>");
+    let _ = writeln!(buf, "<summary>{summary}</summary>");
+    buf.push_str("</task-notification>");
+    buf
+}
+
+/// Truncate event body to `MAX_INLINE_OUTPUT` bytes; on overflow, append a
+/// pointer to the (already-being-written) output file.
+fn truncate_event_body(body: &str, output_path: &Path) -> String {
+    if body.len() <= MAX_INLINE_OUTPUT {
+        return body.to_string();
+    }
+    let truncated = body
+        .char_indices()
+        .nth(MAX_INLINE_OUTPUT)
+        .map_or(body, |(i, _)| &body[..i]);
     format!(
-        "<task-notification>\n<task-id>{cron_id}</task-id>\n<tool-use-id>{tool_use_id}</tool-use-id>\n<summary>Monitor cron \"{description}\" timed out after {ms}ms with no successful output</summary>\n<status>timeout</status>\n</task-notification>",
-        cron_id = cron_id,
-        tool_use_id = req.tool_use_id,
-        description = escape_xml(&req.description),
-        ms = req.timeout_ms,
+        "{truncated}\n…(truncated, full {} bytes at {})",
+        body.len(),
+        output_path.display()
     )
 }
 
-/// Truncate stdout to `MAX_INLINE_OUTPUT` and, on overflow, persist the full
-/// payload under `/tmp/monitor-{cron_id}.log` for the agent to fetch via Read
-/// or cat.
-fn prepare_event_text(cron_id: &str, stdout: &str) -> (String, Option<String>) {
-    if stdout.len() <= MAX_INLINE_OUTPUT {
-        return (stdout.to_string(), None);
-    }
-    let path = PathBuf::from(OVERFLOW_LOG_DIR).join(format!("monitor-{cron_id}.log"));
-    if let Err(e) = std::fs::write(&path, stdout) {
-        warn!(error = %e, path = %path.display(), "Failed to persist truncated Monitor output");
-    }
-    let truncated = stdout
-        .char_indices()
-        .nth(MAX_INLINE_OUTPUT)
-        .map_or(stdout, |(i, _)| &stdout[..i]);
-    let suffix = format!(
-        "\n…(truncated, full {} bytes at {})",
-        stdout.len(),
-        path.display()
-    );
-    let mut text = String::with_capacity(truncated.len() + suffix.len());
-    text.push_str(truncated);
-    text.push_str(&suffix);
-    (text, Some(path.display().to_string()))
+fn output_log_path(cron_id: &str) -> PathBuf {
+    PathBuf::from(OUTPUT_LOG_DIR).join(format!("monitor-{cron_id}.log"))
 }
 
 fn short_id(tool_use_id: &str) -> String {
@@ -342,7 +592,6 @@ fn escape_xml(input: &str) -> String {
     out
 }
 
-/// Truncate a string to `max` characters on a char boundary.
 fn truncate(input: &str, max: usize) -> String {
     match input.char_indices().nth(max) {
         Some((idx, _)) => format!("{}…", &input[..idx]),
@@ -352,7 +601,8 @@ fn truncate(input: &str, max: usize) -> String {
 
 /// Build the `Allow + updated_input` no-op rewrite that the permission handler
 /// returns for Monitor calls. The CLI's built-in Monitor implementation will
-/// see `command: ":"` (POSIX no-op), produce no events, and exit immediately.
+/// see `command: ":"` (POSIX no-op), produce no events, and exit immediately;
+/// the streaming events arrive later from `MonitorJob`.
 pub fn noop_monitor_input(
     original: &serde_json::Map<String, Value>,
 ) -> serde_json::Map<String, Value> {
@@ -368,14 +618,14 @@ pub fn noop_monitor_input(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Mutex;
+    use std::sync::Mutex as StdMutex;
 
     use super::super::scheduled_job::ScheduledJobRegistry;
     use super::*;
 
     #[derive(Default, Clone)]
     struct CapturingInjector {
-        messages: Arc<Mutex<Vec<String>>>,
+        messages: Arc<StdMutex<Vec<String>>>,
     }
 
     impl CapturingInjector {
@@ -390,9 +640,9 @@ mod tests {
         }
     }
 
-    fn build_request(command: &str, timeout_ms: u64) -> MonitorRequest {
+    fn build_request(tool_use_id: &str, command: &str, timeout_ms: u64) -> MonitorRequest {
         MonitorRequest {
-            tool_use_id: "toolu_abc123def456".to_string(),
+            tool_use_id: tool_use_id.to_string(),
             command: command.to_string(),
             description: "test".to_string(),
             timeout_ms,
@@ -400,8 +650,7 @@ mod tests {
         }
     }
 
-    /// Wait until `predicate` returns true or `timeout` elapses. Used to bound
-    /// async tests that spin up tokio tasks.
+    /// Wait until `predicate` returns true or `timeout` elapses.
     async fn wait_until<F>(timeout: Duration, mut predicate: F) -> bool
     where
         F: FnMut() -> bool,
@@ -411,104 +660,287 @@ mod tests {
             if predicate() {
                 return true;
             }
-            tokio::time::sleep(Duration::from_millis(20)).await;
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
         predicate()
     }
 
+    fn streaming_events(messages: &[String]) -> Vec<&str> {
+        messages
+            .iter()
+            .filter(|m| m.contains("<summary>Monitor event:"))
+            .map(String::as_str)
+            .collect()
+    }
+
+    fn terminal_events(messages: &[String]) -> Vec<&str> {
+        messages
+            .iter()
+            .filter(|m| m.contains("<status>"))
+            .map(String::as_str)
+            .collect()
+    }
+
     #[tokio::test]
-    async fn monitor_completes_on_zero_exit_with_output() {
+    async fn burst_lines_coalesce_into_one_event() {
         let injector = CapturingInjector::default();
         let registry = ScheduledJobRegistry::new(Arc::new(injector.clone()));
         let run_cancel = CancellationToken::new();
 
-        // First tick fires immediately and `echo hello` produces stdout.
         registry
             .register(
                 Box::new(MonitorJob::from_request(build_request(
-                    "echo hello",
-                    60_000,
+                    "toolu_burst",
+                    "for i in 1 2 3 4 5; do echo line$i; done; exit 0",
+                    10_000,
                 ))),
                 run_cancel,
             )
             .await;
 
-        let ok = wait_until(Duration::from_secs(5), || !injector.snapshot().is_empty()).await;
-        assert!(ok, "expected an injected notification");
+        // Wait for terminal envelope (proves the run completed).
+        let ok = wait_until(Duration::from_secs(5), || {
+            !terminal_events(&injector.snapshot()).is_empty()
+        })
+        .await;
+        assert!(ok, "expected terminal envelope");
 
         let messages = injector.snapshot();
-        assert_eq!(messages.len(), 1, "exactly one notification expected");
-        let msg = &messages[0];
-        assert!(msg.contains("<status>completed</status>"), "{msg}");
-        assert!(msg.contains("hello"), "{msg}");
-        assert!(
-            msg.contains("<tool-use-id>toolu_abc123def456</tool-use-id>"),
-            "{msg}"
+        let streaming = streaming_events(&messages);
+        let terminal = terminal_events(&messages);
+        assert_eq!(
+            streaming.len(),
+            1,
+            "5 instant lines should coalesce into one streaming event; got {streaming:?}",
         );
+        assert!(streaming[0].contains("line1"));
+        assert!(streaming[0].contains("line5"));
+        assert_eq!(terminal.len(), 1);
+        assert!(terminal[0].contains("<status>completed</status>"));
+        assert!(terminal[0].contains("<tool-use-id>toolu_burst</tool-use-id>"));
+        assert!(terminal[0].contains("<output-file>/tmp/monitor-cron-burst.log</output-file>"));
         assert!(registry.is_empty().await);
     }
 
     #[tokio::test]
-    async fn monitor_emits_timeout_notification() {
+    async fn spaced_lines_emit_separate_events() {
         let injector = CapturingInjector::default();
         let registry = ScheduledJobRegistry::new(Arc::new(injector.clone()));
         let run_cancel = CancellationToken::new();
 
-        // Command always exits 0 but produces no output → keeps polling
-        // until `timeout_ms` elapses.
         registry
             .register(
-                Box::new(MonitorJob::from_request(build_request(":", 200))),
+                Box::new(MonitorJob::from_request(build_request(
+                    "toolu_spaced",
+                    "for i in 1 2 3; do echo tick$i; sleep 0.4; done; exit 0",
+                    10_000,
+                ))),
                 run_cancel,
             )
             .await;
 
-        let ok = wait_until(Duration::from_secs(5), || !injector.snapshot().is_empty()).await;
-        assert!(ok, "expected a timeout notification");
+        let ok = wait_until(Duration::from_secs(5), || {
+            !terminal_events(&injector.snapshot()).is_empty()
+        })
+        .await;
+        assert!(ok, "expected terminal envelope");
 
         let messages = injector.snapshot();
-        assert_eq!(messages.len(), 1);
-        assert!(
-            messages[0].contains("<status>timeout</status>"),
-            "{}",
-            messages[0]
+        let streaming = streaming_events(&messages);
+        assert_eq!(
+            streaming.len(),
+            3,
+            "3 lines spaced 400ms apart should emit 3 separate events; got {streaming:?}",
         );
+        assert!(streaming[0].contains("tick1"));
+        assert!(streaming[1].contains("tick2"));
+        assert!(streaming[2].contains("tick3"));
+        let terminal = terminal_events(&messages);
+        assert_eq!(terminal.len(), 1);
+        assert!(terminal[0].contains("<status>completed</status>"));
     }
 
     #[tokio::test]
-    async fn monitor_cancels_on_run_token() {
+    async fn silent_exit_emits_completed_only() {
         let injector = CapturingInjector::default();
         let registry = ScheduledJobRegistry::new(Arc::new(injector.clone()));
         let run_cancel = CancellationToken::new();
 
-        // Long timeout, but run token cancels before the first tick can finish.
         registry
             .register(
                 Box::new(MonitorJob::from_request(build_request(
-                    "sleep 5; echo done",
+                    "toolu_silent",
+                    "true",
+                    10_000,
+                ))),
+                run_cancel,
+            )
+            .await;
+
+        let ok = wait_until(Duration::from_secs(5), || {
+            !terminal_events(&injector.snapshot()).is_empty()
+        })
+        .await;
+        assert!(ok, "expected terminal envelope");
+
+        let messages = injector.snapshot();
+        assert!(
+            streaming_events(&messages).is_empty(),
+            "silent exit should not produce any streaming event; got {messages:?}",
+        );
+        let terminal = terminal_events(&messages);
+        assert_eq!(terminal.len(), 1);
+        assert!(terminal[0].contains("<status>completed</status>"));
+    }
+
+    #[tokio::test]
+    async fn failed_exit_emits_failed_with_exit_code() {
+        let injector = CapturingInjector::default();
+        let registry = ScheduledJobRegistry::new(Arc::new(injector.clone()));
+        let run_cancel = CancellationToken::new();
+
+        registry
+            .register(
+                Box::new(MonitorJob::from_request(build_request(
+                    "toolu_fail",
+                    "exit 7",
+                    10_000,
+                ))),
+                run_cancel,
+            )
+            .await;
+
+        let ok = wait_until(Duration::from_secs(5), || {
+            !terminal_events(&injector.snapshot()).is_empty()
+        })
+        .await;
+        assert!(ok, "expected terminal envelope");
+
+        let messages = injector.snapshot();
+        let terminal = terminal_events(&messages);
+        assert_eq!(terminal.len(), 1);
+        assert!(terminal[0].contains("<status>failed</status>"));
+        assert!(
+            terminal[0].contains("(exit 7)"),
+            "summary should include the exit code: {}",
+            terminal[0]
+        );
+    }
+
+    #[tokio::test]
+    async fn stderr_goes_to_output_file_not_events() {
+        let injector = CapturingInjector::default();
+        let registry = ScheduledJobRegistry::new(Arc::new(injector.clone()));
+        let run_cancel = CancellationToken::new();
+
+        registry
+            .register(
+                Box::new(MonitorJob::from_request(build_request(
+                    "toolu_stderr",
+                    "echo good; echo bad 1>&2; exit 0",
+                    10_000,
+                ))),
+                run_cancel,
+            )
+            .await;
+
+        let ok = wait_until(Duration::from_secs(5), || {
+            !terminal_events(&injector.snapshot()).is_empty()
+        })
+        .await;
+        assert!(ok, "expected terminal envelope");
+
+        let messages = injector.snapshot();
+        let streaming = streaming_events(&messages);
+        assert_eq!(streaming.len(), 1);
+        assert!(streaming[0].contains("good"));
+        assert!(
+            !streaming[0].contains("bad"),
+            "stderr should never appear in streaming events"
+        );
+
+        let log = std::fs::read_to_string("/tmp/monitor-cron-stderr.log")
+            .expect("output log written");
+        assert!(log.contains("good"), "stdout should be in output file: {log}");
+        assert!(
+            log.contains("[stderr] bad"),
+            "stderr should be prefixed in output file: {log}",
+        );
+        let _ = std::fs::remove_file("/tmp/monitor-cron-stderr.log");
+    }
+
+    #[tokio::test]
+    async fn persistent_false_streams_until_timeout() {
+        let injector = CapturingInjector::default();
+        let registry = ScheduledJobRegistry::new(Arc::new(injector.clone()));
+        let run_cancel = CancellationToken::new();
+
+        // Long-running emitter; timeout cuts it off.
+        let mut req = build_request(
+            "toolu_persfalse",
+            "while true; do echo tick; sleep 0.1; done",
+            500,
+        );
+        req.persistent = false;
+        registry
+            .register(Box::new(MonitorJob::from_request(req)), run_cancel)
+            .await;
+
+        let ok = wait_until(Duration::from_secs(5), || {
+            !terminal_events(&injector.snapshot()).is_empty()
+        })
+        .await;
+        assert!(ok, "expected terminal envelope");
+
+        let messages = injector.snapshot();
+        let streaming = streaming_events(&messages);
+        assert!(
+            !streaming.is_empty(),
+            "persistent=false should still stream while running; got {messages:?}",
+        );
+        let terminal = terminal_events(&messages);
+        assert_eq!(terminal.len(), 1);
+        assert!(
+            terminal[0].contains("<status>timeout</status>"),
+            "terminal should be timeout (not completed): {}",
+            terminal[0]
+        );
+    }
+
+    #[tokio::test]
+    async fn cancels_on_run_token_silently() {
+        let injector = CapturingInjector::default();
+        let registry = ScheduledJobRegistry::new(Arc::new(injector.clone()));
+        let run_cancel = CancellationToken::new();
+
+        registry
+            .register(
+                Box::new(MonitorJob::from_request(build_request(
+                    "toolu_cancel",
+                    "sleep 5",
                     60_000,
                 ))),
                 run_cancel.clone(),
             )
             .await;
 
-        // Give the worker a moment to start, then cancel.
+        // Let the watcher start, then cancel before any output arrives.
         tokio::time::sleep(Duration::from_millis(50)).await;
         run_cancel.cancel();
 
-        // Cleanup is async — poll until the registry empties or we give up.
-        let mut cleared = false;
-        for _ in 0..50 {
+        let mut empty = false;
+        for _ in 0..100 {
             if registry.is_empty().await {
-                cleared = true;
+                empty = true;
                 break;
             }
-            tokio::time::sleep(Duration::from_millis(50)).await;
+            tokio::time::sleep(Duration::from_millis(20)).await;
         }
-        assert!(cleared, "registry should be empty after cancellation");
+        assert!(empty, "registry should empty after cancellation");
         assert!(
             injector.snapshot().is_empty(),
-            "no notification expected after cancel"
+            "no envelope expected after cancel; got {:?}",
+            injector.snapshot(),
         );
     }
 
@@ -518,8 +950,7 @@ mod tests {
         let registry = ScheduledJobRegistry::new(Arc::new(injector));
         let run_cancel = CancellationToken::new();
 
-        // Long-running command so the job stays registered while we read.
-        let mut req = build_request("sleep 30", 60_000);
+        let mut req = build_request("toolu_listsnap", "sleep 30", 60_000);
         req.description = "argocd app sync for t-249273".to_string();
         req.command =
             "until kubectl get application soap-backend-preview-t-249273 -n argocd; do sleep 15; done"
@@ -542,7 +973,6 @@ mod tests {
         assert_eq!(snap.timeout_ms, 60_000);
         assert!(!snap.persistent);
         assert!(snap.registered_at_unix_ms > 0);
-        // Long commands are truncated for display.
         assert!(
             snap.command_preview.contains("kubectl get application"),
             "preview should contain start of command: {}",
@@ -598,31 +1028,50 @@ mod tests {
     }
 
     #[test]
-    fn xml_escaping_protects_event_block() {
-        let req = MonitorRequest {
-            tool_use_id: "toolu_x".to_string(),
-            command: ":".to_string(),
-            description: "<bad> & evil".to_string(),
-            timeout_ms: 1000,
-            persistent: false,
-        };
-        let out = format_completed("cron-test", &req, "raw <html> & stuff");
+    fn streaming_event_escapes_xml_in_description_and_body() {
+        let path = PathBuf::from("/tmp/monitor-cron-test.log");
+        let out = format_streaming_event("cron-test", "<bad> & evil", "raw <html> & stuff", &path);
+        assert!(out.contains("<task-id>cron-test</task-id>"));
         assert!(out.contains("&lt;bad&gt; &amp; evil"));
         assert!(out.contains("raw &lt;html&gt; &amp; stuff"));
+        assert!(!out.contains("<status>"), "streaming events have no status");
+        assert!(
+            !out.contains("<tool-use-id>"),
+            "streaming events have no tool-use-id"
+        );
     }
 
     #[test]
-    fn truncates_large_output_and_records_overflow_path() {
-        // 32 KiB of x's
+    fn terminal_event_includes_tool_use_id_and_output_file() {
+        let req = MonitorRequest {
+            tool_use_id: "toolu_x".to_string(),
+            command: ":".to_string(),
+            description: "d".to_string(),
+            timeout_ms: 1000,
+            persistent: false,
+        };
+        let path = PathBuf::from("/tmp/monitor-cron-x.log");
+        let out = format_terminal(
+            "cron-x",
+            &req,
+            &path,
+            TerminalStatus::Failed { exit_code: Some(7) },
+        );
+        assert!(out.contains("<task-id>cron-x</task-id>"));
+        assert!(out.contains("<tool-use-id>toolu_x</tool-use-id>"));
+        assert!(out.contains("<output-file>/tmp/monitor-cron-x.log</output-file>"));
+        assert!(out.contains("<status>failed</status>"));
+        assert!(out.contains("(exit 7)"));
+    }
+
+    #[test]
+    fn truncates_large_event_body_and_points_at_output_file() {
         let big = "x".repeat(32 * 1024);
-        let (text, path) = prepare_event_text("cron-trunc", &big);
-        assert!(text.len() < big.len());
-        assert!(text.contains("(truncated"));
-        assert!(path.is_some());
-        // Cleanup
-        if let Some(ref p) = path {
-            let _ = std::fs::remove_file(p);
-        }
+        let path = PathBuf::from("/tmp/monitor-cron-trunc.log");
+        let body = truncate_event_body(&big, &path);
+        assert!(body.len() < big.len());
+        assert!(body.contains("(truncated"));
+        assert!(body.contains("/tmp/monitor-cron-trunc.log"));
     }
 
     #[test]
