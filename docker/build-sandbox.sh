@@ -215,15 +215,8 @@ if [ "$BUILD_SANDBOX" = true ]; then
   echo ""
 fi
 
-# Build sandbox runtime prerequisites (file-explorer, dev-browser staging)
+# Stage dev-browser plugin into build context
 if [ "$BUILD_SANDBOX" = true ]; then
-  # Build file-explorer (still TypeScript)
-  echo -e "${YELLOW}Building file-explorer...${NC}"
-  bunx turbo run build --filter=@moatless/file-explorer
-  echo -e "${GREEN}✓ File-explorer build successful!${NC}"
-  echo ""
-
-  # Stage dev-browser plugin into build context
   if [ -z "$DEV_BROWSER_DIR" ]; then
     # Default: look for dev-browser relative to repo root (../../stuffs/dev-browser)
     DEV_BROWSER_DIR="$(cd ../.. && pwd)/stuffs/dev-browser"

@@ -266,7 +266,7 @@ For sandbox-specific architecture, see [Sandbox Architecture](./docs/sandbox-arc
 ### Project Structure
 ```
 ├── apps/                          # JavaScript application packages
-│   ├── frontend/                  # React frontend application
+│   └── frontend/                  # React frontend application
 │   │   ├── src/
 │   │   │   ├── features/          # Feature-based modules
 │   │   │   │   ├── claude-code/       # Claude Code integration
@@ -286,7 +286,6 @@ For sandbox-specific architecture, see [Sandbox Architecture](./docs/sandbox-arc
 │   │   │   └── main.tsx           # Application entry point
 │   │   ├── package.json
 │   │   └── vite.config.ts
-│   └── file-explorer/             # File browser application
 ├── backend/                       # Rust backend (Axum + Tonic gRPC)
 │   ├── src/
 │   │   ├── main.rs                # Entry point

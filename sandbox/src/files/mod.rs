@@ -1,8 +1,4 @@
-//! File operations for the sandbox workspace.
-//!
-//! Provides file tree browsing, reading, writing, search, and git
-//! change tracking. These operations back the gRPC `SandboxService`
-//! file RPCs, replacing the former file-explorer HTTP sidecar.
+//! Filesystem and search RPCs served over gRPC.
 
 pub mod git;
 pub mod read_write;

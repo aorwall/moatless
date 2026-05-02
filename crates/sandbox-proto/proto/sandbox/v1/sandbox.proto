@@ -129,7 +129,7 @@ service SandboxService {
   // dispatcher-only changes.
   rpc RefreshCredential(RefreshCredentialRequest) returns (RefreshCredentialResponse);
 
-  // File operations (replaces file-explorer HTTP server)
+  // File operations
   rpc GetFileTree(GetFileTreeRequest) returns (GetFileTreeResponse);
   rpc ReadFile(ReadFileRequest) returns (ReadFileResponse);
   rpc WriteFile(WriteFileRequest) returns (WriteFileResponse);

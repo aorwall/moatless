@@ -43,7 +43,6 @@ Each sandbox instance is ephemeral and bound to exactly one task. The backend cr
 │   ├── sandbox                          # Rust sandbox binary
 │   ├── claude                           # Claude Code CLI
 │   ├── server                           # Server management script
-│   ├── file-explorer                    # File explorer wrapper
 │   └── docker-entrypoint-sandbox.sh     # Container entrypoint
 │
 ├── opt/moatless/

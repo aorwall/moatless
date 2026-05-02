@@ -1,8 +1,7 @@
 //! Git operations via CLI for file change tracking.
 //!
-//! All functions shell out to `git` via `tokio::process::Command`.
-//! This matches the original TypeScript file-explorer implementation
-//! and works reliably in sandbox containers where git is always available.
+//! All functions shell out to `git` via `tokio::process::Command`,
+//! which works reliably in sandbox containers where git is always available.
 
 use std::collections::{HashMap, HashSet};
 

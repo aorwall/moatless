@@ -14,9 +14,6 @@
       "apps/backend/**/*.ts",
       "apps/backend/**/*.js",
       "!apps/backend/dist/**",
-      "apps/file-explorer/**/*.ts",
-      "apps/file-explorer/**/*.tsx",
-      "!apps/file-explorer/dist/**",
       "apps/sandbox/src/**",
       "!apps/sandbox/dist/**",
       "packages/*/src/**",
@@ -321,37 +318,6 @@
         "rules": {
           "style": {
             "useFilenamingConvention": "off"
-          }
-        }
-      }
-    },
-    {
-      "includes": [
-        "apps/file-explorer/server.ts",
-        "apps/file-explorer/build.ts",
-        "apps/file-explorer/services/**/*.ts",
-        "apps/file-explorer/utils/**/*.ts"
-      ],
-      "linter": {
-        "rules": {
-          "suspicious": {
-            "noConsole": "off"
-          },
-          "correctness": {
-            "noUndeclaredVariables": "off"
-          }
-        }
-      }
-    },
-    {
-      "includes": ["apps/file-explorer/src/**/*.tsx"],
-      "linter": {
-        "rules": {
-          "a11y": {
-            "noSvgWithoutTitle": "off"
-          },
-          "suspicious": {
-            "noArrayIndexKey": "off"
           }
         }
       }
