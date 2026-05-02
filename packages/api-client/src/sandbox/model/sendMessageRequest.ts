@@ -20,6 +20,11 @@ export interface SendMessageRequest {
   model?: string | null;
   /** @nullable */
   resume?: boolean | null;
+  /**
+   * Task ID of the sender (set automatically when sent from within a sandbox).
+   * @nullable
+   */
+  sourceTaskId?: string | null;
   /** @nullable */
   toolName?: string | null;
   /** @nullable */

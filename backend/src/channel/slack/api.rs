@@ -469,6 +469,40 @@ impl SlackApi {
         Ok(())
     }
 
+    /// Open a DM channel with a Slack user and return the channel ID.
+    ///
+    /// Calls `conversations.open` and returns the `channel.id` (starts with "D").
+    pub async fn open_dm(&self, slack_user_id: &str) -> Result<String, ChannelError> {
+        let body = serde_json::json!({ "users": slack_user_id });
+
+        let resp: ConversationsOpenResponse = self
+            .client
+            .post("https://slack.com/api/conversations.open")
+            .bearer_auth(&self.token)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| ChannelError::ProviderApi(format!("conversations.open failed: {e}")))?
+            .json()
+            .await
+            .map_err(|e| {
+                ChannelError::ProviderApi(format!("conversations.open parse failed: {e}"))
+            })?;
+
+        if !resp.ok {
+            let err = resp.error.unwrap_or_default();
+            return Err(ChannelError::ProviderApi(format!(
+                "conversations.open: {err}"
+            )));
+        }
+
+        let channel = resp.channel.ok_or_else(|| {
+            ChannelError::ProviderApi("conversations.open: missing channel in response".into())
+        })?;
+
+        Ok(channel.id)
+    }
+
     /// Fetch info for a single Slack channel by ID.
     ///
     /// Returns `Ok(None)` when the API call fails (best-effort name resolution).
@@ -506,6 +540,18 @@ struct ConversationsInfoResponse {
     ok: bool,
     error: Option<String>,
     channel: Option<SlackChannelItem>,
+}
+
+#[derive(Deserialize)]
+struct ConversationsOpenResponse {
+    ok: bool,
+    error: Option<String>,
+    channel: Option<ConversationsOpenChannel>,
+}
+
+#[derive(Deserialize)]
+struct ConversationsOpenChannel {
+    id: String,
 }
 
 // ---------------------------------------------------------------------------

@@ -67,6 +67,7 @@ pub async fn send_message(
             None,
             None,
             req.command_name.as_deref(),
+            req.source_task_id.as_deref(),
         )
         .await?;
     }

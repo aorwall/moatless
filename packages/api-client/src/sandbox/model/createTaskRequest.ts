@@ -21,6 +21,8 @@ export interface CreateTaskRequest {
   description?: string | null;
   fileIds?: string[];
   /** @nullable */
+  headless?: boolean | null;
+  /** @nullable */
   message?: string | null;
   /** @nullable */
   model?: string | null;

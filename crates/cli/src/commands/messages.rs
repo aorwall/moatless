@@ -5,6 +5,7 @@ use moatless_api_schemas::message::{SendMessageRequest, UiMessage};
 use moatless_api_schemas::shared::AgentMode;
 
 use crate::client::{ClientError, MoatClient};
+use crate::config::Config;
 use crate::output;
 
 #[derive(Subcommand)]
@@ -26,6 +27,7 @@ pub async fn run(
     client: &MoatClient,
     action: MessageAction,
     json: bool,
+    config: &Config,
 ) -> Result<(), ClientError> {
     match action {
         MessageAction::List { task_id } => {
@@ -53,6 +55,7 @@ pub async fn run(
                 tool_name: None,
                 tool_response: None,
                 tool_use_id: None,
+                source_task_id: config.task_id().map(std::string::ToString::to_string),
             };
             let resp = client.api().send_message(&task_id, &req).await?;
             if json {

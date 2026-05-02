@@ -20,11 +20,21 @@ pub struct User {
     pub settings: serde_json::Value,
 }
 
+/// A provider-specific identity linked to a moatless user.
+#[derive(sqlx::FromRow, Debug, Clone)]
+pub struct UserProviderAccount {
+    pub user_id: String,
+    pub provider: String,
+    pub provider_user_id: String,
+    pub created_at: DateTime<Utc>,
+}
+
 /// Repository trait for user persistence.
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub trait UserRepository: Send + Sync {
     async fn get_user(&self, user_id: &str) -> Result<Option<User>, sqlx::Error>;
+    async fn get_user_by_login(&self, login: &str) -> Result<Option<User>, sqlx::Error>;
     async fn get_users_by_ids(&self, user_ids: &[String]) -> Result<Vec<User>, sqlx::Error>;
     async fn upsert_user(&self, user: &User) -> Result<(), sqlx::Error>;
     async fn list_users(&self) -> Result<Vec<User>, sqlx::Error>;
@@ -34,6 +44,33 @@ pub trait UserRepository: Send + Sync {
         name: Option<String>,
         email: Option<String>,
     ) -> Result<Option<User>, sqlx::Error>;
+
+    // Provider ID mapping
+    async fn upsert_provider_id(
+        &self,
+        user_id: &str,
+        provider: &str,
+        provider_user_id: &str,
+    ) -> Result<(), sqlx::Error>;
+    async fn get_provider_id(
+        &self,
+        user_id: &str,
+        provider: &str,
+    ) -> Result<Option<String>, sqlx::Error>;
+    async fn find_user_by_provider_id(
+        &self,
+        provider: &str,
+        provider_user_id: &str,
+    ) -> Result<Option<User>, sqlx::Error>;
+    async fn delete_provider_id(
+        &self,
+        user_id: &str,
+        provider: &str,
+    ) -> Result<bool, sqlx::Error>;
+    async fn list_provider_ids(
+        &self,
+        user_id: &str,
+    ) -> Result<Vec<UserProviderAccount>, sqlx::Error>;
 }
 
 /// PostgreSQL implementation of [`UserRepository`].
@@ -104,6 +141,92 @@ impl UserRepository for PgUserRepository {
         .bind(name)
         .bind(email)
         .fetch_optional(&self.0)
+        .await
+    }
+
+    async fn get_user_by_login(&self, login: &str) -> Result<Option<User>, sqlx::Error> {
+        sqlx::query_as::<_, User>("SELECT * FROM users WHERE login = $1")
+            .bind(login)
+            .fetch_optional(&self.0)
+            .await
+    }
+
+    async fn upsert_provider_id(
+        &self,
+        user_id: &str,
+        provider: &str,
+        provider_user_id: &str,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"INSERT INTO user_provider_ids (user_id, provider, provider_user_id)
+               VALUES ($1, $2, $3)
+               ON CONFLICT (user_id, provider) DO UPDATE
+               SET provider_user_id = EXCLUDED.provider_user_id"#,
+        )
+        .bind(user_id)
+        .bind(provider)
+        .bind(provider_user_id)
+        .execute(&self.0)
+        .await?;
+        Ok(())
+    }
+
+    async fn get_provider_id(
+        &self,
+        user_id: &str,
+        provider: &str,
+    ) -> Result<Option<String>, sqlx::Error> {
+        let row: Option<(String,)> = sqlx::query_as(
+            "SELECT provider_user_id FROM user_provider_ids WHERE user_id = $1 AND provider = $2",
+        )
+        .bind(user_id)
+        .bind(provider)
+        .fetch_optional(&self.0)
+        .await?;
+        Ok(row.map(|(id,)| id))
+    }
+
+    async fn find_user_by_provider_id(
+        &self,
+        provider: &str,
+        provider_user_id: &str,
+    ) -> Result<Option<User>, sqlx::Error> {
+        sqlx::query_as::<_, User>(
+            r#"SELECT u.* FROM users u
+               JOIN user_provider_ids p ON u.id = p.user_id
+               WHERE p.provider = $1 AND p.provider_user_id = $2
+               LIMIT 1"#,
+        )
+        .bind(provider)
+        .bind(provider_user_id)
+        .fetch_optional(&self.0)
+        .await
+    }
+
+    async fn delete_provider_id(
+        &self,
+        user_id: &str,
+        provider: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query(
+            "DELETE FROM user_provider_ids WHERE user_id = $1 AND provider = $2",
+        )
+        .bind(user_id)
+        .bind(provider)
+        .execute(&self.0)
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn list_provider_ids(
+        &self,
+        user_id: &str,
+    ) -> Result<Vec<UserProviderAccount>, sqlx::Error> {
+        sqlx::query_as::<_, UserProviderAccount>(
+            "SELECT * FROM user_provider_ids WHERE user_id = $1 ORDER BY provider ASC",
+        )
+        .bind(user_id)
+        .fetch_all(&self.0)
         .await
     }
 }

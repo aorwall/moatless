@@ -220,6 +220,7 @@ fn transform_assistant(
         channel,
         command_name: msg.command_name.clone(),
         parent_uuid: msg.parent_uuid.clone(),
+        source_task_id: None,
     }
 }
 
@@ -280,6 +281,7 @@ fn transform_user(msg: &TaskMessage, blocks: &[&TaskMessageContentBlock]) -> UiM
         channel,
         command_name: msg.command_name.clone(),
         parent_uuid: msg.parent_uuid.clone(),
+        source_task_id: msg.source_task_id.clone(),
     }
 }
 
@@ -326,6 +328,7 @@ fn transform_result(msg: &TaskMessage, blocks: &[&TaskMessageContentBlock]) -> U
         channel: None,
         command_name: msg.command_name.clone(),
         parent_uuid: msg.parent_uuid.clone(),
+        source_task_id: None,
     }
 }
 
@@ -646,6 +649,7 @@ mod tests {
             channel_provider: None,
             channel_source_name: None,
             command_name: None,
+            source_task_id: None,
         }
     }
 

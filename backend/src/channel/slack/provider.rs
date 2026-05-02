@@ -120,6 +120,11 @@ impl SlackProvider {
         self.api.list_conversations().await
     }
 
+    /// Open a DM channel with a Slack user and return the channel ID.
+    pub async fn open_dm(&self, slack_user_id: &str) -> Result<String, ChannelError> {
+        self.api.open_dm(slack_user_id).await
+    }
+
     /// Post a message to a Slack channel, returning the message `ts`.
     ///
     /// Thin wrapper around [`SlackApi::post_message`] for use by the slash
@@ -140,6 +145,35 @@ impl SlackProvider {
             .get_channel_info(channel_id)
             .await?
             .map(|ch| ch.name))
+    }
+
+    /// Look up a local system user by their Slack user ID via `user_provider_ids`.
+    async fn resolve_user_by_slack_id(
+        &self,
+        slack_user_id: &str,
+        db: &DbPool,
+    ) -> Result<Option<String>, ChannelError> {
+        let row: Option<(String,)> = sqlx::query_as(
+            r#"SELECT u.id FROM users u
+               JOIN user_provider_ids p ON u.id = p.user_id
+               WHERE p.provider = 'slack' AND p.provider_user_id = $1
+               LIMIT 1"#,
+        )
+        .bind(slack_user_id)
+        .fetch_optional(db)
+        .await
+        .map_err(|e| ChannelError::Internal(format!("Slack provider ID lookup failed: {e}")))?;
+
+        if let Some((id,)) = row {
+            tracing::debug!(
+                slack_user = %slack_user_id,
+                user_id = %id,
+                "Resolved Slack user via provider_id mapping"
+            );
+            Ok(Some(id))
+        } else {
+            Ok(None)
+        }
     }
 
     /// Look up a local system user by email. Shared by the `ChannelProvider`
@@ -320,10 +354,47 @@ impl SlackProvider {
             }
         }
 
-        let mapped_user = match slack_user_info.as_ref().and_then(|i| i.email.clone()) {
-            Some(email) => self.resolve_user_by_email(user, &email, db).await?,
-            None => None,
-        };
+        // Try provider ID lookup first (fast, avoids extra Slack API call), then email.
+        let mapped_user = self
+            .resolve_user_by_slack_id(user, db)
+            .await?
+            .or({
+                match slack_user_info.as_ref().and_then(|i| i.email.clone()) {
+                    Some(ref email) => self.resolve_user_by_email(user, email, db).await?,
+                    None => None,
+                }
+            });
+
+        // Opportunistically cache the Slack user ID for future provider ID lookups.
+        if let Some(ref uid) = mapped_user {
+            match sqlx::query(
+                r#"INSERT INTO user_provider_ids (user_id, provider, provider_user_id)
+                   VALUES ($1, 'slack', $2)
+                   ON CONFLICT (user_id, provider) DO NOTHING"#,
+            )
+            .bind(uid)
+            .bind(user)
+            .execute(db)
+            .await
+            {
+                Ok(result) if result.rows_affected() > 0 => {
+                    tracing::info!(
+                        user_id = %uid,
+                        slack_user = %user,
+                        "Cached Slack user ID in user_provider_ids"
+                    );
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    warn!(
+                        error = %e,
+                        user_id = %uid,
+                        slack_user = %user,
+                        "Failed to cache Slack provider ID in user_provider_ids"
+                    );
+                }
+            }
+        }
 
         let user_id = match mapped_user {
             Some(uid) => uid,

@@ -58,6 +58,11 @@ export interface UiMessage {
   /** @nullable */
   sessionId?: string | null;
   /**
+   * Task ID that sent this message (present for inter-task messages only).
+   * @nullable
+   */
+  sourceTaskId?: string | null;
+  /**
    * Provider stop reason for assistant rows (e.g. `end_turn`, `tool_use`).
    * @nullable
    */
@@ -67,11 +72,6 @@ export interface UiMessage {
    * @nullable
    */
   stopSequence?: string | null;
-  /**
-   * Task ID of the sender — present for inter-task messages only.
-   * @nullable
-   */
-  sourceTaskId?: string | null;
   timestamp: string;
   /** Inline tool results (for assistant messages). */
   toolResults?: UiToolResult[];

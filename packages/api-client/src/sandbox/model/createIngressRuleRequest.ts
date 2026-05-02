@@ -5,7 +5,7 @@
  * Sandbox orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
-
+import type { CreateIngressRuleRequestProviderConfig } from './createIngressRuleRequestProviderConfig';
 import type { RoutingMode } from './routingMode';
 
 /**
@@ -20,6 +20,8 @@ export interface CreateIngressRuleRequest {
    */
   agentType?: string | null;
   /** @nullable */
+  allowDirectSend?: boolean | null;
+  /** @nullable */
   closeTaskOnClose?: boolean | null;
   /**
    * Optional event filter — empty means all supported events.
@@ -29,20 +31,17 @@ export interface CreateIngressRuleRequest {
   /** @nullable */
   notifyOnSuccess?: boolean | null;
   /** @nullable */
-  allowDirectSend?: boolean | null;
-  /** @nullable */
   ongoingTaskId?: string | null;
   /** @nullable */
   promptTemplate?: string | null;
-  /** @nullable */
-  providerConfig?: { [key: string]: unknown } | null;
   /** Provider value, e.g. `"github"`, `"slack"`, or `"telegram"`. */
   provider: string;
+  /** @nullable */
+  providerConfig?: CreateIngressRuleRequestProviderConfig;
   repositoryId: string;
   /** @nullable */
   responseRuleId?: string | null;
-  /** @nullable */
-  routingMode?: RoutingMode | null;
+  routingMode?: null | RoutingMode;
   /** @nullable */
   runAsUserId?: string | null;
   /** Provider source matcher: repo full name (`owner/repo`) for GitHub,

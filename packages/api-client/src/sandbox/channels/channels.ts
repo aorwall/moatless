@@ -1933,6 +1933,106 @@ export const useDeleteIngressRule = <TError = ErrorType<ErrorBody>,
       return useMutation(getDeleteIngressRuleMutationOptions(options), queryClient);
     }
     /**
+ * @summary Send a message directly through an ingress rule.
+ */
+export type directSendToRuleResponse200 = {
+  data: DirectSendResponse
+  status: 200
+}
+
+export type directSendToRuleResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
+export type directSendToRuleResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+
+export type directSendToRuleResponse502 = {
+  data: ErrorBody
+  status: 502
+}
+    
+export type directSendToRuleResponseSuccess = (directSendToRuleResponse200) & {
+  headers: Headers;
+};
+export type directSendToRuleResponseError = (directSendToRuleResponse400 | directSendToRuleResponse404 | directSendToRuleResponse502) & {
+  headers: Headers;
+};
+
+export type directSendToRuleResponse = (directSendToRuleResponseSuccess | directSendToRuleResponseError)
+
+export const getDirectSendToRuleUrl = (id: string,) => {
+
+
+  
+
+  return `/api/v1/channels/rules/${id}/send`
+}
+
+export const directSendToRule = async (id: string,
+    directSendRequest: DirectSendRequest, options?: RequestInit): Promise<directSendToRuleResponse> => {
+  
+  return customInstance<directSendToRuleResponse>(getDirectSendToRuleUrl(id),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      directSendRequest,)
+  }
+);}
+
+
+
+
+export const getDirectSendToRuleMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof directSendToRule>>, TError,{id: string;data: DirectSendRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof directSendToRule>>, TError,{id: string;data: DirectSendRequest}, TContext> => {
+
+const mutationKey = ['directSendToRule'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof directSendToRule>>, {id: string;data: DirectSendRequest}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  directSendToRule(id,data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DirectSendToRuleMutationResult = NonNullable<Awaited<ReturnType<typeof directSendToRule>>>
+    export type DirectSendToRuleMutationBody = DirectSendRequest
+    export type DirectSendToRuleMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Send a message directly through an ingress rule.
+ */
+export const useDirectSendToRule = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof directSendToRule>>, TError,{id: string;data: DirectSendRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof directSendToRule>>,
+        TError,
+        {id: string;data: DirectSendRequest},
+        TContext
+      > => {
+      return useMutation(getDirectSendToRuleMutationOptions(options), queryClient);
+    }
+    /**
  * @summary List available Slack channels the bot is a member of.
  */
 export type listSlackChannelsResponse200 = {

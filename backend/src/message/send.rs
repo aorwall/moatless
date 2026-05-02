@@ -73,6 +73,7 @@ pub async fn send_message_flow(
     channel_provider: Option<&str>,
     channel_source_name: Option<&str>,
     command_name: Option<&str>,
+    source_task_id: Option<&str>,
 ) -> Result<(), MessageError> {
     // Dedup: if this channel message was already persisted (or was just sent
     // outbound and is racing the webhook), skip the insert entirely. Prevents
@@ -108,6 +109,12 @@ pub async fn send_message_flow(
     let (effective_message, effective_command_name) =
         resolve_command_from_message(message, command_name, state.commands.as_ref()).await;
 
+    // Bake attribution into message text so the agent sees it via the normal content chain.
+    let attributed_message = match source_task_id {
+        Some(id) => format!("Message from task `{id}`:\n\n{effective_message}"),
+        None => effective_message.clone(),
+    };
+
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let msg_uuid = uuid::Uuid::new_v4().to_string();
 
@@ -123,13 +130,13 @@ pub async fn send_message_flow(
         state.figma_imports.as_ref(),
         state.files.as_ref(),
         &state.config,
-        &effective_message,
+        &attributed_message,
         contexts,
         file_ids,
     )
     .await;
     let content = serde_json::to_value(&enriched_blocks)
-        .unwrap_or_else(|_| serde_json::json!([{ "type": "text", "text": effective_message }]));
+        .unwrap_or_else(|_| serde_json::json!([{ "type": "text", "text": attributed_message }]));
 
     let msg_row = TaskMessage {
         id: 0, // will be assigned by DB
@@ -172,6 +179,7 @@ pub async fn send_message_flow(
         channel_provider: channel_provider.map(std::string::ToString::to_string),
         channel_source_name: channel_source_name.map(std::string::ToString::to_string),
         command_name: effective_command_name,
+        source_task_id: source_task_id.map(std::string::ToString::to_string),
     };
 
     // Build content blocks for the showInUI=true user text
@@ -277,6 +285,7 @@ pub async fn persist_error_result(state: &AppState, task_id: &str, error_text: &
         channel_provider: None,
         channel_source_name: None,
         command_name: None,
+        source_task_id: None,
     };
 
     let blocks = vec![TaskMessageContentBlock {
@@ -440,6 +449,7 @@ pub async fn send_tool_response_flow(
         channel_provider: None,
         channel_source_name: None,
         command_name: None,
+        source_task_id: None,
     };
 
     let contexts: Vec<TaskMessageContext> = vec![];

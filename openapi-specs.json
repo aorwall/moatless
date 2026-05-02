@@ -1773,6 +1773,78 @@
         }
       }
     },
+    "/api/v1/channels/rules/{id}/send": {
+      "post": {
+        "tags": [
+          "channels"
+        ],
+        "summary": "Send a message directly through an ingress rule.",
+        "operationId": "direct_send_to_rule",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Ingress rule ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DirectSendRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Message sent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectSendResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Direct send not allowed or rule inactive",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Rule not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Provider failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/channels/slack/channels": {
       "get": {
         "tags": [
@@ -6792,6 +6864,12 @@
             ],
             "description": "Defaults to `\"claude-code\"` when omitted."
           },
+          "allowDirectSend": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
           "closeTaskOnClose": {
             "type": [
               "boolean",
@@ -6814,6 +6892,12 @@
               "null"
             ]
           },
+          "ongoingTaskId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "promptTemplate": {
             "type": [
               "string",
@@ -6822,10 +6906,32 @@
           },
           "provider": {
             "type": "string",
-            "description": "Provider value, e.g. `\"github\"`."
+            "description": "Provider value, e.g. `\"github\"`, `\"slack\"`, or `\"telegram\"`."
+          },
+          "providerConfig": {
+            "type": [
+              "object",
+              "null"
+            ]
           },
           "repositoryId": {
             "type": "string"
+          },
+          "responseRuleId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "routingMode": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RoutingMode"
+              }
+            ]
           },
           "runAsUserId": {
             "type": [
@@ -6835,7 +6941,13 @@
           },
           "scopeMatcher": {
             "type": "string",
-            "description": "Repo full name (`owner/repo`) or `*` wildcard."
+            "description": "Provider source matcher: repo full name (`owner/repo`) for GitHub,\nSlack channel id, Telegram chat id, or `*` wildcard."
+          },
+          "sourceName": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "tagIds": {
             "type": [
@@ -7086,6 +7198,12 @@
             "items": {
               "type": "string"
             }
+          },
+          "headless": {
+            "type": [
+              "boolean",
+              "null"
+            ]
           },
           "message": {
             "type": [
@@ -7839,7 +7957,9 @@
           "connectionId",
           "scopeMatcher",
           "repositoryId",
+          "routingMode",
           "tagIds",
+          "allowDirectSend",
           "agentType",
           "closeTaskOnClose",
           "notifyOnSuccess",
@@ -7856,6 +7976,9 @@
           },
           "agentType": {
             "type": "string"
+          },
+          "allowDirectSend": {
+            "type": "boolean"
           },
           "closeTaskOnClose": {
             "type": "boolean"
@@ -7881,6 +8004,12 @@
           "notifyOnSuccess": {
             "type": "boolean"
           },
+          "ongoingTaskId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "promptTemplate": {
             "type": [
               "string",
@@ -7890,8 +8019,23 @@
           "provider": {
             "type": "string"
           },
+          "providerConfig": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
           "repositoryId": {
             "type": "string"
+          },
+          "responseRuleId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "routingMode": {
+            "$ref": "#/components/schemas/RoutingMode"
           },
           "runAsUserId": {
             "type": [
@@ -7904,6 +8048,12 @@
           },
           "scopeMatcher": {
             "type": "string"
+          },
+          "sourceName": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "tagIds": {
             "type": "array",
@@ -9598,6 +9748,13 @@
               "null"
             ]
           },
+          "sourceTaskId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Task ID of the sender (set automatically when sent from within a sandbox)."
+          },
           "toolName": {
             "type": [
               "string",
@@ -10764,6 +10921,13 @@
               "string",
               "null"
             ]
+          },
+          "sourceTaskId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Task ID that sent this message (present for inter-task messages only)."
           },
           "stopReason": {
             "type": [

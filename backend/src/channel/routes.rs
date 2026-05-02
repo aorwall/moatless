@@ -42,6 +42,7 @@ use crate::state::AppState;
         handlers::list_ingress_rules,
         handlers::delete_ingress_rule,
         handlers::list_provider_connections,
+        handlers::send_user_dm_handler,
     )
 )]
 pub struct ChannelApiDoc;
@@ -81,6 +82,7 @@ pub fn channel_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenAp
         ))
         .routes(routes!(handlers::delete_ingress_rule))
         .routes(routes!(handlers::list_provider_connections))
+        .routes(routes!(handlers::send_user_dm_handler))
         .with_state(state)
         .split_for_parts();
 

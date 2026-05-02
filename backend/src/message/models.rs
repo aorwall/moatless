@@ -120,6 +120,7 @@ pub struct TaskMessage {
     pub channel_provider: Option<String>,
     pub channel_source_name: Option<String>,
     pub command_name: Option<String>,
+    pub source_task_id: Option<String>,
 }
 
 impl TaskMessage {
@@ -171,6 +172,7 @@ impl TaskMessage {
             channel_provider: None,
             channel_source_name: None,
             command_name: None,
+            source_task_id: None,
         }
     }
 }

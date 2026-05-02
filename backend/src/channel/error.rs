@@ -12,6 +12,9 @@ pub enum ChannelError {
     #[error("Channel config not found: {0}")]
     ConfigNotFound(String),
 
+    #[error("Not found: {0}")]
+    NotFound(String),
+
     #[error("Invalid request: {0}")]
     BadRequest(String),
 
@@ -45,7 +48,9 @@ pub enum ChannelError {
 impl IntoResponse for ChannelError {
     fn into_response(self) -> Response {
         let (status, message) = match &self {
-            ChannelError::ConfigNotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
+            ChannelError::ConfigNotFound(_) | ChannelError::NotFound(_) => {
+                (StatusCode::NOT_FOUND, self.to_string())
+            }
             ChannelError::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             ChannelError::ProviderNotConfigured(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             ChannelError::SignatureInvalid => (StatusCode::UNAUTHORIZED, self.to_string()),

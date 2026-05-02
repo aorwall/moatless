@@ -30,6 +30,8 @@ use super::models::UserRole;
 use super::oauth::provider::OAuthProvider;
 use super::provider_token_dao::{PgProviderTokenRepository, ProviderTokenRepository};
 use super::provider_tokens::ProviderTokenAuthRepository;
+use moatless_api_schemas::user::{SetProviderIdRequest, UserProviderIdItem};
+
 use super::schemas::{
     format_datetime, format_datetime_opt, ApiKeyCreateResponse, ApiKeyListItem, CliLoginQuery,
     CreateApiKeyRequest, MessageResponse, OAuthCallbackQuery, ProviderConnection, SessionResponse,
@@ -159,6 +161,9 @@ impl AuthState {
         list_api_keys_handler,
         revoke_api_key_handler,
         list_users_handler,
+        set_user_provider_id_handler,
+        delete_user_provider_id_handler,
+        list_user_provider_ids_handler,
     )
 )]
 pub struct AuthApiDoc;
@@ -175,6 +180,8 @@ pub fn auth_router(state: AuthState) -> (axum::Router, utoipa::openapi::OpenApi)
         .routes(routes!(create_api_key_handler, list_api_keys_handler))
         .routes(routes!(revoke_api_key_handler))
         .routes(routes!(list_users_handler))
+        .routes(routes!(set_user_provider_id_handler, delete_user_provider_id_handler))
+        .routes(routes!(list_user_provider_ids_handler))
         .with_state(state.clone())
         .split_for_parts();
 
@@ -1273,6 +1280,149 @@ async fn list_users_handler(
         .collect();
 
     Ok(Json(UserListResponse { users: items }))
+}
+
+// ============================================================================
+// Provider ID management
+// ============================================================================
+
+/// Resolve a login to a user ID, returning 404 if not found.
+async fn resolve_login_to_user_id(
+    state: &AuthState,
+    login: &str,
+) -> Result<String, AuthError> {
+    let user = state
+        .users
+        .get_user_by_login(login)
+        .await?
+        .ok_or_else(|| AuthError::NotFound(format!("User '{login}' not found")))?;
+    Ok(user.id)
+}
+
+/// Set (upsert) a provider-specific user ID for a moatless user.
+///
+/// Only the user themselves or an admin may call this.
+#[utoipa::path(
+    put,
+    path = "/api/v1/users/{login}/provider-ids/{provider}",
+    tag = "users",
+    params(
+        ("login" = String, Path, description = "Moatless username"),
+        ("provider" = String, Path, description = "Provider name, e.g. 'slack'")
+    ),
+    request_body = SetProviderIdRequest,
+    responses(
+        (status = 200, description = "Provider ID set", body = MessageResponse),
+        (status = 401, description = "Not authenticated", body = ErrorBody),
+        (status = 403, description = "Access denied", body = ErrorBody),
+        (status = 404, description = "User not found", body = ErrorBody)
+    )
+)]
+async fn set_user_provider_id_handler(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    Path((login, provider)): Path<(String, String)>,
+    Json(body): Json<SetProviderIdRequest>,
+) -> Result<Json<MessageResponse>, AuthError> {
+    let identity = authenticate_request(&state, &headers).await?;
+    let user_id = resolve_login_to_user_id(&state, &login).await?;
+
+    if identity.user_id != user_id && identity.role != UserRole::Admin {
+        return Err(AuthError::Forbidden);
+    }
+
+    state
+        .users
+        .upsert_provider_id(&user_id, &provider, &body.provider_user_id)
+        .await?;
+
+    Ok(Json(MessageResponse {
+        message: format!("Provider ID for '{provider}' set successfully"),
+    }))
+}
+
+/// Delete a provider ID mapping for a moatless user.
+///
+/// Only the user themselves or an admin may call this.
+#[utoipa::path(
+    delete,
+    path = "/api/v1/users/{login}/provider-ids/{provider}",
+    tag = "users",
+    params(
+        ("login" = String, Path, description = "Moatless username"),
+        ("provider" = String, Path, description = "Provider name, e.g. 'slack'")
+    ),
+    responses(
+        (status = 200, description = "Provider ID deleted", body = MessageResponse),
+        (status = 401, description = "Not authenticated", body = ErrorBody),
+        (status = 403, description = "Access denied", body = ErrorBody),
+        (status = 404, description = "User or mapping not found", body = ErrorBody)
+    )
+)]
+async fn delete_user_provider_id_handler(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    Path((login, provider)): Path<(String, String)>,
+) -> Result<Json<MessageResponse>, AuthError> {
+    let identity = authenticate_request(&state, &headers).await?;
+    let user_id = resolve_login_to_user_id(&state, &login).await?;
+
+    if identity.user_id != user_id && identity.role != UserRole::Admin {
+        return Err(AuthError::Forbidden);
+    }
+
+    let deleted = state.users.delete_provider_id(&user_id, &provider).await?;
+    if !deleted {
+        return Err(AuthError::NotFound(format!(
+            "No '{provider}' provider ID found for user '{login}'"
+        )));
+    }
+
+    Ok(Json(MessageResponse {
+        message: format!("Provider ID for '{provider}' deleted"),
+    }))
+}
+
+/// List all provider ID mappings for a moatless user.
+///
+/// Only the user themselves or an admin may call this.
+#[utoipa::path(
+    get,
+    path = "/api/v1/users/{login}/provider-ids",
+    tag = "users",
+    params(
+        ("login" = String, Path, description = "Moatless username")
+    ),
+    responses(
+        (status = 200, description = "List of provider ID mappings", body = Vec<UserProviderIdItem>),
+        (status = 401, description = "Not authenticated", body = ErrorBody),
+        (status = 403, description = "Access denied", body = ErrorBody),
+        (status = 404, description = "User not found", body = ErrorBody)
+    )
+)]
+async fn list_user_provider_ids_handler(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    Path(login): Path<String>,
+) -> Result<Json<Vec<UserProviderIdItem>>, AuthError> {
+    let identity = authenticate_request(&state, &headers).await?;
+    let user_id = resolve_login_to_user_id(&state, &login).await?;
+
+    if identity.user_id != user_id && identity.role != UserRole::Admin {
+        return Err(AuthError::Forbidden);
+    }
+
+    let accounts = state.users.list_provider_ids(&user_id).await?;
+    let items: Vec<UserProviderIdItem> = accounts
+        .into_iter()
+        .map(|a| UserProviderIdItem {
+            provider: a.provider,
+            provider_user_id: a.provider_user_id,
+            created_at: format_datetime(a.created_at),
+        })
+        .collect();
+
+    Ok(Json(items))
 }
 
 // ============================================================================

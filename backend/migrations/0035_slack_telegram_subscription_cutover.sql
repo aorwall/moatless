@@ -1,8 +1,6 @@
 -- Slack/Telegram hard cutover to provider_connections + ingress_rules +
 -- task_subscriptions. webhook and cron remain on channel_configs.
 
-BEGIN;
-
 -- ---------------------------------------------------------------------------
 -- Schema: chat-channel fields formerly stored on channel_configs.
 -- ---------------------------------------------------------------------------
@@ -214,6 +212,11 @@ WHERE config_id IN (
     SELECT id FROM "channel_configs" WHERE provider IN ('slack', 'telegram')
 );
 
-DELETE FROM "channel_configs" WHERE provider IN ('slack', 'telegram');
+-- Clear cross-provider response_config_id references that would block the delete.
+UPDATE "channel_configs"
+SET response_config_id = NULL
+WHERE response_config_id IN (
+    SELECT id FROM "channel_configs" WHERE provider IN ('slack', 'telegram')
+);
 
-COMMIT;
+DELETE FROM "channel_configs" WHERE provider IN ('slack', 'telegram');

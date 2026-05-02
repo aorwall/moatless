@@ -249,6 +249,21 @@ impl MoatClient {
         Ok(resp.text().await?)
     }
 
+    /// Raw POST with JSON body.
+    pub async fn raw_post(
+        &self,
+        path: &str,
+        body: &serde_json::Value,
+    ) -> Result<serde_json::Value, ClientError> {
+        let url = format!("{}{path}", self.base_url);
+        if self.verbose {
+            eprintln!("POST {url}");
+        }
+        let http = Self::build_http_client(&self.auth_mode);
+        let resp = http.post(&url).json(body).send().await?;
+        self.handle_response(resp).await
+    }
+
     /// Raw PUT with JSON body.
     pub async fn raw_put(
         &self,

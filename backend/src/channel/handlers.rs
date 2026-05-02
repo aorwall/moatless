@@ -4,6 +4,7 @@ use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
+use moatless_api_schemas::user::{SendDmRequest, SendDmResponse};
 use tracing::{info, warn};
 
 use crate::extractors::AuthUser;
@@ -2258,4 +2259,133 @@ pub async fn list_provider_connections(
         .list_by_provider(&provider)
         .await?;
     Ok(Json(conns.iter().map(connection_to_response).collect()))
+}
+
+// =========================================================================
+// POST /api/v1/users/{login}/dm — send a DM to a user via a provider
+// =========================================================================
+
+/// Send a direct message to a moatless user via an external provider (e.g. Slack).
+///
+/// The user must have a provider ID registered for the given provider.
+/// If `task_id` is provided, a `task_subscription` is created so that replies
+/// to the DM thread are routed back to the task.
+#[utoipa::path(
+    post,
+    path = "/api/v1/users/{login}/dm",
+    tag = "channels",
+    params(
+        ("login" = String, Path, description = "Moatless username to send the DM to")
+    ),
+    request_body = SendDmRequest,
+    responses(
+        (status = 200, description = "DM sent", body = SendDmResponse),
+        (status = 400, description = "Provider not configured or no provider ID for user", body = crate::error::ErrorBody),
+        (status = 404, description = "User not found", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn send_user_dm_handler(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(login): Path<String>,
+    Json(body): Json<SendDmRequest>,
+) -> Result<Json<SendDmResponse>, ChannelError> {
+    // Resolve login → user
+    let target_user = state
+        .users
+        .get_user_by_login(&login)
+        .await
+        .map_err(|e| ChannelError::Internal(format!("User lookup failed: {e}")))?
+        .ok_or_else(|| ChannelError::NotFound(format!("User '{login}' not found")))?;
+
+    // Get their provider-specific ID
+    let provider_user_id = state
+        .users
+        .get_provider_id(&target_user.id, &body.provider)
+        .await
+        .map_err(|e| ChannelError::Internal(format!("Provider ID lookup failed: {e}")))?
+        .ok_or_else(|| {
+            ChannelError::BadRequest(format!(
+                "User '{login}' has no '{}' provider ID registered",
+                body.provider
+            ))
+        })?;
+
+    // Get the Slack provider
+    if body.provider != "slack" {
+        return Err(ChannelError::BadRequest(format!(
+            "Provider '{}' is not supported for DM send (only 'slack' is currently supported)",
+            body.provider
+        )));
+    }
+
+    let providers = state
+        .channel_providers
+        .as_ref()
+        .ok_or_else(|| ChannelError::ProviderNotConfigured("slack".into()))?;
+    let provider = providers
+        .get(ChannelType::Slack)
+        .ok_or_else(|| ChannelError::ProviderNotConfigured("slack".into()))?;
+    let slack = provider
+        .as_any()
+        .downcast_ref::<super::slack::provider::SlackProvider>()
+        .ok_or_else(|| ChannelError::Internal("Slack provider type mismatch".into()))?;
+
+    // Ensure a provider connection exists for Slack
+    let connection =
+        ensure_chat_provider_connection(&state, &auth.user_id, "slack", "default", None).await?;
+
+    // Open DM channel
+    let dm_channel_id = slack.open_dm(&provider_user_id).await?;
+
+    // Post the message
+    let ts = slack
+        .post_message(&dm_channel_id, &body.text, None)
+        .await?
+        .ok_or_else(|| ChannelError::Internal("Slack post_message returned no ts".into()))?;
+
+    info!(
+        login = %login,
+        channel = %dm_channel_id,
+        ts = %ts,
+        "Sent DM to user via Slack"
+    );
+
+    // Optionally create a task_subscription so replies route back to the task
+    let subscription_id = if let Some(ref task_id) = body.task_id {
+        let subject_key = format!("default:{dm_channel_id}:{ts}");
+        let reply_target = serde_json::json!({
+            "channel": dm_channel_id,
+            "thread_ts": ts,
+        });
+        let now = chrono::Utc::now();
+        let subscription = super::models::TaskSubscription {
+            id: format!("ts_{}", uuid::Uuid::new_v4()),
+            task_id: task_id.clone(),
+            provider: "slack".to_string(),
+            subject_kind: "slack_thread".to_string(),
+            subject_key,
+            connection_id: connection.id.clone(),
+            ingress_rule_id: None,
+            reply_target,
+            metadata: serde_json::json!({}),
+            last_channel_external_id: Some(ts.clone()),
+            created_reason: "dm_send".to_string(),
+            created_at: now,
+            last_event_at: now,
+        };
+        let saved = super::task_subscription_dao::PgTaskSubscriptionRepository(state.db.clone())
+            .upsert(&subscription)
+            .await
+            .map_err(|e| ChannelError::Internal(format!("Failed to save subscription: {e}")))?;
+        saved.id
+    } else {
+        String::new()
+    };
+
+    Ok(Json(SendDmResponse {
+        subscription_id,
+        channel_id: dm_channel_id,
+        message_ts: ts,
+    }))
 }

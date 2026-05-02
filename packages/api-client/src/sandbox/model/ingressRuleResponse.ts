@@ -5,8 +5,9 @@
  * Sandbox orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
-import type { Scope } from './scope';
+import type { IngressRuleResponseProviderConfig } from './ingressRuleResponseProviderConfig';
 import type { RoutingMode } from './routingMode';
+import type { Scope } from './scope';
 
 /**
  * One row from `ingress_rules`.
@@ -14,6 +15,7 @@ import type { RoutingMode } from './routingMode';
 export interface IngressRuleResponse {
   active: boolean;
   agentType: string;
+  allowDirectSend: boolean;
   closeTaskOnClose: boolean;
   connectionId: string;
   createdAt: string;
@@ -21,14 +23,13 @@ export interface IngressRuleResponse {
   eventFilter: string[];
   id: string;
   notifyOnSuccess: boolean;
-  allowDirectSend: boolean;
   /** @nullable */
   ongoingTaskId?: string | null;
   /** @nullable */
   promptTemplate?: string | null;
-  /** @nullable */
-  providerConfig?: { [key: string]: unknown } | null;
   provider: string;
+  /** @nullable */
+  providerConfig?: IngressRuleResponseProviderConfig;
   repositoryId: string;
   /** @nullable */
   responseRuleId?: string | null;

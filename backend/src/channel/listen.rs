@@ -431,6 +431,7 @@ pub async fn deliver_to_connected_threads(
             Some(msg.provider.as_str()),
             None,
             None,
+            None,
         )
         .await
         {

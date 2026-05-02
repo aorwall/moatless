@@ -100,6 +100,13 @@ enum SharedCommands {
         #[command(subcommand)]
         action: commands::docker::DockerAction,
     },
+    /// Manage users and their provider identity mappings
+    User {
+        /// Moatless username (login)
+        login: String,
+        #[command(subcommand)]
+        action: commands::users::UserAction,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -263,7 +270,7 @@ async fn run_sandbox(cli: SandboxCli) -> Result<(), Box<dyn std::error::Error>> 
             }
         }
         SandboxCommands::Messages { action } => {
-            commands::messages::run(&moat, action, cli.opts.json).await?;
+            commands::messages::run(&moat, action, cli.opts.json, &cfg).await?;
         }
         SandboxCommands::Reply {
             channel,
@@ -359,7 +366,7 @@ async fn run_standalone(cli: StandaloneCli) -> Result<(), Box<dyn std::error::Er
             }
         }
         StandaloneCommands::Messages { action } => {
-            commands::messages::run(&moat, action, cli.opts.json).await?;
+            commands::messages::run(&moat, action, cli.opts.json, &cfg).await?;
         }
     }
 
@@ -428,6 +435,9 @@ async fn run_shared(
         }
         SharedCommands::Docker { action } => {
             commands::docker::run(action, json).await?;
+        }
+        SharedCommands::User { login, action } => {
+            commands::users::run(moat, &login, action, json).await?;
         }
     }
 

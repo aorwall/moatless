@@ -57,6 +57,9 @@ pub struct UiMessage {
     /// Parent tool use ID (links subagent messages to parent Agent tool call).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_uuid: Option<String>,
+    /// Task ID that sent this message (present for inter-task messages only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_task_id: Option<String>,
 }
 
 /// Channel source metadata for messages originating from external channels.
@@ -285,6 +288,8 @@ pub struct SendMessageRequest {
     pub tool_name: Option<String>,
     #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
     pub tool_response: Option<serde_json::Value>,
+    /// Task ID of the sender (set automatically when sent from within a sandbox).
+    pub source_task_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
