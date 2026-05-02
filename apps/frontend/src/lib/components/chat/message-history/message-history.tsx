@@ -229,6 +229,9 @@ function MessageHistoryComponent({
 
   const renderRow = useCallback(
     (item: UiMessage) => {
+      if (item.role === 'user' && item.sourceTaskId) {
+        return <ChannelMessageComponent key={item.uuid} message={item} variant="task" />
+      }
       if (item.role === 'user' && item.channel) {
         return <ChannelMessageComponent key={item.uuid} message={item} />
       }

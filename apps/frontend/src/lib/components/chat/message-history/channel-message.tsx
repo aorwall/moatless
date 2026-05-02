@@ -1,8 +1,10 @@
 import type { UiMessage } from '@moatless/api-client'
+import { Bot } from 'lucide-react'
 import { getProviderIcon, getProviderLabel } from './channel-meta'
 
 interface ChannelMessageProps {
   message: UiMessage
+  variant?: 'channel' | 'task'
 }
 
 function getTextContent(message: UiMessage): string {
@@ -12,8 +14,30 @@ function getTextContent(message: UiMessage): string {
     .join('\n')
 }
 
-export function ChannelMessageComponent({ message }: ChannelMessageProps) {
+export function ChannelMessageComponent({ message, variant = 'channel' }: ChannelMessageProps) {
   const textContent = getTextContent(message)
+
+  if (variant === 'task') {
+    return (
+      <div className="w-full rounded-lg border-l-4 border-violet-500/50 bg-violet-500/5 dark:bg-violet-500/10 overflow-hidden">
+        <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground border-b border-violet-500/10">
+          <span className="text-violet-500/70">
+            <Bot className="h-3.5 w-3.5" />
+          </span>
+          <span className="font-medium">from task</span>
+          {message.sourceTaskId && (
+            <span className="ml-auto font-mono text-[10px] text-muted-foreground/60">
+              {message.sourceTaskId}
+            </span>
+          )}
+        </div>
+        <pre className="px-3 py-2 text-sm font-mono whitespace-pre-wrap break-words overflow-x-auto text-foreground/90">
+          {textContent}
+        </pre>
+      </div>
+    )
+  }
+
   const channel = message.channel
   const provider = channel?.provider ?? 'channel'
   const sourceName = channel?.sourceName
