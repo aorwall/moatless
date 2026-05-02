@@ -211,7 +211,10 @@ impl ScheduledJobRegistry {
         if jobs.is_empty() {
             return;
         }
-        info!(count = jobs.len(), "Cancelling all registered scheduled jobs");
+        info!(
+            count = jobs.len(),
+            "Cancelling all registered scheduled jobs"
+        );
         for entry in jobs.values() {
             entry.cancel.cancel();
         }
@@ -303,9 +306,7 @@ mod tests {
             "continue work".to_string(),
             Instant::now() + Duration::from_millis(50),
         );
-        let registered = registry
-            .register(Box::new(job), run_cancel.clone())
-            .await;
+        let registered = registry.register(Box::new(job), run_cancel.clone()).await;
         assert!(registered);
 
         let ok = wait_until(Duration::from_millis(500), || {
@@ -330,9 +331,7 @@ mod tests {
             "should not fire".to_string(),
             Instant::now() + Duration::from_secs(60),
         );
-        let registered = registry
-            .register(Box::new(job), run_cancel.clone())
-            .await;
+        let registered = registry.register(Box::new(job), run_cancel.clone()).await;
         assert!(registered);
 
         run_cancel.cancel();
@@ -344,8 +343,14 @@ mod tests {
             }
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
-        assert!(registry.is_empty().await, "registry should self-clean after cancel");
-        assert!(injector.snapshot().is_empty(), "no prompt should have been injected");
+        assert!(
+            registry.is_empty().await,
+            "registry should self-clean after cancel"
+        );
+        assert!(
+            injector.snapshot().is_empty(),
+            "no prompt should have been injected"
+        );
     }
 
     #[tokio::test]
@@ -381,7 +386,11 @@ mod tests {
             }
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
-        assert_eq!(registry.len().await, 1, "monitor should remain after cancel_by_kind(Wakeup)");
+        assert_eq!(
+            registry.len().await,
+            1,
+            "monitor should remain after cancel_by_kind(Wakeup)"
+        );
 
         let snapshots = registry.list().await;
         assert!(matches!(snapshots[0], JobSnapshot::Monitor(_)));
@@ -436,9 +445,7 @@ mod tests {
             "first prompt".to_string(),
             Instant::now() + Duration::from_secs(60),
         );
-        registry
-            .register(Box::new(first), run_cancel.clone())
-            .await;
+        registry.register(Box::new(first), run_cancel.clone()).await;
 
         registry.cancel_by_kind(JobKind::Wakeup).await;
 
@@ -494,7 +501,11 @@ mod tests {
         );
 
         assert!(registry.register(Box::new(first), run_cancel.clone()).await);
-        assert!(!registry.register(Box::new(second), run_cancel.clone()).await);
+        assert!(
+            !registry
+                .register(Box::new(second), run_cancel.clone())
+                .await
+        );
         assert_eq!(registry.len().await, 1);
 
         run_cancel.cancel();

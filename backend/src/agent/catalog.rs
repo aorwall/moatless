@@ -64,8 +64,7 @@ pub const CODEX: AgentEntry = AgentEntry {
         id: "default",
         label: "Default",
     }],
-    missing_credential_hint:
-        "Add CODEX_AUTH_JSON or OPENAI_API_KEY in Settings \u{2192} Secrets",
+    missing_credential_hint: "Add CODEX_AUTH_JSON or OPENAI_API_KEY in Settings \u{2192} Secrets",
 };
 
 /// All supported agents in display order.

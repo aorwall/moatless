@@ -92,34 +92,6 @@ pub fn build_options(
     }
 }
 
-/// Behavioral directive prepended before all other appended prompt content
-/// so it is never buried under reference material.
-const REQUIRED_FIRST_ACTIONS: &str = "\
-# Required First Actions
-
-Before responding to the user's first message, you MUST run:
-  `moat set-name \"<name>\"`
-Choose a short, descriptive name based on the user's request (under 50 characters).";
-
-/// Steers the agent away from the (broken) hosted GitHub MCP tools and toward
-/// the `gh` CLI, which the sandbox already authenticates from `GITHUB_TOKEN`.
-const GITHUB_CLI_HINT: &str = "\
-# GitHub Access
-
-The `gh` CLI is authenticated and is the only way to access GitHub from this sandbox.
-Use it via bash for all GitHub operations — do not rely on GitHub MCP tools.";
-
-/// CLI reference appended at the end of the system prompt.
-const SANDBOX_TOOLS_PROMPT: &str = "\
-# Sandbox CLI Reference
-
-Available `moat` commands:
-- `moat set-name \"<name>\"` — Update the task name
-- `moat set-tags <tag1> <tag2> ...` — Set tags on this task
-- `moat tasks status $TASK_ID` — Show sandbox status including server states
-- `moat tasks logs $TASK_ID --server <name>` — Stream server logs (e.g., `--server preview`)
-- `moat tasks diagnose $TASK_ID` — Diagnose sandbox issues (status + container diagnostics + recent errors)";
-
 /// Build the system prompt configuration.
 #[allow(clippy::unnecessary_wraps)] // Option for caller API consistency
 fn build_system_prompt(config: &Config, request: &AgentRunRequest) -> Option<SystemPrompt> {
@@ -130,108 +102,21 @@ fn build_system_prompt(config: &Config, request: &AgentRunRequest) -> Option<Sys
     })
 }
 
-/// Build the shared prompt appendix used by both Claude and Codex.
-pub fn build_prompt_append(config: &Config, request: &AgentRunRequest) -> String {
-    let mut append_parts = Vec::new();
-
-    // Only ask the agent to set a task name on the first session in this pod's lifetime.
-    if request.is_first_session {
-        append_parts.push(REQUIRED_FIRST_ACTIONS.to_string());
-    }
-
-    if let Some(ref sp) = config.agent_config.system_prompt {
-        append_parts.push(sp.clone());
-    }
-
-    if let Some(ref sp) = request.system_prompt {
-        append_parts.push(sp.clone());
-    }
-
-    // Add preview server instructions if servers are configured
-    if let Some(server_prompt) = build_server_prompt(config) {
-        append_parts.push(server_prompt);
-    }
-
-    // Add task URL so the agent can reference it
-    if let Some(ref frontend_url) = config.frontend_url {
-        append_parts.push(format!(
-            "# Task URL\n\nThis task is available at: {}/tasks/{}",
-            frontend_url.trim_end_matches('/'),
-            config.task_id
-        ));
-    }
-
-    // GitHub access guidance (steer away from broken MCP tools).
-    append_parts.push(GITHUB_CLI_HINT.to_string());
-
-    // CLI reference last
-    append_parts.push(SANDBOX_TOOLS_PROMPT.to_string());
-
-    let append = append_parts.join("\n\n");
+/// Return the backend-supplied append-system-prompt verbatim.
+///
+/// The backend assembles the entire prompt (task identity, repo/channel
+/// system prompts, preview servers, task URL, CLI reference, GitHub hint)
+/// and stamps it onto every `PendingMessage.system_prompt`. The sandbox
+/// is a passive recipient. The `_config` argument is retained for caller
+/// API consistency.
+pub fn build_prompt_append(_config: &Config, request: &AgentRunRequest) -> String {
+    let append = request.system_prompt.clone().unwrap_or_default();
     info!(
         append_system_prompt_len = append.len(),
-        parts = append_parts.len(),
-        has_config_prompt = config.agent_config.system_prompt.is_some(),
         has_request_prompt = request.system_prompt.is_some(),
         "Assembled system prompt"
     );
-
     append
-}
-
-/// Build a system prompt section describing configured preview servers.
-///
-/// Returns `None` if no servers are configured.
-fn build_server_prompt(config: &Config) -> Option<String> {
-    if config.servers.is_empty() {
-        return None;
-    }
-
-    let mut lines = vec![
-        "# Preview Servers".to_string(),
-        String::new(),
-        "The following preview servers are running as sidecars in this sandbox environment. \
-         They start automatically when the workspace is ready — you do not need to start them manually."
-            .to_string(),
-    ];
-
-    for server in &config.servers {
-        lines.push(String::new());
-        let label = server.label.as_deref().unwrap_or(&server.name);
-        lines.push(format!("## {label} (port {port})", port = server.port));
-
-        // Local URL — agent can access directly via same-pod networking
-        lines.push(format!(
-            "- **Local URL**: http://localhost:{} (use this to curl/verify the server — no auth needed)",
-            server.port
-        ));
-
-        // External URL — for the user's browser (they are already authenticated)
-        if let Some(ref domain) = config.proxy.domain {
-            let url = format!(
-                "{}://{}--{}.{}",
-                config.proxy.protocol, config.task_id, server.port, domain
-            );
-            lines.push(format!(
-                "- **External URL**: {url} (share with the user to open in their browser — they are already authenticated)"
-            ));
-        }
-
-        if let Some(ref cmds) = server.start_commands {
-            let joined = cmds.join(" && ");
-            lines.push(format!(
-                "- **Configured start command**: `{joined}` (runs automatically, configured in the repository)"
-            ));
-        }
-
-        if server.auto_reload {
-            lines.push(
-                "- **Auto-reload**: enabled (file changes are reflected automatically)".to_string(),
-            );
-        }
-    }
-
-    Some(lines.join("\n"))
 }
 
 /// Build plugin configs from config paths and cloned plugin repos.

@@ -15,9 +15,7 @@ use serde_json::Value;
 use tokio::time::Instant;
 use tracing::debug;
 
-use super::scheduled_job::{
-    JobContext, JobKind, JobSnapshot, ScheduledJob, WakeupSnapshot,
-};
+use super::scheduled_job::{JobContext, JobKind, JobSnapshot, ScheduledJob, WakeupSnapshot};
 
 /// One-shot wakeup job armed at the end of a successful turn.
 pub struct WakeupJob {

@@ -23,6 +23,7 @@ use crate::db::{self, DbPool};
 use crate::events::{EventPublisher, RedisEventPublisher};
 use crate::message::dao::{MessageRepository, PgMessageRepository};
 use crate::metrics;
+use crate::repository::dao::{PgRepoRepository, RepoRepository};
 use crate::sandbox::grpc_server::BackendSandboxServiceImpl;
 use crate::sandbox::k8s::client::K8sClient;
 use crate::secret::audit::{PgSecretAuditRepository, SecretAuditRepository};
@@ -188,6 +189,9 @@ pub fn spawn_grpc_server(
         db_pool.map(|pool| Arc::new(PgProviderTokenRepository(pool.clone())) as _);
     let tasks: Option<Arc<dyn TaskRepository>> =
         db_pool.map(|pool| Arc::new(PgTaskRepository(pool.clone())) as _);
+    let repositories: Option<Arc<dyn RepoRepository>> =
+        db_pool.map(|pool| Arc::new(PgRepoRepository(pool.clone())) as _);
+    let backend_config = Arc::new(config.clone());
     let port = config.server.grpc_port;
     let token_secret = config.sandbox.task_token_secret.clone();
     let github_app_service = GitHubAppService::from_config(config).map(Arc::new);
@@ -230,6 +234,8 @@ pub fn spawn_grpc_server(
             provider_token_auth,
             secrets,
             credentials_svc,
+            repositories,
+            backend_config: Some(backend_config),
         };
         let addr = SocketAddr::from(([0, 0, 0, 0], port));
         info!(port, "Starting backend gRPC server");

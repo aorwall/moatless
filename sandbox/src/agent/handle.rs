@@ -205,7 +205,10 @@ async fn try_credential_recovery_retry(
     }
 
     let Some(prompt) = last_prompt.clone() else {
-        warn!(?flagged, "Credential failure detected but no prompt to retry");
+        warn!(
+            ?flagged,
+            "Credential failure detected but no prompt to retry"
+        );
         return;
     };
 
@@ -224,9 +227,7 @@ async fn try_credential_recovery_retry(
                 _ => None,
             })
             .unwrap_or("provider");
-        let user_msg = format!(
-            "Sign-in expired. Please reconnect {provider_hint} in Settings."
-        );
+        let user_msg = format!("Sign-in expired. Please reconnect {provider_hint} in Settings.");
         agent_state.set_error(user_msg.clone()).await;
         *consecutive_errors += 1;
         events
@@ -258,9 +259,7 @@ async fn try_credential_recovery_retry(
                 _ => None,
             })
             .unwrap_or("provider");
-        let user_msg = format!(
-            "Sign-in expired. Please reconnect {provider_hint} in Settings."
-        );
+        let user_msg = format!("Sign-in expired. Please reconnect {provider_hint} in Settings.");
         agent_state.set_error(user_msg.clone()).await;
         *consecutive_errors += 1;
         events
@@ -499,7 +498,10 @@ fn compute_backoff(attempt: u32) -> std::time::Duration {
 /// required field is missing.
 fn extract_wakeup_job(content: &[ContentBlock]) -> Option<WakeupJob> {
     for block in content {
-        if let ContentBlock::ToolUse { id, name, input, .. } = block {
+        if let ContentBlock::ToolUse {
+            id, name, input, ..
+        } = block
+        {
             if name == "ScheduleWakeup" {
                 return WakeupJob::from_tool_use(id, input);
             }
@@ -1084,7 +1086,6 @@ async fn start_session(
 
     let agent_type = normalize_agent_type(agent_type);
 
-    let is_first_session = previous_session_id.is_empty();
     let resume = if !previous_session_id.is_empty() {
         Some(ResumeSession::WithId(previous_session_id.to_string()))
     } else if let Some(ref session_id) = resume_session_id {
@@ -1103,7 +1104,6 @@ async fn start_session(
         resume,
         agent_type: Some(agent_type.to_string()),
         agent_mode: agent_mode.map(std::string::ToString::to_string),
-        is_first_session,
     };
 
     let cancel_token = CancellationToken::new();
@@ -1788,9 +1788,7 @@ fn build_shell_tool_use(cmd: &CommandExecutionItem) -> serde_json::Value {
     serde_json::to_value(input).unwrap_or_else(|_| serde_json::json!({}))
 }
 
-fn build_shell_tool_result(
-    cmd: &CommandExecutionItem,
-) -> (serde_json::Value, String, bool) {
+fn build_shell_tool_result(cmd: &CommandExecutionItem) -> (serde_json::Value, String, bool) {
     let status = command_execution_to_tool_status(cmd.status, cmd.exit_code);
     let is_error = matches!(status, CodexToolStatus::Failed | CodexToolStatus::Declined);
     let summary_text = cmd.aggregated_output.clone().unwrap_or_default();
@@ -2449,9 +2447,11 @@ mod tests {
         // Backend returns the same value (whitespace-different) — should
         // still detect as unchanged.
         let backend_value = r#"{"tokens": {"refresh_token": "reused"}}"#;
-        let changed =
-            value_actually_changed("CODEX_AUTH_JSON", backend_value, &config).await;
-        assert!(!changed, "identical (canonicalized) JSON should not count as changed");
+        let changed = value_actually_changed("CODEX_AUTH_JSON", backend_value, &config).await;
+        assert!(
+            !changed,
+            "identical (canonicalized) JSON should not count as changed"
+        );
     }
 
     #[tokio::test]
@@ -2467,8 +2467,7 @@ mod tests {
         let config = test_config_with_codex_dir(codex_dir.display().to_string());
 
         let backend_value = r#"{"tokens":{"refresh_token":"new"}}"#;
-        let changed =
-            value_actually_changed("CODEX_AUTH_JSON", backend_value, &config).await;
+        let changed = value_actually_changed("CODEX_AUTH_JSON", backend_value, &config).await;
         assert!(changed, "different refresh_token should count as changed");
     }
 
@@ -2476,25 +2475,16 @@ mod tests {
     async fn value_actually_changed_returns_true_when_no_local_file() {
         let tmp = tempfile::TempDir::new().unwrap();
         // Note: no auth.json written — file missing.
-        let config = test_config_with_codex_dir(
-            tmp.path().join(".codex").display().to_string(),
-        );
+        let config = test_config_with_codex_dir(tmp.path().join(".codex").display().to_string());
 
-        let changed = value_actually_changed(
-            "CODEX_AUTH_JSON",
-            r#"{"tokens":{}}"#,
-            &config,
-        )
-        .await;
+        let changed = value_actually_changed("CODEX_AUTH_JSON", r#"{"tokens":{}}"#, &config).await;
         assert!(changed, "missing on-disk file should fall through to retry");
     }
 
     #[tokio::test]
     async fn value_actually_changed_returns_true_for_unknown_keys() {
         let tmp = tempfile::TempDir::new().unwrap();
-        let config = test_config_with_codex_dir(
-            tmp.path().join(".codex").display().to_string(),
-        );
+        let config = test_config_with_codex_dir(tmp.path().join(".codex").display().to_string());
         // Unknown keys conservatively retry.
         let changed = value_actually_changed("WHATEVER", "value", &config).await;
         assert!(changed);
@@ -2748,8 +2738,14 @@ mod tests {
         assert_eq!(p1["uuid"], "sess_NONCE_item_1_call");
         assert_eq!(p1["message"]["content"][0]["name"], CODEX_TOOL_TODO_LIST);
         // Payloads differ only in the tool_input items array.
-        assert_eq!(p1["message"]["content"][0]["input"]["items"][0]["completed"], false);
-        assert_eq!(p2["message"]["content"][0]["input"]["items"][0]["completed"], true);
+        assert_eq!(
+            p1["message"]["content"][0]["input"]["items"][0]["completed"],
+            false
+        );
+        assert_eq!(
+            p2["message"]["content"][0]["input"]["items"][0]["completed"],
+            true
+        );
     }
 
     #[test]
@@ -2837,18 +2833,16 @@ mod tests {
             Some("gpt-5"),
         );
         assert_eq!(payload["sdk_metadata"]["codex_error"], true);
-        assert_eq!(payload["message"]["content"][0]["text"], "tool returned warning");
+        assert_eq!(
+            payload["message"]["content"][0]["text"],
+            "tool returned warning"
+        );
         assert_eq!(payload["message"]["role"], "assistant");
     }
 
     #[test]
     fn codex_reasoning_payload_sets_metadata_flag() {
-        let payload = codex_reasoning_payload(
-            "sess_item_0",
-            "sess",
-            "thinking...",
-            Some("gpt-5"),
-        );
+        let payload = codex_reasoning_payload("sess_item_0", "sess", "thinking...", Some("gpt-5"));
         assert_eq!(payload["sdk_metadata"]["codex_reasoning"], true);
         assert_eq!(payload["message"]["content"][0]["type"], "text");
         assert_eq!(payload["message"]["content"][0]["text"], "thinking...");

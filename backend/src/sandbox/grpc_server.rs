@@ -16,14 +16,17 @@ use sandbox_proto::{
     PublishEventRequest, PublishEventResponse, UpdateCredentialRequest, UpdateCredentialResponse,
 };
 
+use crate::agent::prompt;
 use crate::auth::github_app_service::GitHubAppService;
 use crate::auth::provider_token_dao::ProviderTokenRepository;
 use crate::auth::provider_tokens::ProviderTokenAuthRepository;
 use crate::command::dao::CommandRepository;
+use crate::config::Config;
 use crate::credentials::{CredentialService, WriteSource};
 use crate::events::EventPublisher;
 use crate::message::dao::MessageRepository;
 use crate::message::send::enrich_pending_with_commands;
+use crate::repository::dao::RepoRepository;
 use crate::sandbox::jwt;
 use crate::sandbox::secrets::{
     resolve_server_env, resolve_task_credentials, resolve_task_team_id, TaskCredentialInputs,
@@ -66,6 +69,12 @@ pub struct BackendSandboxServiceImpl {
     /// through `store(.., WriteSource::SandboxRotation)` so the broadcast
     /// fan-out picks them up automatically.
     pub credentials_svc: Option<Arc<CredentialService>>,
+    /// Repository DAO — used to load `Repository.system_prompt` and `servers`
+    /// when assembling the agent's append system prompt.
+    pub repositories: Option<Arc<dyn RepoRepository>>,
+    /// Backend config — supplies `frontend_url`, `proxy.domain`, `proxy.protocol`
+    /// for the agent's append system prompt.
+    pub backend_config: Option<Arc<Config>>,
 }
 
 impl BackendSandboxServiceImpl {
@@ -191,11 +200,18 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         } else {
             None
         };
-        let task_system_prompt = task.as_ref().and_then(|t| t.append_system_prompt.clone());
         let task_agent_type = task.as_ref().map_or_else(
             || AgentType::CLAUDE_CODE.to_string(),
             |t| t.agent_type.0.clone(),
         );
+
+        let task_system_prompt = prompt::build_for_task(
+            &req.task_id,
+            task.as_ref(),
+            self.repositories.as_ref(),
+            self.backend_config.as_ref(),
+        )
+        .await;
 
         // Fetch pending user messages from DB
         let mut pending = messages.get_pending_user(&req.task_id).await.map_err(|e| {
@@ -253,7 +269,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
                 Some(sandbox_proto::PendingMessage {
                     content,
                     model: row.model.clone(),
-                    system_prompt: task_system_prompt.clone(),
+                    system_prompt: Some(task_system_prompt.clone()),
                     resume,
                     agent_type: Some(task_agent_type.clone()),
                     is_error: None,

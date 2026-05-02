@@ -70,7 +70,9 @@ async fn collect_credential_keys(state: &AppState, ctx: &ScopeContext) -> HashSe
             .await
         {
             Ok(records) => keys.extend(records.into_iter().map(|r| r.key)),
-            Err(e) => tracing::warn!(error = %e, team_id, "agent service: failed to list team secrets"),
+            Err(e) => {
+                tracing::warn!(error = %e, team_id, "agent service: failed to list team secrets");
+            }
         }
     }
 
@@ -80,17 +82,20 @@ async fn collect_credential_keys(state: &AppState, ctx: &ScopeContext) -> HashSe
         .await
     {
         Ok(records) => keys.extend(records.into_iter().map(|r| r.key)),
-        Err(e) => tracing::warn!(error = %e, user_id = %ctx.user_id, "agent service: failed to list user secrets"),
+        Err(e) => {
+            tracing::warn!(
+                error = %e,
+                user_id = %ctx.user_id,
+                "agent service: failed to list user secrets"
+            );
+        }
     }
 
     keys
 }
 
 /// Collect the set of provider-token provider names visible to the caller.
-async fn collect_provider_token_providers(
-    state: &AppState,
-    ctx: &ScopeContext,
-) -> HashSet<String> {
+async fn collect_provider_token_providers(state: &AppState, ctx: &ScopeContext) -> HashSet<String> {
     let mut providers: HashSet<String> = HashSet::new();
 
     let relevant: HashSet<&'static str> = catalog()
@@ -108,7 +113,14 @@ async fn collect_provider_token_providers(
                 providers.insert((*provider).to_string());
             }
             Ok(None) => {}
-            Err(e) => tracing::warn!(error = %e, user_id = %ctx.user_id, provider, "agent service: failed to query user provider_token"),
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    user_id = %ctx.user_id,
+                    provider,
+                    "agent service: failed to query user provider_token"
+                );
+            }
         }
     }
 
@@ -117,12 +129,23 @@ async fn collect_provider_token_providers(
             if providers.contains(*provider) {
                 continue;
             }
-            match state.provider_tokens.find_team_token(team_id, provider).await {
+            match state
+                .provider_tokens
+                .find_team_token(team_id, provider)
+                .await
+            {
                 Ok(Some(_)) => {
                     providers.insert((*provider).to_string());
                 }
                 Ok(None) => {}
-                Err(e) => tracing::warn!(error = %e, team_id, provider, "agent service: failed to query team provider_token"),
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        team_id,
+                        provider,
+                        "agent service: failed to query team provider_token"
+                    );
+                }
             }
         }
     }

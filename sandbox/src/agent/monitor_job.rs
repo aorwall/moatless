@@ -198,7 +198,10 @@ async fn run_monitor_job(
                 info!(cron_id = %cron_id, "Monitor completed, injected result");
                 return;
             }
-            Ok(TickOutcome::EmptyOrNonZero { exit_code, stderr_summary }) => {
+            Ok(TickOutcome::EmptyOrNonZero {
+                exit_code,
+                stderr_summary,
+            }) => {
                 debug!(
                     cron_id = %cron_id,
                     exit_code = ?exit_code,
@@ -422,7 +425,10 @@ mod tests {
         // First tick fires immediately and `echo hello` produces stdout.
         registry
             .register(
-                Box::new(MonitorJob::from_request(build_request("echo hello", 60_000))),
+                Box::new(MonitorJob::from_request(build_request(
+                    "echo hello",
+                    60_000,
+                ))),
                 run_cancel,
             )
             .await;
@@ -435,7 +441,10 @@ mod tests {
         let msg = &messages[0];
         assert!(msg.contains("<status>completed</status>"), "{msg}");
         assert!(msg.contains("hello"), "{msg}");
-        assert!(msg.contains("<tool-use-id>toolu_abc123def456</tool-use-id>"), "{msg}");
+        assert!(
+            msg.contains("<tool-use-id>toolu_abc123def456</tool-use-id>"),
+            "{msg}"
+        );
         assert!(registry.is_empty().await);
     }
 
@@ -459,7 +468,11 @@ mod tests {
 
         let messages = injector.snapshot();
         assert_eq!(messages.len(), 1);
-        assert!(messages[0].contains("<status>timeout</status>"), "{}", messages[0]);
+        assert!(
+            messages[0].contains("<status>timeout</status>"),
+            "{}",
+            messages[0]
+        );
     }
 
     #[tokio::test]
@@ -565,10 +578,7 @@ mod tests {
     #[test]
     fn noop_input_rewrites_command_and_timeout() {
         let mut original = serde_json::Map::new();
-        original.insert(
-            "command".to_string(),
-            Value::String("rm -rf /".to_string()),
-        );
+        original.insert("command".to_string(), Value::String("rm -rf /".to_string()));
         original.insert(
             "timeout_ms".to_string(),
             Value::Number(serde_json::Number::from(600_000u64)),
@@ -581,7 +591,10 @@ mod tests {
             updated.get("timeout_ms").and_then(Value::as_u64),
             Some(1000)
         );
-        assert_eq!(updated.get("persistent").and_then(Value::as_bool), Some(false));
+        assert_eq!(
+            updated.get("persistent").and_then(Value::as_bool),
+            Some(false)
+        );
     }
 
     #[test]
