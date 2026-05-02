@@ -388,6 +388,7 @@ pub(crate) async fn deliver_to_task(
         Some(&config.provider),
         config.source_name.as_deref(),
         cmd_name,
+        None,
     )
     .await
     {
@@ -488,6 +489,7 @@ pub(crate) async fn create_task_for_channel(
             Some(parts.join("\n\n"))
         },
         sandbox_started_at: None,
+        headless: true,
     };
 
     state
@@ -656,6 +658,7 @@ pub async fn trigger_inbound(
         None,
         Some(&config.provider),
         config.source_name.as_deref(),
+        None,
         None,
     )
     .await

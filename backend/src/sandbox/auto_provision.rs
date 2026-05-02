@@ -94,6 +94,11 @@ pub async fn build_provision_request(
         }
     }
 
+    if task.headless {
+        repo_config.servers = None;
+        repo_config.preview_config = None;
+    }
+
     let plan = crate::sandbox::models::ProvisionPlan {
         repo_config,
         git_clone_url,

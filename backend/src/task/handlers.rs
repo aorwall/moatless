@@ -143,6 +143,7 @@ pub async fn create_task(
         parent_task_id: req.parent_task_id.clone(),
         append_system_prompt: None,
         sandbox_started_at: None,
+        headless: req.headless.unwrap_or(false),
     };
 
     insert_and_provision_task(
@@ -253,6 +254,7 @@ async fn insert_and_provision_task(
             None,
             None,
             command_name,
+            None,
         )
         .await
         {

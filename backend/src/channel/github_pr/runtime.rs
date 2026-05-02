@@ -443,6 +443,7 @@ async fn create_ingress_task(
             Some(parts.join("\n\n"))
         },
         sandbox_started_at: None,
+        headless: true,
     };
 
     state
@@ -570,6 +571,7 @@ async fn deliver_to_subscription(
         msg.channel_external_id.as_deref(),
         Some(CHANNEL_PROVIDER_LABEL),
         Some(rule.scope_matcher.as_str()),
+        None,
         None,
     )
     .await

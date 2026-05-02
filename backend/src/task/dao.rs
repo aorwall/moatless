@@ -87,11 +87,11 @@ impl TaskRepository for PgTaskRepository {
                 repository_id, status, total_cost_usd, site_url, template_id,
                 vibe, name, description, site_id, site_provider, branch,
                 created_by, visibility, scope, team_id, parent_task_id,
-                append_system_prompt, updated_at, sandbox_started_at
+                append_system_prompt, updated_at, sandbox_started_at, headless
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
                 $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21,
-                $22, NOW(), $23
+                $22, NOW(), $23, $24
             )"#,
         )
         .bind(&row.task_id)
@@ -117,6 +117,7 @@ impl TaskRepository for PgTaskRepository {
         .bind(&row.parent_task_id)
         .bind(&row.append_system_prompt)
         .bind(row.sandbox_started_at)
+        .bind(row.headless)
         .execute(&self.0)
         .await?;
         Ok(())
@@ -151,6 +152,7 @@ impl TaskRepository for PgTaskRepository {
             parent_task_id: Option<String>,
             append_system_prompt: Option<String>,
             sandbox_started_at: Option<DateTime<Utc>>,
+            headless: bool,
             total_count: i64,
         }
 
@@ -162,7 +164,7 @@ impl TaskRepository for PgTaskRepository {
                 t.vibe, t.name, t.description, t.site_id, t.site_provider, t.branch,
                 t.created_by, t.visibility, t.scope, t.team_id, t.created_at_db,
                 t.updated_at, t.parent_task_id, t.append_system_prompt,
-                t.sandbox_started_at,
+                t.sandbox_started_at, t.headless,
                 COUNT(*) OVER() AS total_count
             FROM tasks t
             LEFT JOIN task_tags tt ON t.task_id = tt.task_id
@@ -221,6 +223,7 @@ impl TaskRepository for PgTaskRepository {
                 parent_task_id: r.parent_task_id,
                 append_system_prompt: r.append_system_prompt,
                 sandbox_started_at: r.sandbox_started_at,
+                headless: r.headless,
             })
             .collect();
 
