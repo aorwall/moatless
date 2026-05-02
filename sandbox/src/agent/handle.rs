@@ -574,10 +574,8 @@ async fn agent_loop(
     // Tracks per-prompt credential-recovery retries so a stuck-loop credential
     // can't drive infinite re-tries.
     let mut credential_recovery_attempts: u32 = 0;
-    // Latest per-session cancel token — refreshed by `start_session` and reused
-    // by post-turn wakeup arming so the registered wakeup honours the session's
-    // cancellation scope.
-    let mut run_cancel_for_loop: CancellationToken = CancellationToken::new();
+    // Agent-lifetime cancel token: survives individual sessions, cancelled on Stop.
+    let agent_run_cancel = CancellationToken::new();
 
     info!(task_id = %task_id, "Agent actor started");
 
@@ -606,9 +604,8 @@ async fn agent_loop(
                 )
                 .await
                 {
-                    Ok((new_handle, run_cancel)) => {
+                    Ok(new_handle) => {
                         handle = Some(new_handle);
-                        run_cancel_for_loop = run_cancel;
                     }
                     Err(error) => {
                         warn!(error = %error, "Failed to start agent session");
@@ -753,7 +750,7 @@ async fn agent_loop(
                                 );
                                 scheduled_jobs.cancel_by_kind(JobKind::Wakeup).await;
                                 let registered = scheduled_jobs
-                                    .register(Box::new(job), run_cancel_for_loop.clone())
+                                    .register(Box::new(job), agent_run_cancel.clone())
                                     .await;
                                 if registered {
                                     events.publish_agent_event(
@@ -881,9 +878,8 @@ async fn agent_loop(
                     credential_failures.clone(),
                     Arc::clone(&system_prompt_cache),
                 ).await {
-                    Ok((new_handle, run_cancel)) => {
+                    Ok(new_handle) => {
                         handle = Some(new_handle);
-                        run_cancel_for_loop = run_cancel;
                     }
                     Err(error) => {
                         warn!(error = %error, attempt = state.attempt, "Retry session start failed");
@@ -1005,6 +1001,7 @@ async fn agent_loop(
                             active_handle.close();
                         }
                         scheduled_jobs.cancel_all().await;
+                        agent_run_cancel.cancel();
                         agent_state.set_stopped().await;
                         events.publish_agent_event(
                             &task_id,
@@ -1039,7 +1036,7 @@ async fn start_session(
     scheduled_jobs: Arc<ScheduledJobRegistry>,
     credential_failures: CredentialFailureDetector,
     system_prompt_cache: Arc<RwLock<Option<String>>>,
-) -> Result<(ActiveHandle, CancellationToken), AgentRuntimeError> {
+) -> Result<ActiveHandle, AgentRuntimeError> {
     // Fetch the assembled append-system-prompt from the backend. On failure,
     // fall back to whatever was last cached in this pod. Cache is purely a
     // resilience layer — every successful run refreshes it.
@@ -1131,7 +1128,7 @@ async fn start_session(
     if agent_type == AGENT_TYPE_CODEX {
         return codex_exec::start(prompt, config, &request, env, credential_failures)
             .await
-            .map(|h| (ActiveHandle::Codex(h), cancel_token))
+            .map(ActiveHandle::Codex)
             .map_err(|error| {
                 AgentRuntimeError::Codex(format!("Failed to start Codex CLI: {error}"))
             });
@@ -1147,7 +1144,7 @@ async fn start_session(
     );
 
     match claude_agent_sdk::query(prompt, options).await {
-        Ok(handle) => Ok((ActiveHandle::Claude(handle), cancel_token)),
+        Ok(handle) => Ok(ActiveHandle::Claude(handle)),
         Err(error) if request.resume == Some(ResumeSession::Last) => {
             warn!(error = %error, "Resume with --continue failed, starting fresh session");
             let fresh_request = AgentRunRequest {
@@ -1164,7 +1161,7 @@ async fn start_session(
             );
             claude_agent_sdk::query(prompt, fresh_options)
                 .await
-                .map(|h| (ActiveHandle::Claude(h), cancel_token))
+                .map(ActiveHandle::Claude)
                 .map_err(AgentRuntimeError::from)
         }
         Err(error) => Err(AgentRuntimeError::from(error)),

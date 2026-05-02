@@ -54,7 +54,7 @@ fn reset_tmp() {
                 match result {
                     Ok(()) => removed += 1,
                     Err(e) => {
-                        warn!(path = %path.display(), error = %e, "Failed to clean /tmp entry")
+                        warn!(path = %path.display(), error = %e, "Failed to clean /tmp entry");
                     }
                 }
             }
