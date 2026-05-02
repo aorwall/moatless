@@ -8,12 +8,46 @@
 import type { ChannelType } from './channelType';
 
 /**
- * Channel connected to a task (via channel_threads).
+ * Channel connected to a task (via channel_threads or task_subscriptions).
  */
 export interface TaskChannelResponse {
   configId: string;
+  /**
+   * `task_subscriptions.created_reason` (e.g. `ingress`, `connected_thread`).
+None for legacy thread-based providers.
+   * @nullable
+   */
+  createdReason?: string | null;
+  /**
+   * Provider thread identifier such as GitHub PR number or Slack thread ts.
+   * @nullable
+   */
+  externalThreadId?: string | null;
+  /**
+   * ISO-8601 timestamp of the last event seen on the subscription. None for
+legacy thread-based providers.
+   * @nullable
+   */
+  lastEventAt?: string | null;
   provider: ChannelType;
   sourceId: string;
   /** @nullable */
   sourceName?: string | null;
+  /**
+   * Provider-specific subject key such as `owner/repo#123` for GitHub PR subscriptions.
+   * @nullable
+   */
+  subjectKey?: string | null;
+  /**
+   * `task_subscriptions.id` (string surrogate) when this row originated from
+the GitHub subscription model. None for legacy thread-based providers.
+   * @nullable
+   */
+  subscriptionId?: string | null;
+  /**
+   * Internal channel thread identifier. Use this for exact outbound targeting
+when a task has multiple subscriptions under the same config.
+   * @nullable
+   */
+  threadId?: number | null;
 }

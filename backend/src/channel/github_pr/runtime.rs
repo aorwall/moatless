@@ -6,8 +6,7 @@ use tracing::{debug, info, warn};
 use crate::channel::error::ChannelError;
 use crate::channel::ingress_rule_dao::PgIngressRuleRepository;
 use crate::channel::models::{
-    ChannelConfig, ChannelThread, InboundMessage, IngressRule, ProviderConnection, RoutingMode,
-    TaskSubscription,
+    ChannelConfig, ChannelThread, InboundMessage, IngressRule, ProviderConnection, TaskSubscription,
 };
 use crate::channel::provider_connection_dao::PgProviderConnectionRepository;
 use crate::channel::task_subscription_dao::PgTaskSubscriptionRepository;
@@ -55,15 +54,18 @@ pub(crate) fn synthetic_config(rule: &IngressRule) -> ChannelConfig {
         id: rule.id.clone(),
         provider: CHANNEL_PROVIDER_LABEL.to_string(),
         source_id: rule.scope_matcher.clone(),
-        source_name: Some(rule.scope_matcher.clone()),
+        source_name: rule
+            .source_name
+            .clone()
+            .or_else(|| Some(rule.scope_matcher.clone())),
         repository_id: rule.repository_id.clone(),
-        routing_mode: RoutingMode::ThreadBased,
+        routing_mode: rule.routing_mode,
         prompt_template: rule.prompt_template.clone(),
         active: rule.active,
-        allow_direct_send: false,
-        provider_config: None,
-        ongoing_task_id: None,
-        response_config_id: None,
+        allow_direct_send: rule.allow_direct_send,
+        provider_config: rule.provider_config.clone(),
+        ongoing_task_id: rule.ongoing_task_id.clone(),
+        response_config_id: rule.response_rule_id.clone(),
         scope: rule.scope,
         team_id: rule.team_id.clone(),
         task_name: rule.task_name.clone(),
@@ -222,12 +224,9 @@ pub async fn route_inbound_message(
     // Comments, reviews, check_runs etc. only deliver to existing subscriptions.
     // Origin is irrelevant here: an agent-created PR still gets a review task,
     // and self-echo is filtered out of `delivery_targets` above.
-    let is_pr_open_event = msg
-        .channel_external_id
-        .as_deref()
-        .is_some_and(|id| {
-            id.starts_with("github:pr:opened:") || id.starts_with("github:pr:reopened:")
-        });
+    let is_pr_open_event = msg.channel_external_id.as_deref().is_some_and(|id| {
+        id.starts_with("github:pr:opened:") || id.starts_with("github:pr:reopened:")
+    });
 
     if is_pr_open_event && !has_ingress_task {
         let task_id = create_ingress_task(state, rule, &msg).await?;

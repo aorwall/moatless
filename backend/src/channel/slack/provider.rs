@@ -9,7 +9,9 @@ use tracing::{debug, info, warn};
 use crate::channel::error::ChannelError;
 use crate::channel::external_id;
 use crate::channel::models::{AccessDecision, ChannelTrigger};
-use crate::channel::models::{ChannelConfig, ChannelThread};
+use crate::channel::models::{
+    ChannelConfig, ChannelThread, IngressRule, ProviderConnection, TaskSubscription,
+};
 use crate::channel::models::{InboundMessage, NewThreadInfo, OutboundReply};
 use crate::channel::provider::{ChannelProvider, ChannelType};
 use crate::db::DbPool;
@@ -486,6 +488,48 @@ impl ChannelProvider for SlackProvider {
         }
 
         Ok(ts.map(|t| external_id::slack_ts(&t)))
+    }
+
+    async fn send_reply_for_subscription(
+        &self,
+        subscription: &TaskSubscription,
+        _connection: &ProviderConnection,
+        rule: Option<&IngressRule>,
+        message: &OutboundReply,
+    ) -> Result<Option<String>, ChannelError> {
+        let thread = crate::channel::subscription::synthetic_thread(subscription);
+        let config = rule.map_or_else(
+            || ChannelConfig {
+                id: subscription.ingress_rule_id.clone().unwrap_or_default(),
+                provider: "slack".to_string(),
+                source_id: subscription
+                    .reply_target
+                    .get("channel")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+                source_name: None,
+                repository_id: String::new(),
+                routing_mode: crate::channel::models::RoutingMode::ThreadBased,
+                prompt_template: None,
+                active: true,
+                allow_direct_send: false,
+                provider_config: None,
+                ongoing_task_id: None,
+                response_config_id: None,
+                scope: crate::scope::Scope::Global,
+                team_id: None,
+                task_name: None,
+                tag_ids: vec![],
+                run_as_user_id: None,
+                agent_type: "claude-code".to_string(),
+                created_by: "system".to_string(),
+                created_at: subscription.created_at,
+                updated_at: subscription.last_event_at,
+            },
+            |r| crate::channel::subscription::synthetic_config(r, "slack"),
+        );
+        self.send_reply(&thread, &config, message).await
     }
 
     async fn send_message(

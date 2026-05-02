@@ -259,10 +259,22 @@ pub async fn run(
     match action {
         ChannelAction::List => {
             let configs = client.api().list_channel_configs(None, None).await?;
+            let mut rules = Vec::new();
+            for provider in ["github", "slack", "telegram"] {
+                if let Ok(mut provider_rules) =
+                    client.api().list_ingress_rules(Some(provider)).await
+                {
+                    rules.append(&mut provider_rules);
+                }
+            }
             if json {
-                output::print_json_typed(&configs);
+                output::print_json_typed(&serde_json::json!({
+                    "configs": configs,
+                    "rules": rules,
+                }));
             } else {
                 format_channels(&configs);
+                format_ingress_rules(&rules);
             }
         }
         ChannelAction::Subscriptions { task } => {
@@ -291,15 +303,43 @@ pub async fn run(
             allow_direct_send,
             agent_type,
         } => {
-            if provider == "github" || provider == "github_pr" {
-                return Err(ClientError::Other(
-                    "Use `moat channels rules create --repo owner/repo` for GitHub. \
-                     The legacy per-repo channel_configs path was removed in 0034."
-                        .into(),
-                ));
-            }
             let parsed_config =
                 parse_provider_config(provider_config.as_deref())?.map(serde_json::Value::Object);
+
+            if matches!(provider.as_str(), "github" | "github_pr" | "slack" | "telegram") {
+                let req = CreateIngressRuleRequest {
+                    provider: if provider == "github_pr" {
+                        "github".to_string()
+                    } else {
+                        provider.clone()
+                    },
+                    scope_matcher: source,
+                    source_name: None,
+                    repository_id: repo,
+                    routing_mode: Some(parse_routing_mode(&mode)),
+                    task_name,
+                    tag_ids,
+                    prompt_template,
+                    provider_config: parsed_config,
+                    allow_direct_send: if allow_direct_send { Some(true) } else { None },
+                    response_rule_id: None,
+                    ongoing_task_id: None,
+                    agent_type,
+                    run_as_user_id,
+                    close_task_on_close: None,
+                    notify_on_success: None,
+                    active: Some(true),
+                    event_filter: None,
+                    team_id: None,
+                };
+                let created = client.api().create_ingress_rule(&req).await?;
+                if json {
+                    output::print_json_typed(&created);
+                } else {
+                    println!("Ingress rule upserted: {}", created.id);
+                }
+                return Ok(());
+            }
 
             let req = CreateChannelConfigRequest {
                 provider: parse_channel_type(&provider),
@@ -604,10 +644,16 @@ async fn run_rules(
             let req = CreateIngressRuleRequest {
                 provider,
                 scope_matcher: repo,
+                source_name: None,
                 repository_id,
+                routing_mode: None,
                 task_name,
                 tag_ids,
                 prompt_template,
+                provider_config: None,
+                allow_direct_send: None,
+                response_rule_id: None,
+                ongoing_task_id: None,
                 agent_type,
                 run_as_user_id,
                 close_task_on_close,

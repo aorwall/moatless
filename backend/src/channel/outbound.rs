@@ -443,6 +443,120 @@ pub async fn direct_send_to_channel(
     Ok(Some(thread_info.external_thread_id))
 }
 
+/// Send a message directly through an ingress rule.
+///
+/// This is the rules-based replacement for direct sends to Slack/Telegram
+/// channel configs. When `task_id` is provided, a subscription is created so
+/// future replies can target the external thread via `moat reply`.
+pub async fn direct_send_to_rule(
+    state: &AppState,
+    providers: &ChannelProviders,
+    rule_id: &str,
+    task_id: Option<&str>,
+    text: &str,
+    file_ids: &[String],
+) -> Result<Option<String>, ChannelError> {
+    let rule = PgIngressRuleRepository(state.db.clone())
+        .find_by_id(rule_id)
+        .await?
+        .ok_or_else(|| ChannelError::ConfigNotFound(rule_id.to_string()))?;
+
+    if !rule.allow_direct_send {
+        return Err(ChannelError::BadRequest(format!(
+            "Ingress rule {rule_id} does not allow direct send"
+        )));
+    }
+    if !rule.active {
+        return Err(ChannelError::BadRequest(format!(
+            "Ingress rule {rule_id} is not active"
+        )));
+    }
+
+    let connection = PgProviderConnectionRepository(state.db.clone())
+        .find_by_id(&rule.connection_id)
+        .await?
+        .ok_or_else(|| ChannelError::ConfigNotFound(rule.connection_id.clone()))?;
+
+    let provider_label = subscription_provider_label(&rule.provider);
+    let provider = providers
+        .get_by_name(provider_label)
+        .ok_or_else(|| ChannelError::ProviderNotConfigured(rule.provider.clone()))?;
+
+    let files = resolve_files(state, file_ids).await;
+    if !files.is_empty() && !provider.supports_files() {
+        return Err(ChannelError::BadRequest(format!(
+            "Provider {:?} does not support file attachments",
+            provider.channel_type()
+        )));
+    }
+
+    let reply = OutboundReply {
+        text: truncate_text(text, provider.max_message_length()),
+        task_url: None,
+        is_error: false,
+        files,
+    };
+    let config = super::subscription::synthetic_config(&rule, provider_label);
+    let thread_info = provider.send_message(&config, &reply).await.map_err(|e| {
+        ChannelError::ProviderApi(format!("Failed to send message via {}: {e}", rule.provider))
+    })?;
+
+    if let Some(tid) = task_id {
+        let (subject_kind, subject_key, reply_target) = match rule.provider.as_str() {
+            "slack" => {
+                let channel = thread_info
+                    .properties
+                    .get("channel")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or(&rule.scope_matcher);
+                let thread_ts = thread_info
+                    .properties
+                    .get("thread_ts")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or(&thread_info.external_thread_id);
+                (
+                    "slack_thread",
+                    format!("default:{channel}:{thread_ts}"),
+                    thread_info.properties,
+                )
+            }
+            "telegram" => {
+                let chat_id = thread_info
+                    .properties
+                    .get("chat_id")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or(&rule.scope_matcher);
+                (
+                    "telegram_thread",
+                    format!("{chat_id}:thread:{}", thread_info.external_thread_id),
+                    thread_info.properties,
+                )
+            }
+            other => {
+                return Err(ChannelError::BadRequest(format!(
+                    "Provider {other} does not support rules-based direct send"
+                )));
+            }
+        };
+
+        super::subscription::upsert_subscription(
+            state,
+            &connection,
+            Some(&rule),
+            tid,
+            &rule.provider,
+            subject_kind,
+            &subject_key,
+            reply_target,
+            super::subscription::CREATED_REASON_CONNECTED_THREAD,
+            Some(thread_info.external_thread_id.clone()),
+        )
+        .await?;
+    }
+
+    Ok(Some(thread_info.external_thread_id))
+}
+
 /// Send an outbound reply and return `Ok(())` on success or an error string on failure.
 ///
 /// Similar to [`send_outbound`] but returns errors instead of logging them.
@@ -828,14 +942,10 @@ pub async fn send_to_subscription(
         None
     };
 
-    // The subscription's provider is e.g. "github". The runtime uses
-    // `CHANNEL_PROVIDER_LABEL = "github_pr"` as the ChannelType key, so do
-    // the same translation here.
-    let provider = match subscription.provider.as_str() {
-        "github" => providers.get_by_name("github_pr"),
-        other => providers.get_by_name(other),
-    }
-    .ok_or_else(|| ChannelError::ProviderNotConfigured(subscription.provider.clone()))?;
+    let provider_label = subscription_provider_label(&subscription.provider);
+    let provider = providers
+        .get_by_name(provider_label)
+        .ok_or_else(|| ChannelError::ProviderNotConfigured(subscription.provider.clone()))?;
 
     let files = resolve_files(state, file_ids).await;
     if !files.is_empty() && !provider.supports_files() {
@@ -884,7 +994,7 @@ pub async fn send_to_subscription(
                 .set_channel_metadata(
                     msg_id,
                     ext_id,
-                    "github_pr",
+                    provider_label,
                     Some(subscription.subject_key.as_str()),
                 )
                 .await
@@ -933,7 +1043,7 @@ async fn persist_outbound_stub_for_subscription(
     msg.message_role = MessageRole::Assistant;
     msg.user_type = "assistant".to_string();
     msg.turn_number = turn_number;
-    msg.channel_provider = Some("github_pr".to_string());
+    msg.channel_provider = Some(subscription_provider_label(&subscription.provider).to_string());
     msg.channel_source_name = Some(subscription.subject_key.clone());
 
     let block = TaskMessageContentBlock {
@@ -957,5 +1067,12 @@ async fn persist_outbound_stub_for_subscription(
             warn!(task_id, error = %e, "Failed to persist outbound stub message");
             None
         }
+    }
+}
+
+fn subscription_provider_label(provider: &str) -> &str {
+    match provider {
+        "github" => "github_pr",
+        other => other,
     }
 }

@@ -7,8 +7,8 @@ use tracing::{debug, info, warn};
 use crate::channel::error::ChannelError;
 use crate::channel::external_id;
 use crate::channel::models::{
-    AccessDecision, ChannelAccessPolicy, ChannelConfig, ChannelThread, InboundMessage,
-    OutboundReply,
+    AccessDecision, ChannelConfig, ChannelThread, InboundMessage, IngressRule, OutboundReply,
+    ProviderConnection, TaskSubscription,
 };
 use crate::channel::provider::{ChannelProvider, ChannelType};
 use crate::db::DbPool;
@@ -348,6 +348,48 @@ impl ChannelProvider for TelegramProvider {
         Ok(None)
     }
 
+    async fn send_reply_for_subscription(
+        &self,
+        subscription: &TaskSubscription,
+        _connection: &ProviderConnection,
+        rule: Option<&IngressRule>,
+        message: &OutboundReply,
+    ) -> Result<Option<String>, ChannelError> {
+        let thread = crate::channel::subscription::synthetic_thread(subscription);
+        let config = rule.map_or_else(
+            || ChannelConfig {
+                id: subscription.ingress_rule_id.clone().unwrap_or_default(),
+                provider: "telegram".to_string(),
+                source_id: subscription
+                    .reply_target
+                    .get("chat_id")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+                source_name: None,
+                repository_id: String::new(),
+                routing_mode: crate::channel::models::RoutingMode::ThreadBased,
+                prompt_template: None,
+                active: true,
+                allow_direct_send: false,
+                provider_config: None,
+                ongoing_task_id: None,
+                response_config_id: None,
+                scope: crate::scope::Scope::Global,
+                team_id: None,
+                task_name: None,
+                tag_ids: vec![],
+                run_as_user_id: None,
+                agent_type: "claude-code".to_string(),
+                created_by: "system".to_string(),
+                created_at: subscription.created_at,
+                updated_at: subscription.last_event_at,
+            },
+            |r| crate::channel::subscription::synthetic_config(r, "telegram"),
+        );
+        self.send_reply(&thread, &config, message).await
+    }
+
     // fetch_context: default no-op (Bot API doesn't support fetching chat history)
 }
 
@@ -383,60 +425,20 @@ pub async fn resolve_and_process_telegram_update(
         .unwrap_or("");
     let is_private_chat = chat_type == "private";
 
-    // Extract from_id early so auto_create_config can resolve the sender's
-    // default repository before parse_update runs.
-    let from_id = message
-        .and_then(|m| m.pointer("/from/id"))
-        .and_then(serde_json::Value::as_i64);
-
-    // Look up config — exact match first, then wildcard for DMs
-    let config = state
-        .channel_configs
-        .find_by_provider_source("telegram", &source_id)
-        .await?;
-
-    let config = match config {
-        Some(c) if c.active => c,
-        Some(_) => {
-            info!(
-                source_id,
-                "Telegram message ignored: channel config inactive"
-            );
-            return Ok(());
-        }
-        None if is_private_chat => {
-            match state
-                .channel_configs
-                .find_by_provider_source("telegram", "*")
-                .await?
-            {
-                Some(c) if c.active => {
-                    info!(source_id, "Telegram DM matched wildcard config");
-                    c
-                }
-                _ => {
-                    match auto_create_config(state, &source_id, message, is_private_chat, from_id)
-                        .await
-                    {
-                        Ok(c) => c,
-                        Err(e) => {
-                            warn!(source_id, error = %e, "Failed to auto-create Telegram config");
-                            return Ok(());
-                        }
-                    }
-                }
-            }
-        }
-        None => {
-            match auto_create_config(state, &source_id, message, is_private_chat, from_id).await {
-                Ok(c) => c,
-                Err(e) => {
-                    warn!(source_id, error = %e, "Failed to auto-create Telegram config");
-                    return Ok(());
-                }
-            }
-        }
+    // Look up rules — exact match first, then wildcard. Telegram uses a single
+    // env-backed bot transport, so the connection scope is "default".
+    let Some((connection, rule)) = crate::channel::subscription::resolve_chat_ingress(
+        state, "telegram", "default", &source_id,
+    )
+    .await?
+    else {
+        info!(
+            source_id,
+            is_private_chat, "Telegram message ignored: no ingress rule for this chat"
+        );
+        return Ok(());
     };
+    let config = crate::channel::subscription::synthetic_config(&rule, "telegram");
 
     let result = telegram_provider
         .parse_update(body, &config, is_private_chat, &state.db)
@@ -451,9 +453,30 @@ pub async fn resolve_and_process_telegram_update(
                 "Telegram message routed for processing"
             );
             let state_clone = state.clone();
+            let connection = connection.clone();
+            let rule = rule.clone();
             tokio::spawn(async move {
-                if let Err(e) =
-                    crate::channel::inbound::process_inbound(&state_clone, *msg, None).await
+                let msg = *msg;
+                let subject_key = match crate::channel::subscription::telegram_subject_key(&msg) {
+                    Ok(k) => k,
+                    Err(e) => {
+                        warn!(error = %e, "Failed to build Telegram subject key");
+                        return;
+                    }
+                };
+                let reply_target = msg.thread_properties.clone();
+                if let Err(e) = crate::channel::subscription::route_inbound_message(
+                    &state_clone,
+                    &connection,
+                    &rule,
+                    msg,
+                    None,
+                    "telegram",
+                    "telegram_thread",
+                    &subject_key,
+                    reply_target,
+                )
+                .await
                 {
                     warn!(error = %e, "Failed to process Telegram inbound message");
                 }
@@ -465,129 +488,6 @@ pub async fn resolve_and_process_telegram_update(
     }
 
     Ok(())
-}
-
-/// Auto-create a channel config for an unknown Telegram chat.
-///
-/// Uses the shared wildcard config helper to clone from a `source_id="*"` template.
-/// Falls back to the seeded "Moatable" template repository if no wildcard exists.
-async fn auto_create_config(
-    state: &crate::state::AppState,
-    source_id: &str,
-    message: Option<&serde_json::Value>,
-    is_private_chat: bool,
-    from_id: Option<i64>,
-) -> Result<ChannelConfig, ChannelError> {
-    use crate::channel::models::RoutingMode;
-    use crate::scope::Scope;
-
-    // Try to resolve sender → system user (for ownership of the created config)
-    let owner = resolve_sender_user(state, from_id).await;
-
-    let chat_name = message
-        .and_then(|m| m.pointer("/chat/title"))
-        .and_then(|v| v.as_str())
-        .or_else(|| {
-            message
-                .and_then(|m| m.pointer("/chat/first_name"))
-                .and_then(|v| v.as_str())
-        })
-        .map(String::from);
-
-    // Try wildcard config clone first
-    let team_id = None; // Telegram doesn't have team context at webhook time
-    let created_by = owner.as_deref().unwrap_or("system");
-    if let Some(config) = crate::channel::defaults::create_config_from_wildcard(
-        &*state.channel_configs,
-        "telegram",
-        source_id,
-        chat_name.clone(),
-        team_id,
-        created_by,
-    )
-    .await?
-    {
-        info!(
-            config_id = %config.id,
-            source_id,
-            "Auto-created Telegram config from wildcard template"
-        );
-        return Ok(config);
-    }
-
-    // Final fallback: create from Moatable template
-    let repo = state
-        .repositories
-        .find_by_name_and_user("Moatable", "system")
-        .await?
-        .ok_or_else(|| ChannelError::Internal("Default Moatable repository not found".into()))?;
-
-    let now = chrono::Utc::now();
-
-    // DMs use Pairing policy so the owner must approve new users;
-    // groups default to Open.
-    let provider_config = if is_private_chat {
-        Some(
-            serde_json::to_value(TelegramProviderConfig {
-                dm_access_policy: ChannelAccessPolicy::Pairing,
-                ..Default::default()
-            })
-            .unwrap_or_default(),
-        )
-    } else {
-        None
-    };
-
-    let new_config = ChannelConfig {
-        id: nanoid::nanoid!(21),
-        provider: "telegram".to_string(),
-        source_id: source_id.to_string(),
-        source_name: chat_name,
-        repository_id: repo.id.clone(),
-        routing_mode: RoutingMode::Ongoing,
-        prompt_template: None,
-        active: true,
-        allow_direct_send: false,
-        provider_config,
-        ongoing_task_id: None,
-        response_config_id: None,
-        scope: Scope::Global,
-        team_id: None,
-        task_name: None,
-        tag_ids: vec![],
-        run_as_user_id: None,
-        agent_type: "claude-code".to_string(),
-        created_by: owner.unwrap_or_else(|| "system".to_string()),
-        created_at: now,
-        updated_at: now,
-    };
-
-    state.channel_configs.insert(&new_config).await?;
-    info!(
-        config_id = %new_config.id,
-        source_id,
-        repository = %repo.name,
-        "Auto-created Telegram channel config (Moatable fallback)"
-    );
-    Ok(new_config)
-}
-
-/// Resolve a Telegram `from_id` → system user ID (for ownership).
-async fn resolve_sender_user(
-    state: &crate::state::AppState,
-    from_id: Option<i64>,
-) -> Option<String> {
-    let telegram_id = from_id?;
-    let from_id_str = telegram_id.to_string();
-
-    sqlx::query_scalar(
-        "SELECT user_id FROM provider_tokens WHERE provider = 'telegram' AND provider_user_id = $1 LIMIT 1",
-    )
-    .bind(&from_id_str)
-    .fetch_optional(&state.db)
-    .await
-    .ok()
-    .flatten()
 }
 
 /// Strip bot mention from message text (e.g., "@mybot fix the bug" → "fix the bug").

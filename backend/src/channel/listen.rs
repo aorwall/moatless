@@ -50,6 +50,21 @@ pub async fn connect(
         ));
     }
 
+    if matches!(provider, ChannelType::Slack | ChannelType::Telegram) {
+        let (rule, subscription) = connect_chat_subscription(
+            state,
+            provider,
+            source_id,
+            task_id,
+            external_thread_id,
+            thread_properties,
+            filter_user_id,
+        )
+        .await?;
+        let thread = super::subscription::synthetic_thread(&subscription);
+        return Ok((rule.id, thread));
+    }
+
     let config = state
         .channel_configs
         .find_by_provider_source(provider.as_str(), source_id)
@@ -140,6 +155,117 @@ pub async fn connect(
     );
 
     Ok((config.id.clone(), thread))
+}
+
+async fn connect_chat_subscription(
+    state: &AppState,
+    provider: ChannelType,
+    source_id: &str,
+    task_id: &str,
+    external_thread_id: &str,
+    mut thread_properties: serde_json::Value,
+    filter_user_id: Option<&str>,
+) -> Result<(IngressRule, TaskSubscription), ChannelError> {
+    let provider_name = provider.as_str();
+    let (connection, rule) =
+        super::subscription::resolve_chat_ingress(state, provider_name, "default", source_id)
+            .await?
+            .ok_or_else(|| {
+                ChannelError::BadRequest(format!(
+                    "No ingress rule for {provider_name} source '{source_id}'"
+                ))
+            })?;
+
+    let resolved_filter_uid =
+        filter_user_id.map_or_else(|| rule.effective_user_id().to_string(), str::to_string);
+    if !resolved_filter_uid.is_empty() {
+        if let Some(obj) = thread_properties.as_object_mut() {
+            obj.insert(
+                "filter_user_id".into(),
+                serde_json::json!(resolved_filter_uid),
+            );
+        }
+    }
+
+    let (subject_kind, subject_key, reply_target) = match provider {
+        ChannelType::Slack => {
+            let channel = thread_properties
+                .get("channel")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or(source_id);
+            let thread_ts = thread_properties
+                .get("thread_ts")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or(external_thread_id);
+            let team = thread_properties
+                .get("team_id")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("default");
+            (
+                "slack_thread",
+                format!("{team}:{channel}:{thread_ts}"),
+                serde_json::json!({
+                    "channel": channel,
+                    "thread_ts": thread_ts,
+                    "ts": thread_properties
+                        .get("ts")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or(thread_ts),
+                    "filter_user_id": thread_properties.get("filter_user_id").cloned(),
+                }),
+            )
+        }
+        ChannelType::Telegram => {
+            let chat_id = thread_properties
+                .get("chat_id")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or(source_id);
+            let forum_topic_id = thread_properties
+                .get("forum_topic_id")
+                .and_then(serde_json::Value::as_i64);
+            let subject_key = match forum_topic_id {
+                Some(topic_id) => format!("{chat_id}:topic:{topic_id}"),
+                None => format!("{chat_id}:thread:{external_thread_id}"),
+            };
+            (
+                "telegram_thread",
+                subject_key,
+                serde_json::json!({
+                    "chat_id": chat_id,
+                    "message_id": thread_properties
+                        .get("message_id")
+                        .and_then(serde_json::Value::as_i64),
+                    "forum_topic_id": forum_topic_id,
+                    "filter_user_id": thread_properties.get("filter_user_id").cloned(),
+                }),
+            )
+        }
+        _ => unreachable!("only chat subscription providers call this helper"),
+    };
+
+    let subscription = super::subscription::upsert_subscription(
+        state,
+        &connection,
+        Some(&rule),
+        task_id,
+        provider_name,
+        subject_kind,
+        &subject_key,
+        reply_target,
+        super::subscription::CREATED_REASON_CONNECTED_THREAD,
+        None,
+    )
+    .await?;
+
+    info!(
+        rule_id = %rule.id,
+        task_id,
+        subscription_id = %subscription.id,
+        subject_key = %subscription.subject_key,
+        "Task connected to channel subscription"
+    );
+
+    Ok((rule, subscription))
 }
 
 /// Connect a task to a GitHub PR via the connection/rule/subscription model.

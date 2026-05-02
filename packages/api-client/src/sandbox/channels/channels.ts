@@ -30,13 +30,19 @@ import type {
   ConnectChannelRequest,
   ConnectChannelResponse,
   CreateChannelConfigRequest,
+  CreateIngressRuleRequest,
   DirectSendRequest,
   DirectSendResponse,
   ErrorBody,
   GetDefaultsParams,
+  IngressRuleResponse,
   ListConfigsParams,
+  ListIngressRulesParams,
   ListPairingRequestsParams,
+  ListProviderConnectionsParams,
+  MultipleTargetsErrorBody,
   PairingRequestResponse,
+  ProviderConnectionResponse,
   SendChannelMessageRequest,
   SendChannelMessageResponse,
   SetChannelDefaultsRequest,
@@ -898,6 +904,140 @@ export const useConnectChannel = <TError = ErrorType<ErrorBody>,
       return useMutation(getConnectChannelMutationOptions(options), queryClient);
     }
     /**
+ * @summary List provider connections (read-only — connections are bootstrapped by
+migration 0034).
+ */
+export type listProviderConnectionsResponse200 = {
+  data: ProviderConnectionResponse[]
+  status: 200
+}
+    
+export type listProviderConnectionsResponseSuccess = (listProviderConnectionsResponse200) & {
+  headers: Headers;
+};
+;
+
+export type listProviderConnectionsResponse = (listProviderConnectionsResponseSuccess)
+
+export const getListProviderConnectionsUrl = (params?: ListProviderConnectionsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/v1/channels/connections?${stringifiedParams}` : `/api/v1/channels/connections`
+}
+
+export const listProviderConnections = async (params?: ListProviderConnectionsParams, options?: RequestInit): Promise<listProviderConnectionsResponse> => {
+  
+  return customInstance<listProviderConnectionsResponse>(getListProviderConnectionsUrl(params),
+  {      
+    ...options,
+    method: 'GET'
+    
+    
+  }
+);}
+
+
+
+
+
+export const getListProviderConnectionsQueryKey = (params?: ListProviderConnectionsParams,) => {
+    return [
+    `/api/v1/channels/connections`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+    
+export const getListProviderConnectionsQueryOptions = <TData = Awaited<ReturnType<typeof listProviderConnections>>, TError = ErrorType<unknown>>(params?: ListProviderConnectionsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listProviderConnections>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListProviderConnectionsQueryKey(params);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listProviderConnections>>> = ({ signal }) => listProviderConnections(params, { signal, ...requestOptions });
+
+      
+
+      
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listProviderConnections>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
+}
+
+export type ListProviderConnectionsQueryResult = NonNullable<Awaited<ReturnType<typeof listProviderConnections>>>
+export type ListProviderConnectionsQueryError = ErrorType<unknown>
+
+
+export function useListProviderConnections<TData = Awaited<ReturnType<typeof listProviderConnections>>, TError = ErrorType<unknown>>(
+ params: undefined |  ListProviderConnectionsParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listProviderConnections>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listProviderConnections>>,
+          TError,
+          Awaited<ReturnType<typeof listProviderConnections>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useListProviderConnections<TData = Awaited<ReturnType<typeof listProviderConnections>>, TError = ErrorType<unknown>>(
+ params?: ListProviderConnectionsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listProviderConnections>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listProviderConnections>>,
+          TError,
+          Awaited<ReturnType<typeof listProviderConnections>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useListProviderConnections<TData = Awaited<ReturnType<typeof listProviderConnections>>, TError = ErrorType<unknown>>(
+ params?: ListProviderConnectionsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listProviderConnections>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+/**
+ * @summary List provider connections (read-only — connections are bootstrapped by
+migration 0034).
+ */
+
+export function useListProviderConnections<TData = Awaited<ReturnType<typeof listProviderConnections>>, TError = ErrorType<unknown>>(
+ params?: ListProviderConnectionsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listProviderConnections>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
+
+  const queryOptions = getListProviderConnectionsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary List provider connections (read-only — connections are bootstrapped by
+migration 0034).
+ */
+export const prefetchListProviderConnectionsQuery = async <TData = Awaited<ReturnType<typeof listProviderConnections>>, TError = ErrorType<unknown>>(
+ queryClient: QueryClient, params?: ListProviderConnectionsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listProviderConnections>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+
+  ): Promise<QueryClient> => {
+
+  const queryOptions = getListProviderConnectionsQueryOptions(params,options)
+
+  await queryClient.prefetchQuery(queryOptions);
+
+  return queryClient;
+}
+
+
+
+/**
  * Returns the wildcard (`source_id="*"`) config that serves as the default
 template for auto-creating per-channel configs.
  * @summary Get channel defaults for a provider.
@@ -1485,6 +1625,314 @@ export const prefetchListProvidersQuery = async <TData = Awaited<ReturnType<type
 
 
 /**
+ * @summary List ingress rules.
+ */
+export type listIngressRulesResponse200 = {
+  data: IngressRuleResponse[]
+  status: 200
+}
+    
+export type listIngressRulesResponseSuccess = (listIngressRulesResponse200) & {
+  headers: Headers;
+};
+;
+
+export type listIngressRulesResponse = (listIngressRulesResponseSuccess)
+
+export const getListIngressRulesUrl = (params?: ListIngressRulesParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/v1/channels/rules?${stringifiedParams}` : `/api/v1/channels/rules`
+}
+
+export const listIngressRules = async (params?: ListIngressRulesParams, options?: RequestInit): Promise<listIngressRulesResponse> => {
+  
+  return customInstance<listIngressRulesResponse>(getListIngressRulesUrl(params),
+  {      
+    ...options,
+    method: 'GET'
+    
+    
+  }
+);}
+
+
+
+
+
+export const getListIngressRulesQueryKey = (params?: ListIngressRulesParams,) => {
+    return [
+    `/api/v1/channels/rules`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+    
+export const getListIngressRulesQueryOptions = <TData = Awaited<ReturnType<typeof listIngressRules>>, TError = ErrorType<unknown>>(params?: ListIngressRulesParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listIngressRules>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListIngressRulesQueryKey(params);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listIngressRules>>> = ({ signal }) => listIngressRules(params, { signal, ...requestOptions });
+
+      
+
+      
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listIngressRules>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
+}
+
+export type ListIngressRulesQueryResult = NonNullable<Awaited<ReturnType<typeof listIngressRules>>>
+export type ListIngressRulesQueryError = ErrorType<unknown>
+
+
+export function useListIngressRules<TData = Awaited<ReturnType<typeof listIngressRules>>, TError = ErrorType<unknown>>(
+ params: undefined |  ListIngressRulesParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listIngressRules>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listIngressRules>>,
+          TError,
+          Awaited<ReturnType<typeof listIngressRules>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useListIngressRules<TData = Awaited<ReturnType<typeof listIngressRules>>, TError = ErrorType<unknown>>(
+ params?: ListIngressRulesParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listIngressRules>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listIngressRules>>,
+          TError,
+          Awaited<ReturnType<typeof listIngressRules>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useListIngressRules<TData = Awaited<ReturnType<typeof listIngressRules>>, TError = ErrorType<unknown>>(
+ params?: ListIngressRulesParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listIngressRules>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+/**
+ * @summary List ingress rules.
+ */
+
+export function useListIngressRules<TData = Awaited<ReturnType<typeof listIngressRules>>, TError = ErrorType<unknown>>(
+ params?: ListIngressRulesParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listIngressRules>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
+
+  const queryOptions = getListIngressRulesQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary List ingress rules.
+ */
+export const prefetchListIngressRulesQuery = async <TData = Awaited<ReturnType<typeof listIngressRules>>, TError = ErrorType<unknown>>(
+ queryClient: QueryClient, params?: ListIngressRulesParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listIngressRules>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+
+  ): Promise<QueryClient> => {
+
+  const queryOptions = getListIngressRulesQueryOptions(params,options)
+
+  await queryClient.prefetchQuery(queryOptions);
+
+  return queryClient;
+}
+
+
+
+/**
+ * @summary Create or upsert an ingress rule.
+ */
+export type createIngressRuleResponse200 = {
+  data: IngressRuleResponse
+  status: 200
+}
+
+export type createIngressRuleResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+    
+export type createIngressRuleResponseSuccess = (createIngressRuleResponse200) & {
+  headers: Headers;
+};
+export type createIngressRuleResponseError = (createIngressRuleResponse400) & {
+  headers: Headers;
+};
+
+export type createIngressRuleResponse = (createIngressRuleResponseSuccess | createIngressRuleResponseError)
+
+export const getCreateIngressRuleUrl = () => {
+
+
+  
+
+  return `/api/v1/channels/rules`
+}
+
+export const createIngressRule = async (createIngressRuleRequest: CreateIngressRuleRequest, options?: RequestInit): Promise<createIngressRuleResponse> => {
+  
+  return customInstance<createIngressRuleResponse>(getCreateIngressRuleUrl(),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      createIngressRuleRequest,)
+  }
+);}
+
+
+
+
+export const getCreateIngressRuleMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createIngressRule>>, TError,{data: CreateIngressRuleRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof createIngressRule>>, TError,{data: CreateIngressRuleRequest}, TContext> => {
+
+const mutationKey = ['createIngressRule'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createIngressRule>>, {data: CreateIngressRuleRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createIngressRule(data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateIngressRuleMutationResult = NonNullable<Awaited<ReturnType<typeof createIngressRule>>>
+    export type CreateIngressRuleMutationBody = CreateIngressRuleRequest
+    export type CreateIngressRuleMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Create or upsert an ingress rule.
+ */
+export const useCreateIngressRule = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createIngressRule>>, TError,{data: CreateIngressRuleRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof createIngressRule>>,
+        TError,
+        {data: CreateIngressRuleRequest},
+        TContext
+      > => {
+      return useMutation(getCreateIngressRuleMutationOptions(options), queryClient);
+    }
+    /**
+ * @summary Delete an ingress rule by id.
+ */
+export type deleteIngressRuleResponse204 = {
+  data: void
+  status: 204
+}
+
+export type deleteIngressRuleResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+    
+export type deleteIngressRuleResponseSuccess = (deleteIngressRuleResponse204) & {
+  headers: Headers;
+};
+export type deleteIngressRuleResponseError = (deleteIngressRuleResponse404) & {
+  headers: Headers;
+};
+
+export type deleteIngressRuleResponse = (deleteIngressRuleResponseSuccess | deleteIngressRuleResponseError)
+
+export const getDeleteIngressRuleUrl = (id: string,) => {
+
+
+  
+
+  return `/api/v1/channels/rules/${id}`
+}
+
+export const deleteIngressRule = async (id: string, options?: RequestInit): Promise<deleteIngressRuleResponse> => {
+  
+  return customInstance<deleteIngressRuleResponse>(getDeleteIngressRuleUrl(id),
+  {      
+    ...options,
+    method: 'DELETE'
+    
+    
+  }
+);}
+
+
+
+
+export const getDeleteIngressRuleMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteIngressRule>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteIngressRule>>, TError,{id: string}, TContext> => {
+
+const mutationKey = ['deleteIngressRule'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteIngressRule>>, {id: string}> = (props) => {
+          const {id} = props ?? {};
+
+          return  deleteIngressRule(id,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteIngressRuleMutationResult = NonNullable<Awaited<ReturnType<typeof deleteIngressRule>>>
+    
+    export type DeleteIngressRuleMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Delete an ingress rule by id.
+ */
+export const useDeleteIngressRule = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteIngressRule>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof deleteIngressRule>>,
+        TError,
+        {id: string},
+        TContext
+      > => {
+      return useMutation(getDeleteIngressRuleMutationOptions(options), queryClient);
+    }
+    /**
  * @summary List available Slack channels the bot is a member of.
  */
 export type listSlackChannelsResponse200 = {
@@ -2362,11 +2810,21 @@ export const prefetchListTaskChannelsQuery = async <TData = Awaited<ReturnType<t
 
 
 /**
- * @summary Send a message to all channels connected to a task.
+ * **Behavior:**
+- 0 destinations → 404 `ConfigNotFound`.
+- 1 destination (legacy thread or subscription) → routed automatically.
+- 2+ destinations → 400 `MultipleTargets` listing every target so the
+  caller can re-issue with `--thread`, `--subscription`, or `--pr`.
+ * @summary Send a message to the single channel connected to a task.
  */
 export type sendToTaskChannelsResponse200 = {
   data: SendChannelMessageResponse
   status: 200
+}
+
+export type sendToTaskChannelsResponse400 = {
+  data: MultipleTargetsErrorBody
+  status: 400
 }
 
 export type sendToTaskChannelsResponse404 = {
@@ -2382,7 +2840,7 @@ export type sendToTaskChannelsResponse502 = {
 export type sendToTaskChannelsResponseSuccess = (sendToTaskChannelsResponse200) & {
   headers: Headers;
 };
-export type sendToTaskChannelsResponseError = (sendToTaskChannelsResponse404 | sendToTaskChannelsResponse502) & {
+export type sendToTaskChannelsResponseError = (sendToTaskChannelsResponse400 | sendToTaskChannelsResponse404 | sendToTaskChannelsResponse502) & {
   headers: Headers;
 };
 
@@ -2412,7 +2870,7 @@ export const sendToTaskChannels = async (taskId: string,
 
 
 
-export const getSendToTaskChannelsMutationOptions = <TError = ErrorType<ErrorBody>,
+export const getSendToTaskChannelsMutationOptions = <TError = ErrorType<MultipleTargetsErrorBody | ErrorBody>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendToTaskChannels>>, TError,{taskId: string;data: SendChannelMessageRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
 ): UseMutationOptions<Awaited<ReturnType<typeof sendToTaskChannels>>, TError,{taskId: string;data: SendChannelMessageRequest}, TContext> => {
 
@@ -2441,12 +2899,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type SendToTaskChannelsMutationResult = NonNullable<Awaited<ReturnType<typeof sendToTaskChannels>>>
     export type SendToTaskChannelsMutationBody = SendChannelMessageRequest
-    export type SendToTaskChannelsMutationError = ErrorType<ErrorBody>
+    export type SendToTaskChannelsMutationError = ErrorType<MultipleTargetsErrorBody | ErrorBody>
 
     /**
- * @summary Send a message to all channels connected to a task.
+ * @summary Send a message to the single channel connected to a task.
  */
-export const useSendToTaskChannels = <TError = ErrorType<ErrorBody>,
+export const useSendToTaskChannels = <TError = ErrorType<MultipleTargetsErrorBody | ErrorBody>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendToTaskChannels>>, TError,{taskId: string;data: SendChannelMessageRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof sendToTaskChannels>>,
@@ -2455,6 +2913,204 @@ export const useSendToTaskChannels = <TError = ErrorType<ErrorBody>,
         TContext
       > => {
       return useMutation(getSendToTaskChannelsMutationOptions(options), queryClient);
+    }
+    /**
+ * Used by the GitHub PR ingress flow where each task may have several PR
+subscriptions and the agent picks one with `moat reply --subscription <id>`.
+ * @summary Send a message to one exact `task_subscriptions` row.
+ */
+export type sendToTaskChannelSubscriptionResponse200 = {
+  data: SendChannelMessageResponse
+  status: 200
+}
+
+export type sendToTaskChannelSubscriptionResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+
+export type sendToTaskChannelSubscriptionResponse502 = {
+  data: ErrorBody
+  status: 502
+}
+    
+export type sendToTaskChannelSubscriptionResponseSuccess = (sendToTaskChannelSubscriptionResponse200) & {
+  headers: Headers;
+};
+export type sendToTaskChannelSubscriptionResponseError = (sendToTaskChannelSubscriptionResponse404 | sendToTaskChannelSubscriptionResponse502) & {
+  headers: Headers;
+};
+
+export type sendToTaskChannelSubscriptionResponse = (sendToTaskChannelSubscriptionResponseSuccess | sendToTaskChannelSubscriptionResponseError)
+
+export const getSendToTaskChannelSubscriptionUrl = (taskId: string,
+    subscriptionId: string,) => {
+
+
+  
+
+  return `/api/v1/tasks/${taskId}/channels/subscriptions/${subscriptionId}/send`
+}
+
+export const sendToTaskChannelSubscription = async (taskId: string,
+    subscriptionId: string,
+    sendChannelMessageRequest: SendChannelMessageRequest, options?: RequestInit): Promise<sendToTaskChannelSubscriptionResponse> => {
+  
+  return customInstance<sendToTaskChannelSubscriptionResponse>(getSendToTaskChannelSubscriptionUrl(taskId,subscriptionId),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      sendChannelMessageRequest,)
+  }
+);}
+
+
+
+
+export const getSendToTaskChannelSubscriptionMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendToTaskChannelSubscription>>, TError,{taskId: string;subscriptionId: string;data: SendChannelMessageRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof sendToTaskChannelSubscription>>, TError,{taskId: string;subscriptionId: string;data: SendChannelMessageRequest}, TContext> => {
+
+const mutationKey = ['sendToTaskChannelSubscription'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof sendToTaskChannelSubscription>>, {taskId: string;subscriptionId: string;data: SendChannelMessageRequest}> = (props) => {
+          const {taskId,subscriptionId,data} = props ?? {};
+
+          return  sendToTaskChannelSubscription(taskId,subscriptionId,data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SendToTaskChannelSubscriptionMutationResult = NonNullable<Awaited<ReturnType<typeof sendToTaskChannelSubscription>>>
+    export type SendToTaskChannelSubscriptionMutationBody = SendChannelMessageRequest
+    export type SendToTaskChannelSubscriptionMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Send a message to one exact `task_subscriptions` row.
+ */
+export const useSendToTaskChannelSubscription = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendToTaskChannelSubscription>>, TError,{taskId: string;subscriptionId: string;data: SendChannelMessageRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof sendToTaskChannelSubscription>>,
+        TError,
+        {taskId: string;subscriptionId: string;data: SendChannelMessageRequest},
+        TContext
+      > => {
+      return useMutation(getSendToTaskChannelSubscriptionMutationOptions(options), queryClient);
+    }
+    /**
+ * This is the precise outbound route for task subscriptions such as GitHub PRs,
+where several connected subjects may share the same channel config.
+ * @summary Send a message to one exact channel thread connected to a task.
+ */
+export type sendToTaskChannelThreadResponse200 = {
+  data: SendChannelMessageResponse
+  status: 200
+}
+
+export type sendToTaskChannelThreadResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+
+export type sendToTaskChannelThreadResponse502 = {
+  data: ErrorBody
+  status: 502
+}
+    
+export type sendToTaskChannelThreadResponseSuccess = (sendToTaskChannelThreadResponse200) & {
+  headers: Headers;
+};
+export type sendToTaskChannelThreadResponseError = (sendToTaskChannelThreadResponse404 | sendToTaskChannelThreadResponse502) & {
+  headers: Headers;
+};
+
+export type sendToTaskChannelThreadResponse = (sendToTaskChannelThreadResponseSuccess | sendToTaskChannelThreadResponseError)
+
+export const getSendToTaskChannelThreadUrl = (taskId: string,
+    threadId: number,) => {
+
+
+  
+
+  return `/api/v1/tasks/${taskId}/channels/threads/${threadId}/send`
+}
+
+export const sendToTaskChannelThread = async (taskId: string,
+    threadId: number,
+    sendChannelMessageRequest: SendChannelMessageRequest, options?: RequestInit): Promise<sendToTaskChannelThreadResponse> => {
+  
+  return customInstance<sendToTaskChannelThreadResponse>(getSendToTaskChannelThreadUrl(taskId,threadId),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      sendChannelMessageRequest,)
+  }
+);}
+
+
+
+
+export const getSendToTaskChannelThreadMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendToTaskChannelThread>>, TError,{taskId: string;threadId: number;data: SendChannelMessageRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof sendToTaskChannelThread>>, TError,{taskId: string;threadId: number;data: SendChannelMessageRequest}, TContext> => {
+
+const mutationKey = ['sendToTaskChannelThread'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof sendToTaskChannelThread>>, {taskId: string;threadId: number;data: SendChannelMessageRequest}> = (props) => {
+          const {taskId,threadId,data} = props ?? {};
+
+          return  sendToTaskChannelThread(taskId,threadId,data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SendToTaskChannelThreadMutationResult = NonNullable<Awaited<ReturnType<typeof sendToTaskChannelThread>>>
+    export type SendToTaskChannelThreadMutationBody = SendChannelMessageRequest
+    export type SendToTaskChannelThreadMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Send a message to one exact channel thread connected to a task.
+ */
+export const useSendToTaskChannelThread = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendToTaskChannelThread>>, TError,{taskId: string;threadId: number;data: SendChannelMessageRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof sendToTaskChannelThread>>,
+        TError,
+        {taskId: string;threadId: number;data: SendChannelMessageRequest},
+        TContext
+      > => {
+      return useMutation(getSendToTaskChannelThreadMutationOptions(options), queryClient);
     }
     /**
  * @summary Send a message to a specific channel connected to a task.

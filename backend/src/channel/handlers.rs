@@ -134,67 +134,32 @@ pub async fn slack_webhook(
         return Ok(StatusCode::OK.into_response());
     }
 
-    // Look up config — exact match first, then try wildcard auto-create
-    let config = state
-        .channel_configs
-        .find_by_provider_source("slack", source_id)
-        .await?;
-
-    let config = match config {
-        Some(c) if c.active => c,
-        Some(_) => {
-            info!(
-                source_id,
-                "Slack message ignored: channel config exists but is inactive"
-            );
-            return Ok(StatusCode::OK.into_response());
-        }
-        None => {
-            // Try to auto-create from wildcard config
-            let source_name = slack_provider
-                .get_channel_name(source_id)
-                .await
-                .unwrap_or(None);
-            match super::defaults::create_config_from_wildcard(
-                &*state.channel_configs,
-                "slack",
-                source_id,
-                source_name,
-                None, // team_id not available
-                "system",
-            )
-            .await
-            {
-                Ok(Some(c)) => {
-                    info!(source_id, config_id = %c.id, "Slack channel auto-created from wildcard config");
-                    c
-                }
-                Ok(None) => {
-                    info!(
-                        source_id,
-                        "Slack message ignored: no channel config for this channel"
-                    );
-                    return Ok(StatusCode::OK.into_response());
-                }
-                Err(e) => {
-                    warn!(source_id, error = %e, "Failed to auto-create Slack config from wildcard");
-                    return Ok(StatusCode::OK.into_response());
-                }
-            }
-        }
+    let team_id = payload
+        .get("team_id")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or("default");
+    let Some((connection, rule)) =
+        super::subscription::resolve_chat_ingress(&state, "slack", team_id, source_id).await?
+    else {
+        info!(
+            source_id,
+            team_id, "Slack message ignored: no ingress rule for this channel"
+        );
+        return Ok(StatusCode::OK.into_response());
     };
+    let config = super::subscription::synthetic_config(&rule, "slack");
 
     // Check if this is a reply in a thread we're already tracking (e.g. outbound-created).
     // If so, bypass the trigger filter so replies to our messages are always processed.
     let thread_ts = payload.pointer("/event/thread_ts").and_then(|v| v.as_str());
     let is_tracked_thread = if let Some(tts) = thread_ts {
-        state
-            .channel_threads
-            .find_by_config_and_thread(&config.id, tts)
+        let subject_key = format!("{team_id}:{source_id}:{tts}");
+        super::task_subscription_dao::PgTaskSubscriptionRepository(state.db.clone())
+            .find_by_subject("slack", "slack_thread", &subject_key)
             .await
-            .ok()
-            .flatten()
-            .is_some()
+            .map(|rows| !rows.is_empty())
+            .unwrap_or(false)
     } else {
         false
     };
@@ -209,8 +174,31 @@ pub async fn slack_webhook(
         SlackWebhookResult::Message(msg) => {
             // Process in background (Slack requires <3s response)
             let state_clone = state.clone();
+            let connection = connection.clone();
+            let rule = rule.clone();
             tokio::spawn(async move {
-                if let Err(e) = inbound::process_inbound(&state_clone, *msg, None).await {
+                let msg = *msg;
+                let subject_key = match super::subscription::slack_subject_key(&msg) {
+                    Ok(k) => k,
+                    Err(e) => {
+                        warn!(error = %e, "Failed to build Slack subject key");
+                        return;
+                    }
+                };
+                let reply_target = msg.thread_properties.clone();
+                if let Err(e) = super::subscription::route_inbound_message(
+                    &state_clone,
+                    &connection,
+                    &rule,
+                    msg,
+                    None,
+                    "slack",
+                    "slack_thread",
+                    &subject_key,
+                    reply_target,
+                )
+                .await
+                {
                     warn!(error = %e, "Failed to process Slack inbound message");
                 }
             });
@@ -402,39 +390,18 @@ async fn process_slash_command_background(
         .downcast_ref::<super::slack::provider::SlackProvider>()
         .ok_or_else(|| ChannelError::Internal("Provider type mismatch".into()))?;
 
-    // 1. Look up channel config
-    let config = state
-        .channel_configs
-        .find_by_provider_source("slack", channel_id)
-        .await?;
-
-    // Validate that a config exists and is active (process_inbound will re-fetch it)
-    match config {
-        Some(c) if c.active => {}
-        Some(_) => {
-            return Err(ChannelError::BadRequest(
-                "Channel config is inactive".into(),
-            ));
-        }
-        None => {
-            // Try wildcard auto-create (same as Events API handler)
-            let source_name = slack_provider
-                .get_channel_name(channel_id)
-                .await
-                .unwrap_or(None);
-            super::defaults::create_config_from_wildcard(
-                &*state.channel_configs,
-                "slack",
-                channel_id,
-                source_name,
-                None,
-                "system",
-            )
+    // 1. Look up ingress rule. Slash commands do not include team id in the
+    // background payload here, so use the default Slack connection.
+    let (connection, rule) =
+        super::subscription::resolve_chat_ingress(state, "slack", "default", channel_id)
             .await?
             .ok_or_else(|| {
-                ChannelError::ConfigNotFound(format!("No Slack config for channel {channel_id}"))
+                ChannelError::ConfigNotFound(format!("No Slack rule for channel {channel_id}"))
             })?;
-        }
+    if !rule.active {
+        return Err(ChannelError::BadRequest(
+            "Slack ingress rule is inactive".into(),
+        ));
     }
 
     // 2. Resolve Slack user → system user
@@ -484,8 +451,21 @@ async fn process_slash_command_background(
         channel_external_id: Some(prefixed_ext_id),
     };
 
-    // 5. Route through standard inbound pipeline with command info
-    inbound::process_inbound(state, msg, Some(command_info)).await?;
+    // 5. Route through subscription pipeline with command info
+    let subject_key = super::subscription::slack_subject_key(&msg)?;
+    let reply_target = msg.thread_properties.clone();
+    super::subscription::route_inbound_message(
+        state,
+        &connection,
+        &rule,
+        msg,
+        Some(command_info),
+        "slack",
+        "slack_thread",
+        &subject_key,
+        reply_target,
+    )
+    .await?;
 
     Ok(())
 }
@@ -547,21 +527,16 @@ pub async fn telegram_webhook(
             .unwrap_or("");
         let is_private_chat = chat_type == "private";
 
-        let config = state
-            .channel_configs
-            .find_by_provider_source("telegram", &source_id)
-            .await?;
-        let config = match config {
-            Some(c) if c.active => Some(c),
-            None if is_private_chat => state
-                .channel_configs
-                .find_by_provider_source("telegram", "*")
-                .await?
-                .filter(|c| c.active),
-            _ => None,
-        };
+        let rule = super::subscription::resolve_chat_ingress(
+            &state,
+            "telegram",
+            "default",
+            if is_private_chat { "*" } else { &source_id },
+        )
+        .await?
+        .map(|(_, rule)| rule);
 
-        if let Some(ref cfg) = config {
+        if let Some(ref cfg) = rule {
             let expected_secret = cfg
                 .provider_config
                 .as_ref()
@@ -639,16 +614,15 @@ pub async fn list_pairing_requests(
     auth: AuthUser,
     Query(query): Query<PairingQuery>,
 ) -> Result<Json<Vec<serde_json::Value>>, ChannelError> {
-    let config = state
-        .channel_configs
+    let rule = super::ingress_rule_dao::PgIngressRuleRepository(state.db.clone())
         .find_by_id(&query.config_id)
         .await?
         .ok_or_else(|| ChannelError::ConfigNotFound(query.config_id.clone()))?;
 
     // Only the config owner can view pairing requests
-    if config.created_by != auth.user_id {
+    if rule.provider != "telegram" || rule.created_by != auth.user_id {
         return Err(ChannelError::AccessDenied(
-            "Only the channel config owner can view pairing requests".into(),
+            "Only the Telegram rule owner can view pairing requests".into(),
         ));
     }
 
@@ -691,16 +665,15 @@ pub async fn approve_pairing(
     auth: AuthUser,
     Json(req): Json<ApprovePairingRequest>,
 ) -> Result<Json<serde_json::Value>, ChannelError> {
-    let config = state
-        .channel_configs
+    let rule = super::ingress_rule_dao::PgIngressRuleRepository(state.db.clone())
         .find_by_id(&req.config_id)
         .await?
         .ok_or_else(|| ChannelError::ConfigNotFound(req.config_id.clone()))?;
 
     // Only the config owner can approve
-    if config.created_by != auth.user_id {
+    if rule.provider != "telegram" || rule.created_by != auth.user_id {
         return Err(ChannelError::AccessDenied(
-            "Only the channel config owner can approve pairing requests".into(),
+            "Only the Telegram rule owner can approve pairing requests".into(),
         ));
     }
 
@@ -904,10 +877,13 @@ pub async fn create_config(
 ) -> Result<Json<ChannelConfigResponse>, ChannelError> {
     info!(provider = %req.provider, source_id = %req.source_id, "Creating channel config");
 
-    if req.provider == ChannelType::GithubPr {
+    if matches!(
+        req.provider,
+        ChannelType::GithubPr | ChannelType::Slack | ChannelType::Telegram
+    ) {
         return Err(ChannelError::BadRequest(
-            "Use POST /api/v1/channels/rules for GitHub. The legacy per-repo \
-             channel_configs path was removed in migration 0034."
+            "Use POST /api/v1/channels/rules for Slack, Telegram, and GitHub. \
+             channel_configs are only for legacy/simple providers."
                 .into(),
         ));
     }
@@ -1070,10 +1046,13 @@ pub async fn update_config(
         .await?
         .ok_or_else(|| ChannelError::ConfigNotFound(id.clone()))?;
 
-    if existing.provider == "github_pr" {
+    if matches!(
+        existing.provider.as_str(),
+        "github_pr" | "slack" | "telegram"
+    ) {
         return Err(ChannelError::BadRequest(
-            "Use /api/v1/channels/rules for GitHub. The legacy per-repo \
-             channel_configs path was removed in migration 0034."
+            "Use /api/v1/channels/rules for Slack, Telegram, and GitHub. \
+             channel_configs are only for legacy/simple providers."
                 .into(),
         ));
     }
@@ -1144,6 +1123,48 @@ pub async fn direct_send_to_channel(
     })?;
 
     let external_id = super::outbound::direct_send_to_channel(
+        &state,
+        providers,
+        &id,
+        req.task_id.as_deref(),
+        &req.text,
+        &req.file_ids,
+    )
+    .await?;
+
+    Ok(Json(DirectSendResponse {
+        success: true,
+        external_message_id: external_id,
+    }))
+}
+
+/// Send a message directly through an ingress rule.
+#[utoipa::path(
+    post,
+    path = "/api/v1/channels/rules/{id}/send",
+    tag = "channels",
+    params(
+        ("id" = String, Path, description = "Ingress rule ID")
+    ),
+    request_body = DirectSendRequest,
+    responses(
+        (status = 200, description = "Message sent", body = DirectSendResponse),
+        (status = 400, description = "Direct send not allowed or rule inactive", body = crate::error::ErrorBody),
+        (status = 404, description = "Rule not found", body = crate::error::ErrorBody),
+        (status = 502, description = "Provider failed", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn direct_send_to_rule(
+    State(state): State<AppState>,
+    _auth: AuthUser,
+    Path(id): Path<String>,
+    Json(req): Json<DirectSendRequest>,
+) -> Result<Json<DirectSendResponse>, ChannelError> {
+    let providers = state.channel_providers.as_ref().ok_or_else(|| {
+        ChannelError::ProviderNotConfigured("No channel providers configured".into())
+    })?;
+
+    let external_id = super::outbound::direct_send_to_rule(
         &state,
         providers,
         &id,
@@ -1245,6 +1266,15 @@ pub async fn get_defaults(
     Path(provider): Path<String>,
     Query(query): Query<ChannelDefaultsQuery>,
 ) -> Result<Json<ChannelConfigResponse>, ChannelError> {
+    if matches!(
+        provider.as_str(),
+        "github" | "github_pr" | "slack" | "telegram"
+    ) {
+        return Err(ChannelError::BadRequest(
+            "Use /api/v1/channels/rules for Slack, Telegram, and GitHub defaults.".to_string(),
+        ));
+    }
+
     let team_id = match query.team_id.as_deref() {
         Some(tid) => Some(tid),
         None if auth.team_ids.len() == 1 => Some(auth.team_ids[0].as_str()),
@@ -1291,10 +1321,13 @@ pub async fn set_defaults(
 ) -> Result<Json<ChannelConfigResponse>, ChannelError> {
     info!(provider = %provider, "Setting channel defaults");
 
-    if provider == "github" || provider == "github_pr" {
+    if matches!(
+        provider.as_str(),
+        "github" | "github_pr" | "slack" | "telegram"
+    ) {
         return Err(ChannelError::BadRequest(
-            "Use POST /api/v1/channels/rules with scope_matcher='*' for GitHub defaults. \
-             channel_configs no longer back GitHub channels."
+            "Use POST /api/v1/channels/rules with scopeMatcher='*' for Slack, Telegram, \
+             and GitHub defaults. channel_configs no longer back these providers."
                 .into(),
         ));
     }
@@ -1412,10 +1445,13 @@ pub async fn delete_config(
         .await?
         .ok_or_else(|| ChannelError::ConfigNotFound(id.clone()))?;
 
-    if existing.provider == "github_pr" {
+    if matches!(
+        existing.provider.as_str(),
+        "github_pr" | "slack" | "telegram"
+    ) {
         return Err(ChannelError::BadRequest(
-            "Use DELETE /api/v1/channels/rules/{id} for GitHub. The legacy \
-             channel_configs path was removed in migration 0034."
+            "Use DELETE /api/v1/channels/rules/{id} for Slack, Telegram, and GitHub. \
+             channel_configs are only for legacy/simple providers."
                 .into(),
         ));
     }
@@ -1458,9 +1494,10 @@ pub async fn list_task_channels(
         }
     }
 
-    let subscriptions = super::task_subscription_dao::PgTaskSubscriptionRepository(state.db.clone())
-        .find_by_task_id(&task_id)
-        .await?;
+    let subscriptions =
+        super::task_subscription_dao::PgTaskSubscriptionRepository(state.db.clone())
+            .find_by_task_id(&task_id)
+            .await?;
     for subscription in &subscriptions {
         let rule = if let Some(ref rule_id) = subscription.ingress_rule_id {
             super::ingress_rule_dao::PgIngressRuleRepository(state.db.clone())
@@ -1511,9 +1548,10 @@ pub async fn send_to_task_channels(
     })?;
 
     let threads = state.channel_threads.find_by_task_id(&task_id).await?;
-    let subscriptions = super::task_subscription_dao::PgTaskSubscriptionRepository(state.db.clone())
-        .find_by_task_id(&task_id)
-        .await?;
+    let subscriptions =
+        super::task_subscription_dao::PgTaskSubscriptionRepository(state.db.clone())
+            .find_by_task_id(&task_id)
+            .await?;
 
     let total = threads.len() + subscriptions.len();
     match total {
@@ -1777,20 +1815,33 @@ pub async fn connect_channel(
         "Connecting task to channel thread"
     );
 
-    let (config_id, thread) = super::listen::connect(
-        &state,
-        req.provider,
-        &source_id,
-        &req.task_id,
-        &req.external_thread_id,
-        thread_properties,
-        req.filter_user_id.as_deref(),
-    )
-    .await?;
+    let (config_id, thread_id) = if req.provider == ChannelType::GithubPr {
+        let (rule, _subscription) = super::listen::connect_github_subscription(
+            &state,
+            &source_id,
+            &req.task_id,
+            thread_properties,
+            req.filter_user_id.as_deref(),
+        )
+        .await?;
+        (rule.id, 0)
+    } else {
+        let (config_id, thread) = super::listen::connect(
+            &state,
+            req.provider,
+            &source_id,
+            &req.task_id,
+            &req.external_thread_id,
+            thread_properties,
+            req.filter_user_id.as_deref(),
+        )
+        .await?;
+        (config_id, thread.id)
+    };
 
     Ok(Json(ConnectChannelResponse {
         config_id,
-        thread_id: thread.id,
+        thread_id,
     }))
 }
 
@@ -1952,10 +2003,16 @@ fn ingress_rule_to_response(rule: &super::models::IngressRule) -> IngressRuleRes
         provider: rule.provider.clone(),
         connection_id: rule.connection_id.clone(),
         scope_matcher: rule.scope_matcher.clone(),
+        source_name: rule.source_name.clone(),
         repository_id: rule.repository_id.clone(),
+        routing_mode: rule.routing_mode,
         task_name: rule.task_name.clone(),
         tag_ids: rule.tag_ids.clone(),
         prompt_template: rule.prompt_template.clone(),
+        provider_config: rule.provider_config.clone(),
+        allow_direct_send: rule.allow_direct_send,
+        response_rule_id: rule.response_rule_id.clone(),
+        ongoing_task_id: rule.ongoing_task_id.clone(),
         agent_type: rule.agent_type.clone(),
         run_as_user_id: rule.run_as_user_id.clone(),
         close_task_on_close: rule.close_task_on_close,
@@ -1970,9 +2027,7 @@ fn ingress_rule_to_response(rule: &super::models::IngressRule) -> IngressRuleRes
     }
 }
 
-fn connection_to_response(
-    conn: &super::models::ProviderConnection,
-) -> ProviderConnectionResponse {
+fn connection_to_response(conn: &super::models::ProviderConnection) -> ProviderConnectionResponse {
     ProviderConnectionResponse {
         id: conn.id.clone(),
         provider: conn.provider.clone(),
@@ -1984,6 +2039,41 @@ fn connection_to_response(
         created_at: conn.created_at.to_rfc3339(),
         updated_at: conn.updated_at.to_rfc3339(),
     }
+}
+
+async fn ensure_chat_provider_connection(
+    state: &AppState,
+    created_by: &str,
+    provider: &str,
+    scope_value: &str,
+    webhook_secret: Option<String>,
+) -> Result<super::models::ProviderConnection, ChannelError> {
+    let repo = super::provider_connection_dao::PgProviderConnectionRepository(state.db.clone());
+    if let Some(existing) = repo.find_by_scope_value(provider, scope_value).await? {
+        return Ok(existing);
+    }
+
+    let now = chrono::Utc::now();
+    let connection = super::models::ProviderConnection {
+        id: format!("pc_{}_{}", provider, nanoid::nanoid!(12)),
+        provider: provider.to_string(),
+        connection_kind: match provider {
+            "slack" => "events_api".to_string(),
+            "telegram" => "bot_api".to_string(),
+            _ => "webhook".to_string(),
+        },
+        scope_value: scope_value.to_string(),
+        credential_ref: Some(format!("{provider}:env")),
+        webhook_secret,
+        transport_config: serde_json::json!({"source": "env"}),
+        created_by: created_by.to_string(),
+        scope: crate::scope::Scope::Global,
+        team_id: None,
+        created_at: now,
+        updated_at: now,
+    };
+
+    Ok(repo.upsert(&connection).await?)
 }
 
 /// Create or upsert an ingress rule.
@@ -2002,31 +2092,36 @@ pub async fn create_ingress_rule(
     auth: AuthUser,
     Json(req): Json<CreateIngressRuleRequest>,
 ) -> Result<Json<IngressRuleResponse>, ChannelError> {
-    if req.provider != "github" {
+    if !matches!(req.provider.as_str(), "github" | "slack" | "telegram") {
         return Err(ChannelError::BadRequest(format!(
-            "Only 'github' is supported for ingress rules; got '{}'",
+            "Only 'github', 'slack', and 'telegram' are supported for ingress rules; got '{}'",
             req.provider
         )));
     }
 
-    let owner = req.scope_matcher.split('/').next().ok_or_else(|| {
-        ChannelError::BadRequest(format!(
-            "scope_matcher must be 'owner/repo' or 'owner/*', got '{}'",
-            req.scope_matcher
-        ))
-    })?;
+    let connection_repo =
+        super::provider_connection_dao::PgProviderConnectionRepository(state.db.clone());
+    let connection = if req.provider == "github" {
+        let owner = req.scope_matcher.split('/').next().ok_or_else(|| {
+            ChannelError::BadRequest(format!(
+                "scope_matcher must be 'owner/repo' or 'owner/*', got '{}'",
+                req.scope_matcher
+            ))
+        })?;
 
-    let connection = super::provider_connection_dao::PgProviderConnectionRepository(
-        state.db.clone(),
-    )
-    .find_by_scope_value("github", owner)
-    .await?
-    .ok_or_else(|| {
-        ChannelError::BadRequest(format!(
-            "No GitHub provider_connection for org '{owner}' — \
-             register the org webhook and run the 0034 migration first"
-        ))
-    })?;
+        connection_repo
+            .find_by_scope_value("github", owner)
+            .await?
+            .ok_or_else(|| {
+                ChannelError::BadRequest(format!(
+                    "No GitHub provider_connection for org '{owner}' — \
+                     register the org webhook and run the 0034 migration first"
+                ))
+            })?
+    } else {
+        ensure_chat_provider_connection(&state, &auth.user_id, &req.provider, "default", None)
+            .await?
+    };
 
     state
         .repositories
@@ -2053,18 +2148,24 @@ pub async fn create_ingress_rule(
 
     let rule = super::models::IngressRule {
         id,
-        provider: "github".to_string(),
+        provider: req.provider.clone(),
         connection_id: connection.id.clone(),
         scope_matcher: req.scope_matcher,
+        source_name: req.source_name,
+        routing_mode: req
+            .routing_mode
+            .unwrap_or(super::models::RoutingMode::ThreadBased),
         event_filter,
         repository_id: req.repository_id,
         prompt_template: req.prompt_template,
         task_name: req.task_name,
         tag_ids: req.tag_ids.unwrap_or_default(),
         run_as_user_id: req.run_as_user_id,
-        agent_type: req
-            .agent_type
-            .unwrap_or_else(|| "claude-code".to_string()),
+        agent_type: req.agent_type.unwrap_or_else(|| "claude-code".to_string()),
+        allow_direct_send: req.allow_direct_send.unwrap_or(false),
+        provider_config: req.provider_config,
+        ongoing_task_id: req.ongoing_task_id,
+        response_rule_id: req.response_rule_id,
         close_task_on_close: req.close_task_on_close.unwrap_or(true),
         notify_on_success: req.notify_on_success.unwrap_or(false),
         active: req.active.unwrap_or(true),

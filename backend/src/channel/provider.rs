@@ -5,7 +5,9 @@ use std::sync::Arc;
 
 use std::any::Any;
 
-use super::models::{ChannelConfig, ChannelThread, IngressRule, ProviderConnection, TaskSubscription};
+use super::models::{
+    ChannelConfig, ChannelThread, IngressRule, ProviderConnection, TaskSubscription,
+};
 use crate::db::DbPool;
 
 use super::error::ChannelError;

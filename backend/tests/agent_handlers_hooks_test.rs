@@ -187,7 +187,10 @@ async fn gh_pr_create_auto_connects_channel_thread(pool: PgPool) {
     );
     assert_eq!(subscriptions[0].subject_key, "foo/bar#99");
     assert_eq!(subscriptions[0].connection_id, connection.id);
-    assert_eq!(subscriptions[0].ingress_rule_id.as_deref(), Some(rule.id.as_str()));
+    assert_eq!(
+        subscriptions[0].ingress_rule_id.as_deref(),
+        Some(rule.id.as_str())
+    );
 
     // 4. The parent assistant row should now carry channel metadata so the
     //    UI can render a "PR #99 opened" chip on it.

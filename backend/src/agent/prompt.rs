@@ -191,7 +191,10 @@ fn build_server_section(
         ));
 
         if let Some(domain) = proxy_domain {
-            let url = format!("{proxy_protocol}://{task_id}--{port}.{domain}", port = server.port);
+            let url = format!(
+                "{proxy_protocol}://{task_id}--{port}.{domain}",
+                port = server.port
+            );
             lines.push(format!(
                 "- **External URL**: {url} (share with the user to open in their browser — they are already authenticated)"
             ));
@@ -348,7 +351,10 @@ mod tests {
         assert!(prompt.contains("CHANNEL PROMPT TEXT"));
         let repo_idx = prompt.find("REPO PROMPT TEXT").unwrap();
         let channel_idx = prompt.find("CHANNEL PROMPT TEXT").unwrap();
-        assert!(repo_idx < channel_idx, "repo prompt must come before channel prompt");
+        assert!(
+            repo_idx < channel_idx,
+            "repo prompt must come before channel prompt"
+        );
     }
 
     #[test]

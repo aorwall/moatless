@@ -327,14 +327,22 @@ pub struct ProviderConnectionResponse {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct CreateIngressRuleRequest {
-    /// Provider value, e.g. `"github"`.
+    /// Provider value, e.g. `"github"`, `"slack"`, or `"telegram"`.
     pub provider: String,
-    /// Repo full name (`owner/repo`) or `*` wildcard.
+    /// Provider source matcher: repo full name (`owner/repo`) for GitHub,
+    /// Slack channel id, Telegram chat id, or `*` wildcard.
     pub scope_matcher: String,
+    pub source_name: Option<String>,
     pub repository_id: String,
+    pub routing_mode: Option<RoutingMode>,
     pub task_name: Option<String>,
     pub tag_ids: Option<Vec<String>>,
     pub prompt_template: Option<String>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
+    pub provider_config: Option<serde_json::Value>,
+    pub allow_direct_send: Option<bool>,
+    pub response_rule_id: Option<String>,
+    pub ongoing_task_id: Option<String>,
     /// Defaults to `"claude-code"` when omitted.
     pub agent_type: Option<String>,
     pub run_as_user_id: Option<String>,
@@ -357,10 +365,17 @@ pub struct IngressRuleResponse {
     pub provider: String,
     pub connection_id: String,
     pub scope_matcher: String,
+    pub source_name: Option<String>,
     pub repository_id: String,
+    pub routing_mode: RoutingMode,
     pub task_name: Option<String>,
     pub tag_ids: Vec<String>,
     pub prompt_template: Option<String>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
+    pub provider_config: Option<serde_json::Value>,
+    pub allow_direct_send: bool,
+    pub response_rule_id: Option<String>,
+    pub ongoing_task_id: Option<String>,
     pub agent_type: String,
     pub run_as_user_id: Option<String>,
     pub close_task_on_close: bool,

@@ -1449,6 +1449,41 @@
         }
       }
     },
+    "/api/v1/channels/connections": {
+      "get": {
+        "tags": [
+          "channels"
+        ],
+        "summary": "List provider connections (read-only — connections are bootstrapped by\nmigration 0034).",
+        "operationId": "list_provider_connections",
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "query",
+            "description": "Filter by provider (defaults to 'github')",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Connections",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ProviderConnectionResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/channels/defaults/{provider}": {
       "get": {
         "tags": [
@@ -1622,6 +1657,115 @@
                   "items": {
                     "type": "string"
                   }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/channels/rules": {
+      "get": {
+        "tags": [
+          "channels"
+        ],
+        "summary": "List ingress rules.",
+        "operationId": "list_ingress_rules",
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "query",
+            "description": "Filter by provider (defaults to 'github')",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Rules",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/IngressRuleResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "channels"
+        ],
+        "summary": "Create or upsert an ingress rule.",
+        "operationId": "create_ingress_rule",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateIngressRuleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Rule created or updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngressRuleResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/channels/rules/{id}": {
+      "delete": {
+        "tags": [
+          "channels"
+        ],
+        "summary": "Delete an ingress rule by id.",
+        "operationId": "delete_ingress_rule",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Ingress rule ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Rule deleted"
+          },
+          "404": {
+            "description": "Rule not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
                 }
               }
             }
@@ -3837,7 +3981,8 @@
         "tags": [
           "channels"
         ],
-        "summary": "Send a message to all channels connected to a task.",
+        "summary": "Send a message to the single channel connected to a task.",
+        "description": "**Behavior:**\n- 0 destinations → 404 `ConfigNotFound`.\n- 1 destination (legacy thread or subscription) → routed automatically.\n- 2+ destinations → 400 `MultipleTargets` listing every target so the\n  caller can re-issue with `--thread`, `--subscription`, or `--pr`.",
         "operationId": "send_to_task_channels",
         "parameters": [
           {
@@ -3871,6 +4016,16 @@
               }
             }
           },
+          "400": {
+            "description": "Multiple destinations — pick one",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MultipleTargetsErrorBody"
+                }
+              }
+            }
+          },
           "404": {
             "description": "No channels for task",
             "content": {
@@ -3883,6 +4038,151 @@
           },
           "502": {
             "description": "All providers failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/channels/subscriptions/{subscription_id}/send": {
+      "post": {
+        "tags": [
+          "channels"
+        ],
+        "summary": "Send a message to one exact `task_subscriptions` row.",
+        "description": "Used by the GitHub PR ingress flow where each task may have several PR\nsubscriptions and the agent picks one with `moat reply --subscription <id>`.",
+        "operationId": "send_to_task_channel_subscription",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "subscription_id",
+            "in": "path",
+            "description": "Task subscription ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendChannelMessageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Message sent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SendChannelMessageResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Subscription not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Provider failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/channels/threads/{thread_id}/send": {
+      "post": {
+        "tags": [
+          "channels"
+        ],
+        "summary": "Send a message to one exact channel thread connected to a task.",
+        "description": "This is the precise outbound route for task subscriptions such as GitHub PRs,\nwhere several connected subjects may share the same channel config.",
+        "operationId": "send_to_task_channel_thread",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "thread_id",
+            "in": "path",
+            "description": "Channel thread ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendChannelMessageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Message sent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SendChannelMessageResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Channel thread not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Provider failed",
             "content": {
               "application/json": {
                 "schema": {
@@ -5722,6 +6022,34 @@
           }
         }
       },
+      "ChannelTargetDescriptor": {
+        "type": "object",
+        "description": "One outbound destination listed in a [`MultipleTargetsErrorBody`].",
+        "required": [
+          "kind",
+          "id",
+          "label",
+          "flagHint"
+        ],
+        "properties": {
+          "flagHint": {
+            "type": "string",
+            "description": "CLI flag the caller should add to disambiguate, e.g.\n`\"--thread 42\"` or `\"--subscription sub_xyz\"`."
+          },
+          "id": {
+            "type": "string",
+            "description": "Stable identifier — `thread_id` (stringified i32) or `subscription_id`."
+          },
+          "kind": {
+            "type": "string",
+            "description": "`\"thread\"` for legacy `channel_threads` rows, `\"subscription\"` for\n`task_subscriptions` rows."
+          },
+          "label": {
+            "type": "string",
+            "description": "Human-readable label such as `\"slack #ops\"` or `\"github_pr owner/repo#42\"`."
+          }
+        }
+      },
       "ChannelType": {
         "type": "string",
         "description": "Channel provider identifier.",
@@ -6439,6 +6767,97 @@
               "boolean",
               "null"
             ]
+          }
+        }
+      },
+      "CreateIngressRuleRequest": {
+        "type": "object",
+        "description": "Request body for `POST /api/v1/channels/rules`.",
+        "required": [
+          "provider",
+          "scopeMatcher",
+          "repositoryId"
+        ],
+        "properties": {
+          "active": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "agentType": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Defaults to `\"claude-code\"` when omitted."
+          },
+          "closeTaskOnClose": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "eventFilter": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional event filter — empty means all supported events."
+          },
+          "notifyOnSuccess": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "promptTemplate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "provider": {
+            "type": "string",
+            "description": "Provider value, e.g. `\"github\"`."
+          },
+          "repositoryId": {
+            "type": "string"
+          },
+          "runAsUserId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scopeMatcher": {
+            "type": "string",
+            "description": "Repo full name (`owner/repo`) or `*` wildcard."
+          },
+          "tagIds": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "taskName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "teamId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Required when the caller belongs to multiple teams. Defaults to the\ncaller's only team when single-team."
           }
         }
       },
@@ -7411,6 +7830,104 @@
           }
         }
       },
+      "IngressRuleResponse": {
+        "type": "object",
+        "description": "One row from `ingress_rules`.",
+        "required": [
+          "id",
+          "provider",
+          "connectionId",
+          "scopeMatcher",
+          "repositoryId",
+          "tagIds",
+          "agentType",
+          "closeTaskOnClose",
+          "notifyOnSuccess",
+          "active",
+          "eventFilter",
+          "createdBy",
+          "scope",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "agentType": {
+            "type": "string"
+          },
+          "closeTaskOnClose": {
+            "type": "boolean"
+          },
+          "connectionId": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "createdBy": {
+            "type": "string"
+          },
+          "eventFilter": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "id": {
+            "type": "string"
+          },
+          "notifyOnSuccess": {
+            "type": "boolean"
+          },
+          "promptTemplate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "provider": {
+            "type": "string"
+          },
+          "repositoryId": {
+            "type": "string"
+          },
+          "runAsUserId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "scopeMatcher": {
+            "type": "string"
+          },
+          "tagIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "taskName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "teamId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        }
+      },
       "ListAgentsResponse": {
         "type": "object",
         "required": [
@@ -7692,6 +8209,29 @@
           }
         }
       },
+      "MultipleTargetsErrorBody": {
+        "type": "object",
+        "description": "Body returned with HTTP 400 when `POST /channels/send` cannot pick a\nsingle destination because the task is wired to multiple channels.",
+        "required": [
+          "error",
+          "targets",
+          "hint"
+        ],
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "hint": {
+            "type": "string"
+          },
+          "targets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChannelTargetDescriptor"
+            }
+          }
+        }
+      },
       "OAuthUrlResponse": {
         "type": "object",
         "required": [
@@ -7950,6 +8490,52 @@
           "provider": {
             "type": "string",
             "description": "Provider identifier (e.g. `\"github\"`)."
+          }
+        }
+      },
+      "ProviderConnectionResponse": {
+        "type": "object",
+        "description": "One row from `provider_connections` — describes a transport/auth scope\n(e.g. one GitHub org webhook).",
+        "required": [
+          "id",
+          "provider",
+          "connectionKind",
+          "scopeValue",
+          "createdBy",
+          "scope",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "connectionKind": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "createdBy": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "scopeValue": {
+            "type": "string"
+          },
+          "teamId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updatedAt": {
+            "type": "string"
           }
         }
       },
@@ -9541,7 +10127,7 @@
       },
       "TaskChannelResponse": {
         "type": "object",
-        "description": "Channel connected to a task (via channel_threads).",
+        "description": "Channel connected to a task (via channel_threads or task_subscriptions).",
         "required": [
           "configId",
           "provider",
@@ -9550,6 +10136,27 @@
         "properties": {
           "configId": {
             "type": "string"
+          },
+          "createdReason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`task_subscriptions.created_reason` (e.g. `ingress`, `connected_thread`).\nNone for legacy thread-based providers."
+          },
+          "externalThreadId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Provider thread identifier such as GitHub PR number or Slack thread ts."
+          },
+          "lastEventAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "ISO-8601 timestamp of the last event seen on the subscription. None for\nlegacy thread-based providers."
           },
           "provider": {
             "$ref": "#/components/schemas/ChannelType"
@@ -9562,6 +10169,28 @@
               "string",
               "null"
             ]
+          },
+          "subjectKey": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Provider-specific subject key such as `owner/repo#123` for GitHub PR subscriptions."
+          },
+          "subscriptionId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`task_subscriptions.id` (string surrogate) when this row originated from\nthe GitHub subscription model. None for legacy thread-based providers."
+          },
+          "threadId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Internal channel thread identifier. Use this for exact outbound targeting\nwhen a task has multiple subscriptions under the same config."
           }
         }
       },

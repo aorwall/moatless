@@ -73,16 +73,32 @@ pub fn task_channel_from_subscription(
     subscription: &super::models::TaskSubscription,
     rule: Option<&super::models::IngressRule>,
 ) -> TaskChannelResponse {
-    let provider = ChannelType::GithubPr;
+    let provider = match subscription.provider.as_str() {
+        "github" => ChannelType::GithubPr,
+        other => ChannelType::parse(other).unwrap_or(ChannelType::GithubPr),
+    };
     let source_id = rule.map_or_else(
         || subscription.subject_key.clone(),
         |r| r.scope_matcher.clone(),
     );
-    let pr_number = subscription
-        .reply_target
-        .get("pr_number")
-        .and_then(serde_json::Value::as_u64)
-        .map(|n| n.to_string());
+    let external_thread_id = match subscription.provider.as_str() {
+        "github" => subscription
+            .reply_target
+            .get("pr_number")
+            .and_then(serde_json::Value::as_u64)
+            .map(|n| n.to_string()),
+        "slack" => subscription
+            .reply_target
+            .get("thread_ts")
+            .and_then(serde_json::Value::as_str)
+            .map(String::from),
+        "telegram" => subscription
+            .reply_target
+            .get("message_id")
+            .and_then(serde_json::Value::as_i64)
+            .map(|id| id.to_string()),
+        _ => None,
+    };
 
     TaskChannelResponse {
         config_id: rule.map(|r| r.id.clone()).unwrap_or_default(),
@@ -90,7 +106,7 @@ pub fn task_channel_from_subscription(
         source_id: source_id.clone(),
         source_name: Some(source_id),
         thread_id: None,
-        external_thread_id: pr_number,
+        external_thread_id,
         subject_key: Some(subscription.subject_key.clone()),
         subscription_id: Some(subscription.id.clone()),
         created_reason: Some(subscription.created_reason.clone()),

@@ -21,6 +21,7 @@ pub mod router;
 pub mod routes;
 pub mod schemas;
 pub mod slack;
+pub mod subscription;
 pub mod task_subscription_dao;
 pub mod telegram;
 pub mod thread_dao;

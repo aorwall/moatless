@@ -129,8 +129,8 @@ pub async fn list_pending_for_user(
 ) -> Result<Vec<PairingRequest>, ChannelError> {
     let rows: Vec<PairingRequest> = sqlx::query_as(
         "SELECT p.* FROM channel_pairing_requests p \
-         JOIN channel_configs c ON c.id = p.config_id \
-         WHERE c.created_by = $1 AND p.status = 'pending' \
+         JOIN ingress_rules r ON r.id = p.config_id \
+         WHERE r.created_by = $1 AND p.status = 'pending' \
          ORDER BY p.created_at DESC",
     )
     .bind(user_id)
@@ -164,7 +164,7 @@ pub async fn approve_request(
 
     // Read current provider_config and append user to dm_allowlist
     let row: (Option<serde_json::Value>,) =
-        sqlx::query_as("SELECT provider_config FROM channel_configs WHERE id = $1")
+        sqlx::query_as("SELECT provider_config FROM ingress_rules WHERE id = $1")
             .bind(config_id)
             .fetch_one(db)
             .await
@@ -185,14 +185,12 @@ pub async fn approve_request(
     let updated_config = serde_json::to_value(&tg_config)
         .map_err(|e| ChannelError::Internal(format!("Failed to serialize config: {e}")))?;
 
-    sqlx::query(
-        "UPDATE channel_configs SET provider_config = $1, updated_at = now() WHERE id = $2",
-    )
-    .bind(&updated_config)
-    .bind(config_id)
-    .execute(db)
-    .await
-    .map_err(ChannelError::Db)?;
+    sqlx::query("UPDATE ingress_rules SET provider_config = $1, updated_at = now() WHERE id = $2")
+        .bind(&updated_config)
+        .bind(config_id)
+        .execute(db)
+        .await
+        .map_err(ChannelError::Db)?;
 
     info!(
         config_id,

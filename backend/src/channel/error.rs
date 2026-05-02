@@ -62,8 +62,9 @@ impl IntoResponse for ChannelError {
                 let body = MultipleTargetsErrorBody {
                     error: self.to_string(),
                     targets: targets.clone(),
-                    hint: "Use --thread <id>, --subscription <id>, or --pr owner/repo#N to pick one."
-                        .to_string(),
+                    hint:
+                        "Use --thread <id>, --subscription <id>, or --pr owner/repo#N to pick one."
+                            .to_string(),
                 };
                 return (StatusCode::BAD_REQUEST, Json(body)).into_response();
             }

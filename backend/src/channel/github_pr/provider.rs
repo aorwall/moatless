@@ -129,13 +129,17 @@ impl GithubPrProvider {
             .reply_target
             .get("owner")
             .and_then(serde_json::Value::as_str)
-            .ok_or_else(|| ChannelError::Internal("Missing owner in subscription reply_target".into()))?
+            .ok_or_else(|| {
+                ChannelError::Internal("Missing owner in subscription reply_target".into())
+            })?
             .to_string();
         let repo = subscription
             .reply_target
             .get("repo")
             .and_then(serde_json::Value::as_str)
-            .ok_or_else(|| ChannelError::Internal("Missing repo in subscription reply_target".into()))?
+            .ok_or_else(|| {
+                ChannelError::Internal("Missing repo in subscription reply_target".into())
+            })?
             .to_string();
         let pr_number = subscription
             .reply_target
@@ -167,10 +171,7 @@ impl GithubPrProvider {
 
         // Filter by events_filter config
         if !rule_config.events_filter.is_empty()
-            && !rule_config
-                .events_filter
-                .iter()
-                .any(|e| e == event_type)
+            && !rule_config.events_filter.iter().any(|e| e == event_type)
         {
             debug!(event_type, "GitHub event filtered out by ingress rule");
             return Ok(GithubPrWebhookResult::Ignore);
@@ -204,13 +205,17 @@ impl GithubPrProvider {
         };
 
         match event_type {
-            "pull_request" => self.handle_pull_request_event(payload, &ctx, &rule_config).await,
+            "pull_request" => {
+                self.handle_pull_request_event(payload, &ctx, &rule_config)
+                    .await
+            }
             "issue_comment" => self.handle_issue_comment_event(payload, &ctx).await,
             "pull_request_review_comment" => self.handle_review_comment_event(payload, &ctx).await,
             "pull_request_review" => self.handle_review_event(payload, &ctx).await,
             "check_run" => self.handle_check_run_event(payload, &ctx).await,
             "check_suite" => {
-                self.handle_check_suite_event(payload, &ctx, &rule_config).await
+                self.handle_check_suite_event(payload, &ctx, &rule_config)
+                    .await
             }
             _ => {
                 debug!(event_type, "Unsupported GitHub event type");
@@ -975,9 +980,7 @@ impl ChannelProvider for GithubPrProvider {
 
         let context = comments
             .iter()
-            .filter(|c| {
-                c.body.as_deref().is_none_or(|b| !b.contains(AGENT_MARKER))
-            })
+            .filter(|c| c.body.as_deref().is_none_or(|b| !b.contains(AGENT_MARKER)))
             .filter(|c| {
                 let prefixed = external_id::github_issue_comment(c.id);
                 let bare = c.id.to_string();
