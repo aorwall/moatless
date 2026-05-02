@@ -130,24 +130,6 @@ pub async fn process_inbound(
             (task_id, config, thread)
         }
         RoutingResult::NewTask { config } => {
-            // Self-echo guard for new-task routing: never spawn a fresh task
-            // from a webhook whose sender is the channel's own bot identity.
-            // We return an empty task_id so the caller's fan-out path (which
-            // excludes by task_id equality) treats it as a no-op for any
-            // sibling threads — and there are none here by construction since
-            // NewTask means no thread for this (config, external_thread_id).
-            if !config.effective_user_id().is_empty()
-                && config.effective_user_id() == msg.user_id
-            {
-                debug!(
-                    provider = config.provider,
-                    source_id = %config.source_id,
-                    user_id = %msg.user_id,
-                    "Filtered self-echo on new-task path (no existing thread)"
-                );
-                return Ok(String::new());
-            }
-
             info!(
                 provider = config.provider,
                 source_id = %config.source_id,
