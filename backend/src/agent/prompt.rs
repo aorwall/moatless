@@ -18,6 +18,8 @@ pub struct PromptInputs<'a> {
     pub task_id: &'a str,
     /// `Task.name` — `None` and whitespace-only treated as missing.
     pub task_name: Option<&'a str>,
+    /// Set when this task was spawned by another task.
+    pub parent_task_id: Option<&'a str>,
     /// `Task.append_system_prompt` — channel-set instructions.
     pub task_append_system_prompt: Option<&'a str>,
     /// `Repository.system_prompt`.
@@ -90,6 +92,7 @@ pub async fn build_for_task(
     build_append_system_prompt(&PromptInputs {
         task_id,
         task_name: task.and_then(|t| t.name.as_deref()),
+        parent_task_id: task.and_then(|t| t.parent_task_id.as_deref()),
         task_append_system_prompt: task.and_then(|t| t.append_system_prompt.as_deref()),
         repo_system_prompt: repo.as_ref().and_then(|r| r.system_prompt.as_deref()),
         servers: &servers,
@@ -128,6 +131,10 @@ pub fn build_append_system_prompt(inputs: &PromptInputs<'_>) -> String {
             frontend_url.trim_end_matches('/'),
             inputs.task_id
         ));
+    }
+
+    if let Some(parent_id) = inputs.parent_task_id {
+        sections.push(build_parent_task_section(parent_id));
     }
 
     sections.push(GITHUB_CLI_HINT.to_string());
@@ -207,6 +214,17 @@ fn build_server_section(
     Some(lines.join("\n"))
 }
 
+/// Build the "# Parent Task" section for child tasks.
+fn build_parent_task_section(parent_task_id: &str) -> String {
+    format!(
+        "# Parent Task\n\n\
+         This task was created by another task (`{parent_task_id}`). \
+         When you have completed your work, you MUST report back to the parent task by running:\n\n  \
+         `moat messages send {parent_task_id} --text \"<summary of what you did and the outcome>\"`\n\n\
+         Always send this final message — the parent task is waiting for your response."
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -215,6 +233,7 @@ mod tests {
         PromptInputs {
             task_id,
             task_name: None,
+            parent_task_id: None,
             task_append_system_prompt: None,
             repo_system_prompt: None,
             servers: &[],
@@ -338,5 +357,24 @@ mod tests {
         let prompt = build_append_system_prompt(&inputs);
         assert!(prompt.contains("# GitHub Access"));
         assert!(prompt.contains("# Sandbox CLI Reference"));
+    }
+
+    #[test]
+    fn parent_task_section_omitted_when_no_parent() {
+        let inputs = base_inputs("task-123");
+        let prompt = build_append_system_prompt(&inputs);
+        assert!(!prompt.contains("# Parent Task"));
+    }
+
+    #[test]
+    fn parent_task_section_included_with_send_command() {
+        let inputs = PromptInputs {
+            parent_task_id: Some("parent-abc"),
+            ..base_inputs("task-123")
+        };
+        let prompt = build_append_system_prompt(&inputs);
+        assert!(prompt.contains("# Parent Task"));
+        assert!(prompt.contains("parent-abc"));
+        assert!(prompt.contains("moat messages send parent-abc"));
     }
 }
