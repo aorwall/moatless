@@ -556,6 +556,13 @@ async fn agent_loop(
     let task_id = config.task_id.clone();
     let mut handle: Option<ActiveHandle> = None;
     let mut session_id = String::new();
+    // Per-spawn nonce included in every UUID emitted from the active codex
+    // spawn. Required because Codex CLI restarts its `item_id` numbering at
+    // `item_0` on every `codex exec --resume`, which would otherwise collide
+    // with prior turns under the stable `session_id`. A random nonce (rather
+    // than a counter) survives pod restarts: counter-based reset to 0 would
+    // re-collide once thread state is reloaded from the workspace PVC.
+    let mut spawn_nonce = String::new();
     let mut consecutive_errors: u32 = 0;
     let mut pending_acks: VecDeque<oneshot::Sender<String>> = VecDeque::new();
     let mut queued_sends: VecDeque<QueuedSend> = VecDeque::new();
@@ -784,6 +791,7 @@ async fn agent_loop(
                             &events,
                             &task_id,
                             &mut session_id,
+                            &mut spawn_nonce,
                             &mut handle,
                             &mut consecutive_errors,
                             &mut codex_turn_output,
@@ -1282,6 +1290,7 @@ async fn process_codex_message(
     events: &GrpcEventPublisher,
     task_id: &str,
     session_id: &mut String,
+    spawn_nonce: &mut String,
     handle: &mut Option<ActiveHandle>,
     consecutive_errors: &mut u32,
     turn_output: &mut String,
@@ -1293,6 +1302,10 @@ async fn process_codex_message(
                 model = ?requested_model,
                 "Codex session initialized"
             );
+            // Refresh the per-spawn UUID nonce. Codex CLI's `item_id` sequence
+            // restarts at `item_0` on every `--resume`, so we mix this random
+            // 8-char tag into every emitted UUID to keep turns disjoint.
+            *spawn_nonce = uuid::Uuid::new_v4().simple().to_string()[..8].to_string();
             publish_session_init(
                 agent_state,
                 events,
@@ -1314,6 +1327,7 @@ async fn process_codex_message(
                         events,
                         task_id,
                         session_id,
+                        spawn_nonce,
                         &event.item.id,
                         todo,
                         requested_model,
@@ -1334,11 +1348,14 @@ async fn process_codex_message(
                 ThreadItemDetails::AgentMessage(agent_message) => {
                     append_turn_output(turn_output, &agent_message.text);
 
-                    // Codex item ids are short and only unique within a thread
-                    // (item_0, item_1, ...). The task_messages table uses a
-                    // global ON CONFLICT (uuid), so qualify the id with the
-                    // session to avoid cross-task row collisions.
-                    let uuid = format!("{session_id}_{item_id}");
+                    // Codex item ids are short and only unique within a single
+                    // codex spawn (item_0, item_1, ...) — and the sequence
+                    // restarts at item_0 on every `codex exec --resume`. The
+                    // task_messages table uses a global ON CONFLICT (uuid), so
+                    // we qualify the id with both the session (cross-task
+                    // separation) and the per-spawn nonce (cross-turn
+                    // separation within the same session).
+                    let uuid = format!("{session_id}_{spawn_nonce}_{item_id}");
                     let payload = codex_message_payload(
                         &uuid,
                         session_id,
@@ -1350,7 +1367,7 @@ async fn process_codex_message(
                         .await;
                 }
                 ThreadItemDetails::Reasoning(reasoning) => {
-                    let uuid = format!("{session_id}_{item_id}");
+                    let uuid = format!("{session_id}_{spawn_nonce}_{item_id}");
                     let payload = codex_reasoning_payload(
                         &uuid,
                         session_id,
@@ -1366,6 +1383,7 @@ async fn process_codex_message(
                         events,
                         task_id,
                         session_id,
+                        spawn_nonce,
                         item_id,
                         cmd,
                         requested_model,
@@ -1377,6 +1395,7 @@ async fn process_codex_message(
                         events,
                         task_id,
                         session_id,
+                        spawn_nonce,
                         item_id,
                         edit,
                         requested_model,
@@ -1388,6 +1407,7 @@ async fn process_codex_message(
                         events,
                         task_id,
                         session_id,
+                        spawn_nonce,
                         item_id,
                         todo,
                         requested_model,
@@ -1399,6 +1419,7 @@ async fn process_codex_message(
                         events,
                         task_id,
                         session_id,
+                        spawn_nonce,
                         item_id,
                         mcp,
                         requested_model,
@@ -1410,6 +1431,7 @@ async fn process_codex_message(
                         events,
                         task_id,
                         session_id,
+                        spawn_nonce,
                         item_id,
                         collab,
                         requested_model,
@@ -1421,6 +1443,7 @@ async fn process_codex_message(
                         events,
                         task_id,
                         session_id,
+                        spawn_nonce,
                         item_id,
                         web,
                         requested_model,
@@ -1433,6 +1456,7 @@ async fn process_codex_message(
                         events,
                         task_id,
                         session_id,
+                        spawn_nonce,
                         item_id,
                         &err.message,
                         requested_model,
@@ -1830,12 +1854,13 @@ async fn publish_codex_shell_call(
     events: &GrpcEventPublisher,
     task_id: &str,
     session_id: &str,
+    spawn_nonce: &str,
     item_id: &str,
     cmd: &CommandExecutionItem,
     requested_model: Option<&str>,
 ) {
-    let tool_use_id = format!("{session_id}_{item_id}");
-    let assistant_uuid = format!("{session_id}_{item_id}_call");
+    let tool_use_id = format!("{session_id}_{spawn_nonce}_{item_id}");
+    let assistant_uuid = format!("{session_id}_{spawn_nonce}_{item_id}_call");
     let tool_input = build_shell_tool_use(cmd);
     let use_payload = codex_tool_use_payload(
         &assistant_uuid,
@@ -1850,7 +1875,7 @@ async fn publish_codex_shell_call(
         .await;
 
     let (result_value, summary_text, is_error) = build_shell_tool_result(cmd);
-    let result_uuid = format!("{session_id}_{item_id}_result");
+    let result_uuid = format!("{session_id}_{spawn_nonce}_{item_id}_result");
     let result_payload = codex_tool_result_payload(
         &result_uuid,
         session_id,
@@ -1868,12 +1893,13 @@ async fn publish_codex_edit_call(
     events: &GrpcEventPublisher,
     task_id: &str,
     session_id: &str,
+    spawn_nonce: &str,
     item_id: &str,
     edit: &FileChangeItem,
     requested_model: Option<&str>,
 ) {
-    let tool_use_id = format!("{session_id}_{item_id}");
-    let assistant_uuid = format!("{session_id}_{item_id}_call");
+    let tool_use_id = format!("{session_id}_{spawn_nonce}_{item_id}");
+    let assistant_uuid = format!("{session_id}_{spawn_nonce}_{item_id}_call");
     let tool_input = build_edit_tool_use(edit);
     let use_payload = codex_tool_use_payload(
         &assistant_uuid,
@@ -1888,7 +1914,7 @@ async fn publish_codex_edit_call(
         .await;
 
     let (result_value, summary_text, is_error) = build_edit_tool_result(edit);
-    let result_uuid = format!("{session_id}_{item_id}_result");
+    let result_uuid = format!("{session_id}_{spawn_nonce}_{item_id}_result");
     let result_payload = codex_tool_result_payload(
         &result_uuid,
         session_id,
@@ -1917,20 +1943,22 @@ fn build_codex_todo_list_input(todo: &TodoListItem) -> CodexTodoListInput {
 
 /// Publish a codex `todo_list` item as a tool_use block. Unlike shell/edit,
 /// this is called on every `item.started` / `item.updated` / `item.completed`
-/// for the same `item_id` — the stable `assistant_uuid` (session + item_id)
-/// causes the backend DAO to upsert in place, so the UI sees one card that
-/// mutates live as codex flips items to done. No `tool_result` is emitted;
-/// codex's todo_list has no separate result concept.
+/// for the same `item_id` — the stable `assistant_uuid`
+/// (session + spawn_nonce + item_id) causes the backend DAO to upsert in
+/// place, so the UI sees one card that mutates live as codex flips items to
+/// done. No `tool_result` is emitted; codex's todo_list has no separate
+/// result concept.
 async fn publish_codex_todo_list_call(
     events: &GrpcEventPublisher,
     task_id: &str,
     session_id: &str,
+    spawn_nonce: &str,
     item_id: &str,
     todo: &TodoListItem,
     requested_model: Option<&str>,
 ) {
-    let tool_use_id = format!("{session_id}_{item_id}");
-    let assistant_uuid = format!("{session_id}_{item_id}_call");
+    let tool_use_id = format!("{session_id}_{spawn_nonce}_{item_id}");
+    let assistant_uuid = format!("{session_id}_{spawn_nonce}_{item_id}_call");
     let input = build_codex_todo_list_input(todo);
     let tool_input = serde_json::to_value(input).unwrap_or_else(|_| serde_json::json!({}));
     let use_payload = codex_tool_use_payload(
@@ -1994,12 +2022,13 @@ async fn publish_codex_mcp_call(
     events: &GrpcEventPublisher,
     task_id: &str,
     session_id: &str,
+    spawn_nonce: &str,
     item_id: &str,
     mcp: &McpToolCallItem,
     requested_model: Option<&str>,
 ) {
-    let tool_use_id = format!("{session_id}_{item_id}");
-    let assistant_uuid = format!("{session_id}_{item_id}_call");
+    let tool_use_id = format!("{session_id}_{spawn_nonce}_{item_id}");
+    let assistant_uuid = format!("{session_id}_{spawn_nonce}_{item_id}_call");
     let tool_input = build_mcp_tool_use(mcp);
     let use_payload = codex_tool_use_payload(
         &assistant_uuid,
@@ -2014,7 +2043,7 @@ async fn publish_codex_mcp_call(
         .await;
 
     let (result_value, summary_text, is_error) = build_mcp_tool_result(mcp);
-    let result_uuid = format!("{session_id}_{item_id}_result");
+    let result_uuid = format!("{session_id}_{spawn_nonce}_{item_id}_result");
     let result_payload = codex_tool_result_payload(
         &result_uuid,
         session_id,
@@ -2071,12 +2100,13 @@ async fn publish_codex_collab_call(
     events: &GrpcEventPublisher,
     task_id: &str,
     session_id: &str,
+    spawn_nonce: &str,
     item_id: &str,
     collab: &CollabToolCallItem,
     requested_model: Option<&str>,
 ) {
-    let tool_use_id = format!("{session_id}_{item_id}");
-    let assistant_uuid = format!("{session_id}_{item_id}_call");
+    let tool_use_id = format!("{session_id}_{spawn_nonce}_{item_id}");
+    let assistant_uuid = format!("{session_id}_{spawn_nonce}_{item_id}_call");
     let tool_input = build_collab_tool_use(collab);
     let use_payload = codex_tool_use_payload(
         &assistant_uuid,
@@ -2091,7 +2121,7 @@ async fn publish_codex_collab_call(
         .await;
 
     let (result_value, summary_text, is_error) = build_collab_tool_result(collab);
-    let result_uuid = format!("{session_id}_{item_id}_result");
+    let result_uuid = format!("{session_id}_{spawn_nonce}_{item_id}_result");
     let result_payload = codex_tool_result_payload(
         &result_uuid,
         session_id,
@@ -2111,12 +2141,13 @@ async fn publish_codex_web_search_call(
     events: &GrpcEventPublisher,
     task_id: &str,
     session_id: &str,
+    spawn_nonce: &str,
     item_id: &str,
     web: &WebSearchItem,
     requested_model: Option<&str>,
 ) {
-    let tool_use_id = format!("{session_id}_{item_id}");
-    let assistant_uuid = format!("{session_id}_{item_id}_call");
+    let tool_use_id = format!("{session_id}_{spawn_nonce}_{item_id}");
+    let assistant_uuid = format!("{session_id}_{spawn_nonce}_{item_id}_call");
     let input = CodexWebSearchInput {
         query: web.query.clone(),
         action: web.action.clone(),
@@ -2143,11 +2174,12 @@ async fn publish_codex_error_item(
     events: &GrpcEventPublisher,
     task_id: &str,
     session_id: &str,
+    spawn_nonce: &str,
     item_id: &str,
     text: &str,
     requested_model: Option<&str>,
 ) {
-    let uuid = format!("{session_id}_{item_id}");
+    let uuid = format!("{session_id}_{spawn_nonce}_{item_id}");
     let payload = codex_error_message_payload(&uuid, session_id, text, requested_model);
     events
         .publish_agent_event(task_id, AgentSubType::Message, payload)
@@ -2570,22 +2602,22 @@ mod tests {
     fn codex_tool_use_payload_shapes_assistant_block() {
         let input = serde_json::json!({ "command": "echo hi" });
         let payload = codex_tool_use_payload(
-            "sess_item_1_call",
+            "sess_NONCE_item_1_call",
             "sess",
-            "sess_item_1",
+            "sess_NONCE_item_1",
             "codex.shell",
             input,
             Some("gpt-5"),
         );
 
-        assert_eq!(payload["uuid"], "sess_item_1_call");
+        assert_eq!(payload["uuid"], "sess_NONCE_item_1_call");
         assert_eq!(payload["session_id"], "sess");
         assert_eq!(payload["message"]["role"], "assistant");
         assert_eq!(payload["message"]["model"], "gpt-5");
 
         let block = &payload["message"]["content"][0];
         assert_eq!(block["type"], "tool_use");
-        assert_eq!(block["id"], "sess_item_1");
+        assert_eq!(block["id"], "sess_NONCE_item_1");
         assert_eq!(block["name"], "codex.shell");
         assert_eq!(block["input"]["command"], "echo hi");
     }
@@ -2594,19 +2626,19 @@ mod tests {
     fn codex_tool_result_payload_carries_typed_result() {
         let typed = serde_json::json!({ "status": "completed", "exitCode": 0 });
         let payload = codex_tool_result_payload(
-            "sess_item_1_result",
+            "sess_NONCE_item_1_result",
             "sess",
-            "sess_item_1",
+            "sess_NONCE_item_1",
             "hi\n",
             false,
             typed,
         );
 
-        assert_eq!(payload["uuid"], "sess_item_1_result");
+        assert_eq!(payload["uuid"], "sess_NONCE_item_1_result");
         assert_eq!(payload["message"]["role"], "user");
         let block = &payload["message"]["content"][0];
         assert_eq!(block["type"], "tool_result");
-        assert_eq!(block["tool_use_id"], "sess_item_1");
+        assert_eq!(block["tool_use_id"], "sess_NONCE_item_1");
         assert_eq!(block["content"], "hi\n");
         assert_eq!(block["is_error"], false);
         assert_eq!(payload["tool_use_result"]["exitCode"], 0);
@@ -2696,24 +2728,24 @@ mod tests {
         .unwrap();
 
         let p1 = codex_tool_use_payload(
-            &format!("{}_{}_call", "sess", "item_1"),
+            &format!("{}_{}_{}_call", "sess", "NONCE", "item_1"),
             "sess",
-            &format!("{}_{}", "sess", "item_1"),
+            &format!("{}_{}_{}", "sess", "NONCE", "item_1"),
             CODEX_TOOL_TODO_LIST,
             initial,
             Some("gpt-5"),
         );
         let p2 = codex_tool_use_payload(
-            &format!("{}_{}_call", "sess", "item_1"),
+            &format!("{}_{}_{}_call", "sess", "NONCE", "item_1"),
             "sess",
-            &format!("{}_{}", "sess", "item_1"),
+            &format!("{}_{}_{}", "sess", "NONCE", "item_1"),
             CODEX_TOOL_TODO_LIST,
             updated,
             Some("gpt-5"),
         );
 
         assert_eq!(p1["uuid"], p2["uuid"]);
-        assert_eq!(p1["uuid"], "sess_item_1_call");
+        assert_eq!(p1["uuid"], "sess_NONCE_item_1_call");
         assert_eq!(p1["message"]["content"][0]["name"], CODEX_TOOL_TODO_LIST);
         // Payloads differ only in the tool_input items array.
         assert_eq!(p1["message"]["content"][0]["input"]["items"][0]["completed"], false);
