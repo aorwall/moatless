@@ -193,6 +193,7 @@ pub async fn run(
                 file_ids: Vec::new(),
                 model: None,
                 command_name: None,
+                headless: None,
             };
             let created = client.api().create_task(&req).await?;
             if json {
