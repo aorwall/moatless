@@ -181,6 +181,17 @@ fn transform_assistant(
         false
     };
 
+    let channel = msg.channel_provider.as_ref().map(|provider| {
+        let external_id = msg.channel_external_id.clone();
+        let external_label = external_id.as_deref().map(format_external_label);
+        UiMessageChannel {
+            provider: provider.clone(),
+            source_name: msg.channel_source_name.clone(),
+            external_id,
+            external_label,
+        }
+    });
+
     UiMessage {
         uuid: msg.uuid.clone(),
         message_type: msg.message_type,
@@ -208,7 +219,7 @@ fn transform_assistant(
         }),
         result: None,
         sdk_metadata: msg.sdk_metadata.clone(),
-        channel: None,
+        channel,
         command_name: msg.command_name.clone(),
         parent_uuid: msg.parent_uuid.clone(),
     }
@@ -734,6 +745,44 @@ mod tests {
             format_external_label("github:unknown:42"),
             "github:unknown:42",
         );
+    }
+
+    #[test]
+    fn transform_assistant_surfaces_tagged_channel() {
+        let mut assistant = make_msg(
+            1,
+            "a1",
+            MessageType::Assistant,
+            MessageRole::Assistant,
+            Some(1),
+            "opening pr",
+        );
+        assistant.channel_provider = Some("github_pr".to_string());
+        assistant.channel_source_name = Some("foo/bar".to_string());
+        assistant.channel_external_id = Some("github:pr:opened:42".to_string());
+
+        let ui = transform_to_ui(&[assistant], &[], &[]);
+        assert_eq!(ui.len(), 1);
+        let channel = ui[0].channel.as_ref().expect("channel populated");
+        assert_eq!(channel.provider, "github_pr");
+        assert_eq!(channel.source_name.as_deref(), Some("foo/bar"));
+        assert_eq!(channel.external_id.as_deref(), Some("github:pr:opened:42"));
+        assert_eq!(channel.external_label.as_deref(), Some("PR #42 opened"));
+    }
+
+    #[test]
+    fn transform_assistant_no_channel_when_provider_null() {
+        let assistant = make_msg(
+            1,
+            "a1",
+            MessageType::Assistant,
+            MessageRole::Assistant,
+            Some(1),
+            "plain reply",
+        );
+        let ui = transform_to_ui(&[assistant], &[], &[]);
+        assert_eq!(ui.len(), 1);
+        assert!(ui[0].channel.is_none());
     }
 
     #[test]

@@ -9,9 +9,10 @@
 //! → `message::hooks::on_agent_message_persisted`.
 //!
 //! Covers:
-//! - `gh pr create` tool result auto-connects a `channel_threads` row.
-//! - `gh pr comment` tool result tags the persisted tool_result row's
-//!   `channel_external_id` with the comment id.
+//! - `gh pr create` tool result auto-connects a `channel_threads` row and
+//!   tags the parent assistant tool_use row with `github:pr:opened:<n>`.
+//! - `gh pr comment` tool result tags the parent assistant tool_use row
+//!   with `github:ic:<id>`.
 
 mod common;
 
@@ -110,6 +111,21 @@ async fn gh_pr_create_auto_connects_channel_thread(pool: PgPool) {
     assert_eq!(threads.len(), 1, "expected exactly one connected thread");
     assert_eq!(threads[0].external_thread_id, "99");
     assert_eq!(threads[0].task_id, task_id);
+
+    // 4. The parent assistant row should now carry channel metadata so the
+    //    UI can render a "PR #99 opened" chip on it.
+    let (rows, _, _) =
+        moatless_vibe_backend::message::dao::get_all(&pool, task_id).await.unwrap();
+    let assistant_row = rows
+        .iter()
+        .find(|m| m.uuid == "asst-uuid-1")
+        .expect("assistant row present");
+    assert_eq!(
+        assistant_row.channel_external_id.as_deref(),
+        Some("github:pr:opened:99"),
+    );
+    assert_eq!(assistant_row.channel_provider.as_deref(), Some("github_pr"));
+    assert_eq!(assistant_row.channel_source_name.as_deref(), Some("foo/bar"));
 }
 
 #[sqlx::test]
@@ -152,11 +168,33 @@ async fn gh_pr_comment_tags_tool_result_with_external_id(pool: PgPool) {
     );
     handle_agent_message(&state, &result_event).await;
 
-    // The persisted tool_result row should now carry channel_external_id="555".
+    // The parent assistant tool_use row should now carry the prefixed comment id.
     let has = state
         .messages
-        .has_channel_external_id(task_id, "555")
+        .has_channel_external_id(task_id, "github:ic:555")
         .await
         .unwrap();
-    assert!(has, "tool_result row should be tagged with comment id");
+    assert!(
+        has,
+        "assistant row should be tagged with namespaced comment id",
+    );
+
+    let (rows, _, _) =
+        moatless_vibe_backend::message::dao::get_all(&pool, task_id).await.unwrap();
+    let assistant_row = rows
+        .iter()
+        .find(|m| m.uuid == "asst-uuid-c1")
+        .expect("assistant row present");
+    assert_eq!(
+        assistant_row.channel_external_id.as_deref(),
+        Some("github:ic:555"),
+    );
+    assert_eq!(assistant_row.channel_provider.as_deref(), Some("github_pr"));
+    assert_eq!(assistant_row.channel_source_name.as_deref(), Some("foo/bar"));
+    // The hidden System tool_result row must remain untagged.
+    let result_row = rows
+        .iter()
+        .find(|m| m.uuid == result_uuid)
+        .expect("tool_result row present");
+    assert!(result_row.channel_external_id.is_none());
 }

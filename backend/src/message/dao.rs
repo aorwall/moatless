@@ -19,6 +19,10 @@ pub struct ToolCallRow {
     pub result_content: Option<String>,
     pub is_error: Option<bool>,
     pub tool_use_result: Option<serde_json::Value>,
+    /// UUID of the assistant row containing the tool_use block. Surfaced so
+    /// post-message hooks can tag the parent message rather than the hidden
+    /// System tool_result row.
+    pub parent_message_uuid: String,
 }
 
 /// Repository trait for message persistence.
@@ -80,10 +84,12 @@ pub trait MessageRepository: Send + Sync {
         &self,
         task_ids: &[String],
     ) -> Result<HashMap<String, DateTime<Utc>>, sqlx::Error>;
-    async fn set_channel_external_id(
+    async fn set_channel_metadata<'a>(
         &self,
-        message_uuid: &str,
-        external_id: &str,
+        message_uuid: &'a str,
+        external_id: &'a str,
+        provider: &'a str,
+        source_name: Option<&'a str>,
     ) -> Result<bool, sqlx::Error>;
 
     async fn has_channel_external_id(
@@ -495,18 +501,24 @@ impl MessageRepository for PgMessageRepository {
         Ok(rows.into_iter().collect())
     }
 
-    async fn set_channel_external_id(
+    async fn set_channel_metadata<'a>(
         &self,
-        message_uuid: &str,
-        external_id: &str,
+        message_uuid: &'a str,
+        external_id: &'a str,
+        provider: &'a str,
+        source_name: Option<&'a str>,
     ) -> Result<bool, sqlx::Error> {
         let result = sqlx::query(
             r#"UPDATE task_messages
-               SET channel_external_id = $2
+               SET channel_external_id = $2,
+                   channel_provider    = $3,
+                   channel_source_name = $4
                WHERE uuid = $1 AND channel_external_id IS NULL"#,
         )
         .bind(message_uuid)
         .bind(external_id)
+        .bind(provider)
+        .bind(source_name)
         .execute(&self.0)
         .await?;
 
@@ -654,8 +666,8 @@ impl MessageRepository for PgMessageRepository {
         tool_use_id: &str,
     ) -> Result<Option<ToolCallRow>, sqlx::Error> {
         // 1. Find the assistant message_content array containing the tool_use block.
-        let assistant_row: Option<(serde_json::Value,)> = sqlx::query_as(
-            r#"SELECT message_content
+        let assistant_row: Option<(serde_json::Value, String)> = sqlx::query_as(
+            r#"SELECT message_content, uuid AS parent_message_uuid
                FROM task_messages
                WHERE task_id = $1
                  AND message_content @> jsonb_build_array(
@@ -669,7 +681,7 @@ impl MessageRepository for PgMessageRepository {
         .fetch_optional(&self.0)
         .await?;
 
-        let Some((assistant_content,)) = assistant_row else {
+        let Some((assistant_content, parent_message_uuid)) = assistant_row else {
             return Ok(None);
         };
 
@@ -711,6 +723,7 @@ impl MessageRepository for PgMessageRepository {
             result_content,
             is_error,
             tool_use_result,
+            parent_message_uuid,
         }))
     }
 }

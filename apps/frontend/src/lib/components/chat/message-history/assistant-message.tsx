@@ -18,6 +18,7 @@ import { Response } from '@/lib/components/ai-elements/response'
 import { type ImageContentBlock, isImageContentBlock } from '@/lib/types/content-guards'
 import type { AllowedPrompt, Question } from '@/lib/types/user-input'
 import { cn } from '@/lib/utils'
+import { getProviderIcon, getProviderLabel } from './channel-meta'
 import { ImageThumbnail } from './image-thumbnail'
 import { CodexToolCall, SubagentToolCall, type Todo, TodoList } from './tool-calls'
 
@@ -26,6 +27,25 @@ interface AssistantMessageProps {
   message: UiMessageWithSubagents
   expandedToolCalls: Set<string>
   onToggleToolCall: (toolUseId: string) => void
+}
+
+function ChannelChip({ channel }: { channel: NonNullable<UiMessage['channel']> }) {
+  if (!channel.externalLabel) {
+    return null
+  }
+  return (
+    <div className="flex items-center gap-1.5 mb-1 text-xs text-muted-foreground">
+      <span className="text-blue-500/70">{getProviderIcon(channel.provider)}</span>
+      <span className="font-medium">via {getProviderLabel(channel.provider)}</span>
+      {channel.sourceName && <span className="text-muted-foreground/70">{channel.sourceName}</span>}
+      <span
+        className="ml-auto font-mono text-[10px] text-muted-foreground/70"
+        title={channel.externalId ?? channel.externalLabel}
+      >
+        {channel.externalLabel}
+      </span>
+    </div>
+  )
 }
 
 interface ToolCallProps {
@@ -517,6 +537,7 @@ function renderCollapsedMessage(
   expandedToolCalls: Set<string>,
   onToggleToolCall: (toolUseId: string) => void,
   hasPendingUserInput: boolean | null | undefined,
+  channel: UiMessage['channel'] | null | undefined,
   subagentMessages?: UiMessage[],
 ): React.ReactNode {
   return (
@@ -528,6 +549,7 @@ function renderCollapsedMessage(
           : 'border-muted-foreground/30 bg-muted/20',
       )}
     >
+      {channel && <ChannelChip channel={channel} />}
       <button
         type="button"
         onClick={() => setIsExpanded(!isExpanded)}
@@ -670,6 +692,7 @@ export function AssistantMessageComponent({
       expandedToolCalls,
       onToggleToolCall,
       message.hasPendingUserInput,
+      message.channel,
       message.subagentMessages,
     )
   }
@@ -677,6 +700,8 @@ export function AssistantMessageComponent({
   // Normal message display
   return (
     <div className="space-y-2 w-full max-w-full">
+      {message.channel && <ChannelChip channel={message.channel} />}
+
       {/* Text content */}
       {textContent && (
         <div className="text-sm w-full max-w-full">

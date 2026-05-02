@@ -292,7 +292,16 @@ pub async fn direct_send_to_channel(
             // the inbound webhook for this same comment/message is deduped.
             if let (Some(ref ext_id), Some(ref msg_id)) = (&external_id, &stub_uuid) {
                 state.recently_sent.note(tid, ext_id);
-                if let Err(e) = state.messages.set_channel_external_id(msg_id, ext_id).await {
+                if let Err(e) = state
+                    .messages
+                    .set_channel_metadata(
+                        msg_id,
+                        ext_id,
+                        &config.provider,
+                        config.source_name.as_deref(),
+                    )
+                    .await
+                {
                     warn!(task_id = %tid, error = %e, "Failed to tag outbound stub with channel_external_id");
                 }
             } else if let Some(ref ext_id) = external_id {
@@ -520,7 +529,12 @@ async fn send_outbound(
                     if let Some(msg_id) = message_id {
                         if let Err(e) = state
                             .messages
-                            .set_channel_external_id(msg_id, &external_id)
+                            .set_channel_metadata(
+                                msg_id,
+                                &external_id,
+                                &config.provider,
+                                config.source_name.as_deref(),
+                            )
                             .await
                         {
                             warn!(task_id = %task_id, error = %e, "Failed to store outbound external ID");
@@ -655,7 +669,16 @@ async fn send_outbound_result(
             if let Some(ref ext_id) = external_id {
                 state.recently_sent.note(task_id, ext_id);
                 if let Some(msg_id) = message_id {
-                    if let Err(e) = state.messages.set_channel_external_id(msg_id, ext_id).await {
+                    if let Err(e) = state
+                        .messages
+                        .set_channel_metadata(
+                            msg_id,
+                            ext_id,
+                            &config.provider,
+                            config.source_name.as_deref(),
+                        )
+                        .await
+                    {
                         warn!(task_id = %task_id, error = %e, "Failed to tag outbound stub with channel_external_id");
                     }
                 }

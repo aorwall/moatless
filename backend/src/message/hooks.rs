@@ -42,6 +42,12 @@ impl ParsedPr {
 /// Inspect the just-persisted message for known `gh ...` tool calls and run
 /// the matching side effects. Errors are logged and swallowed — the event
 /// handler loop is fire-and-forget.
+///
+/// `_message_uuid` is the System tool_result row's uuid. We intentionally do
+/// not tag that row anymore — the gh side effects look up the parent Assistant
+/// row's uuid via `find_tool_call` and tag it instead so the channel chip
+/// renders on the visible assistant bubble. The argument is kept for
+/// symmetry with sibling persistence hooks.
 pub async fn on_agent_message_persisted(
     state: &AppState,
     task_id: &str,
@@ -102,10 +108,12 @@ pub async fn on_agent_message_persisted(
             .and_then(|v| v.as_str())
             .unwrap_or("");
 
+        let parent_uuid = tool_call.parent_message_uuid.as_str();
+
         if is_gh_pr_create(cmd) {
-            handle_gh_pr_create(state, task_id, result_text).await;
+            handle_gh_pr_create(state, task_id, parent_uuid, result_text).await;
         } else if is_gh_pr_comment(cmd) || is_gh_issue_comment(cmd) {
-            handle_gh_comment(state, task_id, _message_uuid, result_text).await;
+            handle_gh_comment(state, task_id, parent_uuid, result_text).await;
         }
     }
 }
@@ -114,7 +122,12 @@ pub async fn on_agent_message_persisted(
 // gh pr create
 // =============================================================================
 
-async fn handle_gh_pr_create(state: &AppState, task_id: &str, result_text: &str) {
+async fn handle_gh_pr_create(
+    state: &AppState,
+    task_id: &str,
+    parent_uuid: &str,
+    result_text: &str,
+) {
     let Some(pr) = parse_pr_url(result_text) else {
         debug!(task_id, "gh pr create result had no PR URL");
         return;
@@ -149,6 +162,34 @@ async fn handle_gh_pr_create(state: &AppState, task_id: &str, result_text: &str)
         }
         Err(e) => {
             warn!(task_id, pr_number = pr.number, error = %e, "Failed to auto-connect channel thread for PR");
+        }
+    }
+
+    let external_id = crate::channel::external_id::github_pr_opened(pr.number);
+    state.recently_sent.note(task_id, &external_id);
+    match state
+        .messages
+        .set_channel_metadata(parent_uuid, &external_id, "github_pr", Some(&source_id))
+        .await
+    {
+        Ok(true) => {
+            info!(
+                task_id,
+                parent_uuid,
+                pr_number = pr.number,
+                "Tagged assistant tool_use row with channel_external_id for gh pr create"
+            );
+        }
+        Ok(false) => {
+            debug!(
+                task_id,
+                parent_uuid,
+                pr_number = pr.number,
+                "Assistant row already had channel_external_id — leaving untouched"
+            );
+        }
+        Err(e) => {
+            warn!(task_id, parent_uuid, pr_number = pr.number, error = %e, "Failed to tag assistant row with channel_external_id");
         }
     }
 
@@ -239,41 +280,42 @@ fn compose_footer(existing: &str, task_url: &str) -> String {
 async fn handle_gh_comment(
     state: &AppState,
     task_id: &str,
-    message_uuid: &str,
+    parent_uuid: &str,
     result_text: &str,
 ) {
-    let Some(comment_id) = parse_comment_id(result_text) else {
+    let Some(parsed) = parse_comment_id(result_text) else {
         debug!(task_id, "gh comment result had no comment URL");
         return;
     };
 
     // Wrap in the issue-comment namespace so the tagged row matches what the
     // GitHub `issue_comment` webhook will produce for the same comment.
-    let external_id = crate::channel::external_id::github_issue_comment(comment_id);
+    let external_id = crate::channel::external_id::github_issue_comment(parsed.id);
     state.recently_sent.note(task_id, &external_id);
+    let source_name = format!("{}/{}", parsed.owner, parsed.repo);
     match state
         .messages
-        .set_channel_external_id(message_uuid, &external_id)
+        .set_channel_metadata(parent_uuid, &external_id, "github_pr", Some(&source_name))
         .await
     {
         Ok(true) => {
             info!(
                 task_id,
-                message_uuid,
-                comment_id,
-                "Tagged tool_result with channel_external_id for gh comment"
+                parent_uuid,
+                comment_id = parsed.id,
+                "Tagged assistant tool_use row with channel_external_id for gh comment"
             );
         }
         Ok(false) => {
             debug!(
                 task_id,
-                message_uuid,
-                comment_id,
-                "tool_result row already had channel_external_id — leaving untouched"
+                parent_uuid,
+                comment_id = parsed.id,
+                "Assistant row already had channel_external_id — leaving untouched"
             );
         }
         Err(e) => {
-            warn!(task_id, message_uuid, comment_id, error = %e, "Failed to tag tool_result with channel_external_id");
+            warn!(task_id, parent_uuid, comment_id = parsed.id, error = %e, "Failed to tag assistant row with channel_external_id");
         }
     }
 }
@@ -422,16 +464,56 @@ fn decompose_pr_url(url: &str) -> Option<ParsedPr> {
     })
 }
 
-/// Extract the numeric id after `#issuecomment-` in `gh pr/issue comment`
-/// output (e.g. `https://github.com/foo/bar/pull/42#issuecomment-12345`).
-fn parse_comment_id(text: &str) -> Option<u64> {
+/// Identity of an issue/PR comment URL parsed from `gh pr/issue comment`
+/// output.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ParsedComment {
+    owner: String,
+    repo: String,
+    id: u64,
+}
+
+/// Extract owner/repo + the numeric id after `#issuecomment-` in
+/// `gh pr/issue comment` output (e.g.
+/// `https://github.com/foo/bar/pull/42#issuecomment-12345`).
+///
+/// Returns `None` when no `#issuecomment-` URL is present or the URL shape
+/// doesn't have the expected `owner/repo/(pull|issues)/N#issuecomment-N`
+/// segments.
+fn parse_comment_id(text: &str) -> Option<ParsedComment> {
     let needle = "#issuecomment-";
     let idx = text.find(needle)?;
+
+    // Walk backwards to the start of the URL.
+    let prefix = "https://github.com/";
+    let url_start = text[..idx].rfind(prefix)?;
+    let url = &text[url_start..idx];
+
+    // url is `https://github.com/<owner>/<repo>/<pull|issues>/<n>`.
+    let path = url.strip_prefix(prefix)?;
+    let mut parts = path.split('/');
+    let owner = parts.next()?;
+    let repo = parts.next()?;
+    let kind = parts.next()?;
+    if kind != "pull" && kind != "issues" {
+        return None;
+    }
+
     let rest = &text[idx + needle.len()..];
     let end = rest
         .find(|c: char| !c.is_ascii_digit())
         .unwrap_or(rest.len());
-    rest[..end].parse().ok()
+    let id: u64 = rest[..end].parse().ok()?;
+
+    if owner.is_empty() || repo.is_empty() {
+        return None;
+    }
+
+    Some(ParsedComment {
+        owner: owner.to_string(),
+        repo: repo.to_string(),
+        id,
+    })
 }
 
 #[cfg(test)]
@@ -525,16 +607,35 @@ mod tests {
 
     #[test]
     fn parse_comment_id_basic() {
+        let parsed =
+            parse_comment_id("https://github.com/foo/bar/pull/42#issuecomment-12345\n").unwrap();
         assert_eq!(
-            parse_comment_id("https://github.com/foo/bar/pull/42#issuecomment-12345\n"),
-            Some(12345)
+            parsed,
+            ParsedComment {
+                owner: "foo".into(),
+                repo: "bar".into(),
+                id: 12345,
+            }
         );
     }
 
     #[test]
+    fn parse_comment_id_for_issue_url() {
+        let parsed =
+            parse_comment_id("https://github.com/foo/bar/issues/7#issuecomment-99\n").unwrap();
+        assert_eq!(parsed.owner, "foo");
+        assert_eq!(parsed.repo, "bar");
+        assert_eq!(parsed.id, 99);
+    }
+
+    #[test]
     fn parse_comment_id_none() {
-        assert_eq!(parse_comment_id("no comment url here"), None);
-        assert_eq!(parse_comment_id("https://github.com/foo/bar/pull/42"), None);
+        assert!(parse_comment_id("no comment url here").is_none());
+        assert!(parse_comment_id("https://github.com/foo/bar/pull/42").is_none());
+        // Wrong path segment.
+        assert!(
+            parse_comment_id("https://github.com/foo/bar/discussions/1#issuecomment-1").is_none(),
+        );
     }
 
     #[test]

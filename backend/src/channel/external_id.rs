@@ -36,6 +36,13 @@ pub fn github_pr_event(action: &str, pr_number: u64, sha: Option<&str>) -> Strin
     }
 }
 
+/// `github:pr:opened:<pr_number>` — convenience for the `gh pr create` post-message
+/// hook so the assistant tool_use row that created the PR is tagged with the
+/// same id the inbound `pull_request` `opened` webhook would produce.
+pub fn github_pr_opened(pr_number: u64) -> String {
+    github_pr_event("opened", pr_number, None)
+}
+
 /// `github:cr:<id>` — `check_run` completion.
 pub fn github_check_run(id: u64) -> String {
     format!("github:cr:{id}")
@@ -123,6 +130,11 @@ mod tests {
             github_pr_event("opened", 42, Some("")),
             "github:pr:opened:42"
         );
+    }
+
+    #[test]
+    fn pr_opened_format() {
+        assert_eq!(github_pr_opened(42), "github:pr:opened:42");
     }
 
     #[test]
