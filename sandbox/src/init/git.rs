@@ -8,7 +8,6 @@ use std::path::Path;
 use tokio::process::Command;
 use tracing::{info, warn};
 
-use super::gh_hosts;
 use crate::config::Config;
 
 /// Configure git authentication.
@@ -20,26 +19,15 @@ pub async fn configure_git(config: &Config) -> Result<(), String> {
 
     // GitHub-specific: use gh CLI for credential management
     if is_github {
-        if std::env::var("GITHUB_TOKEN").is_err() && std::env::var("GIT_TOKEN").is_err() {
+        if std::env::var("GIT_TOKEN").is_err() {
             info!("No git token set — skipping git configuration");
             return Ok(());
         }
 
-        // Configure gh CLI to use git credential helper
+        // Configure gh CLI to use git credential helper.
+        // hosts.yml is already written by credentials.rs; this wires git to use it.
         if let Err(e) = run_command("gh", &["auth", "setup-git"]).await {
             warn!(error = %e, "gh auth setup-git failed, continuing with manual config");
-        }
-
-        // Write the token to `~/.config/gh/hosts.yml` so `gh auth git-credential`
-        // reads a fresh token from disk on every invocation. This is what lets
-        // long-running agent turns pick up rotated tokens without restart.
-        if let Some(token) = std::env::var("GITHUB_TOKEN")
-            .ok()
-            .or_else(|| std::env::var("GH_TOKEN").ok())
-        {
-            if let Err(e) = gh_hosts::write_github_token(&config.home_dir, &token).await {
-                warn!(error = %e, "Failed to write gh hosts.yml");
-            }
         }
 
         // SSH to HTTPS conversion (GitHub only)
@@ -161,9 +149,7 @@ pub async fn clone_repository(config: &Config) -> Result<(), String> {
     }
 
     // Try git clone with token auth (works for all providers)
-    let git_token = std::env::var("GIT_TOKEN")
-        .or_else(|_| std::env::var("GITHUB_TOKEN"))
-        .ok();
+    let git_token = std::env::var("GIT_TOKEN").ok();
 
     if let Some(token) = git_token {
         let auth_url = inject_token_into_url(clone_url, &token);

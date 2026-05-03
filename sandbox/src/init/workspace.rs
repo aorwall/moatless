@@ -49,9 +49,7 @@ pub async fn clone_plugin_repos(config: &Config) -> Vec<String> {
         return Vec::new();
     }
 
-    let git_token = std::env::var("GIT_TOKEN")
-        .or_else(|_| std::env::var("GITHUB_TOKEN"))
-        .ok();
+    let git_token = std::env::var("GIT_TOKEN").ok();
 
     let mut cloned_paths = Vec::new();
 

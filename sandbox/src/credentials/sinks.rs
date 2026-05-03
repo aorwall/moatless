@@ -1,10 +1,3 @@
-// SAFETY: GH_TOKEN/GITHUB_TOKEN env writes are serialized by design — the
-// sandbox single-threaded init writes them once, the credential refresher
-// runs as a single serialized loop, and this sink is invoked from the gRPC
-// dispatcher (one inbound RPC at a time per channel). The actual auth source
-// of truth for git/gh is `~/.config/gh/hosts.yml` which we rewrite atomically.
-#![allow(unsafe_code)]
-
 //! Concrete [`CredentialSink`] implementations.
 
 use std::path::PathBuf;
@@ -87,15 +80,6 @@ impl CredentialSink for GitTokenSink {
         gh_hosts::write_github_token(&self.home_dir, value)
             .await
             .map_err(|e| format!("write gh hosts.yml: {e}"))?;
-
-        // SAFETY: GH_TOKEN/GITHUB_TOKEN are written by init and the credential
-        // refresher, both single-threaded. Writing here is a no-op race with
-        // those — git/gh consumers read fresh from `~/.config/gh/hosts.yml` on
-        // every invocation regardless.
-        unsafe {
-            std::env::set_var("GITHUB_TOKEN", value);
-            std::env::set_var("GH_TOKEN", value);
-        }
 
         info!("Refreshed GitHub token via gh hosts.yml");
         Ok(())

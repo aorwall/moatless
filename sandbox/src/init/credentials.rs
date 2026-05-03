@@ -21,12 +21,20 @@ use super::server_env;
 use crate::config::Config;
 use crate::state::SandboxState;
 
+/// Keys that must NOT be set in the sandbox process environment via `set_var`.
+///
+/// `gh` (and `gh auth git-credential`, which git uses for push) checks env vars
+/// before `~/.config/gh/hosts.yml`. Setting these here would freeze a stale
+/// value into every subprocess spawned for the lifetime of the pod. Auth for
+/// these credentials is handled exclusively via `~/.config/gh/hosts.yml`, which
+/// the credential refresher rewrites on every cycle.
+const ENV_SET_BLOCKLIST: &[&str] = &["GITHUB_TOKEN", "GH_TOKEN"];
+
 /// Keys that must NOT be inherited by the agent subprocess.
 ///
-/// Git and `gh` operations inside the agent resolve auth via
-/// `gh auth git-credential` → `~/.config/gh/hosts.yml`, which is rewritten on
-/// each refresh cycle. Passing these as subprocess env would snapshot whatever
-/// value was current at spawn time and leak stale tokens into long-running turns.
+/// `GIT_TOKEN` is still set in the sandbox process env (for init-time git clone)
+/// but must not reach the long-lived agent subprocess for the same staleness
+/// reason as the keys above.
 const AGENT_EXCLUDED_KEYS: &[&str] = &["GITHUB_TOKEN", "GH_TOKEN", "GIT_TOKEN"];
 
 /// Produce the credential map passed to the agent subprocess env.
@@ -92,7 +100,11 @@ pub async fn fetch_and_apply_credentials_with_mode(
 
                 // Set each credential as an env var for the sandbox process itself
                 // (init-time git clone, `gh` invocations, etc.).
+                // GITHUB_TOKEN and GH_TOKEN are skipped — see ENV_SET_BLOCKLIST.
                 for (key, value) in &resp.credentials {
+                    if ENV_SET_BLOCKLIST.contains(&key.as_str()) {
+                        continue;
+                    }
                     // SAFETY: write is serialized — init runs first on the main thread,
                     // then the single-loop refresher is the only caller. See module-level
                     // note at the top of this file.
@@ -118,19 +130,15 @@ pub async fn fetch_and_apply_credentials_with_mode(
                     }
                 }
 
-                // Alias GITHUB_TOKEN → GH_TOKEN for `gh` CLI compatibility.
+                // Alias GITHUB_TOKEN → GH_TOKEN in the credentials map for
+                // filter_agent_credentials to strip. Neither is set in the process
+                // env — see ENV_SET_BLOCKLIST above.
                 if let Some(token) = resp.credentials.get("GITHUB_TOKEN").cloned() {
                     resp.credentials
                         .insert("GH_TOKEN".to_string(), token.clone());
-                    // SAFETY: see note at top of this file.
-                    unsafe {
-                        std::env::set_var("GH_TOKEN", &token);
-                    }
 
-                    // Write the current GitHub token into `~/.config/gh/hosts.yml`
-                    // so `gh auth git-credential` (used by git via
-                    // `gh auth setup-git`) reads a fresh token from disk on every
-                    // invocation, even if the caller's env is stale.
+                    // Write into `~/.config/gh/hosts.yml` — the sole source of truth
+                    // for GitHub auth inside this pod.
                     if let Err(e) =
                         gh_hosts::write_github_token(&state.config.home_dir, &token).await
                     {
