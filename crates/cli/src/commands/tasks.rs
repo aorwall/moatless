@@ -26,7 +26,7 @@ pub enum TaskAction {
     },
     /// Get task details
     Get { task_id: String },
-    /// Create a new task
+    /// Create a new task (starts the sandbox and, if --message is provided, the agent)
     Create {
         #[arg(long)]
         repo: String,
@@ -180,6 +180,7 @@ pub async fn run(
 
             let repo_id = resolve_repo_id(client, &repo).await?;
 
+            let has_message = message.is_some();
             let req = CreateTaskRequest {
                 repository_id: repo_id,
                 name,
@@ -198,8 +199,16 @@ pub async fn run(
             let created = client.api().create_task(&req).await?;
             if json {
                 output::print_json_typed(&created);
+            } else if has_message {
+                println!(
+                    "Task {} created and started (status: {}). Sandbox provisioning; agent will begin once the sandbox is ready.",
+                    created.task_id, created.status
+                );
             } else {
-                println!("Task created: {}", created.task_id);
+                println!(
+                    "Task {} created (status: {}). Sandbox provisioning; send a message with `moat messages send` to start the agent.",
+                    created.task_id, created.status
+                );
             }
         }
         TaskAction::Children { task_id } => {
