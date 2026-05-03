@@ -152,6 +152,14 @@ mod tests {
         async fn get_system_prompt(&self, _task_id: &str) -> Result<String, tonic::Status> {
             Ok(String::new())
         }
+
+        async fn download_upload(
+            &self,
+            _task_id: &str,
+            _file_id: &str,
+        ) -> Result<sandbox_proto::DownloadUploadResponse, tonic::Status> {
+            Err(tonic::Status::unimplemented("not used"))
+        }
     }
 
     fn test_config(tmp: &tempfile::TempDir) -> Config {

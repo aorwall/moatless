@@ -175,6 +175,23 @@ impl TaskMessage {
             source_task_id: None,
         }
     }
+
+    /// Extract the persisted file IDs from the `attachments` JSON column.
+    ///
+    /// Format: `{"file_ids": ["<uuid>", ...]}`. Returns an empty Vec when
+    /// `attachments` is absent or doesn't contain a `file_ids` array.
+    pub fn file_ids(&self) -> Vec<String> {
+        self.attachments
+            .as_ref()
+            .and_then(|v| v.get("file_ids"))
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|x| x.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
 }
 
 // =============================================================================
@@ -322,5 +339,40 @@ mod tests {
         assert_eq!(msg.message_content, content);
         assert!(msg.session_id.is_none());
         assert!(msg.agent_session_id.is_none());
+    }
+
+    #[test]
+    fn file_ids_returns_empty_when_attachments_absent() {
+        let msg = TaskMessage::new_user_message(
+            "task-1".into(),
+            "uuid-1".into(),
+            serde_json::Value::Null,
+            "ts".into(),
+        );
+        assert!(msg.file_ids().is_empty());
+    }
+
+    #[test]
+    fn file_ids_extracts_array_from_attachments() {
+        let mut msg = TaskMessage::new_user_message(
+            "task-1".into(),
+            "uuid-1".into(),
+            serde_json::Value::Null,
+            "ts".into(),
+        );
+        msg.attachments = Some(serde_json::json!({ "file_ids": ["a", "b", "c"] }));
+        assert_eq!(msg.file_ids(), vec!["a".to_string(), "b".into(), "c".into()]);
+    }
+
+    #[test]
+    fn file_ids_skips_non_string_entries() {
+        let mut msg = TaskMessage::new_user_message(
+            "task-1".into(),
+            "uuid-1".into(),
+            serde_json::Value::Null,
+            "ts".into(),
+        );
+        msg.attachments = Some(serde_json::json!({ "file_ids": ["a", 42, null, "b"] }));
+        assert_eq!(msg.file_ids(), vec!["a".to_string(), "b".into()]);
     }
 }

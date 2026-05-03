@@ -186,6 +186,13 @@ mod tests {
         async fn get_system_prompt(&self, _: &str) -> Result<String, tonic::Status> {
             Ok(String::new())
         }
+        async fn download_upload(
+            &self,
+            _: &str,
+            _: &str,
+        ) -> Result<sandbox_proto::DownloadUploadResponse, tonic::Status> {
+            Err(tonic::Status::unimplemented("not used"))
+        }
     }
 
     fn make_state(creds: HashMap<String, String>) -> BrokerState {

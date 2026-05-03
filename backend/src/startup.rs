@@ -21,6 +21,7 @@ use crate::config::Config;
 use crate::credentials::{BroadcastContext, CredentialService};
 use crate::db::{self, DbPool};
 use crate::events::{EventPublisher, RedisEventPublisher};
+use crate::file_storage::dao::{FileRepository, PgFileRepository};
 use crate::message::dao::{MessageRepository, PgMessageRepository};
 use crate::metrics;
 use crate::repository::dao::{PgRepoRepository, RepoRepository};
@@ -180,11 +181,14 @@ pub fn spawn_grpc_server(
     config: &Config,
     db_pool: Option<&DbPool>,
     event_publisher: Option<Arc<dyn EventPublisher>>,
+    s3: Option<Arc<aws_sdk_s3::Client>>,
 ) {
     let messages: Option<Arc<dyn MessageRepository>> =
         db_pool.map(|pool| Arc::new(PgMessageRepository(pool.clone())) as _);
     let commands: Option<Arc<dyn CommandRepository>> =
         db_pool.map(|pool| Arc::new(PgCommandRepository(pool.clone())) as _);
+    let files: Option<Arc<dyn FileRepository>> =
+        db_pool.map(|pool| Arc::new(PgFileRepository(pool.clone())) as _);
     let provider_tokens: Option<Arc<dyn ProviderTokenRepository>> =
         db_pool.map(|pool| Arc::new(PgProviderTokenRepository(pool.clone())) as _);
     let tasks: Option<Arc<dyn TaskRepository>> =
@@ -194,6 +198,8 @@ pub fn spawn_grpc_server(
     let backend_config = Arc::new(config.clone());
     let port = config.server.grpc_port;
     let token_secret = config.sandbox.task_token_secret.clone();
+    let s3_bucket = config.s3.bucket_name.clone();
+    let s3_key_prefix = config.s3.key_prefix.clone();
     let github_app_service = GitHubAppService::from_config(config).map(Arc::new);
     let provider_token_auth: Option<Arc<dyn ProviderTokenAuthRepository>> =
         db_pool.map(|pool| Arc::new(PgProviderTokenAuthRepository(pool.clone())) as _);
@@ -236,6 +242,10 @@ pub fn spawn_grpc_server(
             credentials_svc,
             repositories,
             backend_config: Some(backend_config),
+            s3,
+            files,
+            s3_bucket,
+            s3_key_prefix,
         };
         let addr = SocketAddr::from(([0, 0, 0, 0], port));
         info!(port, "Starting backend gRPC server");

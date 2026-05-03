@@ -152,6 +152,16 @@ pub trait MessageRepository: Send + Sync {
         task_id: &str,
         tool_use_id: &str,
     ) -> Result<Option<ToolCallRow>, sqlx::Error>;
+
+    /// Return whether `file_id` is referenced by any message belonging to
+    /// `task_id` via the persisted `attachments.file_ids` JSON. Used by the
+    /// sandbox `DownloadUpload` RPC to defense-in-depth the cross-task
+    /// scope check.
+    async fn file_id_used_in_task(
+        &self,
+        task_id: &str,
+        file_id: &str,
+    ) -> Result<bool, sqlx::Error>;
 }
 
 /// PostgreSQL implementation of [`MessageRepository`].
@@ -223,12 +233,12 @@ impl MessageRepository for PgMessageRepository {
                 tool_use_result, sdk_metadata, attachments, agent_session_id,
                 will_not_resume, run_metrics,
                 agent_mode, model, resume, channel_external_id,
-                channel_provider, channel_source_name, command_name
+                channel_provider, channel_source_name, command_name, source_task_id
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
                 $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
                 $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
-                $31, $32, $33, $34, $35, $36, $37
+                $31, $32, $33, $34, $35, $36, $37, $38
             )
             ON CONFLICT (uuid) DO UPDATE SET
                 message_type = EXCLUDED.message_type,
@@ -276,6 +286,7 @@ impl MessageRepository for PgMessageRepository {
         .bind(&msg.channel_provider)
         .bind(&msg.channel_source_name)
         .bind(&msg.command_name)
+        .bind(&msg.source_task_id)
         .fetch_one(&mut *tx)
         .await?;
 
@@ -755,6 +766,25 @@ impl MessageRepository for PgMessageRepository {
             tool_use_result,
             parent_message_uuid,
         }))
+    }
+
+    async fn file_id_used_in_task(
+        &self,
+        task_id: &str,
+        file_id: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let row: (bool,) = sqlx::query_as(
+            r#"SELECT EXISTS(
+                SELECT 1 FROM task_messages
+                WHERE task_id = $1
+                  AND attachments->'file_ids' ? $2
+            )"#,
+        )
+        .bind(task_id)
+        .bind(file_id)
+        .fetch_one(&self.0)
+        .await?;
+        Ok(row.0)
     }
 }
 

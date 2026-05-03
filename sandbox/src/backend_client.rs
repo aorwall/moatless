@@ -9,9 +9,9 @@ use std::time::Duration;
 
 use sandbox_proto::backend_sandbox_service_client::BackendSandboxServiceClient;
 use sandbox_proto::{
-    AcknowledgeMessagesRequest, GetCredentialsRequest, GetCredentialsResponse,
-    GetPendingMessagesRequest, GetSystemPromptRequest, PendingMessage, PublishEventRequest,
-    UpdateCredentialRequest,
+    AcknowledgeMessagesRequest, DownloadUploadRequest, DownloadUploadResponse,
+    GetCredentialsRequest, GetCredentialsResponse, GetPendingMessagesRequest,
+    GetSystemPromptRequest, PendingMessage, PublishEventRequest, UpdateCredentialRequest,
 };
 use tonic::service::interceptor::InterceptedService;
 use tonic::transport::Channel;
@@ -64,6 +64,15 @@ pub trait BackendClient: Send + Sync {
     /// agent run; the result is cached locally as a fallback for transient
     /// gRPC failures.
     async fn get_system_prompt(&self, task_id: &str) -> Result<String, tonic::Status>;
+
+    /// Fetch the bytes of an uploaded file by `file_id`. Used by the agent
+    /// pre-fetch path to land attached files on disk before invoking the
+    /// agent. Backend-side scope-checks the file_id against this task.
+    async fn download_upload(
+        &self,
+        task_id: &str,
+        file_id: &str,
+    ) -> Result<DownloadUploadResponse, tonic::Status>;
 }
 
 /// Auth interceptor that injects a Bearer token on every outbound gRPC call.
@@ -201,5 +210,20 @@ impl BackendClient for BackendGrpcClient {
             })
             .await?;
         Ok(resp.into_inner().system_prompt)
+    }
+
+    async fn download_upload(
+        &self,
+        task_id: &str,
+        file_id: &str,
+    ) -> Result<DownloadUploadResponse, tonic::Status> {
+        let mut client = self.client.clone();
+        let resp = client
+            .download_upload(DownloadUploadRequest {
+                task_id: task_id.to_string(),
+                file_id: file_id.to_string(),
+            })
+            .await?;
+        Ok(resp.into_inner())
     }
 }

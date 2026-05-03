@@ -4,6 +4,7 @@ pub mod git;
 pub mod read_write;
 pub mod search;
 pub mod tree;
+pub mod uploads;
 
 use std::path::{Path, PathBuf};
 

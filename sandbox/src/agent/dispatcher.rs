@@ -13,6 +13,7 @@ use std::sync::Arc;
 
 use tracing::{info, warn};
 
+use crate::files::uploads::fetch_uploads_for_messages;
 use crate::state::SandboxState;
 
 use super::prompt::PromptResponse;
@@ -41,6 +42,23 @@ pub async fn dispatch_pending_messages(state: SandboxState) {
 
     if messages.is_empty() {
         return;
+    }
+
+    // Pre-fetch any attached uploaded files before invoking the agent so the
+    // on-disk paths advertised in the prompt are valid by the time the agent
+    // reads them. Best-effort: errors are logged but don't block dispatch.
+    let file_ids: Vec<String> = messages
+        .iter()
+        .flat_map(|m| m.file_ids.iter().cloned())
+        .collect();
+    if !file_ids.is_empty() {
+        fetch_uploads_for_messages(
+            &state.backend_client,
+            task_id,
+            file_ids,
+            &state.config.upload_dir,
+        )
+        .await;
     }
 
     // Extract UUIDs, text content, and resume_session_id

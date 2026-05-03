@@ -138,6 +138,14 @@ pub async fn send_message_flow(
     let content = serde_json::to_value(&enriched_blocks)
         .unwrap_or_else(|_| serde_json::json!([{ "type": "text", "text": attributed_message }]));
 
+    // Persist the attached file IDs so the sandbox can fetch them via gRPC
+    // before invoking the agent.
+    let attachments = if file_ids.is_empty() {
+        None
+    } else {
+        Some(serde_json::json!({ "file_ids": file_ids }))
+    };
+
     let msg_row = TaskMessage {
         id: 0, // will be assigned by DB
         task_id: task_id.to_string(),
@@ -166,7 +174,7 @@ pub async fn send_message_flow(
         assistant_usage_cache_read_input_tokens: None,
         tool_use_result: None,
         sdk_metadata: None,
-        attachments: None,
+        attachments,
         agent_session_id: None, // Not yet acknowledged
         will_not_resume: None,
         run_metrics: None,

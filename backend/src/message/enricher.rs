@@ -26,7 +26,7 @@ pub struct ContentBlock {
 pub async fn build_content_blocks(
     figma_imports: &dyn FigmaRepository,
     files: &dyn FileRepository,
-    _config: &Config,
+    config: &Config,
     text: &str,
     contexts: &[MessageContextInput],
     file_ids: &[String],
@@ -69,7 +69,9 @@ pub async fn build_content_blocks(
 
     // File attachment blocks (hidden from UI)
     for file_id in file_ids {
-        if let Some(block) = build_file_attachment_block(files, file_id).await {
+        if let Some(block) =
+            build_file_attachment_block(files, file_id, &config.sandbox.file_mount_path).await
+        {
             blocks.push(block);
         }
     }
@@ -124,9 +126,15 @@ async fn build_figma_context_block(
 }
 
 /// Build a content block from a file attachment reference.
+///
+/// `file_mount_path` is the on-disk directory the sandbox writes uploads to
+/// before invoking the agent (defaults to `/mnt/uploads`). The prompt
+/// advertises the resulting on-disk path so the agent can read the file
+/// directly with no network round-trip.
 async fn build_file_attachment_block(
     files: &dyn FileRepository,
     file_id: &str,
+    file_mount_path: &str,
 ) -> Option<ContentBlock> {
     let row = match files.find_by_id(file_id).await {
         Ok(Some(row)) => row,
@@ -140,12 +148,72 @@ async fn build_file_attachment_block(
         }
     };
 
+    let mount = file_mount_path.trim_end_matches('/');
     Some(ContentBlock {
         block_type: "text".to_string(),
         text: Some(format!(
-            "Attached file: {} ({}, {} bytes)\nAvailable at: /api/v1/uploads/{}",
-            row.filename, row.mime_type, row.size, file_id
+            "Attached file: {} ({}, {} bytes)\nSaved to: {}/{}/{}",
+            row.filename, row.mime_type, row.size, mount, file_id, row.filename,
         )),
         source: None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::file_storage::dao::MockFileRepository;
+    use crate::file_storage::models::FileMetadata;
+
+    #[tokio::test]
+    async fn file_attachment_block_renders_on_disk_path() {
+        let mut mock = MockFileRepository::new();
+        mock.expect_find_by_id().returning(|file_id| {
+            Ok(Some(FileMetadata {
+                file_id: file_id.to_string(),
+                filename: "report.pdf".to_string(),
+                mime_type: "application/pdf".to_string(),
+                size: 1234,
+                uploaded_at: chrono::Utc::now(),
+            }))
+        });
+
+        let block = build_file_attachment_block(&mock, "abc-123", "/mnt/uploads")
+            .await
+            .expect("expected attachment block");
+
+        let text = block.text.expect("expected text");
+        assert!(
+            text.contains("Saved to: /mnt/uploads/abc-123/report.pdf"),
+            "unexpected rendered text: {text}"
+        );
+        assert!(text.contains("Attached file: report.pdf"));
+        assert!(text.contains("(application/pdf, 1234 bytes)"));
+        assert!(
+            !text.contains("Available at:"),
+            "old URL hint should not appear: {text}"
+        );
+    }
+
+    #[tokio::test]
+    async fn file_attachment_block_trims_trailing_mount_slash() {
+        let mut mock = MockFileRepository::new();
+        mock.expect_find_by_id().returning(|file_id| {
+            Ok(Some(FileMetadata {
+                file_id: file_id.to_string(),
+                filename: "x.txt".to_string(),
+                mime_type: "text/plain".to_string(),
+                size: 1,
+                uploaded_at: chrono::Utc::now(),
+            }))
+        });
+
+        let block = build_file_attachment_block(&mock, "id", "/mnt/uploads/")
+            .await
+            .expect("expected attachment block");
+
+        let text = block.text.expect("expected text");
+        assert!(text.contains("/mnt/uploads/id/x.txt"));
+        assert!(!text.contains("/mnt/uploads//"));
+    }
 }

@@ -23,7 +23,9 @@ use moatless_sandbox::events::GrpcEventPublisher;
 use moatless_sandbox::init::InitPhase;
 use moatless_sandbox::state::SandboxState;
 
-use sandbox_proto::{GetCredentialsResponse, PendingMessage, PublishEventRequest};
+use sandbox_proto::{
+    DownloadUploadResponse, GetCredentialsResponse, PendingMessage, PublishEventRequest,
+};
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
@@ -106,6 +108,16 @@ impl BackendClient for MockBackendClient {
     async fn get_system_prompt(&self, _task_id: &str) -> Result<String, tonic::Status> {
         Ok(String::new())
     }
+
+    async fn download_upload(
+        &self,
+        _task_id: &str,
+        _file_id: &str,
+    ) -> Result<DownloadUploadResponse, tonic::Status> {
+        Err(tonic::Status::unimplemented(
+            "download_upload not used in executor tests",
+        ))
+    }
 }
 
 // =============================================================================
@@ -129,6 +141,7 @@ fn make_text_message(text: &str, uuid: Option<&str>) -> PendingMessage {
         agent_type: None,
         agent_mode: None,
         uuid: uuid.map(ToString::to_string),
+        file_ids: vec![],
     }
 }
 

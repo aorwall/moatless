@@ -27,6 +27,15 @@ service BackendSandboxService {
   // without write-back, the backend's stored value goes stale on the next
   // refresh, permanently invalidating the credential.
   rpc UpdateCredential(UpdateCredentialRequest) returns (UpdateCredentialResponse);
+
+  // Download a file uploaded via /api/v1/uploads. The sandbox calls this
+  // before invoking the agent so attached files land on disk at the path
+  // the prompt advertises. Auth via gRPC metadata.
+  //
+  // Cap: tonic's default max message size (~16 MiB). Files larger than that
+  // will be rejected with `resource_exhausted`; switch to a server-streaming
+  // RPC if real usage hits the limit.
+  rpc DownloadUpload(DownloadUploadRequest) returns (DownloadUploadResponse);
 }
 
 enum EventType {
@@ -70,6 +79,10 @@ message PendingMessage {
   // Message UUID for per-message acknowledgment tracking
   optional string uuid = 8;
   optional string agent_mode = 9;
+  // File IDs attached to this message — sandbox should fetch these via
+  // DownloadUpload before invoking the agent so the on-disk paths advertised
+  // in the prompt are valid.
+  repeated string file_ids = 10;
 }
 
 message ContentBlock {
@@ -128,6 +141,18 @@ message GetSystemPromptRequest {
 
 message GetSystemPromptResponse {
   string system_prompt = 1;
+}
+
+message DownloadUploadRequest {
+  string task_id = 1;
+  string file_id = 2;
+  // auth via gRPC metadata (authorization: Bearer <token>), not message fields
+}
+
+message DownloadUploadResponse {
+  bytes data = 1;
+  string filename = 2;
+  string mime_type = 3;
 }
 
 // ── Sandbox gRPC API (backend is the client) ────────────────────

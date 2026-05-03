@@ -11,10 +11,11 @@ use tracing::{debug, info, warn};
 
 use sandbox_proto::backend_sandbox_service_server::BackendSandboxService;
 use sandbox_proto::{
-    AcknowledgeMessagesRequest, AcknowledgeMessagesResponse, GetCredentialsRequest,
-    GetCredentialsResponse, GetPendingMessagesRequest, GetPendingMessagesResponse,
-    GetSystemPromptRequest, GetSystemPromptResponse, PublishEventRequest, PublishEventResponse,
-    UpdateCredentialRequest, UpdateCredentialResponse,
+    AcknowledgeMessagesRequest, AcknowledgeMessagesResponse, DownloadUploadRequest,
+    DownloadUploadResponse, GetCredentialsRequest, GetCredentialsResponse,
+    GetPendingMessagesRequest, GetPendingMessagesResponse, GetSystemPromptRequest,
+    GetSystemPromptResponse, PublishEventRequest, PublishEventResponse, UpdateCredentialRequest,
+    UpdateCredentialResponse,
 };
 
 use crate::agent::prompt;
@@ -25,6 +26,8 @@ use crate::command::dao::CommandRepository;
 use crate::config::Config;
 use crate::credentials::{CredentialService, WriteSource};
 use crate::events::EventPublisher;
+use crate::file_storage::dao::FileRepository;
+use crate::file_storage::s3 as file_s3;
 use crate::message::dao::MessageRepository;
 use crate::message::send::enrich_pending_with_commands;
 use crate::repository::dao::RepoRepository;
@@ -76,6 +79,15 @@ pub struct BackendSandboxServiceImpl {
     /// Backend config — supplies `frontend_url`, `proxy.domain`, `proxy.protocol`
     /// for the agent's append system prompt.
     pub backend_config: Option<Arc<Config>>,
+    /// S3 client used by `download_upload` to fetch attachment bytes.
+    pub s3: Option<Arc<aws_sdk_s3::Client>>,
+    /// File metadata repository — supplies filename and mime type when
+    /// fulfilling `download_upload` requests.
+    pub files: Option<Arc<dyn FileRepository>>,
+    /// S3 bucket name (`config.s3.bucket_name`).
+    pub s3_bucket: Option<String>,
+    /// S3 key prefix for uploaded files (`config.s3.key_prefix`).
+    pub s3_key_prefix: String,
 }
 
 impl BackendSandboxServiceImpl {
@@ -269,6 +281,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
                     resume_session_id: resume_session_id.clone(),
                     uuid: Some(row.uuid.clone()),
                     agent_mode: row.agent_mode.as_ref().map(|m| m.0.clone()),
+                    file_ids: row.file_ids(),
                 })
             })
             .collect();
@@ -530,6 +543,85 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         .await;
 
         Ok(Response::new(GetSystemPromptResponse { system_prompt }))
+    }
+
+    /// Stream uploaded-file bytes to the sandbox.
+    ///
+    /// The sandbox calls this for every `file_id` carried on a pending
+    /// message before invoking the agent, so the on-disk path advertised in
+    /// the prompt ("Saved to: …") is valid by the time the agent reads it.
+    ///
+    /// Auth: task-scoped JWT via gRPC metadata.
+    /// Defense in depth: the file_id must be referenced by a message
+    /// belonging to this task — prevents one task's sandbox from grabbing
+    /// another's uploads.
+    async fn download_upload(
+        &self,
+        request: Request<DownloadUploadRequest>,
+    ) -> Result<Response<DownloadUploadResponse>, Status> {
+        let _claims = self.verify_auth(&request)?;
+        let req = request.into_inner();
+
+        let Some(ref s3_client) = self.s3 else {
+            return Err(Status::failed_precondition("S3 not configured"));
+        };
+        let Some(ref bucket) = self.s3_bucket else {
+            return Err(Status::failed_precondition("S3 bucket not configured"));
+        };
+        let Some(ref files) = self.files else {
+            return Err(Status::failed_precondition(
+                "File repository not configured",
+            ));
+        };
+        let Some(ref messages) = self.messages else {
+            return Err(Status::failed_precondition(
+                "Message repository not configured",
+            ));
+        };
+
+        // Scope check: the file must be referenced by a message belonging to
+        // this task. This is defense in depth on top of the JWT — even a
+        // valid token shouldn't be able to pull another task's uploads.
+        let used = messages
+            .file_id_used_in_task(&req.task_id, &req.file_id)
+            .await
+            .map_err(|e| {
+                warn!(error = %e, task_id = %req.task_id, file_id = %req.file_id, "file_id_used_in_task query failed");
+                Status::internal("Failed to check file scope")
+            })?;
+        if !used {
+            return Err(Status::not_found("File not attached to this task"));
+        }
+
+        let meta = files
+            .find_by_id(&req.file_id)
+            .await
+            .map_err(|e| {
+                warn!(error = %e, file_id = %req.file_id, "file metadata lookup failed");
+                Status::internal("Failed to look up file metadata")
+            })?
+            .ok_or_else(|| Status::not_found("File metadata not found"))?;
+
+        let s3_key = format!("{}/{}", self.s3_key_prefix, req.file_id);
+        let (data, _content_type) = file_s3::get_object(s3_client, bucket, &s3_key)
+            .await
+            .map_err(|e| {
+                warn!(error = %e, file_id = %req.file_id, "S3 get_object failed");
+                Status::internal("Failed to fetch file from S3")
+            })?;
+
+        debug!(
+            task_id = %req.task_id,
+            file_id = %req.file_id,
+            bytes = data.len(),
+            "Served file upload to sandbox"
+        );
+
+        Ok(Response::new(DownloadUploadResponse {
+            data,
+            filename: meta.filename,
+            mime_type: meta.mime_type,
+        }))
     }
 }
 

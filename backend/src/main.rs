@@ -87,7 +87,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let sse_state = startup::init_sse(&config, cancel.clone()).await?;
     let s3_client = startup::init_s3(&config).await;
     startup::install_shutdown_handler(cancel.clone());
-    startup::spawn_grpc_server(&config, db_pool.as_ref(), event_publisher.clone());
+    startup::spawn_grpc_server(
+        &config,
+        db_pool.as_ref(),
+        event_publisher.clone(),
+        s3_client.clone().map(std::sync::Arc::new),
+    );
 
     // Build sandbox provider based on configured provider type
     let sandbox_provider: Arc<dyn sandbox::provider::SandboxProvider>;
