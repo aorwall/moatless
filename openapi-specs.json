@@ -7928,6 +7928,27 @@
           }
         }
       },
+      "FileContextData": {
+        "type": "object",
+        "description": "Data for a file attachment context. Filled in by the backend at read\ntime from `file_metadata`; senders supply only `reference_id`.",
+        "required": [
+          "filename",
+          "mimeType",
+          "size"
+        ],
+        "properties": {
+          "filename": {
+            "type": "string"
+          },
+          "mimeType": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "FileNameMatchDto": {
         "type": "object",
         "description": "A file name match in the search results.",
@@ -8503,6 +8524,30 @@
                 "type": "string",
                 "enum": [
                   "previewUrl"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Uploaded file attachment context.",
+            "required": [
+              "referenceId",
+              "type"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/FileContextData",
+                "description": "Backend-resolved metadata. Senders may pass an empty default — the\nbackend overwrites it from `file_metadata` before persisting."
+              },
+              "referenceId": {
+                "type": "string",
+                "description": "Upload ID returned by `POST /api/v1/uploads`."
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "file"
                 ]
               }
             }
@@ -11153,6 +11198,13 @@
               "$ref": "#/components/schemas/UiContentBlock"
             },
             "description": "Content blocks for this message."
+          },
+          "contexts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MessageContextInput"
+            },
+            "description": "Contexts attached to this user message (file uploads, Figma imports,\npreview URLs, selected elements)."
           },
           "hasPendingUserInput": {
             "type": [

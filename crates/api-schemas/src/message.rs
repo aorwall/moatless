@@ -23,6 +23,10 @@ pub struct UiMessage {
     pub is_queued: Option<bool>,
     /// Content blocks for this message.
     pub content: Vec<UiContentBlock>,
+    /// Contexts attached to this user message (file uploads, Figma imports,
+    /// preview URLs, selected elements).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub contexts: Vec<MessageContextInput>,
     /// Inline tool results (for assistant messages).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tool_results: Vec<UiToolResult>,

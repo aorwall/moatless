@@ -2,6 +2,7 @@ import type { ElementContextData, MessageContextInput } from '@moatless/api-clie
 import { ExternalLink, Eye, Figma, Loader2, X } from 'lucide-react'
 import { useState } from 'react'
 import { FigmaImportViewer, figmaApi } from '@/features/figma'
+import { FileAttachments } from '@/lib/components/chat/chat-input/file-attachments'
 import { Button } from '@/lib/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/lib/components/ui/popover'
 import { cn } from '@/lib/utils'
@@ -75,12 +76,37 @@ export function ContextItems({
     return null
   }
 
-  // Separate Figma contexts from other contexts
+  // Separate Figma + File contexts; render the rest via the inline switch below.
   const figmaContexts = contexts.filter((ctx) => ctx.type === 'figma')
-  const otherContexts = contexts.filter((ctx) => ctx.type !== 'figma')
+  const fileContexts = contexts.filter((ctx) => ctx.type === 'file')
+  const otherContexts = contexts.filter((ctx) => ctx.type !== 'figma' && ctx.type !== 'file')
+
+  const fileAttachmentItems = fileContexts.flatMap((ctx) =>
+    ctx.type === 'file'
+      ? [
+          {
+            fileId: ctx.referenceId,
+            filename: ctx.data?.filename ?? ctx.referenceId,
+            mimeType: ctx.data?.mimeType ?? '',
+          },
+        ]
+      : [],
+  )
+  const handleFileRemove = onRemove
+    ? (fileId: string) => {
+        const idx = contexts.findIndex((ctx) => ctx.type === 'file' && ctx.referenceId === fileId)
+        if (idx >= 0) {
+          onRemove(idx)
+        }
+      }
+    : undefined
 
   return (
     <div className="flex flex-col gap-2 mb-2">
+      {/* Uploaded files (images get thumbnails, others get chips) */}
+      {fileAttachmentItems.length > 0 && (
+        <FileAttachments files={fileAttachmentItems} onRemove={handleFileRemove} />
+      )}
       {/* Figma imports as thumbnails */}
       {(figmaContexts.length > 0 || isLoading) && (
         <div className="flex flex-wrap gap-2">

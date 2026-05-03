@@ -390,6 +390,7 @@ function ChatContainer({
         model: isModelSelectorEnabled ? modelToApiValue(selectedModel) : undefined,
         agentMode: selectedCommand.agentMode || selectedAgentMode,
         fileIds: taskInputs.getFileIds(),
+        fileUploads: taskInputs.uploadedFiles,
         contexts: taskInputs.contextItems.length > 0 ? taskInputs.contextItems : undefined,
       }
 
@@ -408,6 +409,7 @@ function ChatContainer({
       resume: resumeConversation,
       model: isModelSelectorEnabled ? modelToApiValue(selectedModel) : undefined,
       fileIds: taskInputs.getFileIds(),
+      fileUploads: taskInputs.uploadedFiles,
       contexts: taskInputs.contextItems.length > 0 ? taskInputs.contextItems : undefined,
       agentMode: selectedAgentMode,
     }
@@ -440,6 +442,7 @@ function ChatContainer({
         model: isModelSelectorEnabled ? modelToApiValue(selectedModel) : undefined,
         agentMode: command.agentMode || selectedAgentMode,
         fileIds: taskInputs.getFileIds(),
+        fileUploads: taskInputs.uploadedFiles,
         contexts: taskInputs.contextItems.length > 0 ? taskInputs.contextItems : undefined,
       }
 

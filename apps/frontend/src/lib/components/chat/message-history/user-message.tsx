@@ -1,11 +1,9 @@
 import type { UiMessage } from '@moatless/api-client'
-import type { MessageContextInput } from '@moatless/api-client/sandbox/model'
 import { ChevronDown, ChevronRight, Eye, FileText, Terminal } from 'lucide-react'
 import { useState } from 'react'
 import { Message, MessageContent } from '@/lib/components/ai-elements/message'
 import { Response } from '@/lib/components/ai-elements/response'
 import { ContextItems } from '@/lib/components/chat/chat-input/context-items'
-import { FileAttachments } from '@/lib/components/chat/chat-input/file-attachments'
 import { cn } from '@/lib/utils'
 
 interface UserMessageProps {
@@ -27,13 +25,7 @@ export function UserMessageComponent({ message, onPreviewUrlClick }: UserMessage
   const isSummary = (message.messageType as string) === 'compact_summary'
   const textContent = getTextContent(message)
 
-  // Extract contexts and attachments from message metadata if available
-  const contexts = (message as UiMessage & { contexts?: unknown[] }).contexts as
-    | MessageContextInput[]
-    | undefined
-  const attachments = (message as UiMessage & { attachments?: unknown[] }).attachments as
-    | Array<{ fileId: string; filename: string; mimeType: string }>
-    | undefined
+  const contexts = message.contexts ?? []
 
   // For hidden messages, show collapsed view by default
   if (isHidden) {
@@ -78,14 +70,9 @@ export function UserMessageComponent({ message, onPreviewUrlClick }: UserMessage
             <div className="text-sm opacity-80">
               <Response>{textContent}</Response>
             </div>
-            {contexts && contexts.length > 0 && (
+            {contexts.length > 0 && (
               <div className="mt-2">
                 <ContextItems contexts={contexts} onPreviewUrlClick={onPreviewUrlClick} />
-              </div>
-            )}
-            {attachments && attachments.length > 0 && (
-              <div className="mt-2">
-                <FileAttachments files={attachments} />
               </div>
             )}
           </div>
@@ -104,10 +91,9 @@ export function UserMessageComponent({ message, onPreviewUrlClick }: UserMessage
           </span>
         )}
         <div className="max-w-none break-words">{textContent}</div>
-        {contexts && contexts.length > 0 && (
+        {contexts.length > 0 && (
           <ContextItems contexts={contexts} onPreviewUrlClick={onPreviewUrlClick} />
         )}
-        {attachments && attachments.length > 0 && <FileAttachments files={attachments} />}
       </MessageContent>
     </Message>
   )

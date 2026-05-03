@@ -7,6 +7,7 @@
  */
 import type { ElementContextData } from './elementContextData';
 import type { FigmaContextData } from './figmaContextData';
+import type { FileContextData } from './fileContextData';
 import type { PreviewUrlContextData } from './previewUrlContextData';
 
 /**
@@ -24,4 +25,11 @@ export type MessageContextInput = {
   data: PreviewUrlContextData;
   referenceId: string;
   type: 'previewUrl';
+} | {
+  /** Backend-resolved metadata. Senders may pass an empty default — the
+backend overwrites it from `file_metadata` before persisting. */
+  data?: FileContextData;
+  /** Upload ID returned by `POST /api/v1/uploads`. */
+  referenceId: string;
+  type: 'file';
 };

@@ -29,7 +29,7 @@ pub struct CreateTaskRequest {
 }
 
 /// Data for an element context (selected UI component).
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct ElementContextData {
@@ -41,7 +41,7 @@ pub struct ElementContextData {
 }
 
 /// Data for a Figma import context.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct FigmaContextData {
@@ -52,7 +52,7 @@ pub struct FigmaContextData {
 }
 
 /// Data for a preview URL context.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct PreviewUrlContextData {
@@ -60,8 +60,19 @@ pub struct PreviewUrlContextData {
     pub url: Option<String>,
 }
 
+/// Data for a file attachment context. Filled in by the backend at read
+/// time from `file_metadata`; senders supply only `reference_id`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct FileContextData {
+    pub filename: String,
+    pub mime_type: String,
+    pub size: i64,
+}
+
 /// A context attached to a message, discriminated by `type`.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(tag = "type")]
 pub enum MessageContextInput {
@@ -82,6 +93,16 @@ pub enum MessageContextInput {
     PreviewUrl {
         reference_id: String,
         data: PreviewUrlContextData,
+    },
+    /// Uploaded file attachment context.
+    #[serde(rename = "file", rename_all = "camelCase")]
+    File {
+        /// Upload ID returned by `POST /api/v1/uploads`.
+        reference_id: String,
+        /// Backend-resolved metadata. Senders may pass an empty default — the
+        /// backend overwrites it from `file_metadata` before persisting.
+        #[serde(default)]
+        data: FileContextData,
     },
 }
 
@@ -292,6 +313,49 @@ mod tests {
                 assert!(data.url.is_none());
             }
             _ => panic!("Expected PreviewUrl variant"),
+        }
+    }
+
+    #[test]
+    fn deserialize_file_context() {
+        let json = serde_json::json!({
+            "type": "file",
+            "referenceId": "upload-1",
+            "data": {
+                "filename": "report.pdf",
+                "mimeType": "application/pdf",
+                "size": 1234
+            }
+        });
+
+        let ctx: MessageContextInput = serde_json::from_value(json).expect("deserialize");
+        match ctx {
+            MessageContextInput::File { reference_id, data } => {
+                assert_eq!(reference_id, "upload-1");
+                assert_eq!(data.filename, "report.pdf");
+                assert_eq!(data.mime_type, "application/pdf");
+                assert_eq!(data.size, 1234);
+            }
+            _ => panic!("Expected File variant"),
+        }
+    }
+
+    #[test]
+    fn deserialize_file_context_with_default_data() {
+        let json = serde_json::json!({
+            "type": "file",
+            "referenceId": "upload-2"
+        });
+
+        let ctx: MessageContextInput = serde_json::from_value(json).expect("deserialize");
+        match ctx {
+            MessageContextInput::File { reference_id, data } => {
+                assert_eq!(reference_id, "upload-2");
+                assert_eq!(data.filename, "");
+                assert_eq!(data.mime_type, "");
+                assert_eq!(data.size, 0);
+            }
+            _ => panic!("Expected File variant"),
         }
     }
 

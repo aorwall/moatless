@@ -82,6 +82,11 @@ export const tasksApi = {
       resume?: boolean
       model?: string
       fileIds?: string[]
+      /**
+       * Optimistic-render only — never sent to the backend. Stripped here
+       * so the field can't leak into the request body.
+       */
+      fileUploads?: Array<{ fileId: string; filename: string; mimeType: string; size: number }>
       commandName?: string
       agentMode?: string
       contexts?: MessageContextInput[]
@@ -90,8 +95,9 @@ export const tasksApi = {
       toolResponse?: unknown
     },
   ): Promise<SendMessageResponse> {
+    const { fileUploads: _fileUploads, ...payload } = variables
     return await unwrapResponse(
-      sendMessageHandler(taskId, variables as unknown as ApiSendMessageRequest),
+      sendMessageHandler(taskId, payload as unknown as ApiSendMessageRequest),
     )
   },
 

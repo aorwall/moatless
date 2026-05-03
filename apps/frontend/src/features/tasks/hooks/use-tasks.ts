@@ -170,6 +170,13 @@ interface SendMessageVariables {
   resume?: boolean
   model?: string
   fileIds?: string[]
+  /**
+   * Locally-known upload metadata for the files referenced by `fileIds`.
+   * Used only for the optimistic message render so file chips appear
+   * immediately; not sent to the backend (the backend re-resolves filenames
+   * from `file_metadata`).
+   */
+  fileUploads?: Array<{ fileId: string; filename: string; mimeType: string; size: number }>
   commandName?: string
   agentMode?: string
   contexts?: MessageContextInput[]
@@ -225,6 +232,23 @@ export function useSendMessage(
         queryKeys.tasks.sandboxStatus(taskId),
       )
       const isQueued = sandboxStatus?.agentState === 'running'
+
+      // Build optimistic contexts: caller-supplied (figma/preview/element) +
+      // synthesised File contexts from locally-known uploads. The server
+      // reply via SSE / refresh will replace these with authoritative rows.
+      const optimisticContexts: MessageContextInput[] = [
+        ...(variables.contexts ?? []),
+        ...(variables.fileUploads ?? []).map<MessageContextInput>((upload) => ({
+          type: 'file',
+          referenceId: upload.fileId,
+          data: {
+            filename: upload.filename,
+            mimeType: upload.mimeType,
+            size: upload.size,
+          },
+        })),
+      ]
+
       const optimisticMessage: UiMessage = {
         uuid: `temp-message-${Date.now()}`,
         role: 'user',
@@ -233,6 +257,7 @@ export function useSendMessage(
         messageType: 'user',
         ...(isQueued ? { isQueued: true } : {}),
         ...(variables.commandName ? { commandName: variables.commandName } : {}),
+        ...(optimisticContexts.length > 0 ? { contexts: optimisticContexts } : {}),
       }
 
       // Append the optimistic row to the LAST page (newest). If no pages are

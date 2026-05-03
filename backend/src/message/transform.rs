@@ -8,22 +8,47 @@ use std::collections::HashMap;
 
 use moatless_api_schemas::codex::{CodexToolInput, CodexToolResult};
 
+use super::contexts::task_message_context_to_input;
 use super::models::{TaskMessage, TaskMessageContentBlock, TaskMessageContext};
+use crate::file_storage::models::FileMetadata;
 use crate::message::models::MessageType;
+use crate::task::schemas::{FileContextData, MessageContextInput};
 
 use super::schemas::*;
 
 /// Transform raw DB rows into UI-facing messages.
 pub fn transform_to_ui(
     messages: &[TaskMessage],
-    _contexts: &[TaskMessageContext],
+    contexts: &[TaskMessageContext],
     content_blocks: &[TaskMessageContentBlock],
+) -> Vec<UiMessage> {
+    transform_to_ui_with_files(messages, contexts, content_blocks, &HashMap::new())
+}
+
+/// Like [`transform_to_ui`] but with a pre-fetched `file_metadata` map used to
+/// synthesise File contexts for legacy messages persisted before the
+/// `task_message_contexts` write path was wired up. Such messages still have
+/// `attachments.file_ids` populated by the previous PR.
+pub fn transform_to_ui_with_files(
+    messages: &[TaskMessage],
+    contexts: &[TaskMessageContext],
+    content_blocks: &[TaskMessageContentBlock],
+    file_metadata: &HashMap<String, FileMetadata>,
 ) -> Vec<UiMessage> {
     // Group content blocks by message ID
     let blocks_by_msg: HashMap<i32, Vec<&TaskMessageContentBlock>> = {
         let mut map: HashMap<i32, Vec<&TaskMessageContentBlock>> = HashMap::new();
         for block in content_blocks {
             map.entry(block.task_message_id).or_default().push(block);
+        }
+        map
+    };
+
+    // Group contexts by message ID
+    let contexts_by_msg: HashMap<i32, Vec<&TaskMessageContext>> = {
+        let mut map: HashMap<i32, Vec<&TaskMessageContext>> = HashMap::new();
+        for ctx in contexts {
+            map.entry(ctx.task_message_id).or_default().push(ctx);
         }
         map
     };
@@ -79,6 +104,7 @@ pub fn transform_to_ui(
     for (idx, msg) in messages.iter().enumerate() {
         let is_last = idx == total - 1;
         let msg_blocks = blocks_by_msg.get(&msg.id).cloned().unwrap_or_default();
+        let msg_context_rows = contexts_by_msg.get(&msg.id).cloned().unwrap_or_default();
 
         match msg.message_type {
             MessageType::Assistant => {
@@ -101,7 +127,7 @@ pub fn transform_to_ui(
                     continue;
                 }
 
-                let ui_msg = transform_user(msg, &msg_blocks);
+                let ui_msg = transform_user(msg, &msg_blocks, &msg_context_rows, file_metadata);
                 ui_messages.push(ui_msg);
             }
             MessageType::System => {
@@ -118,6 +144,49 @@ pub fn transform_to_ui(
     }
 
     ui_messages
+}
+
+/// Build the `UiMessage.contexts` list for a user message.
+///
+/// If the message has persisted `task_message_contexts` rows, return them.
+/// Otherwise fall back to synthesising File contexts from `attachments.file_ids`
+/// using the supplied `file_metadata` map — covers legacy messages persisted
+/// before `task_message_contexts` was actually written to.
+fn build_user_contexts(
+    msg: &TaskMessage,
+    rows: &[&TaskMessageContext],
+    file_metadata: &HashMap<String, FileMetadata>,
+) -> Vec<MessageContextInput> {
+    if !rows.is_empty() {
+        return rows
+            .iter()
+            .filter_map(|row| task_message_context_to_input(row))
+            .collect();
+    }
+
+    // Legacy fallback: synthesise File contexts from attachments.file_ids.
+    let file_ids = msg.file_ids();
+    if file_ids.is_empty() {
+        return Vec::new();
+    }
+
+    file_ids
+        .into_iter()
+        .map(|file_id| {
+            let data = file_metadata
+                .get(&file_id)
+                .map(|m| FileContextData {
+                    filename: m.filename.clone(),
+                    mime_type: m.mime_type.clone(),
+                    size: m.size,
+                })
+                .unwrap_or_default();
+            MessageContextInput::File {
+                reference_id: file_id,
+                data,
+            }
+        })
+        .collect()
 }
 
 fn transform_assistant(
@@ -204,6 +273,7 @@ fn transform_assistant(
             .or_else(|| msg.model.clone()),
         is_queued: None,
         content,
+        contexts: vec![],
         tool_results,
         has_pending_user_input: if has_pending { Some(true) } else { None },
         message_id: msg.assistant_message_id.clone(),
@@ -224,7 +294,12 @@ fn transform_assistant(
     }
 }
 
-fn transform_user(msg: &TaskMessage, blocks: &[&TaskMessageContentBlock]) -> UiMessage {
+fn transform_user(
+    msg: &TaskMessage,
+    blocks: &[&TaskMessageContentBlock],
+    context_rows: &[&TaskMessageContext],
+    file_metadata: &HashMap<String, FileMetadata>,
+) -> UiMessage {
     // A message is "queued" until the agent confirms receipt via session_init.
     // sent_at is set together with session_id when the agent session starts.
     let is_queued = msg.sent_at.is_none();
@@ -259,6 +334,8 @@ fn transform_user(msg: &TaskMessage, blocks: &[&TaskMessageContentBlock]) -> UiM
         }
     });
 
+    let contexts = build_user_contexts(msg, context_rows, file_metadata);
+
     UiMessage {
         uuid: msg.uuid.clone(),
         message_type: msg.message_type,
@@ -270,6 +347,7 @@ fn transform_user(msg: &TaskMessage, blocks: &[&TaskMessageContentBlock]) -> UiM
         model: msg.model.clone(),
         is_queued: if is_queued { Some(true) } else { None },
         content,
+        contexts,
         tool_results: vec![],
         has_pending_user_input: None,
         message_id: None,
@@ -314,6 +392,7 @@ fn transform_result(msg: &TaskMessage, blocks: &[&TaskMessageContentBlock]) -> U
         model: msg.model.clone(),
         is_queued: None,
         content,
+        contexts: vec![],
         tool_results: vec![],
         has_pending_user_input: None,
         message_id: None,
@@ -788,6 +867,152 @@ mod tests {
         let ui = transform_to_ui(&[assistant], &[], &[]);
         assert_eq!(ui.len(), 1);
         assert!(ui[0].channel.is_none());
+    }
+
+    #[test]
+    fn transform_user_attaches_file_context_from_rows() {
+        let msg = make_msg(
+            1,
+            "u1",
+            MessageType::User,
+            MessageRole::User,
+            Some(1),
+            "with attachment",
+        );
+        let row = TaskMessageContext {
+            id: 100,
+            task_message_id: 1,
+            context_type: "file".to_string(),
+            reference_id: "upload-1".to_string(),
+            data: json!({
+                "filename": "report.pdf",
+                "mimeType": "application/pdf",
+                "size": 1234
+            }),
+            created_at: None,
+        };
+
+        let ui = transform_to_ui(&[msg], &[row], &[]);
+        assert_eq!(ui.len(), 1);
+        assert_eq!(ui[0].contexts.len(), 1);
+        match &ui[0].contexts[0] {
+            MessageContextInput::File { reference_id, data } => {
+                assert_eq!(reference_id, "upload-1");
+                assert_eq!(data.filename, "report.pdf");
+                assert_eq!(data.mime_type, "application/pdf");
+                assert_eq!(data.size, 1234);
+            }
+            other => panic!("Expected File variant, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn transform_user_legacy_fallback_synthesizes_file_context() {
+        let mut msg = make_msg(
+            1,
+            "u1",
+            MessageType::User,
+            MessageRole::User,
+            Some(1),
+            "legacy",
+        );
+        msg.attachments = Some(json!({ "file_ids": ["abc"] }));
+
+        let mut file_metadata = HashMap::new();
+        file_metadata.insert(
+            "abc".to_string(),
+            FileMetadata {
+                file_id: "abc".to_string(),
+                filename: "legacy.txt".to_string(),
+                mime_type: "text/plain".to_string(),
+                size: 7,
+                uploaded_at: chrono::Utc::now(),
+            },
+        );
+
+        let ui = transform_to_ui_with_files(&[msg], &[], &[], &file_metadata);
+        assert_eq!(ui.len(), 1);
+        assert_eq!(ui[0].contexts.len(), 1);
+        match &ui[0].contexts[0] {
+            MessageContextInput::File { reference_id, data } => {
+                assert_eq!(reference_id, "abc");
+                assert_eq!(data.filename, "legacy.txt");
+                assert_eq!(data.mime_type, "text/plain");
+                assert_eq!(data.size, 7);
+            }
+            other => panic!("Expected File variant, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn transform_user_legacy_fallback_yields_empty_data_when_metadata_missing() {
+        let mut msg = make_msg(
+            1,
+            "u1",
+            MessageType::User,
+            MessageRole::User,
+            Some(1),
+            "legacy",
+        );
+        msg.attachments = Some(json!({ "file_ids": ["xyz"] }));
+
+        let ui = transform_to_ui(&[msg], &[], &[]);
+        assert_eq!(ui[0].contexts.len(), 1);
+        match &ui[0].contexts[0] {
+            MessageContextInput::File { reference_id, data } => {
+                assert_eq!(reference_id, "xyz");
+                assert_eq!(data.filename, "");
+            }
+            other => panic!("Expected File variant, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn transform_user_round_trips_figma_and_preview_contexts() {
+        let msg = make_msg(
+            1,
+            "u1",
+            MessageType::User,
+            MessageRole::User,
+            Some(1),
+            "with contexts",
+        );
+        let figma_row = TaskMessageContext {
+            id: 100,
+            task_message_id: 1,
+            context_type: "figma".to_string(),
+            reference_id: "imp-1".to_string(),
+            data: json!({
+                "importId": "imp-1",
+                "fileName": "design.fig",
+                "nodeName": "Button",
+                "hasImage": true
+            }),
+            created_at: None,
+        };
+        let preview_row = TaskMessageContext {
+            id: 101,
+            task_message_id: 1,
+            context_type: "previewUrl".to_string(),
+            reference_id: "preview-1".to_string(),
+            data: json!({
+                "path": "/dashboard",
+                "url": "https://example.com/dashboard"
+            }),
+            created_at: None,
+        };
+
+        let ui = transform_to_ui(&[msg], &[figma_row, preview_row], &[]);
+        assert_eq!(ui.len(), 1);
+        assert_eq!(ui[0].contexts.len(), 2);
+        assert!(matches!(
+            &ui[0].contexts[0],
+            MessageContextInput::Figma { reference_id, .. } if reference_id == "imp-1"
+        ));
+        assert!(matches!(
+            &ui[0].contexts[1],
+            MessageContextInput::PreviewUrl { reference_id, .. } if reference_id == "preview-1"
+        ));
     }
 
     #[test]

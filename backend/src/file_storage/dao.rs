@@ -1,5 +1,7 @@
 //! File metadata DAO — queries for file upload metadata.
 
+use std::collections::HashMap;
+
 use async_trait::async_trait;
 
 use super::models::FileMetadata;
@@ -11,6 +13,10 @@ use crate::db::DbPool;
 pub trait FileRepository: Send + Sync {
     async fn insert_metadata(&self, row: &FileMetadata) -> Result<(), sqlx::Error>;
     async fn find_by_id(&self, file_id: &str) -> Result<Option<FileMetadata>, sqlx::Error>;
+    async fn find_by_ids(
+        &self,
+        file_ids: &[String],
+    ) -> Result<HashMap<String, FileMetadata>, sqlx::Error>;
     async fn delete_metadata(&self, file_id: &str) -> Result<bool, sqlx::Error>;
 }
 
@@ -39,6 +45,26 @@ impl FileRepository for PgFileRepository {
             .bind(file_id)
             .fetch_optional(&self.0)
             .await
+    }
+
+    async fn find_by_ids(
+        &self,
+        file_ids: &[String],
+    ) -> Result<HashMap<String, FileMetadata>, sqlx::Error> {
+        if file_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let rows = sqlx::query_as::<_, FileMetadata>(
+            r#"SELECT file_id, filename, mime_type, size, uploaded_at
+               FROM file_metadata
+               WHERE file_id = ANY($1)"#,
+        )
+        .bind(file_ids)
+        .fetch_all(&self.0)
+        .await?;
+
+        Ok(rows.into_iter().map(|m| (m.file_id.clone(), m)).collect())
     }
 
     async fn delete_metadata(&self, file_id: &str) -> Result<bool, sqlx::Error> {

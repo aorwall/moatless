@@ -155,16 +155,37 @@ pub async fn get_messages(
         None
     };
 
-    let ui_messages: Vec<UiMessage> = transform::transform_to_ui(&messages, &contexts, &blocks)
-        .into_iter()
-        .map(|m| {
-            if query.summary {
-                strip_heavy_fields(m)
-            } else {
-                m
-            }
-        })
+    // Pre-fetch file_metadata for the legacy fallback path so messages
+    // persisted before `task_message_contexts` was wired up still surface
+    // their uploaded files. One batch SELECT covers the whole page.
+    let legacy_file_ids: Vec<String> = messages
+        .iter()
+        .flat_map(super::models::TaskMessage::file_ids)
         .collect();
+    let file_metadata = if legacy_file_ids.is_empty() {
+        std::collections::HashMap::new()
+    } else {
+        state
+            .files
+            .find_by_ids(&legacy_file_ids)
+            .await
+            .unwrap_or_else(|e| {
+                tracing::warn!(error = %e, "Failed to batch-load file metadata");
+                std::collections::HashMap::new()
+            })
+    };
+
+    let ui_messages: Vec<UiMessage> =
+        transform::transform_to_ui_with_files(&messages, &contexts, &blocks, &file_metadata)
+            .into_iter()
+            .map(|m| {
+                if query.summary {
+                    strip_heavy_fields(m)
+                } else {
+                    m
+                }
+            })
+            .collect();
 
     let total_count = ui_messages.len();
     Ok(Json(GetMessagesResponse {

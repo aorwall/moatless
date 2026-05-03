@@ -5,8 +5,9 @@ use crate::message::models::{ContentBlockType, MessageRole, MessageType};
 use crate::shared_models::AgentMode;
 use crate::state::AppState;
 use crate::task::dao::TaskPatch;
-use crate::task::schemas::MessageContextInput;
+use crate::task::schemas::{FileContextData, MessageContextInput};
 
+use super::contexts::message_context_input_to_row;
 use super::enricher;
 use super::error::MessageError;
 
@@ -206,11 +207,41 @@ pub async fn send_message_flow(
         created_at: None,
     };
 
-    // Persist message
-    let contexts: Vec<TaskMessageContext> = vec![];
+    // Persist contexts: sender-supplied (figma/preview/element) + synthesised
+    // file contexts so the read path can surface uploaded files alongside the
+    // other context items. The `attachments` JSON column is still written
+    // above for the sandbox gRPC pre-fetch path.
+    let mut all_contexts: Vec<MessageContextInput> = contexts.to_vec();
+    for file_id in file_ids {
+        let data = match state.files.find_by_id(file_id).await {
+            Ok(Some(meta)) => FileContextData {
+                filename: meta.filename,
+                mime_type: meta.mime_type,
+                size: meta.size,
+            },
+            Ok(None) => {
+                tracing::warn!(file_id, "File metadata not found when synthesising File context");
+                FileContextData::default()
+            }
+            Err(e) => {
+                tracing::warn!(file_id, error = %e, "Failed to load file metadata for File context");
+                FileContextData::default()
+            }
+        };
+        all_contexts.push(MessageContextInput::File {
+            reference_id: file_id.clone(),
+            data,
+        });
+    }
+
+    let context_rows: Vec<TaskMessageContext> = all_contexts
+        .iter()
+        .map(message_context_input_to_row)
+        .collect();
+
     state
         .messages
-        .append(&msg_row, &contexts, &[ui_block])
+        .append(&msg_row, &context_rows, &[ui_block])
         .await
         .map_err(|e| MessageError::Internal(format!("Failed to persist message: {e}")))?;
 

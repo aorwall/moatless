@@ -64,6 +64,9 @@ pub async fn build_content_blocks(
                     source: None,
                 });
             }
+            // File contexts are persisted separately and rendered into the
+            // agent prompt via `file_ids` below; nothing to do here.
+            MessageContextInput::File { .. } => {}
         }
     }
 

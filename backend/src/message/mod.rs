@@ -1,5 +1,6 @@
 //! Message module — retrieval, sending, transformation.
 
+pub mod contexts;
 pub mod dao;
 pub mod enricher;
 pub mod error;

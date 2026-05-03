@@ -77,6 +77,7 @@ export * from './figmaContextData';
 export * from './figmaImportDetailResponse';
 export * from './figmaImportResponse';
 export * from './fileContentResponse';
+export * from './fileContextData';
 export * from './fileNameMatchDto';
 export * from './fileTreeHandlerParams';
 export * from './fileTreeNodeDto';

@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AgentMode } from './agentMode';
+import type { MessageContextInput } from './messageContextInput';
 import type { MessageRole } from './messageRole';
 import type { MessageType } from './messageType';
 import type { UiContentBlock } from './uiContentBlock';
@@ -28,6 +29,9 @@ export interface UiMessage {
   commandName?: string | null;
   /** Content blocks for this message. */
   content: UiContentBlock[];
+  /** Contexts attached to this user message (file uploads, Figma imports,
+preview URLs, selected elements). */
+  contexts?: MessageContextInput[];
   /**
    * Whether this assistant message has pending user input.
    * @nullable
