@@ -34,10 +34,10 @@ type RenderItem =
   | { kind: 'message'; message: UiMessageWithSubagents }
   | { kind: 'cluster'; key: string; messages: UiMessageWithSubagents[] }
 
-// A "tool-only" assistant message is one whose visible content is only
-// tool_use blocks (no rendered text). When kiosk mode is on, runs of these
-// adjacent in the conversation collapse into a single counter row.
-function isToolOnlyAssistantMessage(message: UiMessageWithSubagents): boolean {
+// "Clusterable" = a normal assistant message we're willing to fold into a
+// command-cluster. Special types (transcript_only, compact_summary, codex
+// reasoning/error cards) keep their own rendering and break the cluster.
+function isClusterableAssistantMessage(message: UiMessageWithSubagents): boolean {
   if (message.role !== 'assistant') {
     return false
   }
@@ -48,8 +48,42 @@ function isToolOnlyAssistantMessage(message: UiMessageWithSubagents): boolean {
   if (message.sdkMetadata?.codex_reasoning === true || message.sdkMetadata?.codex_error === true) {
     return false
   }
-  const { textContent, toolCalls } = parseMessageContent(message.content)
-  return toolCalls.length > 0 && textContent.trim() === ''
+  return true
+}
+
+function messageHasToolCalls(message: UiMessageWithSubagents): boolean {
+  return parseMessageContent(message.content).toolCalls.length > 0
+}
+
+// Emit render items for one contiguous run of clusterable assistant
+// messages. Folds messages from the start of the run through the LAST
+// message containing a tool call into a single cluster — intermediate
+// "thinking" text gets absorbed, and any trailing text-only messages (the
+// agent's final response) stay standalone so the viewer still sees real
+// content. If the run has no tool calls at all, every message renders
+// standalone.
+function emitRun(run: UiMessageWithSubagents[], items: RenderItem[]): void {
+  let lastToolIdx = -1
+  for (let k = 0; k < run.length; k++) {
+    if (messageHasToolCalls(run[k])) {
+      lastToolIdx = k
+    }
+  }
+  if (lastToolIdx === -1) {
+    for (const message of run) {
+      items.push({ kind: 'message', message })
+    }
+    return
+  }
+  const clusterMsgs = run.slice(0, lastToolIdx + 1)
+  items.push({
+    kind: 'cluster',
+    key: `cluster-${clusterMsgs[0].uuid}`,
+    messages: clusterMsgs,
+  })
+  for (let k = lastToolIdx + 1; k < run.length; k++) {
+    items.push({ kind: 'message', message: run[k] })
+  }
 }
 
 function buildRenderItems(messages: UiMessageWithSubagents[], cluster: boolean): RenderItem[] {
@@ -57,23 +91,22 @@ function buildRenderItems(messages: UiMessageWithSubagents[], cluster: boolean):
     return messages.map((message) => ({ kind: 'message', message }))
   }
   const items: RenderItem[] = []
-  let pending: UiMessageWithSubagents[] = []
-  const flush = () => {
-    if (pending.length === 0) {
-      return
+  let run: UiMessageWithSubagents[] = []
+  const flushRun = () => {
+    if (run.length > 0) {
+      emitRun(run, items)
+      run = []
     }
-    items.push({ kind: 'cluster', key: `cluster-${pending[0].uuid}`, messages: pending })
-    pending = []
   }
   for (const message of messages) {
-    if (isToolOnlyAssistantMessage(message)) {
-      pending.push(message)
+    if (isClusterableAssistantMessage(message)) {
+      run.push(message)
     } else {
-      flush()
+      flushRun()
       items.push({ kind: 'message', message })
     }
   }
-  flush()
+  flushRun()
   return items
 }
 
