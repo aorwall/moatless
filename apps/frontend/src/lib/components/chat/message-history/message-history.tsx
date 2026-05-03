@@ -1,17 +1,119 @@
 import type { EnvironmentStatus, UiMessage } from '@moatless/api-client'
 import { ArrowDown, Loader2 } from 'lucide-react'
-import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { groupSubagentMessages } from '@/features/tasks/utils/group-messages.ts'
+import React, {
+  Fragment,
+  type ReactNode,
+  useCallback,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
+import {
+  groupSubagentMessages,
+  type UiMessageWithSubagents,
+} from '@/features/tasks/utils/group-messages.ts'
 import { Button } from '@/lib/components/ui/button.tsx'
 import { cn } from '@/lib/utils'
 import { getErrorMessage } from '@/lib/utils/error.ts'
-import { AssistantMessageComponent } from './assistant-message.tsx'
+import {
+  AssistantMessageComponent,
+  buildToolResultMap,
+  parseMessageContent,
+  renderToolCalls,
+} from './assistant-message.tsx'
 import { ChannelMessageComponent } from './channel-message.tsx'
 import { EnvironmentIndicator } from './environment-indicator.tsx'
 import { MessageHistorySkeleton } from './message-history-skeleton.tsx'
 import { SystemMessageComponent } from './system-message.tsx'
 import { ThinkingIndicator } from './thinking-indicator.tsx'
+import { ToolCallGroup } from './tool-call-group.tsx'
 import { UserMessageComponent } from './user-message.tsx'
+
+type RenderItem =
+  | { kind: 'message'; message: UiMessageWithSubagents }
+  | { kind: 'cluster'; key: string; messages: UiMessageWithSubagents[] }
+
+// A "tool-only" assistant message is one whose visible content is only
+// tool_use blocks (no rendered text). When kiosk mode is on, runs of these
+// adjacent in the conversation collapse into a single counter row.
+function isToolOnlyAssistantMessage(message: UiMessageWithSubagents): boolean {
+  if (message.role !== 'assistant') {
+    return false
+  }
+  const messageType = message.messageType as string | undefined
+  if (messageType === 'transcript_only' || messageType === 'compact_summary') {
+    return false
+  }
+  if (message.sdkMetadata?.codex_reasoning === true || message.sdkMetadata?.codex_error === true) {
+    return false
+  }
+  const { textContent, toolCalls } = parseMessageContent(message.content)
+  return toolCalls.length > 0 && textContent.trim() === ''
+}
+
+function buildRenderItems(messages: UiMessageWithSubagents[], cluster: boolean): RenderItem[] {
+  if (!cluster) {
+    return messages.map((message) => ({ kind: 'message', message }))
+  }
+  const items: RenderItem[] = []
+  let pending: UiMessageWithSubagents[] = []
+  const flush = () => {
+    if (pending.length === 0) {
+      return
+    }
+    items.push({ kind: 'cluster', key: `cluster-${pending[0].uuid}`, messages: pending })
+    pending = []
+  }
+  for (const message of messages) {
+    if (isToolOnlyAssistantMessage(message)) {
+      pending.push(message)
+    } else {
+      flush()
+      items.push({ kind: 'message', message })
+    }
+  }
+  flush()
+  return items
+}
+
+interface CommandClusterProps {
+  taskId?: string
+  messages: UiMessageWithSubagents[]
+  expandedToolCalls: Set<string>
+  onToggleToolCall: (toolUseId: string) => void
+}
+
+function CommandCluster({
+  taskId,
+  messages,
+  expandedToolCalls,
+  onToggleToolCall,
+}: CommandClusterProps) {
+  let totalCount = 0
+  const blocks: ReactNode[] = []
+  for (const message of messages) {
+    const { toolCalls } = parseMessageContent(message.content)
+    totalCount += toolCalls.length
+    const node = renderToolCalls(
+      taskId,
+      toolCalls,
+      buildToolResultMap(message),
+      expandedToolCalls,
+      onToggleToolCall,
+      message.hasPendingUserInput,
+      message.subagentMessages,
+    )
+    if (node) {
+      blocks.push(<Fragment key={message.uuid}>{node}</Fragment>)
+    }
+  }
+  return (
+    <ToolCallGroup count={totalCount}>
+      <div className="space-y-2">{blocks}</div>
+    </ToolCallGroup>
+  )
+}
 
 interface MessageHistoryProps {
   taskId?: string
@@ -26,6 +128,12 @@ interface MessageHistoryProps {
   hasPreviousPage?: boolean
   isFetchingPreviousPage?: boolean
   fetchPreviousPage?: () => void
+  /**
+   * Wrap each assistant message's tool calls in a single collapsed group
+   * (always shown, even for one call) that displays a live "N commands"
+   * counter. Defaults to false.
+   */
+  collapseToolCalls?: boolean
 }
 
 // How close to the top (in px) before we trigger a previous-page fetch.
@@ -47,6 +155,7 @@ function MessageHistoryComponent({
   hasPreviousPage = false,
   isFetchingPreviousPage = false,
   fetchPreviousPage,
+  collapseToolCalls = false,
 }: MessageHistoryProps) {
   const [expandedToolCalls, setExpandedToolCalls] = useState<Set<string>>(new Set())
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
@@ -260,6 +369,11 @@ function MessageHistoryComponent({
     [expandedToolCalls, onPreviewUrlClick, taskId, toggleToolCallExpansion],
   )
 
+  const renderItems = useMemo(
+    () => buildRenderItems(flattenedMessages, collapseToolCalls),
+    [flattenedMessages, collapseToolCalls],
+  )
+
   if (isLoading && (!messages || messages.length === 0)) {
     return <MessageHistorySkeleton />
   }
@@ -309,7 +423,19 @@ function MessageHistoryComponent({
                 Loading older messages…
               </div>
             )}
-            {flattenedMessages.map((item) => renderRow(item))}
+            {renderItems.map((item) =>
+              item.kind === 'cluster' ? (
+                <CommandCluster
+                  key={item.key}
+                  taskId={taskId}
+                  messages={item.messages}
+                  expandedToolCalls={expandedToolCalls}
+                  onToggleToolCall={toggleToolCallExpansion}
+                />
+              ) : (
+                renderRow(item.message)
+              ),
+            )}
             {environmentStatus === 'initializing' && <EnvironmentIndicator status="initializing" />}
             {environmentStatus === 'error' && (
               <EnvironmentIndicator status="error" errorMessage={environmentError} />

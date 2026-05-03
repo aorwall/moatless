@@ -11,7 +11,7 @@ export type ViewportMode = 'mobile' | 'tablet' | 'desktop'
 
 /**
  * Read the task search params from whichever task route is currently active
- * (`/tasks/$task-id/` or `/tasks/$task-id/headless`). Both routes share the
+ * (`/tasks/$task-id/` or `/tasks/$task-id/kiosk`). Both routes share the
  * same `taskSearchSchema`, so casting the loose result is safe.
  */
 function useTaskSearch(): TaskSearch {

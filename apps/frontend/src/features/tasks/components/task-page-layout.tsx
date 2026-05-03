@@ -13,7 +13,7 @@ interface TaskPageLayoutProps {
   isMobile?: boolean
   mobileView?: string
   className?: string
-  headless?: boolean
+  kiosk?: boolean
   onChatToggleReady?: (toggle: () => void) => void
   onChatCollapsedChange?: (collapsed: boolean) => void
 }
@@ -25,7 +25,7 @@ export function TaskPageLayout({
   isMobile = false,
   mobileView = 'chat',
   className,
-  headless = false,
+  kiosk = false,
   onChatToggleReady,
   onChatCollapsedChange,
 }: TaskPageLayoutProps) {
@@ -102,19 +102,19 @@ export function TaskPageLayout({
   return (
     <div className={cn('h-full w-full relative', className)}>
       <ResizablePanelGroup direction="horizontal" className="h-full w-full">
-        {headless ? workPanel : chatPanel}
+        {kiosk ? workPanel : chatPanel}
         <ResizableHandle
           withHandle
           className={cn(
             isChatCollapsed && 'bg-primary/20 w-1 hover:bg-primary/40 transition-colors',
           )}
         />
-        {headless ? chatPanel : workPanel}
+        {kiosk ? chatPanel : workPanel}
       </ResizablePanelGroup>
 
       {/* Expand button for collapsed chat panel */}
       {isChatCollapsed &&
-        (headless ? (
+        (kiosk ? (
           <Button
             onClick={handleExpandChat}
             className="absolute right-2 top-2 z-10"

@@ -446,7 +446,7 @@ function ToolCallComponent({
 /**
  * Build a lookup map from toolUseId to toolResult for efficient retrieval
  */
-function buildToolResultMap(message: UiMessage): Map<string, UiToolResult> {
+export function buildToolResultMap(message: UiMessage): Map<string, UiToolResult> {
   const toolResultMap = new Map<string, UiToolResult>()
   if (message.toolResults) {
     for (const tr of message.toolResults) {
@@ -461,7 +461,7 @@ function buildToolResultMap(message: UiMessage): Map<string, UiToolResult> {
 /**
  * Separate content array into text content and tool calls
  */
-function parseMessageContent(contentArray: UiContentBlock[]): {
+export function parseMessageContent(contentArray: UiContentBlock[]): {
   textContent: string
   toolCalls: UiContentBlock[]
 } {
@@ -476,7 +476,7 @@ function parseMessageContent(contentArray: UiContentBlock[]): {
 /**
  * Render tool calls list with result mapping
  */
-function renderToolCalls(
+export function renderToolCalls(
   taskId: string | undefined,
   toolCalls: UiContentBlock[],
   toolResultMap: Map<string, UiToolResult>,

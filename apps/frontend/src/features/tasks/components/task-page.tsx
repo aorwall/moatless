@@ -60,14 +60,15 @@ function isStartupEndSubType(subType: string | undefined): boolean {
 
 interface TaskPageProps {
   /**
-   * Render a chrome-less version of the task page: no task header, no preview
-   * header (address bar, server tabs, inspector), no console, no agent
-   * edit/plan mode selector. Used by the `/tasks/$task-id/headless` route.
+   * Render a chrome-less, on-display variant of the task page: no task header,
+   * no preview header (address bar, server tabs, inspector), no console, no
+   * agent edit/plan mode selector. Tool calls collapse into a single counter
+   * row per assistant message. Used by the `/tasks/$task-id/kiosk` route.
    */
-  headless?: boolean
+  kiosk?: boolean
 }
 
-function TaskPageComponent({ headless = false }: TaskPageProps) {
+function TaskPageComponent({ kiosk = false }: TaskPageProps) {
   const taskId = useTaskId()
 
   const taskQuery = useTaskDetailQuery(taskId)
@@ -162,7 +163,7 @@ function TaskPageComponent({ headless = false }: TaskPageProps) {
   // Ref for capturing preview navigation function (using ref to avoid re-render issues)
   const previewNavigateRef = useRef<((path: string) => void) | null>(null)
 
-  // Chat panel toggle wiring (used by headless header to collapse/expand chat)
+  // Chat panel toggle wiring (used by kiosk header to collapse/expand chat)
   const chatToggleRef = useRef<(() => void) | null>(null)
   const [isChatCollapsed, setIsChatCollapsed] = useState(false)
 
@@ -360,8 +361,8 @@ function TaskPageComponent({ headless = false }: TaskPageProps) {
           activeServer={activeServerName}
           resources={sandboxStatus?.resources ?? undefined}
           sandboxEvents={sandboxEvents}
-          hideHeader={headless}
-          hideConsole={headless}
+          hideHeader={kiosk}
+          hideConsole={kiosk}
         />
       </ErrorBoundary>
     )
@@ -369,12 +370,12 @@ function TaskPageComponent({ headless = false }: TaskPageProps) {
 
   return (
     <TaskPageLayout
-      headless={headless}
+      kiosk={kiosk}
       onChatToggleReady={handleChatToggleReady}
       onChatCollapsedChange={setIsChatCollapsed}
       header={
         <TaskLeftHeader
-          headless={headless}
+          kiosk={kiosk}
           onToggleChat={handleHeaderToggleChat}
           isChatCollapsed={isChatCollapsed}
         />
@@ -387,7 +388,8 @@ function TaskPageComponent({ headless = false }: TaskPageProps) {
             onContextItemsChange={setContextItems}
             onPreviewUrlClick={handlePreviewUrlClick}
             onCommandExecutorReady={handleCommandExecutorReady}
-            hideAgentModeSelector={headless}
+            hideAgentModeSelector={kiosk}
+            collapseToolCalls={kiosk}
           />
         </ErrorBoundary>
       }

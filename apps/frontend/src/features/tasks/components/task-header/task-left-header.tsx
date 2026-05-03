@@ -31,19 +31,19 @@ import { EditTaskDialog } from './edit-task-dialog'
 import { ScheduledJobsPill } from './scheduled-jobs-pill'
 
 interface TaskLeftHeaderProps {
-  headless?: boolean
+  kiosk?: boolean
   onToggleChat?: () => void
   isChatCollapsed?: boolean
 }
 
 interface HeaderLeftTriggerProps {
-  headless: boolean
+  kiosk: boolean
   onToggleChat?: () => void
   isChatCollapsed: boolean
 }
 
-function HeaderLeftTrigger({ headless, onToggleChat, isChatCollapsed }: HeaderLeftTriggerProps) {
-  if (!headless) {
+function HeaderLeftTrigger({ kiosk, onToggleChat, isChatCollapsed }: HeaderLeftTriggerProps) {
+  if (!kiosk) {
     return <SidebarTrigger />
   }
   const label = isChatCollapsed ? 'Show chat' : 'Hide chat'
@@ -66,7 +66,7 @@ function HeaderLeftTrigger({ headless, onToggleChat, isChatCollapsed }: HeaderLe
 }
 
 export function TaskLeftHeader({
-  headless = false,
+  kiosk = false,
   onToggleChat,
   isChatCollapsed = false,
 }: TaskLeftHeaderProps = {}) {
@@ -119,7 +119,7 @@ export function TaskLeftHeader({
     <div className="absolute top-0 left-0 right-0 z-10 h-[58px] px-4 py-2 border-b flex items-center justify-between flex-shrink-0 bg-background">
       <div className="flex items-center gap-3 min-w-0">
         <HeaderLeftTrigger
-          headless={headless}
+          kiosk={kiosk}
           onToggleChat={onToggleChat}
           isChatCollapsed={isChatCollapsed}
         />

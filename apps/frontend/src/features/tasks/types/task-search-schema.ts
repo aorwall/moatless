@@ -2,7 +2,7 @@ import { z } from 'zod'
 
 /**
  * Search params shared across the task detail routes (`/tasks/$task-id/` and
- * `/tasks/$task-id/headless`). Both routes accept the same shape so that
+ * `/tasks/$task-id/kiosk`). Both routes accept the same shape so that
  * route-agnostic hooks (e.g. `useTaskView`) can read/write search state from
  * either one.
  *

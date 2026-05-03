@@ -59,6 +59,12 @@ interface ChatContainerProps {
   onCommandExecutorReady?: (executor: (commandName: string) => void) => void
   /** Hide the agent edit/plan mode toggle in the chat input. */
   hideAgentModeSelector?: boolean
+  /**
+   * Wrap each assistant message's tool calls in a single collapsed group
+   * (always shown, even for one call) that displays a live "N commands"
+   * counter. Defaults to false. Used by kiosk mode.
+   */
+  collapseToolCalls?: boolean
 }
 
 // Helper function to determine placeholder text based on environment and task status
@@ -101,6 +107,7 @@ function ChatContainer({
   onPreviewUrlClick,
   onCommandExecutorReady,
   hideAgentModeSelector = false,
+  collapseToolCalls = false,
 }: ChatContainerProps) {
   const taskId = useTaskId()
 
@@ -526,6 +533,7 @@ function ChatContainer({
         hasPreviousPage={hasPreviousPage}
         isFetchingPreviousPage={isFetchingPreviousPage}
         fetchPreviousPage={fetchPreviousPage}
+        collapseToolCalls={collapseToolCalls}
       />
 
       {/* Sandbox error banner with retry button */}
