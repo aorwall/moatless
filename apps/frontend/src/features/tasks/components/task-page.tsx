@@ -18,6 +18,7 @@ import { useTaskId } from '../contexts/task-providers'
 import { useTaskDetailQuery } from '../hooks/use-task-queries'
 import { usePreviewPath, useTaskView } from '../hooks/use-task-view'
 import { ChatContainer } from './chat-view/chat-container.tsx'
+import { TaskKioskHeader } from './task-header/task-kiosk-header'
 import { TaskLeftHeader } from './task-header/task-left-header'
 import { TaskPageLayout } from './task-page-layout'
 import { TaskDetailSkeleton } from './task-skeletons'
@@ -162,18 +163,6 @@ function TaskPageComponent({ kiosk = false }: TaskPageProps) {
 
   // Ref for capturing preview navigation function (using ref to avoid re-render issues)
   const previewNavigateRef = useRef<((path: string) => void) | null>(null)
-
-  // Chat panel toggle wiring (used by kiosk header to collapse/expand chat)
-  const chatToggleRef = useRef<(() => void) | null>(null)
-  const [isChatCollapsed, setIsChatCollapsed] = useState(false)
-
-  const handleChatToggleReady = useCallback((toggle: () => void) => {
-    chatToggleRef.current = toggle
-  }, [])
-
-  const handleHeaderToggleChat = useCallback(() => {
-    chatToggleRef.current?.()
-  }, [])
 
   // Stable callback that uses the ref
   const handlePreviewUrlClick = useCallback((path: string) => {
@@ -371,15 +360,7 @@ function TaskPageComponent({ kiosk = false }: TaskPageProps) {
   return (
     <TaskPageLayout
       kiosk={kiosk}
-      onChatToggleReady={handleChatToggleReady}
-      onChatCollapsedChange={setIsChatCollapsed}
-      header={
-        <TaskLeftHeader
-          kiosk={kiosk}
-          onToggleChat={handleHeaderToggleChat}
-          isChatCollapsed={isChatCollapsed}
-        />
-      }
+      header={kiosk ? <TaskKioskHeader /> : <TaskLeftHeader />}
       chat={
         <ErrorBoundary componentName="Chat View">
           <ChatContainer

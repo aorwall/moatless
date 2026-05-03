@@ -1,14 +1,5 @@
 import { useNavigate } from '@tanstack/react-router'
-import {
-  Globe,
-  Lock,
-  MoreVertical,
-  PanelRightClose,
-  PanelRightOpen,
-  Pencil,
-  RefreshCw,
-  XCircle,
-} from 'lucide-react'
+import { Globe, Lock, MoreVertical, Pencil, RefreshCw, XCircle } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
@@ -30,46 +21,7 @@ import { CreateRepoButton } from './create-repo-button'
 import { EditTaskDialog } from './edit-task-dialog'
 import { ScheduledJobsPill } from './scheduled-jobs-pill'
 
-interface TaskLeftHeaderProps {
-  kiosk?: boolean
-  onToggleChat?: () => void
-  isChatCollapsed?: boolean
-}
-
-interface HeaderLeftTriggerProps {
-  kiosk: boolean
-  onToggleChat?: () => void
-  isChatCollapsed: boolean
-}
-
-function HeaderLeftTrigger({ kiosk, onToggleChat, isChatCollapsed }: HeaderLeftTriggerProps) {
-  if (!kiosk) {
-    return <SidebarTrigger />
-  }
-  const label = isChatCollapsed ? 'Show chat' : 'Hide chat'
-  return (
-    <Button
-      variant="ghost"
-      size="icon"
-      className="h-7 w-7"
-      onClick={onToggleChat}
-      aria-label={label}
-      title={label}
-    >
-      {isChatCollapsed ? (
-        <PanelRightOpen className="h-4 w-4" />
-      ) : (
-        <PanelRightClose className="h-4 w-4" />
-      )}
-    </Button>
-  )
-}
-
-export function TaskLeftHeader({
-  kiosk = false,
-  onToggleChat,
-  isChatCollapsed = false,
-}: TaskLeftHeaderProps = {}) {
+export function TaskLeftHeader() {
   const taskId = useTaskId()
   const taskQuery = useTaskDetailQuery(taskId)
   const { data: repositories } = useRepositoriesList()
@@ -118,11 +70,7 @@ export function TaskLeftHeader({
   return (
     <div className="absolute top-0 left-0 right-0 z-10 h-[58px] px-4 py-2 border-b flex items-center justify-between flex-shrink-0 bg-background">
       <div className="flex items-center gap-3 min-w-0">
-        <HeaderLeftTrigger
-          kiosk={kiosk}
-          onToggleChat={onToggleChat}
-          isChatCollapsed={isChatCollapsed}
-        />
+        <SidebarTrigger />
         <div className="flex items-center gap-2 text-sm min-w-0">
           <span className="font-medium truncate max-w-[300px]" title={taskTitle}>
             {taskTitle}

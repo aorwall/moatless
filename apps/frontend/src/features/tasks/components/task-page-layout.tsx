@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronRight, Sparkles } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ImperativePanelHandle } from 'react-resizable-panels'
@@ -118,12 +118,11 @@ export function TaskPageLayout({
           <Button
             onClick={handleExpandChat}
             className="absolute right-2 top-2 z-10"
-            size="sm"
+            size="icon"
             variant="outline"
             aria-label="Expand chat panel"
           >
-            <ChevronLeft className="h-4 w-4 mr-1" />
-            Chat
+            <Sparkles className="h-4 w-4" />
           </Button>
         ) : (
           <Button
