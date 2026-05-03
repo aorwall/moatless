@@ -1,5 +1,6 @@
-import { Pencil } from 'lucide-react'
+import { PanelRightClose, Pencil } from 'lucide-react'
 import { useState } from 'react'
+import { useChatToggle } from '@/features/tasks/components/task-page-layout'
 import { useTaskId } from '@/features/tasks/contexts/task-providers'
 import { useTaskDetailQuery } from '@/features/tasks/hooks/use-task-queries'
 import { useUpdateTaskMetadata } from '@/features/tasks/hooks/use-tasks'
@@ -10,6 +11,7 @@ export function TaskKioskHeader() {
   const taskId = useTaskId()
   const taskQuery = useTaskDetailQuery(taskId)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
+  const { toggleChat } = useChatToggle()
   const updateMetadata = useUpdateTaskMetadata(taskId, {
     onSuccess: () => setIsEditDialogOpen(false),
   })
@@ -36,6 +38,18 @@ export function TaskKioskHeader() {
           onClick={() => setIsEditDialogOpen(true)}
         >
           <Pencil className="h-3 w-3" />
+        </Button>
+      </div>
+
+      <div className="ml-auto">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8"
+          title="Hide chat"
+          onClick={toggleChat}
+        >
+          <PanelRightClose className="h-4 w-4" />
         </Button>
       </div>
 

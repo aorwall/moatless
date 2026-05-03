@@ -181,6 +181,17 @@ function TaskPageComponent({ kiosk = false }: TaskPageProps) {
     commandExecutorRef.current?.('troubleshoot-preview')
   }, [])
 
+  // Ref for chat panel toggle function (set by TaskPageLayout via onChatToggleReady)
+  const chatToggleRef = useRef<(() => void) | null>(null)
+
+  const handleChatToggleReady = useCallback((toggle: () => void) => {
+    chatToggleRef.current = toggle
+  }, [])
+
+  const handleChatToggleRequest = useCallback(() => {
+    chatToggleRef.current?.()
+  }, [])
+
   // Get current preview path from URL state
   const { previewPath } = usePreviewPath()
 
@@ -346,6 +357,7 @@ function TaskPageComponent({ kiosk = false }: TaskPageProps) {
           onToggleElementContext={handleToggleElementContext}
           onNavigationReady={handleNavigationReady}
           onTroubleshootRequest={handleTroubleshootRequest}
+          onChatToggleRequest={handleChatToggleRequest}
           servers={servers}
           activeServer={activeServerName}
           resources={sandboxStatus?.resources ?? undefined}
@@ -360,6 +372,7 @@ function TaskPageComponent({ kiosk = false }: TaskPageProps) {
   return (
     <TaskPageLayout
       kiosk={kiosk}
+      onChatToggleReady={handleChatToggleReady}
       header={kiosk ? <TaskKioskHeader /> : <TaskLeftHeader />}
       chat={
         <ErrorBoundary componentName="Chat View">

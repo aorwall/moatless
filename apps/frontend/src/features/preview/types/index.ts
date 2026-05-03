@@ -59,6 +59,8 @@ export interface PreviewProps {
   onToggleElementContext?: (element: ElementInfo) => void
   onNavigationReady?: (navigate: (path: string) => void) => void
   onTroubleshootRequest?: (reason: string) => void
+  /** Called when the preview iframe requests toggling the chat panel. */
+  onChatToggleRequest?: () => void
   /** Dynamic server list for multi-server tab rendering */
   servers?: ServerEntry[]
   /** Active server name (determines which server's iframe to show) */

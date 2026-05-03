@@ -109,6 +109,7 @@ export function Preview({
   onToggleElementContext,
   onNavigationReady,
   onTroubleshootRequest,
+  onChatToggleRequest,
   servers,
   activeServer,
   resources,
@@ -398,6 +399,10 @@ export function Preview({
           setHasProxyError(true)
           break
 
+        case 'TOGGLE_CHAT':
+          onChatToggleRequest?.()
+          break
+
         default:
           // Unknown message type
           break
@@ -409,6 +414,7 @@ export function Preview({
   }, [
     onElementSelected,
     onTroubleshootRequest,
+    onChatToggleRequest,
     handleConsoleMessage,
     handleRouteChange,
     handleInspectorScriptLoaded,

@@ -128,6 +128,18 @@ async function bootstrap(): Promise<void> {
   const inspector = createElementInspector()
   internalLogger.log('[Preview Inspector] Overlay built')
 
+  window.__moatless = {
+    toggleChat() {
+      window.parent.postMessage({ type: 'TOGGLE_CHAT', source: 'preview-iframe' }, '*')
+    },
+    isAvailable() {
+      return document.querySelectorAll('[data-component-id]').length > 0
+    },
+    isSelectorActive() {
+      return selectorState.current
+    },
+  }
+
   window.addEventListener('message', (event) => {
     handleMessage(event, selectorState, inspector)
   })
@@ -164,6 +176,21 @@ async function bootstrap(): Promise<void> {
   }, 5000)
 
   internalLogger.log('[Preview Inspector] Bootstrap complete!')
+}
+
+// Expose a global API for apps running inside the iframe to call
+type MoatlessGlobal = {
+  /** Collapse or expand the chat panel in the parent kiosk frame. */
+  toggleChat: () => void
+  /** Returns true if any elements with data-component-id exist on the page. */
+  isAvailable: () => boolean
+  /** Returns true if the element selector (click-to-inspect) mode is currently active. */
+  isSelectorActive: () => boolean
+}
+declare global {
+  interface Window {
+    __moatless?: MoatlessGlobal
+  }
 }
 
 bootstrap().catch((error) => {
