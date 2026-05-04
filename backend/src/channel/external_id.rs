@@ -43,6 +43,15 @@ pub fn github_pr_opened(pr_number: u64) -> String {
     github_pr_event("opened", pr_number, None)
 }
 
+/// `github:pr:synchronize:<pr_number>:<sha>` — convenience for the `git push`
+/// post-message hook so the assistant tool_use row that pushed the branch is
+/// tagged with the same id the inbound `pull_request` `synchronize` webhook
+/// would produce. `sha` must be the full 40-char head SHA — GitHub's webhook
+/// delivers the full SHA in `payload.after` and dedup is byte-exact.
+pub fn github_pr_synchronize(pr_number: u64, sha: &str) -> String {
+    github_pr_event("synchronize", pr_number, Some(sha))
+}
+
 /// `github:cr:<id>` — `check_run` completion.
 pub fn github_check_run(id: u64) -> String {
     format!("github:cr:{id}")
@@ -135,6 +144,14 @@ mod tests {
     #[test]
     fn pr_opened_format() {
         assert_eq!(github_pr_opened(42), "github:pr:opened:42");
+    }
+
+    #[test]
+    fn pr_synchronize_format() {
+        assert_eq!(
+            github_pr_synchronize(42, "7fc06122f3aa1b4ed6cdee04b40dabf01dadbeef"),
+            "github:pr:synchronize:42:7fc06122f3aa1b4ed6cdee04b40dabf01dadbeef"
+        );
     }
 
     #[test]

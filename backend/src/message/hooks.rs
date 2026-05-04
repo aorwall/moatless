@@ -1,11 +1,15 @@
 //! Hooks invoked after agent messages are persisted.
 //!
-//! Inspects the persisted `tool_result` blocks for known `gh ...` commands
-//! and dispatches side effects:
+//! Inspects the persisted `tool_result` blocks for known `gh ...` / `git ...`
+//! commands and dispatches side effects:
 //! - `gh pr create` → connect the channel thread for the new PR + append a
 //!   `Moatless task: <url>` footer to the PR body.
 //! - `gh pr comment` / `gh issue comment` → tag the persisted tool_result row
 //!   with the comment id so the inbound webhook is deduped per-task.
+//! - `git push` → tag the assistant tool_use row with the
+//!   `pull_request.synchronize` external id (matching what the inbound webhook
+//!   will produce) so the originating task does not receive its own push back
+//!   as a sync notification.
 
 use std::fmt::Write;
 
@@ -15,6 +19,7 @@ use tracing::{debug, info, warn};
 use super::models::MessageType;
 use crate::auth::models::ProviderAccessToken;
 use crate::channel::github_pr::api::GithubPrApi;
+use crate::channel::task_subscription_dao::PgTaskSubscriptionRepository;
 use crate::state::AppState;
 
 /// Footer marker so we can detect if the URL was already appended (and skip
@@ -110,6 +115,8 @@ pub async fn on_agent_message_persisted(
             handle_gh_pr_create(state, task_id, parent_uuid, result_text).await;
         } else if is_gh_pr_comment(cmd) || is_gh_issue_comment(cmd) {
             handle_gh_comment(state, task_id, parent_uuid, result_text).await;
+        } else if is_git_push(cmd) {
+            handle_git_push(state, task_id, parent_uuid, result_text).await;
         }
     }
 }
@@ -317,6 +324,237 @@ async fn handle_gh_comment(state: &AppState, task_id: &str, parent_uuid: &str, r
 }
 
 // =============================================================================
+// git push
+// =============================================================================
+
+/// Identity of a push target parsed from `git push` output: the GitHub
+/// repository slug and the remote branch the push wrote to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct GitPushTarget {
+    owner: String,
+    repo: String,
+    branch: String,
+}
+
+async fn handle_git_push(state: &AppState, task_id: &str, parent_uuid: &str, result_text: &str) {
+    let Some(target) = parse_git_push(result_text) else {
+        debug!(task_id, "git push result had no target/branch");
+        return;
+    };
+
+    let repo_full = format!("{}/{}", target.owner, target.repo);
+
+    let subs = match PgTaskSubscriptionRepository(state.db.clone())
+        .find_by_task_id(task_id)
+        .await
+    {
+        Ok(s) => s,
+        Err(e) => {
+            warn!(task_id, error = %e, "Failed to load task subscriptions for git push hook");
+            return;
+        }
+    };
+
+    let candidates: Vec<_> = subs
+        .into_iter()
+        .filter(|sub| {
+            sub.provider == "github"
+                && sub.subject_kind == "github_pr"
+                && sub
+                    .reply_target
+                    .get("owner")
+                    .and_then(serde_json::Value::as_str)
+                    == Some(target.owner.as_str())
+                && sub
+                    .reply_target
+                    .get("repo")
+                    .and_then(serde_json::Value::as_str)
+                    == Some(target.repo.as_str())
+        })
+        .collect();
+
+    if candidates.is_empty() {
+        debug!(
+            task_id,
+            repo = %repo_full,
+            "No matching github_pr subscription for git push — skipping"
+        );
+        return;
+    }
+
+    let task = match state.tasks.find_by_id_internal(task_id).await {
+        Ok(Some(t)) => t,
+        Ok(None) => {
+            warn!(task_id, "Task not found when handling git push");
+            return;
+        }
+        Err(e) => {
+            warn!(task_id, error = %e, "Failed to load task for git push hook");
+            return;
+        }
+    };
+
+    let Some(user_id) = task.created_by.as_deref() else {
+        debug!(task_id, "Task has no created_by — skipping git push hook");
+        return;
+    };
+
+    let token: ProviderAccessToken = match state
+        .provider_tokens
+        .find_provider_token(user_id, "github")
+        .await
+    {
+        Ok(Some(t)) => t,
+        Ok(None) => {
+            debug!(
+                task_id,
+                user_id, "No GitHub provider token — skipping git push hook"
+            );
+            return;
+        }
+        Err(e) => {
+            warn!(task_id, user_id, error = %e, "Failed to look up provider token for git push hook");
+            return;
+        }
+    };
+
+    let api = GithubPrApi::new(&token.access_token);
+
+    // If there are multiple PR subscriptions on the same repo, fetch each and
+    // pick the one whose head branch matches what we just pushed. In practice
+    // there is one (the agent runs `gh pr create` first, which connects the
+    // subscription).
+    let mut chosen: Option<(u64, String)> = None;
+    for sub in &candidates {
+        let Some(pr_number) = sub
+            .reply_target
+            .get("pr_number")
+            .and_then(serde_json::Value::as_u64)
+        else {
+            continue;
+        };
+        match api.get_pr(&target.owner, &target.repo, pr_number).await {
+            Ok(info) => {
+                if info.head.ref_name == target.branch {
+                    chosen = Some((pr_number, info.head.sha));
+                    break;
+                }
+            }
+            Err(e) => {
+                warn!(task_id, pr_number, error = %e, "Failed to fetch PR for git push hook");
+            }
+        }
+    }
+
+    let Some((pr_number, head_sha)) = chosen else {
+        debug!(
+            task_id,
+            repo = %repo_full,
+            branch = %target.branch,
+            "No PR matched git-pushed branch — skipping git push hook"
+        );
+        return;
+    };
+
+    let external_id = crate::channel::external_id::github_pr_synchronize(pr_number, &head_sha);
+    state.recently_sent.note(task_id, &external_id);
+    match state
+        .messages
+        .set_channel_metadata(parent_uuid, &external_id, "github_pr", Some(&repo_full))
+        .await
+    {
+        Ok(true) => {
+            info!(
+                task_id,
+                parent_uuid,
+                pr_number,
+                head_sha = %head_sha,
+                "Tagged assistant tool_use row with channel_external_id for git push"
+            );
+        }
+        Ok(false) => {
+            debug!(
+                task_id,
+                parent_uuid,
+                pr_number,
+                "Assistant row already had channel_external_id — leaving untouched"
+            );
+        }
+        Err(e) => {
+            warn!(task_id, parent_uuid, pr_number, error = %e, "Failed to tag assistant row with channel_external_id for git push");
+        }
+    }
+}
+
+/// Extract `(owner, repo, remote_branch)` from `git push` stdout.
+///
+/// Looks for a `To <remote-url>` line to recover owner/repo (supports the
+/// `https://github.com/<o>/<r>(.git)` and `git@github.com:<o>/<r>(.git)` URL
+/// forms) and a status line containing `<local_ref> -> <remote_ref>` to
+/// recover the branch. Lines starting with `!` (e.g. `! [rejected]`) are
+/// skipped so a failed push returns `None`. Returns `None` when either
+/// component is missing — covers `--dry-run` "Everything up-to-date" output,
+/// non-GitHub remotes, and outright failures.
+fn parse_git_push(text: &str) -> Option<GitPushTarget> {
+    let mut owner_repo: Option<(String, String)> = None;
+    let mut branch: Option<String> = None;
+
+    for line in text.lines() {
+        let trimmed = line.trim_start();
+
+        if let Some(rest) = trimmed.strip_prefix("To ") {
+            // `To` lines may carry a trailing `:` from `git push --porcelain`
+            // wrappers; strip whitespace + the trailing colon before parsing.
+            let url = rest.trim().trim_end_matches(':');
+            if let Some(parsed) = parse_github_remote(url) {
+                owner_repo = Some(parsed);
+            }
+            continue;
+        }
+
+        // Skip rejected / error status lines.
+        if trimmed.starts_with('!') {
+            continue;
+        }
+
+        if let Some(idx) = trimmed.find(" -> ") {
+            let after = &trimmed[idx + 4..];
+            if let Some(remote_ref) = after.split_whitespace().next() {
+                if !remote_ref.is_empty() && !remote_ref.starts_with('(') {
+                    branch = Some(remote_ref.to_string());
+                }
+            }
+        }
+    }
+
+    let (owner, repo) = owner_repo?;
+    Some(GitPushTarget {
+        owner,
+        repo,
+        branch: branch?,
+    })
+}
+
+/// Decompose a GitHub remote URL into `(owner, repo)`. Supports HTTPS, SSH
+/// shorthand (`git@github.com:owner/repo`), and the explicit `ssh://` form.
+fn parse_github_remote(url: &str) -> Option<(String, String)> {
+    let path = url
+        .strip_prefix("https://github.com/")
+        .or_else(|| url.strip_prefix("http://github.com/"))
+        .or_else(|| url.strip_prefix("ssh://git@github.com/"))
+        .or_else(|| url.strip_prefix("git@github.com:"))?;
+    let path = path.strip_suffix('/').unwrap_or(path);
+    let path = path.strip_suffix(".git").unwrap_or(path);
+    let mut parts = path.split('/');
+    let owner = parts.next()?.to_string();
+    let repo = parts.next()?.to_string();
+    if owner.is_empty() || repo.is_empty() {
+        return None;
+    }
+    Some((owner, repo))
+}
+
+// =============================================================================
 // Command parsing
 // =============================================================================
 
@@ -333,6 +571,49 @@ fn is_gh_pr_comment(cmd: &str) -> bool {
 
 fn is_gh_issue_comment(cmd: &str) -> bool {
     matches_gh_subcommand(cmd, &["issue", "comment"])
+}
+
+/// Detect whether `cmd` invokes `git push` (in any form).
+///
+/// Tolerates leading env-var assignments (`GIT_DIR=… git push`), preceding
+/// shell commands chained with `&&` / `||` / `;` / `|`
+/// (`cd /tmp && git push`, `git add . && git push`), and `git`'s top-level
+/// flags before the subcommand (`-C <path>`, `--git-dir <path>`,
+/// `--work-tree <path>`).
+///
+/// Matches `git push --dry-run` too — the parser will fail to extract a target
+/// (no remote URL + range line in the typical "Everything up-to-date" output),
+/// so the handler no-ops on its own.
+fn is_git_push(cmd: &str) -> bool {
+    let tokens: Vec<&str> = cmd.split_whitespace().collect();
+    // Skip past any preceding command (everything before the last shell
+    // separator) and any env-var assignments, then check that the next token
+    // is `git`.
+    let after_separator = tokens
+        .iter()
+        .rposition(|t| SHELL_SEPARATORS.contains(t))
+        .map_or(0, |i| i + 1);
+    let mut idx = after_separator;
+    while idx < tokens.len() && is_env_assignment(tokens[idx]) {
+        idx += 1;
+    }
+    if tokens.get(idx) != Some(&"git") {
+        return false;
+    }
+
+    let mut iter = tokens.iter().skip(idx + 1);
+    while let Some(&tok) = iter.next() {
+        // Top-level git flags that take a value.
+        if matches!(tok, "-C" | "--git-dir" | "--work-tree" | "--namespace") {
+            iter.next();
+            continue;
+        }
+        if tok.starts_with('-') {
+            continue;
+        }
+        return tok == "push";
+    }
+    false
 }
 
 /// Shell tokens that separate one command from the next on the same line.
@@ -362,8 +643,7 @@ fn matches_gh_subcommand(cmd: &str, expected: &[&str; 2]) -> bool {
     let prefix_start = tokens[..gh_idx]
         .iter()
         .rposition(|t| SHELL_SEPARATORS.contains(t))
-        .map(|i| i + 1)
-        .unwrap_or(0);
+        .map_or(0, |i| i + 1);
     if !tokens[prefix_start..gh_idx]
         .iter()
         .all(|t| is_env_assignment(t))
@@ -750,5 +1030,142 @@ mod tests {
     fn is_gh_pr_create_codex_with_chained_cd() {
         let raw = "/bin/bash -lc 'cd /tmp/soap-k8s && gh pr create --head fix/x'";
         assert!(is_gh_pr_create(unwrap_shell_wrapper(raw)));
+    }
+
+    // ===== git push classifier =====
+
+    #[test]
+    fn is_git_push_simple() {
+        assert!(is_git_push("git push"));
+        assert!(is_git_push("git push origin HEAD"));
+        assert!(is_git_push("git push -u origin fix/x --force-with-lease"));
+        assert!(is_git_push("git push --dry-run"));
+    }
+
+    #[test]
+    fn is_git_push_with_chained_prefix() {
+        assert!(is_git_push("cd /tmp && git push"));
+        assert!(is_git_push("git add . && git push"));
+        assert!(is_git_push("cd /tmp ; git push origin HEAD"));
+        assert!(is_git_push("FOO=1 git push"));
+    }
+
+    #[test]
+    fn is_git_push_with_top_level_flag_value() {
+        assert!(is_git_push("git -C /tmp/repo push"));
+        assert!(is_git_push("git --git-dir /tmp/repo/.git push"));
+    }
+
+    #[test]
+    fn is_git_push_negative() {
+        assert!(!is_git_push("git status"));
+        assert!(!is_git_push("git pull"));
+        assert!(!is_git_push("gh pr create"));
+        assert!(!is_git_push(""));
+        // `push` not as a git subcommand.
+        assert!(!is_git_push("npm push"));
+    }
+
+    #[test]
+    fn is_git_push_codex_wrapped() {
+        let raw = "/bin/bash -lc 'git push'";
+        assert!(is_git_push(unwrap_shell_wrapper(raw)));
+        let raw = "/bin/bash -lc 'cd /tmp/soap-config && git push --force-with-lease'";
+        assert!(is_git_push(unwrap_shell_wrapper(raw)));
+    }
+
+    // ===== parse_git_push =====
+
+    #[test]
+    fn parse_git_push_https() {
+        let out = "Enumerating objects: 5, done.\n\
+                   Counting objects: 100% (5/5), done.\n\
+                   To https://github.com/Frank-Penny/soap-config.git\n   \
+                   2fa9788..7fc0612  fix/TM-1331-prevent-orphan-draft-branches -> fix/TM-1331-prevent-orphan-draft-branches\n";
+        let target = parse_git_push(out).unwrap();
+        assert_eq!(
+            target,
+            GitPushTarget {
+                owner: "Frank-Penny".into(),
+                repo: "soap-config".into(),
+                branch: "fix/TM-1331-prevent-orphan-draft-branches".into(),
+            }
+        );
+    }
+
+    #[test]
+    fn parse_git_push_ssh() {
+        let out = "To git@github.com:owner/repo.git\n   abc1234..def5678  fix/x -> fix/x\n";
+        let target = parse_git_push(out).unwrap();
+        assert_eq!(
+            target,
+            GitPushTarget {
+                owner: "owner".into(),
+                repo: "repo".into(),
+                branch: "fix/x".into(),
+            }
+        );
+    }
+
+    #[test]
+    fn parse_git_push_force_update_uses_remote_ref() {
+        // `+ ...` lines (force update) still carry the `local -> remote` form.
+        let out = "To https://github.com/o/r.git\n + abc1234...def5678 fix/x -> fix/x (forced update)\n";
+        let target = parse_git_push(out).unwrap();
+        assert_eq!(target.branch, "fix/x");
+    }
+
+    #[test]
+    fn parse_git_push_dry_run_returns_none() {
+        // Output without a range line (e.g. the "Everything up-to-date" case).
+        let out = "Everything up-to-date\n";
+        assert!(parse_git_push(out).is_none());
+
+        // No `To` line either.
+        assert!(parse_git_push("").is_none());
+    }
+
+    #[test]
+    fn parse_git_push_failed_push_returns_none() {
+        let out = "To https://github.com/o/r.git\n \
+                   ! [rejected]        fix/x -> fix/x (non-fast-forward)\n\
+                   error: failed to push some refs to 'https://github.com/o/r.git'\n";
+        assert!(parse_git_push(out).is_none());
+    }
+
+    #[test]
+    fn parse_git_push_non_github_remote_returns_none() {
+        let out = "To https://gitlab.com/o/r.git\n   abc..def  fix/x -> fix/x\n";
+        assert!(parse_git_push(out).is_none());
+    }
+
+    #[test]
+    fn parse_github_remote_https_strips_dot_git() {
+        assert_eq!(
+            parse_github_remote("https://github.com/Frank-Penny/soap-config.git"),
+            Some(("Frank-Penny".into(), "soap-config".into()))
+        );
+        assert_eq!(
+            parse_github_remote("https://github.com/o/r"),
+            Some(("o".into(), "r".into()))
+        );
+    }
+
+    #[test]
+    fn parse_github_remote_ssh_forms() {
+        assert_eq!(
+            parse_github_remote("git@github.com:o/r.git"),
+            Some(("o".into(), "r".into()))
+        );
+        assert_eq!(
+            parse_github_remote("ssh://git@github.com/o/r.git"),
+            Some(("o".into(), "r".into()))
+        );
+    }
+
+    #[test]
+    fn parse_github_remote_non_github_returns_none() {
+        assert!(parse_github_remote("https://gitlab.com/o/r.git").is_none());
+        assert!(parse_github_remote("not a url").is_none());
     }
 }

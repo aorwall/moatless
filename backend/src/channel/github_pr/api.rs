@@ -57,6 +57,7 @@ pub struct PrInfoUser {
 pub struct PrRef {
     #[serde(rename = "ref")]
     pub ref_name: String,
+    pub sha: String,
 }
 
 /// GitHub REST API client for PR operations.
