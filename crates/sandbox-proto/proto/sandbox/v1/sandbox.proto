@@ -244,6 +244,7 @@ enum FileNodeType {
 
 message GetFileTreeRequest {
   string root_path = 1;  // relative to workspace, default "."
+  bool recursive = 2;    // false → direct children only (default)
 }
 
 message GetFileTreeResponse {

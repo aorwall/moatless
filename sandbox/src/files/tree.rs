@@ -278,11 +278,16 @@ fn sort_nodes(nodes: &mut [FileTreeNode]) {
 ///
 /// Returns `(tree, git_summary)`. If git is unavailable, the tree is
 /// returned without change annotations and the summary is empty.
+///
+/// When `recursive` is false, the tree contains only the direct children
+/// of `root_path`. Directory `is_changed` flags are computed from the git
+/// diff so collapsed folders still show change badges.
 pub async fn get_file_tree_with_changes(
     workspace_dir: &str,
     root_path: &str,
+    recursive: bool,
 ) -> Result<(Vec<FileTreeNode>, GitSummary), std::io::Error> {
-    let all_files = list_files(workspace_dir, root_path, true).await?;
+    let all_files = list_files(workspace_dir, root_path, recursive).await?;
     let git_diff = git::get_git_diff_detailed(workspace_dir).await;
 
     let mut git_file_map: HashMap<String, GitFileInfo> = HashMap::new();
@@ -306,7 +311,44 @@ pub async fn get_file_tree_with_changes(
         }
     }
 
-    let tree = build_file_tree(&all_files, &git_file_map);
+    let mut tree = build_file_tree(&all_files, &git_file_map);
+
+    // When root_path is a subdirectory, list_files returns paths prefixed with
+    // the root, so build_file_tree wraps them in the path components. Unwrap
+    // those to return only the direct children of root_path.
+    let normalized_root = root_path.trim_matches('/');
+    if !normalized_root.is_empty() && normalized_root != "." {
+        let parts: Vec<&str> = normalized_root.split('/').filter(|p| !p.is_empty()).collect();
+        let mut subtree = tree;
+        for part in parts {
+            let pos = subtree
+                .iter()
+                .position(|n| n.name == part && n.node_type == FileNodeType::Directory);
+            if let Some(idx) = pos {
+                let node = subtree.swap_remove(idx);
+                subtree = node.children;
+            } else {
+                subtree = Vec::new();
+                break;
+            }
+        }
+        tree = subtree;
+        sort_nodes(&mut tree);
+    }
+
+    // In non-recursive mode, child directories have empty `children` so
+    // `propagate_changes` cannot infer a change-badge. Mark each directory
+    // changed if any path in the diff lives beneath it.
+    if !recursive {
+        for node in &mut tree {
+            if node.node_type == FileNodeType::Directory && !node.is_changed {
+                let prefix = format!("{}/", node.path);
+                if git_diff.files.iter().any(|f| f.filename.starts_with(&prefix)) {
+                    node.is_changed = true;
+                }
+            }
+        }
+    }
 
     let summary = GitSummary {
         total_files: git_diff.files.len() as i32,

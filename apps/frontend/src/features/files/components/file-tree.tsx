@@ -26,27 +26,8 @@ export function FileTree({ taskId, selectedPath, onFileSelect }: FileTreeProps) 
   const [showOnlyChanged, setShowOnlyChanged] = useState(false)
   const { data, isLoading, error } = useFileTree(taskId)
 
-  const filteredTree = useMemo(() => {
-    if (!(data?.tree && showOnlyChanged)) {
-      return data?.tree || []
-    }
-
-    const filterChangedNodes = (nodes: FileTreeNode[]): FileTreeNode[] => {
-      return nodes.reduce((acc: FileTreeNode[], node) => {
-        if (node.type === 'file' && node.isChanged) {
-          acc.push(node)
-        } else if (node.type === 'directory' && node.children) {
-          const filteredChildren = filterChangedNodes(node.children)
-          if (filteredChildren.length > 0) {
-            acc.push({ ...node, children: filteredChildren })
-          }
-        }
-        return acc
-      }, [])
-    }
-
-    return filterChangedNodes(data.tree)
-  }, [data?.tree, showOnlyChanged])
+  const tree = data?.tree ?? []
+  const filteredTree = showOnlyChanged ? tree.filter((node) => node.isChanged) : tree
 
   if (error) {
     return <div className="p-4 text-sm text-destructive">Failed to load files: {error.message}</div>
@@ -117,10 +98,12 @@ export function FileTree({ taskId, selectedPath, onFileSelect }: FileTreeProps) 
             filteredTree.map((item) => (
               <TreeNode
                 key={item.path}
+                taskId={taskId}
                 node={item}
                 level={0}
                 selectedPath={selectedPath}
                 onFileSelect={onFileSelect}
+                showOnlyChanged={showOnlyChanged}
               />
             ))
           )}
@@ -131,15 +114,19 @@ export function FileTree({ taskId, selectedPath, onFileSelect }: FileTreeProps) 
 }
 
 function TreeNode({
+  taskId,
   node,
   level,
   selectedPath,
   onFileSelect,
+  showOnlyChanged,
 }: {
+  taskId: string
   node: FileTreeNode
   level: number
   selectedPath: string | undefined
   onFileSelect: (path: string) => void
+  showOnlyChanged: boolean
 }) {
   const [isExpanded, setIsExpanded] = useState(node.isChanged)
 
@@ -226,16 +213,95 @@ function TreeNode({
         />
         <span className={cn(node.isChanged && 'font-medium')}>{node.name}</span>
       </button>
-      {isExpanded &&
-        node.children?.map((child) => (
-          <TreeNode
-            key={child.path}
-            node={child}
-            level={level + 1}
-            selectedPath={selectedPath}
-            onFileSelect={onFileSelect}
+      {isExpanded && (
+        <LazyDirectoryChildren
+          taskId={taskId}
+          path={node.path}
+          level={level + 1}
+          selectedPath={selectedPath}
+          onFileSelect={onFileSelect}
+          showOnlyChanged={showOnlyChanged}
+          fallbackChildren={node.children}
+        />
+      )}
+    </div>
+  )
+}
+
+function LazyDirectoryChildren({
+  taskId,
+  path,
+  level,
+  selectedPath,
+  onFileSelect,
+  showOnlyChanged,
+  fallbackChildren,
+}: {
+  taskId: string
+  path: string
+  level: number
+  selectedPath: string | undefined
+  onFileSelect: (path: string) => void
+  showOnlyChanged: boolean
+  fallbackChildren: FileTreeNode[] | undefined
+}) {
+  const { data, isLoading, error } = useFileTree(taskId, path)
+
+  const children = data?.tree ?? fallbackChildren
+
+  const visibleChildren = useMemo(() => {
+    if (!children) {
+      return undefined
+    }
+    if (!showOnlyChanged) {
+      return children
+    }
+    return children.filter((child) => child.isChanged)
+  }, [children, showOnlyChanged])
+
+  if (error && !children) {
+    return (
+      <div
+        className="px-2 py-1 text-xs text-destructive"
+        style={{ paddingLeft: `${level * 12 + 24}px` }}
+      >
+        Failed to load
+      </div>
+    )
+  }
+
+  if (isLoading && !children) {
+    return (
+      <div className="space-y-1 py-1" style={{ paddingLeft: `${level * 12 + 24}px` }}>
+        {Array.from({ length: 3 }).map((_, i) => (
+          <Skeleton
+            // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton list
+            key={i}
+            className="h-4"
+            style={{ width: `${50 + Math.random() * 30}%` }}
           />
         ))}
-    </div>
+      </div>
+    )
+  }
+
+  if (!visibleChildren || visibleChildren.length === 0) {
+    return null
+  }
+
+  return (
+    <>
+      {visibleChildren.map((child) => (
+        <TreeNode
+          key={child.path}
+          taskId={taskId}
+          node={child}
+          level={level}
+          selectedPath={selectedPath}
+          onFileSelect={onFileSelect}
+          showOnlyChanged={showOnlyChanged}
+        />
+      ))}
+    </>
   )
 }

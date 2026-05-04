@@ -1,8 +1,15 @@
 import { apiClient } from '@/lib/api/client'
 import type { FileContentResponse, FileTreeResponse, SearchByNameResponse } from '../types'
 
-export function fetchFileTree(taskId: string, path?: string): Promise<FileTreeResponse> {
-  return apiClient.get<FileTreeResponse>(`/api/sandbox/v1/tasks/${taskId}/files/tree`, { path })
+export function fetchFileTree(
+  taskId: string,
+  path?: string,
+  recursive?: boolean,
+): Promise<FileTreeResponse> {
+  return apiClient.get<FileTreeResponse>(`/api/sandbox/v1/tasks/${taskId}/files/tree`, {
+    path,
+    recursive: recursive ? true : undefined,
+  })
 }
 
 export function fetchFileContent(

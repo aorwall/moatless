@@ -158,12 +158,14 @@ impl SandboxClient {
     pub async fn get_file_tree(
         &self,
         root_path: &str,
+        recursive: bool,
     ) -> Result<GetFileTreeResponse, tonic::Status> {
         let mut client = self.client.clone();
         let result = tokio::time::timeout(Duration::from_secs(30), async {
             client
                 .get_file_tree(GetFileTreeRequest {
                     root_path: root_path.to_string(),
+                    recursive,
                 })
                 .await
         })

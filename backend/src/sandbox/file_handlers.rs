@@ -20,6 +20,9 @@ pub struct FileTreeQuery {
     /// Root path relative to workspace (default ".")
     #[serde(default)]
     pub path: Option<String>,
+    /// Walk subdirectories (default false: only direct children of `path`)
+    #[serde(default)]
+    pub recursive: Option<bool>,
 }
 
 /// Query parameters for reading a file.
@@ -64,9 +67,10 @@ pub async fn file_tree_handler(
     Query(query): Query<FileTreeQuery>,
 ) -> Result<Json<FileTreeResponse>, SandboxError> {
     let root_path = query.path.as_deref().unwrap_or(".");
+    let recursive = query.recursive.unwrap_or(false);
     let client = state.provider.sandbox_client(&task_id).await?;
     let resp = client
-        .get_file_tree(root_path)
+        .get_file_tree(root_path, recursive)
         .await
         .map_err(|e| classify_grpc_error(e, "get_file_tree"))?;
     Ok(Json(FileTreeResponse::from(resp)))
