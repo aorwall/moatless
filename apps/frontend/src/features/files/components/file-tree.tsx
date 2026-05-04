@@ -242,7 +242,7 @@ function LazyDirectoryChildren({
   onFileSelect: (path: string) => void
   showOnlyChanged: boolean
 }) {
-  const { data, isLoading, error } = useFileTree(taskId, path)
+  const { data, error } = useFileTree(taskId, path)
 
   const visibleChildren = useMemo(() => {
     if (!data?.tree) {
@@ -265,19 +265,8 @@ function LazyDirectoryChildren({
     )
   }
 
-  if (isLoading || !visibleChildren) {
-    return (
-      <div className="space-y-1 py-1" style={{ paddingLeft: `${level * 12 + 24}px` }}>
-        {Array.from({ length: 3 }).map((_, i) => (
-          <Skeleton
-            // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton list
-            key={i}
-            className="h-4"
-            style={{ width: `${50 + Math.random() * 30}%` }}
-          />
-        ))}
-      </div>
-    )
+  if (!visibleChildren) {
+    return null
   }
 
   if (visibleChildren.length === 0) {
