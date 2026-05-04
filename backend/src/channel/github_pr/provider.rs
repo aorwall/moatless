@@ -27,9 +27,20 @@ pub enum GithubPrWebhookResult {
     /// Parsed message ready for routing.
     Message(Box<InboundMessage>),
     /// PR was closed/merged — close associated tasks.
-    CloseTask { pr_number: u64 },
+    CloseTask(PrCloseInfo),
     /// Webhook should be ignored (unsupported event, bot self-reply, etc.).
     Ignore,
+}
+
+/// Metadata about a closed PR, captured at parse time and used downstream
+/// to compose the auto-close chat notice.
+#[derive(Debug, Clone)]
+pub struct PrCloseInfo {
+    pub pr_number: u64,
+    pub merged: bool,
+    pub title: String,
+    pub html_url: String,
+    pub sender_login: String,
 }
 
 /// Context passed through event handlers to avoid too many function arguments.
@@ -249,8 +260,24 @@ impl GithubPrProvider {
                     .pointer("/pull_request/merged")
                     .and_then(serde_json::Value::as_bool)
                     .unwrap_or(false);
+                let title = payload
+                    .pointer("/pull_request/title")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                let html_url = payload
+                    .pointer("/pull_request/html_url")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
                 info!(pr_number, merged, "PR closed, will close associated tasks");
-                return Ok(GithubPrWebhookResult::CloseTask { pr_number });
+                return Ok(GithubPrWebhookResult::CloseTask(PrCloseInfo {
+                    pr_number,
+                    merged,
+                    title,
+                    html_url,
+                    sender_login: ctx.sender_login.to_string(),
+                }));
             }
             debug!("PR closed but close_task_on_close is disabled");
             return Ok(GithubPrWebhookResult::Ignore);
@@ -860,16 +887,36 @@ impl GithubPrProvider {
         rule: &IngressRule,
         db: &DbPool,
     ) -> String {
-        if let Ok(Some(user_id)) = self.resolve_user(github_login, db).await {
-            user_id
-        } else {
-            debug!(
-                github_login,
-                fallback = %rule.effective_user_id(),
-                "GitHub user not mapped, using rule owner"
-            );
-            rule.effective_user_id().to_string()
-        }
+        resolve_user_or_fallback(github_login, rule, db).await
+    }
+}
+
+/// Resolve a GitHub login to a system user id via `provider_tokens`,
+/// falling back to the rule's effective user (`run_as_user_id ?? created_by`).
+///
+/// Free-function form so callers without a `GithubPrProvider` instance
+/// (e.g. `runtime::close_tasks_for_pr`) can use the same lookup.
+pub(crate) async fn resolve_user_or_fallback(
+    github_login: &str,
+    rule: &IngressRule,
+    db: &DbPool,
+) -> String {
+    let row = sqlx::query_scalar::<_, String>(
+        "SELECT user_id FROM provider_tokens WHERE provider = 'github' AND provider_login = $1 LIMIT 1",
+    )
+    .bind(github_login)
+    .fetch_optional(db)
+    .await;
+
+    if let Ok(Some(user_id)) = row {
+        user_id
+    } else {
+        debug!(
+            github_login,
+            fallback = %rule.effective_user_id(),
+            "GitHub user not mapped, using rule owner"
+        );
+        rule.effective_user_id().to_string()
     }
 }
 
@@ -1103,12 +1150,14 @@ pub async fn resolve_and_process_github_webhook(
                 }
             });
         }
-        GithubPrWebhookResult::CloseTask { pr_number } => {
+        GithubPrWebhookResult::CloseTask(info) => {
+            let connection = connection.clone();
             let rule = rule.clone();
             let state_clone = state.clone();
             tokio::spawn(async move {
                 if let Err(e) =
-                    super::runtime::close_tasks_for_pr(&state_clone, &rule, pr_number).await
+                    super::runtime::close_tasks_for_pr(&state_clone, &connection, &rule, &info)
+                        .await
                 {
                     warn!(error = %e, "Failed to close GitHub PR tasks");
                 }

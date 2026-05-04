@@ -1,19 +1,25 @@
 //! GitHub PR runtime on top of provider connections, ingress rules, and task subscriptions.
 
+use std::fmt::Write as _;
+
 use chrono::Utc;
 use tracing::{debug, info, warn};
 
 use crate::channel::error::ChannelError;
+use crate::channel::external_id;
 use crate::channel::ingress_rule_dao::PgIngressRuleRepository;
 use crate::channel::models::{
     ChannelConfig, ChannelThread, InboundMessage, IngressRule, ProviderConnection, TaskSubscription,
 };
+use crate::channel::provider::ChannelType;
 use crate::channel::provider_connection_dao::PgProviderConnectionRepository;
 use crate::channel::task_subscription_dao::PgTaskSubscriptionRepository;
 use crate::shared_models::AgentType;
 use crate::state::AppState;
 use crate::task::dao::TaskPatch;
 use crate::task::models::{Task, TaskStatus, Visibility};
+
+use super::provider::{resolve_user_or_fallback, PrCloseInfo};
 
 /// Provider value stored in `provider_connections.provider` /
 /// `ingress_rules.provider` / `task_subscriptions.provider`.
@@ -254,7 +260,16 @@ pub async fn route_inbound_message(
     }
 
     for (subscription, is_new_task) in delivery_targets {
-        deliver_to_subscription(state, rule, connection, &subscription, &msg, is_new_task).await?;
+        deliver_to_subscription(
+            state,
+            rule,
+            connection,
+            &subscription,
+            &msg,
+            is_new_task,
+            true,
+        )
+        .await?;
     }
 
     Ok(())
@@ -262,8 +277,9 @@ pub async fn route_inbound_message(
 
 pub async fn close_tasks_for_pr(
     state: &AppState,
+    connection: &ProviderConnection,
     rule: &IngressRule,
-    pr_number: u64,
+    info: &PrCloseInfo,
 ) -> Result<(), ChannelError> {
     let (owner, repo) = rule.scope_matcher.split_once('/').ok_or_else(|| {
         ChannelError::BadRequest(format!(
@@ -271,6 +287,7 @@ pub async fn close_tasks_for_pr(
             rule.scope_matcher
         ))
     })?;
+    let pr_number = info.pr_number;
     let subject_key = format!("{owner}/{repo}#{pr_number}");
 
     let subscriptions_repo = PgTaskSubscriptionRepository(state.db.clone());
@@ -314,6 +331,31 @@ pub async fn close_tasks_for_pr(
             continue;
         }
 
+        // Append the close notice to the task chat *before* tearing down the
+        // sandbox + flipping status, so the message is the final visible one
+        // and `send_message_flow`'s `last_message_at` write happens while the
+        // task is still `Open`. `resume = false` keeps us from briefly waking
+        // the agent on a sandbox we're about to clean up.
+        let close_msg = build_close_inbound_message(state, owner, repo, rule, info).await;
+        if let Err(e) = deliver_to_subscription(
+            state,
+            rule,
+            connection,
+            &subscription,
+            &close_msg,
+            false,
+            false,
+        )
+        .await
+        {
+            warn!(
+                task_id = %task_id,
+                pr_number,
+                error = %e,
+                "Failed to append PR-close message to task — proceeding with close"
+            );
+        }
+
         if let Err(e) = state.sandbox.cleanup(task_id).await {
             warn!(task_id = %task_id, error = %e, "Failed to cleanup sandbox on PR close");
         }
@@ -348,6 +390,63 @@ pub async fn close_tasks_for_pr(
     }
 
     Ok(())
+}
+
+/// Build the synthetic `InboundMessage` that gets persisted into a task's
+/// chat to explain why the task auto-closed when its PR was closed/merged.
+///
+/// Mirrors the shape of a `pull_request.opened` inbound message so the UI
+/// renders it identically (same `display (login):` sender prefix, same
+/// channel pill, same metadata).
+async fn build_close_inbound_message(
+    state: &AppState,
+    owner: &str,
+    repo: &str,
+    rule: &IngressRule,
+    info: &PrCloseInfo,
+) -> InboundMessage {
+    let status = if info.merged {
+        "Merged"
+    } else {
+        "Closed without merging"
+    };
+
+    let mut text = format!(
+        "## Pull Request Closed: #{pr_number}\n\n\
+         **Title:** {title}\n\
+         **Status:** {status}\n\
+         **Closed by:** @{login}\n",
+        pr_number = info.pr_number,
+        title = info.title,
+        login = info.sender_login,
+    );
+    if !info.html_url.is_empty() {
+        let _ = writeln!(text, "**Link:** {}", info.html_url);
+    }
+    text.push_str("\n_Task auto-closed because the PR was closed._");
+
+    let user_id = resolve_user_or_fallback(&info.sender_login, rule, &state.db).await;
+
+    InboundMessage {
+        provider: ChannelType::GithubPr,
+        source_id: rule.scope_matcher.clone(),
+        thread_id: None, // skip thread-context fetch (matches `opened`)
+        message_thread_id: info.pr_number.to_string(),
+        user_id,
+        text,
+        file_ids: vec![],
+        thread_properties: serde_json::json!({
+            "owner": owner,
+            "repo": repo,
+            "pr_number": info.pr_number,
+        }),
+        provider_context: serde_json::json!({}),
+        channel_external_id: Some(external_id::github_pr_event(
+            "closed",
+            info.pr_number,
+            None,
+        )),
+    }
 }
 
 pub async fn upsert_subscription(
@@ -483,6 +582,7 @@ async fn deliver_to_subscription(
     subscription: &TaskSubscription,
     msg: &InboundMessage,
     is_new_task: bool,
+    resume: bool,
 ) -> Result<(), ChannelError> {
     let synthetic_cfg = synthetic_config(rule);
     let synthetic_thr = synthetic_thread(subscription);
@@ -567,7 +667,7 @@ async fn deliver_to_subscription(
         None,
         &msg.file_ids,
         &[],
-        true,
+        resume,
         msg.channel_external_id.as_deref(),
         Some(CHANNEL_PROVIDER_LABEL),
         Some(rule.scope_matcher.as_str()),
@@ -602,7 +702,7 @@ async fn deliver_to_subscription(
         );
     }
 
-    if !is_new_task {
+    if !is_new_task && resume {
         if let Err(e) =
             crate::sandbox::notify::ensure_sandbox_and_notify(state, &subscription.task_id).await
         {

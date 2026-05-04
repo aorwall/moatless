@@ -26,9 +26,9 @@ pub fn github_review(id: u64) -> String {
 
 /// `github:pr:<action>:<pr_number>[:<sha>]` — PR-level event.
 ///
-/// `action` is the webhook action (`opened`, `reopened`, `synchronize`).
-/// `sha` disambiguates `synchronize` events for the same PR — without it,
-/// successive pushes would dedup against each other.
+/// `action` is the webhook action (`opened`, `reopened`, `synchronize`,
+/// `closed`). `sha` disambiguates `synchronize` events for the same PR —
+/// without it, successive pushes would dedup against each other.
 pub fn github_pr_event(action: &str, pr_number: u64, sha: Option<&str>) -> String {
     match sha {
         Some(s) if !s.is_empty() => format!("github:pr:{action}:{pr_number}:{s}"),
