@@ -13,6 +13,7 @@ import {
   groupSubagentMessages,
   type UiMessageWithSubagents,
 } from '@/features/tasks/utils/group-messages.ts'
+import { ErrorBoundary } from '@/lib/components/error-boundary.tsx'
 import { Button } from '@/lib/components/ui/button.tsx'
 import { cn } from '@/lib/utils'
 import { getErrorMessage } from '@/lib/utils/error.ts'
@@ -34,6 +35,12 @@ import { UserMessageComponent } from './user-message.tsx'
 type RenderItem =
   | { kind: 'message'; message: UiMessageWithSubagents }
   | { kind: 'cluster'; key: string; messages: UiMessageWithSubagents[] }
+
+const renderMessageFallback = (error: Error) => (
+  <div className="text-xs text-destructive border border-destructive/30 bg-destructive/5 rounded px-2 py-1.5">
+    Failed to render message: {error.message}
+  </div>
+)
 
 // "Clusterable" = a normal assistant message we're willing to fold into a
 // command-cluster. Special types (transcript_only, compact_summary, codex
@@ -466,15 +473,26 @@ function MessageHistoryComponent({
             )}
             {renderItems.map((item) =>
               item.kind === 'cluster' ? (
-                <CommandCluster
+                <ErrorBoundary
                   key={item.key}
-                  taskId={taskId}
-                  messages={item.messages}
-                  expandedToolCalls={expandedToolCalls}
-                  onToggleToolCall={toggleToolCallExpansion}
-                />
+                  resetKeys={[item.key]}
+                  fallback={renderMessageFallback}
+                >
+                  <CommandCluster
+                    taskId={taskId}
+                    messages={item.messages}
+                    expandedToolCalls={expandedToolCalls}
+                    onToggleToolCall={toggleToolCallExpansion}
+                  />
+                </ErrorBoundary>
               ) : (
-                renderRow(item.message)
+                <ErrorBoundary
+                  key={item.message.uuid}
+                  resetKeys={[item.message.uuid]}
+                  fallback={renderMessageFallback}
+                >
+                  {renderRow(item.message)}
+                </ErrorBoundary>
               ),
             )}
             {environmentStatus === 'initializing' && <EnvironmentIndicator status="initializing" />}

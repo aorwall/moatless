@@ -259,7 +259,9 @@ function changeBadgeClass(kind: CodexEditChange['kind']) {
 function CodexEditCall({ content, toolResult, expanded, onToggle }: CodexToolCallProps) {
   const input = (content.toolInput ?? {}) as CodexEditInput
   const result = (toolResult?.typedResult ?? null) as CodexEditResult | null
-  const changes = input.changes ?? result?.changes ?? []
+  const inputChanges = Array.isArray(input.changes) ? input.changes : null
+  const resultChanges = Array.isArray(result?.changes) ? result.changes : null
+  const changes = inputChanges ?? resultChanges ?? []
   const hasResult = !!toolResult
   const isError =
     toolResult?.isError === true || result?.status === 'failed' || result?.status === 'declined'
@@ -312,7 +314,7 @@ function CodexEditCall({ content, toolResult, expanded, onToggle }: CodexToolCal
 
 function CodexTodoListCall({ content }: CodexToolCallProps) {
   const input = (content.toolInput ?? {}) as CodexTodoListInput
-  const rawItems = input.items ?? []
+  const rawItems = Array.isArray(input.items) ? input.items : []
   const todos: Todo[] = rawItems.map((item, index) => ({
     id: String(index),
     content: item.text,
