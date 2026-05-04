@@ -221,7 +221,6 @@ function TreeNode({
           selectedPath={selectedPath}
           onFileSelect={onFileSelect}
           showOnlyChanged={showOnlyChanged}
-          fallbackChildren={node.children}
         />
       )}
     </div>
@@ -235,7 +234,6 @@ function LazyDirectoryChildren({
   selectedPath,
   onFileSelect,
   showOnlyChanged,
-  fallbackChildren,
 }: {
   taskId: string
   path: string
@@ -243,34 +241,31 @@ function LazyDirectoryChildren({
   selectedPath: string | undefined
   onFileSelect: (path: string) => void
   showOnlyChanged: boolean
-  fallbackChildren: FileTreeNode[] | undefined
 }) {
   const { data, isLoading, error } = useFileTree(taskId, path)
 
-  const children = data?.tree ?? fallbackChildren
-
   const visibleChildren = useMemo(() => {
-    if (!children) {
+    if (!data?.tree) {
       return undefined
     }
     if (!showOnlyChanged) {
-      return children
+      return data.tree
     }
-    return children.filter((child) => child.isChanged)
-  }, [children, showOnlyChanged])
+    return data.tree.filter((child) => child.isChanged)
+  }, [data?.tree, showOnlyChanged])
 
-  if (error && !children) {
+  if (error) {
     return (
       <div
         className="px-2 py-1 text-xs text-destructive"
         style={{ paddingLeft: `${level * 12 + 24}px` }}
       >
-        Failed to load
+        Failed to load: {error.message}
       </div>
     )
   }
 
-  if (isLoading && !children) {
+  if (isLoading || !visibleChildren) {
     return (
       <div className="space-y-1 py-1" style={{ paddingLeft: `${level * 12 + 24}px` }}>
         {Array.from({ length: 3 }).map((_, i) => (
@@ -285,8 +280,15 @@ function LazyDirectoryChildren({
     )
   }
 
-  if (!visibleChildren || visibleChildren.length === 0) {
-    return null
+  if (visibleChildren.length === 0) {
+    return (
+      <div
+        className="px-2 py-1 text-xs text-muted-foreground"
+        style={{ paddingLeft: `${level * 12 + 24}px` }}
+      >
+        Empty
+      </div>
+    )
   }
 
   return (
