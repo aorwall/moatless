@@ -354,8 +354,13 @@ export function createElementInspector(): ElementInspectorAPI {
     for (const [componentId, elements] of selectedElements.entries()) {
       const overlays = selectionOverlays.get(componentId)
       if (overlays && elements) {
-        for (let i = 0; i < elements.length && i < overlays.length; i++) {
-          positionOverlay(overlays[i]!, elements[i]!, 3)
+        const len = Math.min(elements.length, overlays.length)
+        for (let i = 0; i < len; i++) {
+          const overlay = overlays[i]
+          const element = elements[i]
+          if (overlay && element) {
+            positionOverlay(overlay, element, 3)
+          }
         }
       }
     }
