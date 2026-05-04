@@ -15,6 +15,24 @@ use super::models::{InboundMessage, NewThreadInfo, OutboundReply};
 
 pub use moatless_api_schemas::enums::ChannelType;
 
+/// Result of posting to a provider-specific destination by raw ID.
+///
+/// Returned by [`ChannelProvider::post_to_destination`] and used by callers to
+/// build a matching [`TaskSubscription`] row when the post is associated with
+/// a task.
+#[derive(Debug, Clone)]
+pub struct DestinationPostResult {
+    /// Provider-specific external message ID (e.g. Slack message `ts`).
+    pub message_external_id: String,
+    /// Subscription `subject_kind` (e.g. `"slack_thread"`).
+    pub subject_kind: &'static str,
+    /// Subscription `subject_key` matching the format produced during inbound
+    /// routing for this provider (e.g. `{workspace_id}:{channel}:{thread_ts}`).
+    pub subject_key: String,
+    /// Subscription `reply_target` JSON used by `send_reply_for_subscription`.
+    pub reply_target: serde_json::Value,
+}
+
 /// Channel provider handles outbound messaging, user resolution, and context fetching.
 ///
 /// Inbound message handling is NOT part of this trait — each provider implements
@@ -79,6 +97,26 @@ pub trait ChannelProvider: Send + Sync {
         Err(ChannelError::BadRequest(
             "Provider does not implement subscription-based outbound".into(),
         ))
+    }
+
+    /// Post to a provider-specific destination by raw ID.
+    ///
+    /// Used for ad-hoc sends and to bootstrap a `task_subscription` without an
+    /// ingress rule. The returned [`DestinationPostResult`] carries everything
+    /// the caller needs to persist a matching subscription row.
+    ///
+    /// Default: returns a `BadRequest` so providers that have no notion of an
+    /// addressable raw destination (cron, webhook, GitHub PR) surface a clear
+    /// error rather than silently ignoring the call.
+    async fn post_to_destination(
+        &self,
+        _destination: &str,
+        _message: &OutboundReply,
+    ) -> Result<DestinationPostResult, ChannelError> {
+        Err(ChannelError::BadRequest(format!(
+            "{:?} provider does not support direct destination sends",
+            self.channel_type()
+        )))
     }
 
     /// Send a new top-level message to a channel (no existing thread).
@@ -221,6 +259,67 @@ impl ChannelProviders {
             .filter(|ct| !matches!(ct, ChannelType::Webhook | ChannelType::Cron))
             .copied()
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::channel::models::OutboundReply;
+    use crate::db::DbPool;
+
+    struct DummyProvider;
+
+    #[async_trait::async_trait]
+    impl ChannelProvider for DummyProvider {
+        fn channel_type(&self) -> ChannelType {
+            ChannelType::Telegram
+        }
+
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+
+        async fn resolve_user(
+            &self,
+            _identity: &str,
+            _db: &DbPool,
+        ) -> Result<Option<String>, ChannelError> {
+            Ok(None)
+        }
+
+        async fn send_reply(
+            &self,
+            _thread: &super::super::models::ChannelThread,
+            _config: &super::super::models::ChannelConfig,
+            _message: &OutboundReply,
+        ) -> Result<Option<String>, ChannelError> {
+            Ok(None)
+        }
+    }
+
+    #[tokio::test]
+    async fn default_post_to_destination_returns_bad_request() {
+        let provider = DummyProvider;
+        let reply = OutboundReply {
+            text: "hi".into(),
+            task_url: None,
+            is_error: false,
+            files: vec![],
+        };
+        let err = provider
+            .post_to_destination("chat-123", &reply)
+            .await
+            .expect_err("default impl should error");
+        match err {
+            ChannelError::BadRequest(msg) => {
+                assert!(
+                    msg.contains("does not support direct destination sends"),
+                    "unexpected message: {msg}"
+                );
+            }
+            other => panic!("expected BadRequest, got: {other:?}"),
+        }
     }
 }
 

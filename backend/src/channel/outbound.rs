@@ -816,7 +816,7 @@ pub(crate) fn truncate_text(text: &str, max: usize) -> String {
 /// Resolve file IDs to [`OutboundFile`] structs by loading metadata + data from S3.
 ///
 /// Failures for individual files are logged as warnings and skipped.
-async fn resolve_files(state: &AppState, file_ids: &[String]) -> Vec<OutboundFile> {
+pub(crate) async fn resolve_files(state: &AppState, file_ids: &[String]) -> Vec<OutboundFile> {
     if file_ids.is_empty() {
         return vec![];
     }

@@ -646,6 +646,16 @@ impl ApiClient {
             .await
     }
 
+    /// POST /api/v1/channels/{provider}/send
+    pub async fn send_to_chat_destination(
+        &self,
+        provider: &str,
+        req: &moatless_api_schemas::channel::ChatDestinationSendRequest,
+    ) -> Result<moatless_api_schemas::channel::ChatDestinationSendResponse, ApiError> {
+        self.post(&format!("/api/v1/channels/{provider}/send"), req)
+            .await
+    }
+
     /// POST /api/v1/channels/rules
     pub async fn create_ingress_rule(
         &self,
