@@ -94,9 +94,14 @@ pub struct SendChannelMessageRequest {
 pub struct SendChannelMessageResponse {
     pub sent_count: u32,
     pub errors: Vec<String>,
+    /// Destinations that received the message. Lets clients print a "next-step"
+    /// hint and target the same subscription/thread next time.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub targets: Vec<ChannelTargetDescriptor>,
 }
 
-/// One outbound destination listed in a [`MultipleTargetsErrorBody`].
+/// One outbound destination — used by both [`SendChannelMessageResponse::targets`]
+/// (success path) and [`MultipleTargetsErrorBody`] (multi-target error path).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
@@ -122,6 +127,35 @@ pub struct MultipleTargetsErrorBody {
     pub error: String,
     pub targets: Vec<ChannelTargetDescriptor>,
     pub hint: String,
+}
+
+/// Request to post a message to a provider-specific destination by raw ID.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ChatDestinationSendRequest {
+    /// Provider-specific destination identifier (e.g. Slack channel id, Telegram chat id).
+    pub destination: String,
+    /// Message text.
+    pub text: String,
+    /// Optional task to associate the resulting subscription with. When set, a
+    /// `task_subscriptions` row is written so future inbound messages on this
+    /// destination route back to the task.
+    pub task_id: Option<String>,
+    /// File IDs (from `/api/v1/uploads`) to attach to the message.
+    #[serde(default)]
+    pub file_ids: Vec<String>,
+}
+
+/// Response from posting to a chat destination.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ChatDestinationSendResponse {
+    /// Provider-specific external message ID (e.g. Slack message ts).
+    pub message_external_id: String,
+    /// `task_subscriptions.id` when a task was provided; `None` otherwise.
+    pub subscription_id: Option<String>,
 }
 
 /// Request to send a message directly to a channel config.

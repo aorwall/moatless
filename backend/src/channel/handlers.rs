@@ -1516,6 +1516,48 @@ pub async fn list_task_channels(
     Ok(Json(channels))
 }
 
+/// Build a [`ChannelTargetDescriptor`] for a legacy `channel_threads` row.
+///
+/// Looks up the config to render a friendly label like `"slack #ops"`. The
+/// returned `flag_hint` uses `--thread <id>` so the caller can address this
+/// exact thread on a follow-up `moat channels send`.
+async fn thread_descriptor(
+    state: &AppState,
+    thread: &super::models::ChannelThread,
+) -> moatless_api_schemas::channel::ChannelTargetDescriptor {
+    let label = match state.channel_configs.find_by_id(&thread.config_id).await {
+        Ok(Some(config)) => format!(
+            "{} {}",
+            config.provider,
+            config
+                .source_name
+                .as_deref()
+                .unwrap_or(config.source_id.as_str())
+        ),
+        _ => format!("thread {} (config {})", thread.id, thread.config_id),
+    };
+    moatless_api_schemas::channel::ChannelTargetDescriptor {
+        kind: "thread".to_string(),
+        id: thread.id.to_string(),
+        label,
+        flag_hint: format!("--thread {}", thread.id),
+    }
+}
+
+/// Build a [`ChannelTargetDescriptor`] for a `task_subscriptions` row.
+///
+/// `--ts` is the short alias for `--subscription` exposed by the CLI.
+fn subscription_descriptor(
+    sub: &super::models::TaskSubscription,
+) -> moatless_api_schemas::channel::ChannelTargetDescriptor {
+    moatless_api_schemas::channel::ChannelTargetDescriptor {
+        kind: "subscription".to_string(),
+        id: sub.id.clone(),
+        label: format!("{} {}", sub.subject_kind, sub.subject_key),
+        flag_hint: format!("--ts {}", sub.id),
+    }
+}
+
 /// Send a message to the single channel connected to a task.
 ///
 /// **Behavior:**
@@ -1604,6 +1646,7 @@ pub async fn send_to_task_channels(
                 Ok(Json(SendChannelMessageResponse {
                     sent_count: 1,
                     errors: vec![],
+                    targets: vec![],
                 }))
             } else {
                 Err(ChannelError::ConfigNotFound(format!(
@@ -1624,7 +1667,16 @@ pub async fn send_to_task_channels(
             if sent_count == 0 && !errors.is_empty() {
                 return Err(ChannelError::ProviderApi(errors.join("; ")));
             }
-            Ok(Json(SendChannelMessageResponse { sent_count, errors }))
+            let targets = if sent_count > 0 {
+                vec![subscription_descriptor(&subscriptions[0])]
+            } else {
+                vec![]
+            };
+            Ok(Json(SendChannelMessageResponse {
+                sent_count,
+                errors,
+                targets,
+            }))
         }
         1 => {
             let (sent_count, errors) = super::outbound::send_to_channels(
@@ -1639,36 +1691,24 @@ pub async fn send_to_task_channels(
             if sent_count == 0 && !errors.is_empty() {
                 return Err(ChannelError::ProviderApi(errors.join("; ")));
             }
-            Ok(Json(SendChannelMessageResponse { sent_count, errors }))
+            let targets = if sent_count > 0 {
+                vec![thread_descriptor(&state, &threads[0]).await]
+            } else {
+                vec![]
+            };
+            Ok(Json(SendChannelMessageResponse {
+                sent_count,
+                errors,
+                targets,
+            }))
         }
         _ => {
             let mut targets = Vec::with_capacity(total);
             for thread in &threads {
-                let label = match state.channel_configs.find_by_id(&thread.config_id).await {
-                    Ok(Some(config)) => format!(
-                        "{} {}",
-                        config.provider,
-                        config
-                            .source_name
-                            .as_deref()
-                            .unwrap_or(config.source_id.as_str())
-                    ),
-                    _ => format!("thread {} (config {})", thread.id, thread.config_id),
-                };
-                targets.push(moatless_api_schemas::channel::ChannelTargetDescriptor {
-                    kind: "thread".to_string(),
-                    id: thread.id.to_string(),
-                    label,
-                    flag_hint: format!("--thread {}", thread.id),
-                });
+                targets.push(thread_descriptor(&state, thread).await);
             }
             for sub in &subscriptions {
-                targets.push(moatless_api_schemas::channel::ChannelTargetDescriptor {
-                    kind: "subscription".to_string(),
-                    id: sub.id.clone(),
-                    label: format!("{} {}", sub.subject_kind, sub.subject_key),
-                    flag_hint: format!("--subscription {}", sub.id),
-                });
+                targets.push(subscription_descriptor(sub));
             }
             Err(ChannelError::MultipleTargets { targets })
         }
@@ -1715,7 +1755,20 @@ pub async fn send_to_task_channel(
         return Err(ChannelError::ProviderApi(errors.join("; ")));
     }
 
-    Ok(Json(SendChannelMessageResponse { sent_count, errors }))
+    let mut targets = Vec::new();
+    if sent_count > 0 {
+        if let Ok(threads) = state.channel_threads.find_by_task_id(&task_id).await {
+            if let Some(thread) = threads.iter().find(|t| t.config_id == config_id) {
+                targets.push(thread_descriptor(&state, thread).await);
+            }
+        }
+    }
+
+    Ok(Json(SendChannelMessageResponse {
+        sent_count,
+        errors,
+        targets,
+    }))
 }
 
 /// Send a message to one exact channel thread connected to a task.
@@ -1761,7 +1814,18 @@ pub async fn send_to_task_channel_thread(
         return Err(ChannelError::ProviderApi(errors.join("; ")));
     }
 
-    Ok(Json(SendChannelMessageResponse { sent_count, errors }))
+    let mut targets = Vec::new();
+    if sent_count > 0 {
+        if let Ok(Some(thread)) = state.channel_threads.find_by_id(thread_id).await {
+            targets.push(thread_descriptor(&state, &thread).await);
+        }
+    }
+
+    Ok(Json(SendChannelMessageResponse {
+        sent_count,
+        errors,
+        targets,
+    }))
 }
 
 /// Send a message to one exact `task_subscriptions` row.
@@ -1807,7 +1871,22 @@ pub async fn send_to_task_channel_subscription(
         return Err(ChannelError::ProviderApi(errors.join("; ")));
     }
 
-    Ok(Json(SendChannelMessageResponse { sent_count, errors }))
+    let mut targets = Vec::new();
+    if sent_count > 0 {
+        if let Ok(Some(sub)) =
+            super::task_subscription_dao::PgTaskSubscriptionRepository(state.db.clone())
+                .find_by_id(&subscription_id)
+                .await
+        {
+            targets.push(subscription_descriptor(&sub));
+        }
+    }
+
+    Ok(Json(SendChannelMessageResponse {
+        sent_count,
+        errors,
+        targets,
+    }))
 }
 
 // =========================================================================
@@ -2498,5 +2577,101 @@ pub async fn send_user_dm_handler(
         subscription_id,
         channel_id: dm_channel_id,
         message_ts: ts,
+    }))
+}
+
+/// Post a message to a provider-specific destination by raw ID.
+///
+/// Mirrors the DM bootstrap pattern, but works for any chat destination
+/// (e.g. a Slack public channel). When `task_id` is provided, a
+/// `task_subscriptions` row is written so future inbound messages on the
+/// destination route back to the task.
+#[utoipa::path(
+    post,
+    path = "/api/v1/channels/{provider}/send",
+    tag = "channels",
+    params(
+        ("provider" = String, Path, description = "Provider name (e.g. \"slack\")")
+    ),
+    request_body = ChatDestinationSendRequest,
+    responses(
+        (status = 200, description = "Message posted", body = ChatDestinationSendResponse),
+        (status = 400, description = "Provider does not support destination sends", body = crate::error::ErrorBody),
+        (status = 404, description = "Provider not configured", body = crate::error::ErrorBody),
+        (status = 502, description = "Provider failed", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn send_to_chat_destination(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(provider): Path<String>,
+    Json(body): Json<ChatDestinationSendRequest>,
+) -> Result<Json<ChatDestinationSendResponse>, ChannelError> {
+    let providers = state
+        .channel_providers
+        .as_ref()
+        .ok_or_else(|| ChannelError::ProviderNotConfigured(provider.clone()))?;
+    let chan_provider = providers
+        .get_by_name(&provider)
+        .ok_or_else(|| ChannelError::NotFound(format!("Unknown provider: {provider}")))?;
+
+    let connection =
+        ensure_chat_provider_connection(&state, &auth.user_id, &provider, "default", None).await?;
+
+    let files = super::outbound::resolve_files(&state, &body.file_ids).await;
+    if !files.is_empty() && !chan_provider.supports_files() {
+        return Err(ChannelError::BadRequest(format!(
+            "Provider {:?} does not support file attachments",
+            chan_provider.channel_type()
+        )));
+    }
+
+    let reply = super::models::OutboundReply {
+        text: super::outbound::truncate_text(&body.text, chan_provider.max_message_length()),
+        task_url: None,
+        is_error: false,
+        files,
+    };
+
+    let result = chan_provider
+        .post_to_destination(&body.destination, &reply)
+        .await?;
+
+    info!(
+        provider = %provider,
+        destination = %body.destination,
+        external_id = %result.message_external_id,
+        "Posted message to chat destination",
+    );
+
+    let subscription_id = if let Some(ref task_id) = body.task_id {
+        let now = chrono::Utc::now();
+        let subscription = super::models::TaskSubscription {
+            id: format!("ts_{}", uuid::Uuid::new_v4()),
+            task_id: task_id.clone(),
+            provider: provider.clone(),
+            subject_kind: result.subject_kind.to_string(),
+            subject_key: result.subject_key.clone(),
+            connection_id: connection.id.clone(),
+            ingress_rule_id: None,
+            reply_target: result.reply_target.clone(),
+            metadata: serde_json::json!({}),
+            last_channel_external_id: Some(result.message_external_id.clone()),
+            created_reason: "destination_send".to_string(),
+            created_at: now,
+            last_event_at: now,
+        };
+        let saved = super::task_subscription_dao::PgTaskSubscriptionRepository(state.db.clone())
+            .upsert(&subscription)
+            .await
+            .map_err(|e| ChannelError::Internal(format!("Failed to save subscription: {e}")))?;
+        Some(saved.id)
+    } else {
+        None
+    };
+
+    Ok(Json(ChatDestinationSendResponse {
+        message_external_id: result.message_external_id,
+        subscription_id,
     }))
 }

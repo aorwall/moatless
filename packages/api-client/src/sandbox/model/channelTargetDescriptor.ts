@@ -7,7 +7,8 @@
  */
 
 /**
- * One outbound destination listed in a [`MultipleTargetsErrorBody`].
+ * One outbound destination — used by both [`SendChannelMessageResponse::targets`]
+(success path) and [`MultipleTargetsErrorBody`] (multi-target error path).
  */
 export interface ChannelTargetDescriptor {
   /** CLI flag the caller should add to disambiguate, e.g.

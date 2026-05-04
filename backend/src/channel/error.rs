@@ -68,7 +68,7 @@ impl IntoResponse for ChannelError {
                     error: self.to_string(),
                     targets: targets.clone(),
                     hint:
-                        "Use --thread <id>, --subscription <id>, or --pr owner/repo#N to pick one."
+                        "Use --thread <id>, --ts <subscription_id>, or --pr owner/repo#N to pick one."
                             .to_string(),
                 };
                 return (StatusCode::BAD_REQUEST, Json(body)).into_response();

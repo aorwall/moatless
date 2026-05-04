@@ -2,9 +2,9 @@
 
 use clap::Subcommand;
 use moatless_api_schemas::channel::{
-    ChannelConfigResponse, ConnectChannelRequest, CreateChannelConfigRequest,
-    CreateIngressRuleRequest, DirectSendRequest, IngressRuleResponse, SendChannelMessageRequest,
-    TriggerChannelRequest, UpdateChannelConfigRequest,
+    ChannelConfigResponse, ChatDestinationSendRequest, ConnectChannelRequest,
+    CreateChannelConfigRequest, CreateIngressRuleRequest, DirectSendRequest, IngressRuleResponse,
+    SendChannelMessageRequest, TriggerChannelRequest, UpdateChannelConfigRequest,
 };
 use moatless_api_schemas::enums::{ChannelType, RoutingMode};
 
@@ -105,8 +105,8 @@ pub enum ChannelAction {
         /// Exact channel thread ID (preferred when a task has multiple subscriptions)
         #[arg(long)]
         thread: Option<i32>,
-        /// Exact task subscription ID (alternative to --thread / --pr)
-        #[arg(long)]
+        /// Exact task subscription ID, e.g. `ts_abc...`. `--ts` is a short alias.
+        #[arg(long, visible_alias = "ts", value_name = "ID")]
         subscription: Option<String>,
         /// Exact GitHub PR subscription to target, in owner/repo#123 format
         #[arg(long)]
@@ -120,6 +120,15 @@ pub enum ChannelAction {
         /// Send directly to a channel config without a task (fire-and-forget)
         #[arg(long)]
         direct: bool,
+        /// Provider name for raw destination send (e.g. "slack").
+        /// Requires --to. When set, posts to the destination via
+        /// POST /api/v1/channels/{provider}/send.
+        #[arg(long)]
+        provider: Option<String>,
+        /// Provider-specific destination identifier (e.g. Slack channel id
+        /// "C0000000005"). Requires --provider.
+        #[arg(long)]
+        to: Option<String>,
     },
     /// Manually trigger a channel config, creating a task as if the provider fired
     Trigger {
@@ -414,6 +423,8 @@ pub async fn run(
             text,
             files,
             direct,
+            provider,
+            to,
         } => {
             let message_text = if let Some(t) = text {
                 t
@@ -454,6 +465,50 @@ pub async fn run(
                     .await
                     .map_err(|e| ClientError::Other(format!("Failed to upload {path_str}: {e}")))?;
                 file_ids.push(upload_resp.file_id);
+            }
+
+            if provider.is_some() || to.is_some() {
+                let provider = provider.ok_or_else(|| {
+                    ClientError::Other("--provider is required when --to is set".into())
+                })?;
+                let destination = to.ok_or_else(|| {
+                    ClientError::Other("--to is required when --provider is set".into())
+                })?;
+                if direct
+                    || channel.is_some()
+                    || thread.is_some()
+                    || subscription.is_some()
+                    || pr.is_some()
+                {
+                    return Err(ClientError::Other(
+                        "--provider/--to is mutually exclusive with --direct, --channel, \
+                         --thread, --subscription, and --pr"
+                            .into(),
+                    ));
+                }
+                let task_id = task.or_else(|| std::env::var("TASK_ID").ok());
+                let req = ChatDestinationSendRequest {
+                    destination: destination.clone(),
+                    text: message_text,
+                    task_id,
+                    file_ids,
+                };
+                let resp = client
+                    .api()
+                    .send_to_chat_destination(&provider, &req)
+                    .await?;
+                if json {
+                    output::print_json_typed(&resp);
+                } else {
+                    println!(
+                        "Posted to {provider} destination {destination} (external id: {})",
+                        resp.message_external_id,
+                    );
+                    if let Some(sub_id) = resp.subscription_id.as_deref() {
+                        println!("Subscription: {sub_id}");
+                    }
+                }
+                return Ok(());
             }
 
             if direct {
@@ -512,7 +567,17 @@ pub async fn run(
                 if json {
                     output::print_json_typed(&resp);
                 } else {
-                    println!("Sent to {} channel(s).", resp.sent_count);
+                    if resp.targets.len() == 1 {
+                        let target = &resp.targets[0];
+                        println!("Sent to {}.", target.label);
+                        println!("To reply in this destination, run:");
+                        println!(
+                            "  moat channels send {} --text \"...\"",
+                            target.flag_hint
+                        );
+                    } else {
+                        println!("Sent to {} channel(s).", resp.sent_count);
+                    }
                     for err in &resp.errors {
                         eprintln!("Warning: {err}");
                     }

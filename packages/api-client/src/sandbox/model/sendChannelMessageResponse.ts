@@ -5,6 +5,7 @@
  * Sandbox orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
+import type { ChannelTargetDescriptor } from './channelTargetDescriptor';
 
 /**
  * Response from sending a message through channel(s).
@@ -13,4 +14,7 @@ export interface SendChannelMessageResponse {
   errors: string[];
   /** @minimum 0 */
   sentCount: number;
+  /** Destinations that received the message. Lets clients print a "next-step"
+hint and target the same subscription/thread next time. */
+  targets?: ChannelTargetDescriptor[];
 }

@@ -4,6 +4,7 @@ use axum::http::HeaderMap;
 use moka::future::Cache;
 use std::fmt::Write as _;
 use std::time::Duration;
+use tokio::sync::OnceCell;
 use tracing::{debug, info, warn};
 
 use crate::channel::error::ChannelError;
@@ -13,7 +14,7 @@ use crate::channel::models::{
     ChannelConfig, ChannelThread, IngressRule, ProviderConnection, TaskSubscription,
 };
 use crate::channel::models::{InboundMessage, NewThreadInfo, OutboundReply};
-use crate::channel::provider::{ChannelProvider, ChannelType};
+use crate::channel::provider::{ChannelProvider, ChannelType, DestinationPostResult};
 use crate::db::DbPool;
 
 use super::access::enforce_slack_access;
@@ -55,7 +56,14 @@ To include files (screenshots, logs, generated artifacts) in your reply, use the
 - `moat reply --text \"Here are the results\" --file screenshot.png`
 - `moat reply --text \"Logs attached\" --file output.log --file error.log`
 - Multiple `--file` flags can be used to attach several files at once.
-- Images will render inline in the Slack thread.",
+- Images will render inline in the Slack thread.
+
+### Replying to the same Slack thread next turn
+After your first `moat channels send` (or `moat reply`) succeeds, the CLI prints a \
+`--ts <subscription_id>` hint. Use it on follow-ups so your reply lands in the same \
+thread instead of fanning out:
+- `moat channels send --ts <subscription_id> --text \"...\"`
+- `moat channels subscriptions --task $TASK_ID` lists active targets if you lost the id.",
     );
 
     if let Some(bot_id) = bot_user_id {
@@ -95,6 +103,9 @@ pub struct SlackProvider {
     bot_user_id: Option<String>,
     /// Deduplication cache: event_id → () with 5-minute TTL.
     dedup_cache: Cache<String, ()>,
+    /// Workspace (team) id memoized after the first `auth.test` call so
+    /// `post_to_destination` doesn't ping Slack on every send.
+    workspace_id: OnceCell<String>,
 }
 
 impl SlackProvider {
@@ -107,7 +118,22 @@ impl SlackProvider {
                 .time_to_live(Duration::from_secs(300))
                 .max_capacity(10_000)
                 .build(),
+            workspace_id: OnceCell::new(),
         }
+    }
+
+    /// Return the Slack workspace (team) ID, calling `auth.test` once and
+    /// memoizing the result for the lifetime of the provider.
+    async fn ensure_workspace_id(&self) -> Result<String, ChannelError> {
+        self.workspace_id
+            .get_or_try_init(|| async {
+                let info = self.api.auth_test().await?;
+                info.team_id.ok_or_else(|| {
+                    ChannelError::ProviderApi("Slack auth.test returned no team_id".into())
+                })
+            })
+            .await
+            .cloned()
     }
 
     /// Access the signing secret (needed by webhook handler for url_verification).
@@ -608,6 +634,45 @@ impl ChannelProvider for SlackProvider {
             |r| crate::channel::subscription::synthetic_config(r, "slack"),
         );
         self.send_reply(&thread, &config, message).await
+    }
+
+    async fn post_to_destination(
+        &self,
+        destination: &str,
+        message: &OutboundReply,
+    ) -> Result<DestinationPostResult, ChannelError> {
+        let workspace_id = self.ensure_workspace_id().await?;
+
+        let ts = self
+            .api
+            .post_message(destination, &message.text, None)
+            .await?
+            .ok_or_else(|| ChannelError::Internal("Slack did not return message ts".into()))?;
+
+        for file in &message.files {
+            if let Err(e) = self
+                .api
+                .upload_file(destination, Some(&ts), &file.filename, file.data.clone())
+                .await
+            {
+                warn!(
+                    filename = %file.filename,
+                    error = %e,
+                    "Failed to upload file attachment to Slack"
+                );
+            }
+        }
+
+        Ok(DestinationPostResult {
+            message_external_id: ts.clone(),
+            subject_kind: "slack_thread",
+            subject_key: format!("{workspace_id}:{destination}:{ts}"),
+            reply_target: serde_json::json!({
+                "channel": destination,
+                "ts": ts,
+                "thread_ts": ts,
+            }),
+        })
     }
 
     async fn send_message(

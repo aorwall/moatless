@@ -32,6 +32,8 @@ export * from './channelConfigResponse';
 export * from './channelConfigResponseProviderConfig';
 export * from './channelTargetDescriptor';
 export * from './channelType';
+export * from './chatDestinationSendRequest';
+export * from './chatDestinationSendResponse';
 export * from './codexConfigResponse';
 export * from './codexDeviceCodePollRequest';
 export * from './codexDeviceCodePollResponse';

@@ -290,6 +290,18 @@
                 "null"
               ]
             }
+          },
+          {
+            "name": "recursive",
+            "in": "query",
+            "description": "Walk subdirectories (default false: only direct children of `path`)",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
           }
         ],
         "responses": {
@@ -2069,6 +2081,79 @@
           },
           "404": {
             "description": "Config not found"
+          }
+        }
+      }
+    },
+    "/api/v1/channels/{provider}/send": {
+      "post": {
+        "tags": [
+          "channels"
+        ],
+        "summary": "Post a message to a provider-specific destination by raw ID.",
+        "description": "Mirrors the DM bootstrap pattern, but works for any chat destination\n(e.g. a Slack public channel). When `task_id` is provided, a\n`task_subscriptions` row is written so future inbound messages on the\ndestination route back to the task.",
+        "operationId": "send_to_chat_destination",
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "description": "Provider name (e.g. \"slack\")",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatDestinationSendRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Message posted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatDestinationSendResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Provider does not support destination sends",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Provider not configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Provider failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
           }
         }
       }
@@ -5969,7 +6054,9 @@
           "pending_response",
           "session_init",
           "retrying",
-          "scheduled"
+          "scheduled",
+          "recovery_started",
+          "recovery_exhausted"
         ]
       },
       "AgentType": {
@@ -6377,7 +6464,7 @@
       },
       "ChannelTargetDescriptor": {
         "type": "object",
-        "description": "One outbound destination listed in a [`MultipleTargetsErrorBody`].",
+        "description": "One outbound destination — used by both [`SendChannelMessageResponse::targets`]\n(success path) and [`MultipleTargetsErrorBody`] (multi-target error path).",
         "required": [
           "kind",
           "id",
@@ -6414,6 +6501,58 @@
           "telegram",
           "github_pr"
         ]
+      },
+      "ChatDestinationSendRequest": {
+        "type": "object",
+        "description": "Request to post a message to a provider-specific destination by raw ID.",
+        "required": [
+          "destination",
+          "text"
+        ],
+        "properties": {
+          "destination": {
+            "type": "string",
+            "description": "Provider-specific destination identifier (e.g. Slack channel id, Telegram chat id)."
+          },
+          "fileIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "File IDs (from `/api/v1/uploads`) to attach to the message."
+          },
+          "taskId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional task to associate the resulting subscription with. When set, a\n`task_subscriptions` row is written so future inbound messages on this\ndestination route back to the task."
+          },
+          "text": {
+            "type": "string",
+            "description": "Message text."
+          }
+        }
+      },
+      "ChatDestinationSendResponse": {
+        "type": "object",
+        "description": "Response from posting to a chat destination.",
+        "required": [
+          "messageExternalId"
+        ],
+        "properties": {
+          "messageExternalId": {
+            "type": "string",
+            "description": "Provider-specific external message ID (e.g. Slack message ts)."
+          },
+          "subscriptionId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`task_subscriptions.id` when a task was provided; `None` otherwise."
+          }
+        }
       },
       "CodexConfigResponse": {
         "type": "object",
@@ -9975,6 +10114,13 @@
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          },
+          "targets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChannelTargetDescriptor"
+            },
+            "description": "Destinations that received the message. Lets clients print a \"next-step\"\nhint and target the same subscription/thread next time."
           }
         }
       },

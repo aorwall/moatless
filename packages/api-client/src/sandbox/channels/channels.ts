@@ -27,6 +27,8 @@ import type {
 import type {
   ApprovePairingRequest,
   ChannelConfigResponse,
+  ChatDestinationSendRequest,
+  ChatDestinationSendResponse,
   ConnectChannelRequest,
   ConnectChannelResponse,
   CreateChannelConfigRequest,
@@ -2778,6 +2780,110 @@ export const useWebhookInbound = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getWebhookInboundMutationOptions(options), queryClient);
+    }
+    /**
+ * Mirrors the DM bootstrap pattern, but works for any chat destination
+(e.g. a Slack public channel). When `task_id` is provided, a
+`task_subscriptions` row is written so future inbound messages on the
+destination route back to the task.
+ * @summary Post a message to a provider-specific destination by raw ID.
+ */
+export type sendToChatDestinationResponse200 = {
+  data: ChatDestinationSendResponse
+  status: 200
+}
+
+export type sendToChatDestinationResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
+export type sendToChatDestinationResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+
+export type sendToChatDestinationResponse502 = {
+  data: ErrorBody
+  status: 502
+}
+    
+export type sendToChatDestinationResponseSuccess = (sendToChatDestinationResponse200) & {
+  headers: Headers;
+};
+export type sendToChatDestinationResponseError = (sendToChatDestinationResponse400 | sendToChatDestinationResponse404 | sendToChatDestinationResponse502) & {
+  headers: Headers;
+};
+
+export type sendToChatDestinationResponse = (sendToChatDestinationResponseSuccess | sendToChatDestinationResponseError)
+
+export const getSendToChatDestinationUrl = (provider: string,) => {
+
+
+  
+
+  return `/api/v1/channels/${provider}/send`
+}
+
+export const sendToChatDestination = async (provider: string,
+    chatDestinationSendRequest: ChatDestinationSendRequest, options?: RequestInit): Promise<sendToChatDestinationResponse> => {
+  
+  return customInstance<sendToChatDestinationResponse>(getSendToChatDestinationUrl(provider),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      chatDestinationSendRequest,)
+  }
+);}
+
+
+
+
+export const getSendToChatDestinationMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendToChatDestination>>, TError,{provider: string;data: ChatDestinationSendRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof sendToChatDestination>>, TError,{provider: string;data: ChatDestinationSendRequest}, TContext> => {
+
+const mutationKey = ['sendToChatDestination'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof sendToChatDestination>>, {provider: string;data: ChatDestinationSendRequest}> = (props) => {
+          const {provider,data} = props ?? {};
+
+          return  sendToChatDestination(provider,data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SendToChatDestinationMutationResult = NonNullable<Awaited<ReturnType<typeof sendToChatDestination>>>
+    export type SendToChatDestinationMutationBody = ChatDestinationSendRequest
+    export type SendToChatDestinationMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Post a message to a provider-specific destination by raw ID.
+ */
+export const useSendToChatDestination = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendToChatDestination>>, TError,{provider: string;data: ChatDestinationSendRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof sendToChatDestination>>,
+        TError,
+        {provider: string;data: ChatDestinationSendRequest},
+        TContext
+      > => {
+      return useMutation(getSendToChatDestinationMutationOptions(options), queryClient);
     }
     /**
  * Returns the channel configs linked to the task via channel threads.
