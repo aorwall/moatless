@@ -1494,6 +1494,46 @@
             }
           }
         }
+      },
+      "post": {
+        "tags": [
+          "channels"
+        ],
+        "summary": "Create or update a provider connection (currently Linear-only).",
+        "description": "Linear workspaces have to be registered explicitly so the backend can\nstore the webhook secret used to verify inbound deliveries. GitHub\nconnections continue to be bootstrapped via migration 0034 and are not\naccepted here.",
+        "operationId": "create_provider_connection",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateProviderConnectionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Connection upserted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderConnectionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/channels/defaults/{provider}": {
@@ -1608,6 +1648,34 @@
         "operationId": "github_pr_webhook",
         "requestBody": {
           "description": "GitHub webhook payload",
+          "content": {
+            "text/plain": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook processed"
+          },
+          "401": {
+            "description": "Invalid signature"
+          }
+        }
+      }
+    },
+    "/api/v1/channels/linear/webhook": {
+      "post": {
+        "tags": [
+          "channels"
+        ],
+        "summary": "Handle Linear webhook for Issue / Comment events.",
+        "operationId": "linear_webhook",
+        "requestBody": {
+          "description": "Linear webhook payload",
           "content": {
             "text/plain": {
               "schema": {
@@ -6499,7 +6567,8 @@
           "webhook",
           "cron",
           "telegram",
-          "github_pr"
+          "github_pr",
+          "linear"
         ]
       },
       "ChatDestinationSendRequest": {
@@ -7390,6 +7459,52 @@
               "null"
             ],
             "description": "Required when the caller belongs to multiple teams. Defaults to the\ncaller's only team when single-team."
+          }
+        }
+      },
+      "CreateProviderConnectionRequest": {
+        "type": "object",
+        "description": "Request body for `POST /api/v1/channels/connections`.\n\nToday only used for Linear, where the workspace connection has to be\nregistered explicitly because each Linear workspace creates its own\nwebhook with its own secret.",
+        "required": [
+          "provider",
+          "scopeValue"
+        ],
+        "properties": {
+          "provider": {
+            "type": "string",
+            "description": "Provider value. Currently only `\"linear\"` is accepted via this endpoint."
+          },
+          "scopeValue": {
+            "type": "string",
+            "description": "Workspace identifier (Linear org UUID)."
+          },
+          "sourceName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional human-readable name for the connection."
+          },
+          "teamId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Required when the caller belongs to multiple teams."
+          },
+          "transportConfig": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Optional transport-specific metadata (merged into `transport_config`).\nLinear example: `{\"workspace_url_key\":\"acme\"}`."
+          },
+          "webhookSecret": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "HMAC secret used to verify inbound webhooks for this workspace."
           }
         }
       },

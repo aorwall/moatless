@@ -5,7 +5,7 @@ use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
 use moatless_api_schemas::user::{SendDmRequest, SendDmResponse};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use crate::extractors::AuthUser;
 use crate::state::AppState;
@@ -206,10 +206,8 @@ pub async fn slack_webhook(
             Ok(StatusCode::OK.into_response())
         }
         SlackWebhookResult::Ignore => {
-            info!(
-                source_id,
-                "Slack event ignored by provider (bot message, unsupported event, or deduplicated)"
-            );
+            // Reason logged at the specific Ignore site in slack::provider::parse_event.
+            debug!(source_id, "Slack event ignored by provider");
             Ok(StatusCode::OK.into_response())
         }
     }
@@ -736,6 +734,54 @@ pub async fn github_pr_webhook(
     .await
     {
         warn!(error = %e, "GitHub PR webhook processing error");
+    }
+
+    Ok(StatusCode::OK)
+}
+
+// =========================================================================
+// Linear webhook handler
+// =========================================================================
+
+/// Handle Linear webhook for Issue / Comment events.
+#[utoipa::path(
+    post,
+    path = "/api/v1/channels/linear/webhook",
+    tag = "channels",
+    request_body(content = String, description = "Linear webhook payload"),
+    responses(
+        (status = 200, description = "Webhook processed"),
+        (status = 401, description = "Invalid signature")
+    )
+)]
+pub async fn linear_webhook(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<StatusCode, ChannelError> {
+    let providers = state
+        .channel_providers
+        .as_ref()
+        .ok_or_else(|| ChannelError::ProviderNotConfigured("linear".into()))?;
+
+    let linear = providers
+        .get(ChannelType::Linear)
+        .ok_or_else(|| ChannelError::ProviderNotConfigured("linear".into()))?;
+
+    let linear_provider = linear
+        .as_any()
+        .downcast_ref::<super::linear::provider::LinearProvider>()
+        .ok_or_else(|| ChannelError::Internal("Provider type mismatch".into()))?;
+
+    if let Err(e) = super::linear::provider::resolve_and_process_linear_webhook(
+        &state,
+        linear_provider,
+        &headers,
+        &body,
+    )
+    .await
+    {
+        warn!(error = %e, "Linear webhook processing error");
     }
 
     Ok(StatusCode::OK)
@@ -2280,9 +2326,12 @@ pub async fn create_ingress_rule(
     auth: AuthUser,
     Json(req): Json<CreateIngressRuleRequest>,
 ) -> Result<Json<IngressRuleResponse>, ChannelError> {
-    if !matches!(req.provider.as_str(), "github" | "slack" | "telegram") {
+    if !matches!(
+        req.provider.as_str(),
+        "github" | "slack" | "telegram" | "linear"
+    ) {
         return Err(ChannelError::BadRequest(format!(
-            "Only 'github', 'slack', and 'telegram' are supported for ingress rules; got '{}'",
+            "Only 'github', 'slack', 'telegram', and 'linear' are supported for ingress rules; got '{}'",
             req.provider
         )));
     }
@@ -2304,6 +2353,33 @@ pub async fn create_ingress_rule(
                 ChannelError::BadRequest(format!(
                     "No GitHub provider_connection for org '{owner}' — \
                      register the org webhook and run the 0034 migration first"
+                ))
+            })?
+    } else if req.provider == "linear" {
+        // For Linear the workspace connection (with org UUID + webhook secret)
+        // must be registered separately — we don't auto-create it here.
+        // `team_id` is the rule's `scope_matcher`; the connection's
+        // `scope_value` is the workspace org UUID, which the caller passes
+        // via `provider_config.workspace_id`.
+        let workspace_id = req
+            .provider_config
+            .as_ref()
+            .and_then(|v| v.get("workspace_id"))
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| {
+                ChannelError::BadRequest(
+                    "Linear rules require providerConfig.workspace_id pointing at the \
+                     registered Linear provider_connection (workspace org UUID)"
+                        .into(),
+                )
+            })?;
+        connection_repo
+            .find_by_scope_value("linear", workspace_id)
+            .await?
+            .ok_or_else(|| {
+                ChannelError::BadRequest(format!(
+                    "No Linear provider_connection for workspace '{workspace_id}' — \
+                     register the workspace first"
                 ))
             })?
     } else {
@@ -2331,8 +2407,24 @@ pub async fn create_ingress_rule(
     };
 
     let now = chrono::Utc::now();
-    let id = format!("ir_{}", nanoid::nanoid!(21));
     let event_filter = serde_json::json!(req.event_filter.unwrap_or_default());
+    let rule_repo = super::ingress_rule_dao::PgIngressRuleRepository(state.db.clone());
+
+    // Multi-rule semantics: Linear allows several listeners under the same
+    // (provider, scope_matcher) — always insert with a fresh id. For
+    // github/slack/telegram, preserve the pre-0040 "one rule per scope"
+    // upsert UX by reusing an existing rule's id when present.
+    let id = if req.provider == "linear" {
+        format!("ir_{}", nanoid::nanoid!(21))
+    } else {
+        match rule_repo
+            .find_by_scope_matcher(&req.provider, &req.scope_matcher)
+            .await?
+        {
+            Some(existing) => existing.id,
+            None => format!("ir_{}", nanoid::nanoid!(21)),
+        }
+    };
 
     let rule = super::models::IngressRule {
         id,
@@ -2364,9 +2456,7 @@ pub async fn create_ingress_rule(
         updated_at: now,
     };
 
-    let saved = super::ingress_rule_dao::PgIngressRuleRepository(state.db.clone())
-        .upsert(&rule)
-        .await?;
+    let saved = rule_repo.upsert(&rule).await?;
     info!(rule_id = %saved.id, scope_matcher = %saved.scope_matcher, "Ingress rule upserted");
     Ok(Json(ingress_rule_to_response(&saved)))
 }
@@ -2446,6 +2536,113 @@ pub async fn list_provider_connections(
         .list_by_provider(&provider)
         .await?;
     Ok(Json(conns.iter().map(connection_to_response).collect()))
+}
+
+/// Create or update a provider connection (currently Linear-only).
+///
+/// Linear workspaces have to be registered explicitly so the backend can
+/// store the webhook secret used to verify inbound deliveries. GitHub
+/// connections continue to be bootstrapped via migration 0034 and are not
+/// accepted here.
+#[utoipa::path(
+    post,
+    path = "/api/v1/channels/connections",
+    tag = "channels",
+    request_body = CreateProviderConnectionRequest,
+    responses(
+        (status = 200, description = "Connection upserted", body = ProviderConnectionResponse),
+        (status = 400, description = "Invalid request", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn create_provider_connection(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Json(req): Json<CreateProviderConnectionRequest>,
+) -> Result<Json<ProviderConnectionResponse>, ChannelError> {
+    if req.provider != "linear" {
+        return Err(ChannelError::BadRequest(format!(
+            "Only 'linear' connections can be registered via this endpoint; got '{}'",
+            req.provider
+        )));
+    }
+    if req.scope_value.trim().is_empty() {
+        return Err(ChannelError::BadRequest(
+            "scope_value (workspace org UUID) is required".into(),
+        ));
+    }
+
+    let team_id = match req.team_id.as_deref() {
+        Some(tid) => Some(tid.to_string()),
+        None if auth.team_ids.len() == 1 => Some(auth.team_ids[0].clone()),
+        None if auth.team_ids.len() > 1 => {
+            return Err(ChannelError::BadRequest(
+                "You belong to multiple teams. Please specify teamId.".to_string(),
+            ));
+        }
+        None => None,
+    };
+    let scope = if team_id.is_some() {
+        crate::scope::Scope::Team
+    } else {
+        crate::scope::Scope::User
+    };
+
+    let repo =
+        super::provider_connection_dao::PgProviderConnectionRepository(state.db.clone());
+
+    // Build the transport_config: start from the caller-provided object
+    // (or empty) and stamp `source: "registered"` so logs distinguish
+    // explicit registrations from migration-seeded rows.
+    let mut transport_config = req
+        .transport_config
+        .unwrap_or_else(|| serde_json::json!({}));
+    if let Some(obj) = transport_config.as_object_mut() {
+        obj.entry("source".to_string())
+            .or_insert(serde_json::json!("registered"));
+    } else {
+        transport_config = serde_json::json!({"source": "registered"});
+    }
+
+    let now = chrono::Utc::now();
+    // Reuse an existing row's id when present so this acts as an upsert
+    // (lets users rotate the webhook_secret without churning the id).
+    let existing = repo
+        .find_by_scope_value(&req.provider, &req.scope_value)
+        .await?;
+    let id = existing.as_ref().map_or_else(
+        || format!("pc_{}_{}", req.provider, nanoid::nanoid!(12)),
+        |c| c.id.clone(),
+    );
+
+    let connection = super::models::ProviderConnection {
+        id,
+        provider: req.provider,
+        connection_kind: "webhook".to_string(),
+        scope_value: req.scope_value,
+        credential_ref: existing.as_ref().and_then(|c| c.credential_ref.clone()),
+        webhook_secret: req.webhook_secret.or_else(|| {
+            existing
+                .as_ref()
+                .and_then(|c| c.webhook_secret.clone())
+        }),
+        transport_config,
+        created_by: existing
+            .as_ref()
+            .map_or_else(|| auth.user_id.clone(), |c| c.created_by.clone()),
+        scope,
+        team_id,
+        created_at: existing.as_ref().map_or(now, |c| c.created_at),
+        updated_at: now,
+    };
+
+    let saved = repo.upsert(&connection).await?;
+    info!(
+        connection_id = %saved.id,
+        provider = %saved.provider,
+        scope_value = %saved.scope_value,
+        "Provider connection upserted"
+    );
+    Ok(Json(connection_to_response(&saved)))
 }
 
 // =========================================================================

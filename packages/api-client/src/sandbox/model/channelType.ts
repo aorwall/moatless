@@ -19,4 +19,5 @@ export const ChannelType = {
   cron: 'cron',
   telegram: 'telegram',
   github_pr: 'github_pr',
+  linear: 'linear',
 } as const;

@@ -22,11 +22,30 @@ impl PgIngressRuleRepository {
         sqlx::query_as::<_, IngressRule>(
             r#"SELECT * FROM ingress_rules
                WHERE provider = $1 AND scope_matcher = $2
+               ORDER BY created_at ASC
                LIMIT 1"#,
         )
         .bind(provider)
         .bind(scope_matcher)
         .fetch_optional(&self.0)
+        .await
+    }
+
+    /// Return ALL rules for a given (provider, scope_matcher) — used by
+    /// Linear, where multiple listeners can share a team UUID.
+    pub async fn list_by_scope_matcher(
+        &self,
+        provider: &str,
+        scope_matcher: &str,
+    ) -> Result<Vec<IngressRule>, sqlx::Error> {
+        sqlx::query_as::<_, IngressRule>(
+            r#"SELECT * FROM ingress_rules
+               WHERE provider = $1 AND scope_matcher = $2
+               ORDER BY created_at ASC"#,
+        )
+        .bind(provider)
+        .bind(scope_matcher)
+        .fetch_all(&self.0)
         .await
     }
 
@@ -78,8 +97,10 @@ impl PgIngressRuleRepository {
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
                        $12, $13, $14, $15, $16, $17, $18, $19, $20,
                        $21, $22, $23, $24, $25)
-               ON CONFLICT (provider, scope_matcher) DO UPDATE
-               SET connection_id       = EXCLUDED.connection_id,
+               ON CONFLICT (id) DO UPDATE
+               SET provider            = EXCLUDED.provider,
+                   connection_id       = EXCLUDED.connection_id,
+                   scope_matcher       = EXCLUDED.scope_matcher,
                    source_name         = EXCLUDED.source_name,
                    routing_mode        = EXCLUDED.routing_mode,
                    event_filter        = EXCLUDED.event_filter,

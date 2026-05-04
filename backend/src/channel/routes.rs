@@ -17,6 +17,7 @@ use crate::state::AppState;
         handlers::slack_slash_command,
         handlers::telegram_webhook,
         handlers::github_pr_webhook,
+        handlers::linear_webhook,
         handlers::list_pairing_requests,
         handlers::approve_pairing,
         handlers::list_my_pairing_requests,
@@ -42,6 +43,7 @@ use crate::state::AppState;
         handlers::list_ingress_rules,
         handlers::delete_ingress_rule,
         handlers::list_provider_connections,
+        handlers::create_provider_connection,
         handlers::send_user_dm_handler,
         handlers::send_to_chat_destination,
     )
@@ -56,6 +58,7 @@ pub fn channel_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenAp
         .routes(routes!(handlers::slack_slash_command))
         .routes(routes!(handlers::telegram_webhook))
         .routes(routes!(handlers::github_pr_webhook))
+        .routes(routes!(handlers::linear_webhook))
         .routes(routes!(handlers::list_pairing_requests))
         .routes(routes!(handlers::approve_pairing))
         .routes(routes!(handlers::list_my_pairing_requests))
@@ -82,7 +85,10 @@ pub fn channel_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenAp
             handlers::list_ingress_rules
         ))
         .routes(routes!(handlers::delete_ingress_rule))
-        .routes(routes!(handlers::list_provider_connections))
+        .routes(routes!(
+            handlers::list_provider_connections,
+            handlers::create_provider_connection
+        ))
         .routes(routes!(handlers::send_user_dm_handler))
         .routes(routes!(handlers::send_to_chat_destination))
         .with_state(state)

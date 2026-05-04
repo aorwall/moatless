@@ -52,6 +52,8 @@ export * from './createCommandRequest';
 export * from './createCommandRequestConditions';
 export * from './createIngressRuleRequest';
 export * from './createIngressRuleRequestProviderConfig';
+export * from './createProviderConnectionRequest';
+export * from './createProviderConnectionRequestTransportConfig';
 export * from './createRepositoryRequest';
 export * from './createRepositoryRequestEnvVars';
 export * from './createRepositoryRequestPlugins';

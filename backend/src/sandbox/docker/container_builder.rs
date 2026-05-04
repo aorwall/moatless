@@ -536,6 +536,10 @@ mod tests {
                 webhook_secret: None,
                 bot_token: None,
             },
+            linear: crate::config::LinearConfig {
+                webhook_secret: None,
+                api_token: None,
+            },
             skill: crate::config::SkillConfig { cache_ttl_secs: 60 },
             secrets: crate::config::SecretsConfig {
                 encryption_key: Some("0123456789abcdef0123456789abcdef".to_string()),

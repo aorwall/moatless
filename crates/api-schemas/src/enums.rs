@@ -623,6 +623,7 @@ pub enum ChannelType {
     Cron,
     Telegram,
     GithubPr,
+    Linear,
 }
 
 impl ChannelType {
@@ -633,7 +634,12 @@ impl ChannelType {
     pub fn is_replyable(&self) -> bool {
         match self {
             Self::Cron => false,
-            Self::Slack | Self::Email | Self::Webhook | Self::Telegram | Self::GithubPr => true,
+            Self::Slack
+            | Self::Email
+            | Self::Webhook
+            | Self::Telegram
+            | Self::GithubPr
+            | Self::Linear => true,
         }
     }
 
@@ -645,6 +651,7 @@ impl ChannelType {
             Self::Cron => "cron",
             Self::Telegram => "telegram",
             Self::GithubPr => "github_pr",
+            Self::Linear => "linear",
         }
     }
 
@@ -656,6 +663,7 @@ impl ChannelType {
             "cron" => Some(Self::Cron),
             "telegram" => Some(Self::Telegram),
             "github_pr" => Some(Self::GithubPr),
+            "linear" => Some(Self::Linear),
             _ => None,
         }
     }
@@ -936,5 +944,12 @@ mod tests {
             Ok(RoutingMode::ThreadBased)
         );
         assert!(RoutingMode::try_from("invalid").is_err());
+    }
+
+    #[test]
+    fn channel_type_linear_roundtrip() {
+        assert_eq!(ChannelType::Linear.as_str(), "linear");
+        assert_eq!(ChannelType::parse("linear"), Some(ChannelType::Linear));
+        assert!(ChannelType::Linear.is_replyable());
     }
 }

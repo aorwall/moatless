@@ -693,6 +693,14 @@ impl ApiClient {
             .await
     }
 
+    /// POST /api/v1/channels/connections
+    pub async fn create_provider_connection(
+        &self,
+        req: &moatless_api_schemas::channel::CreateProviderConnectionRequest,
+    ) -> Result<moatless_api_schemas::channel::ProviderConnectionResponse, ApiError> {
+        self.post("/api/v1/channels/connections", req).await
+    }
+
     // ========================================================================
     // File uploads
     // ========================================================================

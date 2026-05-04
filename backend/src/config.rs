@@ -400,6 +400,30 @@ impl fmt::Debug for GithubPrConfig {
     }
 }
 
+/// Linear channel integration settings.
+///
+/// Implements a custom `Debug` to redact secrets.
+#[derive(Clone)]
+pub struct LinearConfig {
+    /// Global webhook secret for verifying Linear webhook signatures.
+    pub webhook_secret: Option<String>,
+    /// Global Linear API token used to comment back on issues.
+    pub api_token: Option<String>,
+}
+
+#[allow(clippy::missing_fields_in_debug)]
+impl fmt::Debug for LinearConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("LinearConfig")
+            .field(
+                "webhook_secret",
+                &self.webhook_secret.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field("api_token", &self.api_token.as_ref().map(|_| "[REDACTED]"))
+            .finish()
+    }
+}
+
 /// Docker-specific sandbox configuration.
 #[derive(Debug, Clone)]
 pub struct DockerConfig {
@@ -500,6 +524,7 @@ pub struct Config {
     pub slack: SlackConfig,
     pub telegram: TelegramConfig,
     pub github_pr: GithubPrConfig,
+    pub linear: LinearConfig,
     pub skill: SkillConfig,
     pub secrets: SecretsConfig,
     pub codex_oauth: CodexOAuthConfig,
@@ -670,6 +695,11 @@ impl Config {
             github_pr: GithubPrConfig {
                 webhook_secret: env_opt("GITHUB_CHANNEL_WEBHOOK_SECRET"),
                 bot_token: env_opt("GITHUB_CHANNEL_TOKEN"),
+            },
+
+            linear: LinearConfig {
+                webhook_secret: env_opt("LINEAR_CHANNEL_WEBHOOK_SECRET"),
+                api_token: env_opt("LINEAR_CHANNEL_TOKEN"),
             },
 
             skill: SkillConfig {
@@ -1008,6 +1038,10 @@ mod tests {
             github_pr: GithubPrConfig {
                 webhook_secret: None,
                 bot_token: None,
+            },
+            linear: LinearConfig {
+                webhook_secret: None,
+                api_token: None,
             },
             skill: SkillConfig { cache_ttl_secs: 60 },
             secrets: SecretsConfig {

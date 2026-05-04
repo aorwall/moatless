@@ -231,10 +231,22 @@ impl ChannelProviders {
             let github_pr = super::github_pr::provider::GithubPrProvider::new(
                 config.github_pr.webhook_secret.clone(),
                 config.github_pr.bot_token.clone(),
-                db,
+                db.clone(),
             );
             providers.register(Arc::new(github_pr));
             tracing::info!("GitHub PR channel provider configured");
+        }
+
+        // Linear provider (always available — per-team auth resolves via
+        // provider_tokens; env-level token is the fallback)
+        {
+            let linear = super::linear::provider::LinearProvider::new(
+                config.linear.webhook_secret.clone(),
+                config.linear.api_token.clone(),
+                db,
+            );
+            providers.register(Arc::new(linear));
+            tracing::info!("Linear channel provider configured");
         }
 
         Some(providers)

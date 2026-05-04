@@ -33,6 +33,7 @@ import type {
   ConnectChannelResponse,
   CreateChannelConfigRequest,
   CreateIngressRuleRequest,
+  CreateProviderConnectionRequest,
   DirectSendRequest,
   DirectSendResponse,
   ErrorBody,
@@ -1042,6 +1043,99 @@ export const prefetchListProviderConnectionsQuery = async <TData = Awaited<Retur
 
 
 /**
+ * Linear workspaces have to be registered explicitly so the backend can
+store the webhook secret used to verify inbound deliveries. GitHub
+connections continue to be bootstrapped via migration 0034 and are not
+accepted here.
+ * @summary Create or update a provider connection (currently Linear-only).
+ */
+export type createProviderConnectionResponse200 = {
+  data: ProviderConnectionResponse
+  status: 200
+}
+
+export type createProviderConnectionResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+    
+export type createProviderConnectionResponseSuccess = (createProviderConnectionResponse200) & {
+  headers: Headers;
+};
+export type createProviderConnectionResponseError = (createProviderConnectionResponse400) & {
+  headers: Headers;
+};
+
+export type createProviderConnectionResponse = (createProviderConnectionResponseSuccess | createProviderConnectionResponseError)
+
+export const getCreateProviderConnectionUrl = () => {
+
+
+  
+
+  return `/api/v1/channels/connections`
+}
+
+export const createProviderConnection = async (createProviderConnectionRequest: CreateProviderConnectionRequest, options?: RequestInit): Promise<createProviderConnectionResponse> => {
+  
+  return customInstance<createProviderConnectionResponse>(getCreateProviderConnectionUrl(),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      createProviderConnectionRequest,)
+  }
+);}
+
+
+
+
+export const getCreateProviderConnectionMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createProviderConnection>>, TError,{data: CreateProviderConnectionRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof createProviderConnection>>, TError,{data: CreateProviderConnectionRequest}, TContext> => {
+
+const mutationKey = ['createProviderConnection'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createProviderConnection>>, {data: CreateProviderConnectionRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createProviderConnection(data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateProviderConnectionMutationResult = NonNullable<Awaited<ReturnType<typeof createProviderConnection>>>
+    export type CreateProviderConnectionMutationBody = CreateProviderConnectionRequest
+    export type CreateProviderConnectionMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Create or update a provider connection (currently Linear-only).
+ */
+export const useCreateProviderConnection = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createProviderConnection>>, TError,{data: CreateProviderConnectionRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof createProviderConnection>>,
+        TError,
+        {data: CreateProviderConnectionRequest},
+        TContext
+      > => {
+      return useMutation(getCreateProviderConnectionMutationOptions(options), queryClient);
+    }
+    /**
  * Returns the wildcard (`source_id="*"`) config that serves as the default
 template for auto-creating per-channel configs.
  * @summary Get channel defaults for a provider.
@@ -1370,6 +1464,95 @@ export const useGithubPrWebhook = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getGithubPrWebhookMutationOptions(options), queryClient);
+    }
+    /**
+ * @summary Handle Linear webhook for Issue / Comment events.
+ */
+export type linearWebhookResponse200 = {
+  data: void
+  status: 200
+}
+
+export type linearWebhookResponse401 = {
+  data: void
+  status: 401
+}
+    
+export type linearWebhookResponseSuccess = (linearWebhookResponse200) & {
+  headers: Headers;
+};
+export type linearWebhookResponseError = (linearWebhookResponse401) & {
+  headers: Headers;
+};
+
+export type linearWebhookResponse = (linearWebhookResponseSuccess | linearWebhookResponseError)
+
+export const getLinearWebhookUrl = () => {
+
+
+  
+
+  return `/api/v1/channels/linear/webhook`
+}
+
+export const linearWebhook = async (linearWebhookBody: string, options?: RequestInit): Promise<linearWebhookResponse> => {
+  
+  return customInstance<linearWebhookResponse>(getLinearWebhookUrl(),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain', ...options?.headers },
+    body: 
+      linearWebhookBody,
+  }
+);}
+
+
+
+
+export const getLinearWebhookMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof linearWebhook>>, TError,{data: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof linearWebhook>>, TError,{data: string}, TContext> => {
+
+const mutationKey = ['linearWebhook'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof linearWebhook>>, {data: string}> = (props) => {
+          const {data} = props ?? {};
+
+          return  linearWebhook(data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type LinearWebhookMutationResult = NonNullable<Awaited<ReturnType<typeof linearWebhook>>>
+    export type LinearWebhookMutationBody = string
+    export type LinearWebhookMutationError = ErrorType<void>
+
+    /**
+ * @summary Handle Linear webhook for Issue / Comment events.
+ */
+export const useLinearWebhook = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof linearWebhook>>, TError,{data: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof linearWebhook>>,
+        TError,
+        {data: string},
+        TContext
+      > => {
+      return useMutation(getLinearWebhookMutationOptions(options), queryClient);
     }
     /**
  * @summary List all pending pairing requests across all channels owned by the

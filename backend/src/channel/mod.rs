@@ -11,6 +11,7 @@ pub mod github_pr;
 pub mod handlers;
 pub mod inbound;
 pub mod ingress_rule_dao;
+pub mod linear;
 pub mod listen;
 pub mod models;
 pub mod outbound;

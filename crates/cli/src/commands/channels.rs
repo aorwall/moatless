@@ -3,7 +3,8 @@
 use clap::Subcommand;
 use moatless_api_schemas::channel::{
     ChannelConfigResponse, ChatDestinationSendRequest, ConnectChannelRequest,
-    CreateChannelConfigRequest, CreateIngressRuleRequest, DirectSendRequest, IngressRuleResponse,
+    CreateChannelConfigRequest, CreateIngressRuleRequest, CreateProviderConnectionRequest,
+    DirectSendRequest, IngressRuleResponse, ProviderConnectionResponse,
     SendChannelMessageRequest, TriggerChannelRequest, UpdateChannelConfigRequest,
 };
 use moatless_api_schemas::enums::{ChannelType, RoutingMode};
@@ -167,6 +168,42 @@ pub enum ChannelAction {
         #[command(subcommand)]
         action: RulesAction,
     },
+    /// Manage workspace-level provider connections (Linear today)
+    Connections {
+        #[command(subcommand)]
+        action: ConnectionsAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ConnectionsAction {
+    /// List provider connections (filter by provider, defaults to "linear")
+    List {
+        #[arg(long)]
+        provider: Option<String>,
+    },
+    /// Register a Linear workspace connection. Idempotent: re-running with the
+    /// same `--scope-value` rotates the webhook secret without churning the id.
+    Create {
+        /// Provider to register. Currently only `"linear"` is accepted.
+        #[arg(long, default_value = "linear")]
+        provider: String,
+        /// Workspace identifier (Linear org UUID).
+        #[arg(long = "scope-value")]
+        scope_value: String,
+        /// HMAC secret used to verify inbound webhooks.
+        #[arg(long = "webhook-secret")]
+        webhook_secret: Option<String>,
+        /// Optional human-readable name (only used in logs/UI today).
+        #[arg(long = "source-name")]
+        source_name: Option<String>,
+        /// Linear workspace URL key (e.g. "acme" for acme.linear.app).
+        #[arg(long = "workspace-url-key")]
+        workspace_url_key: Option<String>,
+        /// Team ID to scope the connection to.
+        #[arg(long)]
+        team: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -178,14 +215,41 @@ pub enum RulesAction {
         #[arg(long)]
         provider: Option<String>,
     },
-    /// Create or upsert an ingress rule for a GitHub repo
+    /// Create an ingress rule.
+    ///
+    /// For GitHub, the rule is keyed by repo full name (`--repo owner/repo`).
+    /// For Linear, the rule is keyed by team UUID (`--team-uuid <uuid>`),
+    /// scoped to a workspace via `--workspace-id`. Multiple Linear rules can
+    /// share a team — each evaluates its `(require-labels, trigger-states,
+    /// terminal-states)` filter independently.
     Create {
-        /// Provider (only "github" is supported today)
+        /// Provider: `"github"` or `"linear"`.
         #[arg(long, default_value = "github")]
         provider: String,
-        /// Repo full name in `owner/repo` form (or `owner/*` wildcard)
+        /// GitHub: repo full name in `owner/repo` form (or `owner/*` wildcard).
+        /// Required for `--provider github`.
         #[arg(long)]
-        repo: String,
+        repo: Option<String>,
+        /// Linear: team UUID. Required for `--provider linear`.
+        #[arg(long = "team-uuid")]
+        team_uuid: Option<String>,
+        /// Linear: workspace org UUID. Required for `--provider linear`. Must
+        /// match a registered connection (`moat channels connections create`).
+        #[arg(long = "workspace-id")]
+        workspace_id: Option<String>,
+        /// Linear: comma-separated label names — issue must carry every one
+        /// to trigger. Empty means "no label filter".
+        #[arg(long = "require-labels", value_delimiter = ',')]
+        require_labels: Option<Vec<String>>,
+        /// Linear: comma-separated state names whose ENTRY fires task
+        /// creation. Default: `Todo,In Progress`.
+        #[arg(long = "trigger-states", value_delimiter = ',')]
+        trigger_states: Option<Vec<String>>,
+        /// Linear: comma-separated state names whose ENTRY closes the task
+        /// (gated by `--close-task-on-close`). Default:
+        /// `Done,Cancelled,Canceled,Duplicate`.
+        #[arg(long = "terminal-states", value_delimiter = ',')]
+        terminal_states: Option<Vec<String>>,
         /// Repository ID in moatless to route messages to
         #[arg(long = "repository-id")]
         repository_id: String,
@@ -204,13 +268,14 @@ pub enum RulesAction {
         /// User to run tasks as (falls back to created_by)
         #[arg(long = "run-as-user")]
         run_as_user_id: Option<String>,
-        /// Auto-close the task when the PR is closed (default: true)
+        /// Auto-close the task when the PR is closed / Linear issue moves to
+        /// a terminal state (default: true)
         #[arg(long = "close-task-on-close")]
         close_task_on_close: Option<bool>,
-        /// Notify when a check_suite completes successfully
+        /// GitHub: notify when a check_suite completes successfully
         #[arg(long = "notify-on-success")]
         notify_on_success: bool,
-        /// Comma-separated event filter (empty means all)
+        /// GitHub: comma-separated event filter (empty means all)
         #[arg(long = "event-filter", value_delimiter = ',')]
         event_filter: Option<Vec<String>>,
         /// Team ID to scope the rule to (auto-resolved when single-team)
@@ -269,7 +334,7 @@ pub async fn run(
         ChannelAction::List => {
             let configs = client.api().list_channel_configs(None, None).await?;
             let mut rules = Vec::new();
-            for provider in ["github", "slack", "telegram"] {
+            for provider in ["github", "slack", "telegram", "linear"] {
                 if let Ok(mut provider_rules) =
                     client.api().list_ingress_rules(Some(provider)).await
                 {
@@ -670,8 +735,83 @@ pub async fn run(
         ChannelAction::Rules { action: rules } => {
             run_rules(client, rules, json).await?;
         }
+        ChannelAction::Connections { action: connections } => {
+            run_connections(client, connections, json).await?;
+        }
     }
     Ok(())
+}
+
+async fn run_connections(
+    client: &MoatClient,
+    action: ConnectionsAction,
+    json: bool,
+) -> Result<(), ClientError> {
+    match action {
+        ConnectionsAction::List { provider } => {
+            let provider = provider.unwrap_or_else(|| "linear".into());
+            let conns = client
+                .api()
+                .list_provider_connections(Some(&provider))
+                .await?;
+            if json {
+                output::print_json_typed(&conns);
+            } else {
+                format_provider_connections(&conns);
+            }
+        }
+        ConnectionsAction::Create {
+            provider,
+            scope_value,
+            webhook_secret,
+            source_name,
+            workspace_url_key,
+            team,
+        } => {
+            let mut transport = serde_json::Map::new();
+            if let Some(key) = workspace_url_key {
+                transport.insert("workspace_url_key".into(), serde_json::Value::String(key));
+            }
+            let transport_config = if transport.is_empty() {
+                None
+            } else {
+                Some(serde_json::Value::Object(transport))
+            };
+
+            let req = CreateProviderConnectionRequest {
+                provider,
+                scope_value,
+                webhook_secret,
+                source_name,
+                transport_config,
+                team_id: team,
+            };
+            let created = client.api().create_provider_connection(&req).await?;
+            if json {
+                output::print_json_typed(&created);
+            } else {
+                println!(
+                    "Connection upserted: {} (provider={}, scope_value={})",
+                    created.id, created.provider, created.scope_value
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+fn format_provider_connections(conns: &[ProviderConnectionResponse]) {
+    if conns.is_empty() {
+        println!("No provider connections.");
+        return;
+    }
+    println!("{:<32} {:<10} {:<14} SCOPE_VALUE", "ID", "PROVIDER", "KIND");
+    for c in conns {
+        println!(
+            "{:<32} {:<10} {:<14} {}",
+            c.id, c.provider, c.connection_kind, c.scope_value
+        );
+    }
 }
 
 async fn run_rules(
@@ -694,6 +834,11 @@ async fn run_rules(
         RulesAction::Create {
             provider,
             repo,
+            team_uuid,
+            workspace_id,
+            require_labels,
+            trigger_states,
+            terminal_states,
             repository_id,
             task_name,
             tag_ids,
@@ -706,16 +851,70 @@ async fn run_rules(
             team,
             inactive,
         } => {
+            let (scope_matcher, provider_config) = if provider == "linear" {
+                let team_uuid = team_uuid.ok_or_else(|| {
+                    ClientError::Other(
+                        "--team-uuid is required for --provider linear (the Linear team UUID)"
+                            .into(),
+                    )
+                })?;
+                let workspace_id = workspace_id.ok_or_else(|| {
+                    ClientError::Other(
+                        "--workspace-id is required for --provider linear; \
+                         register the workspace first with \
+                         `moat channels connections create --provider linear --scope-value <id>`"
+                            .into(),
+                    )
+                })?;
+                let mut cfg = serde_json::Map::new();
+                cfg.insert(
+                    "workspace_id".into(),
+                    serde_json::Value::String(workspace_id),
+                );
+                if let Some(labels) = require_labels {
+                    cfg.insert(
+                        "require_labels".into(),
+                        serde_json::Value::Array(
+                            labels.into_iter().map(serde_json::Value::String).collect(),
+                        ),
+                    );
+                }
+                if let Some(states) = trigger_states {
+                    cfg.insert(
+                        "trigger_states".into(),
+                        serde_json::Value::Array(
+                            states.into_iter().map(serde_json::Value::String).collect(),
+                        ),
+                    );
+                }
+                if let Some(states) = terminal_states {
+                    cfg.insert(
+                        "terminal_states".into(),
+                        serde_json::Value::Array(
+                            states.into_iter().map(serde_json::Value::String).collect(),
+                        ),
+                    );
+                }
+                (team_uuid, Some(serde_json::Value::Object(cfg)))
+            } else {
+                let scope = repo.ok_or_else(|| {
+                    ClientError::Other(format!(
+                        "--repo is required for --provider {provider}"
+                    ))
+                })?;
+                (scope, None)
+            };
+
             let req = CreateIngressRuleRequest {
                 provider,
-                scope_matcher: repo,
+                scope_matcher,
                 source_name: None,
                 repository_id,
                 routing_mode: None,
                 task_name,
                 tag_ids,
                 prompt_template,
-                provider_config: None,
+                provider_config,
                 allow_direct_send: None,
                 response_rule_id: None,
                 ongoing_task_id: None,

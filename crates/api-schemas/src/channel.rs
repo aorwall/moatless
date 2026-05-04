@@ -339,6 +339,31 @@ pub struct PairingRequestResponse {
 // Provider connections + ingress rules (GitHub-native flow)
 // ---------------------------------------------------------------------------
 
+/// Request body for `POST /api/v1/channels/connections`.
+///
+/// Today only used for Linear, where the workspace connection has to be
+/// registered explicitly because each Linear workspace creates its own
+/// webhook with its own secret.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct CreateProviderConnectionRequest {
+    /// Provider value. Currently only `"linear"` is accepted via this endpoint.
+    pub provider: String,
+    /// Workspace identifier (Linear org UUID).
+    pub scope_value: String,
+    /// HMAC secret used to verify inbound webhooks for this workspace.
+    pub webhook_secret: Option<String>,
+    /// Optional human-readable name for the connection.
+    pub source_name: Option<String>,
+    /// Optional transport-specific metadata (merged into `transport_config`).
+    /// Linear example: `{"workspace_url_key":"acme"}`.
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
+    pub transport_config: Option<serde_json::Value>,
+    /// Required when the caller belongs to multiple teams.
+    pub team_id: Option<String>,
+}
+
 /// One row from `provider_connections` — describes a transport/auth scope
 /// (e.g. one GitHub org webhook).
 #[derive(Debug, Serialize, Deserialize)]
