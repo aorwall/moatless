@@ -12,4 +12,9 @@ export type FileTreeHandlerParams = {
  * @nullable
  */
 path?: string | null;
+/**
+ * Walk subdirectories (default false: only direct children of `path`)
+ * @nullable
+ */
+recursive?: boolean | null;
 };
