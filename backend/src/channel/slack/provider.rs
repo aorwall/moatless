@@ -276,12 +276,15 @@ impl SlackProvider {
         }
 
         // 4. Extract event
-        let event = match payload.get("event") {
-            Some(e) => e,
-            None => return Ok(SlackWebhookResult::Ignore),
+        let event = if let Some(e) = payload.get("event") {
+            e
+        } else {
+            info!(reason = "no_event_field", "Slack event ignored");
+            return Ok(SlackWebhookResult::Ignore);
         };
 
         let event_type = event.get("type").and_then(|v| v.as_str()).unwrap_or("");
+        let event_subtype = event.get("subtype").and_then(|v| v.as_str()).unwrap_or("");
         let event_id = payload
             .get("event_id")
             .and_then(|v| v.as_str())
@@ -290,7 +293,12 @@ impl SlackProvider {
         // 5. Deduplication
         if !event_id.is_empty() {
             if self.dedup_cache.get(event_id).await.is_some() {
-                debug!(event_id = %event_id, "Duplicate Slack event, ignoring");
+                info!(
+                    reason = "duplicate_event_id",
+                    event_id = %event_id,
+                    event_type = %event_type,
+                    "Slack event ignored"
+                );
                 return Ok(SlackWebhookResult::Ignore);
             }
             self.dedup_cache.insert(event_id.to_string(), ()).await;
@@ -303,11 +311,27 @@ impl SlackProvider {
         // 7. Ignore bot's own messages
         if let Some(ref bot_id) = self.bot_user_id {
             if user == bot_id {
+                info!(
+                    reason = "user_is_own_bot",
+                    event_type = %event_type,
+                    user = %user,
+                    source_id = %channel,
+                    "Slack event ignored"
+                );
                 return Ok(SlackWebhookResult::Ignore);
             }
         }
         // Also check for bot_id field (different from user field)
-        if event.get("bot_id").is_some() {
+        if let Some(bot_id_value) = event.get("bot_id") {
+            info!(
+                reason = "bot_id_field_present",
+                event_type = %event_type,
+                event_subtype = %event_subtype,
+                user = %user,
+                bot_id = %bot_id_value,
+                source_id = %channel,
+                "Slack event ignored"
+            );
             return Ok(SlackWebhookResult::Ignore);
         }
 
@@ -330,14 +354,33 @@ impl SlackProvider {
             (_, "message") if is_dm => {
                 debug!(event_id = %event_id, channel = %channel, "Processing DM (trigger bypass)");
             }
-            _ => return Ok(SlackWebhookResult::Ignore),
+            _ => {
+                info!(
+                    reason = "trigger_filter",
+                    event_type = %event_type,
+                    event_subtype = %event_subtype,
+                    trigger = ?slack_config.trigger,
+                    is_tracked_thread,
+                    is_dm,
+                    user = %user,
+                    source_id = %channel,
+                    "Slack event ignored"
+                );
+                return Ok(SlackWebhookResult::Ignore);
+            }
         }
 
         // 9. Enforce access policy
         match enforce_slack_access(&slack_config, channel, user) {
             AccessDecision::Allowed => {}
             AccessDecision::Blocked | AccessDecision::PairingSent => {
-                debug!(channel, user, "Slack message blocked by access policy");
+                info!(
+                    reason = "access_policy",
+                    event_type = %event_type,
+                    user = %user,
+                    source_id = %channel,
+                    "Slack event ignored"
+                );
                 return Ok(SlackWebhookResult::Ignore);
             }
         }
@@ -348,6 +391,15 @@ impl SlackProvider {
         let thread_ts = event.get("thread_ts").and_then(|v| v.as_str());
 
         if text.is_empty() || ts.is_empty() {
+            info!(
+                reason = "empty_text_or_ts",
+                event_type = %event_type,
+                text_empty = text.is_empty(),
+                ts_empty = ts.is_empty(),
+                user = %user,
+                source_id = %channel,
+                "Slack event ignored"
+            );
             return Ok(SlackWebhookResult::Ignore);
         }
 
@@ -358,11 +410,23 @@ impl SlackProvider {
                 .as_ref()
                 .is_some_and(|bid| text.contains(&format!("<@{bid}>")));
 
-        // Strip bot mention and convert Slack mrkdwn to readable text
-        let clean_text = strip_bot_mention(text, self.bot_user_id.as_deref());
-        let clean_text = super::format::format_slack_text(&clean_text);
+        // Convert Slack mrkdwn to readable text. We deliberately do NOT strip
+        // the bot's own `<@bot_id>` mention — the agent's system prompt
+        // (`build_slack_reply_instructions`) already explains that token.
+        // Stripping previously caused bare `@bot` replies to be silently
+        // dropped because the post-strip text was empty.
+        let clean_text = super::format::format_slack_text(text);
 
         if clean_text.trim().is_empty() {
+            info!(
+                reason = "empty_text_after_format",
+                event_type = %event_type,
+                raw_text_len = text.len(),
+                is_bot_mentioned,
+                user = %user,
+                source_id = %channel,
+                "Slack event ignored"
+            );
             return Ok(SlackWebhookResult::Ignore);
         }
 
@@ -797,37 +861,9 @@ impl ChannelProvider for SlackProvider {
     }
 }
 
-/// Strip bot mention from message text (e.g., "<@U123ABC> fix the bug" → "fix the bug").
-fn strip_bot_mention(text: &str, bot_user_id: Option<&str>) -> String {
-    if let Some(bot_id) = bot_user_id {
-        let mention = format!("<@{bot_id}>");
-        text.replace(&mention, "").trim().to_string()
-    } else {
-        text.to_string()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn strip_mention() {
-        let text = "<@U123ABC> fix the bug";
-        assert_eq!(strip_bot_mention(text, Some("U123ABC")), "fix the bug");
-    }
-
-    #[test]
-    fn strip_mention_no_bot_id() {
-        let text = "<@U123ABC> fix the bug";
-        assert_eq!(strip_bot_mention(text, None), "<@U123ABC> fix the bug");
-    }
-
-    #[test]
-    fn strip_mention_no_mention_in_text() {
-        let text = "fix the bug";
-        assert_eq!(strip_bot_mention(text, Some("U123ABC")), "fix the bug");
-    }
 
     #[test]
     fn reply_instructions_include_identity_with_bot_id() {
