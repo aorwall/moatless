@@ -302,7 +302,9 @@ impl EventHandlerConsumer {
                 AgentSubType::Started
                 | AgentSubType::PendingResponse
                 | AgentSubType::Retrying
-                | AgentSubType::Scheduled,
+                | AgentSubType::Scheduled
+                | AgentSubType::RecoveryStarted
+                | AgentSubType::RecoveryExhausted,
             )
             | EventKey::Task(
                 TaskSubType::Open

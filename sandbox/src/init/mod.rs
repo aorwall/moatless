@@ -132,6 +132,11 @@ pub async fn run_init(state: SandboxState) {
 
     info!(task_id = %state.config.task_id, "Core init complete — health is now ready");
 
+    // Auto-resume any agent run that was interrupted by a prior pod restart.
+    // Must run before `dispatch_pending_messages` so the recovery turn lands
+    // in `queued_sends` ahead of any newly arrived messages, preserving order.
+    recover_interrupted_run(&state).await;
+
     // Fetch any messages that arrived during initialization.
     // Spawned (not awaited) so it doesn't block Phase 2 workspace setup.
     let startup_state = state.clone();
@@ -170,6 +175,39 @@ pub async fn run_init(state: SandboxState) {
     // back to the backend so subsequent tasks (and pod restarts) see the new
     // refresh_token instead of the now-invalidated stored copy.
     spawn_codex_auth_watcher(&state).await;
+}
+
+/// Detect any interrupted agent run via the backend RPC and queue a resume on
+/// the agent actor. Runs once on startup, before `dispatch_pending_messages`.
+///
+/// The backend handler does the heavy lifting (looks up the unfinished
+/// user-turn, increments `recovery_attempts`, publishes the
+/// `agent.recovery_started` event). If we get back a turn we feed it through
+/// the existing `--resume <session_id>` path; otherwise this is a no-op.
+async fn recover_interrupted_run(state: &SandboxState) {
+    let task_id = &state.config.task_id;
+    match state.backend_client.recover_interrupted_run(task_id).await {
+        Ok(Some(turn)) => {
+            tracing::warn!(
+                task_id = %task_id,
+                session_id = %turn.session_id,
+                turn_number = turn.turn_number,
+                "Resuming interrupted agent run"
+            );
+            state.agent_handle.recover(
+                turn.prompt_text,
+                turn.agent_type,
+                turn.agent_mode,
+                turn.session_id,
+            );
+        }
+        Ok(None) => {
+            tracing::debug!(task_id = %task_id, "No interrupted run to recover");
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, task_id = %task_id, "recover_interrupted_run failed");
+        }
+    }
 }
 
 async fn spawn_codex_auth_watcher(state: &SandboxState) {

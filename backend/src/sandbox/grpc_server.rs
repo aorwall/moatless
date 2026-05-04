@@ -9,13 +9,15 @@ use serde_json::Value;
 use tonic::{Request, Response, Status};
 use tracing::{debug, info, warn};
 
+use moatless_events::AgentSubType;
 use sandbox_proto::backend_sandbox_service_server::BackendSandboxService;
 use sandbox_proto::{
     AcknowledgeMessagesRequest, AcknowledgeMessagesResponse, DownloadUploadRequest,
     DownloadUploadResponse, GetCredentialsRequest, GetCredentialsResponse,
     GetPendingMessagesRequest, GetPendingMessagesResponse, GetSystemPromptRequest,
-    GetSystemPromptResponse, PublishEventRequest, PublishEventResponse, UpdateCredentialRequest,
-    UpdateCredentialResponse,
+    GetSystemPromptResponse, InterruptedTurn as ProtoInterruptedTurn, PublishEventRequest,
+    PublishEventResponse, RecoverInterruptedRunRequest, RecoverInterruptedRunResponse,
+    UpdateCredentialRequest, UpdateCredentialResponse,
 };
 
 use crate::agent::prompt;
@@ -621,6 +623,137 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             data,
             filename: meta.filename,
             mime_type: meta.mime_type,
+        }))
+    }
+
+    /// Detect an interrupted agent run and return the data needed to replay it.
+    ///
+    /// Called by the sandbox once on startup, **before** pending-message
+    /// dispatch. An interrupted run is a user-turn whose `agent_session_id`
+    /// is set (the sandbox acknowledged it) but whose turn never reached a
+    /// terminal `agent.completed/error/stopped` event row — i.e. the prior
+    /// pod was killed mid-run.
+    ///
+    /// Bumps `recovery_attempts` on each successful return. When the
+    /// `MAX_RECOVERY_ATTEMPTS` cap is hit, inserts a synthetic Aborted Result
+    /// row and publishes `agent.recovery_exhausted` so the UI can surface the
+    /// failure clearly. This stops OOM-loop pods from hammering recovery.
+    async fn recover_interrupted_run(
+        &self,
+        request: Request<RecoverInterruptedRunRequest>,
+    ) -> Result<Response<RecoverInterruptedRunResponse>, Status> {
+        if self.task_token_secret.is_some() {
+            let _claims = self.verify_auth(&request)?;
+        }
+
+        let req = request.into_inner();
+
+        let Some(ref messages) = self.messages else {
+            return Ok(Response::new(RecoverInterruptedRunResponse { turn: None }));
+        };
+
+        let interrupted = match messages.find_interrupted_turn(&req.task_id).await {
+            Ok(Some(turn)) => turn,
+            Ok(None) => {
+                debug!(task_id = %req.task_id, "RecoverInterruptedRun: no interrupted turn");
+                return Ok(Response::new(RecoverInterruptedRunResponse { turn: None }));
+            }
+            Err(e) => {
+                warn!(task_id = %req.task_id, error = %e, "find_interrupted_turn failed");
+                return Err(Status::internal("Failed to query interrupted turn"));
+            }
+        };
+
+        const MAX_RECOVERY_ATTEMPTS: i32 = 3;
+        if interrupted.recovery_attempts >= MAX_RECOVERY_ATTEMPTS {
+            warn!(
+                task_id = %req.task_id,
+                turn_number = interrupted.turn_number,
+                attempts = interrupted.recovery_attempts,
+                "RecoverInterruptedRun: cap reached, marking aborted"
+            );
+            let abort_text = format!(
+                "Recovery abandoned after {} attempts. The agent run was \
+                 interrupted by repeated sandbox restarts.",
+                interrupted.recovery_attempts
+            );
+            if let Err(e) = messages
+                .insert_aborted_result(&req.task_id, interrupted.turn_number, &abort_text)
+                .await
+            {
+                warn!(error = %e, task_id = %req.task_id, "Failed to insert aborted result row");
+            }
+            if let Some(ref publisher) = self.events {
+                publisher
+                    .publish_agent_event(
+                        &req.task_id,
+                        AgentSubType::RecoveryExhausted,
+                        None,
+                        serde_json::json!({
+                            "turn_number": interrupted.turn_number,
+                            "session_id": interrupted.session_id,
+                            "attempts": interrupted.recovery_attempts,
+                        }),
+                    )
+                    .await;
+            }
+            return Ok(Response::new(RecoverInterruptedRunResponse { turn: None }));
+        }
+
+        let new_attempts = match messages
+            .increment_recovery_attempts(interrupted.task_message_id)
+            .await
+        {
+            Ok(n) => n,
+            Err(e) => {
+                warn!(error = %e, task_id = %req.task_id, "increment_recovery_attempts failed");
+                return Err(Status::internal("Failed to increment recovery attempts"));
+            }
+        };
+
+        let task_agent_type = if let Some(ref tasks) = self.tasks {
+            tasks
+                .find_by_id_internal(&req.task_id)
+                .await
+                .ok()
+                .flatten()
+                .map(|t| t.agent_type.0)
+        } else {
+            None
+        };
+
+        if let Some(ref publisher) = self.events {
+            publisher
+                .publish_agent_event(
+                    &req.task_id,
+                    AgentSubType::RecoveryStarted,
+                    task_agent_type.as_deref(),
+                    serde_json::json!({
+                        "turn_number": interrupted.turn_number,
+                        "session_id": interrupted.session_id,
+                        "attempt": new_attempts,
+                        "max_attempts": MAX_RECOVERY_ATTEMPTS,
+                    }),
+                )
+                .await;
+        }
+
+        info!(
+            task_id = %req.task_id,
+            session_id = %interrupted.session_id,
+            turn_number = interrupted.turn_number,
+            attempt = new_attempts,
+            "RecoverInterruptedRun: replaying interrupted turn"
+        );
+
+        Ok(Response::new(RecoverInterruptedRunResponse {
+            turn: Some(ProtoInterruptedTurn {
+                session_id: interrupted.session_id,
+                turn_number: i64::from(interrupted.turn_number),
+                prompt_text: interrupted.prompt_text,
+                agent_type: task_agent_type,
+                agent_mode: interrupted.agent_mode,
+            }),
         }))
     }
 }

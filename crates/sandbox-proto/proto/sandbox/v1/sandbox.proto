@@ -36,6 +36,13 @@ service BackendSandboxService {
   // will be rejected with `resource_exhausted`; switch to a server-streaming
   // RPC if real usage hits the limit.
   rpc DownloadUpload(DownloadUploadRequest) returns (DownloadUploadResponse);
+
+  // Detect whether the previous agent run for a task was interrupted (the
+  // sandbox crashed/restarted before any terminal `agent.completed/error/
+  // stopped` event was emitted) and, if so, return the data needed to replay
+  // it via `claude --resume <session_id>`. Called once on sandbox startup,
+  // before pending-message dispatch.
+  rpc RecoverInterruptedRun(RecoverInterruptedRunRequest) returns (RecoverInterruptedRunResponse);
 }
 
 enum EventType {
@@ -153,6 +160,30 @@ message DownloadUploadResponse {
   bytes data = 1;
   string filename = 2;
   string mime_type = 3;
+}
+
+message RecoverInterruptedRunRequest {
+  string task_id = 1;
+  // auth via gRPC metadata (authorization: Bearer <token>)
+}
+
+message RecoverInterruptedRunResponse {
+  // Set when an interrupted turn is eligible for replay. Absent when there is
+  // nothing to recover or the recovery cap has been reached.
+  optional InterruptedTurn turn = 1;
+}
+
+message InterruptedTurn {
+  // Backend-tracked agent session ID — passed to the CLI as `--resume <id>`.
+  string session_id = 1;
+  // Turn number of the interrupted user message (1-based).
+  int64 turn_number = 2;
+  // The user prompt text, replayed verbatim when resuming.
+  string prompt_text = 3;
+  // Optional agent type ("claude-code" or "codex"); falls back to the task default.
+  optional string agent_type = 4;
+  // Optional agent mode ("edit" or "plan").
+  optional string agent_mode = 5;
 }
 
 // ── Sandbox gRPC API (backend is the client) ────────────────────

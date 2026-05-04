@@ -175,6 +175,12 @@ pub enum AgentSubType {
     SessionInit,
     Retrying,
     Scheduled,
+    /// Sandbox restarted mid-run and is replaying the previously interrupted
+    /// turn via `--resume <session_id>`.
+    RecoveryStarted,
+    /// Recovery attempts exhausted for an interrupted turn — the run has been
+    /// abandoned and an Aborted Result row was inserted in its place.
+    RecoveryExhausted,
 }
 
 impl AgentSubType {
@@ -189,12 +195,14 @@ impl AgentSubType {
             Self::SessionInit => "session_init",
             Self::Retrying => "retrying",
             Self::Scheduled => "scheduled",
+            Self::RecoveryStarted => "recovery_started",
+            Self::RecoveryExhausted => "recovery_exhausted",
         }
     }
 
     /// Whether this sub-type represents an error condition.
     pub fn is_error(&self) -> bool {
-        matches!(self, Self::Error)
+        matches!(self, Self::Error | Self::RecoveryExhausted)
     }
 }
 
@@ -217,6 +225,8 @@ impl TryFrom<&str> for AgentSubType {
             "session_init" => Ok(Self::SessionInit),
             "retrying" => Ok(Self::Retrying),
             "scheduled" => Ok(Self::Scheduled),
+            "recovery_started" => Ok(Self::RecoveryStarted),
+            "recovery_exhausted" => Ok(Self::RecoveryExhausted),
             other => Err(format!("unknown AgentSubType: {other}")),
         }
     }

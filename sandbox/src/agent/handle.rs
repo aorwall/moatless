@@ -103,6 +103,16 @@ enum AgentCommand {
         resume_session_id: Option<String>,
         ack: oneshot::Sender<String>,
     },
+    /// Replay an interrupted run on startup. Behaves identically to `Send`
+    /// except the resume session ID is forced from the backend's recovery
+    /// payload — the existing CLI `--resume <session_id>` path drives the
+    /// rest. Acks are dropped (no caller waiting on a session_id).
+    Recover {
+        text: String,
+        agent_type: Option<String>,
+        agent_mode: Option<String>,
+        resume_session_id: String,
+    },
     /// Stop the agent and shut down the actor loop.
     Stop,
 }
@@ -157,6 +167,27 @@ impl AgentHandle {
     /// Stop the agent and shut down the actor.
     pub fn stop(&self) {
         let _ = self.command_tx.send(AgentCommand::Stop);
+    }
+
+    /// Replay an interrupted agent run on sandbox startup.
+    ///
+    /// `resume_session_id` is forced through to the CLI as `--resume <id>`,
+    /// so the run picks up the on-disk Claude session JSONL state from the
+    /// PVC. No ack — recovery is best-effort and the caller does not wait
+    /// for a session id.
+    pub fn recover(
+        &self,
+        text: String,
+        agent_type: Option<String>,
+        agent_mode: Option<String>,
+        resume_session_id: String,
+    ) {
+        let _ = self.command_tx.send(AgentCommand::Recover {
+            text,
+            agent_type,
+            agent_mode,
+            resume_session_id,
+        });
     }
 }
 
@@ -986,6 +1017,32 @@ async fn agent_loop(
                                 queued_sends.push_back(effective_send);
                             }
                         }
+                    }
+                    Some(AgentCommand::Recover { text, agent_type, agent_mode, resume_session_id }) => {
+                        if retry_state.is_some() {
+                            info!("Recover command cancels pending retry");
+                            retry_state = None;
+                        }
+                        credential_recovery_attempts = 0;
+
+                        if agent_type.is_some() {
+                            last_agent_type = agent_type.clone();
+                        }
+                        if agent_mode.is_some() {
+                            last_agent_mode = agent_mode.clone();
+                        }
+
+                        let (recover_ack_tx, _recover_ack_rx) = oneshot::channel();
+                        let queued = QueuedSend {
+                            text: text.clone(),
+                            model: last_model.clone(),
+                            agent_type: last_agent_type.clone(),
+                            agent_mode: last_agent_mode.clone(),
+                            resume_session_id: Some(resume_session_id),
+                            ack: recover_ack_tx,
+                        };
+                        last_prompt = Some(text);
+                        queued_sends.push_back(queued);
                     }
                     Some(AgentCommand::Stop) | None => {
                         info!("Agent actor stopping");

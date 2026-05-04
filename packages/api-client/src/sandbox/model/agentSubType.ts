@@ -22,4 +22,6 @@ export const AgentSubType = {
   session_init: 'session_init',
   retrying: 'retrying',
   scheduled: 'scheduled',
+  recovery_started: 'recovery_started',
+  recovery_exhausted: 'recovery_exhausted',
 } as const;

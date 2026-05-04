@@ -193,6 +193,12 @@ mod tests {
         ) -> Result<sandbox_proto::DownloadUploadResponse, tonic::Status> {
             Err(tonic::Status::unimplemented("not used"))
         }
+        async fn recover_interrupted_run(
+            &self,
+            _: &str,
+        ) -> Result<Option<sandbox_proto::InterruptedTurn>, tonic::Status> {
+            Ok(None)
+        }
     }
 
     fn make_state(creds: HashMap<String, String>) -> BrokerState {

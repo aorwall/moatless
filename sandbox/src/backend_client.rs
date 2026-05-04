@@ -11,7 +11,8 @@ use sandbox_proto::backend_sandbox_service_client::BackendSandboxServiceClient;
 use sandbox_proto::{
     AcknowledgeMessagesRequest, DownloadUploadRequest, DownloadUploadResponse,
     GetCredentialsRequest, GetCredentialsResponse, GetPendingMessagesRequest,
-    GetSystemPromptRequest, PendingMessage, PublishEventRequest, UpdateCredentialRequest,
+    GetSystemPromptRequest, InterruptedTurn, PendingMessage, PublishEventRequest,
+    RecoverInterruptedRunRequest, UpdateCredentialRequest,
 };
 use tonic::service::interceptor::InterceptedService;
 use tonic::transport::Channel;
@@ -73,6 +74,15 @@ pub trait BackendClient: Send + Sync {
         task_id: &str,
         file_id: &str,
     ) -> Result<DownloadUploadResponse, tonic::Status>;
+
+    /// Ask the backend whether the previous agent run for this task was
+    /// interrupted. Returns `Some(turn)` when the most recent user-turn was
+    /// acknowledged but never reached a terminal `agent` event, or `None`
+    /// when nothing needs recovery (or the recovery cap has been reached).
+    async fn recover_interrupted_run(
+        &self,
+        task_id: &str,
+    ) -> Result<Option<InterruptedTurn>, tonic::Status>;
 }
 
 /// Auth interceptor that injects a Bearer token on every outbound gRPC call.
@@ -225,5 +235,18 @@ impl BackendClient for BackendGrpcClient {
             })
             .await?;
         Ok(resp.into_inner())
+    }
+
+    async fn recover_interrupted_run(
+        &self,
+        task_id: &str,
+    ) -> Result<Option<InterruptedTurn>, tonic::Status> {
+        let mut client = self.client.clone();
+        let resp = client
+            .recover_interrupted_run(RecoverInterruptedRunRequest {
+                task_id: task_id.to_string(),
+            })
+            .await?;
+        Ok(resp.into_inner().turn)
     }
 }

@@ -118,6 +118,13 @@ impl BackendClient for MockBackendClient {
             "download_upload not used in executor tests",
         ))
     }
+
+    async fn recover_interrupted_run(
+        &self,
+        _task_id: &str,
+    ) -> Result<Option<sandbox_proto::InterruptedTurn>, tonic::Status> {
+        Ok(None)
+    }
 }
 
 // =============================================================================

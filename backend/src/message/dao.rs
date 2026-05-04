@@ -25,6 +25,25 @@ pub struct ToolCallRow {
     pub parent_message_uuid: String,
 }
 
+/// A user-turn that was acknowledged by the sandbox but never reached a
+/// terminal `agent.completed/error/stopped` event — i.e. the sandbox
+/// crashed/restarted mid-run. Used by the recovery RPC to drive a
+/// `claude --resume <session_id>` replay on startup.
+#[derive(Debug, Clone)]
+pub struct InterruptedTurn {
+    /// `task_messages.id` of the user-turn row — used to bump
+    /// `recovery_attempts` after each recovery.
+    pub task_message_id: i32,
+    pub task_id: String,
+    /// Backend-tracked agent session ID. Either `session_id` or
+    /// `agent_session_id` — they're set together at acknowledgement.
+    pub session_id: String,
+    pub turn_number: i32,
+    pub prompt_text: String,
+    pub agent_mode: Option<String>,
+    pub recovery_attempts: i32,
+}
+
 /// Repository trait for message persistence.
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
@@ -162,6 +181,30 @@ pub trait MessageRepository: Send + Sync {
         task_id: &str,
         file_id: &str,
     ) -> Result<bool, sqlx::Error>;
+
+    /// Locate the most recent user-turn that was acknowledged by the sandbox
+    /// (`agent_session_id` set) but never reached a terminal `agent` event
+    /// (`completed/error/stopped`). Returns `None` when no such turn exists.
+    async fn find_interrupted_turn(
+        &self,
+        task_id: &str,
+    ) -> Result<Option<InterruptedTurn>, sqlx::Error>;
+
+    /// Increment `recovery_attempts` on a user-turn message. Returns the new
+    /// counter value.
+    async fn increment_recovery_attempts(
+        &self,
+        task_message_id: i32,
+    ) -> Result<i32, sqlx::Error>;
+
+    /// Insert a synthetic `Result` row containing `text` at the supplied turn
+    /// number to mark an interrupted run as abandoned. Returns the new row id.
+    async fn insert_aborted_result(
+        &self,
+        task_id: &str,
+        turn_number: i32,
+        text: &str,
+    ) -> Result<i32, sqlx::Error>;
 }
 
 /// PostgreSQL implementation of [`MessageRepository`].
@@ -786,6 +829,129 @@ impl MessageRepository for PgMessageRepository {
         .await?;
         Ok(row.0)
     }
+
+    async fn find_interrupted_turn(
+        &self,
+        task_id: &str,
+    ) -> Result<Option<InterruptedTurn>, sqlx::Error> {
+        let row: Option<(
+            i32,
+            String,
+            Option<String>,
+            Option<i32>,
+            serde_json::Value,
+            Option<crate::shared_models::AgentMode>,
+            i32,
+        )> = sqlx::query_as(
+            r#"SELECT m.id, m.task_id, m.agent_session_id, m.turn_number,
+                      m.message_content, m.agent_mode, m.recovery_attempts
+               FROM task_messages m
+               WHERE m.task_id = $1
+                 AND m.message_type = 'user'
+                 AND m.agent_session_id IS NOT NULL
+                 AND m.turn_number IS NOT NULL
+                 AND NOT EXISTS (
+                   SELECT 1 FROM task_events e
+                   WHERE e.task_id = m.task_id
+                     AND e.turn_number = m.turn_number
+                     AND e.event_type = 'agent'
+                     AND e.sub_type IN ('completed', 'error', 'stopped')
+                 )
+               ORDER BY m.turn_number DESC
+               LIMIT 1"#,
+        )
+        .bind(task_id)
+        .fetch_optional(&self.0)
+        .await?;
+
+        let Some((id, task_id, session_id, turn_number, content, agent_mode, recovery_attempts)) =
+            row
+        else {
+            return Ok(None);
+        };
+
+        // Both columns are filtered IS NOT NULL above, so unwrap is safe; defend
+        // against the unlikely race where the row mutated between filter and
+        // decode by skipping recovery rather than panicking.
+        let (Some(session_id), Some(turn_number)) = (session_id, turn_number) else {
+            return Ok(None);
+        };
+
+        Ok(Some(InterruptedTurn {
+            task_message_id: id,
+            task_id,
+            session_id,
+            turn_number,
+            prompt_text: extract_prompt_text(&content),
+            agent_mode: agent_mode.map(|m| m.0),
+            recovery_attempts,
+        }))
+    }
+
+    async fn increment_recovery_attempts(
+        &self,
+        task_message_id: i32,
+    ) -> Result<i32, sqlx::Error> {
+        let row: (i32,) = sqlx::query_as(
+            r#"UPDATE task_messages
+               SET recovery_attempts = recovery_attempts + 1
+               WHERE id = $1
+               RETURNING recovery_attempts"#,
+        )
+        .bind(task_message_id)
+        .fetch_one(&self.0)
+        .await?;
+        Ok(row.0)
+    }
+
+    async fn insert_aborted_result(
+        &self,
+        task_id: &str,
+        turn_number: i32,
+        text: &str,
+    ) -> Result<i32, sqlx::Error> {
+        let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+        let uuid = uuid::Uuid::new_v4().to_string();
+        let content = serde_json::json!([{ "type": "text", "text": text }]);
+
+        let row: (i32,) = sqlx::query_as(
+            r#"INSERT INTO task_messages (
+                task_id, uuid, message_type, user_type, timestamp,
+                message_role, message_content, turn_number, will_not_resume
+            ) VALUES (
+                $1, $2, 'result', 'system', $3,
+                'assistant', $4, $5, true
+            )
+            RETURNING id"#,
+        )
+        .bind(task_id)
+        .bind(&uuid)
+        .bind(&now)
+        .bind(&content)
+        .bind(turn_number)
+        .fetch_one(&self.0)
+        .await?;
+        Ok(row.0)
+    }
+}
+
+/// Extract the first text block's text from a `message_content` JSON array of
+/// the form `[{"type":"text","text":"..."}, ...]`. Falls back to a stringified
+/// representation when the shape is unexpected.
+fn extract_prompt_text(content: &serde_json::Value) -> String {
+    if let Some(arr) = content.as_array() {
+        for block in arr {
+            if block.get("type").and_then(|v| v.as_str()) == Some("text") {
+                if let Some(text) = block.get("text").and_then(|v| v.as_str()) {
+                    return text.to_string();
+                }
+            }
+        }
+    }
+    if let Some(s) = content.as_str() {
+        return s.to_string();
+    }
+    String::new()
 }
 
 /// Pull `(name, input)` out of the `tool_use` block matching `tool_use_id`.

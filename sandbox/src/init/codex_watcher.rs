@@ -278,6 +278,12 @@ mod tests {
         ) -> Result<sandbox_proto::DownloadUploadResponse, tonic::Status> {
             Err(tonic::Status::unimplemented("not used"))
         }
+        async fn recover_interrupted_run(
+            &self,
+            _task_id: &str,
+        ) -> Result<Option<sandbox_proto::InterruptedTurn>, tonic::Status> {
+            Ok(None)
+        }
     }
 
     #[tokio::test]
