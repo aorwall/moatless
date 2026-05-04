@@ -112,7 +112,10 @@ pub async fn send_message_flow(
 
     // Bake attribution into message text so the agent sees it via the normal content chain.
     let attributed_message = match source_task_id {
-        Some(id) => format!("Message from task `{id}`:\n\n{effective_message}"),
+        Some(id) => format!(
+            "Message from task `{id}`:\n\n{effective_message}\n\n\
+             To reply, run: `moat messages send {id} --text \"<your reply>\"`"
+        ),
         None => effective_message.clone(),
     };
 
