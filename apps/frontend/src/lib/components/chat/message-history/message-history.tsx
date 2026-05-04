@@ -24,6 +24,7 @@ import {
 } from './assistant-message.tsx'
 import { ChannelMessageComponent } from './channel-message.tsx'
 import { EnvironmentIndicator } from './environment-indicator.tsx'
+import { ErrorMessageComponent } from './error-message.tsx'
 import { MessageHistorySkeleton } from './message-history-skeleton.tsx'
 import { SystemMessageComponent } from './system-message.tsx'
 import { ThinkingIndicator } from './thinking-indicator.tsx'
@@ -42,7 +43,11 @@ function isClusterableAssistantMessage(message: UiMessageWithSubagents): boolean
     return false
   }
   const messageType = message.messageType as string | undefined
-  if (messageType === 'transcript_only' || messageType === 'compact_summary') {
+  if (
+    messageType === 'transcript_only' ||
+    messageType === 'compact_summary' ||
+    messageType === 'error'
+  ) {
     return false
   }
   if (message.sdkMetadata?.codex_reasoning === true || message.sdkMetadata?.codex_error === true) {
@@ -371,6 +376,9 @@ function MessageHistoryComponent({
 
   const renderRow = useCallback(
     (item: UiMessage) => {
+      if (item.messageType === 'error') {
+        return <ErrorMessageComponent key={item.uuid} message={item} />
+      }
       if (item.role === 'user' && item.sourceTaskId) {
         return <ChannelMessageComponent key={item.uuid} message={item} variant="task" />
       }
