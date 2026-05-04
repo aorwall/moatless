@@ -335,20 +335,39 @@ fn is_gh_issue_comment(cmd: &str) -> bool {
     matches_gh_subcommand(cmd, &["issue", "comment"])
 }
 
+/// Shell tokens that separate one command from the next on the same line.
+/// We treat tokens before the last such separator as "a preceding command we
+/// don't care about" (e.g. `cd /tmp && gh pr create`).
+const SHELL_SEPARATORS: &[&str] = &["&&", "||", ";", "|"];
+
 /// Detect whether `cmd` is a `gh` invocation whose first two non-flag
 /// positionals match `expected` (e.g. `["pr", "create"]`).
 ///
-/// Tolerates leading env-var assignments (`GH_REPO=owner/repo gh pr create …`)
-/// and global flags like `-R owner/repo` / `--repo owner/repo` before, between,
-/// and after the positionals.
+/// Tolerates leading env-var assignments (`GH_REPO=owner/repo gh pr create …`),
+/// preceding shell commands chained with `&&` / `||` / `;` / `|`
+/// (`cd /tmp && gh …`), and global flags like `-R owner/repo` /
+/// `--repo owner/repo` before, between, and after the positionals.
+///
+/// Matching across shell separators is safe because the post-persist hooks
+/// only fire when `parse_pr_url` / `parse_comment_id` finds a real URL in the
+/// tool_result; if the chained `gh` never ran, there is no URL and we no-op.
 fn matches_gh_subcommand(cmd: &str, expected: &[&str; 2]) -> bool {
     let tokens: Vec<&str> = cmd.split_whitespace().collect();
     let Some(gh_idx) = tokens.iter().position(|&t| t == "gh") else {
         return false;
     };
-    // All preceding tokens must be env-var assignments — otherwise this is a
-    // different command (e.g. `git push && gh …`) we conservatively skip.
-    if !tokens[..gh_idx].iter().all(|t| is_env_assignment(t)) {
+    // Anything before the last shell separator is a preceding command we
+    // ignore; tokens between that separator and `gh` must still be
+    // env-var assignments.
+    let prefix_start = tokens[..gh_idx]
+        .iter()
+        .rposition(|t| SHELL_SEPARATORS.contains(t))
+        .map(|i| i + 1)
+        .unwrap_or(0);
+    if !tokens[prefix_start..gh_idx]
+        .iter()
+        .all(|t| is_env_assignment(t))
+    {
         return false;
     }
 
@@ -572,8 +591,32 @@ mod tests {
         assert!(!is_gh_pr_create("gh issue create"));
         assert!(!is_gh_pr_create(""));
         assert!(!is_gh_pr_create("git pr create"));
-        // Don't match across `&&` — leading `git push` isn't an env assignment.
-        assert!(!is_gh_pr_create("git push && gh pr create"));
+        assert!(!is_gh_pr_create("cd /tmp ; echo done"));
+    }
+
+    #[test]
+    fn is_gh_pr_create_with_chained_prefix() {
+        // The original bug: `cd <path> && gh pr create ...` was rejected.
+        assert!(is_gh_pr_create(
+            "cd /tmp/soap-k8s && gh pr create --head fix/x --title \"y z\""
+        ));
+        // Combined shell prefix and env assignment between separator and `gh`.
+        assert!(is_gh_pr_create("cd /tmp && GH_REPO=o/r gh pr create"));
+        // Other separators behave the same. The earlier conservative test
+        // (`git push && gh pr create` should NOT match) is intentionally
+        // dropped: matching is harmless because the URL parser no-ops when
+        // the chained `gh` did not run.
+        assert!(is_gh_pr_create("git push && gh pr create"));
+        assert!(is_gh_pr_create("git push || gh pr create"));
+        assert!(is_gh_pr_create("cd /tmp ; gh pr create"));
+    }
+
+    #[test]
+    fn is_gh_pr_comment_with_chained_prefix() {
+        assert!(is_gh_pr_comment("cd /tmp && gh pr comment 42 --body hi"));
+        assert!(is_gh_issue_comment(
+            "cd /tmp && gh issue comment 1 --body hi"
+        ));
     }
 
     #[test]
@@ -700,6 +743,12 @@ mod tests {
     #[test]
     fn is_gh_pr_create_codex_with_repo_flag() {
         let raw = "/bin/bash -lc 'gh -R o/r pr create'";
+        assert!(is_gh_pr_create(unwrap_shell_wrapper(raw)));
+    }
+
+    #[test]
+    fn is_gh_pr_create_codex_with_chained_cd() {
+        let raw = "/bin/bash -lc 'cd /tmp/soap-k8s && gh pr create --head fix/x'";
         assert!(is_gh_pr_create(unwrap_shell_wrapper(raw)));
     }
 }
