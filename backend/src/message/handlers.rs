@@ -93,6 +93,12 @@ const DEFAULT_MESSAGE_LIMIT: i32 = 50;
 /// Maximum allowed page size.
 const MAX_MESSAGE_LIMIT: i32 = 200;
 
+/// Tool calls whose `tool_input` must survive `?summary=true` projection
+/// because the frontend renders it directly (no expand-on-demand fetch).
+/// Keep in sync with `transform::check_pending_user_input` and
+/// `apps/frontend/src/features/events/utils/event-handlers.ts`.
+const INTERACTIVE_TOOL_NAMES: &[&str] = &["ExitPlanMode", "AskUserQuestion"];
+
 /// Query parameters for GET /messages.
 #[derive(Debug, Deserialize)]
 pub struct GetMessagesQuery {
@@ -205,7 +211,15 @@ pub async fn get_messages(
 fn strip_heavy_fields(mut msg: UiMessage) -> UiMessage {
     for block in &mut msg.content {
         if let Some(input) = block.tool_input.take() {
-            block.tool_input = Some(tool_input_preview(&input));
+            let keep_full = block
+                .tool_name
+                .as_deref()
+                .is_some_and(|n| INTERACTIVE_TOOL_NAMES.contains(&n));
+            block.tool_input = Some(if keep_full {
+                input
+            } else {
+                tool_input_preview(&input)
+            });
         }
     }
     // Truncate tool result content and remove typed_result
@@ -337,6 +351,120 @@ mod preview_tests {
         let preview = tool_input_preview(&json!({ "k": s }));
         let value = preview["k"].as_str().unwrap();
         assert_eq!(value.chars().count(), 101);
+    }
+}
+
+#[cfg(test)]
+mod strip_heavy_fields_tests {
+    use super::strip_heavy_fields;
+    use moatless_api_schemas::enums::{MessageRole, MessageType};
+    use moatless_api_schemas::message::{UiContentBlock, UiMessage};
+    use serde_json::{json, Value};
+
+    fn ui_message_with_tool_use(tool_name: &str, tool_input: Value) -> UiMessage {
+        UiMessage {
+            uuid: "msg-1".to_string(),
+            message_type: MessageType::Assistant,
+            role: MessageRole::Assistant,
+            timestamp: "2026-05-04T00:00:00.000Z".to_string(),
+            session_id: None,
+            turn_number: None,
+            agent_mode: None,
+            model: None,
+            is_queued: None,
+            content: vec![UiContentBlock {
+                block_type: "tool_use".to_string(),
+                text: None,
+                tool_use_id: Some("toolu_1".to_string()),
+                tool_name: Some(tool_name.to_string()),
+                tool_input: Some(tool_input),
+                show_in_ui: None,
+            }],
+            contexts: vec![],
+            tool_results: vec![],
+            has_pending_user_input: None,
+            message_id: None,
+            stop_reason: None,
+            stop_sequence: None,
+            usage: None,
+            result: None,
+            sdk_metadata: None,
+            channel: None,
+            command_name: None,
+            parent_uuid: None,
+            source_task_id: None,
+        }
+    }
+
+    #[test]
+    fn strip_heavy_fields_keeps_exit_plan_mode_input_verbatim() {
+        let plan = "## Long markdown\n".to_string() + &"detail line. ".repeat(40);
+        assert!(plan.chars().count() > 200);
+        let input = json!({
+            "allowedPrompts": [
+                { "prompt": "do this", "tool": "Bash" },
+                { "prompt": "do that", "tool": "Edit" },
+            ],
+            "plan": plan,
+        });
+
+        let stripped = strip_heavy_fields(ui_message_with_tool_use("ExitPlanMode", input.clone()));
+
+        let kept = stripped.content[0]
+            .tool_input
+            .as_ref()
+            .expect("tool_input preserved");
+        assert_eq!(kept, &input);
+        assert_eq!(kept["plan"].as_str().unwrap(), plan);
+    }
+
+    #[test]
+    fn strip_heavy_fields_keeps_ask_user_question_input_verbatim() {
+        let input = json!({
+            "questions": [
+                {
+                    "question": "Pick a color",
+                    "header": "Style",
+                    "multiSelect": false,
+                    "options": [
+                        { "label": "Red" },
+                        { "label": "Blue" },
+                    ],
+                }
+            ]
+        });
+
+        let stripped =
+            strip_heavy_fields(ui_message_with_tool_use("AskUserQuestion", input.clone()));
+
+        assert_eq!(
+            stripped.content[0]
+                .tool_input
+                .as_ref()
+                .expect("tool_input preserved"),
+            &input
+        );
+    }
+
+    #[test]
+    fn strip_heavy_fields_still_previews_bash() {
+        let command = "echo ".to_string() + &"x".repeat(500);
+        let input = json!({ "command": command });
+
+        let stripped = strip_heavy_fields(ui_message_with_tool_use("Bash", input));
+
+        let kept = stripped.content[0]
+            .tool_input
+            .as_ref()
+            .expect("tool_input present");
+        let obj = kept.as_object().expect("object");
+        assert_eq!(obj.len(), 1);
+        let preview = obj
+            .get("command")
+            .and_then(Value::as_str)
+            .expect("command preview");
+        assert!(preview.chars().count() <= 101);
+        assert!(preview.ends_with('…'));
     }
 }
 

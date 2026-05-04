@@ -128,6 +128,42 @@ async fn agent_plan_mode() {
                 let tool_use_id = extract_tool_use_id(&messages, "ExitPlanMode")
                     .expect("Expected ExitPlanMode tool_use content block in assistant message");
 
+                // The frontend chat list always sends ?summary=true; the
+                // ExitPlanMode `plan` field must survive that projection or
+                // the PlanApprovalInput card renders without a body.
+                let summary = client
+                    .api()
+                    .get_messages_summary(task_id)
+                    .await
+                    .unwrap();
+                let full_plan = messages
+                    .messages
+                    .iter()
+                    .flat_map(|m| m.content.iter())
+                    .find(|b| {
+                        b.tool_use_id.as_deref() == Some(tool_use_id.as_str())
+                    })
+                    .and_then(|b| b.tool_input.as_ref())
+                    .and_then(|v| v.get("plan"))
+                    .and_then(|v| v.as_str())
+                    .expect("ExitPlanMode tool_input.plan present in full response")
+                    .to_string();
+                let summary_plan = summary
+                    .messages
+                    .iter()
+                    .flat_map(|m| m.content.iter())
+                    .find(|b| {
+                        b.tool_use_id.as_deref() == Some(tool_use_id.as_str())
+                    })
+                    .and_then(|b| b.tool_input.as_ref())
+                    .and_then(|v| v.get("plan"))
+                    .and_then(|v| v.as_str())
+                    .expect("ExitPlanMode tool_input.plan preserved by summary projection");
+                assert_eq!(
+                    summary_plan, full_plan,
+                    "summary projection must keep the full plan markdown"
+                );
+
                 println!("AGENT-03.1: Sending ExitPlanMode approval with tool_use_id={tool_use_id}");
 
                 // AGENT-03.1: Send proper tool response (mirrors frontend)
