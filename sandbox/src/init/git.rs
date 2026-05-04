@@ -30,6 +30,13 @@ pub async fn configure_git(config: &Config) -> Result<(), String> {
             warn!(error = %e, "gh auth setup-git failed, continuing with manual config");
         }
 
+        // Prepend the broker-backed helper ahead of `gh auth git-credential` so
+        // git/gh push always pull a freshly-rotated token instead of the
+        // up-to-15-min-stale value sitting in hosts.yml. The helper script
+        // itself falls back to gh's helper if the broker is unreachable, so
+        // worst case we degrade to today's behaviour.
+        wire_broker_git_helper().await;
+
         // SSH to HTTPS conversion (GitHub only)
         let _ = run_command(
             "git",
@@ -281,6 +288,48 @@ async fn resolve_github_user() -> Result<(Option<String>, Option<String>), Strin
         });
 
     Ok((name, email))
+}
+
+/// Path to the credential-broker-backed git helper script. Shipped in the
+/// sandbox image alongside the sandbox binary.
+const BROKER_HELPER_PATH: &str = "/usr/local/bin/moatless-git-cred";
+
+/// Configure git to use the broker-backed credential helper as the primary
+/// source for `https://github.com` credentials, with `gh auth git-credential`
+/// retained as a fallback (added inside the helper script itself).
+///
+/// `--replace-all` wipes any previous helper entries (including the one
+/// installed by `gh auth setup-git`) so the broker helper is the only one
+/// configured. The helper script handles fallback to `gh auth git-credential`
+/// internally, which keeps the existing hosts.yml-backed path working when the
+/// broker is unreachable.
+async fn wire_broker_git_helper() {
+    if !std::path::Path::new(BROKER_HELPER_PATH).exists() {
+        info!(
+            path = BROKER_HELPER_PATH,
+            "Broker credential helper script not present — leaving gh auth git-credential as the credential source"
+        );
+        return;
+    }
+
+    let helper_value = format!("!{BROKER_HELPER_PATH}");
+    if let Err(e) = run_command(
+        "git",
+        &[
+            "config",
+            "--global",
+            "--replace-all",
+            "credential.https://github.com.helper",
+            &helper_value,
+        ],
+    )
+    .await
+    {
+        warn!(error = %e, "Failed to wire moatless-git-cred — git push may use stale hosts.yml token");
+        return;
+    }
+
+    info!(helper = BROKER_HELPER_PATH, "Wired broker-backed git credential helper for github.com");
 }
 
 /// Run a command and return an error if it fails.

@@ -58,7 +58,8 @@ ENV JAVA_HOME="/usr/lib/jvm/default-java"
 # invalidate the toolchain layers above.
 COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/docker-entrypoint-sandbox.sh /usr/local/bin/docker-entrypoint-sandbox.sh
 COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/sync-plugins.sh /usr/local/bin/sync-plugins.sh
-RUN chmod +x /usr/local/bin/docker-entrypoint-sandbox.sh /usr/local/bin/sync-plugins.sh
+COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/moatless-git-cred /usr/local/bin/moatless-git-cred
+RUN chmod +x /usr/local/bin/docker-entrypoint-sandbox.sh /usr/local/bin/sync-plugins.sh /usr/local/bin/moatless-git-cred
 
 # Volatile layers last — Rust binaries change on every code edit.
 ARG TARGETARCH

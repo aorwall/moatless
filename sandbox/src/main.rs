@@ -23,6 +23,7 @@ use moatless_sandbox::agent::handle::spawn_agent;
 use moatless_sandbox::agent::scheduled_job::{LateInjector, ScheduledJobRegistry};
 use moatless_sandbox::backend_client::BackendGrpcClient;
 use moatless_sandbox::config::Config;
+use moatless_sandbox::credentials::broker::{self, BrokerState};
 use moatless_sandbox::credentials::recovery::CredentialFailureDetector;
 use moatless_sandbox::credentials::sinks::{ClaudeOauthSink, CodexAuthJsonSink, GitTokenSink};
 use moatless_sandbox::credentials::Dispatcher;
@@ -30,6 +31,11 @@ use moatless_sandbox::events::GrpcEventPublisher;
 use moatless_sandbox::grpc_server::SandboxServiceImpl;
 use moatless_sandbox::init::InitPhase;
 use moatless_sandbox::state::SandboxState;
+
+/// Unix socket path for the in-pod credential broker.
+///
+/// Must match the path baked into `docker/moatless-git-cred.sh`.
+const CREDENTIAL_BROKER_SOCKET: &str = "/run/moatless/credentials.sock";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -152,6 +158,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             tracing::error!(error = %e, "Sandbox gRPC server failed");
         }
     });
+
+    // Spawn the credential broker on a unix socket. Git is configured to use
+    // a helper script that hits this socket on every push/fetch, so tokens
+    // are pulled fresh from the backend instead of relying on hosts.yml staying
+    // current between 15-min refresh cycles.
+    //
+    // Spawned BEFORE the init task so the socket exists by the time
+    // `init/git.rs` wires the helper into git config.
+    let broker_socket = std::path::PathBuf::from(CREDENTIAL_BROKER_SOCKET);
+    let broker_state = BrokerState {
+        task_id: state.config.task_id.clone(),
+        backend_client: Arc::clone(&state.backend_client),
+    };
+    if let Err(e) = broker::spawn(
+        broker_state,
+        &broker_socket,
+        state.lifecycle_cancel.clone(),
+    ) {
+        tracing::warn!(
+            error = %e,
+            socket = %broker_socket.display(),
+            "Failed to spawn credential broker — git operations will fall back to hosts.yml"
+        );
+    }
 
     // Spawn init task — handles credential fetching, git clone, workspace setup.
     // After init completes, it triggers process_pending_messages() to pick up

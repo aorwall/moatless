@@ -1,28 +1,17 @@
 //! Unix-socket HTTP broker for sandbox-side credential pulls.
 //!
-//! Tools that support credential helpers (`git`, `gh`) can be configured to
-//! call a wrapper script that hits this broker. The broker pulls the freshest
-//! value from the backend on every request — no caching — so a backend-side
-//! rotation is visible to the next `git push` without any push notification.
+//! Wired into git via the `/usr/local/bin/moatless-git-cred` helper script
+//! (see `docker/moatless-git-cred.sh`) which `init/git.rs` registers as
+//! `credential.https://github.com.helper`. The broker pulls the freshest value
+//! from the backend on every request — no caching — so a backend-side rotation
+//! is visible to the next `git push` without waiting for the 15-min hosts.yml
+//! refresher cycle.
 //!
 //! # Endpoints
 //!
 //! - `GET /credential?key=GITHUB_TOKEN` → plain `value\n`
 //! - `GET /git-credential` → git's credential-helper format
 //!   (`username=oauth2\npassword=<token>\n`)
-//!
-//! # Integration (TODO follow-up)
-//!
-//! The shell wrappers + git config aren't wired in this iteration:
-//!
-//! 1. `/usr/local/bin/moatless-git-cred` shell script that issues
-//!    `curl --unix-socket /run/moatless/credentials.sock http://./git-credential`.
-//! 2. `git config --global credential.helper '!/usr/local/bin/moatless-git-cred'`
-//!    at sandbox init.
-//! 3. Optional: `gh auth setup-git` integration.
-//!
-//! Until wired, the broker compiles and is unit-tested but is opt-in via a
-//! call to [`spawn`] from `main.rs` (currently disabled by default).
 
 use std::path::Path;
 use std::sync::Arc;
@@ -104,14 +93,17 @@ pub fn router(state: BrokerState) -> Router {
 
 /// Spawn the broker bound to a Unix domain socket at `socket_path`.
 ///
-/// Currently behind a feature gate at the call-site — wire-up of the git/gh
-/// helper scripts that consume this socket is pending.
+/// Sets the socket mode to `0o666` so credential helpers running as a non-root
+/// user (when the sandbox image is hardened to drop root) can still connect.
+/// This is acceptable because the socket lives in the per-pod filesystem
+/// namespace — there are no other users with shell access to the pod.
 #[cfg(unix)]
 pub fn spawn(
     state: BrokerState,
     socket_path: &Path,
     cancel: CancellationToken,
 ) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
     use tokio::net::UnixListener;
 
     if let Some(parent) = socket_path.parent() {
@@ -124,6 +116,11 @@ pub fn spawn(
 
     let listener = UnixListener::bind(socket_path)
         .map_err(|e| format!("UnixListener::bind({}): {e}", socket_path.display()))?;
+    if let Err(e) =
+        std::fs::set_permissions(socket_path, std::fs::Permissions::from_mode(0o666))
+    {
+        warn!(error = %e, socket = %socket_path.display(), "Failed to chmod credential broker socket");
+    }
     let app = router(state);
     let socket_path = socket_path.to_path_buf();
 
@@ -262,8 +259,69 @@ mod tests {
     #[test]
     fn router_compiles_for_unix_socket_serve() {
         // Smoke-test that the router builder + state shape line up. Real
-        // socket-bound serving is exercised in integration tests when the
-        // broker is wired to git/gh helper scripts.
+        // socket-bound serving is exercised by `spawn_serves_git_credential_over_socket`
+        // below.
         let _ = router(make_state(HashMap::new()));
+    }
+
+    /// End-to-end: spawn the broker on a real unix socket, do the minimal
+    /// HTTP/1.1 GET that mirrors what the `moatless-git-cred` helper sends
+    /// (via `curl --unix-socket`), and assert the response body matches the
+    /// git credential-helper protocol shape.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn spawn_serves_git_credential_over_socket() {
+        use std::os::unix::fs::PermissionsExt;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let tmp = tempfile::TempDir::new().unwrap();
+        let socket_path = tmp.path().join("credentials.sock");
+
+        let mut creds = HashMap::new();
+        creds.insert("GITHUB_TOKEN".to_string(), "ghu_test_token".to_string());
+        let state = make_state(creds);
+        let cancel = CancellationToken::new();
+
+        super::spawn(state, &socket_path, cancel.clone()).expect("broker spawn failed");
+
+        // Give the listener a tick to start accepting.
+        for _ in 0..50 {
+            if socket_path.exists() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        assert!(socket_path.exists(), "broker socket was not created");
+
+        // Socket must be world-rw so non-root credential helpers can connect
+        // if we ever drop sandbox privileges.
+        let mode = std::fs::metadata(&socket_path)
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(
+            mode & 0o777,
+            0o666,
+            "socket perms should be 0666, got {mode:o}"
+        );
+
+        let mut stream = tokio::net::UnixStream::connect(&socket_path)
+            .await
+            .expect("connect to broker socket");
+        stream
+            .write_all(b"GET /git-credential HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+            .await
+            .unwrap();
+        let mut buf = Vec::new();
+        stream.read_to_end(&mut buf).await.unwrap();
+        let resp = String::from_utf8_lossy(&buf);
+        assert!(resp.starts_with("HTTP/1.1 200"), "expected 200, got: {resp}");
+        assert!(resp.contains("username=oauth2"), "missing username line: {resp}");
+        assert!(
+            resp.contains("password=ghu_test_token"),
+            "missing password line: {resp}"
+        );
+
+        cancel.cancel();
     }
 }

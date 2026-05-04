@@ -27,4 +27,5 @@ RUN chmod +x /tools/sandbox /tools/moat
 # Copy entrypoint and helper scripts
 COPY docker/docker-entrypoint-sandbox.sh /tools/docker-entrypoint-sandbox.sh
 COPY docker/sync-plugins.sh /tools/sync-plugins.sh
-RUN chmod +x /tools/docker-entrypoint-sandbox.sh /tools/sync-plugins.sh
+COPY docker/moatless-git-cred.sh /tools/moatless-git-cred
+RUN chmod +x /tools/docker-entrypoint-sandbox.sh /tools/sync-plugins.sh /tools/moatless-git-cred
