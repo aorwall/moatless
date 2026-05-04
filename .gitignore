@@ -76,6 +76,7 @@ dev-browser/
 
 # Claude Code worktrees
 .claude/worktrees/
+.claude/scheduled_tasks.lock
 
 # Moatless local config (keep .moatless/config.json tracked)
 .moatless/
