@@ -10,8 +10,9 @@ pub use moatless_api_schemas::enums::{TaskStatus, Visibility};
 
 /// Default idle TTL in minutes for newly inserted tasks when the caller has no
 /// access to platform config (e.g. channel runtimes). Matches the
-/// `SANDBOX_IDLE_TIMEOUT_MINUTES` env-var default.
-pub const DEFAULT_TTL_MINUTES: i32 = 60;
+/// `SANDBOX_IDLE_TIMEOUT_MINUTES` env-var default and the `tasks.ttl_minutes`
+/// column default.
+pub const DEFAULT_TTL_MINUTES: i32 = 15;
 
 // =============================================================================
 // Task (DB)

@@ -121,7 +121,7 @@ pub fn test_config() -> Config {
             task_token_secret: None,
             file_mount_path: "/tmp/test".into(),
             idle_reaper_enabled: false,
-            idle_timeout_minutes: 60,
+            idle_timeout_minutes: 15,
             idle_check_interval_secs: 300,
             max_crash_restart_count: 5,
             node_selector_json: None,
@@ -262,7 +262,7 @@ pub fn make_task_row(task_id: &str, user_id: &str) -> Task {
         append_system_prompt: None,
         sandbox_started_at: None,
         headless: false,
-        ttl_minutes: 60,
+        ttl_minutes: 15,
     }
 }
 

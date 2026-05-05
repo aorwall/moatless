@@ -150,7 +150,7 @@ pub struct SandboxConfig {
     pub file_mount_path: String,
     /// Whether the idle sandbox reaper is enabled (default: true)
     pub idle_reaper_enabled: bool,
-    /// Stop sandboxes idle longer than this (minutes, default: 60)
+    /// Stop sandboxes idle longer than this (minutes, default: 15)
     pub idle_timeout_minutes: u64,
     /// How often to check for idle sandboxes (seconds, default: 300 = 5 min)
     pub idle_check_interval_secs: u64,
@@ -575,7 +575,7 @@ impl Config {
                 task_token_secret: env_opt("TASK_TOKEN_SECRET"),
                 file_mount_path: env_str("SANDBOX_FILE_MOUNT_PATH", "/mnt/uploads"),
                 idle_reaper_enabled: env_bool("SANDBOX_IDLE_REAPER_ENABLED", true),
-                idle_timeout_minutes: env_or("SANDBOX_IDLE_TIMEOUT_MINUTES", 60),
+                idle_timeout_minutes: env_or("SANDBOX_IDLE_TIMEOUT_MINUTES", 15),
                 idle_check_interval_secs: env_or("SANDBOX_IDLE_CHECK_INTERVAL_SECS", 300),
                 max_crash_restart_count: env_or("SANDBOX_MAX_CRASH_RESTART_COUNT", 5),
                 tolerations_json: env_opt("K8S_SANDBOX_TOLERATIONS"),
@@ -954,7 +954,7 @@ mod tests {
                 task_token_secret: None,
                 file_mount_path: "/tmp".into(),
                 idle_reaper_enabled: false,
-                idle_timeout_minutes: 60,
+                idle_timeout_minutes: 15,
                 idle_check_interval_secs: 300,
                 max_crash_restart_count: 5,
                 node_selector_json: None,

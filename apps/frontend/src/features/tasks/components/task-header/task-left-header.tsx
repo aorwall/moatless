@@ -33,6 +33,7 @@ import { EditTaskDialog } from './edit-task-dialog'
 import { ScheduledJobsPill } from './scheduled-jobs-pill'
 
 const TTL_PRESETS: Array<{ label: string; minutes: number }> = [
+  { label: '15 minutes', minutes: 15 },
   { label: '1 hour', minutes: 60 },
   { label: '12 hours', minutes: 720 },
   { label: '24 hours', minutes: 1440 },

@@ -451,7 +451,7 @@ mod tests {
                 task_token_secret: Some("secret".into()),
                 file_mount_path: "/tmp".into(),
                 idle_reaper_enabled: false,
-                idle_timeout_minutes: 60,
+                idle_timeout_minutes: 15,
                 idle_check_interval_secs: 300,
                 max_crash_restart_count: 5,
                 node_selector_json: None,
