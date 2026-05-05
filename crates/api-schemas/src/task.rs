@@ -124,6 +124,15 @@ pub struct UpdateVisibilityRequest {
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
+pub struct UpdateTaskTtlRequest {
+    /// New idle TTL in minutes. Must be `>= 0`. `0` disables the idle reaper
+    /// for this task (sandbox stays alive until explicitly stopped).
+    pub ttl_minutes: i32,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
 pub struct SetTagsRequest {
     pub tags: Vec<String>,
 }
@@ -178,6 +187,9 @@ pub struct TaskResponse {
     pub agent_state: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_running: Option<bool>,
+    /// Idle TTL in minutes. The reaper stops the sandbox when no activity has
+    /// occurred for this many minutes. `0` means "never reap".
+    pub ttl_minutes: i32,
 }
 
 /// Tag as embedded in a task response (minimal: id + name only).

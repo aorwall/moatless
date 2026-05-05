@@ -8,6 +8,11 @@ use crate::shared_models::AgentType;
 // Re-export enums from the shared crate.
 pub use moatless_api_schemas::enums::{TaskStatus, Visibility};
 
+/// Default idle TTL in minutes for newly inserted tasks when the caller has no
+/// access to platform config (e.g. channel runtimes). Matches the
+/// `SANDBOX_IDLE_TIMEOUT_MINUTES` env-var default.
+pub const DEFAULT_TTL_MINUTES: i32 = 60;
+
 // =============================================================================
 // Task (DB)
 // =============================================================================
@@ -41,6 +46,9 @@ pub struct Task {
     pub append_system_prompt: Option<String>,
     pub sandbox_started_at: Option<DateTime<Utc>>,
     pub headless: bool,
+    /// Idle TTL in minutes. The reaper stops the sandbox when no activity has
+    /// occurred for this many minutes. `0` means "indefinite — never reap".
+    pub ttl_minutes: i32,
 }
 
 #[cfg(test)]

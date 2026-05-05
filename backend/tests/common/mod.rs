@@ -261,6 +261,8 @@ pub fn make_task_row(task_id: &str, user_id: &str) -> Task {
         parent_task_id: None,
         append_system_prompt: None,
         sandbox_started_at: None,
+        headless: false,
+        ttl_minutes: 60,
     }
 }
 

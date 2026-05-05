@@ -144,6 +144,7 @@ pub async fn create_task(
         append_system_prompt: None,
         sandbox_started_at: None,
         headless: req.headless.unwrap_or(false),
+        ttl_minutes: state.config.sandbox.idle_timeout_minutes as i32,
     };
 
     insert_and_provision_task(
@@ -797,6 +798,67 @@ pub async fn update_visibility(
     Ok(Json(resp))
 }
 
+/// Update a task's idle TTL (in minutes). `0` disables the idle reaper for
+/// this task — the sandbox stays alive until it's explicitly stopped.
+#[utoipa::path(
+    put,
+    path = "/api/v1/tasks/{task_id}/ttl",
+    tag = "tasks",
+    params(
+        ("task_id" = String, Path, description = "Task identifier")
+    ),
+    request_body = UpdateTaskTtlRequest,
+    responses(
+        (status = 200, description = "TTL updated", body = TaskResponse),
+        (status = 400, description = "Invalid TTL value", body = crate::error::ErrorBody),
+        (status = 404, description = "Task not found", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn update_ttl(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(task_id): Path<String>,
+    Json(req): Json<UpdateTaskTtlRequest>,
+) -> Result<Json<TaskResponse>, TaskError> {
+    if req.ttl_minutes < 0 {
+        return Err(TaskError::BadRequest(
+            "ttl_minutes must be >= 0".to_string(),
+        ));
+    }
+
+    let _existing = state
+        .tasks
+        .find_by_id(&task_id, &auth.scope_context())
+        .await?
+        .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
+
+    state
+        .tasks
+        .update_task(
+            &task_id,
+            &TaskPatch {
+                ttl_minutes: Some(req.ttl_minutes),
+                ..Default::default()
+            },
+        )
+        .await?;
+    tracing::info!(
+        task_id = %task_id,
+        user_id = %auth.user_id,
+        ttl_minutes = req.ttl_minutes,
+        "Task TTL updated"
+    );
+
+    let row = state
+        .tasks
+        .find_by_id(&task_id, &auth.scope_context())
+        .await?
+        .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
+
+    let resp = enrich_task(&row, &state, &auth.user_id).await?;
+    Ok(Json(resp))
+}
+
 // =========================================================================
 // Helpers
 // =========================================================================
@@ -899,6 +961,7 @@ fn build_task_response(
         environment_status: None,
         agent_state: None,
         is_running: None,
+        ttl_minutes: row.ttl_minutes,
     }
 }
 

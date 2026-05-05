@@ -257,6 +257,7 @@ export * from './updateRepositoryRequestServers';
 export * from './updateRepositoryRequestServerStartCommands';
 export * from './updateRepositoryRequestSetupCommands';
 export * from './updateTaskMetadataRequest';
+export * from './updateTaskTtlRequest';
 export * from './updateTeamRequest';
 export * from './updateUserRequest';
 export * from './updateVisibilityRequest';

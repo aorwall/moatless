@@ -47,6 +47,12 @@ pub trait TaskRepository: Send + Sync {
         &self,
         task_ids: &[String],
     ) -> Result<HashMap<String, DateTime<Utc>>, sqlx::Error>;
+    /// Batch-fetch `ttl_minutes` for the given tasks. Tasks with no row are
+    /// omitted (not present in the map).
+    async fn get_ttl_minutes_map(
+        &self,
+        task_ids: &[String],
+    ) -> Result<HashMap<String, i32>, sqlx::Error>;
 }
 
 /// PostgreSQL implementation of [`TaskRepository`].
@@ -87,11 +93,12 @@ impl TaskRepository for PgTaskRepository {
                 repository_id, status, total_cost_usd, site_url, template_id,
                 vibe, name, description, site_id, site_provider, branch,
                 created_by, visibility, scope, team_id, parent_task_id,
-                append_system_prompt, updated_at, sandbox_started_at, headless
+                append_system_prompt, updated_at, sandbox_started_at, headless,
+                ttl_minutes
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
                 $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21,
-                $22, NOW(), $23, $24
+                $22, NOW(), $23, $24, $25
             )"#,
         )
         .bind(&row.task_id)
@@ -118,6 +125,7 @@ impl TaskRepository for PgTaskRepository {
         .bind(&row.append_system_prompt)
         .bind(row.sandbox_started_at)
         .bind(row.headless)
+        .bind(row.ttl_minutes)
         .execute(&self.0)
         .await?;
         Ok(())
@@ -153,6 +161,7 @@ impl TaskRepository for PgTaskRepository {
             append_system_prompt: Option<String>,
             sandbox_started_at: Option<DateTime<Utc>>,
             headless: bool,
+            ttl_minutes: i32,
             total_count: i64,
         }
 
@@ -164,7 +173,7 @@ impl TaskRepository for PgTaskRepository {
                 t.vibe, t.name, t.description, t.site_id, t.site_provider, t.branch,
                 t.created_by, t.visibility, t.scope, t.team_id, t.created_at_db,
                 t.updated_at, t.parent_task_id, t.append_system_prompt,
-                t.sandbox_started_at, t.headless,
+                t.sandbox_started_at, t.headless, t.ttl_minutes,
                 COUNT(*) OVER() AS total_count
             FROM tasks t
             LEFT JOIN task_tags tt ON t.task_id = tt.task_id
@@ -224,6 +233,7 @@ impl TaskRepository for PgTaskRepository {
                 append_system_prompt: r.append_system_prompt,
                 sandbox_started_at: r.sandbox_started_at,
                 headless: r.headless,
+                ttl_minutes: r.ttl_minutes,
             })
             .collect();
 
@@ -318,6 +328,15 @@ impl TaskRepository for PgTaskRepository {
             .execute(&self.0)
             .await?;
         }
+        if let Some(ttl_minutes) = patch.ttl_minutes {
+            sqlx::query(
+                "UPDATE tasks SET ttl_minutes = $2, updated_at = NOW() WHERE task_id = $1",
+            )
+            .bind(task_id)
+            .bind(ttl_minutes)
+            .execute(&self.0)
+            .await?;
+        }
         Ok(())
     }
 
@@ -375,6 +394,24 @@ impl TaskRepository for PgTaskRepository {
 
         Ok(rows.into_iter().collect())
     }
+
+    async fn get_ttl_minutes_map(
+        &self,
+        task_ids: &[String],
+    ) -> Result<HashMap<String, i32>, sqlx::Error> {
+        if task_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let rows: Vec<(String, i32)> = sqlx::query_as(
+            r#"SELECT task_id, ttl_minutes FROM tasks WHERE task_id = ANY($1)"#,
+        )
+        .bind(task_ids)
+        .fetch_all(&self.0)
+        .await?;
+
+        Ok(rows.into_iter().collect())
+    }
 }
 /// Patch struct for partial task updates.
 #[derive(Default)]
@@ -391,6 +428,7 @@ pub struct TaskPatch {
     pub short_id: Option<String>,
     pub append_system_prompt: Option<Option<String>>,
     pub sandbox_started_at: Option<DateTime<Utc>>,
+    pub ttl_minutes: Option<i32>,
 }
 
 // =========================================================================

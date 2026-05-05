@@ -5049,6 +5049,68 @@
         }
       }
     },
+    "/api/v1/tasks/{task_id}/ttl": {
+      "put": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Update a task's idle TTL (in minutes). `0` disables the idle reaper for\nthis task — the sandbox stays alive until it's explicitly stopped.",
+        "operationId": "update_ttl",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTaskTtlRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "TTL updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid TTL value",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tasks/{task_id}/visibility": {
       "put": {
         "tags": [
@@ -11028,7 +11090,8 @@
           "totalCostUsd",
           "visibility",
           "scope",
-          "tags"
+          "tags",
+          "ttlMinutes"
         ],
         "properties": {
           "agentState": {
@@ -11160,6 +11223,11 @@
           "totalCostUsd": {
             "type": "number",
             "format": "double"
+          },
+          "ttlMinutes": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Idle TTL in minutes. The reaper stops the sandbox when no activity has\noccurred for this many minutes. `0` means \"never reap\"."
           },
           "vibe": {
             "type": [
@@ -12004,6 +12072,19 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "UpdateTaskTtlRequest": {
+        "type": "object",
+        "required": [
+          "ttlMinutes"
+        ],
+        "properties": {
+          "ttlMinutes": {
+            "type": "integer",
+            "format": "int32",
+            "description": "New idle TTL in minutes. Must be `>= 0`. `0` disables the idle reaper\nfor this task (sandbox stays alive until explicitly stopped)."
           }
         }
       },

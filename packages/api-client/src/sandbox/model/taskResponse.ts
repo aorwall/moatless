@@ -54,6 +54,9 @@ export interface TaskResponse {
   templateId?: string | null;
   title: string;
   totalCostUsd: number;
+  /** Idle TTL in minutes. The reaper stops the sandbox when no activity has
+occurred for this many minutes. `0` means "never reap". */
+  ttlMinutes: number;
   /** @nullable */
   vibe?: boolean | null;
   visibility: Visibility;

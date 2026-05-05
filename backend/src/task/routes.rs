@@ -22,6 +22,7 @@ use crate::state::AppState;
         handlers::stop_task,
         handlers::set_task_tags,
         handlers::update_visibility,
+        handlers::update_ttl,
     )
 )]
 pub struct TaskApiDoc;
@@ -40,6 +41,7 @@ pub fn task_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenApi) 
         .routes(routes!(handlers::stop_task))
         .routes(routes!(handlers::set_task_tags))
         .routes(routes!(handlers::update_visibility))
+        .routes(routes!(handlers::update_ttl))
         .with_state(state)
         .split_for_parts();
 

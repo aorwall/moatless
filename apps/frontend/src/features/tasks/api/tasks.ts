@@ -27,6 +27,7 @@ import {
   listTasks as listTasksHandler,
   stopTask as stopAgentHandler,
   updateTaskMetadata as updateTaskMetadataHandler,
+  updateTtl as updateTaskTtlHandler,
   updateVisibility as updateVisibilityHandler,
 } from '@moatless/api-client/sandbox/tasks/tasks'
 
@@ -173,6 +174,11 @@ export const tasksApi = {
     updates: { name?: string; description?: string },
   ): Promise<{ success: boolean }> {
     await unwrapResponse(updateTaskMetadataHandler(taskId, updates))
+    return { success: true }
+  },
+
+  async updateTaskTtl(taskId: string, ttlMinutes: number): Promise<{ success: true }> {
+    await unwrapResponse(updateTaskTtlHandler(taskId, { ttlMinutes }))
     return { success: true }
   },
 }

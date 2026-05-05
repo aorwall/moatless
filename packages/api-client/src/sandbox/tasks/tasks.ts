@@ -34,6 +34,7 @@ import type {
   TagResponse,
   TaskResponse,
   UpdateTaskMetadataRequest,
+  UpdateTaskTtlRequest,
   UpdateVisibilityRequest
 } from '.././model';
 
@@ -941,6 +942,103 @@ export const useSetTaskTags = <TError = ErrorType<ErrorBody>,
         TContext
       > => {
       return useMutation(getSetTaskTagsMutationOptions(options), queryClient);
+    }
+    /**
+ * @summary Update a task's idle TTL (in minutes). `0` disables the idle reaper for
+this task — the sandbox stays alive until it's explicitly stopped.
+ */
+export type updateTtlResponse200 = {
+  data: TaskResponse
+  status: 200
+}
+
+export type updateTtlResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
+export type updateTtlResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+    
+export type updateTtlResponseSuccess = (updateTtlResponse200) & {
+  headers: Headers;
+};
+export type updateTtlResponseError = (updateTtlResponse400 | updateTtlResponse404) & {
+  headers: Headers;
+};
+
+export type updateTtlResponse = (updateTtlResponseSuccess | updateTtlResponseError)
+
+export const getUpdateTtlUrl = (taskId: string,) => {
+
+
+  
+
+  return `/api/v1/tasks/${taskId}/ttl`
+}
+
+export const updateTtl = async (taskId: string,
+    updateTaskTtlRequest: UpdateTaskTtlRequest, options?: RequestInit): Promise<updateTtlResponse> => {
+  
+  return customInstance<updateTtlResponse>(getUpdateTtlUrl(taskId),
+  {      
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      updateTaskTtlRequest,)
+  }
+);}
+
+
+
+
+export const getUpdateTtlMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateTtl>>, TError,{taskId: string;data: UpdateTaskTtlRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateTtl>>, TError,{taskId: string;data: UpdateTaskTtlRequest}, TContext> => {
+
+const mutationKey = ['updateTtl'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateTtl>>, {taskId: string;data: UpdateTaskTtlRequest}> = (props) => {
+          const {taskId,data} = props ?? {};
+
+          return  updateTtl(taskId,data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateTtlMutationResult = NonNullable<Awaited<ReturnType<typeof updateTtl>>>
+    export type UpdateTtlMutationBody = UpdateTaskTtlRequest
+    export type UpdateTtlMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Update a task's idle TTL (in minutes). `0` disables the idle reaper for
+this task — the sandbox stays alive until it's explicitly stopped.
+ */
+export const useUpdateTtl = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateTtl>>, TError,{taskId: string;data: UpdateTaskTtlRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof updateTtl>>,
+        TError,
+        {taskId: string;data: UpdateTaskTtlRequest},
+        TContext
+      > => {
+      return useMutation(getUpdateTtlMutationOptions(options), queryClient);
     }
     /**
  * @summary Update task visibility (public/private).

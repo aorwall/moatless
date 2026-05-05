@@ -1,9 +1,19 @@
 import { useNavigate } from '@tanstack/react-router'
-import { Globe, Lock, MoreVertical, Pencil, RefreshCw, XCircle } from 'lucide-react'
+import {
+  Check,
+  Globe,
+  Lock,
+  MoreVertical,
+  Pencil,
+  Power,
+  RefreshCw,
+  Timer,
+  XCircle,
+} from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
-import { useSandboxRestart, useSandboxStatus } from '@/features/tasks'
+import { useSandboxRestart, useSandboxStatus, useSandboxStop } from '@/features/tasks'
 import { MobileViewToggle } from '@/features/tasks/components/mobile-view-toggle'
 import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
 import { useTaskId } from '@/features/tasks/contexts/task-providers'
@@ -12,6 +22,7 @@ import { useTaskView } from '@/features/tasks/hooks/use-task-view'
 import {
   useCloseTask,
   useUpdateTaskMetadata,
+  useUpdateTaskTtl,
   useUpdateTaskVisibility,
 } from '@/features/tasks/hooks/use-tasks'
 import { Button } from '@/lib/components/ui/button'
@@ -20,6 +31,13 @@ import { SidebarTrigger } from '@/lib/components/ui/sidebar'
 import { CreateRepoButton } from './create-repo-button'
 import { EditTaskDialog } from './edit-task-dialog'
 import { ScheduledJobsPill } from './scheduled-jobs-pill'
+
+const TTL_PRESETS: Array<{ label: string; minutes: number }> = [
+  { label: '1 hour', minutes: 60 },
+  { label: '12 hours', minutes: 720 },
+  { label: '24 hours', minutes: 1440 },
+  { label: 'Indefinite', minutes: 0 },
+]
 
 export function TaskLeftHeader() {
   const taskId = useTaskId()
@@ -33,6 +51,8 @@ export function TaskLeftHeader() {
     onSuccess: () => setIsEditDialogOpen(false),
   })
   const sandboxRestart = useSandboxRestart(taskId)
+  const sandboxStop = useSandboxStop(taskId)
+  const updateTtl = useUpdateTaskTtl(taskId)
   const navigate = useNavigate()
   const closeTask = useCloseTask(taskId, {
     onSuccess: () => navigate({ to: '/' }),
@@ -154,6 +174,43 @@ export function TaskLeftHeader() {
               <RefreshCw className={`h-4 w-4 ${sandboxRestart.isPending ? 'animate-spin' : ''}`} />
               Restart Sandbox
             </Button>
+            <Button
+              variant="ghost"
+              className="w-full justify-start gap-2 h-8 px-2"
+              disabled={sandboxStop.isPending}
+              onClick={() => {
+                sandboxStop.mutate()
+                setIsMenuOpen(false)
+              }}
+            >
+              <Power className="h-4 w-4" />
+              Stop Sandbox
+            </Button>
+            <div className="my-1 border-t" />
+            <div className="flex items-center gap-2 px-2 pt-1 pb-0.5 text-xs text-muted-foreground">
+              <Timer className="h-3 w-3" />
+              Sandbox TTL
+            </div>
+            {TTL_PRESETS.map((preset) => {
+              const isActive = task.ttlMinutes === preset.minutes
+              return (
+                <Button
+                  key={preset.minutes}
+                  variant="ghost"
+                  className="w-full justify-start gap-2 h-8 px-2"
+                  disabled={updateTtl.isPending}
+                  onClick={() => {
+                    if (!isActive) {
+                      updateTtl.mutate(preset.minutes)
+                    }
+                    setIsMenuOpen(false)
+                  }}
+                >
+                  <Check className={`h-4 w-4 ${isActive ? 'opacity-100' : 'opacity-0'}`} />
+                  {preset.label}
+                </Button>
+              )
+            })}
             <div className="my-1 border-t" />
             <Button
               variant="ghost"

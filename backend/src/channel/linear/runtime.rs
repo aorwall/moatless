@@ -522,6 +522,7 @@ async fn create_ingress_task(
         },
         sandbox_started_at: None,
         headless: true,
+        ttl_minutes: crate::task::models::DEFAULT_TTL_MINUTES,
     };
 
     state

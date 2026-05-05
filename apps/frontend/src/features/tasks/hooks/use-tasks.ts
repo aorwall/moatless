@@ -535,6 +535,24 @@ export function useUpdateTaskMetadata(
   })
 }
 
+export function useUpdateTaskTtl(
+  taskId: string,
+  options?: UseMutationOptions<{ success: true }, Error, number>,
+) {
+  const queryClient = useQueryClient()
+
+  return useMutation<{ success: true }, Error, number>({
+    ...options,
+    mutationKey: ['tasks', taskId, 'updateTtl'],
+    mutationFn: (ttlMinutes) => tasksApi.updateTaskTtl(taskId, ttlMinutes),
+    onSuccess: (data, variables, onMutateResult, mutationContext) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.detail(taskId) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.lists() })
+      options?.onSuccess?.(data, variables, onMutateResult, mutationContext)
+    },
+  })
+}
+
 export function useDeleteTask(options?: UseMutationOptions<{ status: string }, Error, string>) {
   const queryClient = useQueryClient()
 

@@ -504,6 +504,7 @@ pub(crate) async fn create_task_for_channel(
         },
         sandbox_started_at: None,
         headless: true,
+        ttl_minutes: crate::task::models::DEFAULT_TTL_MINUTES,
     };
 
     state
