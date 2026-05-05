@@ -1673,6 +1673,7 @@ pub async fn send_to_task_channels(
                     None,
                     None,
                     Some(&task_id),
+                    false,
                 )
                 .await
                 .map_err(|e| {

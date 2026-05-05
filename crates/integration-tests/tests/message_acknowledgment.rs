@@ -94,6 +94,8 @@ async fn same_session_multi_message() {
         tool_name: None,
         tool_response: None,
         tool_use_id: None,
+        source_task_id: None,
+        start_fresh: None,
     };
     client
         .api()
@@ -117,6 +119,8 @@ async fn same_session_multi_message() {
         tool_name: None,
         tool_response: None,
         tool_use_id: None,
+        source_task_id: None,
+        start_fresh: None,
     };
     client
         .api()

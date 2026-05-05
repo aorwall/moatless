@@ -56,6 +56,7 @@ pub async fn run(
                 tool_response: None,
                 tool_use_id: None,
                 source_task_id: config.task_id().map(std::string::ToString::to_string),
+                start_fresh: None,
             };
             let resp = client.api().send_message(&task_id, &req).await?;
             if json {

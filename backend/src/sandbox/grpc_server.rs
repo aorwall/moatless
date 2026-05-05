@@ -232,14 +232,17 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         }
 
         // Look up latest agent_session_id for --resume <id>
-        let resume_session_id = messages
+        let task_resume_session_id = messages
             .get_latest_agent_session_id(&req.task_id)
             .await
             .unwrap_or(None);
 
         // Check will_not_resume on the last result — if explicitly set (e.g.
-        // by a command like "compact"), don't pass a resume session ID.
-        let resume_session_id = if resume_session_id.is_some() {
+        // by a command like "compact"), don't pass a resume session ID. Also
+        // auto-skip resume when the last result row was an error: the prior
+        // turn blew up (e.g. codex `--resume` against a missing rollout) and
+        // resuming again would just loop the same failure.
+        let task_resume_session_id = if task_resume_session_id.is_some() {
             match messages.get_last_result(&req.task_id).await {
                 Ok(Some(last_result)) if last_result.will_not_resume == Some(true) => {
                     debug!(
@@ -248,7 +251,14 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
                     );
                     None
                 }
-                _ => resume_session_id,
+                Ok(Some(last_result)) if last_result.message_type == crate::message::models::MessageType::Error => {
+                    debug!(
+                        task_id = %req.task_id,
+                        "Last result is an error, clearing resume_session_id to start fresh"
+                    );
+                    None
+                }
+                _ => task_resume_session_id,
             }
         } else {
             None
@@ -265,12 +275,22 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
                     return None;
                 }
 
-                // When will_not_resume is set, also clear the per-message resume flag
-                // so the sandbox starts a fresh session.
-                let resume = if resume_session_id.is_none() {
-                    Some(false)
+                // Per-message override: the user toggled "Start fresh" on
+                // this specific message. Force resume off regardless of the
+                // task-wide derivation.
+                let (resume_session_id, resume) = if row.start_fresh {
+                    debug!(
+                        task_id = %req.task_id,
+                        uuid = %row.uuid,
+                        "Message has start_fresh=true, suppressing resume"
+                    );
+                    (None, Some(false))
+                } else if task_resume_session_id.is_none() {
+                    // When will_not_resume is set or last turn errored, clear
+                    // the per-message resume flag so the sandbox starts fresh.
+                    (None, Some(false))
                 } else {
-                    Some(row.resume)
+                    (task_resume_session_id.clone(), Some(row.resume))
                 };
 
                 Some(sandbox_proto::PendingMessage {
@@ -280,10 +300,11 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
                     resume,
                     agent_type: Some(task_agent_type.clone()),
                     is_error: None,
-                    resume_session_id: resume_session_id.clone(),
+                    resume_session_id,
                     uuid: Some(row.uuid.clone()),
                     agent_mode: row.agent_mode.as_ref().map(|m| m.0.clone()),
                     file_ids: row.file_ids(),
+                    start_fresh: Some(row.start_fresh),
                 })
             })
             .collect();
@@ -633,6 +654,14 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
     /// is set (the sandbox acknowledged it) but whose turn never reached a
     /// terminal `agent.completed/error/stopped` event row — i.e. the prior
     /// pod was killed mid-run.
+    ///
+    /// Note: turns whose terminal event was `agent.error` are excluded by
+    /// `find_interrupted_turn` (the SQL filters on `sub_type IN
+    /// ('completed', 'error', 'stopped')`), so a turn that already errored
+    /// will never be replayed by the recovery path. Pair this with the
+    /// auto-suppression of `resume_session_id` when the last result was an
+    /// `Error` row in `get_pending_messages` to ensure the next user message
+    /// also starts a fresh session instead of looping the same resume failure.
     ///
     /// Bumps `recovery_attempts` on each successful return. When the
     /// `MAX_RECOVERY_ATTEMPTS` cap is hit, inserts a synthetic Aborted Result

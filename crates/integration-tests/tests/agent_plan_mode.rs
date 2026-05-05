@@ -178,6 +178,8 @@ async fn agent_plan_mode() {
                     tool_name: Some("ExitPlanMode".into()),
                     tool_response: Some(serde_json::json!({ "approved": true })),
                     tool_use_id: Some(tool_use_id),
+                    source_task_id: None,
+                    start_fresh: None,
                 };
                 client.api().send_message(task_id, &approval).await.unwrap();
 

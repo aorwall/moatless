@@ -90,6 +90,11 @@ message PendingMessage {
   // DownloadUpload before invoking the agent so the on-disk paths advertised
   // in the prompt are valid.
   repeated string file_ids = 10;
+  // When true, the sandbox must start a fresh agent session for this message
+  // (no `--resume`). Used by the user-facing "Start fresh" toggle. Backend
+  // already clears `resume_session_id` for these messages, but this flag is
+  // forwarded so the sandbox can log/observe the user intent.
+  optional bool start_fresh = 11;
 }
 
 message ContentBlock {

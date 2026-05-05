@@ -131,6 +131,8 @@ async fn agent_execution_and_multi_turn() {
         tool_name: None,
         tool_response: None,
         tool_use_id: None,
+        source_task_id: None,
+        start_fresh: None,
     };
     client
         .api()

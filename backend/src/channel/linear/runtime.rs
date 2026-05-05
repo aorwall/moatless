@@ -652,6 +652,7 @@ async fn deliver_to_subscription(
         Some(rule.scope_matcher.as_str()),
         None,
         None,
+        false,
     )
     .await
     {

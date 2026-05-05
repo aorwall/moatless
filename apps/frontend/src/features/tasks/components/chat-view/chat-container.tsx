@@ -1,5 +1,5 @@
 import type { CommandResponse, MessageContextInput, UiMessage } from '@moatless/api-client'
-import { Loader2 } from 'lucide-react'
+import { Loader2, Sparkles } from 'lucide-react'
 import type React from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
@@ -31,6 +31,7 @@ import {
 import {
   AttachmentPopoverContent,
   PopoverSelector,
+  SelectorButton,
   SimpleListPopoverContent,
   useAgentModeSelector,
   useModelSelector,
@@ -179,6 +180,7 @@ function ChatContainer({
   // Local state for chat values
   const [message, setMessage] = useState('')
   const [resumeConversation] = useState(true)
+  const [startFresh, setStartFresh] = useState(false)
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false)
 
   // Check Figma configuration status
@@ -259,6 +261,7 @@ function ChatContainer({
     // Reset selectors to defaults
     setSelectedModel(getModelForTask(isModelSelectorEnabled, undefined))
     setSelectedAgentMode('edit')
+    setStartFresh(false)
   }, [taskId, isModelSelectorEnabled])
 
   // Stop agent mutation
@@ -371,6 +374,7 @@ function ChatContainer({
   )
 
   // Handle sending message
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Branches by command vs free-text vs start-fresh flag
   const handleChatSubmit = useCallback(() => {
     const trimmedMessage = message.trim()
     if (sendMessage.isPending || !trimmedMessage) {
@@ -392,6 +396,7 @@ function ChatContainer({
         fileIds: taskInputs.getFileIds(),
         fileUploads: taskInputs.uploadedFiles,
         contexts: taskInputs.contextItems.length > 0 ? taskInputs.contextItems : undefined,
+        startFresh: startFresh || undefined,
       }
 
       sendMessage.mutate(commandData, {
@@ -399,6 +404,7 @@ function ChatContainer({
           setMessage('')
           clearSelectedCommand()
           taskInputs.clearAll()
+          setStartFresh(false)
         },
       })
       return
@@ -412,12 +418,14 @@ function ChatContainer({
       fileUploads: taskInputs.uploadedFiles,
       contexts: taskInputs.contextItems.length > 0 ? taskInputs.contextItems : undefined,
       agentMode: selectedAgentMode,
+      startFresh: startFresh || undefined,
     }
 
     sendMessage.mutate(messageData, {
       onSuccess: () => {
         setMessage('')
         taskInputs.clearAll()
+        setStartFresh(false)
       },
     })
   }, [
@@ -430,6 +438,7 @@ function ChatContainer({
     clearSelectedCommand,
     taskInputs,
     isModelSelectorEnabled,
+    startFresh,
   ])
 
   // Handle command button click
@@ -682,6 +691,13 @@ function ChatContainer({
                   />
                 </PopoverSelector>
               )}
+
+              <SelectorButton
+                icon={Sparkles}
+                label={startFresh ? 'Start fresh: on' : 'Start fresh'}
+                onClick={() => setStartFresh((v) => !v)}
+                className={startFresh ? 'border-primary text-primary' : undefined}
+              />
             </Selectors>
 
             <div className="flex items-center gap-2">

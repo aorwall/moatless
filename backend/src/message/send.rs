@@ -75,6 +75,7 @@ pub async fn send_message_flow(
     channel_source_name: Option<&str>,
     command_name: Option<&str>,
     source_task_id: Option<&str>,
+    start_fresh: bool,
 ) -> Result<(), MessageError> {
     // Dedup: if this channel message was already persisted (or was just sent
     // outbound and is racing the webhook), skip the insert entirely. Prevents
@@ -192,6 +193,7 @@ pub async fn send_message_flow(
         channel_source_name: channel_source_name.map(std::string::ToString::to_string),
         command_name: effective_command_name,
         source_task_id: source_task_id.map(std::string::ToString::to_string),
+        start_fresh,
     };
 
     // Build content blocks for the showInUI=true user text
@@ -328,6 +330,7 @@ pub async fn persist_error_result(state: &AppState, task_id: &str, error_text: &
         channel_source_name: None,
         command_name: None,
         source_task_id: None,
+        start_fresh: false,
     };
 
     let blocks = vec![TaskMessageContentBlock {
@@ -492,6 +495,7 @@ pub async fn send_tool_response_flow(
         channel_source_name: None,
         command_name: None,
         source_task_id: None,
+        start_fresh: false,
     };
 
     let contexts: Vec<TaskMessageContext> = vec![];

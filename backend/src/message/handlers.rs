@@ -68,6 +68,7 @@ pub async fn send_message(
             None,
             req.command_name.as_deref(),
             req.source_task_id.as_deref(),
+            req.start_fresh.unwrap_or(false),
         )
         .await?;
     }

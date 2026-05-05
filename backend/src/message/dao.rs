@@ -276,12 +276,13 @@ impl MessageRepository for PgMessageRepository {
                 tool_use_result, sdk_metadata, attachments, agent_session_id,
                 will_not_resume, run_metrics,
                 agent_mode, model, resume, channel_external_id,
-                channel_provider, channel_source_name, command_name, source_task_id
+                channel_provider, channel_source_name, command_name, source_task_id,
+                start_fresh
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
                 $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
                 $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
-                $31, $32, $33, $34, $35, $36, $37, $38
+                $31, $32, $33, $34, $35, $36, $37, $38, $39
             )
             ON CONFLICT (uuid) DO UPDATE SET
                 message_type = EXCLUDED.message_type,
@@ -330,6 +331,7 @@ impl MessageRepository for PgMessageRepository {
         .bind(&msg.channel_source_name)
         .bind(&msg.command_name)
         .bind(&msg.source_task_id)
+        .bind(msg.start_fresh)
         .fetch_one(&mut *tx)
         .await?;
 

@@ -149,6 +149,7 @@ fn make_text_message(text: &str, uuid: Option<&str>) -> PendingMessage {
         agent_mode: None,
         uuid: uuid.map(ToString::to_string),
         file_ids: vec![],
+        start_fresh: None,
     }
 }
 

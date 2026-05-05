@@ -432,6 +432,7 @@ pub async fn deliver_to_connected_threads(
             None,
             None,
             None,
+            false,
         )
         .await
         {

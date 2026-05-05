@@ -25,6 +25,12 @@ export interface SendMessageRequest {
    * @nullable
    */
   sourceTaskId?: string | null;
+  /**
+   * When true, the next agent run starts a fresh session instead of resuming.
+Per-message and cleared after send.
+   * @nullable
+   */
+  startFresh?: boolean | null;
   /** @nullable */
   toolName?: string | null;
   /** @nullable */

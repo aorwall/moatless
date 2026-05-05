@@ -402,6 +402,7 @@ pub(crate) async fn deliver_to_task(
         config.source_name.as_deref(),
         cmd_name,
         None,
+        false,
     )
     .await
     {
@@ -673,6 +674,7 @@ pub async fn trigger_inbound(
         config.source_name.as_deref(),
         None,
         None,
+        false,
     )
     .await
     {

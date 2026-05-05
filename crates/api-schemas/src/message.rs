@@ -294,6 +294,9 @@ pub struct SendMessageRequest {
     pub tool_response: Option<serde_json::Value>,
     /// Task ID of the sender (set automatically when sent from within a sandbox).
     pub source_task_id: Option<String>,
+    /// When true, the next agent run starts a fresh session instead of resuming.
+    /// Per-message and cleared after send.
+    pub start_fresh: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

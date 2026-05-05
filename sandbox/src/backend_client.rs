@@ -136,6 +136,9 @@ impl BackendGrpcClient {
 impl BackendClient for BackendGrpcClient {
     async fn publish_event(&self, req: PublishEventRequest) {
         let mut client = self.client.clone();
+        let task_id = req.task_id.clone();
+        let event_type = req.event_type;
+        let sub_type = req.sub_type.clone();
         match client.publish_event(req).await {
             Ok(resp) => {
                 debug!(
@@ -144,7 +147,13 @@ impl BackendClient for BackendGrpcClient {
                 );
             }
             Err(e) => {
-                warn!(error = %e, "Failed to publish event via gRPC");
+                warn!(
+                    error = %e,
+                    task_id = %task_id,
+                    event_type,
+                    sub_type = %sub_type,
+                    "Failed to publish event via gRPC"
+                );
             }
         }
     }

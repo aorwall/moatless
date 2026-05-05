@@ -38,7 +38,7 @@ WORKDIR /opt/moatless
 ENV HOME=/home/moatless
 ENV WORKSPACE_DIR=/opt/moatless/repo
 ENV CLAUDE_CONFIG_DIR=/opt/moatless/.claude
-ENV CODEX_HOME=/home/moatless/.codex
+ENV CODEX_HOME=/opt/moatless/.codex
 ENV CLAUDE_BIN_DIR=/usr/local/bin
 ENV DATA_DIR=/opt/moatless/data
 ENV DEVCONTAINER=true

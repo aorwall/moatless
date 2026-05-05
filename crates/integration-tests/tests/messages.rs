@@ -44,6 +44,8 @@ async fn send_and_list_messages() {
         tool_name: None,
         tool_response: None,
         tool_use_id: None,
+        source_task_id: None,
+        start_fresh: None,
     };
     let _resp = client.api().send_message(&task_id, &msg).await.unwrap();
 

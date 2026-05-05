@@ -729,6 +729,7 @@ mod tests {
             channel_source_name: None,
             command_name: None,
             source_task_id: None,
+            start_fresh: false,
         }
     }
 

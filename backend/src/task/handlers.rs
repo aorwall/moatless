@@ -255,6 +255,7 @@ async fn insert_and_provision_task(
             None,
             command_name,
             None,
+            false,
         )
         .await
         {

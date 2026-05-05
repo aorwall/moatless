@@ -183,6 +183,11 @@ interface SendMessageVariables {
   toolUseId?: string
   toolName?: 'AskUserQuestion' | 'ExitPlanMode'
   toolResponse?: AskUserQuestionResponse | ExitPlanModeResponse
+  /**
+   * When true, the next agent run starts a fresh session (no `--resume`).
+   * Per-message; the chat composer clears the toggle after each successful send.
+   */
+  startFresh?: boolean
 }
 
 export function useSendMessage(

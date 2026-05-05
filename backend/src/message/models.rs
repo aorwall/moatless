@@ -121,6 +121,9 @@ pub struct TaskMessage {
     pub channel_source_name: Option<String>,
     pub command_name: Option<String>,
     pub source_task_id: Option<String>,
+    /// User declared the next agent run should NOT resume the prior session.
+    /// Distinct from `will_not_resume`, which lives on the result row.
+    pub start_fresh: bool,
 }
 
 impl TaskMessage {
@@ -173,6 +176,7 @@ impl TaskMessage {
             channel_source_name: None,
             command_name: None,
             source_task_id: None,
+            start_fresh: false,
         }
     }
 

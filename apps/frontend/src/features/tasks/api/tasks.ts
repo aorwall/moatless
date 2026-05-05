@@ -93,6 +93,7 @@ export const tasksApi = {
       toolUseId?: string
       toolName?: 'AskUserQuestion' | 'ExitPlanMode'
       toolResponse?: unknown
+      startFresh?: boolean
     },
   ): Promise<SendMessageResponse> {
     const { fileUploads: _fileUploads, ...payload } = variables

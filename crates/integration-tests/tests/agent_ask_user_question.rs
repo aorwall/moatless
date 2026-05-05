@@ -149,6 +149,8 @@ async fn agent_ask_user_question() {
                         "answers": { "text": "Blue" }
                     })),
                     tool_use_id: Some(tool_use_id),
+                    source_task_id: None,
+                    start_fresh: None,
                 };
                 client.api().send_message(task_id, &answer).await.unwrap();
 

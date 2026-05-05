@@ -462,6 +462,7 @@ async fn deliver_to_subscription(
         config.source_name.as_deref(),
         cmd_name,
         None,
+        false,
     )
     .await
     .map_err(|e| ChannelError::Internal(format!("Failed to send message: {e}")))?;
