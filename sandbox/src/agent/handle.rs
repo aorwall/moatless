@@ -500,6 +500,36 @@ fn normalize_agent_type(agent_type: Option<&str>) -> &'static str {
     }
 }
 
+/// Resolve the `ResumeSession` for a new agent run.
+///
+/// Order of precedence:
+/// 1. A non-empty `previous_session_id` (carried from the live agent state).
+/// 2. A non-empty `resume_session_id` from the backend / recovery path.
+/// 3. For `claude-code`, fall back to `Last` (the CLI's `--continue`) so a pod
+///    that lost track of the session ID still resumes the on-disk JSONL state.
+/// 4. Otherwise no resume.
+///
+/// Empty strings are treated as "no resume" to avoid producing `--resume ""`,
+/// which the Claude CLI rejects (transport closes immediately on init).
+fn resolve_resume_session(
+    previous_session_id: &str,
+    resume_session_id: Option<&str>,
+    agent_type: &str,
+) -> Option<ResumeSession> {
+    if !previous_session_id.is_empty() {
+        return Some(ResumeSession::WithId(previous_session_id.to_string()));
+    }
+    if let Some(session_id) = resume_session_id.filter(|s| !s.is_empty()) {
+        info!(resume_session_id = %session_id, "Using backend-provided session ID for resume");
+        return Some(ResumeSession::WithId(session_id.to_string()));
+    }
+    if agent_type == AGENT_TYPE_CLAUDE_CODE {
+        Some(ResumeSession::Last)
+    } else {
+        None
+    }
+}
+
 /// Compute exponential backoff with jitter for a given attempt (0-indexed).
 fn compute_backoff(attempt: u32) -> std::time::Duration {
     let base = BACKOFF_BASE_SECS * 2.0_f64.powi(attempt as i32);
@@ -986,6 +1016,10 @@ async fn agent_loop(
                                     )
                                 }),
                             ).await;
+                            // Reset so the next user-initiated send gets a fresh budget.
+                            // Otherwise once tripped, no further sends ever reach the agent
+                            // — leaving no path for `consecutive_errors` to drop back to 0.
+                            consecutive_errors = 0;
                             continue;
                         }
 
@@ -1142,16 +1176,7 @@ async fn start_session(
 
     let agent_type = normalize_agent_type(agent_type);
 
-    let resume = if !previous_session_id.is_empty() {
-        Some(ResumeSession::WithId(previous_session_id.to_string()))
-    } else if let Some(ref session_id) = resume_session_id {
-        info!(resume_session_id = %session_id, "Using backend-provided session ID for resume");
-        Some(ResumeSession::WithId(session_id.clone()))
-    } else if agent_type == AGENT_TYPE_CLAUDE_CODE {
-        Some(ResumeSession::Last)
-    } else {
-        None
-    };
+    let resume = resolve_resume_session(previous_session_id, resume_session_id.as_deref(), agent_type);
 
     let request = AgentRunRequest {
         content: Vec::new(),
@@ -3055,5 +3080,43 @@ mod tests {
         assert!(is_error);
         assert_eq!(sub_type, AgentSubType::Error);
         assert_eq!(payload["subtype"], "rate_limit");
+    }
+
+    #[test]
+    fn resolve_resume_skips_empty_backend_session_for_claude() {
+        // Recovery path with an empty agent_session_id (the bug that wedged
+        // production task 75ab270a-…). Must fall through to Last, not WithId("").
+        let resume = resolve_resume_session("", Some(""), AGENT_TYPE_CLAUDE_CODE);
+        assert_eq!(resume, Some(ResumeSession::Last));
+    }
+
+    #[test]
+    fn resolve_resume_skips_empty_backend_session_for_codex() {
+        let resume = resolve_resume_session("", Some(""), AGENT_TYPE_CODEX);
+        assert_eq!(resume, None);
+    }
+
+    #[test]
+    fn resolve_resume_uses_previous_session_id_when_present() {
+        let resume = resolve_resume_session("prev-abc", Some(""), AGENT_TYPE_CLAUDE_CODE);
+        assert_eq!(resume, Some(ResumeSession::WithId("prev-abc".to_string())));
+    }
+
+    #[test]
+    fn resolve_resume_uses_backend_session_id_when_non_empty() {
+        let resume = resolve_resume_session("", Some("sess-123"), AGENT_TYPE_CLAUDE_CODE);
+        assert_eq!(resume, Some(ResumeSession::WithId("sess-123".to_string())));
+    }
+
+    #[test]
+    fn resolve_resume_falls_back_to_last_for_claude_with_no_input() {
+        let resume = resolve_resume_session("", None, AGENT_TYPE_CLAUDE_CODE);
+        assert_eq!(resume, Some(ResumeSession::Last));
+    }
+
+    #[test]
+    fn resolve_resume_returns_none_for_codex_with_no_input() {
+        let resume = resolve_resume_session("", None, AGENT_TYPE_CODEX);
+        assert_eq!(resume, None);
     }
 }

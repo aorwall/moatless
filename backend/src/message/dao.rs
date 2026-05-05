@@ -851,6 +851,7 @@ impl MessageRepository for PgMessageRepository {
                WHERE m.task_id = $1
                  AND m.message_type = 'user'
                  AND m.agent_session_id IS NOT NULL
+                 AND m.agent_session_id <> ''
                  AND m.turn_number IS NOT NULL
                  AND NOT EXISTS (
                    SELECT 1 FROM task_events e
