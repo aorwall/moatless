@@ -66,6 +66,35 @@ pub async fn resolve_task_credentials(input: TaskCredentialInputs<'_>) -> HashMa
     credentials
 }
 
+/// Resolve only the GitHub token a task's sandbox would receive.
+///
+/// Mirrors the priority chain used by `resolve_task_credentials` (team
+/// `provider_tokens` → user `provider_tokens` with GitHub-App refresh) but
+/// skips the scoped-secret fallback: an operator-set `GITHUB_TOKEN` secret
+/// is an escape hatch that we deliberately don't pre-validate at provision
+/// time, so callers who use it can still start a sandbox even if the GitHub
+/// API is unreachable from the backend.
+pub async fn resolve_task_github_token(input: TaskCredentialInputs<'_>) -> Option<String> {
+    let provider_tokens = input.provider_tokens?;
+    let mut credentials: HashMap<String, String> = HashMap::new();
+
+    if let Some(team_id) = input.team_id {
+        fill_team_provider_tokens(&mut credentials, provider_tokens, team_id).await;
+    }
+    if !credentials.contains_key(GITHUB_TOKEN) {
+        fill_user_provider_tokens(
+            &mut credentials,
+            provider_tokens,
+            input.user_id,
+            input.github_app_service,
+            input.provider_token_auth,
+        )
+        .await;
+    }
+
+    credentials.remove(GITHUB_TOKEN)
+}
+
 /// Merge scoped-secret values into `credentials` only for keys that aren't
 /// already covered by a provider_token. Extracted so the priority logic is
 /// directly unit-testable without standing up the full `SecretService`.

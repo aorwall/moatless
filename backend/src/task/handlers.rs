@@ -191,6 +191,61 @@ async fn insert_and_provision_task(
             .await;
     }
 
+    // Pre-flight: validate the GitHub token before any sandbox resources
+    // are created. The task row already exists, so on failure we mark it
+    // Error + publish a sandbox.error event and skip provisioning entirely.
+    let repo = state
+        .repositories
+        .find_repository_by_id(&row.repository_id)
+        .await?
+        .ok_or_else(|| TaskError::RepoNotFound(row.repository_id.clone()))?;
+
+    let validator = crate::sandbox::preflight::RealGithubValidator;
+    if let Err(e) = crate::sandbox::preflight::preflight_validate_github_token(
+        state, row, &repo, &validator,
+    )
+    .await
+    {
+        let msg = e.user_message();
+        tracing::warn!(task_id = %task_id, error = %e, "Sandbox preflight failed");
+        if let Err(db_err) = state
+            .tasks
+            .update_task(
+                task_id,
+                &TaskPatch {
+                    status: Some(TaskStatus::Error),
+                    ..Default::default()
+                },
+            )
+            .await
+        {
+            tracing::error!(
+                task_id = %task_id,
+                error = %db_err,
+                "Failed to mark task Error after preflight failure"
+            );
+        }
+        if let Some(ref events) = state.events {
+            events
+                .publish_sandbox_event_with_payload(
+                    task_id,
+                    SandboxSubType::Error,
+                    &SandboxEventPayload {
+                        message: msg,
+                        error: Some(e.to_string()),
+                        lifecycle_event: Some("preflight_failed".to_string()),
+                    },
+                )
+                .await;
+        }
+        let task_response = enrich_task(row, state, &auth.user_id).await?;
+        return Ok(Json(CreateTaskResponse {
+            task_id: row.task_id.clone(),
+            status: TaskStatus::Error,
+            task: task_response,
+        }));
+    }
+
     // Always provision sandbox
     match crate::sandbox::auto_provision::build_provision_request(
         state.tasks.as_ref(),
@@ -610,6 +665,56 @@ pub async fn start_task(
     }
 
     tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Starting task");
+
+    // Pre-flight: validate the GitHub token + repo access before any
+    // sandbox resources are created. On failure: mark Error, publish a
+    // sandbox.error event, and return 400.
+    let repo = state
+        .repositories
+        .find_repository_by_id(&row.repository_id)
+        .await?
+        .ok_or_else(|| TaskError::RepoNotFound(row.repository_id.clone()))?;
+
+    let validator = crate::sandbox::preflight::RealGithubValidator;
+    if let Err(e) = crate::sandbox::preflight::preflight_validate_github_token(
+        &state, &row, &repo, &validator,
+    )
+    .await
+    {
+        let msg = e.user_message();
+        tracing::warn!(task_id = %task_id, error = %e, "Start preflight failed");
+        if let Err(db_err) = state
+            .tasks
+            .update_task(
+                &task_id,
+                &TaskPatch {
+                    status: Some(TaskStatus::Error),
+                    ..Default::default()
+                },
+            )
+            .await
+        {
+            tracing::error!(
+                task_id = %task_id,
+                error = %db_err,
+                "Failed to mark task Error after preflight failure"
+            );
+        }
+        if let Some(ref events) = state.events {
+            events
+                .publish_sandbox_event_with_payload(
+                    &task_id,
+                    SandboxSubType::Error,
+                    &SandboxEventPayload {
+                        message: msg.clone(),
+                        error: Some(e.to_string()),
+                        lifecycle_event: Some("preflight_failed".to_string()),
+                    },
+                )
+                .await;
+        }
+        return Err(TaskError::BadRequest(msg));
+    }
 
     let request = crate::sandbox::auto_provision::build_provision_request(
         state.tasks.as_ref(),

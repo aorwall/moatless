@@ -16,6 +16,7 @@ pub mod jwt;
 pub mod k8s;
 pub mod models;
 pub mod notify;
+pub mod preflight;
 pub mod provider;
 pub mod routes;
 pub mod schemas;
