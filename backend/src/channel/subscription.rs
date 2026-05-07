@@ -202,6 +202,11 @@ pub async fn route_inbound_message(
     if rule.routing_mode == RoutingMode::Ongoing {
         if let Some(task_id) = open_ongoing_task_id(state, rule).await {
             if !subscriptions.iter().any(|s| s.task_id == task_id) {
+                // Pass None so a newly attached subscription starts with no cursor —
+                // `deliver_to_subscription` then fetches the full prior thread as
+                // context, and `touch_cursor` advances it after delivery. For an
+                // existing subscription the COALESCE in the upsert preserves the
+                // current cursor.
                 let sub = upsert_subscription(
                     state,
                     connection,
@@ -212,7 +217,7 @@ pub async fn route_inbound_message(
                     subject_key,
                     reply_target.clone(),
                     CREATED_REASON_INGRESS,
-                    msg.channel_external_id.clone(),
+                    None,
                 )
                 .await?;
                 subscriptions.push(sub);
@@ -229,6 +234,8 @@ pub async fn route_inbound_message(
         if rule.routing_mode == RoutingMode::Ongoing {
             update_rule_ongoing_task(state, &rule.id, &task_id).await?;
         }
+        // Seed the cursor as None so `fetch_context` retrieves the full prior
+        // thread on the first delivery; `touch_cursor` advances it afterward.
         let sub = upsert_subscription(
             state,
             connection,
@@ -239,7 +246,7 @@ pub async fn route_inbound_message(
             subject_key,
             reply_target.clone(),
             CREATED_REASON_INGRESS,
-            msg.channel_external_id.clone(),
+            None,
         )
         .await?;
         subscriptions.push(sub);
