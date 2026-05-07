@@ -1,0 +1,48 @@
+name: Release moat CLI
+
+on:
+  push:
+    tags:
+      - 'moat-cli-v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag name to publish (e.g. moat-cli-v0.1.0)'
+        required: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: rust:1.91-bookworm
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install protoc
+        run: apt-get update && apt-get install -y protobuf-compiler
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+          shared-key: rust-moat-cli-release
+
+      - name: Build moat (release)
+        run: cargo build -p moatless-cli --release
+
+      - name: Stage artifact
+        run: |
+          mkdir -p dist
+          cp target/release/moat dist/moat-linux-amd64
+          chmod +x dist/moat-linux-amd64
+          (cd dist && sha256sum moat-linux-amd64 > moat-linux-amd64.sha256)
+
+      - name: Create / update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name || inputs.tag }}
+          files: |
+            dist/moat-linux-amd64
+            dist/moat-linux-amd64.sha256
+          fail_on_unmatched_files: true
