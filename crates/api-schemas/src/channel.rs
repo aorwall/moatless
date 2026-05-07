@@ -415,6 +415,59 @@ pub struct CreateIngressRuleRequest {
     pub team_id: Option<String>,
 }
 
+// ---------------------------------------------------------------------------
+// Task subscriptions (provider-agnostic reply targets)
+// ---------------------------------------------------------------------------
+
+/// Request body for `POST /api/v1/tasks/{task_id}/subscriptions`.
+///
+/// Attaches an explicit reply target to an existing task. Mirrors the
+/// `task_subscriptions` row that ingress webhooks create automatically, but
+/// for tasks that were created via `moat tasks create` (e.g. from CI).
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct CreateTaskSubscriptionRequest {
+    /// Provider identifier, e.g. `"slack"`, `"github"`, `"telegram"`.
+    pub provider: String,
+    /// Provider connection FK (`provider_connections.id`). The bot/auth used
+    /// to send replies must match this connection.
+    pub connection_id: String,
+    /// Subject category for routing — `"slack_thread"`, `"github_pr"`, etc.
+    pub subject_kind: String,
+    /// Provider-specific routing key. Must be unique with `(provider, subject_kind)`.
+    /// Slack: `{team_id}:{channel}:{thread_ts}` (or `{channel}:{thread_ts}` if
+    /// team scope is implicit). GitHub: `owner/repo#NN`.
+    pub subject_key: String,
+    /// Provider-specific reply target. Slack expects
+    /// `{"channel":..., "ts":..., "thread_ts":...}`.
+    #[cfg_attr(feature = "openapi", schema(value_type = Object))]
+    pub reply_target: serde_json::Value,
+    /// Optional metadata (defaults to `{}`).
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
+    pub metadata: Option<serde_json::Value>,
+}
+
+/// Response from `POST /api/v1/tasks/{task_id}/subscriptions`.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct TaskSubscriptionResponse {
+    pub id: String,
+    pub task_id: String,
+    pub provider: String,
+    pub subject_kind: String,
+    pub subject_key: String,
+    pub connection_id: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = Object))]
+    pub reply_target: serde_json::Value,
+    #[cfg_attr(feature = "openapi", schema(value_type = Object))]
+    pub metadata: serde_json::Value,
+    pub created_reason: String,
+    pub created_at: String,
+    pub last_event_at: String,
+}
+
 /// One row from `ingress_rules`.
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]

@@ -628,6 +628,16 @@ impl ApiClient {
         .await
     }
 
+    /// POST /api/v1/tasks/{task_id}/subscriptions
+    pub async fn create_task_subscription(
+        &self,
+        task_id: &str,
+        req: &moatless_api_schemas::channel::CreateTaskSubscriptionRequest,
+    ) -> Result<moatless_api_schemas::channel::TaskSubscriptionResponse, ApiError> {
+        self.post(&format!("/api/v1/tasks/{task_id}/subscriptions"), req)
+            .await
+    }
+
     /// POST /api/v1/channels/connect
     pub async fn connect_channel(
         &self,

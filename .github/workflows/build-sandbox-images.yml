@@ -100,7 +100,7 @@ jobs:
     needs: [detect-changes, build-binaries]
     if: >-
       always() &&
-      github.event_name != 'pull_request' &&
+      ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch') &&
       needs.build-binaries.result == 'success'
     runs-on: ubuntu-latest
     steps:
@@ -155,7 +155,9 @@ jobs:
     name: Build & push sandbox-base (stable)
     needs: [detect-changes]
     if: >-
-      always() && (
+      always() &&
+      ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch') &&
+      (
         needs.detect-changes.outputs.sandbox == 'true' ||
         github.event_name == 'workflow_dispatch'
       )
@@ -200,6 +202,7 @@ jobs:
     name: Build & push sandbox (+ sandbox-js alias)
     needs: [build-tools-image, build-sandbox-base]
     if: >-
+      ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch') &&
       needs.build-tools-image.result == 'success' &&
       needs.build-sandbox-base.result == 'success'
     runs-on: ubuntu-latest
@@ -256,7 +259,9 @@ jobs:
   build-sandbox-java:
     name: Build & push sandbox-java:${{ matrix.java-version }}
     needs: [build-tools-image]
-    if: needs.build-tools-image.result == 'success'
+    if: >-
+      ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch') &&
+      needs.build-tools-image.result == 'success'
     runs-on: ubuntu-latest
     strategy:
       matrix:

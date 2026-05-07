@@ -39,6 +39,7 @@ use crate::state::AppState;
         handlers::send_to_task_channel,
         handlers::send_to_task_channel_thread,
         handlers::send_to_task_channel_subscription,
+        handlers::create_task_subscription,
         handlers::create_ingress_rule,
         handlers::list_ingress_rules,
         handlers::delete_ingress_rule,
@@ -80,6 +81,7 @@ pub fn channel_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenAp
         .routes(routes!(handlers::send_to_task_channel))
         .routes(routes!(handlers::send_to_task_channel_thread))
         .routes(routes!(handlers::send_to_task_channel_subscription))
+        .routes(routes!(handlers::create_task_subscription))
         .routes(routes!(
             handlers::create_ingress_rule,
             handlers::list_ingress_rules

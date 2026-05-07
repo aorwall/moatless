@@ -237,7 +237,7 @@ jobs:
     needs: [detect-changes, lint-frontend, build-frontend]
     if: >-
       always() &&
-      github.event_name != 'pull_request' &&
+      ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch') &&
       (needs.detect-changes.outputs.docker-frontend == 'true' || github.event_name == 'workflow_dispatch') &&
       (needs.lint-frontend.result == 'success' || needs.lint-frontend.result == 'skipped') &&
       needs.build-frontend.result == 'success'
@@ -282,7 +282,7 @@ jobs:
     needs: [detect-changes, build-backend]
     if: >-
       always() &&
-      github.event_name != 'pull_request' &&
+      ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch') &&
       (needs.detect-changes.outputs.docker-backend == 'true' || github.event_name == 'workflow_dispatch') &&
       needs.build-backend.result == 'success'
     runs-on: ubuntu-latest
@@ -331,7 +331,7 @@ jobs:
     needs: [detect-changes]
     if: >-
       always() &&
-      github.event_name != 'pull_request' &&
+      ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch') &&
       (needs.detect-changes.outputs.docker-preview == 'true' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     steps:
@@ -369,7 +369,7 @@ jobs:
     needs: [detect-changes, build-frontend-image, build-backend-image, build-preview-server-image]
     if: >-
       always() &&
-      github.event_name != 'pull_request' &&
+      ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch') &&
       !contains(needs.*.result, 'failure') &&
       (
         github.event_name == 'workflow_dispatch' ||

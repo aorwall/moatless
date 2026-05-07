@@ -4,8 +4,9 @@ use clap::Subcommand;
 use moatless_api_schemas::channel::{
     ChannelConfigResponse, ChatDestinationSendRequest, ConnectChannelRequest,
     CreateChannelConfigRequest, CreateIngressRuleRequest, CreateProviderConnectionRequest,
-    DirectSendRequest, IngressRuleResponse, ProviderConnectionResponse,
-    SendChannelMessageRequest, TriggerChannelRequest, UpdateChannelConfigRequest,
+    CreateTaskSubscriptionRequest, DirectSendRequest, IngressRuleResponse,
+    ProviderConnectionResponse, SendChannelMessageRequest, TriggerChannelRequest,
+    UpdateChannelConfigRequest,
 };
 use moatless_api_schemas::enums::{ChannelType, RoutingMode};
 
@@ -16,11 +17,15 @@ use crate::output;
 pub enum ChannelAction {
     /// List channel configs
     List,
-    /// List channel subscriptions connected to a task
+    /// Manage channel subscriptions on a task (list, create)
     Subscriptions {
-        /// Task ID (uses TASK_ID env var if omitted)
+        /// Task ID for the bare-form list (back-compat for
+        /// `moat channels subscriptions --task <id>`). Ignored when a
+        /// subcommand is given.
         #[arg(long)]
         task: Option<String>,
+        #[command(subcommand)]
+        action: Option<SubscriptionsAction>,
     },
     /// Create a channel config
     Create {
@@ -172,6 +177,46 @@ pub enum ChannelAction {
     Connections {
         #[command(subcommand)]
         action: ConnectionsAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum SubscriptionsAction {
+    /// List channel subscriptions connected to a task
+    List {
+        /// Task ID (uses TASK_ID env var if omitted)
+        #[arg(long)]
+        task: Option<String>,
+    },
+    /// Attach a reply target (provider + connection + subject) to a task.
+    ///
+    /// Mirrors the row that an inbound webhook creates automatically. Used by
+    /// CI workflows to point a `moat tasks create` task at a Slack thread (or
+    /// other provider channel) so the agent's `moat reply` lands on it.
+    Create {
+        /// Task ID (uses TASK_ID env var if omitted)
+        #[arg(long)]
+        task: Option<String>,
+        /// Provider, e.g. `slack`, `github`, `telegram`
+        #[arg(long)]
+        provider: String,
+        /// Provider connection id (`provider_connections.id`)
+        #[arg(long)]
+        connection: String,
+        /// Subject category (`slack_thread`, `github_pr`, ...)
+        #[arg(long = "subject-kind")]
+        subject_kind: String,
+        /// Provider-specific routing key (must be unique per provider+kind).
+        /// Slack: `{team_id}:{channel}:{thread_ts}`. GitHub: `owner/repo#NN`.
+        #[arg(long = "subject-key")]
+        subject_key: String,
+        /// Provider-specific reply target as JSON. Slack expects
+        /// `{"channel":..., "ts":..., "thread_ts":...}`.
+        #[arg(long = "reply-target")]
+        reply_target: String,
+        /// Optional metadata as JSON object
+        #[arg(long)]
+        metadata: Option<String>,
     },
 }
 
@@ -351,18 +396,8 @@ pub async fn run(
                 format_ingress_rules(&rules);
             }
         }
-        ChannelAction::Subscriptions { task } => {
-            let task_id = task
-                .or_else(|| std::env::var("TASK_ID").ok())
-                .ok_or_else(|| {
-                    ClientError::Other("Task ID required: use --task or set TASK_ID env var".into())
-                })?;
-            let channels = client.api().list_task_channels(&task_id).await?;
-            if json {
-                output::print_json_typed(&channels);
-            } else {
-                format_task_channels(&task_id, &channels);
-            }
+        ChannelAction::Subscriptions { task, action } => {
+            run_subscriptions(client, task, action, json).await?;
         }
         ChannelAction::Create {
             provider,
@@ -738,6 +773,106 @@ pub async fn run(
         ChannelAction::Connections { action: connections } => {
             run_connections(client, connections, json).await?;
         }
+    }
+    Ok(())
+}
+
+async fn run_subscriptions(
+    client: &MoatClient,
+    outer_task: Option<String>,
+    action: Option<SubscriptionsAction>,
+    json: bool,
+) -> Result<(), ClientError> {
+    match action {
+        None => {
+            // Back-compat: `moat channels subscriptions --task <id>` lists.
+            let task_id = outer_task
+                .or_else(|| std::env::var("TASK_ID").ok())
+                .ok_or_else(|| {
+                    ClientError::Other(
+                        "Task ID required: use --task or set TASK_ID env var".into(),
+                    )
+                })?;
+            list_task_subscriptions(client, &task_id, json).await
+        }
+        Some(SubscriptionsAction::List { task }) => {
+            let task_id = task
+                .or(outer_task)
+                .or_else(|| std::env::var("TASK_ID").ok())
+                .ok_or_else(|| {
+                    ClientError::Other(
+                        "Task ID required: use --task or set TASK_ID env var".into(),
+                    )
+                })?;
+            list_task_subscriptions(client, &task_id, json).await
+        }
+        Some(SubscriptionsAction::Create {
+            task,
+            provider,
+            connection,
+            subject_kind,
+            subject_key,
+            reply_target,
+            metadata,
+        }) => {
+            let task_id = task
+                .or(outer_task)
+                .or_else(|| std::env::var("TASK_ID").ok())
+                .ok_or_else(|| {
+                    ClientError::Other(
+                        "Task ID required: use --task or set TASK_ID env var".into(),
+                    )
+                })?;
+            let reply_target_json: serde_json::Value = serde_json::from_str(&reply_target)
+                .map_err(|e| {
+                    ClientError::Other(format!("Invalid --reply-target JSON: {e}"))
+                })?;
+            if !reply_target_json.is_object() {
+                return Err(ClientError::Other(
+                    "--reply-target must be a JSON object".into(),
+                ));
+            }
+            let metadata_json = metadata
+                .as_deref()
+                .map(|s| {
+                    serde_json::from_str::<serde_json::Value>(s).map_err(|e| {
+                        ClientError::Other(format!("Invalid --metadata JSON: {e}"))
+                    })
+                })
+                .transpose()?;
+
+            let req = CreateTaskSubscriptionRequest {
+                provider,
+                connection_id: connection,
+                subject_kind,
+                subject_key,
+                reply_target: reply_target_json,
+                metadata: metadata_json,
+            };
+            let created = client.api().create_task_subscription(&task_id, &req).await?;
+            if json {
+                output::print_json_typed(&created);
+            } else {
+                println!(
+                    "Subscription attached to {}: {} (provider={}, subject_kind={})",
+                    created.task_id, created.id, created.provider, created.subject_kind
+                );
+            }
+            Ok(())
+        }
+    }
+}
+
+async fn list_task_subscriptions(
+    client: &MoatClient,
+    task_id: &str,
+    json: bool,
+) -> Result<(), ClientError> {
+    let channels = client.api().list_task_channels(task_id).await?;
+    if json {
+        output::print_json_typed(&channels);
+    } else {
+        format_task_channels(task_id, &channels);
     }
     Ok(())
 }

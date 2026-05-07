@@ -1937,6 +1937,126 @@ pub async fn send_to_task_channel_subscription(
 }
 
 // =========================================================================
+// Task subscriptions (manual attach)
+// =========================================================================
+
+/// Attach a reply target (`task_subscriptions` row) to an existing task.
+///
+/// Mirrors what the inbound webhook flow does automatically when a Slack /
+/// GitHub message creates a task. CI workflows use this to point a freshly
+/// created `moat tasks create` task at the Slack thread that triggered it,
+/// so the agent's `moat reply` lands as a thread reply.
+///
+/// Idempotent on `(task_id, provider, subject_kind, subject_key)` via the DAO
+/// upsert: re-running with the same key returns the existing row with the
+/// reply_target refreshed.
+#[utoipa::path(
+    post,
+    path = "/api/v1/tasks/{task_id}/subscriptions",
+    tag = "channels",
+    params(
+        ("task_id" = String, Path, description = "Task ID")
+    ),
+    request_body = moatless_api_schemas::channel::CreateTaskSubscriptionRequest,
+    responses(
+        (status = 200, description = "Subscription created or refreshed", body = moatless_api_schemas::channel::TaskSubscriptionResponse),
+        (status = 400, description = "Invalid request", body = crate::error::ErrorBody),
+        (status = 404, description = "Task or connection not found", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn create_task_subscription(
+    State(state): State<AppState>,
+    _auth: AuthUser,
+    Path(task_id): Path<String>,
+    Json(req): Json<moatless_api_schemas::channel::CreateTaskSubscriptionRequest>,
+) -> Result<Json<moatless_api_schemas::channel::TaskSubscriptionResponse>, ChannelError> {
+    if req.provider.trim().is_empty() {
+        return Err(ChannelError::BadRequest("provider is required".into()));
+    }
+    if req.subject_kind.trim().is_empty() {
+        return Err(ChannelError::BadRequest("subject_kind is required".into()));
+    }
+    if req.subject_key.trim().is_empty() {
+        return Err(ChannelError::BadRequest("subject_key is required".into()));
+    }
+    if !req.reply_target.is_object() {
+        return Err(ChannelError::BadRequest(
+            "reply_target must be a JSON object".into(),
+        ));
+    }
+
+    let task = state
+        .tasks
+        .find_by_id_internal(&task_id)
+        .await
+        .map_err(|e| ChannelError::Internal(format!("Failed to look up task: {e}")))?
+        .ok_or_else(|| ChannelError::NotFound(format!("Task {task_id} not found")))?;
+
+    let connection = super::provider_connection_dao::PgProviderConnectionRepository(
+        state.db.clone(),
+    )
+    .find_by_id(&req.connection_id)
+    .await?
+    .ok_or_else(|| {
+        ChannelError::NotFound(format!(
+            "Provider connection {} not found",
+            req.connection_id
+        ))
+    })?;
+
+    if connection.provider != req.provider {
+        return Err(ChannelError::BadRequest(format!(
+            "connection {} is for provider {}, not {}",
+            connection.id, connection.provider, req.provider
+        )));
+    }
+
+    let now = chrono::Utc::now();
+    let row = super::models::TaskSubscription {
+        id: format!("ts_{}", uuid::Uuid::new_v4()),
+        task_id: task.task_id.clone(),
+        provider: req.provider.clone(),
+        subject_kind: req.subject_kind.clone(),
+        subject_key: req.subject_key.clone(),
+        connection_id: connection.id.clone(),
+        ingress_rule_id: None,
+        reply_target: req.reply_target.clone(),
+        metadata: req.metadata.clone().unwrap_or_else(|| serde_json::json!({})),
+        last_channel_external_id: None,
+        created_reason: "api".to_string(),
+        created_at: now,
+        last_event_at: now,
+    };
+
+    let saved = super::task_subscription_dao::PgTaskSubscriptionRepository(state.db.clone())
+        .upsert(&row)
+        .await
+        .map_err(|e| ChannelError::Internal(format!("Failed to save subscription: {e}")))?;
+
+    info!(
+        task_id = %saved.task_id,
+        subscription_id = %saved.id,
+        provider = %saved.provider,
+        subject_kind = %saved.subject_kind,
+        "Attached reply target to task via API"
+    );
+
+    Ok(Json(moatless_api_schemas::channel::TaskSubscriptionResponse {
+        id: saved.id,
+        task_id: saved.task_id,
+        provider: saved.provider,
+        subject_kind: saved.subject_kind,
+        subject_key: saved.subject_key,
+        connection_id: saved.connection_id,
+        reply_target: saved.reply_target,
+        metadata: saved.metadata,
+        created_reason: saved.created_reason,
+        created_at: saved.created_at.to_rfc3339(),
+        last_event_at: saved.last_event_at.to_rfc3339(),
+    }))
+}
+
+// =========================================================================
 // Connect task to external thread
 // =========================================================================
 
