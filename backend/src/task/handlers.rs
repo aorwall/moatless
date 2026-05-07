@@ -54,37 +54,44 @@ pub async fn create_task(
             if let Some((owner, repo_name)) =
                 crate::repository::handlers::parse_github_owner_repo(remote_url)
             {
-                // Look up user's GitHub token, falling back to team token
-                let token = state
-                    .provider_tokens
-                    .find_provider_token(&auth.user_id, "github")
+                // Resolve a fresh GitHub token via the credentials service so
+                // GitHub App user-tokens get refreshed before we hit GitHub.
+                // Without this, an expired access_token left in
+                // `provider_tokens` (App tokens expire every ~8h) leaks
+                // straight to `check_github_repo_access` and the user gets
+                // an opaque 401 even though their setup is fine — the
+                // sandbox-provision path (which goes through the same
+                // service) keeps working in parallel.
+                let access_token = match state
+                    .credentials_svc
+                    .ensure_fresh(&auth.user_id, "GITHUB_TOKEN")
                     .await
-                    .map_err(|e| {
-                        TaskError::Internal(format!("Failed to look up GitHub token: {e}"))
-                    })?;
-
-                let access_token = if let Some(t) = token {
-                    t.access_token
-                } else {
-                    let team_token = if let Some(ref team_id) = repo.team_id {
-                        state
-                            .provider_tokens
-                            .find_team_token(team_id, "github")
-                            .await
-                            .map_err(|e| {
-                                TaskError::Internal(format!(
-                                    "Failed to look up team GitHub token: {e}"
-                                ))
-                            })?
-                    } else {
-                        None
-                    };
-                    if let Some(t) = team_token {
-                        t.access_token
-                    } else {
-                        return Err(TaskError::Forbidden(
-                            "GitHub account not connected. Please connect your GitHub account to create tasks for this repository.".to_string(),
-                        ));
+                {
+                    Ok(t) => t,
+                    Err(_) => {
+                        // Fall back to a team-level PAT if the user has
+                        // none — preserves the previous team-token path.
+                        let team_token = if let Some(ref team_id) = repo.team_id {
+                            state
+                                .provider_tokens
+                                .find_team_token(team_id, "github")
+                                .await
+                                .map_err(|e| {
+                                    TaskError::Internal(format!(
+                                        "Failed to look up team GitHub token: {e}"
+                                    ))
+                                })?
+                        } else {
+                            None
+                        };
+                        match team_token {
+                            Some(t) => t.access_token,
+                            None => {
+                                return Err(TaskError::Forbidden(
+                                    "GitHub account not connected. Please connect your GitHub account to create tasks for this repository.".to_string(),
+                                ));
+                            }
+                        }
                     }
                 };
 
