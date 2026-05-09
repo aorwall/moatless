@@ -551,6 +551,11 @@ impl ApiClient {
     // Integrations
     // ========================================================================
 
+    /// GET /api/v1/integrations/providers
+    pub async fn list_integration_providers(&self) -> Result<Vec<String>, ApiError> {
+        self.get("/api/v1/integrations/providers").await
+    }
+
     /// GET /api/v1/integrations/connections
     pub async fn list_integration_connections(
         &self,
