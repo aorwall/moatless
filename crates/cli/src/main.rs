@@ -6,7 +6,7 @@
 //! - **Standalone** (human user): login/logout, no sandbox-only commands
 
 use clap::{Parser, Subcommand};
-use moatless_api_schemas::channel::SendChannelMessageRequest;
+use moatless_api_schemas::channel::SendTaskReplyRequest;
 use moatless_api_schemas::task::{SetTagsRequest, UpdateTaskMetadataRequest};
 
 use moatless_cli::auth;
@@ -51,10 +51,32 @@ enum SharedCommands {
         #[command(subcommand)]
         action: Box<commands::repos::RepoAction>,
     },
-    /// Channel management
-    Channels {
+    /// Integration provider management
+    Integrations {
         #[command(subcommand)]
-        action: commands::channels::ChannelAction,
+        action: commands::integrations::IntegrationsAction,
+    },
+    /// Task route management
+    #[command(name = "task-routes")]
+    TaskRoutes {
+        #[command(subcommand)]
+        action: commands::integrations::TaskRouteAction,
+    },
+    /// Trigger management
+    Triggers {
+        #[command(subcommand)]
+        action: commands::integrations::TriggerAction,
+    },
+    /// Scheduled job management
+    #[command(name = "scheduled-jobs")]
+    ScheduledJobs {
+        #[command(subcommand)]
+        action: commands::integrations::ScheduledJobAction,
+    },
+    /// Task binding management
+    Bindings {
+        #[command(subcommand)]
+        action: commands::integrations::BindingAction,
     },
     /// Task event history
     Events {
@@ -146,20 +168,11 @@ enum SandboxCommands {
         action: commands::messages::MessageAction,
     },
 
-    /// Reply to the channel(s) that created this task
+    /// Reply to the task's bound channel, or target one binding explicitly
     Reply {
-        /// Channel config ID (sends to all channels if omitted)
+        /// Exact task binding ID to target
         #[arg(long)]
-        channel: Option<String>,
-        /// Exact channel thread ID (preferred when a task has multiple subscriptions)
-        #[arg(long)]
-        thread: Option<i32>,
-        /// Exact task subscription ID to target (alternative to --thread / --pr)
-        #[arg(long)]
-        subscription: Option<String>,
-        /// Exact GitHub PR subscription to target, in owner/repo#123 format
-        #[arg(long)]
-        pr: Option<String>,
+        binding: Option<String>,
         /// Message text (reads from stdin if omitted and stdin is piped)
         #[arg(long)]
         text: Option<String>,
@@ -273,10 +286,7 @@ async fn run_sandbox(cli: SandboxCli) -> Result<(), Box<dyn std::error::Error>> 
             commands::messages::run(&moat, action, cli.opts.json, &cfg).await?;
         }
         SandboxCommands::Reply {
-            channel,
-            thread,
-            subscription,
-            pr,
+            binding,
             text,
             files,
         } => {
@@ -308,24 +318,16 @@ async fn run_sandbox(cli: SandboxCli) -> Result<(), Box<dyn std::error::Error>> 
                 file_ids.push(upload_resp.file_id);
             }
 
-            let req = SendChannelMessageRequest {
+            let req = SendTaskReplyRequest {
                 text: message_text,
                 file_ids,
+                binding_id: binding,
             };
-            let resp = commands::channels::send_to_task_channel_target(
-                &moat,
-                &task_id,
-                channel.as_deref(),
-                thread,
-                subscription.as_deref(),
-                pr.as_deref(),
-                &req,
-            )
-            .await?;
+            let resp = moat.api().send_task_reply(&task_id, &req).await?;
             if cli.opts.json {
                 output::print_json_typed(&resp);
             } else {
-                println!("Sent to {} channel(s).", resp.sent_count);
+                println!("Sent to {} binding(s).", resp.sent_count);
                 for err in &resp.errors {
                     eprintln!("Warning: {err}");
                 }
@@ -401,8 +403,20 @@ async fn run_shared(
         SharedCommands::Repos { action } => {
             commands::repos::run(moat, *action, json).await?;
         }
-        SharedCommands::Channels { action } => {
-            commands::channels::run(moat, action, json).await?;
+        SharedCommands::Integrations { action } => {
+            commands::integrations::run_integrations(moat, action, json).await?;
+        }
+        SharedCommands::TaskRoutes { action } => {
+            commands::integrations::run_task_routes(moat, action, json).await?;
+        }
+        SharedCommands::Triggers { action } => {
+            commands::integrations::run_triggers(moat, action, json).await?;
+        }
+        SharedCommands::ScheduledJobs { action } => {
+            commands::integrations::run_scheduled_jobs(moat, action, json).await?;
+        }
+        SharedCommands::Bindings { action } => {
+            commands::integrations::run_bindings(moat, action, json).await?;
         }
         SharedCommands::Events { action } => {
             commands::events::run(moat, action, json).await?;

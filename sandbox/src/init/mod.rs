@@ -11,6 +11,7 @@
 //! These are non-fatal — failures are logged but don't affect health.
 
 mod claude_code_settings;
+mod codex_compat;
 mod codex_config;
 pub(crate) mod codex_watcher;
 pub(crate) mod credentials;
@@ -363,6 +364,27 @@ async fn run_core_init(state: &SandboxState) -> Result<(), InitError> {
             false,
         )
         .await;
+    }
+
+    // 8. Mirror CLAUDE.md → AGENTS.md and .claude/skills → .agents/skills
+    // throughout the workspace so Codex finds the same instructions and
+    // skill bundles Claude does. Runs unconditionally — agent type is
+    // decided per-message; symlinks are cheap, idempotent, and harmless
+    // when Claude is the active agent.
+    if !state.config.workspace_dir.is_empty() {
+        let workspace = std::path::Path::new(&state.config.workspace_dir);
+        let agents_md = codex_compat::mirror_claude_md_to_agents_md(workspace);
+        let agents_skills = codex_compat::mirror_claude_skills_to_agents_skills(workspace);
+        let total = agents_md + agents_skills;
+        if total > 0 {
+            publish_sandbox_event(
+                state,
+                "CodexCompatMirrored",
+                &format!("Mirrored {agents_md} AGENTS.md and {agents_skills} skill(s) for Codex",),
+                false,
+            )
+            .await;
+        }
     }
 
     Ok(())

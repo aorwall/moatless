@@ -95,6 +95,7 @@ async fn plugin_repos_e2e_chain() {
         file_ids: vec![],
         model: None,
         command_name: None,
+        headless: None,
     };
     let created = client.api().create_task(&task_req).await.unwrap();
     let task_id = &created.task_id;

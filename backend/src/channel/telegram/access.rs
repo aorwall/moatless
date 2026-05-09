@@ -3,7 +3,7 @@
 use tracing::{debug, info};
 
 use crate::channel::error::ChannelError;
-use crate::channel::models::{AccessDecision, ChannelAccessPolicy, ChannelConfig};
+use crate::channel::models::{AccessDecision, ChannelAccessPolicy, TriggerContext};
 use crate::db::DbPool;
 
 use super::api::TelegramApi;
@@ -17,7 +17,7 @@ pub struct DmAccessContext<'a> {
     pub from_username: Option<&'a str>,
     pub from_first_name: Option<&'a str>,
     pub from_last_name: Option<&'a str>,
-    pub config: &'a ChannelConfig,
+    pub config: &'a TriggerContext,
     pub api: &'a TelegramApi,
     pub chat_id: i64,
     pub db: &'a DbPool,
@@ -81,7 +81,7 @@ pub async fn enforce_dm_access(ctx: &DmAccessContext<'_>) -> Result<AccessDecisi
             info!(
                 from_id,
                 code = %req.code,
-                config_id = %ctx.config.id,
+                trigger_id = %ctx.config.id,
                 "Pairing code sent to Telegram user"
             );
 

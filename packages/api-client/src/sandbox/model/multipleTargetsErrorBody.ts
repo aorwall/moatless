@@ -8,8 +8,8 @@
 import type { ChannelTargetDescriptor } from './channelTargetDescriptor';
 
 /**
- * Body returned with HTTP 400 when `POST /channels/send` cannot pick a
-single destination because the task is wired to multiple channels.
+ * Body returned with HTTP 400 when `POST /tasks/{task_id}/reply` cannot pick a
+single destination because the task is wired to multiple bindings.
  */
 export interface MultipleTargetsErrorBody {
   error: string;

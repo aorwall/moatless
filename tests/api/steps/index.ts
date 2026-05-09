@@ -70,8 +70,7 @@ export {
 
 // Channel steps (CHAN-01 through CHAN-54)
 export {
-	createWebhookConfig,
-	createWebhookConfigWithRouting,
+	createWebhookTriggerFixture,
+	createWebhookTriggerFixtureWithRouting,
 	sendWebhookMessage,
-	linkResponseConfig,
 } from "./channel.steps";

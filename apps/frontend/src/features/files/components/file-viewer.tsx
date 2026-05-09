@@ -1,9 +1,10 @@
-import { type HighlightToken, highlightLine, SyntaxToken } from '@moatless/diff-viewer'
+import { File as PierreFile } from '@pierre/diffs/react'
 import { Code, Eye, FileQuestion, GitCompareArrows, Music } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Skeleton } from '@/lib/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { useFileContent } from '../hooks/use-file-content'
+import { usePierreOptions } from '../lib/use-pierre-theme'
 import { DiffFileView } from './diff-file-view'
 import { MarkdownPreview } from './markdown-preview'
 
@@ -49,32 +50,6 @@ function getLanguageLabel(filePath: string): string {
     dockerfile: 'Dockerfile',
   }
   return map[ext] || ext.toUpperCase() || 'Plain Text'
-}
-
-function getHljsLanguage(filePath: string): string | undefined {
-  const ext = filePath.split('.').pop()?.toLowerCase() || ''
-  const map: Record<string, string> = {
-    ts: 'typescript',
-    tsx: 'tsx',
-    js: 'javascript',
-    jsx: 'jsx',
-    py: 'python',
-    go: 'go',
-    rs: 'rust',
-    java: 'java',
-    css: 'css',
-    html: 'html',
-    json: 'json',
-    yaml: 'yaml',
-    yml: 'yaml',
-    md: 'markdown',
-    sh: 'bash',
-    bash: 'bash',
-    sql: 'sql',
-    xml: 'xml',
-    svg: 'xml',
-  }
-  return map[ext]
 }
 
 function BinaryFileView({
@@ -143,8 +118,7 @@ function FileContentArea({
 }) {
   const isMarkdown = isMarkdownFile(filePath)
   const canDiff = data.isModified && data.oldContent !== undefined
-  const hljsLang = getHljsLanguage(filePath)
-  const lines = useMemo(() => data.content.split('\n'), [data.content])
+  const pierreOptions = usePierreOptions()
 
   if (data.isBinary) {
     return <BinaryFileView content={data.content} mediaType={data.mediaType} filePath={filePath} />
@@ -165,25 +139,10 @@ function FileContentArea({
   }
 
   return (
-    <pre className="text-sm leading-relaxed">
-      <code>
-        {lines.map((line, i) => (
-          // biome-ignore lint/suspicious/noArrayIndexKey: line number is the natural key
-          <div key={i} className="flex hover:bg-accent transition-colors">
-            <span className="select-none text-right pr-4 pl-4 shrink-0 text-muted-foreground w-16 min-w-16">
-              {i + 1}
-            </span>
-            <span className="pr-4 whitespace-pre">
-              {hljsLang && line
-                ? highlightLine(line, hljsLang).map((token: HighlightToken, j: number) => (
-                    <SyntaxToken key={`${token.type}-${j}`} token={token} />
-                  ))
-                : line || ' '}
-            </span>
-          </div>
-        ))}
-      </code>
-    </pre>
+    <PierreFile
+      file={{ name: filePath, contents: data.content }}
+      options={{ ...pierreOptions, disableFileHeader: true }}
+    />
   )
 }
 

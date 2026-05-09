@@ -1,8 +1,8 @@
-//! Typed Slack provider config — deserialized from `channel_configs.provider_config`.
+//! Typed Slack provider config — deserialized from `trigger_config`.
 
 use serde::{Deserialize, Serialize};
 
-use crate::channel::models::{ChannelAccessPolicy, ChannelConfig, ChannelTrigger};
+use crate::channel::models::{ChannelAccessPolicy, ChannelTrigger, TriggerContext};
 
 /// Typed representation of `provider_config` JSONB for Slack channels.
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -37,11 +37,11 @@ impl Default for SlackProviderConfig {
 }
 
 impl SlackProviderConfig {
-    /// Parse from a `ChannelConfig`'s `provider_config` field.
+    /// Parse from a `TriggerContext`'s `provider_config` field.
     /// Returns default config if field is absent or unparseable.
     ///
     /// Also supports legacy untyped configs where `trigger` was a plain string.
-    pub fn from_config(config: &ChannelConfig) -> Self {
+    pub fn from_config(config: &TriggerContext) -> Self {
         config
             .provider_config
             .as_ref()
@@ -101,7 +101,7 @@ mod tests {
 
     #[test]
     fn from_config_with_none_provider_config() {
-        let config = ChannelConfig {
+        let config = TriggerContext {
             id: "test".into(),
             provider: "slack".into(),
             source_id: "C123".into(),
@@ -113,7 +113,6 @@ mod tests {
             allow_direct_send: false,
             provider_config: None,
             ongoing_task_id: None,
-            response_config_id: None,
             scope: crate::scope::Scope::User,
             team_id: None,
             task_name: None,

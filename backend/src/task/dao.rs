@@ -329,13 +329,11 @@ impl TaskRepository for PgTaskRepository {
             .await?;
         }
         if let Some(ttl_minutes) = patch.ttl_minutes {
-            sqlx::query(
-                "UPDATE tasks SET ttl_minutes = $2, updated_at = NOW() WHERE task_id = $1",
-            )
-            .bind(task_id)
-            .bind(ttl_minutes)
-            .execute(&self.0)
-            .await?;
+            sqlx::query("UPDATE tasks SET ttl_minutes = $2, updated_at = NOW() WHERE task_id = $1")
+                .bind(task_id)
+                .bind(ttl_minutes)
+                .execute(&self.0)
+                .await?;
         }
         Ok(())
     }
@@ -403,12 +401,11 @@ impl TaskRepository for PgTaskRepository {
             return Ok(HashMap::new());
         }
 
-        let rows: Vec<(String, i32)> = sqlx::query_as(
-            r#"SELECT task_id, ttl_minutes FROM tasks WHERE task_id = ANY($1)"#,
-        )
-        .bind(task_ids)
-        .fetch_all(&self.0)
-        .await?;
+        let rows: Vec<(String, i32)> =
+            sqlx::query_as(r#"SELECT task_id, ttl_minutes FROM tasks WHERE task_id = ANY($1)"#)
+                .bind(task_ids)
+                .fetch_all(&self.0)
+                .await?;
 
         Ok(rows.into_iter().collect())
     }

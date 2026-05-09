@@ -26,6 +26,7 @@ async fn send_and_list_messages() {
             file_ids: vec![],
             model: None,
             command_name: None,
+            headless: None,
         })
         .await
         .unwrap();

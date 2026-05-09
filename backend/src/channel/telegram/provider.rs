@@ -5,12 +5,11 @@ use std::time::Duration;
 use tracing::{debug, info, warn};
 
 use crate::channel::error::ChannelError;
-use crate::channel::external_id;
 use crate::channel::models::{
-    AccessDecision, ChannelConfig, ChannelThread, InboundMessage, IngressRule, OutboundReply,
-    ProviderConnection, TaskSubscription,
+    AccessDecision, BindingContext, InboundMessage, NewThreadInfo, OutboundReply,
+    ProviderConnection, TaskBinding, TaskTriggerRoute, TriggerContext,
 };
-use crate::channel::provider::{ChannelProvider, ChannelType};
+use crate::channel::provider::{BindingDestination, ChannelProvider, ChannelType};
 use crate::db::DbPool;
 
 use super::access;
@@ -55,7 +54,7 @@ impl TelegramProvider {
     pub async fn parse_update(
         &self,
         body: &[u8],
-        config: &ChannelConfig,
+        config: &TriggerContext,
         is_private_chat: bool,
         db: &DbPool,
     ) -> Result<TelegramWebhookResult, ChannelError> {
@@ -276,7 +275,7 @@ impl TelegramProvider {
             file_ids: vec![],
             thread_properties,
             provider_context: serde_json::json!({}),
-            channel_external_id: Some(external_id::telegram_msg(message_id)),
+            channel_external_id: Some(super::external_id::message(message_id)),
         })))
     }
 }
@@ -289,6 +288,60 @@ impl ChannelProvider for TelegramProvider {
 
     fn as_any(&self) -> &dyn std::any::Any {
         self
+    }
+
+    fn binding_destination_from_existing_thread(
+        &self,
+        source_id: &str,
+        external_thread_id: &str,
+        thread_properties: &serde_json::Value,
+        filter_user_id: Option<&str>,
+    ) -> Result<BindingDestination, ChannelError> {
+        let chat_id = thread_properties
+            .get("chat_id")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or(source_id);
+        let forum_topic_id = thread_properties
+            .get("forum_topic_id")
+            .and_then(serde_json::Value::as_i64);
+        let subject_key = match forum_topic_id {
+            Some(topic_id) => format!("{chat_id}:topic:{topic_id}"),
+            None => format!("{chat_id}:thread:{external_thread_id}"),
+        };
+        let mut destination_config = serde_json::json!({
+            "chat_id": chat_id,
+            "message_id": thread_properties
+                .get("message_id")
+                .and_then(serde_json::Value::as_i64),
+            "forum_topic_id": forum_topic_id,
+        });
+        if let Some(filter_user_id) = filter_user_id {
+            destination_config["filter_user_id"] = serde_json::json!(filter_user_id);
+        }
+
+        Ok(BindingDestination::new(
+            "telegram_thread",
+            subject_key,
+            destination_config,
+        ))
+    }
+
+    fn binding_destination_from_new_thread(
+        &self,
+        rule: &TaskTriggerRoute,
+        new_thread_info: &NewThreadInfo,
+    ) -> Result<BindingDestination, ChannelError> {
+        let destination = self.binding_destination_from_existing_thread(
+            &rule.source_matcher,
+            &new_thread_info.external_thread_id,
+            &new_thread_info.properties,
+            None,
+        )?;
+        Ok(destination.with_last_external_event_id(new_thread_info.external_thread_id.clone()))
+    }
+
+    fn external_id_aliases(&self, external_id: &str) -> Vec<String> {
+        super::external_id::aliases(external_id)
     }
 
     async fn resolve_user(
@@ -316,23 +369,23 @@ impl ChannelProvider for TelegramProvider {
 
     async fn send_reply(
         &self,
-        thread: &ChannelThread,
-        _config: &ChannelConfig,
+        thread: &BindingContext,
+        _config: &TriggerContext,
         message: &OutboundReply,
     ) -> Result<Option<String>, ChannelError> {
         let chat_id = thread
-            .properties
+            .destination_config
             .get("chat_id")
             .and_then(|v| v.as_str())
             .ok_or_else(|| ChannelError::Internal("No chat_id in thread properties".into()))?;
 
         let reply_to = thread
-            .properties
+            .destination_config
             .get("message_id")
             .and_then(serde_json::Value::as_i64);
 
         let forum_topic_id = thread
-            .properties
+            .destination_config
             .get("forum_topic_id")
             .and_then(serde_json::Value::as_i64);
 
@@ -348,20 +401,20 @@ impl ChannelProvider for TelegramProvider {
         Ok(None)
     }
 
-    async fn send_reply_for_subscription(
+    async fn send_reply_for_binding(
         &self,
-        subscription: &TaskSubscription,
+        binding: &TaskBinding,
         _connection: &ProviderConnection,
-        rule: Option<&IngressRule>,
+        rule: Option<&TaskTriggerRoute>,
         message: &OutboundReply,
     ) -> Result<Option<String>, ChannelError> {
-        let thread = crate::channel::subscription::synthetic_thread(subscription);
+        let thread = crate::channel::binding_runtime::binding_context(binding);
         let config = rule.map_or_else(
-            || ChannelConfig {
-                id: subscription.ingress_rule_id.clone().unwrap_or_default(),
+            || TriggerContext {
+                id: binding.trigger_id.clone().unwrap_or_default(),
                 provider: "telegram".to_string(),
-                source_id: subscription
-                    .reply_target
+                source_id: binding
+                    .destination_config
                     .get("chat_id")
                     .and_then(serde_json::Value::as_str)
                     .unwrap_or_default()
@@ -374,7 +427,6 @@ impl ChannelProvider for TelegramProvider {
                 allow_direct_send: false,
                 provider_config: None,
                 ongoing_task_id: None,
-                response_config_id: None,
                 scope: crate::scope::Scope::Global,
                 team_id: None,
                 task_name: None,
@@ -382,19 +434,46 @@ impl ChannelProvider for TelegramProvider {
                 run_as_user_id: None,
                 agent_type: "claude-code".to_string(),
                 created_by: "system".to_string(),
-                created_at: subscription.created_at,
-                updated_at: subscription.last_event_at,
+                created_at: binding.created_at,
+                updated_at: binding.last_event_at,
             },
-            |r| crate::channel::subscription::synthetic_config(r, "telegram"),
+            |r| crate::channel::binding_runtime::trigger_context(r, "telegram"),
         );
         self.send_reply(&thread, &config, message).await
+    }
+
+    async fn send_message(
+        &self,
+        config: &TriggerContext,
+        message: &OutboundReply,
+    ) -> Result<NewThreadInfo, ChannelError> {
+        let chat_id = &config.source_id;
+
+        let mut text = message.text.clone();
+        if let Some(ref url) = message.task_url {
+            use std::fmt::Write;
+            let _ = write!(text, "\n\n[View task]({url})");
+        }
+
+        let message_id = self
+            .api
+            .send_message_returning_id(chat_id, &text, None, None)
+            .await?;
+        Ok(NewThreadInfo {
+            external_thread_id: message_id.to_string(),
+            properties: serde_json::json!({
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "forum_topic_id": serde_json::Value::Null,
+            }),
+        })
     }
 
     // fetch_context: default no-op (Bot API doesn't support fetching chat history)
 }
 
 /// Resolve the channel config for a raw Telegram update and route it through
-/// `parse_update` → `process_inbound`. Shared by the webhook handler and the
+/// `parse_update` → `route_inbound_message`. Shared by the webhook handler and the
 /// polling loop so the config-lookup + routing logic is not duplicated.
 pub async fn resolve_and_process_telegram_update(
     state: &crate::state::AppState,
@@ -427,18 +506,18 @@ pub async fn resolve_and_process_telegram_update(
 
     // Look up rules — exact match first, then wildcard. Telegram uses a single
     // env-backed bot transport, so the connection scope is "default".
-    let Some((connection, rule)) = crate::channel::subscription::resolve_chat_ingress(
+    let Some((connection, rule)) = crate::channel::binding_runtime::resolve_chat_provider_event(
         state, "telegram", "default", &source_id,
     )
     .await?
     else {
         info!(
             source_id,
-            is_private_chat, "Telegram message ignored: no ingress rule for this chat"
+            is_private_chat, "Telegram message ignored: no task trigger for this chat"
         );
         return Ok(());
     };
-    let config = crate::channel::subscription::synthetic_config(&rule, "telegram");
+    let config = crate::channel::binding_runtime::trigger_context(&rule, "telegram");
 
     let result = telegram_provider
         .parse_update(body, &config, is_private_chat, &state.db)
@@ -446,37 +525,38 @@ pub async fn resolve_and_process_telegram_update(
 
     match result {
         TelegramWebhookResult::Message(msg) => {
+            let msg = *msg;
             info!(
                 source_id = %msg.source_id,
                 thread_id = ?msg.thread_id,
                 user_id = %msg.user_id,
                 "Telegram message routed for processing"
             );
+            let destination = telegram_provider.binding_destination_from_existing_thread(
+                &msg.source_id,
+                &msg.message_thread_id,
+                &msg.thread_properties,
+                None,
+            )?;
             let state_clone = state.clone();
             let connection = connection.clone();
             let rule = rule.clone();
             tokio::spawn(async move {
-                let msg = *msg;
-                let subject_key = match crate::channel::subscription::telegram_subject_key(&msg) {
-                    Ok(k) => k,
-                    Err(e) => {
-                        warn!(error = %e, "Failed to build Telegram subject key");
-                        return;
-                    }
-                };
-                let reply_target = msg.thread_properties.clone();
-                if let Err(e) = crate::channel::subscription::route_inbound_message(
-                    &state_clone,
-                    &connection,
-                    &rule,
-                    msg,
-                    None,
-                    "telegram",
-                    "telegram_thread",
-                    &subject_key,
-                    reply_target,
-                )
-                .await
+                if let Err(e) =
+                    crate::channel::services::provider_event_delivery::ProviderEventDeliveryService::new(
+                        &state_clone,
+                    )
+                    .deliver(
+                        &connection,
+                        &rule,
+                        msg,
+                        None,
+                        "telegram",
+                        destination.subject_kind,
+                        &destination.subject_key,
+                        destination.destination_config,
+                    )
+                    .await
                 {
                     warn!(error = %e, "Failed to process Telegram inbound message");
                 }
@@ -509,6 +589,9 @@ fn strip_bot_mention(text: &str, bot_username: Option<&str>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::channel::models::{RoutingMode, TaskTriggerRoute};
+    use crate::channel::provider::ChannelProvider;
+    use crate::scope::Scope;
 
     #[test]
     fn strip_mention_with_at() {
@@ -670,8 +753,63 @@ mod tests {
         assert_eq!(source_id, "-1001234567890");
     }
 
-    fn test_config() -> ChannelConfig {
-        ChannelConfig {
+    #[test]
+    fn binding_destination_from_existing_thread_uses_topic_subject_when_present() {
+        let provider = TelegramProvider::new("fake_token");
+        let destination = provider
+            .binding_destination_from_existing_thread(
+                "-100123",
+                "77",
+                &serde_json::json!({
+                    "chat_id": "-100123",
+                    "message_id": 77,
+                    "forum_topic_id": 45,
+                }),
+                Some("user-1"),
+            )
+            .unwrap();
+
+        assert_eq!(destination.subject_kind, "telegram_thread");
+        assert_eq!(destination.subject_key, "-100123:topic:45");
+        assert_eq!(destination.destination_config["chat_id"], "-100123");
+        assert_eq!(destination.destination_config["message_id"], 77);
+        assert_eq!(destination.destination_config["forum_topic_id"], 45);
+        assert_eq!(destination.destination_config["filter_user_id"], "user-1");
+    }
+
+    #[test]
+    fn binding_destination_from_new_thread_preserves_direct_send_shape() {
+        let provider = TelegramProvider::new("fake_token");
+        let rule = test_rule("telegram", "111");
+        let destination = provider
+            .binding_destination_from_new_thread(
+                &rule,
+                &NewThreadInfo {
+                    external_thread_id: "77".to_string(),
+                    properties: serde_json::json!({
+                        "chat_id": "111",
+                        "message_id": 77,
+                        "forum_topic_id": serde_json::Value::Null,
+                    }),
+                },
+            )
+            .unwrap();
+
+        assert_eq!(destination.subject_kind, "telegram_thread");
+        assert_eq!(destination.subject_key, "111:thread:77");
+        assert_eq!(
+            destination.destination_config,
+            serde_json::json!({
+                "chat_id": "111",
+                "message_id": 77,
+                "forum_topic_id": serde_json::Value::Null,
+            })
+        );
+        assert_eq!(destination.last_external_event_id.as_deref(), Some("77"));
+    }
+
+    fn test_config() -> TriggerContext {
+        TriggerContext {
             id: "test".into(),
             provider: "telegram".into(),
             source_id: "111".into(),
@@ -683,7 +821,6 @@ mod tests {
             allow_direct_send: false,
             provider_config: None,
             ongoing_task_id: None,
-            response_config_id: None,
             scope: crate::scope::Scope::User,
             team_id: None,
             task_name: None,
@@ -693,6 +830,36 @@ mod tests {
             created_by: "system".into(),
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
+        }
+    }
+
+    fn test_rule(provider: &str, source_matcher: &str) -> TaskTriggerRoute {
+        let now = chrono::Utc::now();
+        TaskTriggerRoute {
+            id: "tt_test".into(),
+            provider: provider.into(),
+            connection_id: "pc_test".into(),
+            source_matcher: source_matcher.into(),
+            source_name: None,
+            routing_mode: RoutingMode::ThreadBased,
+            event_filter: serde_json::json!([]),
+            repository_id: "repo1".into(),
+            prompt_template: None,
+            task_name: None,
+            tag_ids: vec![],
+            run_as_user_id: None,
+            agent_type: "claude-code".into(),
+            allow_direct_send: true,
+            provider_config: None,
+            ongoing_task_id: None,
+            close_task_on_close: true,
+            notify_on_success: false,
+            active: true,
+            created_by: "system".into(),
+            scope: Scope::Global,
+            team_id: None,
+            created_at: now,
+            updated_at: now,
         }
     }
 

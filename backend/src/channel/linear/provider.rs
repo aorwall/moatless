@@ -9,8 +9,8 @@ use tracing::{debug, info, warn};
 
 use crate::channel::error::ChannelError;
 use crate::channel::models::{
-    ChannelConfig, ChannelThread, InboundMessage, IngressRule, OutboundReply, ProviderConnection,
-    TaskSubscription,
+    BindingContext, InboundMessage, OutboundReply, ProviderConnection, TaskBinding,
+    TaskTriggerRoute, TriggerContext,
 };
 use crate::channel::provider::{ChannelProvider, ChannelType};
 use crate::db::DbPool;
@@ -111,24 +111,22 @@ impl LinearProvider {
         true
     }
 
-    /// Extract the issue UUID from a `TaskSubscription`'s `reply_target`.
-    pub(crate) fn parse_subscription_target(
-        subscription: &TaskSubscription,
-    ) -> Result<String, ChannelError> {
-        subscription
-            .reply_target
+    /// Extract the issue UUID from a `TaskBinding`'s `destination_config`.
+    pub(crate) fn parse_binding_target(binding: &TaskBinding) -> Result<String, ChannelError> {
+        binding
+            .destination_config
             .get("issue_id")
             .and_then(serde_json::Value::as_str)
             .map(str::to_string)
             .ok_or_else(|| {
-                ChannelError::Internal("Missing issue_id in subscription reply_target".into())
+                ChannelError::Internal("Missing issue_id in binding destination_config".into())
             })
     }
 
-    /// Extract the issue UUID from a `ChannelThread`'s properties.
-    pub(crate) fn parse_thread_props(thread: &ChannelThread) -> Result<String, ChannelError> {
+    /// Extract the issue UUID from a `BindingContext`'s properties.
+    pub(crate) fn parse_thread_props(thread: &BindingContext) -> Result<String, ChannelError> {
         thread
-            .properties
+            .destination_config
             .get("issue_id")
             .and_then(serde_json::Value::as_str)
             .map(str::to_string)
@@ -249,7 +247,7 @@ where
 /// Decide what to do with an `Issue` event for a single listener.
 pub fn parse_issue_event(
     envelope: &LinearWebhookEnvelope,
-    rule: &IngressRule,
+    rule: &TaskTriggerRoute,
     rule_config: &LinearRuleConfig,
 ) -> Result<LinearWebhookResult, ChannelError> {
     let issue: IssuePayload = serde_json::from_value(envelope.data.clone())
@@ -267,10 +265,7 @@ pub fn parse_issue_event(
     // Issue.update can both leave a trigger state and enter a terminal state.
     if envelope.action == "update"
         && rule_config.close_task_on_close
-        && rule_config
-            .terminal_states
-            .iter()
-            .any(|s| s == state_name)
+        && rule_config.terminal_states.iter().any(|s| s == state_name)
     {
         return Ok(LinearWebhookResult::CloseTask(IssueCloseInfo {
             issue_id: issue.id,
@@ -292,10 +287,7 @@ pub fn parse_issue_event(
         .iter()
         .all(|required| issue.labels.iter().any(|l| l == required));
     let state_ok = rule_config.trigger_states.is_empty()
-        || rule_config
-            .trigger_states
-            .iter()
-            .any(|s| s == state_name);
+        || rule_config.trigger_states.iter().any(|s| s == state_name);
 
     if !(labels_ok && state_ok) {
         debug!(
@@ -346,8 +338,8 @@ pub fn parse_issue_event(
 
     Ok(LinearWebhookResult::Message(Box::new(InboundMessage {
         provider: ChannelType::Linear,
-        source_id: rule.scope_matcher.clone(),
-        thread_id: None, // ingress event — no existing thread context
+        source_id: rule.source_matcher.clone(),
+        thread_id: None, // inbound event — no existing thread context
         message_thread_id: issue.id.clone(),
         user_id,
         text,
@@ -364,7 +356,7 @@ pub fn parse_issue_event(
 }
 
 /// Decide what to do with a `Comment` event. No per-listener filter — comment
-/// delivery follows existing subscriptions.
+/// delivery follows existing bindings.
 pub fn parse_comment_event(
     envelope: &LinearWebhookEnvelope,
 ) -> Result<LinearWebhookResult, ChannelError> {
@@ -390,7 +382,11 @@ pub fn parse_comment_event(
     let team_id = comment
         .issue
         .as_ref()
-        .and_then(|i| i.team_id.clone().or_else(|| i.team.as_ref().map(|t| t.id.clone())))
+        .and_then(|i| {
+            i.team_id
+                .clone()
+                .or_else(|| i.team.as_ref().map(|t| t.id.clone()))
+        })
         .unwrap_or_default();
 
     let user_id = comment
@@ -452,12 +448,14 @@ impl ChannelProvider for LinearProvider {
 
     async fn send_reply(
         &self,
-        thread: &ChannelThread,
-        config: &ChannelConfig,
+        thread: &BindingContext,
+        config: &TriggerContext,
         message: &OutboundReply,
     ) -> Result<Option<String>, ChannelError> {
         let issue_id = Self::parse_thread_props(thread)?;
-        let token = self.resolve_token_for_user(config.effective_user_id()).await?;
+        let token = self
+            .resolve_token_for_user(config.effective_user_id())
+            .await?;
         let api = LinearApi::new(&token);
 
         let mut body = format!("{AGENT_MARKER}\n{}", message.text);
@@ -468,17 +466,17 @@ impl ChannelProvider for LinearProvider {
         Ok(Some(format!("linear:comment:{comment_id}")))
     }
 
-    async fn send_reply_for_subscription(
+    async fn send_reply_for_binding(
         &self,
-        subscription: &TaskSubscription,
+        binding: &TaskBinding,
         _connection: &ProviderConnection,
-        rule: Option<&IngressRule>,
+        rule: Option<&TaskTriggerRoute>,
         message: &OutboundReply,
     ) -> Result<Option<String>, ChannelError> {
-        let issue_id = Self::parse_subscription_target(subscription)?;
+        let issue_id = Self::parse_binding_target(binding)?;
         let user_id = match rule {
             Some(r) => r.effective_user_id().to_string(),
-            None => subscription
+            None => binding
                 .metadata
                 .get("filter_user_id")
                 .and_then(serde_json::Value::as_str)
@@ -487,7 +485,7 @@ impl ChannelProvider for LinearProvider {
         };
         if user_id.is_empty() {
             return Err(ChannelError::ProviderApi(
-                "Cannot resolve Linear token: no ingress rule attached to subscription".into(),
+                "Cannot resolve Linear token: no task trigger attached to binding".into(),
             ));
         }
         let token = self.resolve_token_for_user(&user_id).await?;
@@ -503,8 +501,8 @@ impl ChannelProvider for LinearProvider {
 
     async fn fetch_context(
         &self,
-        thread: &ChannelThread,
-        config: &ChannelConfig,
+        thread: &BindingContext,
+        config: &TriggerContext,
         limit: usize,
         exclude_external_ids: &[String],
     ) -> Result<Option<String>, ChannelError> {
@@ -587,13 +585,15 @@ pub async fn resolve_and_process_linear_webhook(
         return Ok(());
     };
 
-    let connection = crate::channel::provider_connection_dao::PgProviderConnectionRepository(
-        state.db.clone(),
-    )
-    .find_by_scope_value("linear", org_id)
-    .await?;
+    let connection =
+        crate::channel::dao::connections::PgProviderConnectionRepository(state.db.clone())
+            .find_by_scope_value("linear", org_id)
+            .await?;
     let Some(connection) = connection else {
-        info!(org_id, "Linear webhook ignored: no provider_connection registered");
+        info!(
+            org_id,
+            "Linear webhook ignored: no provider_connection registered"
+        );
         return Ok(());
     };
 
@@ -650,9 +650,9 @@ pub async fn resolve_and_process_linear_webhook(
         return Ok(());
     };
 
-    let rules = super::runtime::resolve_ingress(state, &connection, &team_id).await?;
+    let rules = super::runtime::resolve_provider_event(state, &connection, &team_id).await?;
     if rules.is_empty() {
-        info!(team_id = %team_id, "Linear webhook ignored: no ingress rule for team");
+        info!(team_id = %team_id, "Linear webhook ignored: no task trigger for team");
         return Ok(());
     }
 
@@ -669,11 +669,11 @@ pub async fn resolve_and_process_linear_webhook(
         }
         "Comment" => {
             // Parse once — comment routing is shared across every listener that
-            // already has a subscription on the issue.
+            // already has a binding on the issue.
             let result = parse_comment_event(&envelope)?;
             // Pick any active rule under this team to carry along for outbound
             // auth + reply formatting; the runtime fan-out resolves each
-            // delivered subscription's own rule when sending.
+            // delivered binding's own rule when sending.
             if let Some(rule) = rules.into_iter().find(|r| r.active) {
                 spawn_dispatch(state.clone(), connection.clone(), rule, result);
             }
@@ -689,7 +689,7 @@ pub async fn resolve_and_process_linear_webhook(
 fn spawn_dispatch(
     state: AppState,
     connection: ProviderConnection,
-    rule: IngressRule,
+    rule: TaskTriggerRoute,
     result: LinearWebhookResult,
 ) {
     match result {
@@ -722,12 +722,15 @@ mod tests {
     use crate::scope::Scope;
     use chrono::Utc;
 
-    fn rule_with(provider_config: serde_json::Value, close_task_on_close: bool) -> IngressRule {
-        IngressRule {
+    fn rule_with(
+        provider_config: serde_json::Value,
+        close_task_on_close: bool,
+    ) -> TaskTriggerRoute {
+        TaskTriggerRoute {
             id: "ir_test".into(),
             provider: "linear".into(),
             connection_id: "pc_test".into(),
-            scope_matcher: "team-uuid".into(),
+            source_matcher: "team-uuid".into(),
             source_name: None,
             routing_mode: RoutingMode::ThreadBased,
             event_filter: serde_json::json!([]),
@@ -740,7 +743,6 @@ mod tests {
             allow_direct_send: false,
             provider_config: Some(provider_config),
             ongoing_task_id: None,
-            response_rule_id: None,
             close_task_on_close,
             notify_on_success: false,
             active: true,
@@ -777,8 +779,7 @@ mod tests {
             }),
             organization_id: Some("org-uuid".into()),
             webhook_id: Some("wh-1".into()),
-            updated_from: prev_state_id
-                .map(|prev| serde_json::json!({"stateId": prev})),
+            updated_from: prev_state_id.map(|prev| serde_json::json!({"stateId": prev})),
             actor: Some(UserPayload {
                 id: "linear-actor".into(),
                 name: "Linear User".into(),
@@ -803,7 +804,9 @@ mod tests {
                     Some("linear:issue:opened:issue-uuid-1")
                 );
                 assert_eq!(
-                    msg.thread_properties.get("issue_id").and_then(|v| v.as_str()),
+                    msg.thread_properties
+                        .get("issue_id")
+                        .and_then(|v| v.as_str()),
                     Some("issue-uuid-1")
                 );
             }
@@ -837,10 +840,7 @@ mod tests {
 
     #[test]
     fn update_event_into_trigger_state_returns_state_changed() {
-        let rule = rule_with(
-            serde_json::json!({"trigger_states":["In Progress"]}),
-            true,
-        );
+        let rule = rule_with(serde_json::json!({"trigger_states":["In Progress"]}), true);
         let cfg = LinearRuleConfig::from_rule(&rule);
         let env = issue_envelope("update", "In Progress", &[], Some("state-old"));
         let result = parse_issue_event(&env, &rule, &cfg).expect("ok");
@@ -857,10 +857,7 @@ mod tests {
 
     #[test]
     fn update_event_without_state_change_is_ignored() {
-        let rule = rule_with(
-            serde_json::json!({"trigger_states":["Todo"]}),
-            true,
-        );
+        let rule = rule_with(serde_json::json!({"trigger_states":["Todo"]}), true);
         let cfg = LinearRuleConfig::from_rule(&rule);
         // Same state id before and after — represents an unrelated update
         // (assignee, priority, etc.) and must NOT re-fire the trigger.
@@ -928,7 +925,10 @@ mod tests {
         match parse_comment_event(&env).expect("ok") {
             LinearWebhookResult::Message(msg) => {
                 assert_eq!(msg.text, "Hello agent");
-                assert_eq!(msg.channel_external_id.as_deref(), Some("linear:comment:c-2"));
+                assert_eq!(
+                    msg.channel_external_id.as_deref(),
+                    Some("linear:comment:c-2")
+                );
                 assert_eq!(msg.thread_id.as_deref(), Some("issue-uuid-1"));
             }
             _ => panic!("expected Message"),

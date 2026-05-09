@@ -9,7 +9,7 @@
 //! → `message::hooks::on_agent_message_persisted`.
 //!
 //! Covers:
-//! - `gh pr create` tool result auto-connects a `channel_threads` row and
+//! - `gh pr create` tool result auto-connects a `task_bindings` row and
 //!   tags the parent assistant tool_use row with `github:pr:opened:<n>`.
 //! - `gh pr comment` tool result tags the parent assistant tool_use row
 //!   with `github:ic:<id>`.
@@ -17,10 +17,10 @@
 mod common;
 
 use chrono::Utc;
-use moatless_vibe_backend::channel::ingress_rule_dao::PgIngressRuleRepository;
-use moatless_vibe_backend::channel::models::{IngressRule, ProviderConnection};
-use moatless_vibe_backend::channel::provider_connection_dao::PgProviderConnectionRepository;
-use moatless_vibe_backend::channel::task_subscription_dao::PgTaskSubscriptionRepository;
+use moatless_vibe_backend::channel::dao::bindings::PgTaskBindingRepository;
+use moatless_vibe_backend::channel::dao::connections::PgProviderConnectionRepository;
+use moatless_vibe_backend::channel::dao::trigger_routes::PgTaskTriggerRouteRepository;
+use moatless_vibe_backend::channel::models::{ProviderConnection, RoutingMode, TaskTriggerRoute};
 use moatless_vibe_backend::event_handler::agent_handlers::handle_agent_message;
 use moatless_vibe_backend::event_handler::models::AgentEvent;
 use moatless_vibe_backend::repository::dao as repository_dao;
@@ -30,7 +30,7 @@ use sqlx::PgPool;
 
 use common::{make_repository_row, make_task_row, test_app_state};
 
-async fn seed_github_ingress(pool: &PgPool, owner: &str, repo: &str, repository_id: &str) {
+async fn seed_github_trigger(pool: &PgPool, owner: &str, repo: &str, repository_id: &str) {
     let now = Utc::now();
     let connection = ProviderConnection {
         id: format!("pc_{owner}"),
@@ -51,11 +51,13 @@ async fn seed_github_ingress(pool: &PgPool, owner: &str, repo: &str, repository_
         .await
         .unwrap();
 
-    let rule = IngressRule {
-        id: format!("ir_{owner}_{repo}"),
+    let trigger_route = TaskTriggerRoute {
+        id: format!("tt_{owner}_{repo}"),
         provider: "github".to_string(),
         connection_id: connection.id.clone(),
-        scope_matcher: format!("{owner}/{repo}"),
+        source_matcher: format!("{owner}/{repo}"),
+        source_name: Some(format!("{owner}/{repo}")),
+        routing_mode: RoutingMode::ThreadBased,
         event_filter: serde_json::json!([]),
         repository_id: repository_id.to_string(),
         prompt_template: None,
@@ -63,6 +65,9 @@ async fn seed_github_ingress(pool: &PgPool, owner: &str, repo: &str, repository_
         tag_ids: vec![],
         run_as_user_id: None,
         agent_type: "claude-code".to_string(),
+        allow_direct_send: false,
+        provider_config: None,
+        ongoing_task_id: None,
         close_task_on_close: true,
         notify_on_success: false,
         active: true,
@@ -72,8 +77,8 @@ async fn seed_github_ingress(pool: &PgPool, owner: &str, repo: &str, repository_
         created_at: now,
         updated_at: now,
     };
-    PgIngressRuleRepository(pool.clone())
-        .upsert(&rule)
+    PgTaskTriggerRouteRepository(pool.clone())
+        .upsert(&trigger_route)
         .await
         .unwrap();
 }
@@ -119,13 +124,13 @@ async fn seed(pool: &PgPool, task_id: &str) -> moatless_vibe_backend::state::App
 }
 
 #[sqlx::test]
-async fn gh_pr_create_auto_connects_channel_thread(pool: PgPool) {
+async fn gh_pr_create_auto_connects_task_binding(pool: PgPool) {
     let task_id = "task-pr-create";
     let state = seed(&pool, task_id).await;
 
-    // The org-webhook + ingress-rule rows must exist before the agent's
-    // gh-pr-create hook can attach a subscription.
-    seed_github_ingress(&pool, "foo", "bar", "repo-1").await;
+    // The org-webhook connection + trigger route must exist before the agent's
+    // gh-pr-create hook can attach a task binding.
+    seed_github_trigger(&pool, "foo", "bar", "repo-1").await;
 
     // 1. Persist the assistant tool_use(Bash, "gh pr create ...") message.
     let assistant_event = agent_message_event(
@@ -163,34 +168,29 @@ async fn gh_pr_create_auto_connects_channel_thread(pool: PgPool) {
     );
     handle_agent_message(&state, &result_event).await;
 
-    // 3. Verify a task_subscriptions row was created for this task pointing at
-    //    the seeded org connection and repo rule.
+    // 3. Verify a task_bindings row was created for this task pointing at
+    //    the seeded org connection and repo trigger.
     let connection = PgProviderConnectionRepository(pool.clone())
         .find_by_scope_value("github", "foo")
         .await
         .unwrap()
         .expect("seeded github org connection");
-    let rule = PgIngressRuleRepository(pool.clone())
-        .find_by_scope_matcher("github", "foo/bar")
+    let trigger = PgTaskTriggerRouteRepository(pool.clone())
+        .find_by_source_matcher("github", "foo/bar")
         .await
         .unwrap()
-        .expect("seeded github ingress rule");
+        .expect("seeded github trigger");
 
-    let subscriptions = PgTaskSubscriptionRepository(pool.clone())
+    let bindings = PgTaskBindingRepository(pool.clone())
         .find_by_task_id(task_id)
         .await
         .unwrap();
-    assert_eq!(
-        subscriptions.len(),
-        1,
-        "expected a GitHub task subscription"
-    );
-    assert_eq!(subscriptions[0].subject_key, "foo/bar#99");
-    assert_eq!(subscriptions[0].connection_id, connection.id);
-    assert_eq!(
-        subscriptions[0].ingress_rule_id.as_deref(),
-        Some(rule.id.as_str())
-    );
+    assert_eq!(bindings.len(), 1, "expected a GitHub task binding");
+    assert_eq!(bindings[0].provider, "github");
+    assert_eq!(bindings[0].subject_kind, "github_pr");
+    assert_eq!(bindings[0].subject_key, "foo/bar#99");
+    assert_eq!(bindings[0].connection_id, connection.id);
+    assert_eq!(bindings[0].trigger_id.as_deref(), Some(trigger.id.as_str()));
 
     // 4. The parent assistant row should now carry channel metadata so the
     //    UI can render a "PR #99 opened" chip on it.

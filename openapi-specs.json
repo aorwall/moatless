@@ -1055,1177 +1055,6 @@
         }
       }
     },
-    "/api/v1/channels/configs": {
-      "get": {
-        "tags": [
-          "channels"
-        ],
-        "summary": "List channel configs with optional filters.",
-        "operationId": "list_configs",
-        "parameters": [
-          {
-            "name": "provider",
-            "in": "query",
-            "description": "Filter by provider",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "repositoryId",
-            "in": "query",
-            "description": "Filter by repository",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Config list",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/ChannelConfigResponse"
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "channels"
-        ],
-        "summary": "Create a new channel config.",
-        "operationId": "create_config",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateChannelConfigRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Config created",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ChannelConfigResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Repository not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/channels/configs/{id}": {
-      "get": {
-        "tags": [
-          "channels"
-        ],
-        "summary": "Get a channel config by ID.",
-        "operationId": "get_config",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Channel config ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Config details",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ChannelConfigResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      },
-      "put": {
-        "tags": [
-          "channels"
-        ],
-        "summary": "Update a channel config.",
-        "operationId": "update_config",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Channel config ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateChannelConfigRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Config updated",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ChannelConfigResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      },
-      "delete": {
-        "tags": [
-          "channels"
-        ],
-        "summary": "Delete a channel config.",
-        "operationId": "delete_config",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Channel config ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Config deleted"
-          },
-          "404": {
-            "description": "Not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/channels/configs/{id}/send": {
-      "post": {
-        "tags": [
-          "channels"
-        ],
-        "summary": "Send a message directly to a channel config.",
-        "description": "The channel config must have `allow_direct_send = true` and the provider\nmust support outbound messaging.\n\nWhen `task_id` is provided (in the request body), the first send creates a\nthread linked to the task; subsequent sends reply in that thread. This lets\n`moat reply` and `moat channels send` continue the conversation.\n\nWhen `task_id` is omitted the send is fire-and-forget.",
-        "operationId": "direct_send_to_channel",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Channel config ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DirectSendRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Message sent",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DirectSendResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Direct send not allowed or config inactive",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Config not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "502": {
-            "description": "Provider failed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/channels/configs/{id}/trigger": {
-      "post": {
-        "tags": [
-          "channels"
-        ],
-        "summary": "Manually trigger a channel config, creating a task exactly as if the provider fired.",
-        "description": "Works for any provider type (cron, slack, github_pr, etc.) and does not require\nthe channel to be active. The created task will have `responseConfigId` wired up\nso outbound replies flow back to the configured channel (e.g. Slack).",
-        "operationId": "trigger_channel",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Channel config ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/TriggerChannelRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Task created",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TriggerChannelResponse"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Access denied",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Config not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/channels/connect": {
-      "post": {
-        "tags": [
-          "channels"
-        ],
-        "summary": "Connect a task to an existing external thread (e.g. a GitHub PR).",
-        "description": "Creates a channel thread linking the task to the external thread so that\ninbound webhooks are delivered and the agent can reply via `moat reply`.\nIdempotent: connecting twice returns the existing thread.",
-        "operationId": "connect_channel",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ConnectChannelRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Thread connected",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConnectChannelResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Task not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/channels/connections": {
-      "get": {
-        "tags": [
-          "channels"
-        ],
-        "summary": "List provider connections (read-only — connections are bootstrapped by\nmigration 0034).",
-        "operationId": "list_provider_connections",
-        "parameters": [
-          {
-            "name": "provider",
-            "in": "query",
-            "description": "Filter by provider (defaults to 'github')",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Connections",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/ProviderConnectionResponse"
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "channels"
-        ],
-        "summary": "Create or update a provider connection (currently Linear-only).",
-        "description": "Linear workspaces have to be registered explicitly so the backend can\nstore the webhook secret used to verify inbound deliveries. GitHub\nconnections continue to be bootstrapped via migration 0034 and are not\naccepted here.",
-        "operationId": "create_provider_connection",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateProviderConnectionRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Connection upserted",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProviderConnectionResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/channels/defaults/{provider}": {
-      "get": {
-        "tags": [
-          "channels"
-        ],
-        "summary": "Get channel defaults for a provider.",
-        "description": "Returns the wildcard (`source_id=\"*\"`) config that serves as the default\ntemplate for auto-creating per-channel configs.",
-        "operationId": "get_defaults",
-        "parameters": [
-          {
-            "name": "provider",
-            "in": "path",
-            "description": "Channel provider (slack, telegram)",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "teamId",
-            "in": "query",
-            "description": "Team ID (required if user belongs to multiple teams)",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Default config",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ChannelConfigResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No defaults configured",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      },
-      "put": {
-        "tags": [
-          "channels"
-        ],
-        "summary": "Set channel defaults for a provider.",
-        "description": "Creates or updates the wildcard (`source_id=\"*\"`) config for the given\nprovider. New channels of this provider will inherit these settings.",
-        "operationId": "set_defaults",
-        "parameters": [
-          {
-            "name": "provider",
-            "in": "path",
-            "description": "Channel provider (slack, telegram)",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SetChannelDefaultsRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Defaults saved",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ChannelConfigResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/channels/github-pr/webhook": {
-      "post": {
-        "tags": [
-          "channels"
-        ],
-        "summary": "Handle GitHub webhook for PR events.",
-        "operationId": "github_pr_webhook",
-        "requestBody": {
-          "description": "GitHub webhook payload",
-          "content": {
-            "text/plain": {
-              "schema": {
-                "type": "string"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Webhook processed"
-          },
-          "401": {
-            "description": "Invalid signature"
-          }
-        }
-      }
-    },
-    "/api/v1/channels/linear/webhook": {
-      "post": {
-        "tags": [
-          "channels"
-        ],
-        "summary": "Handle Linear webhook for Issue / Comment events.",
-        "operationId": "linear_webhook",
-        "requestBody": {
-          "description": "Linear webhook payload",
-          "content": {
-            "text/plain": {
-              "schema": {
-                "type": "string"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Webhook processed"
-          },
-          "401": {
-            "description": "Invalid signature"
-          }
-        }
-      }
-    },
-    "/api/v1/channels/pairing/my-requests": {
-      "get": {
-        "tags": [
-          "channels"
-        ],
-        "summary": "List all pending pairing requests across all channels owned by the\nauthenticated user. Unlike `list_pairing_requests`, this does not require\na specific `config_id`.",
-        "operationId": "list_my_pairing_requests",
-        "responses": {
-          "200": {
-            "description": "Pending pairing requests",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/PairingRequestResponse"
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/channels/providers": {
-      "get": {
-        "tags": [
-          "channels"
-        ],
-        "summary": "List configured channel providers.",
-        "description": "Returns the names of user-facing providers that are currently configured\n(e.g. `[\"slack\", \"telegram\"]`). Internal providers like webhook and cron\nare excluded.",
-        "operationId": "list_providers",
-        "responses": {
-          "200": {
-            "description": "Configured provider names",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/channels/rules": {
-      "get": {
-        "tags": [
-          "channels"
-        ],
-        "summary": "List ingress rules.",
-        "operationId": "list_ingress_rules",
-        "parameters": [
-          {
-            "name": "provider",
-            "in": "query",
-            "description": "Filter by provider (defaults to 'github')",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Rules",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/IngressRuleResponse"
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "channels"
-        ],
-        "summary": "Create or upsert an ingress rule.",
-        "operationId": "create_ingress_rule",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateIngressRuleRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Rule created or updated",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/IngressRuleResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/channels/rules/{id}": {
-      "delete": {
-        "tags": [
-          "channels"
-        ],
-        "summary": "Delete an ingress rule by id.",
-        "operationId": "delete_ingress_rule",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Ingress rule ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Rule deleted"
-          },
-          "404": {
-            "description": "Rule not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/channels/rules/{id}/send": {
-      "post": {
-        "tags": [
-          "channels"
-        ],
-        "summary": "Send a message directly through an ingress rule.",
-        "operationId": "direct_send_to_rule",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Ingress rule ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DirectSendRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Message sent",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DirectSendResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Direct send not allowed or rule inactive",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Rule not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "502": {
-            "description": "Provider failed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/channels/slack/channels": {
-      "get": {
-        "tags": [
-          "channels"
-        ],
-        "summary": "List available Slack channels the bot is a member of.",
-        "operationId": "list_slack_channels",
-        "responses": {
-          "200": {
-            "description": "Available Slack channels",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/SlackChannelInfoResponse"
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Slack not configured",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/channels/slack/slash": {
-      "post": {
-        "tags": [
-          "channels"
-        ],
-        "summary": "Handle Slack slash command.",
-        "description": "Slack sends a POST with `application/x-www-form-urlencoded` body when a user\ninvokes a registered slash command (e.g., `/moat commit fix auth bug`).\nThe handler must respond within 3 seconds, so processing happens in background.",
-        "operationId": "slack_slash_command",
-        "requestBody": {
-          "description": "Slack slash command form payload",
-          "content": {
-            "text/plain": {
-              "schema": {
-                "type": "string"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Command acknowledged"
-          },
-          "401": {
-            "description": "Invalid signature"
-          }
-        }
-      }
-    },
-    "/api/v1/channels/slack/webhook": {
-      "post": {
-        "tags": [
-          "channels"
-        ],
-        "summary": "Handle Slack Events API webhook.",
-        "operationId": "slack_webhook",
-        "requestBody": {
-          "description": "Slack Events API payload",
-          "content": {
-            "text/plain": {
-              "schema": {
-                "type": "string"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Webhook processed"
-          },
-          "401": {
-            "description": "Invalid signature"
-          }
-        }
-      }
-    },
-    "/api/v1/channels/telegram/pairing/approve": {
-      "post": {
-        "tags": [
-          "channels"
-        ],
-        "summary": "Approve a Telegram pairing request by code.",
-        "operationId": "approve_pairing",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ApprovePairingRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Pairing approved"
-          },
-          "400": {
-            "description": "Invalid code"
-          },
-          "403": {
-            "description": "Access denied"
-          },
-          "404": {
-            "description": "Config not found"
-          }
-        }
-      }
-    },
-    "/api/v1/channels/telegram/pairing/requests": {
-      "get": {
-        "tags": [
-          "channels"
-        ],
-        "summary": "List pending pairing requests for a Telegram channel config.",
-        "operationId": "list_pairing_requests",
-        "parameters": [
-          {
-            "name": "config_id",
-            "in": "query",
-            "description": "Channel config ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Pending pairing requests"
-          },
-          "403": {
-            "description": "Access denied"
-          },
-          "404": {
-            "description": "Config not found"
-          }
-        }
-      }
-    },
-    "/api/v1/channels/telegram/webhook": {
-      "post": {
-        "tags": [
-          "channels"
-        ],
-        "summary": "Handle Telegram Bot API webhook update.",
-        "operationId": "telegram_webhook",
-        "requestBody": {
-          "description": "Telegram Bot API Update payload",
-          "content": {
-            "text/plain": {
-              "schema": {
-                "type": "string"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Webhook processed"
-          },
-          "401": {
-            "description": "Invalid secret token"
-          }
-        }
-      }
-    },
-    "/api/v1/channels/webhook/{config_id}": {
-      "post": {
-        "tags": [
-          "channels"
-        ],
-        "summary": "Handle inbound webhook message.",
-        "description": "Receives a JSON payload with `text`, optional `threadId`, `userId`, and `metadata`.\nVerifies HMAC signature if `webhook_secret` is configured in the channel config.",
-        "operationId": "webhook_inbound",
-        "parameters": [
-          {
-            "name": "config_id",
-            "in": "path",
-            "description": "Channel config ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/WebhookPayload"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Webhook message accepted"
-          },
-          "400": {
-            "description": "Invalid request"
-          },
-          "401": {
-            "description": "Invalid signature"
-          },
-          "404": {
-            "description": "Config not found"
-          }
-        }
-      }
-    },
-    "/api/v1/channels/{provider}/send": {
-      "post": {
-        "tags": [
-          "channels"
-        ],
-        "summary": "Post a message to a provider-specific destination by raw ID.",
-        "description": "Mirrors the DM bootstrap pattern, but works for any chat destination\n(e.g. a Slack public channel). When `task_id` is provided, a\n`task_subscriptions` row is written so future inbound messages on the\ndestination route back to the task.",
-        "operationId": "send_to_chat_destination",
-        "parameters": [
-          {
-            "name": "provider",
-            "in": "path",
-            "description": "Provider name (e.g. \"slack\")",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ChatDestinationSendRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Message posted",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ChatDestinationSendResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Provider does not support destination sends",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Provider not configured",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "502": {
-            "description": "Provider failed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/commands": {
       "get": {
         "tags": [
@@ -2635,6 +1464,228 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/v1/integrations/connections": {
+      "get": {
+        "tags": [
+          "integrations"
+        ],
+        "operationId": "list_provider_connections",
+        "responses": {
+          "200": {
+            "description": "Provider connections",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ProviderConnectionResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "integrations"
+        ],
+        "operationId": "create_provider_connection",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateProviderConnectionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Provider connection upserted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderConnectionResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/integrations/github/webhook": {
+      "post": {
+        "tags": [
+          "integrations"
+        ],
+        "operationId": "github_webhook",
+        "requestBody": {
+          "content": {
+            "text/plain": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook processed"
+          }
+        }
+      }
+    },
+    "/api/v1/integrations/linear/webhook": {
+      "post": {
+        "tags": [
+          "integrations"
+        ],
+        "operationId": "linear_webhook",
+        "requestBody": {
+          "content": {
+            "text/plain": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook processed"
+          }
+        }
+      }
+    },
+    "/api/v1/integrations/providers": {
+      "get": {
+        "tags": [
+          "integrations"
+        ],
+        "operationId": "list_integration_providers",
+        "responses": {
+          "200": {
+            "description": "Configured provider names",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/integrations/slack/slash": {
+      "post": {
+        "tags": [
+          "integrations"
+        ],
+        "operationId": "slack_slash_command",
+        "requestBody": {
+          "content": {
+            "text/plain": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Command acknowledged"
+          }
+        }
+      }
+    },
+    "/api/v1/integrations/slack/webhook": {
+      "post": {
+        "tags": [
+          "integrations"
+        ],
+        "operationId": "slack_webhook",
+        "requestBody": {
+          "content": {
+            "text/plain": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook processed"
+          }
+        }
+      }
+    },
+    "/api/v1/integrations/telegram/webhook": {
+      "post": {
+        "tags": [
+          "integrations"
+        ],
+        "operationId": "telegram_webhook",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook processed"
+          }
+        }
+      }
+    },
+    "/api/v1/integrations/webhook/{trigger_id}": {
+      "post": {
+        "tags": [
+          "integrations"
+        ],
+        "operationId": "webhook_inbound",
+        "parameters": [
+          {
+            "name": "trigger_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WebhookPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook accepted"
           }
         }
       }
@@ -3079,6 +2130,97 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/scheduled-jobs": {
+      "get": {
+        "tags": [
+          "scheduled-jobs"
+        ],
+        "operationId": "list_scheduled_jobs",
+        "responses": {
+          "200": {
+            "description": "Scheduled jobs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ScheduledJobResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "scheduled-jobs"
+        ],
+        "operationId": "create_scheduled_job",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateScheduledJobRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Scheduled job created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduledJobResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/scheduled-jobs/{id}": {
+      "put": {
+        "tags": [
+          "scheduled-jobs"
+        ],
+        "operationId": "update_scheduled_job",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateScheduledJobRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Scheduled job updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduledJobResponse"
                 }
               }
             }
@@ -3875,6 +3017,97 @@
         }
       }
     },
+    "/api/v1/task-routes": {
+      "get": {
+        "tags": [
+          "task-routes"
+        ],
+        "operationId": "list_task_routes",
+        "responses": {
+          "200": {
+            "description": "Task routes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TaskRouteResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "task-routes"
+        ],
+        "operationId": "create_task_route",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTaskRouteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Task route created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskRouteResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/task-routes/{id}": {
+      "put": {
+        "tags": [
+          "task-routes"
+        ],
+        "operationId": "update_task_route",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTaskRouteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Task route updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskRouteResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tasks": {
       "get": {
         "tags": [
@@ -4155,19 +3388,16 @@
         }
       }
     },
-    "/api/v1/tasks/{task_id}/channels": {
+    "/api/v1/tasks/{task_id}/bindings": {
       "get": {
         "tags": [
-          "channels"
+          "task-bindings"
         ],
-        "summary": "List channels connected to a task.",
-        "description": "Returns the channel configs linked to the task via channel threads.",
-        "operationId": "list_task_channels",
+        "operationId": "list_task_bindings",
         "parameters": [
           {
             "name": "task_id",
             "in": "path",
-            "description": "Task ID",
             "required": true,
             "schema": {
               "type": "string"
@@ -4176,44 +3406,29 @@
         ],
         "responses": {
           "200": {
-            "description": "Channels for task",
+            "description": "Task bindings",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/TaskChannelResponse"
+                    "$ref": "#/components/schemas/TaskBindingResponse"
                   }
                 }
               }
             }
-          },
-          "404": {
-            "description": "No channels for task",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
           }
         }
-      }
-    },
-    "/api/v1/tasks/{task_id}/channels/send": {
+      },
       "post": {
         "tags": [
-          "channels"
+          "task-bindings"
         ],
-        "summary": "Send a message to the single channel connected to a task.",
-        "description": "**Behavior:**\n- 0 destinations → 404 `ConfigNotFound`.\n- 1 destination (legacy thread or subscription) → routed automatically.\n- 2+ destinations → 400 `MultipleTargets` listing every target so the\n  caller can re-issue with `--thread`, `--subscription`, or `--pr`.",
-        "operationId": "send_to_task_channels",
+        "operationId": "create_task_binding",
         "parameters": [
           {
             "name": "task_id",
             "in": "path",
-            "description": "Task ID",
             "required": true,
             "schema": {
               "type": "string"
@@ -4224,7 +3439,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SendChannelMessageRequest"
+                "$ref": "#/components/schemas/CreateTaskBindingRequest"
               }
             }
           },
@@ -4232,257 +3447,11 @@
         },
         "responses": {
           "200": {
-            "description": "Message sent",
+            "description": "Task binding created",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SendChannelMessageResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Multiple destinations — pick one",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MultipleTargetsErrorBody"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No channels for task",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "502": {
-            "description": "All providers failed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/tasks/{task_id}/channels/subscriptions/{subscription_id}/send": {
-      "post": {
-        "tags": [
-          "channels"
-        ],
-        "summary": "Send a message to one exact `task_subscriptions` row.",
-        "description": "Used by the GitHub PR ingress flow where each task may have several PR\nsubscriptions and the agent picks one with `moat reply --subscription <id>`.",
-        "operationId": "send_to_task_channel_subscription",
-        "parameters": [
-          {
-            "name": "task_id",
-            "in": "path",
-            "description": "Task ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "subscription_id",
-            "in": "path",
-            "description": "Task subscription ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SendChannelMessageRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Message sent",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SendChannelMessageResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Subscription not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "502": {
-            "description": "Provider failed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/tasks/{task_id}/channels/threads/{thread_id}/send": {
-      "post": {
-        "tags": [
-          "channels"
-        ],
-        "summary": "Send a message to one exact channel thread connected to a task.",
-        "description": "This is the precise outbound route for task subscriptions such as GitHub PRs,\nwhere several connected subjects may share the same channel config.",
-        "operationId": "send_to_task_channel_thread",
-        "parameters": [
-          {
-            "name": "task_id",
-            "in": "path",
-            "description": "Task ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "thread_id",
-            "in": "path",
-            "description": "Channel thread ID",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "format": "int32"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SendChannelMessageRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Message sent",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SendChannelMessageResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Channel thread not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "502": {
-            "description": "Provider failed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/tasks/{task_id}/channels/{config_id}/send": {
-      "post": {
-        "tags": [
-          "channels"
-        ],
-        "summary": "Send a message to a specific channel connected to a task.",
-        "operationId": "send_to_task_channel",
-        "parameters": [
-          {
-            "name": "task_id",
-            "in": "path",
-            "description": "Task ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "config_id",
-            "in": "path",
-            "description": "Channel config ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SendChannelMessageRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Message sent",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SendChannelMessageResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Channel not found for task",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "502": {
-            "description": "Provider failed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
+                  "$ref": "#/components/schemas/TaskBindingResponse"
                 }
               }
             }
@@ -4856,6 +3825,46 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/reply": {
+      "post": {
+        "tags": [
+          "task-bindings"
+        ],
+        "operationId": "send_task_reply",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendTaskReplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Reply sent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SendTaskReplyResponse"
                 }
               }
             }
@@ -5624,6 +4633,129 @@
         }
       }
     },
+    "/api/v1/triggers": {
+      "get": {
+        "tags": [
+          "triggers"
+        ],
+        "operationId": "list_task_triggers",
+        "responses": {
+          "200": {
+            "description": "Task triggers",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TaskTriggerResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "triggers"
+        ],
+        "operationId": "create_task_trigger",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTaskTriggerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Task trigger created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskTriggerResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/triggers/{id}": {
+      "put": {
+        "tags": [
+          "triggers"
+        ],
+        "operationId": "update_task_trigger",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTaskTriggerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Task trigger updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskTriggerResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "triggers"
+        ],
+        "operationId": "delete_task_trigger",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Task trigger id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Task trigger deleted"
+          },
+          "404": {
+            "description": "Task trigger not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/uploads": {
       "post": {
         "tags": [
@@ -5733,69 +4865,6 @@
           },
           "500": {
             "description": "Internal error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/users/{login}/dm": {
-      "post": {
-        "tags": [
-          "channels"
-        ],
-        "summary": "Send a direct message to a moatless user via an external provider (e.g. Slack).",
-        "description": "The user must have a provider ID registered for the given provider.\nIf `task_id` is provided, a `task_subscription` is created so that replies\nto the DM thread are routed back to the task.",
-        "operationId": "send_user_dm_handler",
-        "parameters": [
-          {
-            "name": "login",
-            "in": "path",
-            "description": "Moatless username to send the DM to",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SendDmRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "DM sent",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SendDmResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Provider not configured or no provider ID for user",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "User not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -6350,21 +5419,6 @@
           }
         }
       },
-      "ApprovePairingRequest": {
-        "type": "object",
-        "required": [
-          "configId",
-          "code"
-        ],
-        "properties": {
-          "code": {
-            "type": "string"
-          },
-          "configId": {
-            "type": "string"
-          }
-        }
-      },
       "AskUserQuestionInput": {
         "type": "object",
         "description": "Input payload for the AskUserQuestion tool.",
@@ -6481,120 +5535,9 @@
           }
         }
       },
-      "ChannelConfigResponse": {
-        "type": "object",
-        "required": [
-          "id",
-          "provider",
-          "sourceId",
-          "repositoryId",
-          "routingMode",
-          "active",
-          "allowDirectSend",
-          "scope",
-          "createdBy",
-          "tagIds",
-          "agentType",
-          "createdAt",
-          "updatedAt"
-        ],
-        "properties": {
-          "active": {
-            "type": "boolean"
-          },
-          "agentType": {
-            "type": "string",
-            "description": "Agent type for tasks created from this channel"
-          },
-          "allowDirectSend": {
-            "type": "boolean"
-          },
-          "createdAt": {
-            "type": "string"
-          },
-          "createdBy": {
-            "type": "string"
-          },
-          "id": {
-            "type": "string"
-          },
-          "ongoingTaskId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "promptTemplate": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "provider": {
-            "$ref": "#/components/schemas/ChannelType"
-          },
-          "providerConfig": {
-            "type": [
-              "object",
-              "null"
-            ]
-          },
-          "repositoryId": {
-            "type": "string"
-          },
-          "responseConfigId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "routingMode": {
-            "$ref": "#/components/schemas/RoutingMode"
-          },
-          "runAsUserId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "scope": {
-            "$ref": "#/components/schemas/Scope"
-          },
-          "sourceId": {
-            "type": "string"
-          },
-          "sourceName": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "tagIds": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "taskName": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "teamId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "updatedAt": {
-            "type": "string"
-          }
-        }
-      },
       "ChannelTargetDescriptor": {
         "type": "object",
-        "description": "One outbound destination — used by both [`SendChannelMessageResponse::targets`]\n(success path) and [`MultipleTargetsErrorBody`] (multi-target error path).",
+        "description": "One outbound destination returned by task reply APIs.",
         "required": [
           "kind",
           "id",
@@ -6604,84 +5547,19 @@
         "properties": {
           "flagHint": {
             "type": "string",
-            "description": "CLI flag the caller should add to disambiguate, e.g.\n`\"--thread 42\"` or `\"--subscription sub_xyz\"`."
+            "description": "CLI flag the caller should add to disambiguate, e.g. `\"--binding bind_xyz\"`."
           },
           "id": {
             "type": "string",
-            "description": "Stable identifier — `thread_id` (stringified i32) or `subscription_id`."
+            "description": "Stable target identifier, usually `task_bindings.id`."
           },
           "kind": {
             "type": "string",
-            "description": "`\"thread\"` for legacy `channel_threads` rows, `\"subscription\"` for\n`task_subscriptions` rows."
+            "description": "Target category, currently `\"binding\"` for canonical task bindings."
           },
           "label": {
             "type": "string",
-            "description": "Human-readable label such as `\"slack #ops\"` or `\"github_pr owner/repo#42\"`."
-          }
-        }
-      },
-      "ChannelType": {
-        "type": "string",
-        "description": "Channel provider identifier.",
-        "enum": [
-          "slack",
-          "email",
-          "webhook",
-          "cron",
-          "telegram",
-          "github_pr",
-          "linear"
-        ]
-      },
-      "ChatDestinationSendRequest": {
-        "type": "object",
-        "description": "Request to post a message to a provider-specific destination by raw ID.",
-        "required": [
-          "destination",
-          "text"
-        ],
-        "properties": {
-          "destination": {
-            "type": "string",
-            "description": "Provider-specific destination identifier (e.g. Slack channel id, Telegram chat id)."
-          },
-          "fileIds": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "File IDs (from `/api/v1/uploads`) to attach to the message."
-          },
-          "taskId": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Optional task to associate the resulting subscription with. When set, a\n`task_subscriptions` row is written so future inbound messages on this\ndestination route back to the task."
-          },
-          "text": {
-            "type": "string",
-            "description": "Message text."
-          }
-        }
-      },
-      "ChatDestinationSendResponse": {
-        "type": "object",
-        "description": "Response from posting to a chat destination.",
-        "required": [
-          "messageExternalId"
-        ],
-        "properties": {
-          "messageExternalId": {
-            "type": "string",
-            "description": "Provider-specific external message ID (e.g. Slack message ts)."
-          },
-          "subscriptionId": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "`task_subscriptions.id` when a task was provided; `None` otherwise."
+            "description": "Human-readable label such as `\"slack channel:C123\"` or `\"github pr:owner/repo#42\"`."
           }
         }
       },
@@ -6887,65 +5765,6 @@
               "boolean",
               "null"
             ]
-          }
-        }
-      },
-      "ConnectChannelRequest": {
-        "type": "object",
-        "description": "Request to connect a task to an existing external thread (e.g. a GitHub PR).\n\nCreates a channel thread linking the task to the external thread so that\ninbound messages (webhooks) are delivered and the agent can reply.",
-        "required": [
-          "taskId",
-          "provider",
-          "externalThreadId"
-        ],
-        "properties": {
-          "externalThreadId": {
-            "type": "string",
-            "description": "External thread identifier, e.g. PR number `\"42\"`."
-          },
-          "filterUserId": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "System user ID whose messages should be filtered out on this thread\n(prevents echoing the agent's own PR comments back to it)."
-          },
-          "provider": {
-            "$ref": "#/components/schemas/ChannelType"
-          },
-          "sourceId": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Source identifier, e.g. `\"owner/repo\"` for GitHub PR.\nResolved from the task's repository if omitted."
-          },
-          "taskId": {
-            "type": "string"
-          },
-          "threadProperties": {
-            "type": [
-              "object",
-              "null"
-            ],
-            "description": "Provider-specific properties (e.g. `{\"owner\",\"repo\",\"pr_number\"}`).\nAuto-generated from source_id + external_thread_id for github_pr if omitted."
-          }
-        }
-      },
-      "ConnectChannelResponse": {
-        "type": "object",
-        "description": "Response from connecting a task to a channel thread.",
-        "required": [
-          "configId",
-          "threadId"
-        ],
-        "properties": {
-          "configId": {
-            "type": "string"
-          },
-          "threadId": {
-            "type": "integer",
-            "format": "int32"
           }
         }
       },
@@ -7237,103 +6056,6 @@
           }
         }
       },
-      "CreateChannelConfigRequest": {
-        "type": "object",
-        "required": [
-          "provider",
-          "sourceId",
-          "repositoryId",
-          "routingMode"
-        ],
-        "properties": {
-          "agentType": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Agent type for tasks created from this channel (defaults to \"claude-code\")"
-          },
-          "allowDirectSend": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "promptTemplate": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "provider": {
-            "$ref": "#/components/schemas/ChannelType"
-          },
-          "providerConfig": {
-            "type": [
-              "object",
-              "null"
-            ]
-          },
-          "repositoryId": {
-            "type": "string"
-          },
-          "responseConfigId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "routingMode": {
-            "$ref": "#/components/schemas/RoutingMode"
-          },
-          "runAsUserId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "scope": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/Scope"
-              }
-            ]
-          },
-          "sourceId": {
-            "type": "string"
-          },
-          "sourceName": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "tagIds": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "type": "string"
-            }
-          },
-          "taskName": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "teamId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        }
-      },
       "CreateCommandRequest": {
         "type": "object",
         "required": [
@@ -7393,152 +6115,28 @@
           }
         }
       },
-      "CreateIngressRuleRequest": {
-        "type": "object",
-        "description": "Request body for `POST /api/v1/channels/rules`.",
-        "required": [
-          "provider",
-          "scopeMatcher",
-          "repositoryId"
-        ],
-        "properties": {
-          "active": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "agentType": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Defaults to `\"claude-code\"` when omitted."
-          },
-          "allowDirectSend": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "closeTaskOnClose": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "eventFilter": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "type": "string"
-            },
-            "description": "Optional event filter — empty means all supported events."
-          },
-          "notifyOnSuccess": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "ongoingTaskId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "promptTemplate": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "provider": {
-            "type": "string",
-            "description": "Provider value, e.g. `\"github\"`, `\"slack\"`, or `\"telegram\"`."
-          },
-          "providerConfig": {
-            "type": [
-              "object",
-              "null"
-            ]
-          },
-          "repositoryId": {
-            "type": "string"
-          },
-          "responseRuleId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "routingMode": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/RoutingMode"
-              }
-            ]
-          },
-          "runAsUserId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "scopeMatcher": {
-            "type": "string",
-            "description": "Provider source matcher: repo full name (`owner/repo`) for GitHub,\nSlack channel id, Telegram chat id, or `*` wildcard."
-          },
-          "sourceName": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "tagIds": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "type": "string"
-            }
-          },
-          "taskName": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "teamId": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Required when the caller belongs to multiple teams. Defaults to the\ncaller's only team when single-team."
-          }
-        }
-      },
       "CreateProviderConnectionRequest": {
         "type": "object",
-        "description": "Request body for `POST /api/v1/channels/connections`.\n\nToday only used for Linear, where the workspace connection has to be\nregistered explicitly because each Linear workspace creates its own\nwebhook with its own secret.",
+        "description": "Request body for `POST /api/v1/integrations/connections`.\n\nToday only used for Linear, where the workspace connection has to be\nregistered explicitly because each Linear workspace creates its own\nwebhook with its own secret.",
         "required": [
           "provider",
-          "scopeValue"
+          "externalAccountId"
         ],
         "properties": {
-          "provider": {
-            "type": "string",
-            "description": "Provider value. Currently only `\"linear\"` is accepted via this endpoint."
+          "connectionKind": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Transport/auth style for this provider, e.g. `bot_api`, `org_webhook`."
           },
-          "scopeValue": {
+          "externalAccountId": {
             "type": "string",
-            "description": "Workspace identifier (Linear org UUID)."
+            "description": "External account/workspace/org identifier for this connection."
+          },
+          "provider": {
+            "$ref": "#/components/schemas/IntegrationProvider",
+            "description": "Provider value."
           },
           "sourceName": {
             "type": [
@@ -7740,6 +6338,106 @@
           }
         }
       },
+      "CreateScheduledJobRequest": {
+        "type": "object",
+        "required": [
+          "routeId",
+          "scheduleExpr",
+          "messageTemplate"
+        ],
+        "properties": {
+          "active": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "messageTemplate": {
+            "type": "string"
+          },
+          "routeId": {
+            "type": "string"
+          },
+          "runAsUserId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scheduleExpr": {
+            "type": "string"
+          },
+          "scope": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
+            ]
+          },
+          "teamId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "timezone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CreateTaskBindingRequest": {
+        "type": "object",
+        "required": [
+          "provider",
+          "connectionId",
+          "subjectKind",
+          "subjectKey"
+        ],
+        "properties": {
+          "connectionId": {
+            "type": "string"
+          },
+          "destinationConfig": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "metadata": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "origin": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "provider": {
+            "$ref": "#/components/schemas/IntegrationProvider"
+          },
+          "subjectKey": {
+            "type": "string"
+          },
+          "subjectKind": {
+            "type": "string"
+          },
+          "triggerId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "CreateTaskRequest": {
         "type": "object",
         "required": [
@@ -7850,6 +6548,157 @@
           }
         }
       },
+      "CreateTaskRouteRequest": {
+        "type": "object",
+        "required": [
+          "repositoryId",
+          "routingMode"
+        ],
+        "properties": {
+          "agentType": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ongoingTaskId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "promptTemplate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "repositoryId": {
+            "type": "string"
+          },
+          "routingMode": {
+            "$ref": "#/components/schemas/RoutingMode"
+          },
+          "runAsUserId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scope": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
+            ]
+          },
+          "tagIds": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "taskName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "teamId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CreateTaskTriggerRequest": {
+        "type": "object",
+        "required": [
+          "provider",
+          "connectionId",
+          "sourceMatcher",
+          "routeId"
+        ],
+        "properties": {
+          "active": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "allowDirectSend": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "closeTaskOnClose": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "connectionId": {
+            "type": "string"
+          },
+          "eventFilter": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "notifyOnSuccess": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "provider": {
+            "$ref": "#/components/schemas/IntegrationProvider"
+          },
+          "routeId": {
+            "type": "string"
+          },
+          "scope": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
+            ]
+          },
+          "sourceMatcher": {
+            "type": "string"
+          },
+          "sourceName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "teamId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "triggerConfig": {
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        }
+      },
       "CreateTeamRequest": {
         "type": "object",
         "required": [
@@ -7880,52 +6729,6 @@
         "properties": {
           "status": {
             "type": "string"
-          }
-        }
-      },
-      "DirectSendRequest": {
-        "type": "object",
-        "description": "Request to send a message directly to a channel config.",
-        "required": [
-          "text"
-        ],
-        "properties": {
-          "fileIds": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "File IDs (from `/api/v1/uploads`) to attach to the message."
-          },
-          "taskId": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Optional task ID. When set, the first send creates a thread linked to\nthis task; subsequent sends reply in that thread."
-          },
-          "text": {
-            "type": "string"
-          }
-        }
-      },
-      "DirectSendResponse": {
-        "type": "object",
-        "description": "Response from sending a message directly to a channel config.",
-        "required": [
-          "success"
-        ],
-        "properties": {
-          "externalMessageId": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Provider-specific external message ID (e.g. Slack message ts), if available."
-          },
-          "success": {
-            "type": "boolean",
-            "description": "Whether the message was sent successfully."
           }
         }
       },
@@ -8566,135 +7369,16 @@
           }
         }
       },
-      "IngressRuleResponse": {
-        "type": "object",
-        "description": "One row from `ingress_rules`.",
-        "required": [
-          "id",
-          "provider",
-          "connectionId",
-          "scopeMatcher",
-          "repositoryId",
-          "routingMode",
-          "tagIds",
-          "allowDirectSend",
-          "agentType",
-          "closeTaskOnClose",
-          "notifyOnSuccess",
-          "active",
-          "eventFilter",
-          "createdBy",
-          "scope",
-          "createdAt",
-          "updatedAt"
-        ],
-        "properties": {
-          "active": {
-            "type": "boolean"
-          },
-          "agentType": {
-            "type": "string"
-          },
-          "allowDirectSend": {
-            "type": "boolean"
-          },
-          "closeTaskOnClose": {
-            "type": "boolean"
-          },
-          "connectionId": {
-            "type": "string"
-          },
-          "createdAt": {
-            "type": "string"
-          },
-          "createdBy": {
-            "type": "string"
-          },
-          "eventFilter": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "id": {
-            "type": "string"
-          },
-          "notifyOnSuccess": {
-            "type": "boolean"
-          },
-          "ongoingTaskId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "promptTemplate": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "provider": {
-            "type": "string"
-          },
-          "providerConfig": {
-            "type": [
-              "object",
-              "null"
-            ]
-          },
-          "repositoryId": {
-            "type": "string"
-          },
-          "responseRuleId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "routingMode": {
-            "$ref": "#/components/schemas/RoutingMode"
-          },
-          "runAsUserId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "scope": {
-            "$ref": "#/components/schemas/Scope"
-          },
-          "scopeMatcher": {
-            "type": "string"
-          },
-          "sourceName": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "tagIds": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "taskName": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "teamId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "updatedAt": {
-            "type": "string"
-          }
-        }
+      "IntegrationProvider": {
+        "type": "string",
+        "description": "Canonical external integration provider identifier.",
+        "enum": [
+          "slack",
+          "telegram",
+          "github",
+          "linear",
+          "webhook"
+        ]
       },
       "ListAgentsResponse": {
         "type": "object",
@@ -8975,29 +7659,6 @@
           }
         }
       },
-      "MultipleTargetsErrorBody": {
-        "type": "object",
-        "description": "Body returned with HTTP 400 when `POST /channels/send` cannot pick a\nsingle destination because the task is wired to multiple channels.",
-        "required": [
-          "error",
-          "targets",
-          "hint"
-        ],
-        "properties": {
-          "error": {
-            "type": "string"
-          },
-          "hint": {
-            "type": "string"
-          },
-          "targets": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ChannelTargetDescriptor"
-            }
-          }
-        }
-      },
       "OAuthUrlResponse": {
         "type": "object",
         "required": [
@@ -9032,48 +7693,6 @@
           "total": {
             "type": "integer",
             "format": "int64"
-          }
-        }
-      },
-      "PairingRequestResponse": {
-        "type": "object",
-        "required": [
-          "id",
-          "configId",
-          "providerUserId",
-          "code",
-          "status",
-          "createdAt",
-          "updatedAt"
-        ],
-        "properties": {
-          "code": {
-            "type": "string"
-          },
-          "configId": {
-            "type": "string"
-          },
-          "createdAt": {
-            "type": "string"
-          },
-          "id": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "meta": {
-            "type": [
-              "object",
-              "null"
-            ]
-          },
-          "providerUserId": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          },
-          "updatedAt": {
-            "type": "string"
           }
         }
       },
@@ -9266,7 +7885,7 @@
           "id",
           "provider",
           "connectionKind",
-          "scopeValue",
+          "externalAccountId",
           "createdBy",
           "scope",
           "createdAt",
@@ -9282,17 +7901,17 @@
           "createdBy": {
             "type": "string"
           },
+          "externalAccountId": {
+            "type": "string"
+          },
           "id": {
             "type": "string"
           },
           "provider": {
-            "type": "string"
+            "$ref": "#/components/schemas/IntegrationProvider"
           },
           "scope": {
             "$ref": "#/components/schemas/Scope"
-          },
-          "scopeValue": {
-            "type": "string"
           },
           "teamId": {
             "type": [
@@ -10108,6 +8727,87 @@
         ],
         "description": "Per-kind payload for a scheduled job."
       },
+      "ScheduledJobResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "routeId",
+          "scheduleExpr",
+          "timezone",
+          "messageTemplate",
+          "active",
+          "nextFireAt",
+          "createdBy",
+          "scope",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "createdBy": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "lastFiredAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lockedBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lockedUntil": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "messageTemplate": {
+            "type": "string"
+          },
+          "nextFireAt": {
+            "type": "string"
+          },
+          "routeId": {
+            "type": "string"
+          },
+          "runAsUserId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scheduleExpr": {
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "teamId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        }
+      },
       "Scope": {
         "type": "string",
         "description": "3-level scope for repositories, tasks, channels, and credentials.",
@@ -10254,101 +8954,6 @@
           "external_ref"
         ]
       },
-      "SendChannelMessageRequest": {
-        "type": "object",
-        "description": "Request to send a message through channel(s) associated with a task.",
-        "required": [
-          "text"
-        ],
-        "properties": {
-          "fileIds": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "File IDs (from `/api/v1/uploads`) to attach to the message."
-          },
-          "text": {
-            "type": "string"
-          }
-        }
-      },
-      "SendChannelMessageResponse": {
-        "type": "object",
-        "description": "Response from sending a message through channel(s).",
-        "required": [
-          "sentCount",
-          "errors"
-        ],
-        "properties": {
-          "errors": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "sentCount": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "targets": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ChannelTargetDescriptor"
-            },
-            "description": "Destinations that received the message. Lets clients print a \"next-step\"\nhint and target the same subscription/thread next time."
-          }
-        }
-      },
-      "SendDmRequest": {
-        "type": "object",
-        "description": "Send a DM to a user via an external provider.",
-        "required": [
-          "provider",
-          "text"
-        ],
-        "properties": {
-          "provider": {
-            "type": "string",
-            "description": "Provider to send through (e.g. \"slack\")."
-          },
-          "task_id": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Optional task to associate the DM subscription with."
-          },
-          "text": {
-            "type": "string",
-            "description": "Message text."
-          }
-        }
-      },
-      "SendDmResponse": {
-        "type": "object",
-        "description": "Result of sending a DM.",
-        "required": [
-          "subscription_id",
-          "channel_id",
-          "message_ts"
-        ],
-        "properties": {
-          "channel_id": {
-            "type": "string",
-            "description": "DM channel ID opened (Slack: starts with \"D\")."
-          },
-          "message_ts": {
-            "type": "string",
-            "description": "Message timestamp (Slack ts)."
-          },
-          "subscription_id": {
-            "type": "string",
-            "description": "The created or updated task_subscription id."
-          }
-        }
-      },
       "SendMessageRequest": {
         "type": "object",
         "required": [
@@ -10444,6 +9049,55 @@
           },
           "timestamp": {
             "type": "string"
+          }
+        }
+      },
+      "SendTaskReplyRequest": {
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "properties": {
+          "bindingId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fileIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      },
+      "SendTaskReplyResponse": {
+        "type": "object",
+        "required": [
+          "sentCount",
+          "errors"
+        ],
+        "properties": {
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sentCount": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "targets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChannelTargetDescriptor"
+            }
           }
         }
       },
@@ -10733,67 +9387,6 @@
           }
         }
       },
-      "SetChannelDefaultsRequest": {
-        "type": "object",
-        "required": [
-          "repositoryId",
-          "routingMode"
-        ],
-        "properties": {
-          "agentType": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Agent type for tasks created from this channel (defaults to \"claude-code\")"
-          },
-          "promptTemplate": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "providerConfig": {
-            "type": [
-              "object",
-              "null"
-            ]
-          },
-          "repositoryId": {
-            "type": "string"
-          },
-          "responseConfigId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "routingMode": {
-            "$ref": "#/components/schemas/RoutingMode"
-          },
-          "tagIds": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "type": "string"
-            }
-          },
-          "taskName": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "teamId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        }
-      },
       "SetProviderIdRequest": {
         "type": "object",
         "description": "Set or replace the provider-specific user ID for a moatless user.",
@@ -10860,22 +9453,6 @@
           "workspace",
           "plugin"
         ]
-      },
-      "SlackChannelInfoResponse": {
-        "type": "object",
-        "description": "Available Slack channel info for dropdown selection.",
-        "required": [
-          "id",
-          "name"
-        ],
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          }
-        }
       },
       "SlackConfig": {
         "type": "object",
@@ -10952,24 +9529,84 @@
           }
         }
       },
+      "TaskBindingResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "taskId",
+          "provider",
+          "connectionId",
+          "subjectKind",
+          "subjectKey",
+          "destinationConfig",
+          "metadata",
+          "origin",
+          "createdAt",
+          "lastEventAt"
+        ],
+        "properties": {
+          "connectionId": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "destinationConfig": {
+            "type": "object"
+          },
+          "id": {
+            "type": "string"
+          },
+          "lastEventAt": {
+            "type": "string"
+          },
+          "lastExternalEventId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "metadata": {
+            "type": "object"
+          },
+          "origin": {
+            "type": "string"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/IntegrationProvider"
+          },
+          "subjectKey": {
+            "type": "string"
+          },
+          "subjectKind": {
+            "type": "string"
+          },
+          "taskId": {
+            "type": "string"
+          },
+          "triggerId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "TaskChannelResponse": {
         "type": "object",
-        "description": "Channel connected to a task (via channel_threads or task_subscriptions).",
+        "description": "External integration binding connected to a task.",
         "required": [
-          "configId",
+          "triggerId",
           "provider",
           "sourceId"
         ],
         "properties": {
-          "configId": {
-            "type": "string"
-          },
-          "createdReason": {
+          "bindingId": {
             "type": [
               "string",
               "null"
             ],
-            "description": "`task_subscriptions.created_reason` (e.g. `ingress`, `connected_thread`).\nNone for legacy thread-based providers."
+            "description": "Canonical `task_bindings.id` when available."
           },
           "externalThreadId": {
             "type": [
@@ -10983,10 +9620,17 @@
               "string",
               "null"
             ],
-            "description": "ISO-8601 timestamp of the last event seen on the subscription. None for\nlegacy thread-based providers."
+            "description": "ISO-8601 timestamp of the last event seen on the binding."
+          },
+          "origin": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Binding origin (e.g. `ingress`, `direct_send`, `scheduled_job`)."
           },
           "provider": {
-            "$ref": "#/components/schemas/ChannelType"
+            "$ref": "#/components/schemas/IntegrationProvider"
           },
           "sourceId": {
             "type": "string"
@@ -11002,14 +9646,7 @@
               "string",
               "null"
             ],
-            "description": "Provider-specific subject key such as `owner/repo#123` for GitHub PR subscriptions."
-          },
-          "subscriptionId": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "`task_subscriptions.id` (string surrogate) when this row originated from\nthe GitHub subscription model. None for legacy thread-based providers."
+            "description": "Provider-specific subject key such as `owner/repo#123` for GitHub PR bindings."
           },
           "threadId": {
             "type": [
@@ -11017,7 +9654,10 @@
               "null"
             ],
             "format": "int32",
-            "description": "Internal channel thread identifier. Use this for exact outbound targeting\nwhen a task has multiple subscriptions under the same config."
+            "description": "Deprecated legacy thread identifier. Canonical callers should use\n`binding_id`, which carries the task binding id."
+          },
+          "triggerId": {
+            "type": "string"
           }
         }
       },
@@ -11240,6 +9880,82 @@
           }
         }
       },
+      "TaskRouteResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "repositoryId",
+          "routingMode",
+          "tagIds",
+          "agentType",
+          "scope",
+          "createdBy",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "agentType": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "createdBy": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "ongoingTaskId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "promptTemplate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "repositoryId": {
+            "type": "string"
+          },
+          "routingMode": {
+            "$ref": "#/components/schemas/RoutingMode"
+          },
+          "runAsUserId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "tagIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "taskName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "teamId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        }
+      },
       "TaskStatus": {
         "type": "string",
         "description": "Task lifecycle status.",
@@ -11259,6 +9975,87 @@
           "updated",
           "metadata.updated"
         ]
+      },
+      "TaskTriggerResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "provider",
+          "connectionId",
+          "sourceMatcher",
+          "eventFilter",
+          "routeId",
+          "allowDirectSend",
+          "closeTaskOnClose",
+          "notifyOnSuccess",
+          "active",
+          "scope",
+          "createdBy",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "allowDirectSend": {
+            "type": "boolean"
+          },
+          "closeTaskOnClose": {
+            "type": "boolean"
+          },
+          "connectionId": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "createdBy": {
+            "type": "string"
+          },
+          "eventFilter": {
+            "type": "object"
+          },
+          "id": {
+            "type": "string"
+          },
+          "notifyOnSuccess": {
+            "type": "boolean"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/IntegrationProvider"
+          },
+          "routeId": {
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "sourceMatcher": {
+            "type": "string"
+          },
+          "sourceName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "teamId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "triggerConfig": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        }
       },
       "TaskTurnEventPayload": {
         "type": "object",
@@ -11415,38 +10212,6 @@
               "object",
               "null"
             ]
-          }
-        }
-      },
-      "TriggerChannelRequest": {
-        "type": "object",
-        "description": "Request body for manually triggering a channel config.",
-        "properties": {
-          "message": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Optional message override. If omitted, uses the channel's configured message."
-          },
-          "threadProperties": {
-            "description": "Optional thread properties for the created task. Required for `github_pr`\nchannels (must include `owner`, `repo`, and `pr_number`)."
-          }
-        }
-      },
-      "TriggerChannelResponse": {
-        "type": "object",
-        "description": "Response from manually triggering a channel config.",
-        "required": [
-          "taskId",
-          "shortId"
-        ],
-        "properties": {
-          "shortId": {
-            "type": "string"
-          },
-          "taskId": {
-            "type": "string"
           }
         }
       },
@@ -11682,7 +10447,7 @@
           },
           "provider": {
             "type": "string",
-            "description": "Channel provider type (e.g. \"slack\", \"cron\", \"webhook\", \"github_pr\")."
+            "description": "Integration provider type (e.g. \"slack\", \"webhook\", \"github\", \"linear\")."
           },
           "sourceName": {
             "type": [
@@ -11773,91 +10538,6 @@
               "null"
             ],
             "format": "int32"
-          }
-        }
-      },
-      "UpdateChannelConfigRequest": {
-        "type": "object",
-        "properties": {
-          "active": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "agentType": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Agent type for tasks created from this channel"
-          },
-          "allowDirectSend": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "promptTemplate": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "providerConfig": {
-            "type": [
-              "object",
-              "null"
-            ]
-          },
-          "repositoryId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "responseConfigId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "routingMode": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/RoutingMode"
-              }
-            ]
-          },
-          "runAsUserId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "sourceName": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "tagIds": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "type": "string"
-            }
-          },
-          "taskName": {
-            "type": [
-              "string",
-              "null"
-            ]
           }
         }
       },
@@ -12058,6 +10738,63 @@
           }
         }
       },
+      "UpdateScheduledJobRequest": {
+        "type": "object",
+        "properties": {
+          "active": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "messageTemplate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "routeId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "runAsUserId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scheduleExpr": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scope": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
+            ]
+          },
+          "teamId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "timezone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "UpdateTaskMetadataRequest": {
         "type": "object",
         "properties": {
@@ -12070,6 +10807,163 @@
           "name": {
             "type": [
               "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "UpdateTaskRouteRequest": {
+        "type": "object",
+        "properties": {
+          "agentType": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ongoingTaskId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "promptTemplate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "repositoryId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "routingMode": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RoutingMode"
+              }
+            ]
+          },
+          "runAsUserId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scope": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
+            ]
+          },
+          "tagIds": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "taskName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "teamId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "UpdateTaskTriggerRequest": {
+        "type": "object",
+        "properties": {
+          "active": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "allowDirectSend": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "closeTaskOnClose": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "connectionId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "eventFilter": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "notifyOnSuccess": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "routeId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scope": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
+            ]
+          },
+          "sourceMatcher": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sourceName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "teamId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "triggerConfig": {
+            "type": [
+              "object",
               "null"
             ]
           }
@@ -12546,8 +11440,24 @@
       "description": "GitHub, Gitness, and Codex credential management"
     },
     {
-      "name": "channels",
-      "description": "Channel integration management and webhooks"
+      "name": "integrations",
+      "description": "Provider connections and webhooks"
+    },
+    {
+      "name": "task-routes",
+      "description": "Task routing policies"
+    },
+    {
+      "name": "triggers",
+      "description": "External event triggers"
+    },
+    {
+      "name": "scheduled-jobs",
+      "description": "Durable scheduled task triggers"
+    },
+    {
+      "name": "task-bindings",
+      "description": "Task-to-external-subject bindings"
     },
     {
       "name": "teams",

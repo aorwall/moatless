@@ -365,7 +365,10 @@ mod tests {
             "ts".into(),
         );
         msg.attachments = Some(serde_json::json!({ "file_ids": ["a", "b", "c"] }));
-        assert_eq!(msg.file_ids(), vec!["a".to_string(), "b".into(), "c".into()]);
+        assert_eq!(
+            msg.file_ids(),
+            vec!["a".to_string(), "b".into(), "c".into()]
+        );
     }
 
     #[test]

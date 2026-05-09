@@ -71,7 +71,7 @@ pub struct UiMessage {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct UiMessageChannel {
-    /// Channel provider type (e.g. "slack", "cron", "webhook", "github_pr").
+    /// Integration provider type (e.g. "slack", "webhook", "github", "linear").
     pub provider: String,
     /// Human-readable channel name (e.g. "#engineering").
     #[serde(skip_serializing_if = "Option::is_none")]

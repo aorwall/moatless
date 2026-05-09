@@ -7,12 +7,11 @@ use moka::future::Cache;
 use tracing::{debug, info, warn};
 
 use crate::channel::error::ChannelError;
-use crate::channel::external_id;
 use crate::channel::models::{
-    ChannelConfig, ChannelThread, InboundMessage, IngressRule, OutboundReply, ProviderConnection,
-    TaskSubscription,
+    BindingContext, InboundMessage, OutboundReply, ProviderConnection, TaskBinding,
+    TaskTriggerRoute, TriggerContext,
 };
-use crate::channel::provider::{ChannelProvider, ChannelType};
+use crate::channel::provider::{BindingDestination, ChannelProvider, ChannelType};
 use crate::db::DbPool;
 use crate::state::AppState;
 
@@ -45,7 +44,7 @@ pub struct PrCloseInfo {
 
 /// Context passed through event handlers to avoid too many function arguments.
 struct EventContext<'a> {
-    rule: &'a IngressRule,
+    rule: &'a TaskTriggerRoute,
     owner: &'a str,
     repo: &'a str,
     sender_login: &'a str,
@@ -107,23 +106,23 @@ impl GithubPrProvider {
         )))
     }
 
-    /// Extract owner, repo, and PR number from a `ChannelThread`'s properties.
-    /// Used by the synthetic-thread path in `runtime.rs::deliver_to_subscription`.
-    fn parse_thread_props(thread: &ChannelThread) -> Result<(String, String, u64), ChannelError> {
+    /// Extract owner, repo, and PR number from a `BindingContext`'s properties.
+    /// Used by the synthetic-thread path in `runtime.rs::deliver_to_binding`.
+    fn parse_thread_props(thread: &BindingContext) -> Result<(String, String, u64), ChannelError> {
         let owner = thread
-            .properties
+            .destination_config
             .get("owner")
             .and_then(serde_json::Value::as_str)
             .ok_or_else(|| ChannelError::Internal("Missing owner in thread properties".into()))?
             .to_string();
         let repo = thread
-            .properties
+            .destination_config
             .get("repo")
             .and_then(serde_json::Value::as_str)
             .ok_or_else(|| ChannelError::Internal("Missing repo in thread properties".into()))?
             .to_string();
         let pr_number = thread
-            .properties
+            .destination_config
             .get("pr_number")
             .and_then(serde_json::Value::as_u64)
             .ok_or_else(|| {
@@ -132,32 +131,30 @@ impl GithubPrProvider {
         Ok((owner, repo, pr_number))
     }
 
-    /// Extract owner, repo, pr_number from a `TaskSubscription`'s `reply_target`.
-    fn parse_subscription_target(
-        subscription: &TaskSubscription,
-    ) -> Result<(String, String, u64), ChannelError> {
-        let owner = subscription
-            .reply_target
+    /// Extract owner, repo, pr_number from a `TaskBinding`'s `destination_config`.
+    fn parse_binding_target(binding: &TaskBinding) -> Result<(String, String, u64), ChannelError> {
+        let owner = binding
+            .destination_config
             .get("owner")
             .and_then(serde_json::Value::as_str)
             .ok_or_else(|| {
-                ChannelError::Internal("Missing owner in subscription reply_target".into())
+                ChannelError::Internal("Missing owner in binding destination_config".into())
             })?
             .to_string();
-        let repo = subscription
-            .reply_target
+        let repo = binding
+            .destination_config
             .get("repo")
             .and_then(serde_json::Value::as_str)
             .ok_or_else(|| {
-                ChannelError::Internal("Missing repo in subscription reply_target".into())
+                ChannelError::Internal("Missing repo in binding destination_config".into())
             })?
             .to_string();
-        let pr_number = subscription
-            .reply_target
+        let pr_number = binding
+            .destination_config
             .get("pr_number")
             .and_then(serde_json::Value::as_u64)
             .ok_or_else(|| {
-                ChannelError::Internal("Missing pr_number in subscription reply_target".into())
+                ChannelError::Internal("Missing pr_number in binding destination_config".into())
             })?;
         Ok((owner, repo, pr_number))
     }
@@ -168,7 +165,7 @@ impl GithubPrProvider {
         delivery_id: &str,
         event_type: &str,
         payload: &serde_json::Value,
-        rule: &IngressRule,
+        rule: &TaskTriggerRoute,
         db: &DbPool,
     ) -> Result<GithubPrWebhookResult, ChannelError> {
         let rule_config = GithubPrRuleConfig::from_rule(rule);
@@ -184,7 +181,7 @@ impl GithubPrProvider {
         if !rule_config.events_filter.is_empty()
             && !rule_config.events_filter.iter().any(|e| e == event_type)
         {
-            debug!(event_type, "GitHub event filtered out by ingress rule");
+            debug!(event_type, "GitHub event filtered out by task trigger");
             return Ok(GithubPrWebhookResult::Ignore);
         }
 
@@ -339,7 +336,7 @@ impl GithubPrProvider {
 
         Ok(GithubPrWebhookResult::Message(Box::new(InboundMessage {
             provider: ChannelType::GithubPr,
-            source_id: ctx.rule.scope_matcher.clone(),
+            source_id: ctx.rule.source_matcher.clone(),
             thread_id: None,
             message_thread_id: pr_number.to_string(),
             user_id,
@@ -351,7 +348,7 @@ impl GithubPrProvider {
                 "pr_number": pr_number,
             }),
             provider_context: serde_json::json!({}),
-            channel_external_id: Some(external_id::github_pr_event(action, pr_number, None)),
+            channel_external_id: Some(super::external_id::pr_event(action, pr_number, None)),
         })))
     }
 
@@ -408,7 +405,7 @@ impl GithubPrProvider {
         let sync_sha = if after.is_empty() { None } else { Some(after) };
         Ok(GithubPrWebhookResult::Message(Box::new(InboundMessage {
             provider: ChannelType::GithubPr,
-            source_id: ctx.rule.scope_matcher.clone(),
+            source_id: ctx.rule.source_matcher.clone(),
             thread_id: Some(pr_number.to_string()),
             message_thread_id: pr_number.to_string(),
             user_id,
@@ -420,7 +417,7 @@ impl GithubPrProvider {
                 "pr_number": pr_number,
             }),
             provider_context: serde_json::json!({}),
-            channel_external_id: Some(external_id::github_pr_event(
+            channel_external_id: Some(super::external_id::pr_event(
                 "synchronize",
                 pr_number,
                 sync_sha,
@@ -470,7 +467,7 @@ impl GithubPrProvider {
 
         Ok(GithubPrWebhookResult::Message(Box::new(InboundMessage {
             provider: ChannelType::GithubPr,
-            source_id: ctx.rule.scope_matcher.clone(),
+            source_id: ctx.rule.source_matcher.clone(),
             thread_id: Some(pr_number.to_string()),
             message_thread_id: pr_number.to_string(),
             user_id,
@@ -483,7 +480,7 @@ impl GithubPrProvider {
                 "comment_id": comment_id,
             }),
             provider_context: serde_json::json!({}),
-            channel_external_id: Some(external_id::github_issue_comment(comment_id)),
+            channel_external_id: Some(super::external_id::issue_comment(comment_id)),
         })))
     }
 
@@ -571,7 +568,7 @@ impl GithubPrProvider {
 
         Ok(GithubPrWebhookResult::Message(Box::new(InboundMessage {
             provider: ChannelType::GithubPr,
-            source_id: ctx.rule.scope_matcher.clone(),
+            source_id: ctx.rule.source_matcher.clone(),
             thread_id: Some(pr_number.to_string()),
             message_thread_id: pr_number.to_string(),
             user_id,
@@ -585,7 +582,7 @@ impl GithubPrProvider {
                 "in_reply_to_id": in_reply_to_id,
             }),
             provider_context: serde_json::json!({}),
-            channel_external_id: Some(external_id::github_review_comment(comment_id)),
+            channel_external_id: Some(super::external_id::review_comment(comment_id)),
         })))
     }
 
@@ -647,7 +644,7 @@ impl GithubPrProvider {
 
         Ok(GithubPrWebhookResult::Message(Box::new(InboundMessage {
             provider: ChannelType::GithubPr,
-            source_id: ctx.rule.scope_matcher.clone(),
+            source_id: ctx.rule.source_matcher.clone(),
             thread_id: Some(pr_number.to_string()),
             message_thread_id: pr_number.to_string(),
             user_id,
@@ -659,7 +656,7 @@ impl GithubPrProvider {
                 "pr_number": pr_number,
             }),
             provider_context: serde_json::json!({}),
-            channel_external_id: Some(external_id::github_review(review_id)),
+            channel_external_id: Some(super::external_id::review(review_id)),
         })))
     }
 
@@ -774,7 +771,7 @@ impl GithubPrProvider {
 
         Ok(GithubPrWebhookResult::Message(Box::new(InboundMessage {
             provider: ChannelType::GithubPr,
-            source_id: ctx.rule.scope_matcher.clone(),
+            source_id: ctx.rule.source_matcher.clone(),
             thread_id: Some(pr_number.to_string()),
             message_thread_id: pr_number.to_string(),
             user_id,
@@ -786,7 +783,7 @@ impl GithubPrProvider {
                 "pr_number": pr_number,
             }),
             provider_context: serde_json::json!({}),
-            channel_external_id: Some(external_id::github_check_run(check_run_id)),
+            channel_external_id: Some(super::external_id::check_run(check_run_id)),
         })))
     }
 
@@ -863,7 +860,7 @@ impl GithubPrProvider {
 
         Ok(GithubPrWebhookResult::Message(Box::new(InboundMessage {
             provider: ChannelType::GithubPr,
-            source_id: ctx.rule.scope_matcher.clone(),
+            source_id: ctx.rule.source_matcher.clone(),
             thread_id: Some(pr_number.to_string()),
             message_thread_id: pr_number.to_string(),
             user_id,
@@ -875,7 +872,7 @@ impl GithubPrProvider {
                 "pr_number": pr_number,
             }),
             provider_context: serde_json::json!({}),
-            channel_external_id: Some(external_id::github_check_suite(check_suite_id)),
+            channel_external_id: Some(super::external_id::check_suite(check_suite_id)),
         })))
     }
 
@@ -884,7 +881,7 @@ impl GithubPrProvider {
     async fn resolve_user_or_fallback(
         &self,
         github_login: &str,
-        rule: &IngressRule,
+        rule: &TaskTriggerRoute,
         db: &DbPool,
     ) -> String {
         resolve_user_or_fallback(github_login, rule, db).await
@@ -898,7 +895,7 @@ impl GithubPrProvider {
 /// (e.g. `runtime::close_tasks_for_pr`) can use the same lookup.
 pub(crate) async fn resolve_user_or_fallback(
     github_login: &str,
-    rule: &IngressRule,
+    rule: &TaskTriggerRoute,
     db: &DbPool,
 ) -> String {
     let row = sqlx::query_scalar::<_, String>(
@@ -926,13 +923,46 @@ impl ChannelProvider for GithubPrProvider {
         ChannelType::GithubPr
     }
 
+    fn provider_key(&self) -> &'static str {
+        "github_pr"
+    }
+
+    fn connection_provider_key(&self) -> &'static str {
+        "github"
+    }
+
+    fn connection_scope_value_from_existing_thread(
+        &self,
+        source_id: &str,
+        _thread_properties: &serde_json::Value,
+    ) -> Result<String, ChannelError> {
+        source_id
+            .split('/')
+            .next()
+            .filter(|owner| !owner.is_empty())
+            .map(str::to_string)
+            .ok_or_else(|| {
+                ChannelError::BadRequest(format!(
+                    "Invalid GitHub source_id (expected owner/repo): {source_id}"
+                ))
+            })
+    }
+
+    fn allow_default_connection_fallback(&self) -> bool {
+        false
+    }
+
+    fn allow_wildcard_trigger_fallback(&self) -> bool {
+        false
+    }
+
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
 
     /// GitHub allows up to 65536 chars per issue/PR comment. Leave headroom for
     /// the agent marker and the optional task-URL footer that
-    /// `send_reply_for_subscription` prepends/appends.
+    /// `send_reply_for_binding` prepends/appends.
     fn max_message_length(&self) -> usize {
         65_000
     }
@@ -953,32 +983,77 @@ impl ChannelProvider for GithubPrProvider {
         Ok(user_id)
     }
 
+    fn binding_destination_from_existing_thread(
+        &self,
+        _source_id: &str,
+        _external_thread_id: &str,
+        thread_properties: &serde_json::Value,
+        filter_user_id: Option<&str>,
+    ) -> Result<BindingDestination, ChannelError> {
+        let owner = thread_properties
+            .get("owner")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| {
+                ChannelError::BadRequest("thread_properties missing required owner".into())
+            })?;
+        let repo = thread_properties
+            .get("repo")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| {
+                ChannelError::BadRequest("thread_properties missing required repo".into())
+            })?;
+        let pr_number = thread_properties
+            .get("pr_number")
+            .and_then(serde_json::Value::as_u64)
+            .ok_or_else(|| {
+                ChannelError::BadRequest("thread_properties missing required pr_number".into())
+            })?;
+        let mut destination_config = serde_json::json!({
+            "owner": owner,
+            "repo": repo,
+            "pr_number": pr_number,
+        });
+        if let Some(filter_user_id) = filter_user_id {
+            destination_config["filter_user_id"] = serde_json::json!(filter_user_id);
+        }
+
+        Ok(BindingDestination::new(
+            "github_pr",
+            format!("{owner}/{repo}#{pr_number}"),
+            destination_config,
+        ))
+    }
+
+    fn external_id_aliases(&self, external_id: &str) -> Vec<String> {
+        super::external_id::aliases(external_id)
+    }
+
     /// Legacy thread-based outbound is not supported for GitHub. Outbound
-    /// goes through `send_reply_for_subscription` instead.
+    /// goes through `send_reply_for_binding` instead.
     async fn send_reply(
         &self,
-        _thread: &ChannelThread,
-        _config: &ChannelConfig,
+        _thread: &BindingContext,
+        _config: &TriggerContext,
         _message: &OutboundReply,
     ) -> Result<Option<String>, ChannelError> {
         Err(ChannelError::BadRequest(
-            "GitHub provider uses subscription-based outbound; \
-             call send_reply_for_subscription"
+            "GitHub provider uses binding-based outbound; \
+             call send_reply_for_binding"
                 .into(),
         ))
     }
 
-    async fn send_reply_for_subscription(
+    async fn send_reply_for_binding(
         &self,
-        subscription: &TaskSubscription,
+        binding: &TaskBinding,
         _connection: &ProviderConnection,
-        rule: Option<&IngressRule>,
+        rule: Option<&TaskTriggerRoute>,
         message: &OutboundReply,
     ) -> Result<Option<String>, ChannelError> {
-        let (owner, repo, pr_number) = Self::parse_subscription_target(subscription)?;
+        let (owner, repo, pr_number) = Self::parse_binding_target(binding)?;
         let user_id = match rule {
             Some(r) => r.effective_user_id().to_string(),
-            None => subscription
+            None => binding
                 .metadata
                 .get("filter_user_id")
                 .and_then(serde_json::Value::as_str)
@@ -987,7 +1062,7 @@ impl ChannelProvider for GithubPrProvider {
         };
         if user_id.is_empty() {
             return Err(ChannelError::ProviderApi(
-                "Cannot resolve GitHub token: no ingress rule attached to subscription".into(),
+                "Cannot resolve GitHub token: no task trigger attached to binding".into(),
             ));
         }
         let token = self.resolve_token_for_user(&user_id).await?;
@@ -999,13 +1074,13 @@ impl ChannelProvider for GithubPrProvider {
         }
 
         let comment_id = api.post_comment(&owner, &repo, pr_number, &body).await?;
-        Ok(Some(external_id::github_issue_comment(comment_id)))
+        Ok(Some(super::external_id::issue_comment(comment_id)))
     }
 
     async fn fetch_context(
         &self,
-        thread: &ChannelThread,
-        config: &ChannelConfig,
+        thread: &BindingContext,
+        config: &TriggerContext,
         limit: usize,
         exclude_external_ids: &[String],
     ) -> Result<Option<String>, ChannelError> {
@@ -1029,7 +1104,7 @@ impl ChannelProvider for GithubPrProvider {
             .iter()
             .filter(|c| c.body.as_deref().is_none_or(|b| !b.contains(AGENT_MARKER)))
             .filter(|c| {
-                let prefixed = external_id::github_issue_comment(c.id);
+                let prefixed = super::external_id::issue_comment(c.id);
                 let bare = c.id.to_string();
                 !exclude_external_ids.contains(&prefixed) && !exclude_external_ids.contains(&bare)
             })
@@ -1091,12 +1166,13 @@ pub async fn resolve_and_process_github_webhook(
         .or_else(|| repo_full_name.split('/').next())
         .ok_or_else(|| ChannelError::BadRequest("Missing repository.owner.login".into()))?;
 
-    let resolved = super::runtime::resolve_ingress(state, owner_login, repo_full_name).await?;
+    let resolved =
+        super::runtime::resolve_provider_event(state, owner_login, repo_full_name).await?;
     let Some((connection, rule)) = resolved else {
         info!(
             repo = repo_full_name,
             owner = owner_login,
-            "GitHub webhook ignored: no provider_connection / ingress_rule"
+            "GitHub webhook ignored: no provider_connection / task_trigger"
         );
         return Ok(());
     };
@@ -1104,7 +1180,7 @@ pub async fn resolve_and_process_github_webhook(
     if !rule.active {
         info!(
             repo = repo_full_name,
-            "GitHub webhook ignored: ingress rule inactive"
+            "GitHub webhook ignored: task trigger inactive"
         );
         return Ok(());
     }
@@ -1169,4 +1245,68 @@ pub async fn resolve_and_process_github_webhook(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::channel::provider::ChannelProvider;
+
+    #[tokio::test]
+    async fn provider_keys_separate_channel_and_integration_storage() {
+        let provider = GithubPrProvider::new(None, None, fake_db_pool());
+        assert_eq!(provider.provider_key(), "github_pr");
+        assert_eq!(provider.connection_provider_key(), "github");
+        assert!(!provider.allow_default_connection_fallback());
+        assert!(!provider.allow_wildcard_trigger_fallback());
+    }
+
+    #[tokio::test]
+    async fn binding_destination_from_existing_thread_builds_pr_subject() {
+        let provider = GithubPrProvider::new(None, None, fake_db_pool());
+        let destination = provider
+            .binding_destination_from_existing_thread(
+                "foo/bar",
+                "",
+                &serde_json::json!({
+                    "owner": "foo",
+                    "repo": "bar",
+                    "pr_number": 42,
+                }),
+                Some("user-1"),
+            )
+            .unwrap();
+
+        assert_eq!(destination.subject_kind, "github_pr");
+        assert_eq!(destination.subject_key, "foo/bar#42");
+        assert_eq!(destination.destination_config["owner"], "foo");
+        assert_eq!(destination.destination_config["repo"], "bar");
+        assert_eq!(destination.destination_config["pr_number"], 42);
+        assert_eq!(destination.destination_config["filter_user_id"], "user-1");
+        assert_eq!(destination.last_external_event_id, None);
+    }
+
+    #[tokio::test]
+    async fn external_id_aliases_include_legacy_comment_ids_only() {
+        let provider = GithubPrProvider::new(None, None, fake_db_pool());
+        assert_eq!(
+            provider.external_id_aliases("github:ic:42"),
+            vec!["github:ic:42".to_string(), "42".to_string()]
+        );
+        assert_eq!(
+            provider.external_id_aliases("github:rc:99"),
+            vec!["github:rc:99".to_string(), "99".to_string()]
+        );
+        assert_eq!(
+            provider.external_id_aliases("github:pr:opened:7"),
+            vec!["github:pr:opened:7".to_string()]
+        );
+    }
+
+    fn fake_db_pool() -> DbPool {
+        sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect_lazy("postgres://fake:fake@localhost:1/fake")
+            .unwrap()
+    }
 }

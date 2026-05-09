@@ -315,10 +315,9 @@ async fn agent_handle_rapid_fire_send_no_panic() {
     // Send 10 messages rapidly — actor processes them without panic or deadlock.
     // Drop ack receivers since we only care about channel stability.
     for i in 0..10 {
-        let _ack_rx =
-            state
-                .agent_handle
-                .send(format!("rapid message {i}"), None, None, None, None);
+        let _ack_rx = state
+            .agent_handle
+            .send(format!("rapid message {i}"), None, None, None, None);
     }
 
     // Give the actor time to attempt processing

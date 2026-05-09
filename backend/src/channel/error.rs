@@ -35,7 +35,7 @@ pub enum ChannelError {
 
     /// Returned by the no-flag send endpoint when a task has more than one
     /// channel destination — the caller must pick one with `--thread`,
-    /// `--subscription`, or `--pr`.
+    /// `--binding`, or `--pr`.
     #[error("Task has multiple channel destinations; pick one explicitly")]
     MultipleTargets {
         targets: Vec<ChannelTargetDescriptor>,
@@ -67,9 +67,7 @@ impl IntoResponse for ChannelError {
                 let body = MultipleTargetsErrorBody {
                     error: self.to_string(),
                     targets: targets.clone(),
-                    hint:
-                        "Use --thread <id>, --ts <subscription_id>, or --pr owner/repo#N to pick one."
-                            .to_string(),
+                    hint: "Use --binding <binding_id> to pick one.".to_string(),
                 };
                 return (StatusCode::BAD_REQUEST, Json(body)).into_response();
             }

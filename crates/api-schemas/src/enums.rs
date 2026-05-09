@@ -609,7 +609,52 @@ impl sqlx::Encode<'_, sqlx::Postgres> for RoutingMode {
 }
 
 // =============================================================================
-// ChannelType
+// IntegrationProvider
+// =============================================================================
+
+/// Canonical external integration provider identifier.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum IntegrationProvider {
+    Slack,
+    Telegram,
+    Github,
+    Linear,
+    Webhook,
+}
+
+impl IntegrationProvider {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Slack => "slack",
+            Self::Telegram => "telegram",
+            Self::Github => "github",
+            Self::Linear => "linear",
+            Self::Webhook => "webhook",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "slack" => Some(Self::Slack),
+            "telegram" => Some(Self::Telegram),
+            "github" => Some(Self::Github),
+            "linear" => Some(Self::Linear),
+            "webhook" => Some(Self::Webhook),
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Display for IntegrationProvider {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+// =============================================================================
+// ChannelType (internal/legacy compatibility)
 // =============================================================================
 
 /// Channel provider identifier.
@@ -629,8 +674,8 @@ pub enum ChannelType {
 impl ChannelType {
     /// Whether this channel type supports outbound replies.
     ///
-    /// Non-replyable channels (e.g. cron) must use `response_config_id`
-    /// to route replies to a different channel.
+    /// Non-replyable channel triggers require an explicit task binding before
+    /// agents can reply through an external destination.
     pub fn is_replyable(&self) -> bool {
         match self {
             Self::Cron => false,

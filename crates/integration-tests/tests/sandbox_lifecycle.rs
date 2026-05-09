@@ -45,6 +45,7 @@ async fn sandbox_lifecycle_chain() {
         file_ids: vec![],
         model: None,
         command_name: None,
+        headless: None,
     };
     let created = client.api().create_task(&req).await.unwrap();
     let task_id = &created.task_id;

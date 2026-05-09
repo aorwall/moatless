@@ -100,6 +100,9 @@ export default defineConfig(({ mode }) => {
 				},
 			},
 		},
+		worker: {
+			format: "es",
+		},
 		appType: "spa",
 	};
 });

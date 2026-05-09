@@ -132,7 +132,7 @@ pub trait MessageRepository: Send + Sync {
     /// Find the owning task for any one of the supplied external IDs.
     ///
     /// Used by GitHub webhook delivery to suppress only the task that authored
-    /// a comment or PR event, while still allowing sibling subscriptions on the
+    /// a comment or PR event, while still allowing sibling bindings on the
     /// same subject to receive it.
     async fn find_task_id_by_any_channel_external_id(
         &self,
@@ -176,11 +176,8 @@ pub trait MessageRepository: Send + Sync {
     /// `task_id` via the persisted `attachments.file_ids` JSON. Used by the
     /// sandbox `DownloadUpload` RPC to defense-in-depth the cross-task
     /// scope check.
-    async fn file_id_used_in_task(
-        &self,
-        task_id: &str,
-        file_id: &str,
-    ) -> Result<bool, sqlx::Error>;
+    async fn file_id_used_in_task(&self, task_id: &str, file_id: &str)
+        -> Result<bool, sqlx::Error>;
 
     /// Locate the most recent user-turn that was acknowledged by the sandbox
     /// (`agent_session_id` set) but never reached a terminal `agent` event
@@ -192,10 +189,7 @@ pub trait MessageRepository: Send + Sync {
 
     /// Increment `recovery_attempts` on a user-turn message. Returns the new
     /// counter value.
-    async fn increment_recovery_attempts(
-        &self,
-        task_message_id: i32,
-    ) -> Result<i32, sqlx::Error>;
+    async fn increment_recovery_attempts(&self, task_message_id: i32) -> Result<i32, sqlx::Error>;
 
     /// Insert a synthetic `Result` row containing `text` at the supplied turn
     /// number to mark an interrupted run as abandoned. Returns the new row id.
@@ -891,10 +885,7 @@ impl MessageRepository for PgMessageRepository {
         }))
     }
 
-    async fn increment_recovery_attempts(
-        &self,
-        task_message_id: i32,
-    ) -> Result<i32, sqlx::Error> {
+    async fn increment_recovery_attempts(&self, task_message_id: i32) -> Result<i32, sqlx::Error> {
         let row: (i32,) = sqlx::query_as(
             r#"UPDATE task_messages
                SET recovery_attempts = recovery_attempts + 1

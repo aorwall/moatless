@@ -180,7 +180,10 @@ pub fn auth_router(state: AuthState) -> (axum::Router, utoipa::openapi::OpenApi)
         .routes(routes!(create_api_key_handler, list_api_keys_handler))
         .routes(routes!(revoke_api_key_handler))
         .routes(routes!(list_users_handler))
-        .routes(routes!(set_user_provider_id_handler, delete_user_provider_id_handler))
+        .routes(routes!(
+            set_user_provider_id_handler,
+            delete_user_provider_id_handler
+        ))
         .routes(routes!(list_user_provider_ids_handler))
         .with_state(state.clone())
         .split_for_parts();
@@ -1287,10 +1290,7 @@ async fn list_users_handler(
 // ============================================================================
 
 /// Resolve a login to a user ID, returning 404 if not found.
-async fn resolve_login_to_user_id(
-    state: &AuthState,
-    login: &str,
-) -> Result<String, AuthError> {
+async fn resolve_login_to_user_id(state: &AuthState, login: &str) -> Result<String, AuthError> {
     let user = state
         .users
         .get_user_by_login(login)

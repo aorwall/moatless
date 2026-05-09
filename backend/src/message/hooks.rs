@@ -18,8 +18,8 @@ use tracing::{debug, info, warn};
 
 use super::models::MessageType;
 use crate::auth::models::ProviderAccessToken;
+use crate::channel::dao::bindings::PgTaskBindingRepository;
 use crate::channel::github_pr::api::GithubPrApi;
-use crate::channel::task_subscription_dao::PgTaskSubscriptionRepository;
 use crate::state::AppState;
 
 /// Footer marker so we can detect if the URL was already appended (and skip
@@ -143,7 +143,7 @@ async fn handle_gh_pr_create(
         "pr_number": pr.number,
     });
 
-    match crate::channel::listen::connect_github_subscription(
+    match crate::channel::listen::connect_github_binding(
         state,
         &source_id,
         task_id,
@@ -152,21 +152,21 @@ async fn handle_gh_pr_create(
     )
     .await
     {
-        Ok((rule, subscription)) => {
+        Ok((rule, binding)) => {
             info!(
                 task_id,
                 pr_number = pr.number,
                 rule_id = %rule.id,
-                subscription_id = %subscription.id,
-                "Auto-connected GitHub PR subscription for PR created by agent"
+                binding_id = %binding.id,
+                "Auto-connected GitHub PR binding for PR created by agent"
             );
         }
         Err(e) => {
-            warn!(task_id, pr_number = pr.number, error = %e, "Failed to auto-connect GitHub PR subscription");
+            warn!(task_id, pr_number = pr.number, error = %e, "Failed to auto-connect GitHub PR binding");
         }
     }
 
-    let external_id = crate::channel::external_id::github_pr_opened(pr.number);
+    let external_id = crate::channel::github_pr::external_id::pr_opened(pr.number);
     state.recently_sent.note(task_id, &external_id);
     match state
         .messages
@@ -293,7 +293,7 @@ async fn handle_gh_comment(state: &AppState, task_id: &str, parent_uuid: &str, r
 
     // Wrap in the issue-comment namespace so the tagged row matches what the
     // GitHub `issue_comment` webhook will produce for the same comment.
-    let external_id = crate::channel::external_id::github_issue_comment(parsed.id);
+    let external_id = crate::channel::github_pr::external_id::issue_comment(parsed.id);
     state.recently_sent.note(task_id, &external_id);
     let source_name = format!("{}/{}", parsed.owner, parsed.repo);
     match state
@@ -344,13 +344,13 @@ async fn handle_git_push(state: &AppState, task_id: &str, parent_uuid: &str, res
 
     let repo_full = format!("{}/{}", target.owner, target.repo);
 
-    let subs = match PgTaskSubscriptionRepository(state.db.clone())
+    let subs = match PgTaskBindingRepository(state.db.clone())
         .find_by_task_id(task_id)
         .await
     {
         Ok(s) => s,
         Err(e) => {
-            warn!(task_id, error = %e, "Failed to load task subscriptions for git push hook");
+            warn!(task_id, error = %e, "Failed to load task bindings for git push hook");
             return;
         }
     };
@@ -358,15 +358,15 @@ async fn handle_git_push(state: &AppState, task_id: &str, parent_uuid: &str, res
     let candidates: Vec<_> = subs
         .into_iter()
         .filter(|sub| {
-            sub.provider == "github"
+            (sub.provider == "github" || sub.provider == "github_pr")
                 && sub.subject_kind == "github_pr"
                 && sub
-                    .reply_target
+                    .destination_config
                     .get("owner")
                     .and_then(serde_json::Value::as_str)
                     == Some(target.owner.as_str())
                 && sub
-                    .reply_target
+                    .destination_config
                     .get("repo")
                     .and_then(serde_json::Value::as_str)
                     == Some(target.repo.as_str())
@@ -377,7 +377,7 @@ async fn handle_git_push(state: &AppState, task_id: &str, parent_uuid: &str, res
         debug!(
             task_id,
             repo = %repo_full,
-            "No matching github_pr subscription for git push — skipping"
+            "No matching github_pr binding for git push — skipping"
         );
         return;
     }
@@ -420,14 +420,14 @@ async fn handle_git_push(state: &AppState, task_id: &str, parent_uuid: &str, res
 
     let api = GithubPrApi::new(&token.access_token);
 
-    // If there are multiple PR subscriptions on the same repo, fetch each and
+    // If there are multiple PR bindings on the same repo, fetch each and
     // pick the one whose head branch matches what we just pushed. In practice
     // there is one (the agent runs `gh pr create` first, which connects the
-    // subscription).
+    // binding).
     let mut chosen: Option<(u64, String)> = None;
     for sub in &candidates {
         let Some(pr_number) = sub
-            .reply_target
+            .destination_config
             .get("pr_number")
             .and_then(serde_json::Value::as_u64)
         else {
@@ -456,7 +456,7 @@ async fn handle_git_push(state: &AppState, task_id: &str, parent_uuid: &str, res
         return;
     };
 
-    let external_id = crate::channel::external_id::github_pr_synchronize(pr_number, &head_sha);
+    let external_id = crate::channel::github_pr::external_id::pr_synchronize(pr_number, &head_sha);
     state.recently_sent.note(task_id, &external_id);
     match state
         .messages
@@ -1110,7 +1110,8 @@ mod tests {
     #[test]
     fn parse_git_push_force_update_uses_remote_ref() {
         // `+ ...` lines (force update) still carry the `local -> remote` form.
-        let out = "To https://github.com/o/r.git\n + abc1234...def5678 fix/x -> fix/x (forced update)\n";
+        let out =
+            "To https://github.com/o/r.git\n + abc1234...def5678 fix/x -> fix/x (forced update)\n";
         let target = parse_git_push(out).unwrap();
         assert_eq!(target.branch, "fix/x");
     }

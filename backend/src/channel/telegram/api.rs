@@ -33,7 +33,21 @@ impl TelegramApi {
         reply_to_message_id: Option<i64>,
         message_thread_id: Option<i64>,
     ) -> Result<(), ChannelError> {
+        self.send_message_returning_id(chat_id, text, reply_to_message_id, message_thread_id)
+            .await
+            .map(|_| ())
+    }
+
+    /// Send a text message and return the first Telegram `message_id`.
+    pub async fn send_message_returning_id(
+        &self,
+        chat_id: &str,
+        text: &str,
+        reply_to_message_id: Option<i64>,
+        message_thread_id: Option<i64>,
+    ) -> Result<i64, ChannelError> {
         let chunks = chunk_text(text, MAX_MESSAGE_LENGTH);
+        let mut first_message_id = None;
 
         for (i, chunk) in chunks.iter().enumerate() {
             // Only reply to the original message on the first chunk
@@ -75,6 +89,9 @@ impl TelegramApi {
                     if let Some(id) = reply_id {
                         plain_body["reply_parameters"] = serde_json::json!({ "message_id": id });
                     }
+                    if let Some(topic_id) = message_thread_id {
+                        plain_body["message_thread_id"] = serde_json::json!(topic_id);
+                    }
                     let retry_resp = self
                         .client
                         .post(format!("{}/sendMessage", self.base_url))
@@ -94,6 +111,8 @@ impl TelegramApi {
                             "Telegram sendMessage returned {status}: {text}"
                         )));
                     }
+                    let message_id = parse_send_message_id(retry_resp).await?;
+                    first_message_id.get_or_insert(message_id);
                     continue;
                 }
                 warn!(status = 400, body = %resp_text, "Telegram sendMessage error");
@@ -110,9 +129,14 @@ impl TelegramApi {
                     "Telegram sendMessage returned {status}: {text}"
                 )));
             }
+
+            let message_id = parse_send_message_id(resp).await?;
+            first_message_id.get_or_insert(message_id);
         }
 
-        Ok(())
+        first_message_id.ok_or_else(|| {
+            ChannelError::ProviderApi("Telegram sendMessage returned no message_id".into())
+        })
     }
 
     /// Delete any existing webhook. Required before switching to polling mode,
@@ -247,6 +271,16 @@ impl TelegramApi {
             .cloned()
             .ok_or_else(|| ChannelError::ProviderApi("Telegram getChat: missing result".into()))
     }
+}
+
+async fn parse_send_message_id(resp: reqwest::Response) -> Result<i64, ChannelError> {
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| ChannelError::ProviderApi(format!("Telegram sendMessage parse error: {e}")))?;
+    body.pointer("/result/message_id")
+        .and_then(serde_json::Value::as_i64)
+        .ok_or_else(|| ChannelError::ProviderApi("Telegram sendMessage: missing message_id".into()))
 }
 
 /// Split text into chunks of at most `max_len` characters, breaking at newlines when possible.

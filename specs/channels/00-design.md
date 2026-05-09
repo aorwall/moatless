@@ -1,11 +1,11 @@
 # Channel System Design
 
-This document describes how channels are intended to work in the current backend implementation, and the internal architecture they should move toward, based on `backend/src/channel` and the modules it integrates with.
+This document describes how channels are intended to work in the backend implementation based on `backend/src/channel` and the modules it integrates with.
 
 It covers three things:
 
-1. The current shared channel model: configs, threads, inbound routing, outbound replies, and task/message integration.
-2. The target internal architecture: `provider_connections`, `ingress_rules`, and `task_subscriptions`.
+1. The shared channel model: provider connections, task routes, triggers, bindings, inbound routing, outbound replies, and task/message integration.
+2. The canonical internal architecture: `provider_connections`, `task_routes`, `task_triggers`, and `task_bindings`.
 3. The product-level questions that the code does not fully answer yet.
 
 The current executable scenarios in `specs/channels/01-channel-scenarios.md` cover only part of this design. Today the code supports more than the old webhook-only scenarios.
@@ -31,7 +31,7 @@ The following points have now been clarified:
 
 - Channel replies are intended to come only from explicit agent action via `moat reply`.
 - The backend should not automatically post task completion or error summaries to channels.
-- Channels should remain the product-level feature concept, but the internal architecture should split into `provider_connections`, `ingress_rules`, and `task_subscriptions`.
+- Channels should remain the product-level feature concept, but the internal architecture should split into `provider_connections`, `task_routes`, `task_triggers`, and `task_bindings`.
 - Wildcard defaults should remain global for now.
 - For GitHub PRs, tasks that follow a PR should receive human comments, reviews, sync/build activity, and other relevant PR events.
 - Agent-authored GitHub comments should not come back into the same task that produced them, whether they were sent via `moat reply` or by `gh` commands inside the task.
@@ -39,7 +39,7 @@ The following points have now been clarified:
 
 ## Target Internal Architecture
 
-Channels should stay the user-facing feature concept, but internally the model should be split into three layers.
+Channels should stay the user-facing feature concept, but internally the model is split into transport, routing, trigger, and binding layers.
 
 ### `provider_connections`
 
@@ -58,9 +58,9 @@ Examples:
 - GitHub org webhook or app installation
 - GitLab group or project webhook/app installation
 
-### `ingress_rules`
+### `task_routes` and `task_triggers`
 
-`ingress_rules` are the task-creation and routing policy layer.
+`task_routes` are task-creation policy. `task_triggers` connect provider source matchers to routes.
 
 They answer:
 
@@ -75,9 +75,9 @@ Examples:
 - GitHub rule for repos matching an org or repo scope
 - GitLab rule for projects or groups matching a scope
 
-### `task_subscriptions`
+### `task_bindings`
 
-`task_subscriptions` are the task-to-external-subject links.
+`task_bindings` are the task-to-external-subject links.
 
 They answer:
 
@@ -105,7 +105,11 @@ It works less naturally for providers such as GitHub and GitLab, where:
 
 That is why the internal architecture should separate provider transport from ingress policy and from task reply targets, while still presenting all of it as one "channels" feature to the user.
 
-## Current Backend Data Model
+## Removed Legacy Data Model
+
+The old `channel_configs`, `channel_threads`, `ingress_rules`, and
+`task_subscriptions` tables were migration inputs only. Runtime code must not
+query them after the hard cutover migration.
 
 ### `channel_configs`
 
@@ -122,7 +126,7 @@ Important fields:
 | `prompt_template` | Extra system prompt appended to channel-created tasks |
 | `provider_config` | Provider-specific JSON configuration |
 | `ongoing_task_id` | Current open task for `ongoing` routing |
-| `response_config_id` | Optional config used for cross-channel replies |
+| `response_config_id` | Removed legacy cross-channel reply override |
 | `task_name` | Default task name for created tasks |
 | `tag_ids` | Tags to add to created tasks |
 | `run_as_user_id` | Optional user to attribute task creation/replies to |
@@ -137,11 +141,11 @@ Key intended behaviors:
 - Wildcard configs are defaults for auto-created per-source configs.
 - `effective_user_id = run_as_user_id ?? created_by` is the fallback actor for task ownership and self-echo filtering.
 
-In the current implementation, `channel_configs` mix concerns that should eventually be separated into:
+In the legacy implementation, `channel_configs` mixed concerns that are now separated into:
 
 - provider transport/credentials
-- ingress/task-creation policy
-- some cross-channel outbound routing behavior
+- route and trigger task-creation policy
+- direct-send trigger policy
 
 ### `channel_threads`
 
@@ -164,7 +168,9 @@ Key intended behaviors:
 - The unique constraint is `(config_id, external_thread_id, task_id)`, not just `(config_id, external_thread_id)`.
 - `properties` also store channel cursors and self-echo filters.
 
-In the current implementation, `channel_threads` are the closest thing to `task_subscriptions`, but they also carry some provider-specific reply-target details that should become more explicit in the target model.
+In the legacy implementation, `channel_threads` were the closest thing to
+task bindings. Provider-specific destination metadata now lives on the binding
+itself.
 
 ### Normalized transport types
 
@@ -233,15 +239,13 @@ This is the main connection between channels and task behavior: the agent is exp
 
 ### 4. Thread creation and maintenance
 
-After routing, the backend creates or updates a `channel_threads` row.
+After routing, the backend creates or updates a task binding.
 
 Intended behavior:
 
-- Existing threads are `touch`ed and keep accumulating provider metadata.
-- `ongoing` mode tries to reuse an existing task/config thread to avoid duplicate reply surfaces.
-- If `response_config_id` is set, the thread may be created under the response config instead of the originating config.
-- Cross-channel threads may start as `pending = true`, then get rewritten once the first real outbound message establishes the external thread identity.
-- `last_channel_external_id` is stored in thread properties and used as a context cursor.
+- Existing bindings are touched and keep accumulating provider metadata.
+- `ongoing` mode tries to reuse an existing task binding to avoid duplicate reply surfaces.
+- `last_external_event_id` is stored on the binding and used as a context cursor.
 
 ### 5. Message persistence
 
@@ -271,13 +275,13 @@ Channels do not talk to sandboxes directly. They only enqueue canonical task mes
 There are three outbound patterns:
 
 - The agent replies through `moat reply` from inside the sandbox.
-- An API caller explicitly sends to the task's connected channels.
-- An API caller directly sends to a channel config that allows direct send.
+- An API caller explicitly sends to one of the task's bindings.
+- An API caller directly sends through a trigger that allows direct send.
 
 Outbound behavior is intended to:
 
-- Look up the task's linked channel threads.
-- Resolve the effective outbound target, including `response_config_id`.
+- Look up the task's linked bindings.
+- Require an explicit `--binding <id>` when a task has multiple bindings.
 - Reply into an existing thread when possible.
 - Create a new top-level external message when necessary.
 - Persist or tag assistant-side transcript rows so external replies can be deduplicated when their webhook echo comes back.
@@ -418,24 +422,11 @@ That implies the implementation currently prefers this model:
 
 This is an intentional architectural choice. The remaining issue is cleanup: the codebase still contains an unused automatic outbound path that no longer matches the desired product behavior.
 
-## Cross-Channel Routing
+## Explicit Binding Routing
 
-`response_config_id` lets one channel create tasks while another channel receives replies.
-
-The clearest intended use cases are:
-
-- cron trigger -> Slack response thread
-- webhook trigger -> Slack or webhook callback response
-- other machine trigger -> human-facing channel reply
-
-Current intended behavior:
-
-- Inbound routing still uses the originating config.
-- Outbound routing resolves to the response config when present.
-- A pending thread may be created first, then rewritten when the response provider creates the real external thread.
-- Duplicate sends are deduplicated by effective target config.
-
-This makes `response_config_id` a routing override for replies, not a replacement for the original trigger source.
+Cross-channel reply overrides have been removed. If a task needs to reply to an
+external destination, that destination is represented by a task binding and the
+agent targets it explicitly with `moat reply --binding <id>`.
 
 ## Wildcards and Auto-Creation
 
@@ -456,9 +447,9 @@ For now, wildcard defaults are intended to stay global rather than team-specific
 These items look like places where the implementation and the likely intended product model are not fully aligned yet.
 
 - `handle_channel_notification` exists as a backend-driven outbound path, but the event consumer currently assumes the agent should reply via `moat reply` and never calls that function.
-- The current persistence shape collapses three concerns into two tables:
-  - `channel_configs` currently mix `provider_connections` and `ingress_rules`
-  - `channel_threads` currently act as `task_subscriptions` plus reply-target metadata
+- The legacy persistence shape collapsed three concerns into two tables:
+  - `channel_configs` mixed provider connections, task routes, and task triggers
+  - `channel_threads` acted as task bindings plus provider metadata
 - The `github_pr` abstraction currently mixes two different concerns:
   - repo-level webhook rules that decide when a webhook event should create a task
   - task-level PR subscriptions that decide which existing tasks should continue receiving PR events
@@ -539,15 +530,16 @@ Key intended behaviors:
 
 - The scheduler periodically generates synthetic inbound messages.
 - Cron has no true outbound transport of its own.
-- Replies are expected to go through `response_config_id` when human-visible output is needed.
+- Human-visible replies require an explicit task binding; cron itself does not
+  define an outbound destination.
 
 ## What Seems Intentionally Canonical
 
 Based on the current implementation, these rules appear to be deliberate:
 
 - The task transcript is the canonical history; channels are adapters around it.
-- Channel configs are both routing rules and task-creation templates.
-- Channel threads are durable bindings between tasks and external conversation identities.
+- Task routes and triggers define routing rules and task-creation templates.
+- Task bindings are durable links between tasks and external conversation identities.
 - The agent is expected to explicitly choose when to reply, not merely rely on backend event mirroring.
 - GitHub is treated as a multi-task broadcast thread, not a one-task-exclusive channel.
 
@@ -561,23 +553,23 @@ For GitHub specifically, the intended direction is:
 
 These are the remaining questions to turn this into an authoritative intended design.
 
-1. Should `Visibility::Private` always be forced for channel-created tasks, even when the channel config itself is global or team-scoped?
+1. Should `Visibility::Private` always be forced for channel-created tasks, even when the trigger itself is global or team-scoped?
 2. Is Slack's current fallback for unmapped thread replies intentional? Right now a top-level unmapped user is rejected, but an unmapped thread reply can still enter the task under `effective_user_id`.
-3. Is the asymmetry between providers intentional? Slack requires a wildcard to auto-create, GitHub requires wildcard plus `auto_create`, and Telegram can fall back to creating a config from the default `Moatable` repository.
-4. Should `response_config_id` remain a pure outbound override, or do you want a stronger notion of a "channel workflow" where the trigger config and response config are treated as one higher-level object?
-5. When a PR closes, is the current "only auto-close if this PR is the task's only thread" rule the intended product behavior?
-6. Should direct-send configs be allowed to operate without a task link long term, or is fire-and-forget outbound only a convenience/debug path?
+3. Is the asymmetry between providers intentional? Slack requires a wildcard to auto-create, GitHub requires wildcard plus `auto_create`, and Telegram can fall back to default routing.
+4. When a PR closes, is the current "only auto-close if this PR is the task's only binding" rule the intended product behavior?
+5. Should direct-send triggers be allowed to operate without a task link long term, or is fire-and-forget outbound only a convenience/debug path?
 
-## Recommended Next Step
+## Current Next Step
 
-The next implementation step should be a full channel-architecture refactor that introduces `provider_connections`, `ingress_rules`, and `task_subscriptions` while keeping "channels" as the product-facing feature concept.
+The storage cutover has moved the runtime model to `provider_connections`,
+`task_routes`, `task_triggers`, and `task_bindings` while keeping "channels" as
+the product-facing feature concept.
 
-That means:
+Remaining follow-up work:
 
 - introduce a provider-level transport/auth layer that can represent Slack apps, Telegram bots, GitHub org/repo webhooks, and future GitLab group/project webhooks
-- introduce ingress rules as the place where scope matching, event filtering, and task-creation defaults live
-- introduce task subscriptions as the canonical outbound reply target and task-following model
-- migrate GitHub PR first, because it is the clearest case where inbound feed, task-creation policy, and reply target are different objects
-- remove the unused automatic outbound notification path as part of that refactor, not as a separate partial step
-- update `specs/channels/01-channel-scenarios.md` after the refactor so the scenarios match the final provider behavior rather than documenting an intermediate state
+- keep task triggers as the place where scope matching, event filtering, and task-creation defaults live
+- keep task bindings as the canonical outbound reply target and task-following model
+- remove the unused automatic outbound notification path where any provider-specific remnants remain
+- keep `specs/channels/01-channel-scenarios.md` aligned with final provider behavior rather than documenting an intermediate state
 - use [docs/plans/github-pr-channel-architecture.md](/Users/albert/repos/soap/moatless-vibe/docs/plans/github-pr-channel-architecture.md:1) as the first provider-specific migration plan under this architecture

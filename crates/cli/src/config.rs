@@ -1,8 +1,13 @@
 //! Configuration from environment variables.
 //!
-//! Supports two modes:
-//! - **Sandbox**: Inside a sandbox pod with `USER_AUTH_TOKEN` set
-//! - **Standalone**: Human user with API key from credentials file
+//! Auth mode resolution (first match wins):
+//! 1. **Sandbox**: `USER_AUTH_TOKEN` set (inside a sandbox pod) — exchanges
+//!    the token for a session cookie.
+//! 2. **Standalone with env API key**: `MOATLESS_API_KEY` set — used directly
+//!    as `Authorization: Bearer <key>`. Intended for non-interactive contexts
+//!    (CI, cron, scripts) where the credentials file isn't available.
+//! 3. **Standalone with credentials file**: API key from
+//!    `~/.config/moatless/credentials.json` (set by `moat login`).
 
 /// Authentication mode.
 #[derive(Debug, Clone)]
@@ -49,6 +54,16 @@ impl Config {
                 user_auth_token: token,
                 task_id,
             }
+        } else if let Ok(env_key) = std::env::var("MOATLESS_API_KEY") {
+            // Non-interactive auth (CI, scripts) — use the env key directly,
+            // skipping the credentials-file lookup.
+            let trimmed = env_key.trim().to_string();
+            let api_key = if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            };
+            AuthMode::Standalone { api_key }
         } else {
             // Standalone mode — try loading API key from credentials file
             let host = host_from_url(&api_url);

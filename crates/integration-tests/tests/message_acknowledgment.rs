@@ -49,6 +49,7 @@ async fn same_session_multi_message() {
         file_ids: vec![],
         model: None,
         command_name: None,
+        headless: None,
     };
     let created = client.api().create_task(&task_req).await.unwrap();
     let task_id = &created.task_id;

@@ -9,9 +9,9 @@ use sqlx::PgPool;
 
 use moatless_vibe_backend::command::models::Command;
 use moatless_vibe_backend::config::{
-    AuthConfig, Config, DatabaseConfig, DockerConfig, GithubPrConfig, ProxyConfig, RedisConfig,
-    S3Config, SandboxConfig, SandboxProviderType, SecretsConfig, ServerConfig, SkillConfig,
-    SlackConfig, SseConfig, TelegramConfig,
+    AuthConfig, CodexOAuthConfig, Config, DatabaseConfig, DockerConfig, GithubPrConfig,
+    LinearConfig, ProxyConfig, RedisConfig, S3Config, SandboxConfig, SandboxProviderType,
+    SecretsConfig, ServerConfig, SkillConfig, SlackConfig, SseConfig, TelegramConfig,
 };
 use moatless_vibe_backend::message::models::{MessageRole, MessageType, TaskMessage};
 use moatless_vibe_backend::repository::models::{Repository, RepositoryKind, RepositoryProvider};
@@ -164,14 +164,14 @@ pub fn test_config() -> Config {
             github_client_id: None,
             github_client_secret: None,
             github_callback_url: None,
-            github_oauth_scope: "".into(),
+            github_oauth_scope: String::new(),
             github_required_org: None,
             auth0_domain: None,
             auth0_client_id: None,
             auth0_client_secret: None,
             auth0_callback_url: None,
             auth0_audience: None,
-            auth0_groups_claim: "".into(),
+            auth0_groups_claim: String::new(),
             session_max_age_secs: 3600,
             frontend_url: "http://localhost:3000".into(),
             cookie_domain: None,
@@ -206,10 +206,18 @@ pub fn test_config() -> Config {
             webhook_secret: None,
             bot_token: None,
         },
+        linear: LinearConfig {
+            webhook_secret: None,
+            api_token: None,
+        },
         skill: SkillConfig { cache_ttl_secs: 60 },
         secrets: SecretsConfig {
             encryption_key: Some("0123456789abcdef0123456789abcdef".to_string()),
             kms_key_id: None,
+        },
+        codex_oauth: CodexOAuthConfig {
+            issuer: "https://auth.openai.com".into(),
+            client_id: "test-client".into(),
         },
     }
 }
@@ -346,6 +354,8 @@ pub fn make_message_row(task_id: &str, uuid: &str) -> TaskMessage {
         channel_provider: None,
         channel_source_name: None,
         command_name: None,
+        source_task_id: None,
+        start_fresh: false,
     }
 }
 

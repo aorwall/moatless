@@ -5,8 +5,8 @@ import {
   Github,
   Gitlab,
   Key,
-  MessageSquare,
   Package,
+  Plug,
   Sparkles,
   Terminal,
   User,
@@ -14,7 +14,6 @@ import {
 import { useMemo, useState } from 'react'
 import {
   ApiKeyConfigurationSection,
-  ChannelConfigurationSection,
   ClaudeConfigurationSection,
   CodexConfigurationSection,
   CommandConfigurationSection,
@@ -22,10 +21,11 @@ import {
   GitHubConfigurationSection,
   GitLabConfigurationSection,
   GitnessConfigurationSection,
+  IntegrationRoutingSection,
   MarketplaceConfigurationSection,
   ProfileConfigurationSection,
 } from '@/features/settings'
-import { useChannelProviders } from '@/features/settings/hooks/use-channels'
+import { useIntegrationProviders } from '@/features/settings/hooks/use-integrations'
 import { SidebarDialog } from '@/lib/components/ui/sidebar-dialog'
 import { useFeatureFlag } from '@/lib/hooks/use-feature-flag'
 
@@ -45,8 +45,8 @@ export function SettingsDialog({
   const showCodexSettings = useFeatureFlag('SHOW_CODEX_SETTINGS')
   const isGitLabEnabled = useFeatureFlag('GITLAB_ENABLED')
   const isGitnessEnabled = useFeatureFlag('GITNESS_ENABLED')
-  const { data: channelProviders } = useChannelProviders()
-  const hasChannelProviders = (channelProviders?.length ?? 0) > 0
+  const { data: integrationProviders } = useIntegrationProviders()
+  const hasIntegrationProviders = (integrationProviders?.length ?? 0) > 0
 
   const sections = useMemo(() => {
     const allSections = []
@@ -119,12 +119,12 @@ export function SettingsDialog({
       },
     )
 
-    // Channels - shown when at least one provider is configured
-    if (hasChannelProviders) {
+    // Integrations - shown when at least one provider is configured
+    if (hasIntegrationProviders) {
       allSections.push({
-        id: 'channels',
-        label: 'Channels',
-        icon: <MessageSquare className="h-4 w-4" />,
+        id: 'integrations',
+        label: 'Integrations',
+        icon: <Plug className="h-4 w-4" />,
       })
     }
 
@@ -141,7 +141,7 @@ export function SettingsDialog({
     showCodexSettings,
     isGitLabEnabled,
     isGitnessEnabled,
-    hasChannelProviders,
+    hasIntegrationProviders,
   ])
 
   return (
@@ -172,7 +172,7 @@ export function SettingsDialog({
         {activeSection === 'api-keys' && <ApiKeyConfigurationSection key="api-keys" />}
         {activeSection === 'marketplaces' && <MarketplaceConfigurationSection key="marketplaces" />}
         {activeSection === 'commands' && <CommandConfigurationSection key="commands" />}
-        {activeSection === 'channels' && <ChannelConfigurationSection key="channels" />}
+        {activeSection === 'integrations' && <IntegrationRoutingSection key="integrations" />}
       </SidebarDialog.Content>
     </SidebarDialog>
   )

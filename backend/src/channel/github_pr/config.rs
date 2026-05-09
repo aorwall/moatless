@@ -1,8 +1,8 @@
-//! Typed view of GitHub PR ingress rule fields used by the webhook parser.
+//! Typed view of GitHub PR task trigger fields used by the webhook parser.
 
-use crate::channel::models::IngressRule;
+use crate::channel::models::TaskTriggerRoute;
 
-/// Extracted GitHub-specific knobs from an `IngressRule`.
+/// Extracted GitHub-specific knobs from an `TaskTriggerRoute`.
 #[derive(Debug, Clone)]
 pub struct GithubPrRuleConfig {
     /// Filter which events to process. Empty means all supported events.
@@ -18,9 +18,9 @@ pub struct GithubPrRuleConfig {
 }
 
 impl GithubPrRuleConfig {
-    /// Parse from an `IngressRule`'s `event_filter` JSONB column plus
+    /// Parse from an `TaskTriggerRoute`'s `event_filter` JSONB column plus
     /// scalar boolean columns.
-    pub fn from_rule(rule: &IngressRule) -> Self {
+    pub fn from_rule(rule: &TaskTriggerRoute) -> Self {
         let events_filter = rule
             .event_filter
             .as_array()
@@ -48,12 +48,12 @@ mod tests {
         events_filter: serde_json::Value,
         close_task_on_close: bool,
         notify_on_success: bool,
-    ) -> IngressRule {
-        IngressRule {
+    ) -> TaskTriggerRoute {
+        TaskTriggerRoute {
             id: "ir_test".into(),
             provider: "github".into(),
             connection_id: "pc_test".into(),
-            scope_matcher: "Frank-Penny/repo".into(),
+            source_matcher: "Frank-Penny/repo".into(),
             source_name: None,
             routing_mode: crate::channel::models::RoutingMode::ThreadBased,
             event_filter: events_filter,
@@ -66,7 +66,6 @@ mod tests {
             allow_direct_send: false,
             provider_config: None,
             ongoing_task_id: None,
-            response_rule_id: None,
             close_task_on_close,
             notify_on_success,
             active: true,

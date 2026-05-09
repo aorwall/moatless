@@ -7,18 +7,15 @@
  */
 
 /**
- * One outbound destination — used by both [`SendChannelMessageResponse::targets`]
-(success path) and [`MultipleTargetsErrorBody`] (multi-target error path).
+ * One outbound destination returned by task reply APIs.
  */
 export interface ChannelTargetDescriptor {
-  /** CLI flag the caller should add to disambiguate, e.g.
-`"--thread 42"` or `"--subscription sub_xyz"`. */
+  /** CLI flag the caller should add to disambiguate, e.g. `"--binding bind_xyz"`. */
   flagHint: string;
-  /** Stable identifier — `thread_id` (stringified i32) or `subscription_id`. */
+  /** Stable target identifier, usually `task_bindings.id`. */
   id: string;
-  /** `"thread"` for legacy `channel_threads` rows, `"subscription"` for
-`task_subscriptions` rows. */
+  /** Target category, currently `"binding"` for canonical task bindings. */
   kind: string;
-  /** Human-readable label such as `"slack #ops"` or `"github_pr owner/repo#42"`. */
+  /** Human-readable label such as `"slack channel:C123"` or `"github pr:owner/repo#42"`. */
   label: string;
 }

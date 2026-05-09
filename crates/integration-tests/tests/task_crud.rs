@@ -33,6 +33,7 @@ async fn task_crud_chain() {
         file_ids: vec![],
         model: None,
         command_name: None,
+        headless: None,
     };
     let created = client.api().create_task(&req).await.unwrap();
     assert_eq!(created.status, TaskStatus::Open);

@@ -1,4 +1,5 @@
-//! Webhook channel provider — generic HTTP webhook ingress + callback outbound.
+//! Webhook channel provider — generic HTTP inbound delivery + callback outbound.
 
+pub mod handlers;
 pub mod provider;
 pub mod signature;

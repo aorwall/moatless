@@ -7,14 +7,14 @@
 
 import type {
 	ApiClient,
-	ChannelConfigResponse,
+	TaskTriggerFixtureResponse,
 } from "../../shared/api-client";
 
 // =============================================================================
-// CHAN-01: Create webhook channel config
+// CHAN-01: Create webhook task trigger fixture
 // =============================================================================
 
-export async function createWebhookConfig(
+export async function createWebhookTriggerFixture(
 	api: ApiClient,
 	repositoryId: string,
 	options?: {
@@ -23,10 +23,9 @@ export async function createWebhookConfig(
 		routingMode?: string;
 		promptTemplate?: string;
 		providerConfig?: Record<string, unknown>;
-		responseConfigId?: string;
 	},
-): Promise<{ configId: string; config: ChannelConfigResponse }> {
-	const config = await api.createChannelConfig({
+): Promise<{ triggerId: string; config: TaskTriggerFixtureResponse }> {
+	const config = await api.createTaskTriggerFixture({
 		provider: "webhook",
 		sourceId: options?.sourceId ?? `webhook-${Date.now()}`,
 		sourceName: options?.sourceName,
@@ -34,16 +33,15 @@ export async function createWebhookConfig(
 		routingMode: options?.routingMode ?? "per_message",
 		promptTemplate: options?.promptTemplate,
 		providerConfig: options?.providerConfig,
-		responseConfigId: options?.responseConfigId,
 	});
-	return { configId: config.id, config };
+	return { triggerId: config.id, config };
 }
 
 // =============================================================================
-// CHAN-10/20/30: Create config with specific routing mode
+// CHAN-10/20/30: Create fixture with specific routing mode
 // =============================================================================
 
-export async function createWebhookConfigWithRouting(
+export async function createWebhookTriggerFixtureWithRouting(
 	api: ApiClient,
 	repositoryId: string,
 	routingMode: string,
@@ -51,8 +49,8 @@ export async function createWebhookConfigWithRouting(
 		sourceId?: string;
 		providerConfig?: Record<string, unknown>;
 	},
-): Promise<{ configId: string; config: ChannelConfigResponse }> {
-	return createWebhookConfig(api, repositoryId, {
+): Promise<{ triggerId: string; config: TaskTriggerFixtureResponse }> {
+	return createWebhookTriggerFixture(api, repositoryId, {
 		routingMode,
 		sourceId: options?.sourceId,
 		providerConfig: options?.providerConfig,
@@ -65,7 +63,7 @@ export async function createWebhookConfigWithRouting(
 
 export async function sendWebhookMessage(
 	api: ApiClient,
-	configId: string,
+	triggerId: string,
 	text: string,
 	options?: {
 		threadId?: string;
@@ -73,7 +71,7 @@ export async function sendWebhookMessage(
 		metadata?: Record<string, unknown>;
 	},
 ): Promise<{ response: Response; taskId: string | null }> {
-	const response = await api.sendWebhookMessage(configId, {
+	const response = await api.sendWebhookMessage(triggerId, {
 		text,
 		threadId: options?.threadId,
 		userId: options?.userId,
@@ -87,16 +85,4 @@ export async function sendWebhookMessage(
 	}
 
 	return { response, taskId };
-}
-
-// =============================================================================
-// CHAN-40: Link configs for cross-channel routing
-// =============================================================================
-
-export async function linkResponseConfig(
-	api: ApiClient,
-	configId: string,
-	responseConfigId: string,
-): Promise<ChannelConfigResponse> {
-	return api.updateChannelConfig(configId, { responseConfigId });
 }

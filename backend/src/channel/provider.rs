@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::any::Any;
 
 use super::models::{
-    ChannelConfig, ChannelThread, IngressRule, ProviderConnection, TaskSubscription,
+    BindingContext, ProviderConnection, TaskBinding, TaskTriggerRoute, TriggerContext,
 };
 use crate::db::DbPool;
 
@@ -18,35 +18,110 @@ pub use moatless_api_schemas::enums::ChannelType;
 /// Result of posting to a provider-specific destination by raw ID.
 ///
 /// Returned by [`ChannelProvider::post_to_destination`] and used by callers to
-/// build a matching [`TaskSubscription`] row when the post is associated with
+/// build a matching [`TaskBinding`] row when the post is associated with
 /// a task.
 #[derive(Debug, Clone)]
 pub struct DestinationPostResult {
     /// Provider-specific external message ID (e.g. Slack message `ts`).
     pub message_external_id: String,
-    /// Subscription `subject_kind` (e.g. `"slack_thread"`).
+    /// Provider-specific binding `subject_kind`.
     pub subject_kind: &'static str,
-    /// Subscription `subject_key` matching the format produced during inbound
-    /// routing for this provider (e.g. `{workspace_id}:{channel}:{thread_ts}`).
+    /// Binding `subject_key` matching the format produced during inbound
+    /// routing for this provider.
     pub subject_key: String,
-    /// Subscription `reply_target` JSON used by `send_reply_for_subscription`.
-    pub reply_target: serde_json::Value,
+    /// Binding `destination_config` JSON used by `send_reply_for_binding`.
+    pub destination_config: serde_json::Value,
+}
+
+/// Provider-owned destination data for a task binding.
+#[derive(Debug, Clone)]
+pub struct BindingDestination {
+    /// Binding `subject_kind` (for example, a provider-defined thread kind).
+    pub subject_kind: &'static str,
+    /// Stable provider-defined lookup key for the bound subject.
+    pub subject_key: String,
+    /// Provider-defined JSON needed to send future replies.
+    pub destination_config: serde_json::Value,
+    /// Optional cursor seeded when the binding is created from an outbound send.
+    pub last_external_event_id: Option<String>,
+}
+
+impl BindingDestination {
+    pub fn new(
+        subject_kind: &'static str,
+        subject_key: String,
+        destination_config: serde_json::Value,
+    ) -> Self {
+        Self {
+            subject_kind,
+            subject_key,
+            destination_config,
+            last_external_event_id: None,
+        }
+    }
+
+    pub fn with_last_external_event_id(mut self, external_id: impl Into<String>) -> Self {
+        self.last_external_event_id = Some(external_id.into());
+        self
+    }
 }
 
 /// Channel provider handles outbound messaging, user resolution, and context fetching.
 ///
 /// Inbound message handling is NOT part of this trait — each provider implements
-/// its own ingress (webhook handler, WebSocket consumer, poll loop, etc.)
-/// that produces `InboundMessage` for the shared routing pipeline.
+/// its own inbound transport (webhook handler, WebSocket consumer, poll loop,
+/// etc.) that produces `InboundMessage` for the shared routing pipeline.
 #[async_trait::async_trait]
 pub trait ChannelProvider: Send + Sync {
     /// Channel type identifier.
     fn channel_type(&self) -> ChannelType;
 
+    /// Canonical provider key for channel messages and provider-facing labels.
+    fn provider_key(&self) -> &'static str {
+        self.channel_type().as_str()
+    }
+
+    /// Provider key used by `provider_connections` and `task_triggers`.
+    ///
+    /// Most providers store the same key everywhere. GitHub PR uses the
+    /// user-facing integration key (`github`) for connections/triggers while
+    /// task bindings and message metadata use the channel key (`github_pr`).
+    fn connection_provider_key(&self) -> &'static str {
+        self.provider_key()
+    }
+
+    /// Scope value used to find the provider connection for a thread binding.
+    fn connection_scope_value_from_existing_thread(
+        &self,
+        _source_id: &str,
+        _thread_properties: &serde_json::Value,
+    ) -> Result<String, ChannelError> {
+        Ok("default".to_string())
+    }
+
+    /// Whether connection lookup should fall back to the `"default"` scope.
+    fn allow_default_connection_fallback(&self) -> bool {
+        true
+    }
+
+    /// Source matcher used to find the trigger route for a thread binding.
+    fn trigger_source_matcher_from_existing_thread(
+        &self,
+        source_id: &str,
+        _thread_properties: &serde_json::Value,
+    ) -> Result<String, ChannelError> {
+        Ok(source_id.to_string())
+    }
+
+    /// Whether trigger lookup should fall back to a wildcard source matcher.
+    fn allow_wildcard_trigger_fallback(&self) -> bool {
+        true
+    }
+
     /// Whether this provider supports file attachments in outbound messages.
     ///
     /// Providers that return `false` will cause an error when files are
-    /// included in an outbound reply targeting them.
+    /// included in an outbound destinationing them.
     fn supports_files(&self) -> bool {
         false
     }
@@ -77,33 +152,37 @@ pub trait ChannelProvider: Send + Sync {
     /// (e.g., Slack `ts`). Providers that don't track outbound return `Ok(None)`.
     async fn send_reply(
         &self,
-        thread: &ChannelThread,
-        config: &ChannelConfig,
+        thread: &BindingContext,
+        config: &TriggerContext,
         message: &OutboundReply,
     ) -> Result<Option<String>, ChannelError>;
 
-    /// Send a reply back to the subject identified by a `TaskSubscription`.
+    /// Send a reply back to the subject identified by a `TaskBinding`.
     ///
-    /// Used by providers that have moved off `channel_threads` (currently only
-    /// GitHub PR). The default impl returns a `BadRequest` so legacy providers
-    /// keep using `send_reply` exclusively.
-    async fn send_reply_for_subscription(
+    /// The default implementation adapts the canonical binding into the
+    /// provider-facing config/thread context.
+    async fn send_reply_for_binding(
         &self,
-        _subscription: &TaskSubscription,
+        binding: &TaskBinding,
         _connection: &ProviderConnection,
-        _rule: Option<&IngressRule>,
-        _message: &OutboundReply,
+        rule: Option<&TaskTriggerRoute>,
+        message: &OutboundReply,
     ) -> Result<Option<String>, ChannelError> {
-        Err(ChannelError::BadRequest(
-            "Provider does not implement subscription-based outbound".into(),
-        ))
+        let Some(rule) = rule else {
+            return Err(ChannelError::BadRequest(
+                "Provider needs a trigger-backed binding for outbound replies".into(),
+            ));
+        };
+        let config = super::binding_runtime::trigger_context(rule, self.provider_key());
+        let thread = super::binding_runtime::binding_context(binding);
+        self.send_reply(&thread, &config, message).await
     }
 
     /// Post to a provider-specific destination by raw ID.
     ///
-    /// Used for ad-hoc sends and to bootstrap a `task_subscription` without an
-    /// ingress rule. The returned [`DestinationPostResult`] carries everything
-    /// the caller needs to persist a matching subscription row.
+    /// Used for ad-hoc sends and to bootstrap a `task_binding` without a
+    /// trigger. The returned [`DestinationPostResult`] carries everything the
+    /// caller needs to persist a matching binding row.
     ///
     /// Default: returns a `BadRequest` so providers that have no notion of an
     /// addressable raw destination (cron, webhook, GitHub PR) surface a clear
@@ -122,19 +201,61 @@ pub trait ChannelProvider: Send + Sync {
     /// Send a new top-level message to a channel (no existing thread).
     ///
     /// Returns [`NewThreadInfo`] with the external thread ID and properties
-    /// needed to create a [`ChannelThread`] for future replies.
+    /// needed to create a [`BindingContext`] for future replies.
     ///
     /// Default: returns an error. Providers that support outbound-initiated
     /// messages (e.g., Slack) must override this.
     async fn send_message(
         &self,
-        _config: &ChannelConfig,
+        _config: &TriggerContext,
         _message: &OutboundReply,
     ) -> Result<NewThreadInfo, ChannelError> {
         Err(ChannelError::Internal(format!(
             "{:?} does not support send_message",
             self.channel_type()
         )))
+    }
+
+    /// Build the binding destination for an existing external thread.
+    fn binding_destination_from_existing_thread(
+        &self,
+        _source_id: &str,
+        _external_thread_id: &str,
+        _thread_properties: &serde_json::Value,
+        _filter_user_id: Option<&str>,
+    ) -> Result<BindingDestination, ChannelError> {
+        Err(ChannelError::BadRequest(format!(
+            "{} provider does not support task bindings",
+            self.provider_key()
+        )))
+    }
+
+    /// Build the binding destination for a newly-created external thread.
+    fn binding_destination_from_new_thread(
+        &self,
+        _rule: &TaskTriggerRoute,
+        _new_thread_info: &NewThreadInfo,
+    ) -> Result<BindingDestination, ChannelError> {
+        Err(ChannelError::BadRequest(format!(
+            "{} provider does not support rules-based direct send",
+            self.provider_key()
+        )))
+    }
+
+    /// Expand a channel external id into all ids that should be considered
+    /// equivalent for idempotency checks.
+    fn external_id_aliases(&self, external_id: &str) -> Vec<String> {
+        vec![external_id.to_string()]
+    }
+
+    /// Optional provider-specific suffix for sender labels delivered to agents.
+    fn sender_label_suffix(&self, _msg: &InboundMessage) -> Option<String> {
+        None
+    }
+
+    /// Optional provider-specific prefix for inbound messages delivered to agents.
+    fn inbound_message_prefix(&self, _msg: &InboundMessage) -> Option<String> {
+        None
     }
 
     /// Provider-specific reply instructions appended to the system prompt for
@@ -168,8 +289,8 @@ pub trait ChannelProvider: Send + Sync {
     /// Providers should filter these out to avoid sending duplicate context.
     async fn fetch_context(
         &self,
-        _thread: &ChannelThread,
-        _config: &ChannelConfig,
+        _thread: &BindingContext,
+        _config: &TriggerContext,
         _limit: usize,
         _exclude_external_ids: &[String],
     ) -> Result<Option<String>, ChannelError> {
@@ -216,10 +337,6 @@ impl ChannelProviders {
         providers.register(Arc::new(super::webhook::provider::WebhookProvider::new()));
         tracing::info!("Webhook channel provider configured");
 
-        // Cron provider is always available (schedule config is per-channel in provider_config JSONB)
-        providers.register(Arc::new(super::cron::provider::CronProvider::new()));
-        tracing::info!("Cron channel provider configured");
-
         if let Some(ref token) = config.telegram.bot_token {
             let telegram = super::telegram::provider::TelegramProvider::new(token);
             providers.register(Arc::new(telegram));
@@ -261,7 +378,17 @@ impl ChannelProviders {
     }
 
     pub fn get_by_name(&self, name: &str) -> Option<&Arc<dyn ChannelProvider>> {
-        ChannelType::parse(name).and_then(|ct| self.providers.get(&ct))
+        if let Some(provider) = ChannelType::parse(name).and_then(|ct| self.providers.get(&ct)) {
+            return Some(provider);
+        }
+        self.providers.values().find(|provider| {
+            provider.provider_key() == name || provider.connection_provider_key() == name
+        })
+    }
+
+    pub fn provider_key_for_name(&self, name: &str) -> Option<&'static str> {
+        self.get_by_name(name)
+            .map(|provider| provider.provider_key())
     }
 
     /// Returns user-facing provider types (excludes internal-only providers like Webhook and Cron).
@@ -302,8 +429,8 @@ mod tests {
 
         async fn send_reply(
             &self,
-            _thread: &super::super::models::ChannelThread,
-            _config: &super::super::models::ChannelConfig,
+            _thread: &super::super::models::BindingContext,
+            _config: &super::super::models::TriggerContext,
             _message: &OutboundReply,
         ) -> Result<Option<String>, ChannelError> {
             Ok(None)

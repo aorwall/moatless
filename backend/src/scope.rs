@@ -19,15 +19,15 @@ pub enum ScopedEntity {
     Task,
     /// `repositories` table — has a `visibility` column.
     Repository,
-    /// `channel_configs` table — no `visibility` column.
-    ChannelConfig,
+    /// Integration tables — no `visibility` column.
+    Integration,
 }
 
 impl ScopedEntity {
     fn has_visibility(self) -> bool {
         match self {
             Self::Task | Self::Repository => true,
-            Self::ChannelConfig => false,
+            Self::Integration => false,
         }
     }
 }
@@ -220,8 +220,8 @@ mod tests {
     }
 
     #[test]
-    fn access_filter_channel_config_no_visibility() {
-        let f = test_ctx().access_filter(ScopedEntity::ChannelConfig, "", 1);
+    fn access_filter_integration_no_visibility() {
+        let f = test_ctx().access_filter(ScopedEntity::Integration, "", 1);
         assert_eq!(
             f.sql(),
             "($1 OR scope = 'global' \

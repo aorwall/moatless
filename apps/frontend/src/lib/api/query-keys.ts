@@ -71,14 +71,16 @@ export const queryKeys = {
     tools: () => [...queryKeys.claudeCode.all(), 'tools'] as const,
   },
 
-  channels: {
-    all: () => [...queryKeys.all, 'channels'] as const,
-    configs: () => [...queryKeys.channels.all(), 'configs'] as const,
-    configsList: (params?: { provider?: string; repositoryId?: string }) =>
-      [...queryKeys.channels.configs(), 'list', params] as const,
-    slackChannels: () => [...queryKeys.channels.all(), 'slack-channels'] as const,
-    providers: () => [...queryKeys.channels.all(), 'providers'] as const,
-    pairingRequests: () => [...queryKeys.channels.all(), 'pairing'] as const,
+  integrations: {
+    all: () => [...queryKeys.all, 'integrations'] as const,
+    providers: () => [...queryKeys.integrations.all(), 'providers'] as const,
+    providerConnections: () => [...queryKeys.integrations.all(), 'provider-connections'] as const,
+    providerConnectionsList: () =>
+      [...queryKeys.integrations.providerConnections(), 'list'] as const,
+    taskRoutes: () => [...queryKeys.integrations.all(), 'task-routes'] as const,
+    taskRoutesList: () => [...queryKeys.integrations.taskRoutes(), 'list'] as const,
+    taskTriggers: () => [...queryKeys.integrations.all(), 'task-triggers'] as const,
+    taskTriggersList: () => [...queryKeys.integrations.taskTriggers(), 'list'] as const,
   },
 
   settings: {

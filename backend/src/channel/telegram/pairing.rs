@@ -14,7 +14,7 @@ use super::config::TelegramProviderConfig;
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
 pub struct PairingRequest {
     pub id: i32,
-    pub config_id: String,
+    pub trigger_id: String,
     pub provider: String,
     pub provider_user_id: String,
     pub code: String,
@@ -39,17 +39,17 @@ pub fn generate_code() -> String {
 /// Upsert a pending pairing request. Returns existing code if already pending.
 pub async fn upsert_pairing_request(
     db: &DbPool,
-    config_id: &str,
+    trigger_id: &str,
     provider_user_id: &str,
     meta: Option<serde_json::Value>,
 ) -> Result<PairingRequest, ChannelError> {
     // Check for existing pending request
     let existing: Option<PairingRequest> = sqlx::query_as(
         "SELECT * FROM channel_pairing_requests \
-         WHERE config_id = $1 AND provider = 'telegram' AND provider_user_id = $2 AND status = 'pending' \
+         WHERE trigger_id = $1 AND provider = 'telegram' AND provider_user_id = $2 AND status = 'pending' \
          LIMIT 1",
     )
-    .bind(config_id)
+    .bind(trigger_id)
     .bind(provider_user_id)
     .fetch_optional(db)
     .await
@@ -62,11 +62,11 @@ pub async fn upsert_pairing_request(
     let code = generate_code();
 
     let row: PairingRequest = sqlx::query_as(
-        "INSERT INTO channel_pairing_requests (config_id, provider, provider_user_id, code, status, meta) \
+        "INSERT INTO channel_pairing_requests (trigger_id, provider, provider_user_id, code, status, meta) \
          VALUES ($1, 'telegram', $2, $3, 'pending', $4) \
          RETURNING *",
     )
-    .bind(config_id)
+    .bind(trigger_id)
     .bind(provider_user_id)
     .bind(&code)
     .bind(&meta)
@@ -75,7 +75,7 @@ pub async fn upsert_pairing_request(
     .map_err(ChannelError::Db)?;
 
     info!(
-        config_id,
+        trigger_id,
         provider_user_id,
         code = %row.code,
         "Created pairing request"
@@ -87,15 +87,15 @@ pub async fn upsert_pairing_request(
 /// Find a pending request by code.
 pub async fn find_by_code(
     db: &DbPool,
-    config_id: &str,
+    trigger_id: &str,
     code: &str,
 ) -> Result<Option<PairingRequest>, ChannelError> {
     let row: Option<PairingRequest> = sqlx::query_as(
         "SELECT * FROM channel_pairing_requests \
-         WHERE config_id = $1 AND code = $2 AND status = 'pending' \
+         WHERE trigger_id = $1 AND code = $2 AND status = 'pending' \
          LIMIT 1",
     )
-    .bind(config_id)
+    .bind(trigger_id)
     .bind(code)
     .fetch_optional(db)
     .await
@@ -107,14 +107,14 @@ pub async fn find_by_code(
 /// List all pending requests for a config.
 pub async fn list_pending(
     db: &DbPool,
-    config_id: &str,
+    trigger_id: &str,
 ) -> Result<Vec<PairingRequest>, ChannelError> {
     let rows: Vec<PairingRequest> = sqlx::query_as(
         "SELECT * FROM channel_pairing_requests \
-         WHERE config_id = $1 AND status = 'pending' \
+         WHERE trigger_id = $1 AND status = 'pending' \
          ORDER BY created_at DESC",
     )
-    .bind(config_id)
+    .bind(trigger_id)
     .fetch_all(db)
     .await
     .map_err(ChannelError::Db)?;
@@ -129,8 +129,8 @@ pub async fn list_pending_for_user(
 ) -> Result<Vec<PairingRequest>, ChannelError> {
     let rows: Vec<PairingRequest> = sqlx::query_as(
         "SELECT p.* FROM channel_pairing_requests p \
-         JOIN ingress_rules r ON r.id = p.config_id \
-         WHERE r.created_by = $1 AND p.status = 'pending' \
+         JOIN task_triggers t ON t.id = p.trigger_id \
+         WHERE t.created_by = $1 AND p.status = 'pending' \
          ORDER BY p.created_at DESC",
     )
     .bind(user_id)
@@ -144,11 +144,11 @@ pub async fn list_pending_for_user(
 /// Approve a pairing request: mark approved + add user ID to dm_allowlist.
 pub async fn approve_request(
     db: &DbPool,
-    config_id: &str,
+    trigger_id: &str,
     code: &str,
 ) -> Result<PairingRequest, ChannelError> {
     // Find the pending request
-    let req = find_by_code(db, config_id, code)
+    let req = find_by_code(db, trigger_id, code)
         .await?
         .ok_or_else(|| ChannelError::BadRequest("Pairing code not found or already used".into()))?;
 
@@ -164,8 +164,8 @@ pub async fn approve_request(
 
     // Read current provider_config and append user to dm_allowlist
     let row: (Option<serde_json::Value>,) =
-        sqlx::query_as("SELECT provider_config FROM ingress_rules WHERE id = $1")
-            .bind(config_id)
+        sqlx::query_as("SELECT trigger_config FROM task_triggers WHERE id = $1")
+            .bind(trigger_id)
             .fetch_one(db)
             .await
             .map_err(ChannelError::Db)?;
@@ -185,15 +185,15 @@ pub async fn approve_request(
     let updated_config = serde_json::to_value(&tg_config)
         .map_err(|e| ChannelError::Internal(format!("Failed to serialize config: {e}")))?;
 
-    sqlx::query("UPDATE ingress_rules SET provider_config = $1, updated_at = now() WHERE id = $2")
+    sqlx::query("UPDATE task_triggers SET trigger_config = $1, updated_at = now() WHERE id = $2")
         .bind(&updated_config)
-        .bind(config_id)
+        .bind(trigger_id)
         .execute(db)
         .await
         .map_err(ChannelError::Db)?;
 
     info!(
-        config_id,
+        trigger_id,
         code,
         provider_user_id = %req.provider_user_id,
         "Pairing request approved, user added to dm_allowlist"

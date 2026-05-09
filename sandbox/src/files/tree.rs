@@ -318,7 +318,10 @@ pub async fn get_file_tree_with_changes(
     // those to return only the direct children of root_path.
     let normalized_root = root_path.trim_matches('/');
     if !normalized_root.is_empty() && normalized_root != "." {
-        let parts: Vec<&str> = normalized_root.split('/').filter(|p| !p.is_empty()).collect();
+        let parts: Vec<&str> = normalized_root
+            .split('/')
+            .filter(|p| !p.is_empty())
+            .collect();
         let mut subtree = tree;
         for part in parts {
             let pos = subtree
@@ -343,7 +346,11 @@ pub async fn get_file_tree_with_changes(
         for node in &mut tree {
             if node.node_type == FileNodeType::Directory && !node.is_changed {
                 let prefix = format!("{}/", node.path);
-                if git_diff.files.iter().any(|f| f.filename.starts_with(&prefix)) {
+                if git_diff
+                    .files
+                    .iter()
+                    .any(|f| f.filename.starts_with(&prefix))
+                {
                     node.is_changed = true;
                 }
             }

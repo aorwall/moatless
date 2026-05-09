@@ -25,7 +25,7 @@ rows written before the prefix scheme.
    * @nullable
    */
   externalLabel?: string | null;
-  /** Channel provider type (e.g. "slack", "cron", "webhook", "github_pr"). */
+  /** Integration provider type (e.g. "slack", "webhook", "github", "linear"). */
   provider: string;
   /**
    * Human-readable channel name (e.g. "#engineering").

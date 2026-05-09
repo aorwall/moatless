@@ -12,7 +12,7 @@
 import { test, expect } from "../fixtures/api-fixtures";
 import { ChainContext } from "../context/chain-context";
 import {
-	createWebhookConfigWithRouting,
+	createWebhookTriggerFixtureWithRouting,
 	sendWebhookMessage,
 } from "../steps";
 
@@ -36,9 +36,9 @@ test.describe("Chain 2: Webhook per_message routing", () => {
 	});
 
 	test.afterAll(async ({ api }) => {
-		const configId = ctx.get<string>("configId");
-		if (configId) {
-			await api.deleteChannelConfig(configId).catch(() => {});
+		const triggerId = ctx.get<string>("triggerId");
+		if (triggerId) {
+			await api.deleteTaskTriggerFixture(triggerId).catch(() => {});
 		}
 		// Clean up tasks
 		for (const taskId of ctx.get<string[]>("taskIds") ?? []) {
@@ -50,7 +50,7 @@ test.describe("Chain 2: Webhook per_message routing", () => {
 	// ─── CHAN-10: Create webhook config with per_message routing ───────
 
 	test("CHAN-10: Create webhook config with per_message routing", async ({ api }) => {
-		const result = await createWebhookConfigWithRouting(
+		const result = await createWebhookTriggerFixtureWithRouting(
 			api,
 			ctx.repositoryId!,
 			"per_message",
@@ -60,7 +60,7 @@ test.describe("Chain 2: Webhook per_message routing", () => {
 		expect(result.config.active).toBe(true);
 		expect(result.config.routingMode).toBe("per_message");
 
-		ctx.set("configId", result.configId);
+		ctx.set("triggerId", result.triggerId);
 		ctx.set("taskIds", []);
 	});
 
@@ -69,7 +69,7 @@ test.describe("Chain 2: Webhook per_message routing", () => {
 	test("CHAN-11: Send message via webhook — task created", async ({ api }) => {
 		const { response, taskId } = await sendWebhookMessage(
 			api,
-			ctx.get<string>("configId")!,
+			ctx.get<string>("triggerId")!,
 			"First per_message webhook test",
 		);
 
@@ -101,7 +101,7 @@ test.describe("Chain 2: Webhook per_message routing", () => {
 	test("CHAN-12: Send second message — new task created", async ({ api }) => {
 		const { response, taskId } = await sendWebhookMessage(
 			api,
-			ctx.get<string>("configId")!,
+			ctx.get<string>("triggerId")!,
 			"Second per_message webhook test",
 		);
 
@@ -120,7 +120,7 @@ test.describe("Chain 2: Webhook per_message routing", () => {
 	test("CHAN-13: Send message with thread_id — no existing thread, new task", async ({ api }) => {
 		const { response, taskId } = await sendWebhookMessage(
 			api,
-			ctx.get<string>("configId")!,
+			ctx.get<string>("triggerId")!,
 			"Message with new thread",
 			{ threadId: `new-thread-${Date.now()}` },
 		);
@@ -151,9 +151,9 @@ test.describe("Chain 3: Webhook ongoing routing", () => {
 	});
 
 	test.afterAll(async ({ api }) => {
-		const configId = ctx.get<string>("configId");
-		if (configId) {
-			await api.deleteChannelConfig(configId).catch(() => {});
+		const triggerId = ctx.get<string>("triggerId");
+		if (triggerId) {
+			await api.deleteTaskTriggerFixture(triggerId).catch(() => {});
 		}
 		for (const taskId of ctx.get<string[]>("taskIds") ?? []) {
 			await api.stopTask(taskId).catch(() => {});
@@ -164,7 +164,7 @@ test.describe("Chain 3: Webhook ongoing routing", () => {
 	// ─── CHAN-20: Create webhook config with ongoing routing ───────────
 
 	test("CHAN-20: Create webhook config with ongoing routing", async ({ api }) => {
-		const result = await createWebhookConfigWithRouting(
+		const result = await createWebhookTriggerFixtureWithRouting(
 			api,
 			ctx.repositoryId!,
 			"ongoing",
@@ -174,7 +174,7 @@ test.describe("Chain 3: Webhook ongoing routing", () => {
 		expect(result.config.active).toBe(true);
 		expect(result.config.routingMode).toBe("ongoing");
 
-		ctx.set("configId", result.configId);
+		ctx.set("triggerId", result.triggerId);
 		ctx.set("taskIds", []);
 	});
 
@@ -183,7 +183,7 @@ test.describe("Chain 3: Webhook ongoing routing", () => {
 	test("CHAN-21: First message creates ongoing task", async ({ api }) => {
 		const { response, taskId } = await sendWebhookMessage(
 			api,
-			ctx.get<string>("configId")!,
+			ctx.get<string>("triggerId")!,
 			"First ongoing message",
 		);
 
@@ -193,7 +193,7 @@ test.describe("Chain 3: Webhook ongoing routing", () => {
 		await waitForProcessing();
 
 		// Check that config now has ongoing_task_id
-		const config = await api.getChannelConfig(ctx.get<string>("configId")!);
+		const config = await api.getTaskTriggerFixture(ctx.get<string>("triggerId")!);
 		expect(config.ongoingTaskId).toBe(taskId);
 
 		ctx.set("ongoingTaskId", taskId);
@@ -205,7 +205,7 @@ test.describe("Chain 3: Webhook ongoing routing", () => {
 	test("CHAN-22: Second message routes to same task", async ({ api }) => {
 		const { response, taskId } = await sendWebhookMessage(
 			api,
-			ctx.get<string>("configId")!,
+			ctx.get<string>("triggerId")!,
 			"Second ongoing message",
 		);
 
@@ -215,7 +215,7 @@ test.describe("Chain 3: Webhook ongoing routing", () => {
 		expect(taskId).toBe(ctx.get<string>("ongoingTaskId"));
 
 		// Config should still point to same task
-		const config = await api.getChannelConfig(ctx.get<string>("configId")!);
+		const config = await api.getTaskTriggerFixture(ctx.get<string>("triggerId")!);
 		expect(config.ongoingTaskId).toBe(ctx.get<string>("ongoingTaskId"));
 	});
 
@@ -227,7 +227,7 @@ test.describe("Chain 3: Webhook ongoing routing", () => {
 
 		const { response, taskId } = await sendWebhookMessage(
 			api,
-			ctx.get<string>("configId")!,
+			ctx.get<string>("triggerId")!,
 			"Message after close",
 		);
 
@@ -238,7 +238,7 @@ test.describe("Chain 3: Webhook ongoing routing", () => {
 		await waitForProcessing();
 
 		// Config should now point to the new task
-		const config = await api.getChannelConfig(ctx.get<string>("configId")!);
+		const config = await api.getTaskTriggerFixture(ctx.get<string>("triggerId")!);
 		expect(config.ongoingTaskId).toBe(taskId);
 
 		ctx.set("taskIds", [
@@ -263,9 +263,9 @@ test.describe("Chain 4: Webhook thread_based routing", () => {
 	});
 
 	test.afterAll(async ({ api }) => {
-		const configId = ctx.get<string>("configId");
-		if (configId) {
-			await api.deleteChannelConfig(configId).catch(() => {});
+		const triggerId = ctx.get<string>("triggerId");
+		if (triggerId) {
+			await api.deleteTaskTriggerFixture(triggerId).catch(() => {});
 		}
 		for (const taskId of ctx.get<string[]>("taskIds") ?? []) {
 			await api.stopTask(taskId).catch(() => {});
@@ -276,7 +276,7 @@ test.describe("Chain 4: Webhook thread_based routing", () => {
 	// ─── CHAN-30: Create webhook config with thread_based routing ──────
 
 	test("CHAN-30: Create webhook config with thread_based routing", async ({ api }) => {
-		const result = await createWebhookConfigWithRouting(
+		const result = await createWebhookTriggerFixtureWithRouting(
 			api,
 			ctx.repositoryId!,
 			"thread_based",
@@ -286,7 +286,7 @@ test.describe("Chain 4: Webhook thread_based routing", () => {
 		expect(result.config.active).toBe(true);
 		expect(result.config.routingMode).toBe("thread_based");
 
-		ctx.set("configId", result.configId);
+		ctx.set("triggerId", result.triggerId);
 		ctx.set("taskIds", []);
 	});
 
@@ -297,7 +297,7 @@ test.describe("Chain 4: Webhook thread_based routing", () => {
 
 		const { response, taskId } = await sendWebhookMessage(
 			api,
-			ctx.get<string>("configId")!,
+			ctx.get<string>("triggerId")!,
 			"First thread message",
 			{ threadId },
 		);
@@ -315,7 +315,7 @@ test.describe("Chain 4: Webhook thread_based routing", () => {
 	test("CHAN-32: Reply in same thread routes to same task", async ({ api }) => {
 		const { response, taskId } = await sendWebhookMessage(
 			api,
-			ctx.get<string>("configId")!,
+			ctx.get<string>("triggerId")!,
 			"Reply in same thread",
 			{ threadId: ctx.get<string>("threadId") },
 		);
@@ -333,7 +333,7 @@ test.describe("Chain 4: Webhook thread_based routing", () => {
 
 		const { response, taskId } = await sendWebhookMessage(
 			api,
-			ctx.get<string>("configId")!,
+			ctx.get<string>("triggerId")!,
 			"Message in new thread",
 			{ threadId: newThreadId },
 		);

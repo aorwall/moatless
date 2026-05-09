@@ -7,7 +7,12 @@ pub mod callback_server;
 pub mod raw_api;
 pub mod sandbox_helpers;
 
+use moatless_api_schemas::channel::{
+    CreateProviderConnectionRequest, CreateTaskRouteRequest, CreateTaskTriggerRequest,
+    ProviderConnectionResponse, TaskRouteResponse, TaskTriggerResponse,
+};
 use moatless_api_schemas::enums::RepositoryKind;
+use moatless_api_schemas::enums::{IntegrationProvider, RoutingMode};
 use moatless_api_schemas::repository::CreateRepositoryRequest;
 use moatless_cli::client::MoatClient;
 
@@ -50,8 +55,44 @@ pub fn raw_client_as_user(user_id: &str, login: &str, role: &str) -> reqwest::Cl
 
 /// Seed a test user by making a request that triggers user creation via ForwardAuth headers.
 pub async fn seed_user(user_id: &str, login: &str, role: &str) {
-    let client = client_as_user(user_id, login, role);
-    let _ = client.api().list_teams().await;
+    fn sql_literal(value: &str) -> String {
+        format!("'{}'", value.replace('\'', "''"))
+    }
+
+    let sql = format!(
+        r#"
+        INSERT INTO users (id, login, provider, role, created_at, last_login_at)
+        VALUES ({}, {}, 'integration-test', {}, now(), now())
+        ON CONFLICT (id) DO UPDATE SET
+            login = EXCLUDED.login,
+            role = EXCLUDED.role,
+            last_login_at = EXCLUDED.last_login_at
+    "#,
+        sql_literal(user_id),
+        sql_literal(login),
+        sql_literal(role),
+    );
+
+    let output = std::process::Command::new("docker")
+        .args([
+            "exec",
+            "moatless-postgres",
+            "psql",
+            "-U",
+            "moatless",
+            "-d",
+            "moatless",
+            "-c",
+            &sql,
+        ])
+        .output()
+        .expect("failed to run docker exec for user seed");
+
+    assert!(
+        output.status.success(),
+        "failed to seed user {user_id}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 /// Seed the standard test users (alice, bob, carol).
@@ -100,6 +141,79 @@ pub async fn ensure_template_repo(client: &MoatClient) -> String {
     client.api().create_repository(&req).await.unwrap().id
 }
 
+/// Canonical webhook integration fixture: one provider connection, task route,
+/// and task trigger.
+pub struct WebhookIntegrationFixture {
+    pub connection: ProviderConnectionResponse,
+    pub route: TaskRouteResponse,
+    pub trigger: TaskTriggerResponse,
+}
+
+pub async fn create_webhook_integration(
+    client: &MoatClient,
+    repository_id: &str,
+    source_matcher: &str,
+    routing_mode: RoutingMode,
+    trigger_config: Option<serde_json::Value>,
+) -> WebhookIntegrationFixture {
+    let connection = client
+        .api()
+        .create_integration_connection(&CreateProviderConnectionRequest {
+            provider: IntegrationProvider::Webhook,
+            connection_kind: Some("incoming_webhook".into()),
+            external_account_id: source_matcher.into(),
+            webhook_secret: None,
+            source_name: None,
+            transport_config: None,
+            team_id: None,
+        })
+        .await
+        .unwrap();
+
+    let route = client
+        .api()
+        .create_task_route(&CreateTaskRouteRequest {
+            repository_id: repository_id.into(),
+            routing_mode,
+            ongoing_task_id: None,
+            prompt_template: None,
+            task_name: None,
+            tag_ids: None,
+            run_as_user_id: None,
+            agent_type: None,
+            scope: None,
+            team_id: None,
+        })
+        .await
+        .unwrap();
+
+    let trigger = client
+        .api()
+        .create_task_trigger(&CreateTaskTriggerRequest {
+            provider: IntegrationProvider::Webhook,
+            connection_id: connection.id.clone(),
+            source_matcher: source_matcher.into(),
+            source_name: Some(source_matcher.into()),
+            event_filter: None,
+            trigger_config,
+            route_id: route.id.clone(),
+            allow_direct_send: Some(false),
+            close_task_on_close: Some(true),
+            notify_on_success: Some(false),
+            active: Some(true),
+            scope: None,
+            team_id: None,
+        })
+        .await
+        .unwrap();
+
+    WebhookIntegrationFixture {
+        connection,
+        route,
+        trigger,
+    }
+}
+
 /// Truncate all application tables. Requires docker CLI and running `moatless-postgres` container.
 ///
 /// Mirrors the TypeScript `tests/api/helpers/db-reset.ts` behavior.
@@ -114,8 +228,12 @@ pub fn reset_database() {
         "repository_plugin_repos",
         "plugin_repos",
         "repositories",
-        "channel_configs",
-        "channel_threads",
+        "event_receipts",
+        "task_bindings",
+        "scheduled_jobs",
+        "task_triggers",
+        "task_routes",
+        "provider_connections",
         "channel_pairing_requests",
         "team_members",
         "teams",

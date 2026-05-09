@@ -1,3 +1,5 @@
+import { WorkerPoolContextProvider } from '@pierre/diffs/react'
+import DiffsWorker from '@pierre/diffs/worker/worker-portable.js?worker'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { createRouter, RouterProvider } from '@tanstack/react-router'
 import { StrictMode } from 'react'
@@ -44,8 +46,13 @@ if (rootElement && !rootElement.innerHTML) {
     <StrictMode>
       <FeatureFlagsProvider>
         <QueryClientProvider client={queryClient}>
-          <RouterProvider router={router} />
-          <Toaster position="bottom-right" />
+          <WorkerPoolContextProvider
+            poolOptions={{ workerFactory: () => new DiffsWorker() }}
+            highlighterOptions={{}}
+          >
+            <RouterProvider router={router} />
+            <Toaster position="bottom-right" />
+          </WorkerPoolContextProvider>
         </QueryClientProvider>
       </FeatureFlagsProvider>
     </StrictMode>,

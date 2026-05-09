@@ -9,10 +9,8 @@ use crate::auth::github_app_service::GitHubAppService;
 use crate::auth::provider_token_dao::{PgProviderTokenRepository, ProviderTokenRepository};
 use crate::auth::provider_tokens::{PgProviderTokenAuthRepository, ProviderTokenAuthRepository};
 use crate::auth::users::{PgUserRepository, UserRepository};
-use crate::channel::config_dao::{ChannelConfigRepository, PgChannelConfigRepository};
 use crate::channel::provider::ChannelProviders;
 use crate::channel::recently_sent::RecentlySent;
-use crate::channel::thread_dao::{ChannelThreadRepository, PgChannelThreadRepository};
 use crate::command::dao::{CommandRepository, PgCommandRepository};
 use crate::config::Config;
 use crate::credentials::{BroadcastContext, CredentialService};
@@ -73,8 +71,6 @@ pub struct AppState {
     pub tags: Arc<dyn TagRepository>,
     pub files: Arc<dyn FileRepository>,
     pub figma_imports: Arc<dyn FigmaRepository>,
-    pub channel_configs: Arc<dyn ChannelConfigRepository>,
-    pub channel_threads: Arc<dyn ChannelThreadRepository>,
     pub users: Arc<dyn UserRepository>,
     pub provider_tokens: Arc<dyn ProviderTokenRepository>,
     pub provider_token_auth: Arc<dyn ProviderTokenAuthRepository>,
@@ -163,8 +159,6 @@ impl AppState {
             tags: Arc::new(PgTagRepository(pool.clone())),
             files: Arc::new(PgFileRepository(pool.clone())),
             figma_imports: Arc::new(PgFigmaRepository(pool.clone())),
-            channel_configs: Arc::new(PgChannelConfigRepository(pool.clone())),
-            channel_threads: Arc::new(PgChannelThreadRepository(pool.clone())),
             users: Arc::new(PgUserRepository(pool.clone())),
             provider_tokens,
             provider_token_auth,

@@ -5,49 +5,46 @@
  * Sandbox orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
-import type { ChannelType } from './channelType';
+import type { IntegrationProvider } from './integrationProvider';
 
 /**
- * Channel connected to a task (via channel_threads or task_subscriptions).
+ * External integration binding connected to a task.
  */
 export interface TaskChannelResponse {
-  configId: string;
   /**
-   * `task_subscriptions.created_reason` (e.g. `ingress`, `connected_thread`).
-None for legacy thread-based providers.
+   * Canonical `task_bindings.id` when available.
    * @nullable
    */
-  createdReason?: string | null;
+  bindingId?: string | null;
   /**
    * Provider thread identifier such as GitHub PR number or Slack thread ts.
    * @nullable
    */
   externalThreadId?: string | null;
   /**
-   * ISO-8601 timestamp of the last event seen on the subscription. None for
-legacy thread-based providers.
+   * ISO-8601 timestamp of the last event seen on the binding.
    * @nullable
    */
   lastEventAt?: string | null;
-  provider: ChannelType;
+  /**
+   * Binding origin (e.g. `ingress`, `direct_send`, `scheduled_job`).
+   * @nullable
+   */
+  origin?: string | null;
+  provider: IntegrationProvider;
   sourceId: string;
   /** @nullable */
   sourceName?: string | null;
   /**
-   * Provider-specific subject key such as `owner/repo#123` for GitHub PR subscriptions.
+   * Provider-specific subject key such as `owner/repo#123` for GitHub PR bindings.
    * @nullable
    */
   subjectKey?: string | null;
   /**
-   * `task_subscriptions.id` (string surrogate) when this row originated from
-the GitHub subscription model. None for legacy thread-based providers.
-   * @nullable
-   */
-  subscriptionId?: string | null;
-  /**
-   * Internal channel thread identifier. Use this for exact outbound targeting
-when a task has multiple subscriptions under the same config.
+   * Deprecated legacy thread identifier. Canonical callers should use
+`binding_id`, which carries the task binding id.
    * @nullable
    */
   threadId?: number | null;
+  triggerId: string;
 }

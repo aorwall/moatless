@@ -251,7 +251,9 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
                     );
                     None
                 }
-                Ok(Some(last_result)) if last_result.message_type == crate::message::models::MessageType::Error => {
+                Ok(Some(last_result))
+                    if last_result.message_type == crate::message::models::MessageType::Error =>
+                {
                     debug!(
                         task_id = %req.task_id,
                         "Last result is an error, clearing resume_session_id to start fresh"

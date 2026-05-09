@@ -1,5 +1,3 @@
-@import "@moatless/diff-viewer/styles/diff-theme.css";
-
 :root {
   --git-added: oklch(0.45 0.15 145);
   --git-modified: oklch(0.5 0.15 65);
