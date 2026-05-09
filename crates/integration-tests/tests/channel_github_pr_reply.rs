@@ -88,7 +88,7 @@ async fn reply_succeeds_with_single_binding() {
         &client,
         &repo_id,
         &format!("reply-single-{suffix}"),
-        RoutingMode::ThreadBased,
+        RoutingMode::BySubject,
         None,
     )
     .await;
@@ -139,7 +139,7 @@ async fn reply_returns_400_when_multiple_bindings() {
         &client,
         &repo_id,
         &format!("reply-multi-{suffix}"),
-        RoutingMode::ThreadBased,
+        RoutingMode::BySubject,
         None,
     )
     .await;
@@ -204,7 +204,7 @@ async fn reply_succeeds_with_explicit_binding_flag() {
         &client,
         &repo_id,
         &format!("reply-explicit-{suffix}"),
-        RoutingMode::ThreadBased,
+        RoutingMode::BySubject,
         None,
     )
     .await;

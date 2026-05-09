@@ -43,33 +43,33 @@ async fn cleanup_tasks(client: &MoatClient, task_ids: &[String]) {
 }
 
 // =============================================================================
-// Chain 2: Webhook per_message routing (CHAN-10 through CHAN-13)
+// Chain 2: Webhook by_subject routing without thread_id (CHAN-10 through CHAN-13)
 // =============================================================================
 
 #[tokio::test]
-async fn channel_per_message_routing() {
+async fn channel_by_subject_routing_without_thread() {
     let client = test_client();
     let http = reqwest::Client::new();
     let repo_id = ensure_template_repo(&client).await;
     let suffix = timestamp_suffix();
     let mut task_ids = Vec::new();
 
-    // CHAN-10: Create webhook trigger with per_message routing
+    // CHAN-10: Create webhook trigger with by_subject routing
     let fixture = create_webhook_integration(
         &client,
         &repo_id,
-        &format!("per-msg-{suffix}"),
-        RoutingMode::PerMessage,
+        &format!("by-subject-no-thread-{suffix}"),
+        RoutingMode::BySubject,
         None,
     )
     .await;
     assert!(fixture.trigger.active);
-    assert_eq!(fixture.route.routing_mode, RoutingMode::PerMessage);
+    assert_eq!(fixture.route.routing_mode, RoutingMode::BySubject);
     let trigger_id = fixture.trigger.id;
 
     // CHAN-11: Send message via webhook — task created
     let (status, task_id) =
-        send_webhook(&http, &trigger_id, "First per_message webhook test", None).await;
+        send_webhook(&http, &trigger_id, "First by_subject webhook test", None).await;
     assert_eq!(status, 200);
     let first_task_id = task_id.expect("should return task_id");
     task_ids.push(first_task_id.clone());
@@ -81,15 +81,16 @@ async fn channel_per_message_routing() {
     // CHAN-11.2: Task linked to correct repository
     assert_eq!(task.repository_id, repo_id);
 
-    // CHAN-12: Send second message — new task created
+    // CHAN-12: Send second message without thread_id — new task created
+    // (each message gets a fresh synthesized subject_key)
     let (status, task_id) =
-        send_webhook(&http, &trigger_id, "Second per_message webhook test", None).await;
+        send_webhook(&http, &trigger_id, "Second by_subject webhook test", None).await;
     assert_eq!(status, 200);
     let second_task_id = task_id.expect("should return task_id");
     assert_ne!(second_task_id, first_task_id);
     task_ids.push(second_task_id);
 
-    // CHAN-13: Send message with thread_id — new task (per_message ignores threads)
+    // CHAN-13: Send message with a brand-new thread_id — new task
     let thread_id = format!("new-thread-{suffix}");
     let (status, task_id) = send_webhook(
         &http,
@@ -181,28 +182,28 @@ async fn channel_ongoing_routing() {
 }
 
 // =============================================================================
-// Chain 4: Webhook thread_based routing (CHAN-30 through CHAN-33)
+// Chain 4: Webhook by_subject routing with thread_id (CHAN-30 through CHAN-33)
 // =============================================================================
 
 #[tokio::test]
-async fn channel_thread_based_routing() {
+async fn channel_by_subject_routing_with_thread() {
     let client = test_client();
     let http = reqwest::Client::new();
     let repo_id = ensure_template_repo(&client).await;
     let suffix = timestamp_suffix();
     let mut task_ids = Vec::new();
 
-    // CHAN-30: Create webhook trigger with thread_based routing
+    // CHAN-30: Create webhook trigger with by_subject routing
     let fixture = create_webhook_integration(
         &client,
         &repo_id,
         &format!("thread-{suffix}"),
-        RoutingMode::ThreadBased,
+        RoutingMode::BySubject,
         None,
     )
     .await;
     assert!(fixture.trigger.active);
-    assert_eq!(fixture.route.routing_mode, RoutingMode::ThreadBased);
+    assert_eq!(fixture.route.routing_mode, RoutingMode::BySubject);
     let trigger_id = fixture.trigger.id;
 
     // CHAN-31: New message creates task

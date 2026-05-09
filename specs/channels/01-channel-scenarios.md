@@ -17,14 +17,14 @@ This spec defines testable scenarios for channel integrations: trigger managemen
 │       └── CHAN-05.1: Trigger removed from listing
 ```
 
-### Chain 2: Webhook Inbound (per_message routing)
+### Chain 2: Webhook Inbound (by_subject routing without thread_id)
 ```
-├── CHAN-10: Create webhook task trigger with per_message routing
+├── CHAN-10: Create webhook task trigger with by_subject routing
 │   ├── CHAN-11: Send message via webhook — task created
 │   │   ├── CHAN-11.1: Task is in open state
 │   │   └── CHAN-11.2: Task linked to correct repository
-│   ├── CHAN-12: Send second message — new task created
-│   └── CHAN-13: Send message with thread_id — new task
+│   ├── CHAN-12: Send second message without thread_id — new task created
+│   └── CHAN-13: Send message with new thread_id — new task
 ```
 
 ### Chain 3: Webhook Inbound (ongoing routing)
@@ -35,12 +35,12 @@ This spec defines testable scenarios for channel integrations: trigger managemen
 │   └── CHAN-23: After task closed, next message creates new task
 ```
 
-### Chain 4: Webhook Inbound (thread_based routing)
+### Chain 4: Webhook Inbound (by_subject routing with thread_id)
 ```
-├── CHAN-30: Create webhook task trigger with thread_based routing
-│   ├── CHAN-31: New message creates task
+├── CHAN-30: Create webhook task trigger with by_subject routing
+│   ├── CHAN-31: New thread_id creates task
 │   ├── CHAN-32: Reply in same thread routes to same task
-│   └── CHAN-33: New thread creates new task
+│   └── CHAN-33: Different thread_id creates new task
 ```
 
 ### Chain 5: Webhook Outbound Callback
@@ -74,7 +74,7 @@ Creating a webhook task trigger for a repository.
 
 * **Given** a valid repository exists
 
-* **When** the user creates a webhook task trigger with a source identifier and per-message routing
+* **When** the user creates a webhook task trigger with a source identifier and by-subject routing
 
 * **Then** the trigger is created in an active state
   * **And** the trigger has a unique identifier
@@ -104,7 +104,7 @@ Retrieving a task trigger by its identifier.
 
 * **Then** the trigger details match what was created
   * **And** the provider is webhook
-  * **And** the routing mode is per_message
+  * **And** the routing mode is by_subject
 
 ---
 
@@ -158,19 +158,20 @@ A deleted trigger no longer appears in the listing.
 
 ---
 
-## Chain 2: Webhook Inbound (per_message routing)
+## Chain 2: Webhook Inbound (by_subject routing without thread_id)
 
-Each inbound webhook message creates a new task.
+When messages arrive without a thread identifier, each one gets a fresh
+synthesized subject and a new task is created. Verifies the create-when-no-binding-exists branch of by_subject routing.
 
 ---
 
-### CHAN-10: Create webhook task trigger with per_message routing
+### CHAN-10: Create webhook task trigger with by_subject routing
 
-Setting up a webhook task trigger for per-message routing mode.
+Setting up a webhook task trigger for by_subject routing mode.
 
 * **Given** a valid repository exists
 
-* **When** the user creates a webhook task trigger with per_message routing
+* **When** the user creates a webhook task trigger with by_subject routing
 
 * **Then** the trigger is created and active
 
@@ -213,27 +214,27 @@ The task created by the webhook is linked to the trigger's repository.
 
 ---
 
-### CHAN-12: Send second message — new task created
+### CHAN-12: Send second message without thread_id — new task created
 
-In per_message mode, a second message creates a separate task.
+A second message without a thread identifier gets its own synthesized subject and creates a separate task.
 
 * **Given** CHAN-11 has completed
 
-* **When** a second message is sent to the same webhook endpoint
+* **When** a second message is sent to the same webhook endpoint without a thread identifier
 
 * **Then** a new task is created (different from the first)
 
 ---
 
-### CHAN-13: Send message with thread_id — new task
+### CHAN-13: Send message with new thread_id — new task
 
-In per_message mode, a message with a thread identifier still creates a new task.
+A message that introduces a new thread identifier has no existing binding, so a new task is created.
 
 * **Given** CHAN-12 has completed
 
-* **When** a message is sent with a thread identifier
+* **When** a message is sent with a thread identifier that has not been used before
 
-* **Then** a new task is created (per_message mode ignores thread identifiers)
+* **Then** a new task is created
 
 ---
 
@@ -294,27 +295,27 @@ When the ongoing task is closed, the next message creates a new task.
 
 ---
 
-## Chain 4: Webhook Inbound (thread_based routing)
+## Chain 4: Webhook Inbound (by_subject routing with thread_id)
 
-In thread_based mode, messages are grouped by thread identifier — messages in the same thread route to the same task.
+When messages arrive with a thread identifier, the thread becomes the subject and messages on the same thread reuse the task. Verifies the find-existing-binding branch of by_subject routing.
 
 ---
 
-### CHAN-30: Create webhook task trigger with thread_based routing
+### CHAN-30: Create webhook task trigger with by_subject routing
 
-Setting up a webhook task trigger for thread-based routing mode.
+Setting up a webhook task trigger for by_subject routing mode.
 
 * **Given** a valid repository exists
 
-* **When** the user creates a webhook task trigger with thread_based routing
+* **When** the user creates a webhook task trigger with by_subject routing
 
 * **Then** the trigger is created and active
 
 ---
 
-### CHAN-31: New message creates task
+### CHAN-31: New thread_id creates task
 
-A message with a new thread identifier creates a new task.
+A message with a never-seen thread identifier creates a new task.
 
 * **Given** CHAN-30 has completed
 
@@ -337,7 +338,7 @@ A reply in the same thread routes to the existing task.
 
 ---
 
-### CHAN-33: New thread creates new task
+### CHAN-33: Different thread_id creates new task
 
 A message with a different thread identifier creates a separate task.
 

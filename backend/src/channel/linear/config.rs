@@ -98,7 +98,7 @@ mod tests {
             connection_id: "pc_test".into(),
             source_matcher: "team-uuid".into(),
             source_name: None,
-            routing_mode: RoutingMode::ThreadBased,
+            routing_mode: RoutingMode::BySubject,
             event_filter: serde_json::json!([]),
             repository_id: "repo-1".into(),
             prompt_template: None,

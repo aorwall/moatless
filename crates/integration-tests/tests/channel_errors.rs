@@ -28,7 +28,7 @@ async fn create_webhook_trigger(
         client,
         repo_id,
         source_matcher,
-        RoutingMode::PerMessage,
+        RoutingMode::BySubject,
         trigger_config,
     )
     .await
@@ -123,7 +123,7 @@ async fn channel_create_nonexistent_repo() {
         &reqwest::Client::new(),
         &serde_json::json!({
             "repositoryId": format!("non-existent-repo-id-{suffix}"),
-            "routingMode": "per_message"
+            "routingMode": "by_subject"
         }),
     )
     .await;

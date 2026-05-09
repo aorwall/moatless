@@ -55,7 +55,7 @@ mod tests {
             connection_id: "pc_test".into(),
             source_matcher: "Frank-Penny/repo".into(),
             source_name: None,
-            routing_mode: crate::channel::models::RoutingMode::ThreadBased,
+            routing_mode: crate::channel::models::RoutingMode::BySubject,
             event_filter: events_filter,
             repository_id: "repo-1".into(),
             prompt_template: None,

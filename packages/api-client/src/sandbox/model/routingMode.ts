@@ -14,6 +14,5 @@ export type RoutingMode = typeof RoutingMode[keyof typeof RoutingMode];
 
 export const RoutingMode = {
   ongoing: 'ongoing',
-  per_message: 'per_message',
-  thread_based: 'thread_based',
+  by_subject: 'by_subject',
 } as const;

@@ -57,7 +57,7 @@ async fn seed_github_trigger(pool: &PgPool, owner: &str, repo: &str, repository_
         connection_id: connection.id.clone(),
         source_matcher: format!("{owner}/{repo}"),
         source_name: Some(format!("{owner}/{repo}")),
-        routing_mode: RoutingMode::ThreadBased,
+        routing_mode: RoutingMode::BySubject,
         event_filter: serde_json::json!([]),
         repository_id: repository_id.to_string(),
         prompt_template: None,

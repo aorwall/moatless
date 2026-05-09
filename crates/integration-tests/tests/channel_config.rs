@@ -21,13 +21,13 @@ async fn task_route_trigger_crud_chain() {
     let source = format!("crud-test-{suffix}");
 
     let fixture =
-        create_webhook_integration(&client, &repo_id, &source, RoutingMode::PerMessage, None).await;
+        create_webhook_integration(&client, &repo_id, &source, RoutingMode::BySubject, None).await;
 
     assert!(!fixture.connection.id.is_empty());
     assert_eq!(fixture.connection.external_account_id, source);
     assert!(!fixture.route.id.is_empty());
     assert_eq!(fixture.route.repository_id, repo_id);
-    assert_eq!(fixture.route.routing_mode, RoutingMode::PerMessage);
+    assert_eq!(fixture.route.routing_mode, RoutingMode::BySubject);
     assert!(!fixture.trigger.id.is_empty());
     assert_eq!(fixture.trigger.route_id, fixture.route.id);
     assert_eq!(fixture.trigger.source_matcher, source);

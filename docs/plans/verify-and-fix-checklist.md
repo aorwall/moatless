@@ -187,7 +187,7 @@ Slack Events API → POST /api/v1/channels/slack/webhook
   → HMAC-SHA256 signature verification
   → Event dedup (5-min Moka cache)
   → SlackProvider::parse_event() → InboundMessage
-  → router::route_message() (ongoing/per_message/thread_based)
+  → router::route_message() (ongoing/by_subject)
   → process_inbound() — create/route task, provision sandbox, send message
   → Agent processes → event_handler → outbound.rs
   → SlackProvider::send_reply() (thread reply + emoji reactions)
@@ -215,8 +215,7 @@ Slack Events API → POST /api/v1/channels/slack/webhook
 - [ ] User resolution: Slack user → email → system user ID
 - [ ] Routing modes work:
   - [ ] `ongoing` — all messages → single task, auto-creates on close
-  - [ ] `per_message` — each message → new task
-  - [ ] `thread_based` — new messages → new task, replies → existing task
+  - [ ] `by_subject` — new subjects (threads, PRs, issues) → new task, replies on the same subject → existing task
 - [ ] Thread context enrichment (previous messages prepended to agent input)
 - [ ] Outbound replies post in thread with task URL
 - [ ] Emoji reactions: 👀 processing → ✅ completed / ❌ error

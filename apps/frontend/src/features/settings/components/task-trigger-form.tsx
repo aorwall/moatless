@@ -65,8 +65,7 @@ const SLACK_TRIGGER_LABELS: Record<string, string> = {
 }
 
 const ROUTING_MODE_LABELS: Record<string, string> = {
-  thread_based: 'Thread Based',
-  per_message: 'Per Message',
+  by_subject: 'By Subject',
   ongoing: 'Ongoing',
 }
 

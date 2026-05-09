@@ -1265,6 +1265,57 @@
         }
       }
     },
+    "/api/v1/feedback": {
+      "post": {
+        "tags": [
+          "feedback"
+        ],
+        "summary": "Create a new feedback row scoped to a task (and optionally a message\nor tool call within that task).",
+        "operationId": "create_feedback",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateFeedbackRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Feedback created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedbackResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/figma/import-clipboard": {
       "post": {
         "tags": [
@@ -3108,6 +3159,250 @@
         }
       }
     },
+    "/api/v1/task-templates": {
+      "get": {
+        "tags": [
+          "task-templates"
+        ],
+        "summary": "List task templates visible to the current user.",
+        "operationId": "list_task_templates",
+        "responses": {
+          "200": {
+            "description": "List of task templates",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TaskTemplateResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "task-templates"
+        ],
+        "summary": "Create a new task template.",
+        "operationId": "create_task_template",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTaskTemplateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Task template created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskTemplateResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/task-templates/featured": {
+      "get": {
+        "tags": [
+          "task-templates"
+        ],
+        "summary": "Get featured templates for the chip strip (recent-used first, then featured).",
+        "operationId": "list_featured_task_templates",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of templates (default 6)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Featured templates for chip strip",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TaskTemplateResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/task-templates/{template_id}": {
+      "get": {
+        "tags": [
+          "task-templates"
+        ],
+        "summary": "Get a task template by ID.",
+        "operationId": "get_task_template",
+        "parameters": [
+          {
+            "name": "template_id",
+            "in": "path",
+            "description": "Template identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Task template details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskTemplateResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Template not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "task-templates"
+        ],
+        "summary": "Delete a task template by ID.",
+        "operationId": "delete_task_template",
+        "parameters": [
+          {
+            "name": "template_id",
+            "in": "path",
+            "description": "Template identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Task template deleted"
+          },
+          "403": {
+            "description": "Access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Template not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "task-templates"
+        ],
+        "summary": "Update a task template by ID.",
+        "operationId": "update_task_template",
+        "parameters": [
+          {
+            "name": "template_id",
+            "in": "path",
+            "description": "Template identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTaskTemplateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Task template updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskTemplateResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Template not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tasks": {
       "get": {
         "tags": [
@@ -3599,6 +3894,48 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ListTaskEventsResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/feedback": {
+      "get": {
+        "tags": [
+          "feedback"
+        ],
+        "summary": "List all feedback rows for a task, ordered oldest → newest. Used by the\nfrontend to render the \"has feedback\" indicator on messages and tool calls.",
+        "operationId": "list_task_feedback",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Feedback list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListFeedbackResponse"
                 }
               }
             }
@@ -6115,6 +6452,39 @@
           }
         }
       },
+      "CreateFeedbackRequest": {
+        "type": "object",
+        "description": "Request body for `POST /api/v1/feedback`.",
+        "required": [
+          "taskId",
+          "surface",
+          "comment"
+        ],
+        "properties": {
+          "comment": {
+            "type": "string"
+          },
+          "messageUuid": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "metadata": {},
+          "surface": {
+            "$ref": "#/components/schemas/FeedbackSurface"
+          },
+          "taskId": {
+            "type": "string"
+          },
+          "toolUseId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "CreateProviderConnectionRequest": {
         "type": "object",
         "description": "Request body for `POST /api/v1/integrations/connections`.\n\nToday only used for Linear, where the workspace connection has to be\nregistered explicitly because each Linear workspace creates its own\nwebhook with its own secret.",
@@ -6526,6 +6896,12 @@
           },
           "repositoryId": {
             "type": "string"
+          },
+          "taskTemplateId": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -6609,6 +6985,100 @@
               "string",
               "null"
             ]
+          },
+          "teamId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CreateTaskTemplateRequest": {
+        "type": "object",
+        "description": "Request to create a task template.",
+        "required": [
+          "name",
+          "repositoryId",
+          "agentType"
+        ],
+        "properties": {
+          "agentMode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "agentType": {
+            "type": "string"
+          },
+          "color": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "defaultModel": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "displayOrder": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "featured": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "icon": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "initialPrompt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "repositoryId": {
+            "type": "string"
+          },
+          "scope": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
+            ]
+          },
+          "skills": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
           },
           "teamId": {
             "type": [
@@ -6882,6 +7352,73 @@
             ]
           }
         }
+      },
+      "FeedbackResponse": {
+        "type": "object",
+        "description": "Response shape for a single feedback row.",
+        "required": [
+          "feedbackId",
+          "taskId",
+          "source",
+          "surface",
+          "comment",
+          "createdBy",
+          "createdAt"
+        ],
+        "properties": {
+          "comment": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "createdBy": {
+            "type": "string"
+          },
+          "feedbackId": {
+            "type": "string"
+          },
+          "messageUuid": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "metadata": {},
+          "source": {
+            "$ref": "#/components/schemas/FeedbackSource"
+          },
+          "surface": {
+            "$ref": "#/components/schemas/FeedbackSurface"
+          },
+          "taskId": {
+            "type": "string"
+          },
+          "toolUseId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "FeedbackSource": {
+        "type": "string",
+        "description": "Submitter of a feedback row — derived from auth context on the server.",
+        "enum": [
+          "user",
+          "agent"
+        ]
+      },
+      "FeedbackSurface": {
+        "type": "string",
+        "description": "Where in the UI/CLI the feedback originated.",
+        "enum": [
+          "task",
+          "message",
+          "tool_call",
+          "preview_failure"
+        ]
       },
       "FigmaContextData": {
         "type": "object",
@@ -7390,6 +7927,21 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/AgentDescriptor"
+            }
+          }
+        }
+      },
+      "ListFeedbackResponse": {
+        "type": "object",
+        "description": "Response wrapper for `GET /api/v1/tasks/{task_id}/feedback`.",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FeedbackResponse"
             }
           }
         }
@@ -8476,8 +9028,7 @@
         "description": "Channel routing mode for message-to-task mapping.",
         "enum": [
           "ongoing",
-          "per_message",
-          "thread_based"
+          "by_subject"
         ]
       },
       "RuntimeEvent": {
@@ -9976,6 +10527,108 @@
           "metadata.updated"
         ]
       },
+      "TaskTemplateResponse": {
+        "type": "object",
+        "description": "Task template response DTO.",
+        "required": [
+          "id",
+          "name",
+          "repositoryId",
+          "agentType",
+          "scope",
+          "featured",
+          "displayOrder",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "agentMode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "agentType": {
+            "type": "string"
+          },
+          "color": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "createdBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "defaultModel": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "displayOrder": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "featured": {
+            "type": "boolean"
+          },
+          "icon": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "initialPrompt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "repositoryId": {
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "skills": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "teamId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        }
+      },
       "TaskTriggerResponse": {
         "type": "object",
         "required": [
@@ -10888,6 +11541,104 @@
           }
         }
       },
+      "UpdateTaskTemplateRequest": {
+        "type": "object",
+        "description": "Request to update a task template (all fields optional).",
+        "properties": {
+          "agentMode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "agentType": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "color": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "defaultModel": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "displayOrder": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "featured": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "icon": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "initialPrompt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "repositoryId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scope": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
+            ]
+          },
+          "skills": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "teamId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "UpdateTaskTriggerRequest": {
         "type": "object",
         "properties": {
@@ -11416,6 +12167,10 @@
       "description": "Command management"
     },
     {
+      "name": "feedback",
+      "description": "Qualitative feedback on agent runs"
+    },
+    {
       "name": "file-storage",
       "description": "File upload and download via S3"
     },
@@ -11466,6 +12221,10 @@
     {
       "name": "task-events",
       "description": "Task event history"
+    },
+    {
+      "name": "task-templates",
+      "description": "Task template CRUD operations"
     },
     {
       "name": "skills",

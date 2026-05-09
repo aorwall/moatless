@@ -110,7 +110,7 @@ describe('integrationsApi', () => {
   it('uses generated task route handlers', async () => {
     const routeRequest = {
       repositoryId: 'repo-1',
-      routingMode: RoutingMode.thread_based,
+      routingMode: RoutingMode.by_subject,
       promptTemplate: null,
       taskName: null,
       tagIds: [],

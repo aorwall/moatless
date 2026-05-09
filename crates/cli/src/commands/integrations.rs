@@ -54,7 +54,7 @@ pub enum TaskRouteAction {
     Create {
         #[arg(long)]
         repository_id: String,
-        #[arg(long, default_value = "thread_based")]
+        #[arg(long, default_value = "by_subject")]
         routing_mode: String,
         #[arg(long)]
         prompt_template: Option<String>,

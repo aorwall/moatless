@@ -75,7 +75,7 @@ curl -X POST http://localhost:8080/api/v1/channels/configs \
     "provider": "telegram",
     "sourceId": "*",
     "repositoryId": "<REPOSITORY_ID>",
-    "routingMode": "per_message",
+    "routingMode": "by_subject",
     "providerConfig": {
       "bot_username": "@your_bot_username"
     }
@@ -94,7 +94,7 @@ curl -X POST http://localhost:8080/api/v1/channels/configs \
     "provider": "telegram",
     "sourceId": "-1001234567890",
     "repositoryId": "<REPOSITORY_ID>",
-    "routingMode": "thread_based",
+    "routingMode": "by_subject",
     "providerConfig": {
       "bot_username": "@your_bot_username",
       "secret_token": "your-secret"
@@ -116,8 +116,7 @@ curl -X POST http://localhost:8080/api/v1/channels/configs \
 | Mode | Behavior |
 |------|----------|
 | `ongoing` | All messages route to a single long-lived task |
-| `per_message` | Each message creates a new task |
-| `thread_based` | New messages create tasks; replies to bot messages continue the same task |
+| `by_subject` | Each external subject gets one task; replies on the same subject reuse it. Subject granularity is provider-specific (Telegram: chat in DMs, message in groups) |
 
 ### Threading Behavior
 

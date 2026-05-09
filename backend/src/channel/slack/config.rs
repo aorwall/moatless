@@ -107,7 +107,7 @@ mod tests {
             source_id: "C123".into(),
             source_name: None,
             repository_id: "repo1".into(),
-            routing_mode: crate::channel::models::RoutingMode::ThreadBased,
+            routing_mode: crate::channel::models::RoutingMode::BySubject,
             prompt_template: None,
             active: true,
             allow_direct_send: false,

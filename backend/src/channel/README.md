@@ -31,10 +31,12 @@ scope owns the resulting tasks. Routes are provider-neutral.
 
 Routing modes:
 
-- `per_message`: create a new task when no existing binding matches the
-  external subject.
-- `thread_based`: reuse a task through the subject binding for the provider
-  thread, issue, PR, or conversation.
+- `by_subject`: find or create one task per external subject. The runtime looks
+  up bindings by `(provider, subject_kind, subject_key)`, reuses the matching
+  task when present, and creates a new one when absent. The lifecycle
+  difference users perceive between providers (Slack thread = ephemeral task,
+  GitHub PR = long-lived task) comes from the provider's `subject_key`
+  granularity, not from this enum.
 - `ongoing`: route all matching events to one open task tracked on the route,
   creating a new ongoing task if the tracked task is missing or closed.
 

@@ -55,7 +55,7 @@ async fn webhook_outbound_callback() {
         &client,
         &repo_id,
         &format!("callback-{suffix}"),
-        RoutingMode::PerMessage,
+        RoutingMode::BySubject,
         Some(json!({
             "callback_url": callback_url
         })),

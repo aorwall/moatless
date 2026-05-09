@@ -209,7 +209,7 @@ mod tests {
             source_id: "my-webhook".into(),
             source_name: None,
             repository_id: "repo-1".into(),
-            routing_mode: RoutingMode::PerMessage,
+            routing_mode: RoutingMode::BySubject,
             prompt_template: None,
             active: true,
             allow_direct_send: false,

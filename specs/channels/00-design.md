@@ -122,7 +122,7 @@ Important fields:
 | `provider` | Channel provider such as `slack`, `telegram`, `github_pr`, `webhook`, `cron` |
 | `source_id` | Provider-specific source key such as Slack channel ID, Telegram chat ID, `owner/repo`, webhook slug, or `*` |
 | `repository_id` | Repository used when creating channel-originated tasks |
-| `routing_mode` | `per_message`, `thread_based`, or `ongoing` |
+| `routing_mode` | `by_subject` or `ongoing` |
 | `prompt_template` | Extra system prompt appended to channel-created tasks |
 | `provider_config` | Provider-specific JSON configuration |
 | `ongoing_task_id` | Current open task for `ongoing` routing |
@@ -214,7 +214,9 @@ Routing rules:
 - If the config is `ongoing` and there is an open `ongoing_task_id`, the message continues that task even without a thread.
 - Otherwise a new task is created.
 
-This means `thread_based` and `per_message` both honor an existing linked thread. The difference only matters when there is no existing thread.
+For non-`ongoing` routes (`by_subject`), the runtime always honors an existing
+binding for the external subject and creates a new task only when no binding
+exists.
 
 ### 3. Task creation
 
@@ -288,23 +290,19 @@ Outbound behavior is intended to:
 
 ## Routing Modes
 
-### `per_message`
+### `by_subject`
 
 Intended semantics:
 
-- Every new top-level message creates a new task.
-- If the provider identifies a known existing thread, that thread still continues its task.
+- Find or create one task per external subject.
+- The runtime looks up bindings by `(provider, subject_kind, subject_key)`,
+  reuses the matching task when present, and creates a new one when absent.
+- Replies on the same subject reuse the task.
 
-This is not pure "always new task". It is "always new task unless the message is already in a tracked thread".
-
-### `thread_based`
-
-Intended semantics:
-
-- A new external thread creates a new task.
-- Replies in that same external thread continue the task.
-
-This is the most natural fit for Slack threads and GitHub PR threads.
+The lifecycle difference users perceive between providers (Slack thread =
+ephemeral task, GitHub PR = long-lived task, persistent webhook stream =
+one-task-per-message when no thread is supplied) comes from how each provider
+shapes its `subject_key`, not from this enum.
 
 ### `ongoing`
 

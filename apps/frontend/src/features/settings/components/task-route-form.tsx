@@ -33,15 +33,15 @@ interface TaskRouteFormState {
 }
 
 const ROUTING_MODE_DESCRIPTIONS: Record<RoutingMode, string> = {
-  thread_based: 'New messages create tasks. Thread replies continue the existing task.',
-  per_message: 'Each message creates a new task. Thread replies still follow existing tasks.',
+  by_subject:
+    'Each external subject (Slack thread, GitHub PR, Linear issue) gets one task. Replies on that subject reuse the task.',
   ongoing: 'All messages route to a single long-lived task.',
 }
 
 function makeInitialForm(route: TaskRouteResponse | null | undefined): TaskRouteFormState {
   return {
     repositoryId: route?.repositoryId ?? '',
-    routingMode: route?.routingMode ?? 'thread_based',
+    routingMode: route?.routingMode ?? 'by_subject',
     promptTemplate: route?.promptTemplate ?? '',
     taskName: route?.taskName ?? '',
     tagIds: route?.tagIds ?? [],
@@ -143,8 +143,7 @@ export function TaskRouteForm({ route, onSuccess, onCancel }: TaskRouteFormProps
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="thread_based">Thread Based</SelectItem>
-            <SelectItem value="per_message">Per Message</SelectItem>
+            <SelectItem value="by_subject">By Subject</SelectItem>
             <SelectItem value="ongoing">Ongoing</SelectItem>
           </SelectContent>
         </Select>

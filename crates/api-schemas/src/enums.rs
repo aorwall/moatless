@@ -551,16 +551,14 @@ impl sqlx::Encode<'_, sqlx::Postgres> for UserRole {
 #[serde(rename_all = "snake_case")]
 pub enum RoutingMode {
     Ongoing,
-    PerMessage,
-    ThreadBased,
+    BySubject,
 }
 
 impl RoutingMode {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Ongoing => "ongoing",
-            Self::PerMessage => "per_message",
-            Self::ThreadBased => "thread_based",
+            Self::BySubject => "by_subject",
         }
     }
 }
@@ -576,8 +574,7 @@ impl TryFrom<&str> for RoutingMode {
     fn try_from(s: &str) -> Result<Self, String> {
         match s {
             "ongoing" => Ok(Self::Ongoing),
-            "per_message" => Ok(Self::PerMessage),
-            "thread_based" => Ok(Self::ThreadBased),
+            "by_subject" => Ok(Self::BySubject),
             other => Err(format!("unknown RoutingMode: {other:?}")),
         }
     }
@@ -965,29 +962,23 @@ mod tests {
             "\"ongoing\""
         );
         assert_eq!(
-            serde_json::to_string(&RoutingMode::PerMessage).expect("serialize"),
-            "\"per_message\""
-        );
-        assert_eq!(
-            serde_json::to_string(&RoutingMode::ThreadBased).expect("serialize"),
-            "\"thread_based\""
+            serde_json::to_string(&RoutingMode::BySubject).expect("serialize"),
+            "\"by_subject\""
         );
 
-        let parsed: RoutingMode = serde_json::from_str("\"per_message\"").expect("deserialize");
-        assert_eq!(parsed, RoutingMode::PerMessage);
+        let parsed: RoutingMode = serde_json::from_str("\"by_subject\"").expect("deserialize");
+        assert_eq!(parsed, RoutingMode::BySubject);
     }
 
     #[test]
     fn routing_mode_try_from() {
         assert_eq!(RoutingMode::try_from("ongoing"), Ok(RoutingMode::Ongoing));
         assert_eq!(
-            RoutingMode::try_from("per_message"),
-            Ok(RoutingMode::PerMessage)
+            RoutingMode::try_from("by_subject"),
+            Ok(RoutingMode::BySubject)
         );
-        assert_eq!(
-            RoutingMode::try_from("thread_based"),
-            Ok(RoutingMode::ThreadBased)
-        );
+        assert!(RoutingMode::try_from("per_message").is_err());
+        assert!(RoutingMode::try_from("thread_based").is_err());
         assert!(RoutingMode::try_from("invalid").is_err());
     }
 
