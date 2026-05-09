@@ -24,7 +24,7 @@ use moatless_vibe_backend::startup;
 use moatless_vibe_backend::state::AppState;
 use moatless_vibe_backend::{
     command, feedback, figma, file_storage, message, plugin_repo, provider_settings, repository,
-    secret, skill, tag, task, task_event, team,
+    secret, skill, tag, task, task_event, task_template, team,
 };
 
 #[tokio::main]
@@ -263,6 +263,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             channel::routes::channel_router(app_state.clone()),
             team::routes::team_router(app_state.clone()),
             task_event::routes::task_event_router(app_state.clone()),
+            task_template::routes::task_template_router(app_state.clone()),
             plugin_repo::routes::plugin_repo_router(app_state.clone()),
             skill::routes::skill_router(app_state.clone()),
         ];

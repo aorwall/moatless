@@ -13,4 +13,5 @@ pub mod secrets;
 pub mod settings;
 pub mod tasks;
 pub mod teams;
+pub mod templates;
 pub mod users;

@@ -55,6 +55,7 @@ async fn sandbox_provision_failure_invalid_image() {
         model: None,
         command_name: None,
         headless: None,
+        task_template_id: None,
     };
     let created = client.api().create_task(&task_req).await.unwrap();
     let task_id = &created.task_id;

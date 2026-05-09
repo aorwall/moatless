@@ -1,7 +1,9 @@
-import { Bot, Database, GitBranch, Plus, Sparkles, Wand2 } from 'lucide-react'
+import { Bot, Database, GitBranch, LayoutTemplate, Plus, Sparkles, Wand2 } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import type { AgentDescriptor, AgentModel } from '@/features/agents/types'
 import { useBranches, useRepositoriesList } from '@/features/repositories/hooks/use-repositories.ts'
+import type { TaskTemplateResponse } from '@/features/task-templates/api/task-templates'
+import { useTaskTemplatesList } from '@/features/task-templates/hooks/use-task-templates'
 import {
   CLAUDE_MODEL_DISPLAY_NAMES,
   CLAUDE_MODELS,
@@ -342,6 +344,62 @@ export function useAgentTypeSelector(
       displayValue: selectedType?.label || 'Select agent',
     }),
     [currentValue, handleChange, items, selectedType],
+  )
+}
+
+// Task template selector hook - controlled. Lets the user pick a template from
+// the full visible list (user + team + global) before submitting a task.
+export function useTaskTemplateSelector(
+  value?: string,
+  onChange?: (id: string | undefined) => void,
+  _templates?: TaskTemplateResponse[],
+) {
+  const { data: fetchedTemplates, isLoading } = useTaskTemplatesList()
+  const templates = _templates ?? fetchedTemplates ?? []
+
+  const [internalValue, setInternalValue] = useState<string | undefined>(undefined)
+  const isControlled = value !== undefined
+  const currentValue = isControlled ? value : internalValue
+
+  const items = useMemo(
+    () =>
+      templates.map((t) => ({
+        id: t.id,
+        label: t.name,
+        description: t.description ?? undefined,
+      })),
+    [templates],
+  )
+
+  const handleChange = useCallback(
+    (newValue: string) => {
+      const nextValue = newValue || undefined
+      if (!isControlled) {
+        setInternalValue(nextValue)
+      }
+      onChange?.(nextValue)
+    },
+    [isControlled, onChange],
+  )
+
+  const selectedTemplate = useMemo(
+    () => templates.find((t) => t.id === currentValue),
+    [templates, currentValue],
+  )
+
+  return useMemo(
+    () => ({
+      value: currentValue ?? '',
+      onChange: handleChange,
+      placeholder: 'Template',
+      items,
+      loading: isLoading,
+      disabled: false,
+      icon: LayoutTemplate,
+      tooltip: 'Choose a task template',
+      displayValue: selectedTemplate?.name ?? 'Template',
+    }),
+    [currentValue, handleChange, items, isLoading, selectedTemplate],
   )
 }
 

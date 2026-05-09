@@ -35,6 +35,7 @@ import {
   useBranchSelector,
   useModelSelector,
   useRepositorySelector,
+  useTaskTemplateSelector,
 } from '@/lib/components/chat/chat-input/selectors'
 import {
   CommandAutocomplete,
@@ -60,6 +61,8 @@ interface CreateCodeTaskProps {
   onAgentTypeChange?: (type: AgentType) => void
   repositoryId: string
   onRepositoryChange: (repoId: string) => void
+  templateId?: string
+  onTemplateChange?: (id: string | undefined) => void
   onSuccess?: () => void
 }
 
@@ -78,6 +81,8 @@ export function CreateCodeTask({
   onAgentTypeChange,
   repositoryId,
   onRepositoryChange,
+  templateId,
+  onTemplateChange,
   onSuccess,
 }: CreateCodeTaskProps) {
   const navigate = useNavigate()
@@ -185,6 +190,7 @@ export function CreateCodeTask({
 
   const repoSelector = useRepositorySelector(repositoryId, onRepositoryChange, true)
   const branchSelector = useBranchSelector(repositoryId, branch, setBranch, true, repositoryDetails)
+  const templateSelector = useTaskTemplateSelector(templateId, onTemplateChange)
 
   // Surface branch-fetch failures via a toast (e.g., 403 when token lacks access)
   useEffect(() => {
@@ -249,6 +255,7 @@ export function CreateCodeTask({
         branch: branchSelector.value,
         agentMode: submitAgentMode,
         commandName: selectedCommand?.name,
+        taskTemplateId: templateId,
       },
       {
         onSuccess: () => {
@@ -336,6 +343,23 @@ export function CreateCodeTask({
 
           <div className="flex items-center justify-between gap-2">
             <Selectors>
+              {templateSelector.items.length > 0 && (
+                <PopoverSelector
+                  icon={templateSelector.icon}
+                  value={templateSelector.value}
+                  displayValue={templateSelector.displayValue}
+                  tooltip={templateSelector.tooltip}
+                  loading={templateSelector.loading}
+                  disabled={templateSelector.disabled}
+                >
+                  <SimpleListPopoverContent
+                    items={templateSelector.items}
+                    value={templateSelector.value}
+                    onChange={templateSelector.onChange}
+                  />
+                </PopoverSelector>
+              )}
+
               <PopoverSelector
                 icon={repoSelector.icon}
                 value={repoSelector.value}

@@ -119,4 +119,11 @@ export const queryKeys = {
     all: ['feedback'] as const,
     byTask: (taskId: string) => ['feedback', 'task', taskId] as const,
   },
+
+  taskTemplates: {
+    all: () => [...queryKeys.all, 'task-templates'] as const,
+    list: () => [...queryKeys.taskTemplates.all(), 'list'] as const,
+    featured: () => [...queryKeys.taskTemplates.all(), 'featured'] as const,
+    detail: (id: string) => [...queryKeys.taskTemplates.all(), 'detail', id] as const,
+  },
 } as const

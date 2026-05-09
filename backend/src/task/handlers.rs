@@ -150,6 +150,7 @@ pub async fn create_task(
         sandbox_started_at: None,
         headless: req.headless.unwrap_or(false),
         ttl_minutes: state.config.sandbox.idle_timeout_minutes as i32,
+        task_template_id: req.task_template_id.clone(),
     };
 
     insert_and_provision_task(

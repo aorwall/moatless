@@ -31,6 +31,7 @@ use crate::skill::service::SkillService;
 use crate::tag::dao::{PgTagRepository, TagRepository};
 use crate::task::dao::{PgTaskRepository, TaskRepository};
 use crate::task_event::dao::{PgTaskEventRepository, TaskEventRepository};
+use crate::task_template::dao::{PgTaskTemplateRepository, TaskTemplateRepository};
 use crate::team::dao::{PgTeamRepository, TeamRepository};
 
 /// Shared application state for task/message/agent/command/file routes.
@@ -81,6 +82,7 @@ pub struct AppState {
     pub secrets: Arc<SecretService>,
     pub teams: Arc<dyn TeamRepository>,
     pub task_events: Arc<dyn TaskEventRepository>,
+    pub task_templates: Arc<dyn TaskTemplateRepository>,
     pub plugin_repos: Arc<dyn PluginRepoRepository>,
     /// Skill discovery service — reads `.claude/skills/` from workspace
     /// and plugin repositories, parses frontmatter, caches results.
@@ -170,6 +172,7 @@ impl AppState {
             secrets,
             teams: Arc::new(PgTeamRepository(pool.clone())),
             task_events: Arc::new(PgTaskEventRepository(pool.clone())),
+            task_templates: Arc::new(PgTaskTemplateRepository(pool.clone())),
             plugin_repos,
             skills,
             db: pool,

@@ -271,6 +271,7 @@ pub fn make_task_row(task_id: &str, user_id: &str) -> Task {
         sandbox_started_at: None,
         headless: false,
         ttl_minutes: 15,
+        task_template_id: None,
     }
 }
 

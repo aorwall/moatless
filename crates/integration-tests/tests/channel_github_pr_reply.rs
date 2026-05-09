@@ -36,6 +36,7 @@ async fn create_bare_task(client: &MoatClient, repo_id: &str) -> String {
             model: None,
             command_name: None,
             headless: None,
+            task_template_id: None,
         })
         .await
         .unwrap()

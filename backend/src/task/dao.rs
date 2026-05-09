@@ -94,11 +94,11 @@ impl TaskRepository for PgTaskRepository {
                 vibe, name, description, site_id, site_provider, branch,
                 created_by, visibility, scope, team_id, parent_task_id,
                 append_system_prompt, updated_at, sandbox_started_at, headless,
-                ttl_minutes
+                ttl_minutes, task_template_id
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
                 $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21,
-                $22, NOW(), $23, $24, $25
+                $22, NOW(), $23, $24, $25, $26
             )"#,
         )
         .bind(&row.task_id)
@@ -126,6 +126,7 @@ impl TaskRepository for PgTaskRepository {
         .bind(row.sandbox_started_at)
         .bind(row.headless)
         .bind(row.ttl_minutes)
+        .bind(&row.task_template_id)
         .execute(&self.0)
         .await?;
         Ok(())
@@ -162,6 +163,7 @@ impl TaskRepository for PgTaskRepository {
             sandbox_started_at: Option<DateTime<Utc>>,
             headless: bool,
             ttl_minutes: i32,
+            task_template_id: Option<String>,
             total_count: i64,
         }
 
@@ -173,7 +175,7 @@ impl TaskRepository for PgTaskRepository {
                 t.vibe, t.name, t.description, t.site_id, t.site_provider, t.branch,
                 t.created_by, t.visibility, t.scope, t.team_id, t.created_at_db,
                 t.updated_at, t.parent_task_id, t.append_system_prompt,
-                t.sandbox_started_at, t.headless, t.ttl_minutes,
+                t.sandbox_started_at, t.headless, t.ttl_minutes, t.task_template_id,
                 COUNT(*) OVER() AS total_count
             FROM tasks t
             LEFT JOIN task_tags tt ON t.task_id = tt.task_id
@@ -234,6 +236,7 @@ impl TaskRepository for PgTaskRepository {
                 sandbox_started_at: r.sandbox_started_at,
                 headless: r.headless,
                 ttl_minutes: r.ttl_minutes,
+                task_template_id: r.task_template_id,
             })
             .collect();
 

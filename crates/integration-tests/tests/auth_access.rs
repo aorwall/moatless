@@ -176,6 +176,7 @@ async fn task_scope_inheritance() {
             model: None,
             command_name: None,
             headless: None,
+            task_template_id: None,
         })
         .await
         .unwrap();
@@ -379,6 +380,7 @@ async fn listing_tasks_filters_by_scope() {
             model: None,
             command_name: None,
             headless: None,
+            task_template_id: None,
         })
         .await
         .unwrap();

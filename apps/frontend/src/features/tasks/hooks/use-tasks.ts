@@ -157,6 +157,10 @@ export function useCreateTask(
         })
       }
 
+      // A new task was created — bump template usage counts so featured chips refresh
+      queryClient.invalidateQueries({ queryKey: queryKeys.taskTemplates.featured() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.taskTemplates.list() })
+
       options?.onSuccess?.(data, variables, onMutateResult, mutationContext)
     },
     onError: (error, variables, onMutateResult, mutationContext) => {

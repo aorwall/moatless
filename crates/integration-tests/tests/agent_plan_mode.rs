@@ -89,6 +89,7 @@ async fn agent_plan_mode() {
         model: None,
         command_name: None,
         headless: None,
+        task_template_id: None,
     };
     let created = client.api().create_task(&req).await.unwrap();
     let task_id = &created.task_id;

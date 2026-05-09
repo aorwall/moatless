@@ -452,6 +452,58 @@ impl ApiClient {
     }
 
     // ========================================================================
+    // Task Templates
+    // ========================================================================
+
+    /// GET /api/v1/task-templates
+    pub async fn list_task_templates(
+        &self,
+    ) -> Result<Vec<moatless_api_schemas::task_template::TaskTemplateResponse>, ApiError> {
+        self.get("/api/v1/task-templates").await
+    }
+
+    /// GET /api/v1/task-templates/featured?limit={limit}
+    pub async fn list_featured_task_templates(
+        &self,
+        limit: u32,
+    ) -> Result<Vec<moatless_api_schemas::task_template::TaskTemplateResponse>, ApiError> {
+        self.get(&format!("/api/v1/task-templates/featured?limit={limit}"))
+            .await
+    }
+
+    /// GET /api/v1/task-templates/{id}
+    pub async fn get_task_template(
+        &self,
+        id: &str,
+    ) -> Result<moatless_api_schemas::task_template::TaskTemplateResponse, ApiError> {
+        self.get(&format!("/api/v1/task-templates/{id}")).await
+    }
+
+    /// POST /api/v1/task-templates
+    pub async fn create_task_template(
+        &self,
+        req: &moatless_api_schemas::task_template::CreateTaskTemplateRequest,
+    ) -> Result<moatless_api_schemas::task_template::TaskTemplateResponse, ApiError> {
+        self.post("/api/v1/task-templates", req).await
+    }
+
+    /// PATCH /api/v1/task-templates/{id}
+    pub async fn update_task_template(
+        &self,
+        id: &str,
+        req: &moatless_api_schemas::task_template::UpdateTaskTemplateRequest,
+    ) -> Result<moatless_api_schemas::task_template::TaskTemplateResponse, ApiError> {
+        self.patch(&format!("/api/v1/task-templates/{id}"), req)
+            .await
+    }
+
+    /// DELETE /api/v1/task-templates/{id}
+    pub async fn delete_task_template(&self, id: &str) -> Result<(), ApiError> {
+        self.delete_request(&format!("/api/v1/task-templates/{id}"))
+            .await
+    }
+
+    // ========================================================================
     // Messages
     // ========================================================================
 

@@ -195,6 +195,7 @@ pub async fn run(
                 model: None,
                 command_name: None,
                 headless: None,
+                task_template_id: None,
             };
             let created = client.api().create_task(&req).await?;
             if json {

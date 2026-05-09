@@ -13,6 +13,7 @@ export {
   useBranchSelector,
   useModelSelector,
   useRepositorySelector,
+  useTaskTemplateSelector,
 } from './hooks.ts'
 export type {
   BranchPopoverContentProps,

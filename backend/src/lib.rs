@@ -43,4 +43,5 @@ pub mod state;
 pub mod tag;
 pub mod task;
 pub mod task_event;
+pub mod task_template;
 pub mod team;

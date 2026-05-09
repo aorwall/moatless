@@ -26,6 +26,7 @@ pub struct CreateTaskRequest {
     pub command_name: Option<String>,
     #[serde(default)]
     pub headless: Option<bool>,
+    pub task_template_id: Option<String>,
 }
 
 /// Data for an element context (selected UI component).

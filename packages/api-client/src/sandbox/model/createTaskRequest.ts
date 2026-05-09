@@ -31,4 +31,6 @@ export interface CreateTaskRequest {
   /** @nullable */
   parentTaskId?: string | null;
   repositoryId: string;
+  /** @nullable */
+  taskTemplateId?: string | null;
 }

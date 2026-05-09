@@ -50,6 +50,8 @@ pub struct Task {
     /// Idle TTL in minutes. The reaper stops the sandbox when no activity has
     /// occurred for this many minutes. `0` means "indefinite — never reap".
     pub ttl_minutes: i32,
+    /// Optional reference to the task template used to create this task.
+    pub task_template_id: Option<String>,
 }
 
 #[cfg(test)]

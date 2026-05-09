@@ -1,5 +1,7 @@
 import type { TaskResponse } from '@moatless/api-client'
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
+import type { TaskTemplateResponse } from '@/features/task-templates'
+import { TemplateChipsRow } from '@/features/task-templates'
 import { CreateCodeTask } from '@/features/tasks/components/create-task/create-code-task'
 import {
   type DashboardSearchParams,
@@ -9,6 +11,7 @@ import { TaskTable } from '@/features/tasks/components/dashboard/task-table'
 import { TaskCard } from '@/features/tasks/components/task-card'
 import { useTaskPreferences } from '@/features/tasks/hooks/use-task-preferences'
 import { useTasksList } from '@/features/tasks/hooks/use-tasks'
+import type { AgentType } from '@/lib/components/chat/chat-input/selectors'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { type ClaudeModel, DEFAULT_CLAUDE_MODEL } from '@/lib/types/claude-models'
 
@@ -31,10 +34,34 @@ function TaskDashboardSkeleton() {
 function EmptyTaskState() {
   const preferences = useTaskPreferences()
   const [model, setModel] = useState<ClaudeModel>(DEFAULT_CLAUDE_MODEL)
+  const [templateId, setTemplateId] = useState<string | undefined>(undefined)
+
+  const { setRepositoryId, setAgentType, setAgentMode } = preferences
+
+  const handleTemplatePick = useCallback(
+    (template: TaskTemplateResponse) => {
+      setTemplateId(template.id)
+      if (template.repositoryId) {
+        setRepositoryId(template.repositoryId)
+      }
+      if (template.agentType) {
+        setAgentType(template.agentType as AgentType)
+      }
+      if (template.agentMode) {
+        setAgentMode(template.agentMode as 'edit' | 'plan')
+      }
+      if (template.defaultModel) {
+        setModel(template.defaultModel as ClaudeModel)
+      }
+    },
+    [setRepositoryId, setAgentType, setAgentMode],
+  )
+
   return (
     <div className="container mx-auto max-w-7xl p-6">
       {/* Create Task Section */}
       <div className="w-full max-w-3xl mx-auto mt-12 mb-12">
+        <TemplateChipsRow onPick={handleTemplatePick} />
         <CreateCodeTask
           showTitle={true}
           title="What should we build today?"
@@ -49,6 +76,8 @@ function EmptyTaskState() {
           onAgentTypeChange={preferences.setAgentType}
           repositoryId={preferences.repositoryId}
           onRepositoryChange={preferences.setRepositoryId}
+          templateId={templateId}
+          onTemplateChange={setTemplateId}
         />
       </div>
 
@@ -83,6 +112,32 @@ export function TaskDashboard({
 }: TaskDashboardProps) {
   const preferences = useTaskPreferences()
   const [model, setModel] = useState<ClaudeModel>(DEFAULT_CLAUDE_MODEL)
+  const [templateId, setTemplateId] = useState<string | undefined>(undefined)
+
+  const {
+    setRepositoryId: prefSetRepositoryId,
+    setAgentType: prefSetAgentType,
+    setAgentMode: prefSetAgentMode,
+  } = preferences
+
+  const handleTemplatePick = useCallback(
+    (template: TaskTemplateResponse) => {
+      setTemplateId(template.id)
+      if (template.repositoryId) {
+        prefSetRepositoryId(template.repositoryId)
+      }
+      if (template.agentType) {
+        prefSetAgentType(template.agentType as AgentType)
+      }
+      if (template.agentMode) {
+        prefSetAgentMode(template.agentMode as 'edit' | 'plan')
+      }
+      if (template.defaultModel) {
+        setModel(template.defaultModel as ClaudeModel)
+      }
+    },
+    [prefSetRepositoryId, prefSetAgentType, prefSetAgentMode],
+  )
 
   const offset = (page - 1) * PAGE_SIZE
 
@@ -152,6 +207,7 @@ export function TaskDashboard({
     <div className="container mx-auto max-w-7xl p-6">
       {/* Create Task Section */}
       <div className="w-full max-w-3xl mx-auto mt-26 mb-26">
+        <TemplateChipsRow onPick={handleTemplatePick} />
         <CreateCodeTask
           showTitle={true}
           title="What should we build today?"
@@ -166,6 +222,8 @@ export function TaskDashboard({
           onAgentTypeChange={preferences.setAgentType}
           repositoryId={preferences.repositoryId}
           onRepositoryChange={preferences.setRepositoryId}
+          templateId={templateId}
+          onTemplateChange={setTemplateId}
         />
       </div>
 

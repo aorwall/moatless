@@ -129,6 +129,11 @@ enum SharedCommands {
         #[command(subcommand)]
         action: commands::users::UserAction,
     },
+    /// Task template management
+    Templates {
+        #[command(subcommand)]
+        action: Box<commands::templates::TemplateAction>,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -489,6 +494,9 @@ async fn run_shared(
         }
         SharedCommands::User { login, action } => {
             commands::users::run(moat, &login, action, json).await?;
+        }
+        SharedCommands::Templates { action } => {
+            commands::templates::run(moat, *action, json).await?;
         }
     }
 
