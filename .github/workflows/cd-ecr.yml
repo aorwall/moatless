@@ -31,6 +31,10 @@ on:
         description: 'Override image tag (defaults to short SHA on main, tag name on fp-v* tags)'
         type: string
         default: ''
+      chart-version:
+        description: 'Override chart version (defaults to 0.0.0-<sha> on main, <tag-without-fp-v-prefix> on fp-v* tags)'
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -43,6 +47,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.compute.outputs.tag }}
+      chart-version: ${{ steps.compute.outputs.chart-version }}
       build-frontend: ${{ steps.compute.outputs.frontend }}
       build-backend: ${{ steps.compute.outputs.backend }}
       build-sandbox: ${{ steps.compute.outputs.sandbox }}
@@ -53,9 +58,10 @@ jobs:
       - id: compute
         env:
           INPUT_TAG: ${{ inputs.tag }}
+          INPUT_CHART_VERSION: ${{ inputs.chart-version }}
           INPUT_IMAGES: ${{ inputs.images }}
         run: |
-          # Tag: explicit input → tag name (on fp-v*) → short SHA
+          # Image tag: explicit input → tag name (on fp-v*) → short SHA
           if [ -n "$INPUT_TAG" ]; then
             TAG="$INPUT_TAG"
           elif [[ "$GITHUB_REF" == refs/tags/fp-v* ]]; then
@@ -64,6 +70,19 @@ jobs:
             TAG=$(git rev-parse --short HEAD)
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+          # Chart version: explicit input → semver from tag (fp-v0.0.1 → 0.0.1)
+          # → semver pre-release from sha (0.0.0-<sha>) on main / dispatch.
+          # GitOps consumes this in soap-k8s-nonprod's ArgoCD Application
+          # `targetRevision`; must be a valid semver string.
+          if [ -n "$INPUT_CHART_VERSION" ]; then
+            CHART_VERSION="$INPUT_CHART_VERSION"
+          elif [[ "$GITHUB_REF" == refs/tags/fp-v* ]]; then
+            CHART_VERSION="${GITHUB_REF_NAME#fp-v}"
+          else
+            CHART_VERSION="0.0.0-${TAG}"
+          fi
+          echo "chart-version=$CHART_VERSION" >> "$GITHUB_OUTPUT"
 
           # Image set: input on workflow_dispatch, else 'all'
           IMAGES="${INPUT_IMAGES:-all}"
@@ -80,8 +99,11 @@ jobs:
             fi
           done
 
-          # Helm: only on fp-v* tag pushes
-          if [[ "$GITHUB_REF" == refs/tags/fp-v* ]]; then
+          # Helm: publish on every push to main + fp-v* tag pushes.
+          # The chart is consumed by Frank-Penny/soap-k8s-nonprod's ArgoCD
+          # Application via `oci://629…/helm-charts/moatless`; SHA-pinned
+          # promotion is wired in promote-to-staging.yml on that side.
+          if [[ "$GITHUB_REF" == refs/heads/main || "$GITHUB_REF" == refs/tags/fp-v* ]]; then
             echo "helm=true" >> "$GITHUB_OUTPUT"
           else
             echo "helm=false" >> "$GITHUB_OUTPUT"
@@ -238,7 +260,10 @@ jobs:
       dockerfile: docker/Dockerfile.preview-server
       tag-latest: true
 
-  # ── Publish: helm chart (tag pushes only) ──
+  # ── Publish: helm chart (every push to main + fp-v* tags) ──
+  # The reusable workflow's `image-tag` input is used as the chart version
+  # — so we pass `chart-version` (`0.0.0-<sha>` on main, `<X.Y.Z>` on
+  # fp-v* tags), not the raw image tag.
   publish-helm:
     needs: setup
     if: needs.setup.outputs.publish-helm == 'true'
@@ -246,5 +271,5 @@ jobs:
     with:
       service-name: moatless
       chart-path: k8s/helm/moatless-vibe
-      image-tag: ${{ needs.setup.outputs.tag }}
+      image-tag: ${{ needs.setup.outputs.chart-version }}
       ecr-helm-repository: helm-charts
