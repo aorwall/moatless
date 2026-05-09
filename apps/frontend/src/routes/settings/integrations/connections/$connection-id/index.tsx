@@ -1,7 +1,7 @@
-import { createFileRoute, Link } from '@tanstack/react-router'
-import { ArrowLeft, Loader2 } from 'lucide-react'
+import { createFileRoute } from '@tanstack/react-router'
+import { Loader2 } from 'lucide-react'
+import { SettingsPage } from '@/features/settings/components/settings-page'
 import { useProviderConnections } from '@/features/settings/hooks/use-integrations'
-import { Button } from '@/lib/components/ui/button'
 
 const PROVIDER_LABELS: Record<string, string> = {
   slack: 'Slack',
@@ -36,58 +36,33 @@ function ConnectionDetailPage() {
   const { data: connections, isLoading } = useProviderConnections()
   const connection = connections?.find((item) => item.id === connectionId)
 
-  if (isLoading) {
-    return (
-      <div className="flex h-32 items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin" />
-      </div>
-    )
-  }
-
-  if (!connection) {
-    return (
-      <div className="container mx-auto max-w-3xl px-6 py-6 space-y-4">
-        <BackLink />
+  return (
+    <SettingsPage
+      title={connection?.externalAccountId ?? 'Connection'}
+      description={connection ? `${getProviderLabel(connection.provider)} connection` : undefined}
+      backTo={{ to: '/settings/integrations/connections', label: 'Back to connections' }}
+    >
+      {isLoading ? (
+        <div className="flex h-32 items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin" />
+        </div>
+      ) : !connection ? (
         <div className="rounded-md border py-12 text-center text-muted-foreground">
           <p className="font-medium">Connection not found</p>
           <p className="text-sm">This connection may have been deleted.</p>
         </div>
-      </div>
-    )
-  }
-
-  return (
-    <div className="container mx-auto max-w-3xl px-6 py-6 space-y-6">
-      <BackLink />
-
-      <div>
-        <h1 className="text-2xl font-semibold">{connection.externalAccountId}</h1>
-        <p className="text-sm text-muted-foreground">
-          {getProviderLabel(connection.provider)} connection
-        </p>
-      </div>
-
-      <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2 rounded-md border p-4">
-        <DetailItem label="Provider" value={getProviderLabel(connection.provider)} />
-        <DetailItem label="Connection Kind" value={connection.connectionKind} />
-        <DetailItem label="External Account ID" value={connection.externalAccountId} />
-        <DetailItem label="Scope" value={connection.scope} />
-        <DetailItem label="Team ID" value={connection.teamId ?? '-'} />
-        <DetailItem label="Created" value={formatTimestamp(connection.createdAt)} />
-        <DetailItem label="Updated" value={formatTimestamp(connection.updatedAt)} />
-      </dl>
-    </div>
-  )
-}
-
-function BackLink() {
-  return (
-    <Button variant="ghost" size="sm" asChild>
-      <Link to="/settings/integrations/connections">
-        <ArrowLeft className="mr-2 h-4 w-4" />
-        Back to connections
-      </Link>
-    </Button>
+      ) : (
+        <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2 rounded-md border p-4">
+          <DetailItem label="Provider" value={getProviderLabel(connection.provider)} />
+          <DetailItem label="Connection Kind" value={connection.connectionKind} />
+          <DetailItem label="External Account ID" value={connection.externalAccountId} />
+          <DetailItem label="Scope" value={connection.scope} />
+          <DetailItem label="Team ID" value={connection.teamId ?? '-'} />
+          <DetailItem label="Created" value={formatTimestamp(connection.createdAt)} />
+          <DetailItem label="Updated" value={formatTimestamp(connection.updatedAt)} />
+        </dl>
+      )}
+    </SettingsPage>
   )
 }
 

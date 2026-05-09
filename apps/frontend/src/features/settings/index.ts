@@ -20,6 +20,7 @@ export { GitnessConfigurationSection } from './components/gitness-configuration-
 export { MarketplaceConfigurationSection } from './components/marketplace-configuration-section'
 export { ProfileConfigurationSection } from './components/profile-configuration-section'
 export { SettingsDialog } from './components/settings-dialog'
+export { SettingsPage } from './components/settings-page'
 export { SettingsSidebar } from './components/settings-sidebar'
 export * from './components/system-status-warning'
 export { TaskRouteForm } from './components/task-route-form'

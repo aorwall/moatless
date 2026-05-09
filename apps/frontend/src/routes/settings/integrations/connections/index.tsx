@@ -2,6 +2,7 @@ import { createFileRoute, Link } from '@tanstack/react-router'
 import { Loader2, Plug, Plus } from 'lucide-react'
 import { useState } from 'react'
 import { ConnectionFormDialog } from '@/features/settings/components/connection-form-dialog'
+import { SettingsPage } from '@/features/settings/components/settings-page'
 import { useProviderConnections } from '@/features/settings/hooks/use-integrations'
 import { Alert, AlertDescription, AlertTitle } from '@/lib/components/ui/alert'
 import { Button } from '@/lib/components/ui/button'
@@ -47,20 +48,16 @@ function ConnectionsListPage() {
   const items = connections ?? []
 
   return (
-    <div className="container mx-auto max-w-7xl px-6 py-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Connections</h1>
-          <p className="text-sm text-muted-foreground">
-            Provider connections used by triggers to authenticate and route messages.
-          </p>
-        </div>
+    <SettingsPage
+      title="Connections"
+      description="Provider connections used by triggers to authenticate and route messages."
+      actions={
         <Button onClick={() => setDialogOpen(true)} size="sm">
           <Plus className="mr-2 h-4 w-4" />
           New Connection
         </Button>
-      </div>
-
+      }
+    >
       {isLoading ? (
         <div className="flex h-32 items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin" />
@@ -107,6 +104,6 @@ function ConnectionsListPage() {
       )}
 
       <ConnectionFormDialog open={dialogOpen} onOpenChange={setDialogOpen} />
-    </div>
+    </SettingsPage>
   )
 }

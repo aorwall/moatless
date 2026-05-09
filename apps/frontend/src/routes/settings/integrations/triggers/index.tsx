@@ -9,6 +9,7 @@ import { Bell, Loader2, Pencil, Plus, Trash2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
+import { SettingsPage } from '@/features/settings/components/settings-page'
 import {
   useDeleteTaskTrigger,
   useProviderConnections,
@@ -143,14 +144,10 @@ function TriggersListPage() {
   }
 
   return (
-    <div className="container mx-auto max-w-7xl px-6 py-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Triggers</h1>
-          <p className="text-sm text-muted-foreground">
-            Inbound integration triggers that route messages to tasks.
-          </p>
-        </div>
+    <SettingsPage
+      title="Triggers"
+      description="Inbound integration triggers that route messages to tasks."
+      actions={
         <Button
           onClick={() => navigate({ to: '/settings/integrations/triggers/new' })}
           size="sm"
@@ -159,8 +156,8 @@ function TriggersListPage() {
           <Plus className="mr-2 h-4 w-4" />
           Add Trigger
         </Button>
-      </div>
-
+      }
+    >
       {isLoading ? (
         <div className="flex h-32 items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin" />
@@ -279,6 +276,6 @@ function TriggersListPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </SettingsPage>
   )
 }

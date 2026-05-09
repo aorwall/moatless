@@ -3,6 +3,7 @@ import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { Loader2, Pencil, Plus, Route as RouteIcon } from 'lucide-react'
 import { useMemo } from 'react'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
+import { SettingsPage } from '@/features/settings/components/settings-page'
 import { useTaskRoutes } from '@/features/settings/hooks/use-integrations'
 import { Alert, AlertDescription, AlertTitle } from '@/lib/components/ui/alert'
 import { Badge } from '@/lib/components/ui/badge'
@@ -57,14 +58,10 @@ function RoutesListPage() {
   const hasRepositories = repositoryItems.some((repo) => repo.kind !== 'template')
 
   return (
-    <div className="container mx-auto max-w-7xl px-6 py-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Routes</h1>
-          <p className="text-sm text-muted-foreground">
-            Reusable task routes that triggers send messages to.
-          </p>
-        </div>
+    <SettingsPage
+      title="Routes"
+      description="Reusable task routes that triggers send messages to."
+      actions={
         <Button
           onClick={() => navigate({ to: '/settings/integrations/routes/new' })}
           size="sm"
@@ -73,8 +70,8 @@ function RoutesListPage() {
           <Plus className="mr-2 h-4 w-4" />
           Add Route
         </Button>
-      </div>
-
+      }
+    >
       {isLoading ? (
         <div className="flex h-32 items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin" />
@@ -134,6 +131,6 @@ function RoutesListPage() {
           </TableBody>
         </Table>
       )}
-    </div>
+    </SettingsPage>
   )
 }
