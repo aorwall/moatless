@@ -273,3 +273,57 @@ jobs:
       chart-path: k8s/helm/moatless-vibe
       image-tag: ${{ needs.setup.outputs.chart-version }}
       ecr-helm-repository: helm-charts
+
+  # ── Trigger GitOps promotion in soap-k8s-nonprod ──
+  # Fires `repository_dispatch` to soap-k8s-nonprod (the App-of-Apps
+  # source repo). The receiver workflow there (.github/workflows/
+  # promote-to-staging.yml) yq-bumps:
+  #   - envs/staging/apps/moatless-vibe/values-version.yaml (4 image tags
+  #     + chartVersion), via the `imageTagPaths[]` payload field
+  #   - argocd/applications/moatless-vibe-staging.yaml (targetRevision)
+  # …and opens an auto-merged PR (`autoMerge: true`). On merge, ArgoCD
+  # picks up the new chart version within ~30 s and rolls out.
+  #
+  # Only fires on push-to-main. Tag pushes (fp-v*) skip this — those
+  # produce a stable chart version but the deploy mechanism is the same;
+  # an explicit promote can be triggered manually by re-running with
+  # workflow_dispatch.
+  #
+  # Requires the GITOPS_PAT repo secret: a fine-scoped PAT with
+  # contents:write + actions:write + pull-requests:write on
+  # Frank-Penny/soap-k8s-nonprod only.
+  trigger-promotion:
+    needs:
+      - setup
+      - publish-frontend
+      - publish-backend
+      - publish-sandbox
+      - publish-preview-server
+      - publish-helm
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch promote-to-staging
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.GITOPS_PAT }}
+          repository: Frank-Penny/soap-k8s-nonprod
+          event-type: promote-to-staging
+          client-payload: |
+            {
+              "app": "moatless-vibe",
+              "environment": "staging",
+              "version": "${{ needs.setup.outputs.tag }}",
+              "tag": "${{ needs.setup.outputs.tag }}",
+              "sourceRepository": "${{ github.repository }}",
+              "sourceTag": "${{ needs.setup.outputs.tag }}",
+              "fullSha": "${{ github.sha }}",
+              "chartVersion": "${{ needs.setup.outputs.chart-version }}",
+              "autoMerge": true,
+              "imageTagPaths": [
+                ".image.tag",
+                ".backend.image.tag",
+                ".sandboxImage.tag",
+                ".kubernetes.previewServerImage.tag"
+              ]
+            }
