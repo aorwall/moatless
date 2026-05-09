@@ -10,6 +10,9 @@ vars:
   TAG: '{{.TAG | default "latest"}}'
   PLATFORM: '{{.PLATFORM | default "linux/amd64"}}'
   HELM_CHART: k8s/helm/moatless-vibe
+  # Registry org segment for image tags. Override via REGISTRY_ORG env or
+  # `task ... REGISTRY_ORG=<your-org>`. Defaults to `aorwall` for upstream.
+  REGISTRY_ORG: '{{.REGISTRY_ORG | default "aorwall"}}'
   RUST_TARGET:
     sh: 'if [ "$(uname -m)" = "arm64" ]; then echo "aarch64-unknown-linux-gnu.2.36"; else echo "x86_64-unknown-linux-gnu.2.36"; fi'
   DOCKER_PLATFORM:
@@ -73,7 +76,7 @@ tasks:
         docker buildx build
         --platform {{.DOCKER_PLATFORM}}
         --build-context "binary=$(cargo metadata --format-version 1 --no-deps | python3 -c 'import sys,json; print(json.load(sys.stdin)["target_directory"])')/{{.RUST_TARGET}}/release"
-        -t aorwall/moatless-vibe-backend:{{.TAG}}
+        -t {{.REGISTRY_ORG}}/moatless-vibe-backend:{{.TAG}}
         --load
         -f docker/Dockerfile.backend-cross .
 
@@ -107,7 +110,7 @@ tasks:
         docker buildx build
         --platform linux/amd64
         --build-context "binary=$(cargo metadata --format-version 1 --no-deps | python3 -c 'import sys,json; print(json.load(sys.stdin)["target_directory"])')/x86_64-unknown-linux-gnu/release"
-        -t aorwall/moatless-vibe-backend:{{.TAG}}
+        -t {{.REGISTRY_ORG}}/moatless-vibe-backend:{{.TAG}}
         --push
         -f docker/Dockerfile.backend-cross .
 

@@ -9,7 +9,9 @@ NC='\033[0m' # No Color
 
 # Default values
 IMAGE_NAME="moatless-vibe-frontend"
-REGISTRY="aorwall"
+# Registry org segment. Override via REGISTRY_ORG env var; defaults to `aorwall`
+# so upstream builds work unchanged. Forks export REGISTRY_ORG=<their-org>.
+REGISTRY="${REGISTRY_ORG:-aorwall}"
 TAG="latest"
 PLATFORM="linux/amd64,linux/arm64"
 MULTI_ARCH=true

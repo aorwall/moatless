@@ -18,7 +18,10 @@ ulimit -n 10240 2>/dev/null || true
 # Change to repository root (like all other build scripts)
 cd "$(dirname "$0")/.."
 
-IMAGE_NAME="${1:-aorwall/moatless-vibe-backend}"
+# Default org is `aorwall` so upstream builds work unchanged. Forks export
+# REGISTRY_ORG=<their-org> (or pass an explicit IMAGE_NAME as $1).
+REGISTRY_ORG="${REGISTRY_ORG:-aorwall}"
+IMAGE_NAME="${1:-${REGISTRY_ORG}/moatless-vibe-backend}"
 IMAGE_TAG="${2:-latest}"
 
 # Opt-in registry-backed buildcache. Set USE_REGISTRY_CACHE=1 to enable.

@@ -13,15 +13,19 @@ on:
         default: true
 
 env:
-  SANDBOX_TOOLS_IMAGE: aorwall/moatless-vibe-sandbox-tools
+  # Registry org segment. Override per-fork via repo variable `REGISTRY_ORG`
+  # (Settings → Secrets and variables → Actions → Variables). Defaults to
+  # `aorwall` so upstream CI keeps working with no configuration.
+  REGISTRY_ORG: ${{ vars.REGISTRY_ORG || 'aorwall' }}
+  SANDBOX_TOOLS_IMAGE: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-vibe-sandbox-tools
   # Stable base — only rebuilds on CLI version bumps. All sandbox leaf images
   # extend this directly so their expensive layers (Bun, Playwright, etc.) cache
   # across normal Rust code changes.
-  SANDBOX_BASE_IMAGE: aorwall/moatless-vibe-sandbox-base
+  SANDBOX_BASE_IMAGE: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-vibe-sandbox-base
   # Minimal runtime sandbox = sandbox-base + scripts + Rust binaries.
-  SANDBOX_IMAGE: aorwall/moatless-vibe-sandbox
-  SANDBOX_JS_IMAGE: aorwall/moatless-vibe-sandbox-js
-  SANDBOX_JAVA_IMAGE: aorwall/moatless-vibe-sandbox-java
+  SANDBOX_IMAGE: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-vibe-sandbox
+  SANDBOX_JS_IMAGE: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-vibe-sandbox-js
+  SANDBOX_JAVA_IMAGE: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-vibe-sandbox-java
   CARGO_INCREMENTAL: 0
   # Pinned CLI versions baked into sandbox images. Bump to upgrade.
   CLAUDE_CLI_VERSION: 2.1.114
