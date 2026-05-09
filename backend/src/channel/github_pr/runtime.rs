@@ -307,9 +307,19 @@ pub async fn close_tasks_for_pr(
     let subject_key = format!("{owner}/{repo}#{pr_number}");
 
     let bindings_repo = PgTaskBindingRepository(state.db.clone());
+    // Only auto-close tasks that were *created by* this PR trigger
+    // (origin = ingress). Tasks merely connected to the PR (origin =
+    // connected_thread, e.g. an agent on a UI-created task ran `gh pr create`)
+    // pre-existed the PR and must not be closed when the PR closes.
     let bindings = bindings_repo
         .find_by_subject(PROVIDER, SUBJECT_KIND, &subject_key)
-        .await?;
+        .await?
+        .into_iter()
+        .filter(|b| {
+            b.origin == PROVIDER_EVENT_BINDING_ORIGIN
+                && b.trigger_id.as_deref() == Some(rule.id.as_str())
+        })
+        .collect::<Vec<_>>();
 
     for binding in bindings {
         let task_id = &binding.task_id;

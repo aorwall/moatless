@@ -291,11 +291,18 @@ pub async fn close_tasks_for_issue(
 ) -> Result<(), ChannelError> {
     let subject_key = info.issue_id.clone();
     let bindings_repo = PgTaskBindingRepository(state.db.clone());
+    // Only auto-close tasks that were *created by* this issue trigger
+    // (origin = ingress). Tasks merely connected to the issue (origin =
+    // connected_thread) pre-existed and must not be closed when the issue
+    // closes.
     let bindings = bindings_repo
         .find_by_subject(PROVIDER, SUBJECT_KIND, &subject_key)
         .await?
         .into_iter()
-        .filter(|s| s.trigger_id.as_deref() == Some(rule.id.as_str()))
+        .filter(|s| {
+            s.origin == PROVIDER_EVENT_BINDING_ORIGIN
+                && s.trigger_id.as_deref() == Some(rule.id.as_str())
+        })
         .collect::<Vec<_>>();
 
     for binding in bindings {
