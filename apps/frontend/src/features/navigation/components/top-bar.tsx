@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router'
-import { AlertTriangle, Box, FolderGit2, LogOut, Settings, User } from 'lucide-react'
+import { AlertTriangle, Box, FolderGit2, LogOut, Plug, Settings, User } from 'lucide-react'
 import { useState } from 'react'
 import { useAuth } from '@/features/auth'
 import { Button } from '@/lib/components/ui/button'
@@ -78,6 +78,12 @@ export function TopBar({ onRepositoriesClick, onSettingsClick }: TopBarProps) {
                   <Settings className="mr-2 h-4 w-4" />
                   Settings
                 </Button>
+                <Link to="/settings" onClick={() => setIsMenuOpen(false)}>
+                  <Button variant="ghost" className="w-full justify-start h-8 px-2">
+                    <Plug className="mr-2 h-4 w-4" />
+                    Integrations
+                  </Button>
+                </Link>
                 {isAuthenticated && user && (
                   <>
                     <Separator className="my-1" />

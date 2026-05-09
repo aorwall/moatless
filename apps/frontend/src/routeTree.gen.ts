@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TasksRouteImport } from './routes/tasks'
+import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as SecretsRouteImport } from './routes/secrets'
 import { Route as SandboxRouteImport } from './routes/sandbox'
 import { Route as LoginRouteImport } from './routes/login'
@@ -17,6 +18,7 @@ import { Route as FigmaTestRouteImport } from './routes/figma-test'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as TasksIndexRouteImport } from './routes/tasks/index'
+import { Route as SettingsIndexRouteImport } from './routes/settings/index'
 import { Route as SandboxIndexRouteImport } from './routes/sandbox/index'
 import { Route as AuthCallbackRouteImport } from './routes/auth/callback'
 import { Route as TasksTaskIdIndexRouteImport } from './routes/tasks/$task-id/index'
@@ -24,10 +26,23 @@ import { Route as SandboxTaskIdIndexRouteImport } from './routes/sandbox/$task-i
 import { Route as TasksTaskIdKioskRouteImport } from './routes/tasks/$task-id/kiosk'
 import { Route as OauthGithubCallbackRouteImport } from './routes/oauth/github/callback'
 import { Route as OauthFigmaCallbackRouteImport } from './routes/oauth/figma/callback'
+import { Route as SettingsIntegrationsTriggersIndexRouteImport } from './routes/settings/integrations/triggers/index'
+import { Route as SettingsIntegrationsRoutesIndexRouteImport } from './routes/settings/integrations/routes/index'
+import { Route as SettingsIntegrationsConnectionsIndexRouteImport } from './routes/settings/integrations/connections/index'
+import { Route as SettingsIntegrationsTriggersNewRouteImport } from './routes/settings/integrations/triggers/new'
+import { Route as SettingsIntegrationsRoutesNewRouteImport } from './routes/settings/integrations/routes/new'
+import { Route as SettingsIntegrationsTriggersTriggerIdIndexRouteImport } from './routes/settings/integrations/triggers/$trigger-id/index'
+import { Route as SettingsIntegrationsRoutesRouteIdIndexRouteImport } from './routes/settings/integrations/routes/$route-id/index'
+import { Route as SettingsIntegrationsConnectionsConnectionIdIndexRouteImport } from './routes/settings/integrations/connections/$connection-id/index'
 
 const TasksRoute = TasksRouteImport.update({
   id: '/tasks',
   path: '/tasks',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SecretsRoute = SecretsRouteImport.update({
@@ -65,6 +80,11 @@ const TasksIndexRoute = TasksIndexRouteImport.update({
   path: '/',
   getParentRoute: () => TasksRoute,
 } as any)
+const SettingsIndexRoute = SettingsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => SettingsRoute,
+} as any)
 const SandboxIndexRoute = SandboxIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -100,6 +120,54 @@ const OauthFigmaCallbackRoute = OauthFigmaCallbackRouteImport.update({
   path: '/oauth/figma/callback',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsIntegrationsTriggersIndexRoute =
+  SettingsIntegrationsTriggersIndexRouteImport.update({
+    id: '/integrations/triggers/',
+    path: '/integrations/triggers/',
+    getParentRoute: () => SettingsRoute,
+  } as any)
+const SettingsIntegrationsRoutesIndexRoute =
+  SettingsIntegrationsRoutesIndexRouteImport.update({
+    id: '/integrations/routes/',
+    path: '/integrations/routes/',
+    getParentRoute: () => SettingsRoute,
+  } as any)
+const SettingsIntegrationsConnectionsIndexRoute =
+  SettingsIntegrationsConnectionsIndexRouteImport.update({
+    id: '/integrations/connections/',
+    path: '/integrations/connections/',
+    getParentRoute: () => SettingsRoute,
+  } as any)
+const SettingsIntegrationsTriggersNewRoute =
+  SettingsIntegrationsTriggersNewRouteImport.update({
+    id: '/integrations/triggers/new',
+    path: '/integrations/triggers/new',
+    getParentRoute: () => SettingsRoute,
+  } as any)
+const SettingsIntegrationsRoutesNewRoute =
+  SettingsIntegrationsRoutesNewRouteImport.update({
+    id: '/integrations/routes/new',
+    path: '/integrations/routes/new',
+    getParentRoute: () => SettingsRoute,
+  } as any)
+const SettingsIntegrationsTriggersTriggerIdIndexRoute =
+  SettingsIntegrationsTriggersTriggerIdIndexRouteImport.update({
+    id: '/integrations/triggers/$trigger-id/',
+    path: '/integrations/triggers/$trigger-id/',
+    getParentRoute: () => SettingsRoute,
+  } as any)
+const SettingsIntegrationsRoutesRouteIdIndexRoute =
+  SettingsIntegrationsRoutesRouteIdIndexRouteImport.update({
+    id: '/integrations/routes/$route-id/',
+    path: '/integrations/routes/$route-id/',
+    getParentRoute: () => SettingsRoute,
+  } as any)
+const SettingsIntegrationsConnectionsConnectionIdIndexRoute =
+  SettingsIntegrationsConnectionsConnectionIdIndexRouteImport.update({
+    id: '/integrations/connections/$connection-id/',
+    path: '/integrations/connections/$connection-id/',
+    getParentRoute: () => SettingsRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -108,15 +176,25 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/sandbox': typeof SandboxRouteWithChildren
   '/secrets': typeof SecretsRoute
+  '/settings': typeof SettingsRouteWithChildren
   '/tasks': typeof TasksRouteWithChildren
   '/auth/callback': typeof AuthCallbackRoute
   '/sandbox/': typeof SandboxIndexRoute
+  '/settings/': typeof SettingsIndexRoute
   '/tasks/': typeof TasksIndexRoute
   '/oauth/figma/callback': typeof OauthFigmaCallbackRoute
   '/oauth/github/callback': typeof OauthGithubCallbackRoute
   '/tasks/$task-id/kiosk': typeof TasksTaskIdKioskRoute
   '/sandbox/$task-id': typeof SandboxTaskIdIndexRoute
   '/tasks/$task-id': typeof TasksTaskIdIndexRoute
+  '/settings/integrations/routes/new': typeof SettingsIntegrationsRoutesNewRoute
+  '/settings/integrations/triggers/new': typeof SettingsIntegrationsTriggersNewRoute
+  '/settings/integrations/connections': typeof SettingsIntegrationsConnectionsIndexRoute
+  '/settings/integrations/routes': typeof SettingsIntegrationsRoutesIndexRoute
+  '/settings/integrations/triggers': typeof SettingsIntegrationsTriggersIndexRoute
+  '/settings/integrations/connections/$connection-id': typeof SettingsIntegrationsConnectionsConnectionIdIndexRoute
+  '/settings/integrations/routes/$route-id': typeof SettingsIntegrationsRoutesRouteIdIndexRoute
+  '/settings/integrations/triggers/$trigger-id': typeof SettingsIntegrationsTriggersTriggerIdIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -126,12 +204,21 @@ export interface FileRoutesByTo {
   '/secrets': typeof SecretsRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/sandbox': typeof SandboxIndexRoute
+  '/settings': typeof SettingsIndexRoute
   '/tasks': typeof TasksIndexRoute
   '/oauth/figma/callback': typeof OauthFigmaCallbackRoute
   '/oauth/github/callback': typeof OauthGithubCallbackRoute
   '/tasks/$task-id/kiosk': typeof TasksTaskIdKioskRoute
   '/sandbox/$task-id': typeof SandboxTaskIdIndexRoute
   '/tasks/$task-id': typeof TasksTaskIdIndexRoute
+  '/settings/integrations/routes/new': typeof SettingsIntegrationsRoutesNewRoute
+  '/settings/integrations/triggers/new': typeof SettingsIntegrationsTriggersNewRoute
+  '/settings/integrations/connections': typeof SettingsIntegrationsConnectionsIndexRoute
+  '/settings/integrations/routes': typeof SettingsIntegrationsRoutesIndexRoute
+  '/settings/integrations/triggers': typeof SettingsIntegrationsTriggersIndexRoute
+  '/settings/integrations/connections/$connection-id': typeof SettingsIntegrationsConnectionsConnectionIdIndexRoute
+  '/settings/integrations/routes/$route-id': typeof SettingsIntegrationsRoutesRouteIdIndexRoute
+  '/settings/integrations/triggers/$trigger-id': typeof SettingsIntegrationsTriggersTriggerIdIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -141,15 +228,25 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/sandbox': typeof SandboxRouteWithChildren
   '/secrets': typeof SecretsRoute
+  '/settings': typeof SettingsRouteWithChildren
   '/tasks': typeof TasksRouteWithChildren
   '/auth/callback': typeof AuthCallbackRoute
   '/sandbox/': typeof SandboxIndexRoute
+  '/settings/': typeof SettingsIndexRoute
   '/tasks/': typeof TasksIndexRoute
   '/oauth/figma/callback': typeof OauthFigmaCallbackRoute
   '/oauth/github/callback': typeof OauthGithubCallbackRoute
   '/tasks/$task-id/kiosk': typeof TasksTaskIdKioskRoute
   '/sandbox/$task-id/': typeof SandboxTaskIdIndexRoute
   '/tasks/$task-id/': typeof TasksTaskIdIndexRoute
+  '/settings/integrations/routes/new': typeof SettingsIntegrationsRoutesNewRoute
+  '/settings/integrations/triggers/new': typeof SettingsIntegrationsTriggersNewRoute
+  '/settings/integrations/connections/': typeof SettingsIntegrationsConnectionsIndexRoute
+  '/settings/integrations/routes/': typeof SettingsIntegrationsRoutesIndexRoute
+  '/settings/integrations/triggers/': typeof SettingsIntegrationsTriggersIndexRoute
+  '/settings/integrations/connections/$connection-id/': typeof SettingsIntegrationsConnectionsConnectionIdIndexRoute
+  '/settings/integrations/routes/$route-id/': typeof SettingsIntegrationsRoutesRouteIdIndexRoute
+  '/settings/integrations/triggers/$trigger-id/': typeof SettingsIntegrationsTriggersTriggerIdIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -160,15 +257,25 @@ export interface FileRouteTypes {
     | '/login'
     | '/sandbox'
     | '/secrets'
+    | '/settings'
     | '/tasks'
     | '/auth/callback'
     | '/sandbox/'
+    | '/settings/'
     | '/tasks/'
     | '/oauth/figma/callback'
     | '/oauth/github/callback'
     | '/tasks/$task-id/kiosk'
     | '/sandbox/$task-id'
     | '/tasks/$task-id'
+    | '/settings/integrations/routes/new'
+    | '/settings/integrations/triggers/new'
+    | '/settings/integrations/connections'
+    | '/settings/integrations/routes'
+    | '/settings/integrations/triggers'
+    | '/settings/integrations/connections/$connection-id'
+    | '/settings/integrations/routes/$route-id'
+    | '/settings/integrations/triggers/$trigger-id'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -178,12 +285,21 @@ export interface FileRouteTypes {
     | '/secrets'
     | '/auth/callback'
     | '/sandbox'
+    | '/settings'
     | '/tasks'
     | '/oauth/figma/callback'
     | '/oauth/github/callback'
     | '/tasks/$task-id/kiosk'
     | '/sandbox/$task-id'
     | '/tasks/$task-id'
+    | '/settings/integrations/routes/new'
+    | '/settings/integrations/triggers/new'
+    | '/settings/integrations/connections'
+    | '/settings/integrations/routes'
+    | '/settings/integrations/triggers'
+    | '/settings/integrations/connections/$connection-id'
+    | '/settings/integrations/routes/$route-id'
+    | '/settings/integrations/triggers/$trigger-id'
   id:
     | '__root__'
     | '/'
@@ -192,15 +308,25 @@ export interface FileRouteTypes {
     | '/login'
     | '/sandbox'
     | '/secrets'
+    | '/settings'
     | '/tasks'
     | '/auth/callback'
     | '/sandbox/'
+    | '/settings/'
     | '/tasks/'
     | '/oauth/figma/callback'
     | '/oauth/github/callback'
     | '/tasks/$task-id/kiosk'
     | '/sandbox/$task-id/'
     | '/tasks/$task-id/'
+    | '/settings/integrations/routes/new'
+    | '/settings/integrations/triggers/new'
+    | '/settings/integrations/connections/'
+    | '/settings/integrations/routes/'
+    | '/settings/integrations/triggers/'
+    | '/settings/integrations/connections/$connection-id/'
+    | '/settings/integrations/routes/$route-id/'
+    | '/settings/integrations/triggers/$trigger-id/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -210,6 +336,7 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   SandboxRoute: typeof SandboxRouteWithChildren
   SecretsRoute: typeof SecretsRoute
+  SettingsRoute: typeof SettingsRouteWithChildren
   TasksRoute: typeof TasksRouteWithChildren
   AuthCallbackRoute: typeof AuthCallbackRoute
   OauthFigmaCallbackRoute: typeof OauthFigmaCallbackRoute
@@ -223,6 +350,13 @@ declare module '@tanstack/react-router' {
       path: '/tasks'
       fullPath: '/tasks'
       preLoaderRoute: typeof TasksRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/secrets': {
@@ -274,6 +408,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TasksIndexRouteImport
       parentRoute: typeof TasksRoute
     }
+    '/settings/': {
+      id: '/settings/'
+      path: '/'
+      fullPath: '/settings/'
+      preLoaderRoute: typeof SettingsIndexRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     '/sandbox/': {
       id: '/sandbox/'
       path: '/'
@@ -323,6 +464,62 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OauthFigmaCallbackRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings/integrations/triggers/': {
+      id: '/settings/integrations/triggers/'
+      path: '/integrations/triggers'
+      fullPath: '/settings/integrations/triggers'
+      preLoaderRoute: typeof SettingsIntegrationsTriggersIndexRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/integrations/routes/': {
+      id: '/settings/integrations/routes/'
+      path: '/integrations/routes'
+      fullPath: '/settings/integrations/routes'
+      preLoaderRoute: typeof SettingsIntegrationsRoutesIndexRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/integrations/connections/': {
+      id: '/settings/integrations/connections/'
+      path: '/integrations/connections'
+      fullPath: '/settings/integrations/connections'
+      preLoaderRoute: typeof SettingsIntegrationsConnectionsIndexRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/integrations/triggers/new': {
+      id: '/settings/integrations/triggers/new'
+      path: '/integrations/triggers/new'
+      fullPath: '/settings/integrations/triggers/new'
+      preLoaderRoute: typeof SettingsIntegrationsTriggersNewRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/integrations/routes/new': {
+      id: '/settings/integrations/routes/new'
+      path: '/integrations/routes/new'
+      fullPath: '/settings/integrations/routes/new'
+      preLoaderRoute: typeof SettingsIntegrationsRoutesNewRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/integrations/triggers/$trigger-id/': {
+      id: '/settings/integrations/triggers/$trigger-id/'
+      path: '/integrations/triggers/$trigger-id'
+      fullPath: '/settings/integrations/triggers/$trigger-id'
+      preLoaderRoute: typeof SettingsIntegrationsTriggersTriggerIdIndexRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/integrations/routes/$route-id/': {
+      id: '/settings/integrations/routes/$route-id/'
+      path: '/integrations/routes/$route-id'
+      fullPath: '/settings/integrations/routes/$route-id'
+      preLoaderRoute: typeof SettingsIntegrationsRoutesRouteIdIndexRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/integrations/connections/$connection-id/': {
+      id: '/settings/integrations/connections/$connection-id/'
+      path: '/integrations/connections/$connection-id'
+      fullPath: '/settings/integrations/connections/$connection-id'
+      preLoaderRoute: typeof SettingsIntegrationsConnectionsConnectionIdIndexRouteImport
+      parentRoute: typeof SettingsRoute
+    }
   }
 }
 
@@ -338,6 +535,39 @@ const SandboxRouteChildren: SandboxRouteChildren = {
 
 const SandboxRouteWithChildren =
   SandboxRoute._addFileChildren(SandboxRouteChildren)
+
+interface SettingsRouteChildren {
+  SettingsIndexRoute: typeof SettingsIndexRoute
+  SettingsIntegrationsRoutesNewRoute: typeof SettingsIntegrationsRoutesNewRoute
+  SettingsIntegrationsTriggersNewRoute: typeof SettingsIntegrationsTriggersNewRoute
+  SettingsIntegrationsConnectionsIndexRoute: typeof SettingsIntegrationsConnectionsIndexRoute
+  SettingsIntegrationsRoutesIndexRoute: typeof SettingsIntegrationsRoutesIndexRoute
+  SettingsIntegrationsTriggersIndexRoute: typeof SettingsIntegrationsTriggersIndexRoute
+  SettingsIntegrationsConnectionsConnectionIdIndexRoute: typeof SettingsIntegrationsConnectionsConnectionIdIndexRoute
+  SettingsIntegrationsRoutesRouteIdIndexRoute: typeof SettingsIntegrationsRoutesRouteIdIndexRoute
+  SettingsIntegrationsTriggersTriggerIdIndexRoute: typeof SettingsIntegrationsTriggersTriggerIdIndexRoute
+}
+
+const SettingsRouteChildren: SettingsRouteChildren = {
+  SettingsIndexRoute: SettingsIndexRoute,
+  SettingsIntegrationsRoutesNewRoute: SettingsIntegrationsRoutesNewRoute,
+  SettingsIntegrationsTriggersNewRoute: SettingsIntegrationsTriggersNewRoute,
+  SettingsIntegrationsConnectionsIndexRoute:
+    SettingsIntegrationsConnectionsIndexRoute,
+  SettingsIntegrationsRoutesIndexRoute: SettingsIntegrationsRoutesIndexRoute,
+  SettingsIntegrationsTriggersIndexRoute:
+    SettingsIntegrationsTriggersIndexRoute,
+  SettingsIntegrationsConnectionsConnectionIdIndexRoute:
+    SettingsIntegrationsConnectionsConnectionIdIndexRoute,
+  SettingsIntegrationsRoutesRouteIdIndexRoute:
+    SettingsIntegrationsRoutesRouteIdIndexRoute,
+  SettingsIntegrationsTriggersTriggerIdIndexRoute:
+    SettingsIntegrationsTriggersTriggerIdIndexRoute,
+}
+
+const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
+  SettingsRouteChildren,
+)
 
 interface TasksRouteChildren {
   TasksIndexRoute: typeof TasksIndexRoute
@@ -360,6 +590,7 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   SandboxRoute: SandboxRouteWithChildren,
   SecretsRoute: SecretsRoute,
+  SettingsRoute: SettingsRouteWithChildren,
   TasksRoute: TasksRouteWithChildren,
   AuthCallbackRoute: AuthCallbackRoute,
   OauthFigmaCallbackRoute: OauthFigmaCallbackRoute,

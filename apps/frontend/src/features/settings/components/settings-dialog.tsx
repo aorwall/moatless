@@ -6,7 +6,6 @@ import {
   Gitlab,
   Key,
   Package,
-  Plug,
   Sparkles,
   Terminal,
   User,
@@ -21,11 +20,9 @@ import {
   GitHubConfigurationSection,
   GitLabConfigurationSection,
   GitnessConfigurationSection,
-  IntegrationRoutingSection,
   MarketplaceConfigurationSection,
   ProfileConfigurationSection,
 } from '@/features/settings'
-import { useIntegrationProviders } from '@/features/settings/hooks/use-integrations'
 import { SidebarDialog } from '@/lib/components/ui/sidebar-dialog'
 import { useFeatureFlag } from '@/lib/hooks/use-feature-flag'
 
@@ -45,8 +42,6 @@ export function SettingsDialog({
   const showCodexSettings = useFeatureFlag('SHOW_CODEX_SETTINGS')
   const isGitLabEnabled = useFeatureFlag('GITLAB_ENABLED')
   const isGitnessEnabled = useFeatureFlag('GITNESS_ENABLED')
-  const { data: integrationProviders } = useIntegrationProviders()
-  const hasIntegrationProviders = (integrationProviders?.length ?? 0) > 0
 
   const sections = useMemo(() => {
     const allSections = []
@@ -119,15 +114,6 @@ export function SettingsDialog({
       },
     )
 
-    // Integrations - shown when at least one provider is configured
-    if (hasIntegrationProviders) {
-      allSections.push({
-        id: 'integrations',
-        label: 'Integrations',
-        icon: <Plug className="h-4 w-4" />,
-      })
-    }
-
     // Marketplaces - admin only
     allSections.push({
       id: 'marketplaces',
@@ -136,13 +122,7 @@ export function SettingsDialog({
     })
 
     return allSections
-  }, [
-    showClaudeSettings,
-    showCodexSettings,
-    isGitLabEnabled,
-    isGitnessEnabled,
-    hasIntegrationProviders,
-  ])
+  }, [showClaudeSettings, showCodexSettings, isGitLabEnabled, isGitnessEnabled])
 
   return (
     <SidebarDialog open={open} onOpenChange={onOpenChange}>
@@ -172,7 +152,6 @@ export function SettingsDialog({
         {activeSection === 'api-keys' && <ApiKeyConfigurationSection key="api-keys" />}
         {activeSection === 'marketplaces' && <MarketplaceConfigurationSection key="marketplaces" />}
         {activeSection === 'commands' && <CommandConfigurationSection key="commands" />}
-        {activeSection === 'integrations' && <IntegrationRoutingSection key="integrations" />}
       </SidebarDialog.Content>
     </SidebarDialog>
   )
