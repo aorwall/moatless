@@ -121,13 +121,14 @@ Priority: redis.url (explicit) > auto-generated from subchart (if redis.enabled=
 {{- end }}
 
 {{/*
-Guard: the two ingress modes (standard Ingress and Traefik IngressRoute) are
-mutually exclusive. Enabling both causes duplicate / conflicting routes.
+No-op stub — preserved so existing `include "moatless-vibe.validateIngressMode"`
+callers still render. The earlier guard rejected `ingress.enabled=true` AND
+`proxy.traefikIngressRoute.enabled=true` together, but the two modes target
+different concerns: `ingress` (typically ALB) for the main app host, and the
+Traefik IngressRoute CRD for cluster-internal routing of preview/sandbox
+traffic. They coexist without conflict in production.
 */}}
 {{- define "moatless-vibe.validateIngressMode" -}}
-{{- if and .Values.ingress.enabled .Values.proxy.traefikIngressRoute.enabled -}}
-{{- fail "Conflicting ingress modes: both ingress.enabled=true and proxy.traefikIngressRoute.enabled=true are set. Pick one — set ingress.enabled=false if you use Traefik IngressRoute CRDs, or proxy.traefikIngressRoute.enabled=false otherwise." -}}
-{{- end -}}
 {{- end -}}
 
 {{/*
