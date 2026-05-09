@@ -27,7 +27,9 @@ import type {
 import type {
   CreateTaskTriggerRequest,
   ErrorBody,
+  ListTriggerRecentTasksParams,
   TaskTriggerResponse,
+  TriggerRecentTaskItem,
   UpdateTaskTriggerRequest
 } from '.././model';
 
@@ -234,7 +236,129 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       > => {
       return useMutation(getCreateTaskTriggerMutationOptions(options), queryClient);
     }
-    export type updateTaskTriggerResponse200 = {
+    export type getTaskTriggerResponse200 = {
+  data: TaskTriggerResponse
+  status: 200
+}
+
+export type getTaskTriggerResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+    
+export type getTaskTriggerResponseSuccess = (getTaskTriggerResponse200) & {
+  headers: Headers;
+};
+export type getTaskTriggerResponseError = (getTaskTriggerResponse404) & {
+  headers: Headers;
+};
+
+export type getTaskTriggerResponse = (getTaskTriggerResponseSuccess | getTaskTriggerResponseError)
+
+export const getGetTaskTriggerUrl = (id: string,) => {
+
+
+  
+
+  return `/api/v1/triggers/${id}`
+}
+
+export const getTaskTrigger = async (id: string, options?: RequestInit): Promise<getTaskTriggerResponse> => {
+  
+  return customInstance<getTaskTriggerResponse>(getGetTaskTriggerUrl(id),
+  {      
+    ...options,
+    method: 'GET'
+    
+    
+  }
+);}
+
+
+
+
+
+export const getGetTaskTriggerQueryKey = (id: string,) => {
+    return [
+    `/api/v1/triggers/${id}`
+    ] as const;
+    }
+
+    
+export const getGetTaskTriggerQueryOptions = <TData = Awaited<ReturnType<typeof getTaskTrigger>>, TError = ErrorType<ErrorBody>>(id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getTaskTrigger>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetTaskTriggerQueryKey(id);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getTaskTrigger>>> = ({ signal }) => getTaskTrigger(id, { signal, ...requestOptions });
+
+      
+
+      
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getTaskTrigger>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
+}
+
+export type GetTaskTriggerQueryResult = NonNullable<Awaited<ReturnType<typeof getTaskTrigger>>>
+export type GetTaskTriggerQueryError = ErrorType<ErrorBody>
+
+
+export function useGetTaskTrigger<TData = Awaited<ReturnType<typeof getTaskTrigger>>, TError = ErrorType<ErrorBody>>(
+ id: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getTaskTrigger>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getTaskTrigger>>,
+          TError,
+          Awaited<ReturnType<typeof getTaskTrigger>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useGetTaskTrigger<TData = Awaited<ReturnType<typeof getTaskTrigger>>, TError = ErrorType<ErrorBody>>(
+ id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getTaskTrigger>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getTaskTrigger>>,
+          TError,
+          Awaited<ReturnType<typeof getTaskTrigger>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useGetTaskTrigger<TData = Awaited<ReturnType<typeof getTaskTrigger>>, TError = ErrorType<ErrorBody>>(
+ id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getTaskTrigger>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+
+export function useGetTaskTrigger<TData = Awaited<ReturnType<typeof getTaskTrigger>>, TError = ErrorType<ErrorBody>>(
+ id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getTaskTrigger>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
+
+  const queryOptions = getGetTaskTriggerQueryOptions(id,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const prefetchGetTaskTriggerQuery = async <TData = Awaited<ReturnType<typeof getTaskTrigger>>, TError = ErrorType<ErrorBody>>(
+ queryClient: QueryClient, id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getTaskTrigger>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+
+  ): Promise<QueryClient> => {
+
+  const queryOptions = getGetTaskTriggerQueryOptions(id,options)
+
+  await queryClient.prefetchQuery(queryOptions);
+
+  return queryClient;
+}
+
+
+
+export type updateTaskTriggerResponse200 = {
   data: TaskTriggerResponse
   status: 200
 }
@@ -393,4 +517,134 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       > => {
       return useMutation(getDeleteTaskTriggerMutationOptions(options), queryClient);
     }
+    export type listTriggerRecentTasksResponse200 = {
+  data: TriggerRecentTaskItem[]
+  status: 200
+}
     
+export type listTriggerRecentTasksResponseSuccess = (listTriggerRecentTasksResponse200) & {
+  headers: Headers;
+};
+;
+
+export type listTriggerRecentTasksResponse = (listTriggerRecentTasksResponseSuccess)
+
+export const getListTriggerRecentTasksUrl = (id: string,
+    params?: ListTriggerRecentTasksParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/v1/triggers/${id}/tasks?${stringifiedParams}` : `/api/v1/triggers/${id}/tasks`
+}
+
+export const listTriggerRecentTasks = async (id: string,
+    params?: ListTriggerRecentTasksParams, options?: RequestInit): Promise<listTriggerRecentTasksResponse> => {
+  
+  return customInstance<listTriggerRecentTasksResponse>(getListTriggerRecentTasksUrl(id,params),
+  {      
+    ...options,
+    method: 'GET'
+    
+    
+  }
+);}
+
+
+
+
+
+export const getListTriggerRecentTasksQueryKey = (id: string,
+    params?: ListTriggerRecentTasksParams,) => {
+    return [
+    `/api/v1/triggers/${id}/tasks`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+    
+export const getListTriggerRecentTasksQueryOptions = <TData = Awaited<ReturnType<typeof listTriggerRecentTasks>>, TError = ErrorType<unknown>>(id: string,
+    params?: ListTriggerRecentTasksParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listTriggerRecentTasks>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListTriggerRecentTasksQueryKey(id,params);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listTriggerRecentTasks>>> = ({ signal }) => listTriggerRecentTasks(id,params, { signal, ...requestOptions });
+
+      
+
+      
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listTriggerRecentTasks>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
+}
+
+export type ListTriggerRecentTasksQueryResult = NonNullable<Awaited<ReturnType<typeof listTriggerRecentTasks>>>
+export type ListTriggerRecentTasksQueryError = ErrorType<unknown>
+
+
+export function useListTriggerRecentTasks<TData = Awaited<ReturnType<typeof listTriggerRecentTasks>>, TError = ErrorType<unknown>>(
+ id: string,
+    params: undefined |  ListTriggerRecentTasksParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listTriggerRecentTasks>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listTriggerRecentTasks>>,
+          TError,
+          Awaited<ReturnType<typeof listTriggerRecentTasks>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useListTriggerRecentTasks<TData = Awaited<ReturnType<typeof listTriggerRecentTasks>>, TError = ErrorType<unknown>>(
+ id: string,
+    params?: ListTriggerRecentTasksParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listTriggerRecentTasks>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listTriggerRecentTasks>>,
+          TError,
+          Awaited<ReturnType<typeof listTriggerRecentTasks>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useListTriggerRecentTasks<TData = Awaited<ReturnType<typeof listTriggerRecentTasks>>, TError = ErrorType<unknown>>(
+ id: string,
+    params?: ListTriggerRecentTasksParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listTriggerRecentTasks>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+
+export function useListTriggerRecentTasks<TData = Awaited<ReturnType<typeof listTriggerRecentTasks>>, TError = ErrorType<unknown>>(
+ id: string,
+    params?: ListTriggerRecentTasksParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listTriggerRecentTasks>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
+
+  const queryOptions = getListTriggerRecentTasksQueryOptions(id,params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const prefetchListTriggerRecentTasksQuery = async <TData = Awaited<ReturnType<typeof listTriggerRecentTasks>>, TError = ErrorType<unknown>>(
+ queryClient: QueryClient, id: string,
+    params?: ListTriggerRecentTasksParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listTriggerRecentTasks>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+
+  ): Promise<QueryClient> => {
+
+  const queryOptions = getListTriggerRecentTasksQueryOptions(id,params,options)
+
+  await queryClient.prefetchQuery(queryOptions);
+
+  return queryClient;
+}
+
+
+

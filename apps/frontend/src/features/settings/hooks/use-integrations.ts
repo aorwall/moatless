@@ -5,6 +5,7 @@ import type {
   ProviderConnectionResponse,
   TaskRouteResponse,
   TaskTriggerResponse,
+  TriggerRecentTaskItem,
   UpdateTaskRouteRequest,
   UpdateTaskTriggerRequest,
 } from '@moatless/api-client'
@@ -104,8 +105,14 @@ export function useUpdateTaskTrigger() {
   return useMutation({
     mutationFn: ({ id, request }: { id: string; request: UpdateTaskTriggerRequest }) =>
       integrationsApi.updateTaskTrigger(id, request),
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.integrations.taskTriggers() })
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.integrations.taskTrigger(variables.id),
+      })
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.integrations.taskTriggerRecentTasks(variables.id),
+      })
     },
   })
 }
@@ -115,8 +122,28 @@ export function useDeleteTaskTrigger() {
 
   return useMutation({
     mutationFn: (id: string) => integrationsApi.deleteTaskTrigger(id),
-    onSuccess: () => {
+    onSuccess: (_data, id) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.integrations.taskTriggers() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.integrations.taskTrigger(id) })
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.integrations.taskTriggerRecentTasks(id),
+      })
     },
+  })
+}
+
+export function useTaskTrigger(triggerId: string) {
+  return useQuery({
+    queryKey: queryKeys.integrations.taskTrigger(triggerId),
+    queryFn: () => integrationsApi.getTaskTrigger(triggerId),
+    enabled: !!triggerId,
+  })
+}
+
+export function useTriggerRecentTasks(triggerId: string, opts?: { limit?: number }) {
+  return useQuery<TriggerRecentTaskItem[]>({
+    queryKey: queryKeys.integrations.taskTriggerRecentTasks(triggerId),
+    queryFn: () => integrationsApi.listTriggerRecentTasks(triggerId, { limit: opts?.limit ?? 10 }),
+    enabled: !!triggerId,
   })
 }

@@ -3,19 +3,58 @@ use axum::http::StatusCode;
 use axum::Json;
 use chrono::Utc;
 use moatless_api_schemas::channel::{
-    CreateTaskTriggerRequest, TaskTriggerResponse, UpdateTaskTriggerRequest,
+    CreateTaskTriggerRequest, TaskBindingResponse, TaskTriggerResponse, TriggerRecentTaskItem,
+    TriggerRecentTaskSummary, UpdateTaskTriggerRequest,
 };
+use moatless_api_schemas::enums::TaskStatus;
+use serde::Deserialize;
+use utoipa::ToSchema;
 
 use super::common::{
     default_scope, ensure_can_write_scope, ensure_repository_exists,
     load_provider_connection_for_auth, load_task_route_for_auth, load_task_trigger_for_auth,
-    task_trigger_response, TriggerFilter,
+    parse_provider, task_trigger_response, TriggerFilter,
 };
+use crate::channel::dao::bindings::{PgTaskBindingRepository, TriggerRecentTaskRow};
 use crate::channel::dao::triggers::PgTaskTriggerRepository;
 use crate::channel::error::ChannelError;
 use crate::channel::models::TaskTrigger;
 use crate::extractors::AuthUser;
 use crate::state::AppState;
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct RecentTasksQuery {
+    pub limit: Option<u32>,
+}
+
+fn map_recent_task_item(row: &TriggerRecentTaskRow) -> TriggerRecentTaskItem {
+    let status = TaskStatus::try_from(row.status.as_str()).unwrap_or(TaskStatus::Open);
+    let binding = TaskBindingResponse {
+        id: row.binding_id.clone(),
+        task_id: row.task_id.clone(),
+        provider: parse_provider(&row.provider),
+        connection_id: row.connection_id.clone(),
+        trigger_id: row.trigger_id.clone(),
+        subject_kind: row.subject_kind.clone(),
+        subject_key: row.subject_key.clone(),
+        destination_config: row.destination_config.clone(),
+        metadata: row.metadata.clone(),
+        last_external_event_id: row.last_external_event_id.clone(),
+        origin: row.origin.clone(),
+        created_at: row.binding_created_at.to_rfc3339(),
+        last_event_at: row.last_event_at.to_rfc3339(),
+    };
+    TriggerRecentTaskItem {
+        task: TriggerRecentTaskSummary {
+            task_id: row.task_id.clone(),
+            short_id: row.short_id.clone(),
+            title: row.title.clone(),
+            status,
+            created_at: row.task_created_at.to_rfc3339(),
+        },
+        binding,
+    }
+}
 
 #[utoipa::path(
     get,
@@ -173,6 +212,52 @@ pub async fn update_task_trigger(
     .await?;
 
     Ok(Json(task_trigger_response(&row)))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/triggers/{id}",
+    tag = "triggers",
+    params(("id" = String, Path, description = "Task trigger id")),
+    responses(
+        (status = 200, description = "Task trigger", body = TaskTriggerResponse),
+        (status = 404, description = "Not found", body = crate::error::ErrorBody),
+    )
+)]
+pub async fn get_task_trigger(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(id): Path<String>,
+) -> Result<Json<TaskTriggerResponse>, ChannelError> {
+    let row = load_task_trigger_for_auth(&state, &auth.scope_context(), &id).await?;
+    Ok(Json(task_trigger_response(&row)))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/triggers/{id}/tasks",
+    tag = "triggers",
+    params(
+        ("id" = String, Path, description = "Task trigger id"),
+        ("limit" = Option<u32>, Query, description = "Max items, default 10, cap 50"),
+    ),
+    responses((status = 200, body = Vec<TriggerRecentTaskItem>))
+)]
+pub async fn list_trigger_recent_tasks(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(id): Path<String>,
+    Query(query): Query<RecentTasksQuery>,
+) -> Result<Json<Vec<TriggerRecentTaskItem>>, ChannelError> {
+    // Auth check: load_task_trigger_for_auth enforces scope on the trigger.
+    // Tasks reached via task_bindings.trigger_id inherit the trigger's scope
+    // by construction, so no additional task-level scope predicate is needed.
+    let _ = load_task_trigger_for_auth(&state, &auth.scope_context(), &id).await?;
+    let limit = query.limit.unwrap_or(10).min(50) as i64;
+    let rows = PgTaskBindingRepository(state.db.clone())
+        .find_recent_for_trigger(&id, limit)
+        .await?;
+    Ok(Json(rows.iter().map(map_recent_task_item).collect()))
 }
 
 #[utoipa::path(

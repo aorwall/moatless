@@ -5,7 +5,7 @@ import type {
   TaskTriggerResponse,
 } from '@moatless/api-client'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
-import { Bell, Loader2, Pencil, Plus, Trash2 } from 'lucide-react'
+import { Bell, Loader2, Plus, Trash2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
@@ -201,7 +201,16 @@ function TriggersListPage() {
               const connection = connectionsById.get(trigger.connectionId)
 
               return (
-                <TableRow key={trigger.id}>
+                <TableRow
+                  key={trigger.id}
+                  className="cursor-pointer hover:bg-muted/50"
+                  onClick={() =>
+                    navigate({
+                      to: '/settings/integrations/triggers/$trigger-id',
+                      params: { 'trigger-id': trigger.id },
+                    })
+                  }
+                >
                   <TableCell>
                     <Badge variant="secondary">{getProviderLabel(trigger.provider)}</Badge>
                   </TableCell>
@@ -215,7 +224,7 @@ function TriggersListPage() {
                   <TableCell>
                     {route ? getRouteLabel(route, repositoriesById) : trigger.routeId}
                   </TableCell>
-                  <TableCell>
+                  <TableCell onClick={(e) => e.stopPropagation()}>
                     <Switch
                       checked={trigger.active}
                       onCheckedChange={() => handleToggleActive(trigger)}
@@ -223,16 +232,8 @@ function TriggersListPage() {
                       aria-label={`Toggle ${getSourceLabel(trigger)} active`}
                     />
                   </TableCell>
-                  <TableCell>
+                  <TableCell onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center gap-1">
-                      <Button variant="ghost" size="icon" asChild title="Edit">
-                        <Link
-                          to="/settings/integrations/triggers/$trigger-id"
-                          params={{ 'trigger-id': trigger.id }}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Link>
-                      </Button>
                       <Button
                         variant="ghost"
                         size="icon"

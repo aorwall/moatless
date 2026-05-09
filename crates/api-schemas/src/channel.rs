@@ -317,6 +317,25 @@ pub struct UpdateScheduledJobRequest {
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
+pub struct TriggerRecentTaskSummary {
+    pub task_id: String,
+    pub short_id: Option<String>,
+    pub title: String,
+    pub status: crate::enums::TaskStatus,
+    pub created_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct TriggerRecentTaskItem {
+    pub task: TriggerRecentTaskSummary,
+    pub binding: TaskBindingResponse,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
 pub struct SendTaskReplyRequest {
     pub text: String,
     #[serde(default)]

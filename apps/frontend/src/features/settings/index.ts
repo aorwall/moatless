@@ -13,6 +13,7 @@ export { CodexConfigurationSection } from './components/codex-configuration-sect
 export { CodexDeviceLoginDialog } from './components/codex-device-login-dialog'
 export { CommandConfigurationSection } from './components/command-configuration-section'
 export { ConnectionFormDialog } from './components/connection-form-dialog'
+export { DetailItem } from './components/detail-item'
 export { FigmaConfigurationSection } from './components/figma-configuration-section'
 export { GitHubConfigurationSection } from './components/github-configuration-section'
 export { GitLabConfigurationSection } from './components/gitlab-configuration-section'

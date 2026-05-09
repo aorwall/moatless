@@ -1,5 +1,7 @@
 //! Persistence helpers for `task_bindings`.
 
+use chrono::{DateTime, Utc};
+
 use crate::db::DbPool;
 
 use super::super::models::{TaskBinding, PROVIDER_EVENT_BINDING_ORIGIN};
@@ -51,6 +53,29 @@ pub trait TaskBindingRepository: Send + Sync {
 }
 
 pub struct PgTaskBindingRepository(pub DbPool);
+
+/// Flat row returned by `find_recent_for_trigger`.
+#[derive(sqlx::FromRow, Debug)]
+pub struct TriggerRecentTaskRow {
+    pub task_id: String,
+    pub short_id: Option<String>,
+    pub title: String,
+    pub status: String,
+    pub task_created_at: DateTime<Utc>,
+    // binding fields
+    pub binding_id: String,
+    pub provider: String,
+    pub subject_kind: String,
+    pub subject_key: String,
+    pub connection_id: String,
+    pub trigger_id: Option<String>,
+    pub destination_config: serde_json::Value,
+    pub metadata: serde_json::Value,
+    pub last_external_event_id: Option<String>,
+    pub origin: String,
+    pub binding_created_at: DateTime<Utc>,
+    pub last_event_at: DateTime<Utc>,
+}
 
 /// Flat row returned by the batch channel query.
 #[derive(sqlx::FromRow, Debug)]
@@ -336,6 +361,35 @@ impl PgTaskBindingRepository {
             .execute(&self.0)
             .await?;
         Ok(())
+    }
+
+    /// Fetch the most recent tasks created via the given trigger, joined with
+    /// their task bindings. Tasks reached via `task_bindings.trigger_id` inherit
+    /// the trigger's scope by construction (a binding is created in the same
+    /// scope as the route+trigger that produced it), so no additional task-level
+    /// scope predicate is needed.
+    pub async fn find_recent_for_trigger(
+        &self,
+        trigger_id: &str,
+        limit: i64,
+    ) -> Result<Vec<TriggerRecentTaskRow>, sqlx::Error> {
+        sqlx::query_as::<_, TriggerRecentTaskRow>(
+            r#"SELECT t.task_id, t.short_id, t.title, t.status,
+                      t.created_at AS task_created_at,
+                      tb.id AS binding_id, tb.provider, tb.subject_kind, tb.subject_key,
+                      tb.connection_id, tb.trigger_id, tb.destination_config, tb.metadata,
+                      tb.last_external_event_id, tb.origin,
+                      tb.created_at AS binding_created_at, tb.last_event_at
+               FROM task_bindings tb
+               JOIN tasks t ON t.task_id = tb.task_id
+               WHERE tb.trigger_id = $1
+               ORDER BY tb.created_at DESC
+               LIMIT $2"#,
+        )
+        .bind(trigger_id)
+        .bind(limit)
+        .fetch_all(&self.0)
+        .await
     }
 
     /// Stamp the latest external id we've seen on this binding so context

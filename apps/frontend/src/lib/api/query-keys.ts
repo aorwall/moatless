@@ -81,6 +81,9 @@ export const queryKeys = {
     taskRoutesList: () => [...queryKeys.integrations.taskRoutes(), 'list'] as const,
     taskTriggers: () => [...queryKeys.integrations.all(), 'task-triggers'] as const,
     taskTriggersList: () => [...queryKeys.integrations.taskTriggers(), 'list'] as const,
+    taskTrigger: (id: string) => [...queryKeys.integrations.taskTriggers(), 'detail', id] as const,
+    taskTriggerRecentTasks: (id: string) =>
+      [...queryKeys.integrations.taskTrigger(id), 'recent-tasks'] as const,
   },
 
   settings: {

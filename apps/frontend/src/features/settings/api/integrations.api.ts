@@ -5,6 +5,7 @@ import type {
   ProviderConnectionResponse,
   TaskRouteResponse,
   TaskTriggerResponse,
+  TriggerRecentTaskItem,
   UpdateTaskRouteRequest,
   UpdateTaskTriggerRequest,
 } from '@moatless/api-client'
@@ -22,7 +23,9 @@ import {
 import {
   createTaskTrigger as createTaskTriggerHandler,
   deleteTaskTrigger as deleteTaskTriggerHandler,
+  getTaskTrigger as getTaskTriggerHandler,
   listTaskTriggers as listTaskTriggersHandler,
+  listTriggerRecentTasks as listTriggerRecentTasksHandler,
   updateTaskTrigger as updateTaskTriggerHandler,
 } from '@moatless/api-client/sandbox/triggers/triggers'
 
@@ -72,5 +75,16 @@ export const integrationsApi = {
 
   async deleteTaskTrigger(id: string): Promise<void> {
     await unwrapResponse<void>(deleteTaskTriggerHandler(id))
+  },
+
+  async getTaskTrigger(id: string): Promise<TaskTriggerResponse> {
+    return await unwrapResponse<TaskTriggerResponse>(getTaskTriggerHandler(id))
+  },
+
+  async listTriggerRecentTasks(
+    id: string,
+    params?: { limit?: number },
+  ): Promise<TriggerRecentTaskItem[]> {
+    return await unwrapResponse<TriggerRecentTaskItem[]>(listTriggerRecentTasksHandler(id, params))
   },
 }

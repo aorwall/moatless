@@ -5022,6 +5022,45 @@
       }
     },
     "/api/v1/triggers/{id}": {
+      "get": {
+        "tags": [
+          "triggers"
+        ],
+        "operationId": "get_task_trigger",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Task trigger id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Task trigger",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskTriggerResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
       "put": {
         "tags": [
           "triggers"
@@ -5086,6 +5125,51 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/triggers/{id}/tasks": {
+      "get": {
+        "tags": [
+          "triggers"
+        ],
+        "operationId": "list_trigger_recent_tasks",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Task trigger id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Max items, default 10, cap 50",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TriggerRecentTaskItem"
+                  }
                 }
               }
             }
@@ -10865,6 +10949,50 @@
               "object",
               "null"
             ]
+          }
+        }
+      },
+      "TriggerRecentTaskItem": {
+        "type": "object",
+        "required": [
+          "task",
+          "binding"
+        ],
+        "properties": {
+          "binding": {
+            "$ref": "#/components/schemas/TaskBindingResponse"
+          },
+          "task": {
+            "$ref": "#/components/schemas/TriggerRecentTaskSummary"
+          }
+        }
+      },
+      "TriggerRecentTaskSummary": {
+        "type": "object",
+        "required": [
+          "taskId",
+          "title",
+          "status",
+          "createdAt"
+        ],
+        "properties": {
+          "createdAt": {
+            "type": "string"
+          },
+          "shortId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/TaskStatus"
+          },
+          "taskId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
           }
         }
       },

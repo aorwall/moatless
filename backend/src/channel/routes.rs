@@ -24,8 +24,10 @@ use crate::state::AppState;
         handlers::routes::update_task_route,
         handlers::triggers::list_task_triggers,
         handlers::triggers::create_task_trigger,
+        handlers::triggers::get_task_trigger,
         handlers::triggers::update_task_trigger,
         handlers::triggers::delete_task_trigger,
+        handlers::triggers::list_trigger_recent_tasks,
         handlers::scheduled_jobs::list_scheduled_jobs,
         handlers::scheduled_jobs::create_scheduled_job,
         handlers::scheduled_jobs::update_scheduled_job,
@@ -59,10 +61,12 @@ pub fn channel_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenAp
             handlers::triggers::list_task_triggers,
             handlers::triggers::create_task_trigger
         ))
+        .routes(routes!(handlers::triggers::get_task_trigger))
         .routes(routes!(
             handlers::triggers::update_task_trigger,
             handlers::triggers::delete_task_trigger
         ))
+        .routes(routes!(handlers::triggers::list_trigger_recent_tasks))
         .routes(routes!(
             handlers::scheduled_jobs::list_scheduled_jobs,
             handlers::scheduled_jobs::create_scheduled_job

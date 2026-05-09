@@ -32,6 +32,7 @@ import { Route as SettingsIntegrationsConnectionsIndexRouteImport } from './rout
 import { Route as SettingsIntegrationsTriggersNewRouteImport } from './routes/settings/integrations/triggers/new'
 import { Route as SettingsIntegrationsRoutesNewRouteImport } from './routes/settings/integrations/routes/new'
 import { Route as SettingsIntegrationsTriggersTriggerIdIndexRouteImport } from './routes/settings/integrations/triggers/$trigger-id/index'
+import { Route as SettingsIntegrationsTriggersTriggerIdEditRouteImport } from './routes/settings/integrations/triggers/$trigger-id/edit'
 import { Route as SettingsIntegrationsRoutesRouteIdIndexRouteImport } from './routes/settings/integrations/routes/$route-id/index'
 import { Route as SettingsIntegrationsConnectionsConnectionIdIndexRouteImport } from './routes/settings/integrations/connections/$connection-id/index'
 
@@ -156,6 +157,12 @@ const SettingsIntegrationsTriggersTriggerIdIndexRoute =
     path: '/integrations/triggers/$trigger-id/',
     getParentRoute: () => SettingsRoute,
   } as any)
+const SettingsIntegrationsTriggersTriggerIdEditRoute =
+  SettingsIntegrationsTriggersTriggerIdEditRouteImport.update({
+    id: '/integrations/triggers/$trigger-id/edit',
+    path: '/integrations/triggers/$trigger-id/edit',
+    getParentRoute: () => SettingsRoute,
+  } as any)
 const SettingsIntegrationsRoutesRouteIdIndexRoute =
   SettingsIntegrationsRoutesRouteIdIndexRouteImport.update({
     id: '/integrations/routes/$route-id/',
@@ -195,6 +202,7 @@ export interface FileRoutesByFullPath {
   '/settings/integrations/connections/$connection-id': typeof SettingsIntegrationsConnectionsConnectionIdIndexRoute
   '/settings/integrations/routes/$route-id': typeof SettingsIntegrationsRoutesRouteIdIndexRoute
   '/settings/integrations/triggers/$trigger-id': typeof SettingsIntegrationsTriggersTriggerIdIndexRoute
+  '/settings/integrations/triggers/$trigger-id/edit': typeof SettingsIntegrationsTriggersTriggerIdEditRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -219,6 +227,7 @@ export interface FileRoutesByTo {
   '/settings/integrations/connections/$connection-id': typeof SettingsIntegrationsConnectionsConnectionIdIndexRoute
   '/settings/integrations/routes/$route-id': typeof SettingsIntegrationsRoutesRouteIdIndexRoute
   '/settings/integrations/triggers/$trigger-id': typeof SettingsIntegrationsTriggersTriggerIdIndexRoute
+  '/settings/integrations/triggers/$trigger-id/edit': typeof SettingsIntegrationsTriggersTriggerIdEditRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -247,6 +256,7 @@ export interface FileRoutesById {
   '/settings/integrations/connections/$connection-id/': typeof SettingsIntegrationsConnectionsConnectionIdIndexRoute
   '/settings/integrations/routes/$route-id/': typeof SettingsIntegrationsRoutesRouteIdIndexRoute
   '/settings/integrations/triggers/$trigger-id/': typeof SettingsIntegrationsTriggersTriggerIdIndexRoute
+  '/settings/integrations/triggers/$trigger-id/edit': typeof SettingsIntegrationsTriggersTriggerIdEditRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -276,6 +286,7 @@ export interface FileRouteTypes {
     | '/settings/integrations/connections/$connection-id'
     | '/settings/integrations/routes/$route-id'
     | '/settings/integrations/triggers/$trigger-id'
+    | '/settings/integrations/triggers/$trigger-id/edit'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -300,6 +311,7 @@ export interface FileRouteTypes {
     | '/settings/integrations/connections/$connection-id'
     | '/settings/integrations/routes/$route-id'
     | '/settings/integrations/triggers/$trigger-id'
+    | '/settings/integrations/triggers/$trigger-id/edit'
   id:
     | '__root__'
     | '/'
@@ -327,6 +339,7 @@ export interface FileRouteTypes {
     | '/settings/integrations/connections/$connection-id/'
     | '/settings/integrations/routes/$route-id/'
     | '/settings/integrations/triggers/$trigger-id/'
+    | '/settings/integrations/triggers/$trigger-id/edit'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -506,6 +519,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsIntegrationsTriggersTriggerIdIndexRouteImport
       parentRoute: typeof SettingsRoute
     }
+    '/settings/integrations/triggers/$trigger-id/edit': {
+      id: '/settings/integrations/triggers/$trigger-id/edit'
+      path: '/integrations/triggers/$trigger-id/edit'
+      fullPath: '/settings/integrations/triggers/$trigger-id/edit'
+      preLoaderRoute: typeof SettingsIntegrationsTriggersTriggerIdEditRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     '/settings/integrations/routes/$route-id/': {
       id: '/settings/integrations/routes/$route-id/'
       path: '/integrations/routes/$route-id'
@@ -546,6 +566,7 @@ interface SettingsRouteChildren {
   SettingsIntegrationsConnectionsConnectionIdIndexRoute: typeof SettingsIntegrationsConnectionsConnectionIdIndexRoute
   SettingsIntegrationsRoutesRouteIdIndexRoute: typeof SettingsIntegrationsRoutesRouteIdIndexRoute
   SettingsIntegrationsTriggersTriggerIdIndexRoute: typeof SettingsIntegrationsTriggersTriggerIdIndexRoute
+  SettingsIntegrationsTriggersTriggerIdEditRoute: typeof SettingsIntegrationsTriggersTriggerIdEditRoute
 }
 
 const SettingsRouteChildren: SettingsRouteChildren = {
@@ -563,6 +584,8 @@ const SettingsRouteChildren: SettingsRouteChildren = {
     SettingsIntegrationsRoutesRouteIdIndexRoute,
   SettingsIntegrationsTriggersTriggerIdIndexRoute:
     SettingsIntegrationsTriggersTriggerIdIndexRoute,
+  SettingsIntegrationsTriggersTriggerIdEditRoute:
+    SettingsIntegrationsTriggersTriggerIdEditRoute,
 }
 
 const SettingsRouteWithChildren = SettingsRoute._addFileChildren(

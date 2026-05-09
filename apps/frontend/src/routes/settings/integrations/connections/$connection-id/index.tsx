@@ -1,5 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { Loader2 } from 'lucide-react'
+import { DetailItem } from '@/features/settings/components/detail-item'
 import { SettingsPage } from '@/features/settings/components/settings-page'
 import { useProviderConnections } from '@/features/settings/hooks/use-integrations'
 
@@ -63,14 +64,5 @@ function ConnectionDetailPage() {
         </dl>
       )}
     </SettingsPage>
-  )
-}
-
-function DetailItem({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
-      <dd className="mt-1 text-sm">{value}</dd>
-    </div>
   )
 }
