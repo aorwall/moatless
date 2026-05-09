@@ -2,8 +2,11 @@ import type { RoutingMode, TaskRouteResponse } from '@moatless/api-client'
 import { Loader2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
+import {
+  useCreateTaskRoute,
+  useUpdateTaskRoute,
+} from '@/features/integrations/hooks/use-integrations'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
-import { useCreateTaskRoute, useUpdateTaskRoute } from '@/features/settings/hooks/use-integrations'
 import { useTagsList } from '@/features/tags'
 import { Button } from '@/lib/components/ui/button'
 import { Input } from '@/lib/components/ui/input'

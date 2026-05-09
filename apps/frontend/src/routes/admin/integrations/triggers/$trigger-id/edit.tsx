@@ -1,10 +1,10 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { Loader2 } from 'lucide-react'
-import { SettingsPage } from '@/features/settings/components/settings-page'
-import { TaskTriggerForm } from '@/features/settings/components/task-trigger-form'
-import { useTaskTrigger } from '@/features/settings/hooks/use-integrations'
+import { AdminPage } from '@/features/admin'
+import { TaskTriggerForm } from '@/features/integrations/components/task-trigger-form'
+import { useTaskTrigger } from '@/features/integrations/hooks/use-integrations'
 
-export const Route = createFileRoute('/settings/integrations/triggers/$trigger-id/edit')({
+export const Route = createFileRoute('/admin/integrations/triggers/$trigger-id/edit')({
   component: EditTriggerPage,
 })
 
@@ -16,16 +16,16 @@ function EditTriggerPage() {
 
   const goBack = () =>
     navigate({
-      to: '/settings/integrations/triggers/$trigger-id',
+      to: '/admin/integrations/triggers/$trigger-id',
       params: { 'trigger-id': triggerId },
     })
 
   return (
-    <SettingsPage
+    <AdminPage
       title="Edit Trigger"
       description="Update trigger routing."
       backTo={{
-        to: '/settings/integrations/triggers/$trigger-id',
+        to: '/admin/integrations/triggers/$trigger-id',
         params: { 'trigger-id': triggerId },
         label: 'Back to trigger',
       }}
@@ -42,6 +42,6 @@ function EditTriggerPage() {
       ) : (
         <TaskTriggerForm trigger={trigger} onSuccess={goBack} onCancel={goBack} />
       )}
-    </SettingsPage>
+    </AdminPage>
   )
 }

@@ -11,7 +11,7 @@ import type {
 } from '@moatless/api-client'
 import type { UseQueryOptions } from '@tanstack/react-query'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { integrationsApi } from '@/features/settings/api/integrations.api'
+import { integrationsApi } from '@/features/integrations/api/integrations.api'
 import { queryKeys } from '@/lib/api/query-keys'
 
 export function useIntegrationProviders() {

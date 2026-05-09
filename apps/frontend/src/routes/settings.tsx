@@ -1,20 +1,7 @@
-import { createFileRoute, Outlet } from '@tanstack/react-router'
-import { SettingsSidebar } from '@/features/settings/components/settings-sidebar'
-import { SidebarProvider } from '@/lib/components/ui/sidebar'
+import { createFileRoute, redirect } from '@tanstack/react-router'
 
 export const Route = createFileRoute('/settings')({
-  component: SettingsLayout,
+  beforeLoad: () => {
+    throw redirect({ to: '/admin' })
+  },
 })
-
-function SettingsLayout() {
-  return (
-    <SidebarProvider>
-      <div className="flex h-dvh w-full">
-        <SettingsSidebar />
-        <div className="flex-1 overflow-auto">
-          <Outlet />
-        </div>
-      </div>
-    </SidebarProvider>
-  )
-}

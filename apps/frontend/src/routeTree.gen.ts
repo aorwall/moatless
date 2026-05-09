@@ -16,25 +16,28 @@ import { Route as SandboxRouteImport } from './routes/sandbox'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as FigmaTestRouteImport } from './routes/figma-test'
 import { Route as DashboardRouteImport } from './routes/dashboard'
+import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as TasksIndexRouteImport } from './routes/tasks/index'
-import { Route as SettingsIndexRouteImport } from './routes/settings/index'
 import { Route as SandboxIndexRouteImport } from './routes/sandbox/index'
+import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as AuthCallbackRouteImport } from './routes/auth/callback'
 import { Route as TasksTaskIdIndexRouteImport } from './routes/tasks/$task-id/index'
 import { Route as SandboxTaskIdIndexRouteImport } from './routes/sandbox/$task-id/index'
+import { Route as AdminMarketplacesIndexRouteImport } from './routes/admin/marketplaces/index'
+import { Route as AdminCommandsIndexRouteImport } from './routes/admin/commands/index'
 import { Route as TasksTaskIdKioskRouteImport } from './routes/tasks/$task-id/kiosk'
 import { Route as OauthGithubCallbackRouteImport } from './routes/oauth/github/callback'
 import { Route as OauthFigmaCallbackRouteImport } from './routes/oauth/figma/callback'
-import { Route as SettingsIntegrationsTriggersIndexRouteImport } from './routes/settings/integrations/triggers/index'
-import { Route as SettingsIntegrationsRoutesIndexRouteImport } from './routes/settings/integrations/routes/index'
-import { Route as SettingsIntegrationsConnectionsIndexRouteImport } from './routes/settings/integrations/connections/index'
-import { Route as SettingsIntegrationsTriggersNewRouteImport } from './routes/settings/integrations/triggers/new'
-import { Route as SettingsIntegrationsRoutesNewRouteImport } from './routes/settings/integrations/routes/new'
-import { Route as SettingsIntegrationsTriggersTriggerIdIndexRouteImport } from './routes/settings/integrations/triggers/$trigger-id/index'
-import { Route as SettingsIntegrationsTriggersTriggerIdEditRouteImport } from './routes/settings/integrations/triggers/$trigger-id/edit'
-import { Route as SettingsIntegrationsRoutesRouteIdIndexRouteImport } from './routes/settings/integrations/routes/$route-id/index'
-import { Route as SettingsIntegrationsConnectionsConnectionIdIndexRouteImport } from './routes/settings/integrations/connections/$connection-id/index'
+import { Route as AdminIntegrationsTriggersIndexRouteImport } from './routes/admin/integrations/triggers/index'
+import { Route as AdminIntegrationsRoutesIndexRouteImport } from './routes/admin/integrations/routes/index'
+import { Route as AdminIntegrationsConnectionsIndexRouteImport } from './routes/admin/integrations/connections/index'
+import { Route as AdminIntegrationsTriggersNewRouteImport } from './routes/admin/integrations/triggers/new'
+import { Route as AdminIntegrationsRoutesNewRouteImport } from './routes/admin/integrations/routes/new'
+import { Route as AdminIntegrationsTriggersTriggerIdIndexRouteImport } from './routes/admin/integrations/triggers/$trigger-id/index'
+import { Route as AdminIntegrationsRoutesRouteIdIndexRouteImport } from './routes/admin/integrations/routes/$route-id/index'
+import { Route as AdminIntegrationsConnectionsConnectionIdIndexRouteImport } from './routes/admin/integrations/connections/$connection-id/index'
+import { Route as AdminIntegrationsTriggersTriggerIdEditRouteImport } from './routes/admin/integrations/triggers/$trigger-id/edit'
 
 const TasksRoute = TasksRouteImport.update({
   id: '/tasks',
@@ -71,6 +74,11 @@ const DashboardRoute = DashboardRouteImport.update({
   path: '/dashboard',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminRoute = AdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -81,15 +89,15 @@ const TasksIndexRoute = TasksIndexRouteImport.update({
   path: '/',
   getParentRoute: () => TasksRoute,
 } as any)
-const SettingsIndexRoute = SettingsIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => SettingsRoute,
-} as any)
 const SandboxIndexRoute = SandboxIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => SandboxRoute,
+} as any)
+const AdminIndexRoute = AdminIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AdminRoute,
 } as any)
 const AuthCallbackRoute = AuthCallbackRouteImport.update({
   id: '/auth/callback',
@@ -106,6 +114,16 @@ const SandboxTaskIdIndexRoute = SandboxTaskIdIndexRouteImport.update({
   path: '/$task-id/',
   getParentRoute: () => SandboxRoute,
 } as any)
+const AdminMarketplacesIndexRoute = AdminMarketplacesIndexRouteImport.update({
+  id: '/marketplaces/',
+  path: '/marketplaces/',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminCommandsIndexRoute = AdminCommandsIndexRouteImport.update({
+  id: '/commands/',
+  path: '/commands/',
+  getParentRoute: () => AdminRoute,
+} as any)
 const TasksTaskIdKioskRoute = TasksTaskIdKioskRouteImport.update({
   id: '/$task-id/kiosk',
   path: '/$task-id/kiosk',
@@ -121,88 +139,91 @@ const OauthFigmaCallbackRoute = OauthFigmaCallbackRouteImport.update({
   path: '/oauth/figma/callback',
   getParentRoute: () => rootRouteImport,
 } as any)
-const SettingsIntegrationsTriggersIndexRoute =
-  SettingsIntegrationsTriggersIndexRouteImport.update({
+const AdminIntegrationsTriggersIndexRoute =
+  AdminIntegrationsTriggersIndexRouteImport.update({
     id: '/integrations/triggers/',
     path: '/integrations/triggers/',
-    getParentRoute: () => SettingsRoute,
+    getParentRoute: () => AdminRoute,
   } as any)
-const SettingsIntegrationsRoutesIndexRoute =
-  SettingsIntegrationsRoutesIndexRouteImport.update({
+const AdminIntegrationsRoutesIndexRoute =
+  AdminIntegrationsRoutesIndexRouteImport.update({
     id: '/integrations/routes/',
     path: '/integrations/routes/',
-    getParentRoute: () => SettingsRoute,
+    getParentRoute: () => AdminRoute,
   } as any)
-const SettingsIntegrationsConnectionsIndexRoute =
-  SettingsIntegrationsConnectionsIndexRouteImport.update({
+const AdminIntegrationsConnectionsIndexRoute =
+  AdminIntegrationsConnectionsIndexRouteImport.update({
     id: '/integrations/connections/',
     path: '/integrations/connections/',
-    getParentRoute: () => SettingsRoute,
+    getParentRoute: () => AdminRoute,
   } as any)
-const SettingsIntegrationsTriggersNewRoute =
-  SettingsIntegrationsTriggersNewRouteImport.update({
+const AdminIntegrationsTriggersNewRoute =
+  AdminIntegrationsTriggersNewRouteImport.update({
     id: '/integrations/triggers/new',
     path: '/integrations/triggers/new',
-    getParentRoute: () => SettingsRoute,
+    getParentRoute: () => AdminRoute,
   } as any)
-const SettingsIntegrationsRoutesNewRoute =
-  SettingsIntegrationsRoutesNewRouteImport.update({
+const AdminIntegrationsRoutesNewRoute =
+  AdminIntegrationsRoutesNewRouteImport.update({
     id: '/integrations/routes/new',
     path: '/integrations/routes/new',
-    getParentRoute: () => SettingsRoute,
+    getParentRoute: () => AdminRoute,
   } as any)
-const SettingsIntegrationsTriggersTriggerIdIndexRoute =
-  SettingsIntegrationsTriggersTriggerIdIndexRouteImport.update({
+const AdminIntegrationsTriggersTriggerIdIndexRoute =
+  AdminIntegrationsTriggersTriggerIdIndexRouteImport.update({
     id: '/integrations/triggers/$trigger-id/',
     path: '/integrations/triggers/$trigger-id/',
-    getParentRoute: () => SettingsRoute,
+    getParentRoute: () => AdminRoute,
   } as any)
-const SettingsIntegrationsTriggersTriggerIdEditRoute =
-  SettingsIntegrationsTriggersTriggerIdEditRouteImport.update({
-    id: '/integrations/triggers/$trigger-id/edit',
-    path: '/integrations/triggers/$trigger-id/edit',
-    getParentRoute: () => SettingsRoute,
-  } as any)
-const SettingsIntegrationsRoutesRouteIdIndexRoute =
-  SettingsIntegrationsRoutesRouteIdIndexRouteImport.update({
+const AdminIntegrationsRoutesRouteIdIndexRoute =
+  AdminIntegrationsRoutesRouteIdIndexRouteImport.update({
     id: '/integrations/routes/$route-id/',
     path: '/integrations/routes/$route-id/',
-    getParentRoute: () => SettingsRoute,
+    getParentRoute: () => AdminRoute,
   } as any)
-const SettingsIntegrationsConnectionsConnectionIdIndexRoute =
-  SettingsIntegrationsConnectionsConnectionIdIndexRouteImport.update({
+const AdminIntegrationsConnectionsConnectionIdIndexRoute =
+  AdminIntegrationsConnectionsConnectionIdIndexRouteImport.update({
     id: '/integrations/connections/$connection-id/',
     path: '/integrations/connections/$connection-id/',
-    getParentRoute: () => SettingsRoute,
+    getParentRoute: () => AdminRoute,
+  } as any)
+const AdminIntegrationsTriggersTriggerIdEditRoute =
+  AdminIntegrationsTriggersTriggerIdEditRouteImport.update({
+    id: '/integrations/triggers/$trigger-id/edit',
+    path: '/integrations/triggers/$trigger-id/edit',
+    getParentRoute: () => AdminRoute,
   } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRouteWithChildren
   '/dashboard': typeof DashboardRoute
   '/figma-test': typeof FigmaTestRoute
   '/login': typeof LoginRoute
   '/sandbox': typeof SandboxRouteWithChildren
   '/secrets': typeof SecretsRoute
-  '/settings': typeof SettingsRouteWithChildren
+  '/settings': typeof SettingsRoute
   '/tasks': typeof TasksRouteWithChildren
   '/auth/callback': typeof AuthCallbackRoute
+  '/admin/': typeof AdminIndexRoute
   '/sandbox/': typeof SandboxIndexRoute
-  '/settings/': typeof SettingsIndexRoute
   '/tasks/': typeof TasksIndexRoute
   '/oauth/figma/callback': typeof OauthFigmaCallbackRoute
   '/oauth/github/callback': typeof OauthGithubCallbackRoute
   '/tasks/$task-id/kiosk': typeof TasksTaskIdKioskRoute
+  '/admin/commands': typeof AdminCommandsIndexRoute
+  '/admin/marketplaces': typeof AdminMarketplacesIndexRoute
   '/sandbox/$task-id': typeof SandboxTaskIdIndexRoute
   '/tasks/$task-id': typeof TasksTaskIdIndexRoute
-  '/settings/integrations/routes/new': typeof SettingsIntegrationsRoutesNewRoute
-  '/settings/integrations/triggers/new': typeof SettingsIntegrationsTriggersNewRoute
-  '/settings/integrations/connections': typeof SettingsIntegrationsConnectionsIndexRoute
-  '/settings/integrations/routes': typeof SettingsIntegrationsRoutesIndexRoute
-  '/settings/integrations/triggers': typeof SettingsIntegrationsTriggersIndexRoute
-  '/settings/integrations/connections/$connection-id': typeof SettingsIntegrationsConnectionsConnectionIdIndexRoute
-  '/settings/integrations/routes/$route-id': typeof SettingsIntegrationsRoutesRouteIdIndexRoute
-  '/settings/integrations/triggers/$trigger-id': typeof SettingsIntegrationsTriggersTriggerIdIndexRoute
-  '/settings/integrations/triggers/$trigger-id/edit': typeof SettingsIntegrationsTriggersTriggerIdEditRoute
+  '/admin/integrations/routes/new': typeof AdminIntegrationsRoutesNewRoute
+  '/admin/integrations/triggers/new': typeof AdminIntegrationsTriggersNewRoute
+  '/admin/integrations/connections': typeof AdminIntegrationsConnectionsIndexRoute
+  '/admin/integrations/routes': typeof AdminIntegrationsRoutesIndexRoute
+  '/admin/integrations/triggers': typeof AdminIntegrationsTriggersIndexRoute
+  '/admin/integrations/triggers/$trigger-id/edit': typeof AdminIntegrationsTriggersTriggerIdEditRoute
+  '/admin/integrations/connections/$connection-id': typeof AdminIntegrationsConnectionsConnectionIdIndexRoute
+  '/admin/integrations/routes/$route-id': typeof AdminIntegrationsRoutesRouteIdIndexRoute
+  '/admin/integrations/triggers/$trigger-id': typeof AdminIntegrationsTriggersTriggerIdIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -210,58 +231,65 @@ export interface FileRoutesByTo {
   '/figma-test': typeof FigmaTestRoute
   '/login': typeof LoginRoute
   '/secrets': typeof SecretsRoute
+  '/settings': typeof SettingsRoute
   '/auth/callback': typeof AuthCallbackRoute
+  '/admin': typeof AdminIndexRoute
   '/sandbox': typeof SandboxIndexRoute
-  '/settings': typeof SettingsIndexRoute
   '/tasks': typeof TasksIndexRoute
   '/oauth/figma/callback': typeof OauthFigmaCallbackRoute
   '/oauth/github/callback': typeof OauthGithubCallbackRoute
   '/tasks/$task-id/kiosk': typeof TasksTaskIdKioskRoute
+  '/admin/commands': typeof AdminCommandsIndexRoute
+  '/admin/marketplaces': typeof AdminMarketplacesIndexRoute
   '/sandbox/$task-id': typeof SandboxTaskIdIndexRoute
   '/tasks/$task-id': typeof TasksTaskIdIndexRoute
-  '/settings/integrations/routes/new': typeof SettingsIntegrationsRoutesNewRoute
-  '/settings/integrations/triggers/new': typeof SettingsIntegrationsTriggersNewRoute
-  '/settings/integrations/connections': typeof SettingsIntegrationsConnectionsIndexRoute
-  '/settings/integrations/routes': typeof SettingsIntegrationsRoutesIndexRoute
-  '/settings/integrations/triggers': typeof SettingsIntegrationsTriggersIndexRoute
-  '/settings/integrations/connections/$connection-id': typeof SettingsIntegrationsConnectionsConnectionIdIndexRoute
-  '/settings/integrations/routes/$route-id': typeof SettingsIntegrationsRoutesRouteIdIndexRoute
-  '/settings/integrations/triggers/$trigger-id': typeof SettingsIntegrationsTriggersTriggerIdIndexRoute
-  '/settings/integrations/triggers/$trigger-id/edit': typeof SettingsIntegrationsTriggersTriggerIdEditRoute
+  '/admin/integrations/routes/new': typeof AdminIntegrationsRoutesNewRoute
+  '/admin/integrations/triggers/new': typeof AdminIntegrationsTriggersNewRoute
+  '/admin/integrations/connections': typeof AdminIntegrationsConnectionsIndexRoute
+  '/admin/integrations/routes': typeof AdminIntegrationsRoutesIndexRoute
+  '/admin/integrations/triggers': typeof AdminIntegrationsTriggersIndexRoute
+  '/admin/integrations/triggers/$trigger-id/edit': typeof AdminIntegrationsTriggersTriggerIdEditRoute
+  '/admin/integrations/connections/$connection-id': typeof AdminIntegrationsConnectionsConnectionIdIndexRoute
+  '/admin/integrations/routes/$route-id': typeof AdminIntegrationsRoutesRouteIdIndexRoute
+  '/admin/integrations/triggers/$trigger-id': typeof AdminIntegrationsTriggersTriggerIdIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/admin': typeof AdminRouteWithChildren
   '/dashboard': typeof DashboardRoute
   '/figma-test': typeof FigmaTestRoute
   '/login': typeof LoginRoute
   '/sandbox': typeof SandboxRouteWithChildren
   '/secrets': typeof SecretsRoute
-  '/settings': typeof SettingsRouteWithChildren
+  '/settings': typeof SettingsRoute
   '/tasks': typeof TasksRouteWithChildren
   '/auth/callback': typeof AuthCallbackRoute
+  '/admin/': typeof AdminIndexRoute
   '/sandbox/': typeof SandboxIndexRoute
-  '/settings/': typeof SettingsIndexRoute
   '/tasks/': typeof TasksIndexRoute
   '/oauth/figma/callback': typeof OauthFigmaCallbackRoute
   '/oauth/github/callback': typeof OauthGithubCallbackRoute
   '/tasks/$task-id/kiosk': typeof TasksTaskIdKioskRoute
+  '/admin/commands/': typeof AdminCommandsIndexRoute
+  '/admin/marketplaces/': typeof AdminMarketplacesIndexRoute
   '/sandbox/$task-id/': typeof SandboxTaskIdIndexRoute
   '/tasks/$task-id/': typeof TasksTaskIdIndexRoute
-  '/settings/integrations/routes/new': typeof SettingsIntegrationsRoutesNewRoute
-  '/settings/integrations/triggers/new': typeof SettingsIntegrationsTriggersNewRoute
-  '/settings/integrations/connections/': typeof SettingsIntegrationsConnectionsIndexRoute
-  '/settings/integrations/routes/': typeof SettingsIntegrationsRoutesIndexRoute
-  '/settings/integrations/triggers/': typeof SettingsIntegrationsTriggersIndexRoute
-  '/settings/integrations/connections/$connection-id/': typeof SettingsIntegrationsConnectionsConnectionIdIndexRoute
-  '/settings/integrations/routes/$route-id/': typeof SettingsIntegrationsRoutesRouteIdIndexRoute
-  '/settings/integrations/triggers/$trigger-id/': typeof SettingsIntegrationsTriggersTriggerIdIndexRoute
-  '/settings/integrations/triggers/$trigger-id/edit': typeof SettingsIntegrationsTriggersTriggerIdEditRoute
+  '/admin/integrations/routes/new': typeof AdminIntegrationsRoutesNewRoute
+  '/admin/integrations/triggers/new': typeof AdminIntegrationsTriggersNewRoute
+  '/admin/integrations/connections/': typeof AdminIntegrationsConnectionsIndexRoute
+  '/admin/integrations/routes/': typeof AdminIntegrationsRoutesIndexRoute
+  '/admin/integrations/triggers/': typeof AdminIntegrationsTriggersIndexRoute
+  '/admin/integrations/triggers/$trigger-id/edit': typeof AdminIntegrationsTriggersTriggerIdEditRoute
+  '/admin/integrations/connections/$connection-id/': typeof AdminIntegrationsConnectionsConnectionIdIndexRoute
+  '/admin/integrations/routes/$route-id/': typeof AdminIntegrationsRoutesRouteIdIndexRoute
+  '/admin/integrations/triggers/$trigger-id/': typeof AdminIntegrationsTriggersTriggerIdIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/admin'
     | '/dashboard'
     | '/figma-test'
     | '/login'
@@ -270,23 +298,25 @@ export interface FileRouteTypes {
     | '/settings'
     | '/tasks'
     | '/auth/callback'
+    | '/admin/'
     | '/sandbox/'
-    | '/settings/'
     | '/tasks/'
     | '/oauth/figma/callback'
     | '/oauth/github/callback'
     | '/tasks/$task-id/kiosk'
+    | '/admin/commands'
+    | '/admin/marketplaces'
     | '/sandbox/$task-id'
     | '/tasks/$task-id'
-    | '/settings/integrations/routes/new'
-    | '/settings/integrations/triggers/new'
-    | '/settings/integrations/connections'
-    | '/settings/integrations/routes'
-    | '/settings/integrations/triggers'
-    | '/settings/integrations/connections/$connection-id'
-    | '/settings/integrations/routes/$route-id'
-    | '/settings/integrations/triggers/$trigger-id'
-    | '/settings/integrations/triggers/$trigger-id/edit'
+    | '/admin/integrations/routes/new'
+    | '/admin/integrations/triggers/new'
+    | '/admin/integrations/connections'
+    | '/admin/integrations/routes'
+    | '/admin/integrations/triggers'
+    | '/admin/integrations/triggers/$trigger-id/edit'
+    | '/admin/integrations/connections/$connection-id'
+    | '/admin/integrations/routes/$route-id'
+    | '/admin/integrations/triggers/$trigger-id'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -294,27 +324,31 @@ export interface FileRouteTypes {
     | '/figma-test'
     | '/login'
     | '/secrets'
-    | '/auth/callback'
-    | '/sandbox'
     | '/settings'
+    | '/auth/callback'
+    | '/admin'
+    | '/sandbox'
     | '/tasks'
     | '/oauth/figma/callback'
     | '/oauth/github/callback'
     | '/tasks/$task-id/kiosk'
+    | '/admin/commands'
+    | '/admin/marketplaces'
     | '/sandbox/$task-id'
     | '/tasks/$task-id'
-    | '/settings/integrations/routes/new'
-    | '/settings/integrations/triggers/new'
-    | '/settings/integrations/connections'
-    | '/settings/integrations/routes'
-    | '/settings/integrations/triggers'
-    | '/settings/integrations/connections/$connection-id'
-    | '/settings/integrations/routes/$route-id'
-    | '/settings/integrations/triggers/$trigger-id'
-    | '/settings/integrations/triggers/$trigger-id/edit'
+    | '/admin/integrations/routes/new'
+    | '/admin/integrations/triggers/new'
+    | '/admin/integrations/connections'
+    | '/admin/integrations/routes'
+    | '/admin/integrations/triggers'
+    | '/admin/integrations/triggers/$trigger-id/edit'
+    | '/admin/integrations/connections/$connection-id'
+    | '/admin/integrations/routes/$route-id'
+    | '/admin/integrations/triggers/$trigger-id'
   id:
     | '__root__'
     | '/'
+    | '/admin'
     | '/dashboard'
     | '/figma-test'
     | '/login'
@@ -323,33 +357,36 @@ export interface FileRouteTypes {
     | '/settings'
     | '/tasks'
     | '/auth/callback'
+    | '/admin/'
     | '/sandbox/'
-    | '/settings/'
     | '/tasks/'
     | '/oauth/figma/callback'
     | '/oauth/github/callback'
     | '/tasks/$task-id/kiosk'
+    | '/admin/commands/'
+    | '/admin/marketplaces/'
     | '/sandbox/$task-id/'
     | '/tasks/$task-id/'
-    | '/settings/integrations/routes/new'
-    | '/settings/integrations/triggers/new'
-    | '/settings/integrations/connections/'
-    | '/settings/integrations/routes/'
-    | '/settings/integrations/triggers/'
-    | '/settings/integrations/connections/$connection-id/'
-    | '/settings/integrations/routes/$route-id/'
-    | '/settings/integrations/triggers/$trigger-id/'
-    | '/settings/integrations/triggers/$trigger-id/edit'
+    | '/admin/integrations/routes/new'
+    | '/admin/integrations/triggers/new'
+    | '/admin/integrations/connections/'
+    | '/admin/integrations/routes/'
+    | '/admin/integrations/triggers/'
+    | '/admin/integrations/triggers/$trigger-id/edit'
+    | '/admin/integrations/connections/$connection-id/'
+    | '/admin/integrations/routes/$route-id/'
+    | '/admin/integrations/triggers/$trigger-id/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AdminRoute: typeof AdminRouteWithChildren
   DashboardRoute: typeof DashboardRoute
   FigmaTestRoute: typeof FigmaTestRoute
   LoginRoute: typeof LoginRoute
   SandboxRoute: typeof SandboxRouteWithChildren
   SecretsRoute: typeof SecretsRoute
-  SettingsRoute: typeof SettingsRouteWithChildren
+  SettingsRoute: typeof SettingsRoute
   TasksRoute: typeof TasksRouteWithChildren
   AuthCallbackRoute: typeof AuthCallbackRoute
   OauthFigmaCallbackRoute: typeof OauthFigmaCallbackRoute
@@ -407,6 +444,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin': {
+      id: '/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AdminRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -421,19 +465,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TasksIndexRouteImport
       parentRoute: typeof TasksRoute
     }
-    '/settings/': {
-      id: '/settings/'
-      path: '/'
-      fullPath: '/settings/'
-      preLoaderRoute: typeof SettingsIndexRouteImport
-      parentRoute: typeof SettingsRoute
-    }
     '/sandbox/': {
       id: '/sandbox/'
       path: '/'
       fullPath: '/sandbox/'
       preLoaderRoute: typeof SandboxIndexRouteImport
       parentRoute: typeof SandboxRoute
+    }
+    '/admin/': {
+      id: '/admin/'
+      path: '/'
+      fullPath: '/admin/'
+      preLoaderRoute: typeof AdminIndexRouteImport
+      parentRoute: typeof AdminRoute
     }
     '/auth/callback': {
       id: '/auth/callback'
@@ -456,6 +500,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SandboxTaskIdIndexRouteImport
       parentRoute: typeof SandboxRoute
     }
+    '/admin/marketplaces/': {
+      id: '/admin/marketplaces/'
+      path: '/marketplaces'
+      fullPath: '/admin/marketplaces'
+      preLoaderRoute: typeof AdminMarketplacesIndexRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/commands/': {
+      id: '/admin/commands/'
+      path: '/commands'
+      fullPath: '/admin/commands'
+      preLoaderRoute: typeof AdminCommandsIndexRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/tasks/$task-id/kiosk': {
       id: '/tasks/$task-id/kiosk'
       path: '/$task-id/kiosk'
@@ -477,71 +535,108 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OauthFigmaCallbackRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/settings/integrations/triggers/': {
-      id: '/settings/integrations/triggers/'
+    '/admin/integrations/triggers/': {
+      id: '/admin/integrations/triggers/'
       path: '/integrations/triggers'
-      fullPath: '/settings/integrations/triggers'
-      preLoaderRoute: typeof SettingsIntegrationsTriggersIndexRouteImport
-      parentRoute: typeof SettingsRoute
+      fullPath: '/admin/integrations/triggers'
+      preLoaderRoute: typeof AdminIntegrationsTriggersIndexRouteImport
+      parentRoute: typeof AdminRoute
     }
-    '/settings/integrations/routes/': {
-      id: '/settings/integrations/routes/'
+    '/admin/integrations/routes/': {
+      id: '/admin/integrations/routes/'
       path: '/integrations/routes'
-      fullPath: '/settings/integrations/routes'
-      preLoaderRoute: typeof SettingsIntegrationsRoutesIndexRouteImport
-      parentRoute: typeof SettingsRoute
+      fullPath: '/admin/integrations/routes'
+      preLoaderRoute: typeof AdminIntegrationsRoutesIndexRouteImport
+      parentRoute: typeof AdminRoute
     }
-    '/settings/integrations/connections/': {
-      id: '/settings/integrations/connections/'
+    '/admin/integrations/connections/': {
+      id: '/admin/integrations/connections/'
       path: '/integrations/connections'
-      fullPath: '/settings/integrations/connections'
-      preLoaderRoute: typeof SettingsIntegrationsConnectionsIndexRouteImport
-      parentRoute: typeof SettingsRoute
+      fullPath: '/admin/integrations/connections'
+      preLoaderRoute: typeof AdminIntegrationsConnectionsIndexRouteImport
+      parentRoute: typeof AdminRoute
     }
-    '/settings/integrations/triggers/new': {
-      id: '/settings/integrations/triggers/new'
+    '/admin/integrations/triggers/new': {
+      id: '/admin/integrations/triggers/new'
       path: '/integrations/triggers/new'
-      fullPath: '/settings/integrations/triggers/new'
-      preLoaderRoute: typeof SettingsIntegrationsTriggersNewRouteImport
-      parentRoute: typeof SettingsRoute
+      fullPath: '/admin/integrations/triggers/new'
+      preLoaderRoute: typeof AdminIntegrationsTriggersNewRouteImport
+      parentRoute: typeof AdminRoute
     }
-    '/settings/integrations/routes/new': {
-      id: '/settings/integrations/routes/new'
+    '/admin/integrations/routes/new': {
+      id: '/admin/integrations/routes/new'
       path: '/integrations/routes/new'
-      fullPath: '/settings/integrations/routes/new'
-      preLoaderRoute: typeof SettingsIntegrationsRoutesNewRouteImport
-      parentRoute: typeof SettingsRoute
+      fullPath: '/admin/integrations/routes/new'
+      preLoaderRoute: typeof AdminIntegrationsRoutesNewRouteImport
+      parentRoute: typeof AdminRoute
     }
-    '/settings/integrations/triggers/$trigger-id/': {
-      id: '/settings/integrations/triggers/$trigger-id/'
+    '/admin/integrations/triggers/$trigger-id/': {
+      id: '/admin/integrations/triggers/$trigger-id/'
       path: '/integrations/triggers/$trigger-id'
-      fullPath: '/settings/integrations/triggers/$trigger-id'
-      preLoaderRoute: typeof SettingsIntegrationsTriggersTriggerIdIndexRouteImport
-      parentRoute: typeof SettingsRoute
+      fullPath: '/admin/integrations/triggers/$trigger-id'
+      preLoaderRoute: typeof AdminIntegrationsTriggersTriggerIdIndexRouteImport
+      parentRoute: typeof AdminRoute
     }
-    '/settings/integrations/triggers/$trigger-id/edit': {
-      id: '/settings/integrations/triggers/$trigger-id/edit'
-      path: '/integrations/triggers/$trigger-id/edit'
-      fullPath: '/settings/integrations/triggers/$trigger-id/edit'
-      preLoaderRoute: typeof SettingsIntegrationsTriggersTriggerIdEditRouteImport
-      parentRoute: typeof SettingsRoute
-    }
-    '/settings/integrations/routes/$route-id/': {
-      id: '/settings/integrations/routes/$route-id/'
+    '/admin/integrations/routes/$route-id/': {
+      id: '/admin/integrations/routes/$route-id/'
       path: '/integrations/routes/$route-id'
-      fullPath: '/settings/integrations/routes/$route-id'
-      preLoaderRoute: typeof SettingsIntegrationsRoutesRouteIdIndexRouteImport
-      parentRoute: typeof SettingsRoute
+      fullPath: '/admin/integrations/routes/$route-id'
+      preLoaderRoute: typeof AdminIntegrationsRoutesRouteIdIndexRouteImport
+      parentRoute: typeof AdminRoute
     }
-    '/settings/integrations/connections/$connection-id/': {
-      id: '/settings/integrations/connections/$connection-id/'
+    '/admin/integrations/connections/$connection-id/': {
+      id: '/admin/integrations/connections/$connection-id/'
       path: '/integrations/connections/$connection-id'
-      fullPath: '/settings/integrations/connections/$connection-id'
-      preLoaderRoute: typeof SettingsIntegrationsConnectionsConnectionIdIndexRouteImport
-      parentRoute: typeof SettingsRoute
+      fullPath: '/admin/integrations/connections/$connection-id'
+      preLoaderRoute: typeof AdminIntegrationsConnectionsConnectionIdIndexRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/integrations/triggers/$trigger-id/edit': {
+      id: '/admin/integrations/triggers/$trigger-id/edit'
+      path: '/integrations/triggers/$trigger-id/edit'
+      fullPath: '/admin/integrations/triggers/$trigger-id/edit'
+      preLoaderRoute: typeof AdminIntegrationsTriggersTriggerIdEditRouteImport
+      parentRoute: typeof AdminRoute
     }
   }
 }
+
+interface AdminRouteChildren {
+  AdminIndexRoute: typeof AdminIndexRoute
+  AdminCommandsIndexRoute: typeof AdminCommandsIndexRoute
+  AdminMarketplacesIndexRoute: typeof AdminMarketplacesIndexRoute
+  AdminIntegrationsRoutesNewRoute: typeof AdminIntegrationsRoutesNewRoute
+  AdminIntegrationsTriggersNewRoute: typeof AdminIntegrationsTriggersNewRoute
+  AdminIntegrationsConnectionsIndexRoute: typeof AdminIntegrationsConnectionsIndexRoute
+  AdminIntegrationsRoutesIndexRoute: typeof AdminIntegrationsRoutesIndexRoute
+  AdminIntegrationsTriggersIndexRoute: typeof AdminIntegrationsTriggersIndexRoute
+  AdminIntegrationsTriggersTriggerIdEditRoute: typeof AdminIntegrationsTriggersTriggerIdEditRoute
+  AdminIntegrationsConnectionsConnectionIdIndexRoute: typeof AdminIntegrationsConnectionsConnectionIdIndexRoute
+  AdminIntegrationsRoutesRouteIdIndexRoute: typeof AdminIntegrationsRoutesRouteIdIndexRoute
+  AdminIntegrationsTriggersTriggerIdIndexRoute: typeof AdminIntegrationsTriggersTriggerIdIndexRoute
+}
+
+const AdminRouteChildren: AdminRouteChildren = {
+  AdminIndexRoute: AdminIndexRoute,
+  AdminCommandsIndexRoute: AdminCommandsIndexRoute,
+  AdminMarketplacesIndexRoute: AdminMarketplacesIndexRoute,
+  AdminIntegrationsRoutesNewRoute: AdminIntegrationsRoutesNewRoute,
+  AdminIntegrationsTriggersNewRoute: AdminIntegrationsTriggersNewRoute,
+  AdminIntegrationsConnectionsIndexRoute:
+    AdminIntegrationsConnectionsIndexRoute,
+  AdminIntegrationsRoutesIndexRoute: AdminIntegrationsRoutesIndexRoute,
+  AdminIntegrationsTriggersIndexRoute: AdminIntegrationsTriggersIndexRoute,
+  AdminIntegrationsTriggersTriggerIdEditRoute:
+    AdminIntegrationsTriggersTriggerIdEditRoute,
+  AdminIntegrationsConnectionsConnectionIdIndexRoute:
+    AdminIntegrationsConnectionsConnectionIdIndexRoute,
+  AdminIntegrationsRoutesRouteIdIndexRoute:
+    AdminIntegrationsRoutesRouteIdIndexRoute,
+  AdminIntegrationsTriggersTriggerIdIndexRoute:
+    AdminIntegrationsTriggersTriggerIdIndexRoute,
+}
+
+const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
 
 interface SandboxRouteChildren {
   SandboxIndexRoute: typeof SandboxIndexRoute
@@ -555,42 +650,6 @@ const SandboxRouteChildren: SandboxRouteChildren = {
 
 const SandboxRouteWithChildren =
   SandboxRoute._addFileChildren(SandboxRouteChildren)
-
-interface SettingsRouteChildren {
-  SettingsIndexRoute: typeof SettingsIndexRoute
-  SettingsIntegrationsRoutesNewRoute: typeof SettingsIntegrationsRoutesNewRoute
-  SettingsIntegrationsTriggersNewRoute: typeof SettingsIntegrationsTriggersNewRoute
-  SettingsIntegrationsConnectionsIndexRoute: typeof SettingsIntegrationsConnectionsIndexRoute
-  SettingsIntegrationsRoutesIndexRoute: typeof SettingsIntegrationsRoutesIndexRoute
-  SettingsIntegrationsTriggersIndexRoute: typeof SettingsIntegrationsTriggersIndexRoute
-  SettingsIntegrationsConnectionsConnectionIdIndexRoute: typeof SettingsIntegrationsConnectionsConnectionIdIndexRoute
-  SettingsIntegrationsRoutesRouteIdIndexRoute: typeof SettingsIntegrationsRoutesRouteIdIndexRoute
-  SettingsIntegrationsTriggersTriggerIdIndexRoute: typeof SettingsIntegrationsTriggersTriggerIdIndexRoute
-  SettingsIntegrationsTriggersTriggerIdEditRoute: typeof SettingsIntegrationsTriggersTriggerIdEditRoute
-}
-
-const SettingsRouteChildren: SettingsRouteChildren = {
-  SettingsIndexRoute: SettingsIndexRoute,
-  SettingsIntegrationsRoutesNewRoute: SettingsIntegrationsRoutesNewRoute,
-  SettingsIntegrationsTriggersNewRoute: SettingsIntegrationsTriggersNewRoute,
-  SettingsIntegrationsConnectionsIndexRoute:
-    SettingsIntegrationsConnectionsIndexRoute,
-  SettingsIntegrationsRoutesIndexRoute: SettingsIntegrationsRoutesIndexRoute,
-  SettingsIntegrationsTriggersIndexRoute:
-    SettingsIntegrationsTriggersIndexRoute,
-  SettingsIntegrationsConnectionsConnectionIdIndexRoute:
-    SettingsIntegrationsConnectionsConnectionIdIndexRoute,
-  SettingsIntegrationsRoutesRouteIdIndexRoute:
-    SettingsIntegrationsRoutesRouteIdIndexRoute,
-  SettingsIntegrationsTriggersTriggerIdIndexRoute:
-    SettingsIntegrationsTriggersTriggerIdIndexRoute,
-  SettingsIntegrationsTriggersTriggerIdEditRoute:
-    SettingsIntegrationsTriggersTriggerIdEditRoute,
-}
-
-const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
-  SettingsRouteChildren,
-)
 
 interface TasksRouteChildren {
   TasksIndexRoute: typeof TasksIndexRoute
@@ -608,12 +667,13 @@ const TasksRouteWithChildren = TasksRoute._addFileChildren(TasksRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AdminRoute: AdminRouteWithChildren,
   DashboardRoute: DashboardRoute,
   FigmaTestRoute: FigmaTestRoute,
   LoginRoute: LoginRoute,
   SandboxRoute: SandboxRouteWithChildren,
   SecretsRoute: SecretsRoute,
-  SettingsRoute: SettingsRouteWithChildren,
+  SettingsRoute: SettingsRoute,
   TasksRoute: TasksRouteWithChildren,
   AuthCallbackRoute: AuthCallbackRoute,
   OauthFigmaCallbackRoute: OauthFigmaCallbackRoute,

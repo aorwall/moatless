@@ -1,8 +1,8 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { Loader2 } from 'lucide-react'
+import { AdminPage } from '@/features/admin'
+import { useProviderConnections } from '@/features/integrations/hooks/use-integrations'
 import { DetailItem } from '@/features/settings/components/detail-item'
-import { SettingsPage } from '@/features/settings/components/settings-page'
-import { useProviderConnections } from '@/features/settings/hooks/use-integrations'
 
 const PROVIDER_LABELS: Record<string, string> = {
   slack: 'Slack',
@@ -27,7 +27,7 @@ function formatTimestamp(value: string | null | undefined): string {
   return date.toLocaleString()
 }
 
-export const Route = createFileRoute('/settings/integrations/connections/$connection-id/')({
+export const Route = createFileRoute('/admin/integrations/connections/$connection-id/')({
   component: ConnectionDetailPage,
 })
 
@@ -38,10 +38,10 @@ function ConnectionDetailPage() {
   const connection = connections?.find((item) => item.id === connectionId)
 
   return (
-    <SettingsPage
+    <AdminPage
       title={connection?.externalAccountId ?? 'Connection'}
       description={connection ? `${getProviderLabel(connection.provider)} connection` : undefined}
-      backTo={{ to: '/settings/integrations/connections', label: 'Back to connections' }}
+      backTo={{ to: '/admin/integrations/connections', label: 'Back to connections' }}
     >
       {isLoading ? (
         <div className="flex h-32 items-center justify-center">
@@ -63,6 +63,6 @@ function ConnectionDetailPage() {
           <DetailItem label="Updated" value={formatTimestamp(connection.updatedAt)} />
         </dl>
       )}
-    </SettingsPage>
+    </AdminPage>
   )
 }

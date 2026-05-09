@@ -3,7 +3,7 @@ import { ArrowLeft } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Button } from '@/lib/components/ui/button'
 
-interface SettingsPageProps {
+interface AdminPageProps {
   title: string
   description?: string
   backTo?: { to: LinkProps['to']; params?: LinkProps['params']; label: string }
@@ -11,7 +11,7 @@ interface SettingsPageProps {
   children: ReactNode
 }
 
-export function SettingsPage({ title, description, backTo, actions, children }: SettingsPageProps) {
+export function AdminPage({ title, description, backTo, actions, children }: AdminPageProps) {
   return (
     <div className="container mx-auto max-w-4xl px-6 py-6 space-y-6">
       {backTo && (

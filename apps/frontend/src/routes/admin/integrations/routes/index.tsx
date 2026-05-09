@@ -2,9 +2,9 @@ import type { RepositoryResponse } from '@moatless/api-client'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { Loader2, Pencil, Plus, Route as RouteIcon } from 'lucide-react'
 import { useMemo } from 'react'
+import { AdminPage } from '@/features/admin'
+import { useTaskRoutes } from '@/features/integrations/hooks/use-integrations'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
-import { SettingsPage } from '@/features/settings/components/settings-page'
-import { useTaskRoutes } from '@/features/settings/hooks/use-integrations'
 import { Alert, AlertDescription, AlertTitle } from '@/lib/components/ui/alert'
 import { Badge } from '@/lib/components/ui/badge'
 import { Button } from '@/lib/components/ui/button'
@@ -41,7 +41,7 @@ function createRepositoryMap(repositories: RepositoryResponse[] | undefined) {
   return new Map((repositories ?? []).map((repository) => [repository.id, repository.name]))
 }
 
-export const Route = createFileRoute('/settings/integrations/routes/')({
+export const Route = createFileRoute('/admin/integrations/routes/')({
   component: RoutesListPage,
 })
 
@@ -57,12 +57,12 @@ function RoutesListPage() {
   const hasRepositories = repositoryItems.some((repo) => repo.kind !== 'template')
 
   return (
-    <SettingsPage
+    <AdminPage
       title="Routes"
       description="Reusable task routes that triggers send messages to."
       actions={
         <Button
-          onClick={() => navigate({ to: '/settings/integrations/routes/new' })}
+          onClick={() => navigate({ to: '/admin/integrations/routes/new' })}
           size="sm"
           disabled={!hasRepositories}
         >
@@ -118,7 +118,7 @@ function RoutesListPage() {
                 <TableCell>
                   <Button variant="ghost" size="icon" asChild title="Edit">
                     <Link
-                      to="/settings/integrations/routes/$route-id"
+                      to="/admin/integrations/routes/$route-id"
                       params={{ 'route-id': route.id }}
                     >
                       <Pencil className="h-4 w-4" />
@@ -130,6 +130,6 @@ function RoutesListPage() {
           </TableBody>
         </Table>
       )}
-    </SettingsPage>
+    </AdminPage>
   )
 }

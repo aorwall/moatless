@@ -8,15 +8,15 @@ import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { Bell, Loader2, Plus, Trash2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
-import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
-import { SettingsPage } from '@/features/settings/components/settings-page'
+import { AdminPage } from '@/features/admin'
 import {
   useDeleteTaskTrigger,
   useProviderConnections,
   useTaskRoutes,
   useTaskTriggers,
   useUpdateTaskTrigger,
-} from '@/features/settings/hooks/use-integrations'
+} from '@/features/integrations/hooks/use-integrations'
+import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
 import { Alert, AlertDescription, AlertTitle } from '@/lib/components/ui/alert'
 import {
   AlertDialog,
@@ -80,7 +80,7 @@ function createRepositoryMap(repositories: RepositoryResponse[] | undefined) {
   return new Map((repositories ?? []).map((repository) => [repository.id, repository.name]))
 }
 
-export const Route = createFileRoute('/settings/integrations/triggers/')({
+export const Route = createFileRoute('/admin/integrations/triggers/')({
   component: TriggersListPage,
 })
 
@@ -143,12 +143,12 @@ function TriggersListPage() {
   }
 
   return (
-    <SettingsPage
+    <AdminPage
       title="Triggers"
       description="Inbound integration triggers that route messages to tasks."
       actions={
         <Button
-          onClick={() => navigate({ to: '/settings/integrations/triggers/new' })}
+          onClick={() => navigate({ to: '/admin/integrations/triggers/new' })}
           size="sm"
           disabled={!hasRoutes}
         >
@@ -174,7 +174,7 @@ function TriggersListPage() {
             <p className="text-sm">
               Create a{' '}
               <Link
-                to="/settings/integrations/routes"
+                to="/admin/integrations/routes"
                 className="text-primary underline hover:no-underline"
               >
                 task route
@@ -206,7 +206,7 @@ function TriggersListPage() {
                   className="cursor-pointer hover:bg-muted/50"
                   onClick={() =>
                     navigate({
-                      to: '/settings/integrations/triggers/$trigger-id',
+                      to: '/admin/integrations/triggers/$trigger-id',
                       params: { 'trigger-id': trigger.id },
                     })
                   }
@@ -276,6 +276,6 @@ function TriggersListPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </SettingsPage>
+    </AdminPage>
   )
 }

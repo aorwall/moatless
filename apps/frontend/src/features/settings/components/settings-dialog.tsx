@@ -1,26 +1,13 @@
-import {
-  Bot,
-  Figma,
-  GitBranch,
-  Github,
-  Gitlab,
-  Key,
-  Package,
-  Sparkles,
-  Terminal,
-  User,
-} from 'lucide-react'
+import { Bot, Figma, GitBranch, Github, Gitlab, Key, Sparkles, User } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import {
   ApiKeyConfigurationSection,
   ClaudeConfigurationSection,
   CodexConfigurationSection,
-  CommandConfigurationSection,
   FigmaConfigurationSection,
   GitHubConfigurationSection,
   GitLabConfigurationSection,
   GitnessConfigurationSection,
-  MarketplaceConfigurationSection,
   ProfileConfigurationSection,
 } from '@/features/settings'
 import { SidebarDialog } from '@/lib/components/ui/sidebar-dialog'
@@ -46,14 +33,12 @@ export function SettingsDialog({
   const sections = useMemo(() => {
     const allSections = []
 
-    // Profile - always visible, placed first
     allSections.push({
       id: 'profile',
       label: 'Profile',
       icon: <User className="h-4 w-4" />,
     })
 
-    // Claude settings - controlled by SHOW_CLAUDE_SETTINGS flag
     if (showClaudeSettings) {
       allSections.push({
         id: 'claude',
@@ -62,7 +47,6 @@ export function SettingsDialog({
       })
     }
 
-    // Codex settings - controlled by SHOW_CODEX_SETTINGS flag
     if (showCodexSettings) {
       allSections.push({
         id: 'codex',
@@ -71,14 +55,12 @@ export function SettingsDialog({
       })
     }
 
-    // User-level settings - always visible
     allSections.push({
       id: 'github',
       label: 'GitHub',
       icon: <Github className="h-4 w-4" />,
     })
 
-    // GitLab - controlled by GITLAB_ENABLED flag
     if (isGitLabEnabled) {
       allSections.push({
         id: 'gitlab',
@@ -87,7 +69,6 @@ export function SettingsDialog({
       })
     }
 
-    // Gitness - controlled by GITNESS_ENABLED flag
     if (isGitnessEnabled) {
       allSections.push({
         id: 'gitness',
@@ -107,19 +88,7 @@ export function SettingsDialog({
         label: 'API Keys',
         icon: <Key className="h-4 w-4" />,
       },
-      {
-        id: 'commands',
-        label: 'Commands',
-        icon: <Terminal className="h-4 w-4" />,
-      },
     )
-
-    // Marketplaces - admin only
-    allSections.push({
-      id: 'marketplaces',
-      label: 'Marketplaces',
-      icon: <Package className="h-4 w-4" />,
-    })
 
     return allSections
   }, [showClaudeSettings, showCodexSettings, isGitLabEnabled, isGitnessEnabled])
@@ -150,8 +119,6 @@ export function SettingsDialog({
         {activeSection === 'gitness' && <GitnessConfigurationSection key="gitness" />}
         {activeSection === 'figma' && <FigmaConfigurationSection key="figma" />}
         {activeSection === 'api-keys' && <ApiKeyConfigurationSection key="api-keys" />}
-        {activeSection === 'marketplaces' && <MarketplaceConfigurationSection key="marketplaces" />}
-        {activeSection === 'commands' && <CommandConfigurationSection key="commands" />}
       </SidebarDialog.Content>
     </SidebarDialog>
   )

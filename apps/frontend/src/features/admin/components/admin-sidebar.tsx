@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router'
-import { Bell, Plug, Route as RouteIcon } from 'lucide-react'
+import { Bell, Package, Plug, Route as RouteIcon, Terminal } from 'lucide-react'
 import type { ComponentType, SVGProps } from 'react'
 import {
   Sidebar,
@@ -14,29 +14,36 @@ import {
 
 type IconComponent = ComponentType<SVGProps<SVGSVGElement>>
 
-interface SettingsNavItem {
+interface AdminNavItem {
   label: string
   to: string
   icon: IconComponent
 }
 
-interface SettingsNavGroup {
+interface AdminNavGroup {
   label: string
-  items: SettingsNavItem[]
+  items: AdminNavItem[]
 }
 
-const SETTINGS_NAV: SettingsNavGroup[] = [
+const ADMIN_NAV: AdminNavGroup[] = [
   {
     label: 'Integrations',
     items: [
-      { label: 'Connections', to: '/settings/integrations/connections', icon: Plug },
-      { label: 'Triggers', to: '/settings/integrations/triggers', icon: Bell },
-      { label: 'Routes', to: '/settings/integrations/routes', icon: RouteIcon },
+      { label: 'Connections', to: '/admin/integrations/connections', icon: Plug },
+      { label: 'Triggers', to: '/admin/integrations/triggers', icon: Bell },
+      { label: 'Routes', to: '/admin/integrations/routes', icon: RouteIcon },
+    ],
+  },
+  {
+    label: 'System',
+    items: [
+      { label: 'Marketplaces', to: '/admin/marketplaces', icon: Package },
+      { label: 'Commands', to: '/admin/commands', icon: Terminal },
     ],
   },
 ]
 
-export function SettingsSidebar() {
+export function AdminSidebar() {
   return (
     <Sidebar collapsible="none" className="border-r">
       <SidebarHeader>
@@ -44,7 +51,7 @@ export function SettingsSidebar() {
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
               <Link to="/">
-                <span className="font-bold">Settings</span>
+                <span className="font-bold">Admin</span>
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
@@ -52,7 +59,7 @@ export function SettingsSidebar() {
       </SidebarHeader>
 
       <SidebarContent>
-        {SETTINGS_NAV.map((group) => (
+        {ADMIN_NAV.map((group) => (
           <SidebarGroup key={group.label}>
             <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
             <SidebarMenu>

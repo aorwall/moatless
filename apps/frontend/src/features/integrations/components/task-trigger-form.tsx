@@ -9,14 +9,14 @@ import { Link } from '@tanstack/react-router'
 import { Loader2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
-import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
 import {
   useCreateTaskTrigger,
   useIntegrationProviders,
   useProviderConnections,
   useTaskRoutes,
   useUpdateTaskTrigger,
-} from '@/features/settings/hooks/use-integrations'
+} from '@/features/integrations/hooks/use-integrations'
+import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
 import { Button } from '@/lib/components/ui/button'
 import { Input } from '@/lib/components/ui/input'
 import { Label } from '@/lib/components/ui/label'
@@ -304,7 +304,7 @@ export function TaskTriggerForm({ trigger, onSuccess, onCancel }: TaskTriggerFor
             <div className="rounded-md border px-3 py-2 text-sm text-muted-foreground">
               No connections for {getProviderLabel(form.provider)}.{' '}
               <Link
-                to="/settings/integrations/connections"
+                to="/admin/integrations/connections"
                 className="text-primary underline hover:no-underline"
               >
                 Create a connection

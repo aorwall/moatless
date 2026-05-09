@@ -1,14 +1,14 @@
 import type { TaskTriggerResponse, TriggerRecentTaskItem } from '@moatless/api-client'
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { Loader2 } from 'lucide-react'
-import { DetailItem } from '@/features/settings/components/detail-item'
-import { SettingsPage } from '@/features/settings/components/settings-page'
+import { AdminPage } from '@/features/admin'
 import {
   useProviderConnections,
   useTaskRoutes,
   useTaskTrigger,
   useTriggerRecentTasks,
-} from '@/features/settings/hooks/use-integrations'
+} from '@/features/integrations/hooks/use-integrations'
+import { DetailItem } from '@/features/settings/components/detail-item'
 import { Badge } from '@/lib/components/ui/badge'
 import { Button } from '@/lib/components/ui/button'
 import {
@@ -56,7 +56,7 @@ function formatTimestamp(value: string | null | undefined): string {
   return date.toLocaleString()
 }
 
-export const Route = createFileRoute('/settings/integrations/triggers/$trigger-id/')({
+export const Route = createFileRoute('/admin/integrations/triggers/$trigger-id/')({
   component: TriggerDetailPage,
 })
 
@@ -186,15 +186,15 @@ function TriggerDetailPage() {
   const connection = trigger ? connections?.find((c) => c.id === trigger.connectionId) : undefined
 
   return (
-    <SettingsPage
+    <AdminPage
       title={trigger ? getSourceLabel(trigger) : 'Trigger'}
       description={trigger ? `${getProviderLabel(trigger.provider)} trigger` : undefined}
-      backTo={{ to: '/settings/integrations/triggers', label: 'Back to triggers' }}
+      backTo={{ to: '/admin/integrations/triggers', label: 'Back to triggers' }}
       actions={
         trigger ? (
           <Button asChild>
             <Link
-              to="/settings/integrations/triggers/$trigger-id/edit"
+              to="/admin/integrations/triggers/$trigger-id/edit"
               params={{ 'trigger-id': trigger.id }}
             >
               Edit
@@ -231,6 +231,6 @@ function TriggerDetailPage() {
           </div>
         </div>
       )}
-    </SettingsPage>
+    </AdminPage>
   )
 }

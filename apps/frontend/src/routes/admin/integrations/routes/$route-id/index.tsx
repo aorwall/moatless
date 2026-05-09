@@ -1,10 +1,10 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { Loader2 } from 'lucide-react'
-import { SettingsPage } from '@/features/settings/components/settings-page'
-import { TaskRouteForm } from '@/features/settings/components/task-route-form'
-import { useTaskRoutes } from '@/features/settings/hooks/use-integrations'
+import { AdminPage } from '@/features/admin'
+import { TaskRouteForm } from '@/features/integrations/components/task-route-form'
+import { useTaskRoutes } from '@/features/integrations/hooks/use-integrations'
 
-export const Route = createFileRoute('/settings/integrations/routes/$route-id/')({
+export const Route = createFileRoute('/admin/integrations/routes/$route-id/')({
   component: EditRoutePage,
 })
 
@@ -15,13 +15,13 @@ function EditRoutePage() {
   const { data: routes, isLoading } = useTaskRoutes()
   const route = routes?.find((item) => item.id === routeId)
 
-  const goBack = () => navigate({ to: '/settings/integrations/routes' })
+  const goBack = () => navigate({ to: '/admin/integrations/routes' })
 
   return (
-    <SettingsPage
+    <AdminPage
       title="Edit Route"
       description="Update task route defaults."
-      backTo={{ to: '/settings/integrations/routes', label: 'Back to routes' }}
+      backTo={{ to: '/admin/integrations/routes', label: 'Back to routes' }}
     >
       {isLoading ? (
         <div className="flex h-32 items-center justify-center">
@@ -35,6 +35,6 @@ function EditRoutePage() {
       ) : (
         <TaskRouteForm route={route} onSuccess={goBack} onCancel={goBack} />
       )}
-    </SettingsPage>
+    </AdminPage>
   )
 }

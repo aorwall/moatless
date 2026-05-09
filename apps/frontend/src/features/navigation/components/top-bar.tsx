@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router'
-import { AlertTriangle, Box, FolderGit2, LogOut, Plug, Settings, User } from 'lucide-react'
+import { AlertTriangle, Box, FolderGit2, LogOut, Settings, Shield, User } from 'lucide-react'
 import { useState } from 'react'
 import { useAuth } from '@/features/auth'
 import { Button } from '@/lib/components/ui/button'
@@ -13,7 +13,7 @@ interface TopBarProps {
 
 export function TopBar({ onRepositoriesClick, onSettingsClick }: TopBarProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
-  const { user, isAuthenticated, githubConnected, logout } = useAuth()
+  const { user, isAuthenticated, isAdmin, githubConnected, logout } = useAuth()
   const showReconnectGithub = isAuthenticated && !githubConnected
 
   const handleRepositoriesClick = () => {
@@ -54,7 +54,7 @@ export function TopBar({ onRepositoriesClick, onSettingsClick }: TopBarProps) {
                 <Settings className="h-5 w-5" />
               </Button>
             </PopoverTrigger>
-            <PopoverContent align="end" className="w-48 p-1">
+            <PopoverContent align="end" className="w-56 p-1">
               <div className="space-y-1">
                 <Link to="/sandbox" onClick={() => setIsMenuOpen(false)}>
                   <Button variant="ghost" className="w-full justify-start h-8 px-2">
@@ -70,25 +70,23 @@ export function TopBar({ onRepositoriesClick, onSettingsClick }: TopBarProps) {
                   <FolderGit2 className="mr-2 h-4 w-4" />
                   Repositories
                 </Button>
-                <Button
-                  variant="ghost"
-                  className="w-full justify-start h-8 px-2"
-                  onClick={handleSettingsClick}
-                >
-                  <Settings className="mr-2 h-4 w-4" />
-                  Settings
-                </Button>
-                <Link to="/settings" onClick={() => setIsMenuOpen(false)}>
-                  <Button variant="ghost" className="w-full justify-start h-8 px-2">
-                    <Plug className="mr-2 h-4 w-4" />
-                    Integrations
-                  </Button>
-                </Link>
+                {isAdmin && (
+                  <Link to="/admin" onClick={() => setIsMenuOpen(false)}>
+                    <Button variant="ghost" className="w-full justify-start h-8 px-2">
+                      <Shield className="mr-2 h-4 w-4" />
+                      Admin
+                    </Button>
+                  </Link>
+                )}
                 {isAuthenticated && user && (
                   <>
                     <Separator className="my-1" />
-                    <div className="px-2 py-1.5 text-sm">
-                      <div className="flex items-center gap-2">
+                    <Button
+                      variant="ghost"
+                      className="w-full justify-start h-auto px-2 py-1.5"
+                      onClick={handleSettingsClick}
+                    >
+                      <div className="flex w-full items-center gap-2">
                         {user.avatarUrl ? (
                           <img
                             src={user.avatarUrl}
@@ -98,7 +96,7 @@ export function TopBar({ onRepositoriesClick, onSettingsClick }: TopBarProps) {
                         ) : (
                           <User className="w-4 h-4" />
                         )}
-                        <div className="flex-1 min-w-0">
+                        <div className="flex-1 min-w-0 text-left">
                           <div className="font-medium truncate">{user.login}</div>
                           {user.email && (
                             <div className="text-xs text-muted-foreground truncate">
@@ -107,7 +105,7 @@ export function TopBar({ onRepositoriesClick, onSettingsClick }: TopBarProps) {
                           )}
                         </div>
                       </div>
-                    </div>
+                    </Button>
                     <Button
                       variant="ghost"
                       className="w-full justify-start h-8 px-2 text-destructive hover:text-destructive"

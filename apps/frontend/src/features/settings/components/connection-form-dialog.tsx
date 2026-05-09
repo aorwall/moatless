@@ -5,7 +5,7 @@ import { toast } from 'sonner'
 import {
   useCreateProviderConnection,
   useIntegrationProviders,
-} from '@/features/settings/hooks/use-integrations'
+} from '@/features/integrations/hooks/use-integrations'
 import { Button } from '@/lib/components/ui/button'
 import {
   Dialog,

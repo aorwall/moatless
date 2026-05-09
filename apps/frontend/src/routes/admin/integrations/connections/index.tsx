@@ -1,9 +1,9 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { Loader2, Plug, Plus } from 'lucide-react'
 import { useState } from 'react'
+import { AdminPage } from '@/features/admin'
+import { useProviderConnections } from '@/features/integrations/hooks/use-integrations'
 import { ConnectionFormDialog } from '@/features/settings/components/connection-form-dialog'
-import { SettingsPage } from '@/features/settings/components/settings-page'
-import { useProviderConnections } from '@/features/settings/hooks/use-integrations'
 import { Alert, AlertDescription, AlertTitle } from '@/lib/components/ui/alert'
 import { Button } from '@/lib/components/ui/button'
 import {
@@ -38,7 +38,7 @@ function formatTimestamp(value: string | null | undefined): string {
   return date.toLocaleString()
 }
 
-export const Route = createFileRoute('/settings/integrations/connections/')({
+export const Route = createFileRoute('/admin/integrations/connections/')({
   component: ConnectionsListPage,
 })
 
@@ -48,7 +48,7 @@ function ConnectionsListPage() {
   const items = connections ?? []
 
   return (
-    <SettingsPage
+    <AdminPage
       title="Connections"
       description="Provider connections used by triggers to authenticate and route messages."
       actions={
@@ -88,7 +88,7 @@ function ConnectionsListPage() {
                 <TableCell>{getProviderLabel(connection.provider)}</TableCell>
                 <TableCell className="font-medium">
                   <Link
-                    to="/settings/integrations/connections/$connection-id"
+                    to="/admin/integrations/connections/$connection-id"
                     params={{ 'connection-id': connection.id }}
                     className="hover:underline"
                   >
@@ -104,6 +104,6 @@ function ConnectionsListPage() {
       )}
 
       <ConnectionFormDialog open={dialogOpen} onOpenChange={setDialogOpen} />
-    </SettingsPage>
+    </AdminPage>
   )
 }

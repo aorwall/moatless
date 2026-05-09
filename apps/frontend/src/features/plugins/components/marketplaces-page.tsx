@@ -10,14 +10,15 @@ import {
 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
+import { AdminPage } from '@/features/admin'
 import {
   useAddMarketplace,
   useMarketplaces,
   usePlugins,
   useRemoveMarketplace,
   useSyncMarketplace,
-} from '@/features/plugins'
-import { ConfigurationInput, ConfigurationSectionWrapper } from '@/lib/components/configuration'
+} from '@/features/plugins/hooks/use-plugins'
+import { ConfigurationInput } from '@/lib/components/configuration'
 import { Alert, AlertDescription, AlertTitle } from '@/lib/components/ui/alert'
 import { Badge } from '@/lib/components/ui/badge'
 import { Button } from '@/lib/components/ui/button'
@@ -30,7 +31,7 @@ import {
 import type { PluginInfo, PluginMarketplace } from '@/lib/types/plugins'
 import { getErrorMessage } from '@/lib/utils/error'
 
-export function MarketplaceConfigurationSection() {
+export function MarketplacesPage() {
   const {
     data: marketplacesData,
     isLoading: marketplacesLoading,
@@ -138,114 +139,104 @@ export function MarketplaceConfigurationSection() {
     setRepoUrl('')
   }
 
-  if (marketplacesLoading) {
-    return (
-      <div className="flex items-center justify-center h-32">
-        <Loader2 className="h-8 w-8 animate-spin" data-testid="loading-spinner" />
-      </div>
-    )
-  }
-
-  if (marketplacesError) {
-    return (
-      <Alert variant="destructive">
-        <AlertTitle>Error</AlertTitle>
-        <AlertDescription>Failed to load marketplaces. Please try again later.</AlertDescription>
-      </Alert>
-    )
-  }
-
   return (
-    <ConfigurationSectionWrapper>
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-lg font-medium">Plugin Marketplaces</h3>
-            <p className="text-sm text-muted-foreground">
-              Manage Claude Code plugin marketplaces from GitHub repositories
-            </p>
-          </div>
-          <Button
-            onClick={() => setShowAddForm(true)}
-            size="sm"
-            variant="outline"
-            disabled={showAddForm}
-          >
-            <Plus className="mr-2 h-4 w-4" />
-            Add Marketplace
-          </Button>
+    <AdminPage
+      title="Marketplaces"
+      description="Manage Claude Code plugin marketplaces from GitHub repositories"
+      actions={
+        <Button
+          onClick={() => setShowAddForm(true)}
+          size="sm"
+          variant="outline"
+          disabled={showAddForm || marketplacesLoading || !!marketplacesError}
+        >
+          <Plus className="mr-2 h-4 w-4" />
+          Add Marketplace
+        </Button>
+      }
+    >
+      {marketplacesLoading ? (
+        <div className="flex items-center justify-center h-32">
+          <Loader2 className="h-8 w-8 animate-spin" data-testid="loading-spinner" />
         </div>
-
-        {/* Add marketplace form */}
-        {showAddForm && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Add New Marketplace</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <label htmlFor="repo-url" className="text-sm font-medium">
-                  GitHub Repository URL
-                </label>
-                <ConfigurationInput
-                  id="repo-url"
-                  type="text"
-                  placeholder="https://github.com/owner/repo"
-                  value={repoUrl}
-                  onChange={(e) => setRepoUrl(e.target.value)}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Enter the URL of a public GitHub repository containing Claude Code plugins
-                </p>
-              </div>
-              <div className="flex justify-end gap-2">
-                <Button
-                  onClick={handleCancelAdd}
-                  variant="outline"
-                  disabled={addMarketplace.isPending}
-                >
-                  Cancel
-                </Button>
-                <Button onClick={handleAddMarketplace} disabled={addMarketplace.isPending}>
-                  {addMarketplace.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Add Marketplace
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* List of marketplaces */}
-        <div className="space-y-3">
-          {marketplaces.length === 0 && !showAddForm && (
-            <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
-              <Package className="h-12 w-12 mb-3 opacity-50" />
-              <p className="text-sm font-medium">No marketplaces configured</p>
-              <p className="text-xs mt-1">Add a marketplace to enable plugins</p>
-            </div>
+      ) : marketplacesError ? (
+        <Alert variant="destructive">
+          <AlertTitle>Error</AlertTitle>
+          <AlertDescription>Failed to load marketplaces. Please try again later.</AlertDescription>
+        </Alert>
+      ) : (
+        <div className="space-y-4">
+          {/* Add marketplace form */}
+          {showAddForm && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Add New Marketplace</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <label htmlFor="repo-url" className="text-sm font-medium">
+                    GitHub Repository URL
+                  </label>
+                  <ConfigurationInput
+                    id="repo-url"
+                    type="text"
+                    placeholder="https://github.com/owner/repo"
+                    value={repoUrl}
+                    onChange={(e) => setRepoUrl(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Enter the URL of a public GitHub repository containing Claude Code plugins
+                  </p>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button
+                    onClick={handleCancelAdd}
+                    variant="outline"
+                    disabled={addMarketplace.isPending}
+                  >
+                    Cancel
+                  </Button>
+                  <Button onClick={handleAddMarketplace} disabled={addMarketplace.isPending}>
+                    {addMarketplace.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    Add Marketplace
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
           )}
 
-          {marketplaces.map((marketplace) => {
-            const marketplacePlugins = pluginsByMarketplace.get(marketplace.id) ?? []
-            const isExpanded = expandedMarketplaces.has(marketplace.id)
-            const isSyncing = syncingMarketplaces.has(marketplace.id)
+          {/* List of marketplaces */}
+          <div className="space-y-3">
+            {marketplaces.length === 0 && !showAddForm && (
+              <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                <Package className="h-12 w-12 mb-3 opacity-50" />
+                <p className="text-sm font-medium">No marketplaces configured</p>
+                <p className="text-xs mt-1">Add a marketplace to enable plugins</p>
+              </div>
+            )}
 
-            return (
-              <MarketplaceCard
-                key={marketplace.id}
-                marketplace={marketplace}
-                plugins={marketplacePlugins}
-                isExpanded={isExpanded}
-                isSyncing={isSyncing}
-                onToggleExpand={() => toggleMarketplaceExpanded(marketplace.id)}
-                onSync={() => handleSyncMarketplace(marketplace)}
-                onRemove={() => handleRemoveMarketplace(marketplace)}
-              />
-            )
-          })}
+            {marketplaces.map((marketplace) => {
+              const marketplacePlugins = pluginsByMarketplace.get(marketplace.id) ?? []
+              const isExpanded = expandedMarketplaces.has(marketplace.id)
+              const isSyncing = syncingMarketplaces.has(marketplace.id)
+
+              return (
+                <MarketplaceCard
+                  key={marketplace.id}
+                  marketplace={marketplace}
+                  plugins={marketplacePlugins}
+                  isExpanded={isExpanded}
+                  isSyncing={isSyncing}
+                  onToggleExpand={() => toggleMarketplaceExpanded(marketplace.id)}
+                  onSync={() => handleSyncMarketplace(marketplace)}
+                  onRemove={() => handleRemoveMarketplace(marketplace)}
+                />
+              )
+            })}
+          </div>
         </div>
-      </div>
-    </ConfigurationSectionWrapper>
+      )}
+    </AdminPage>
   )
 }
 
