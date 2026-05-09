@@ -30,7 +30,7 @@ spec:
               kubernetes.io/metadata.name: {{ $releaseNamespace }}
           podSelector:
             matchLabels:
-              app.kubernetes.io/name: moatless-vibe
+              app.kubernetes.io/name: {{ include "moatless-vibe.name" . }}
               app.kubernetes.io/component: backend
       ports:
         - protocol: TCP
@@ -81,7 +81,7 @@ spec:
               kubernetes.io/metadata.name: {{ $releaseNamespace }}
           podSelector:
             matchLabels:
-              app.kubernetes.io/name: moatless-vibe
+              app.kubernetes.io/name: {{ include "moatless-vibe.name" . }}
               app.kubernetes.io/component: backend
       ports:
         - protocol: TCP

@@ -37,7 +37,7 @@ spec:
     - toEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: {{ $releaseNamespace }}
-            k8s:app.kubernetes.io/name: moatless-vibe
+            k8s:app.kubernetes.io/name: {{ include "moatless-vibe.name" . }}
             k8s:app.kubernetes.io/component: backend
       toPorts:
         - ports:
