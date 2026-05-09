@@ -15,7 +15,7 @@ import { test, expect } from "../fixtures/api-fixtures";
 import { ChainContext } from "../context/chain-context";
 import { WebhookCallbackServer } from "../../shared/webhook-callback-server";
 import {
-	createWebhookConfig,
+	createWebhookTriggerFixture,
 	sendWebhookMessage,
 } from "../steps";
 import { waitForAgentComplete } from "../../shared/wait-helpers";
@@ -53,10 +53,10 @@ test.describe("Chain 6: Webhook Outbound Callback", () => {
 		// Clean up callback server
 		await callbackServer?.stop();
 
-		// Clean up channel config
-		const configId = ctx.get<string>("configId");
-		if (configId) {
-			await api.deleteChannelConfig(configId).catch(() => {});
+		// Clean up task trigger fixture
+		const triggerId = ctx.get<string>("triggerId");
+		if (triggerId) {
+			await api.deleteTaskTriggerFixture(triggerId).catch(() => {});
 		}
 
 		// Clean up tasks
@@ -69,7 +69,7 @@ test.describe("Chain 6: Webhook Outbound Callback", () => {
 	// ─── CHAN-60: Create webhook config with callback URL ────────────────
 
 	test("CHAN-60: Create webhook config with callback URL", async ({ api }) => {
-		const result = await createWebhookConfig(api, ctx.repositoryId!, {
+		const result = await createWebhookTriggerFixture(api, ctx.repositoryId!, {
 			sourceId: `callback-test-${Date.now()}`,
 			providerConfig: {
 				callback_url: callbackServer.url,
@@ -77,9 +77,9 @@ test.describe("Chain 6: Webhook Outbound Callback", () => {
 		});
 
 		expect(result.config.active).toBe(true);
-		expect(result.configId).toBeTruthy();
+		expect(result.triggerId).toBeTruthy();
 
-		ctx.set("configId", result.configId);
+		ctx.set("triggerId", result.triggerId);
 		ctx.set("taskIds", []);
 	});
 
@@ -88,7 +88,7 @@ test.describe("Chain 6: Webhook Outbound Callback", () => {
 	test("CHAN-61: Send inbound message — agent starts", async ({ api }) => {
 		const { response, taskId } = await sendWebhookMessage(
 			api,
-			ctx.get<string>("configId")!,
+			ctx.get<string>("triggerId")!,
 			"Say hello world. Keep it brief.",
 		);
 

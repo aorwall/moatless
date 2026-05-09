@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { useAuth } from '@/features/auth/hooks/use-auth'
 import { TopBar } from '@/features/navigation/components/top-bar'
 import { RepositoriesConfigurationDialog } from '@/features/repositories'
-import { PairingApprovalBanner, SettingsDialog } from '@/features/settings'
+import { SettingsDialog } from '@/features/settings'
 import { TaskDashboard } from '@/features/tasks/components/dashboard'
 import type { DashboardSearchParams } from '@/features/tasks/components/dashboard/task-filters'
 
@@ -42,7 +42,6 @@ function Dashboard() {
         onRepositoriesClick={() => setRepositoriesOpen(true)}
         onSettingsClick={() => setSettingsOpen(true)}
       />
-      <PairingApprovalBanner />
       <div className="flex-1 overflow-auto">
         <TaskDashboard
           view={search.view ?? 'cards'}

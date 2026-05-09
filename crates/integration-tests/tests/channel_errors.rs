@@ -3,9 +3,9 @@
 //! Mirrors: tests/api/chains/channel-errors.spec.ts
 //! Spec IDs: CHAN-50 through CHAN-54
 
-use integration_tests::{ensure_template_repo, raw_api, test_client};
-use moatless_api_schemas::channel::{CreateChannelConfigRequest, UpdateChannelConfigRequest};
-use moatless_api_schemas::enums::{ChannelType, RoutingMode};
+use integration_tests::{create_webhook_integration, ensure_template_repo, raw_api, test_client};
+use moatless_api_schemas::channel::UpdateTaskTriggerRequest;
+use moatless_api_schemas::enums::RoutingMode;
 use moatless_cli::client::MoatClient;
 use pretty_assertions::assert_eq;
 
@@ -17,30 +17,23 @@ fn timestamp_suffix() -> String {
         .to_string()
 }
 
-/// Create a webhook config helper.
-async fn create_webhook_config(
+/// Create a webhook trigger helper.
+async fn create_webhook_trigger(
     client: &MoatClient,
     repo_id: &str,
-    source_id: &str,
-    provider_config: Option<serde_json::Value>,
+    source_matcher: &str,
+    trigger_config: Option<serde_json::Value>,
 ) -> String {
-    let req = CreateChannelConfigRequest {
-        provider: ChannelType::Webhook,
-        source_id: source_id.into(),
-        source_name: None,
-        repository_id: repo_id.into(),
-        routing_mode: RoutingMode::PerMessage,
-        prompt_template: None,
-        provider_config,
-        response_config_id: None,
-        scope: None,
-        team_id: None,
-        task_name: None,
-        tag_ids: None,
-        run_as_user_id: None,
-        allow_direct_send: None,
-    };
-    client.api().create_channel_config(&req).await.unwrap().id
+    create_webhook_integration(
+        client,
+        repo_id,
+        source_matcher,
+        RoutingMode::PerMessage,
+        trigger_config,
+    )
+    .await
+    .trigger
+    .id
 }
 
 // CHAN-50: Webhook to non-existent config returns error
@@ -64,31 +57,28 @@ async fn webhook_inactive_config() {
     let repo_id = ensure_template_repo(&client).await;
     let suffix = timestamp_suffix();
 
-    let config_id =
-        create_webhook_config(&client, &repo_id, &format!("inactive-{suffix}"), None).await;
+    let trigger_id =
+        create_webhook_trigger(&client, &repo_id, &format!("inactive-{suffix}"), None).await;
 
     // Deactivate
-    let update = UpdateChannelConfigRequest {
+    let update = UpdateTaskTriggerRequest {
         active: Some(false),
         ..Default::default()
     };
     client
         .api()
-        .update_channel_config(&config_id, &update)
+        .update_task_trigger(&trigger_id, &update)
         .await
         .unwrap();
 
     // Send message — should be accepted but ignored
     let resp = raw_api::send_webhook_message(
         &http,
-        &config_id,
+        &trigger_id,
         &serde_json::json!({ "text": "This should be ignored" }),
     )
     .await;
     assert_eq!(resp.status().as_u16(), 200);
-
-    // Cleanup
-    let _ = client.api().delete_channel_config(&config_id).await;
 }
 
 // CHAN-52: Webhook with invalid signature is rejected
@@ -105,7 +95,7 @@ async fn webhook_invalid_signature() {
         serde_json::Value::String("my-secret-key".into()),
     );
 
-    let config_id = create_webhook_config(
+    let trigger_id = create_webhook_trigger(
         &client,
         &repo_id,
         &format!("sig-test-{suffix}"),
@@ -116,46 +106,28 @@ async fn webhook_invalid_signature() {
     // Send message with invalid signature
     let resp = raw_api::send_webhook_message_with_headers(
         &http,
-        &config_id,
+        &trigger_id,
         &serde_json::json!({ "text": "This should fail" }),
         &[("X-Webhook-Signature".into(), "sha256=invalid".into())],
     )
     .await;
     assert_eq!(resp.status().as_u16(), 401);
-
-    // Cleanup
-    let _ = client.api().delete_channel_config(&config_id).await;
 }
 
-// CHAN-53: Create config with non-existent repository returns error
+// CHAN-53: Create route with non-existent repository returns error
 #[tokio::test]
 async fn channel_create_nonexistent_repo() {
-    let client = test_client();
     let suffix = timestamp_suffix();
 
-    let req = CreateChannelConfigRequest {
-        provider: ChannelType::Webhook,
-        source_id: format!("no-repo-{suffix}"),
-        source_name: None,
-        repository_id: "non-existent-repo-id".into(),
-        routing_mode: RoutingMode::PerMessage,
-        prompt_template: None,
-        provider_config: None,
-        response_config_id: None,
-        scope: None,
-        team_id: None,
-        task_name: None,
-        tag_ids: None,
-        run_as_user_id: None,
-        allow_direct_send: None,
-    };
-    let err = client.api().create_channel_config(&req).await.unwrap_err();
-    match &err {
-        moatless_api_client::ApiError::Api { status, .. } => {
-            assert_eq!(*status, 400);
-        }
-        other => panic!("expected Api error, got {other:?}"),
-    }
+    let resp = raw_api::create_task_route_raw(
+        &reqwest::Client::new(),
+        &serde_json::json!({
+            "repositoryId": format!("non-existent-repo-id-{suffix}"),
+            "routingMode": "per_message"
+        }),
+    )
+    .await;
+    assert_eq!(resp.status().as_u16(), 400);
 }
 
 // CHAN-54: Webhook with missing text field returns error
@@ -166,18 +138,15 @@ async fn webhook_missing_text() {
     let repo_id = ensure_template_repo(&client).await;
     let suffix = timestamp_suffix();
 
-    let config_id =
-        create_webhook_config(&client, &repo_id, &format!("no-text-{suffix}"), None).await;
+    let trigger_id =
+        create_webhook_trigger(&client, &repo_id, &format!("no-text-{suffix}"), None).await;
 
     // Send message without text field
     let resp = raw_api::send_webhook_message(
         &http,
-        &config_id,
+        &trigger_id,
         &serde_json::json!({ "threadId": "some-thread" }),
     )
     .await;
     assert_eq!(resp.status().as_u16(), 400);
-
-    // Cleanup
-    let _ = client.api().delete_channel_config(&config_id).await;
 }

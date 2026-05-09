@@ -30,7 +30,7 @@ pub struct SendDmRequest {
     pub provider: String,
     /// Message text.
     pub text: String,
-    /// Optional task to associate the DM subscription with.
+    /// Optional task to associate the DM binding with.
     pub task_id: Option<String>,
 }
 
@@ -38,8 +38,8 @@ pub struct SendDmRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct SendDmResponse {
-    /// The created or updated task_subscription id.
-    pub subscription_id: String,
+    /// The created or updated task_binding id.
+    pub binding_id: String,
     /// DM channel ID opened (Slack: starts with "D").
     pub channel_id: String,
     /// Message timestamp (Slack ts).

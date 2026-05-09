@@ -5,6 +5,7 @@
  * Sandbox orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
+import type { IntegrationProvider } from './integrationProvider';
 import type { Scope } from './scope';
 
 /**
@@ -15,10 +16,10 @@ export interface ProviderConnectionResponse {
   connectionKind: string;
   createdAt: string;
   createdBy: string;
+  externalAccountId: string;
   id: string;
-  provider: string;
+  provider: IntegrationProvider;
   scope: Scope;
-  scopeValue: string;
   /** @nullable */
   teamId?: string | null;
   updatedAt: string;

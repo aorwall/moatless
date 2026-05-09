@@ -329,7 +329,10 @@ async fn wire_broker_git_helper() {
         return;
     }
 
-    info!(helper = BROKER_HELPER_PATH, "Wired broker-backed git credential helper for github.com");
+    info!(
+        helper = BROKER_HELPER_PATH,
+        "Wired broker-backed git credential helper for github.com"
+    );
 }
 
 /// Run a command and return an error if it fails.

@@ -6,7 +6,7 @@
 use integration_tests::{
     client_as_user, client_as_user_with_teams, create_repo_request, seed_test_users,
 };
-use moatless_api_schemas::enums::{RepositoryKind, Scope};
+use moatless_api_schemas::enums::{RepositoryKind, Scope, Visibility};
 use moatless_api_schemas::task::CreateTaskRequest;
 use moatless_api_schemas::team::{AddTeamMemberRequest, CreateTeamRequest};
 use pretty_assertions::assert_eq;
@@ -75,6 +75,7 @@ async fn repository_scope_filtering() {
     let mut req = create_repo_request(&format!("Team Repo {suffix}"), RepositoryKind::Template);
     req.scope = Some(Scope::Team);
     req.team_id = Some(team_id.clone());
+    req.visibility = Some(Visibility::Private);
     let team_repo = alice_with_team.api().create_repository(&req).await.unwrap();
     assert_eq!(team_repo.scope, Scope::Team);
     assert_eq!(team_repo.team_id.as_deref(), Some(team_id.as_str()));
@@ -92,6 +93,7 @@ async fn repository_scope_filtering() {
     // AUTH-22: Create user-scoped repository
     let mut req = create_repo_request(&format!("User Repo {suffix}"), RepositoryKind::Template);
     req.scope = Some(Scope::User);
+    req.visibility = Some(Visibility::Private);
     let user_repo = alice.api().create_repository(&req).await.unwrap();
     assert_eq!(user_repo.scope, Scope::User);
     repo_ids.push(user_repo.id.clone());
@@ -154,6 +156,7 @@ async fn task_scope_inheritance() {
     );
     req.scope = Some(Scope::Team);
     req.team_id = Some(team_id.clone());
+    req.visibility = Some(Visibility::Private);
     let team_repo = alice_with_team.api().create_repository(&req).await.unwrap();
 
     // AUTH-23: Create task under team-scoped repository
@@ -172,6 +175,7 @@ async fn task_scope_inheritance() {
             file_ids: vec![],
             model: None,
             command_name: None,
+            headless: None,
         })
         .await
         .unwrap();
@@ -238,12 +242,14 @@ async fn admin_bypass() {
     // User-scoped repo (owned by alice)
     let mut req = create_repo_request(&format!("Alice Private {suffix}"), RepositoryKind::Template);
     req.scope = Some(Scope::User);
+    req.visibility = Some(Visibility::Private);
     let user_repo = alice.api().create_repository(&req).await.unwrap();
 
     // Team-scoped repo
     let mut req = create_repo_request(&format!("Team Only {suffix}"), RepositoryKind::Template);
     req.scope = Some(Scope::Team);
     req.team_id = Some(team_id.clone());
+    req.visibility = Some(Visibility::Private);
     let team_repo = alice_with_team.api().create_repository(&req).await.unwrap();
 
     // AUTH-24: Admin can see all scoped resources
@@ -295,10 +301,12 @@ async fn listing_repos_filters_by_scope() {
     let mut req = create_repo_request(&format!("Team {suffix}"), RepositoryKind::Template);
     req.scope = Some(Scope::Team);
     req.team_id = Some(team.id.clone());
+    req.visibility = Some(Visibility::Private);
     let team_repo = alice_with_team.api().create_repository(&req).await.unwrap();
 
     let mut req = create_repo_request(&format!("User {suffix}"), RepositoryKind::Template);
     req.scope = Some(Scope::User);
+    req.visibility = Some(Visibility::Private);
     let user_repo = alice.api().create_repository(&req).await.unwrap();
 
     // Bob is NOT a team member — should see global, not team or user repos
@@ -352,6 +360,7 @@ async fn listing_tasks_filters_by_scope() {
     );
     req.scope = Some(Scope::Team);
     req.team_id = Some(team.id.clone());
+    req.visibility = Some(Visibility::Private);
     let team_repo = alice_with_team.api().create_repository(&req).await.unwrap();
 
     let task = alice_with_team
@@ -369,6 +378,7 @@ async fn listing_tasks_filters_by_scope() {
             file_ids: vec![],
             model: None,
             command_name: None,
+            headless: None,
         })
         .await
         .unwrap();

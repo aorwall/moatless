@@ -64,10 +64,10 @@ pub async fn run(
                 output::print_json_typed(&resp);
             } else {
                 println!(
-                    "DM sent. Channel: {}, ts: {}, subscription: {}",
+                    "DM sent. Channel: {}, ts: {}, binding: {}",
                     resp["channel_id"].as_str().unwrap_or(""),
                     resp["message_ts"].as_str().unwrap_or(""),
-                    resp["subscription_id"].as_str().unwrap_or("(none)"),
+                    resp["binding_id"].as_str().unwrap_or("(none)"),
                 );
             }
         }

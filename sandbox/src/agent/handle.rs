@@ -1176,7 +1176,11 @@ async fn start_session(
 
     let agent_type = normalize_agent_type(agent_type);
 
-    let resume = resolve_resume_session(previous_session_id, resume_session_id.as_deref(), agent_type);
+    let resume = resolve_resume_session(
+        previous_session_id,
+        resume_session_id.as_deref(),
+        agent_type,
+    );
 
     let request = AgentRunRequest {
         content: Vec::new(),

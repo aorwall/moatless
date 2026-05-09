@@ -380,9 +380,7 @@ async fn run_core_init(state: &SandboxState) -> Result<(), InitError> {
             publish_sandbox_event(
                 state,
                 "CodexCompatMirrored",
-                &format!(
-                    "Mirrored {agents_md} AGENTS.md and {agents_skills} skill(s) for Codex",
-                ),
+                &format!("Mirrored {agents_md} AGENTS.md and {agents_skills} skill(s) for Codex",),
                 false,
             )
             .await;

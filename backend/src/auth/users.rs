@@ -62,11 +62,7 @@ pub trait UserRepository: Send + Sync {
         provider: &str,
         provider_user_id: &str,
     ) -> Result<Option<User>, sqlx::Error>;
-    async fn delete_provider_id(
-        &self,
-        user_id: &str,
-        provider: &str,
-    ) -> Result<bool, sqlx::Error>;
+    async fn delete_provider_id(&self, user_id: &str, provider: &str) -> Result<bool, sqlx::Error>;
     async fn list_provider_ids(
         &self,
         user_id: &str,
@@ -203,18 +199,13 @@ impl UserRepository for PgUserRepository {
         .await
     }
 
-    async fn delete_provider_id(
-        &self,
-        user_id: &str,
-        provider: &str,
-    ) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query(
-            "DELETE FROM user_provider_ids WHERE user_id = $1 AND provider = $2",
-        )
-        .bind(user_id)
-        .bind(provider)
-        .execute(&self.0)
-        .await?;
+    async fn delete_provider_id(&self, user_id: &str, provider: &str) -> Result<bool, sqlx::Error> {
+        let result =
+            sqlx::query("DELETE FROM user_provider_ids WHERE user_id = $1 AND provider = $2")
+                .bind(user_id)
+                .bind(provider)
+                .execute(&self.0)
+                .await?;
         Ok(result.rows_affected() > 0)
     }
 

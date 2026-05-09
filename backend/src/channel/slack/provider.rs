@@ -8,13 +8,14 @@ use tokio::sync::OnceCell;
 use tracing::{debug, info, warn};
 
 use crate::channel::error::ChannelError;
-use crate::channel::external_id;
 use crate::channel::models::{AccessDecision, ChannelTrigger};
 use crate::channel::models::{
-    ChannelConfig, ChannelThread, IngressRule, ProviderConnection, TaskSubscription,
+    BindingContext, ProviderConnection, TaskBinding, TaskTriggerRoute, TriggerContext,
 };
 use crate::channel::models::{InboundMessage, NewThreadInfo, OutboundReply};
-use crate::channel::provider::{ChannelProvider, ChannelType, DestinationPostResult};
+use crate::channel::provider::{
+    BindingDestination, ChannelProvider, ChannelType, DestinationPostResult,
+};
 use crate::db::DbPool;
 
 use super::access::enforce_slack_access;
@@ -60,10 +61,10 @@ To include files (screenshots, logs, generated artifacts) in your reply, use the
 
 ### Replying to the same Slack thread next turn
 After your first `moat channels send` (or `moat reply`) succeeds, the CLI prints a \
-`--ts <subscription_id>` hint. Use it on follow-ups so your reply lands in the same \
+`--ts <binding_id>` hint. Use it on follow-ups so your reply lands in the same \
 thread instead of fanning out:
-- `moat channels send --ts <subscription_id> --text \"...\"`
-- `moat channels subscriptions --task $TASK_ID` lists active targets if you lost the id.",
+- `moat channels send --ts <binding_id> --text \"...\"`
+- `moat channels bindings --task $TASK_ID` lists active targets if you lost the id.",
     );
 
     if let Some(bot_id) = bot_user_id {
@@ -143,7 +144,7 @@ impl SlackProvider {
 
     /// Resolve the identity of the current Slack bot token via `auth.test`.
     /// The returned `team_id` is the Slack workspace ID (e.g. "T0000000002"),
-    /// needed to build `task_subscriptions.subject_key` for DM replies.
+    /// needed to build `task_bindings.subject_key` for DM replies.
     pub async fn auth_test(&self) -> Result<super::api::AuthTestInfo, ChannelError> {
         self.api.auth_test().await
     }
@@ -245,7 +246,7 @@ impl SlackProvider {
         &self,
         headers: &HeaderMap,
         body: &[u8],
-        config: &ChannelConfig,
+        config: &TriggerContext,
         db: &DbPool,
         is_tracked_thread: bool,
     ) -> Result<SlackWebhookResult, ChannelError> {
@@ -452,15 +453,12 @@ impl SlackProvider {
         }
 
         // Try provider ID lookup first (fast, avoids extra Slack API call), then email.
-        let mapped_user = self
-            .resolve_user_by_slack_id(user, db)
-            .await?
-            .or({
-                match slack_user_info.as_ref().and_then(|i| i.email.clone()) {
-                    Some(ref email) => self.resolve_user_by_email(user, email, db).await?,
-                    None => None,
-                }
-            });
+        let mapped_user = self.resolve_user_by_slack_id(user, db).await?.or({
+            match slack_user_info.as_ref().and_then(|i| i.email.clone()) {
+                Some(ref email) => self.resolve_user_by_email(user, email, db).await?,
+                None => None,
+            }
+        });
 
         // Opportunistically cache the Slack user ID for future provider ID lookups.
         if let Some(ref uid) = mapped_user {
@@ -526,10 +524,16 @@ impl SlackProvider {
         };
 
         // Build thread properties
+        let team_id = payload
+            .get("team_id")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .unwrap_or("default");
         let thread_properties = serde_json::json!({
             "channel": channel,
             "ts": ts,
             "thread_ts": thread_ts.unwrap_or(ts),
+            "team_id": team_id,
         });
 
         Ok(SlackWebhookResult::Message(Box::new(InboundMessage {
@@ -542,11 +546,11 @@ impl SlackProvider {
             file_ids: vec![], // TODO: handle file attachments
             thread_properties,
             provider_context: serde_json::json!({
-                "team_id": payload.get("team_id").and_then(|v| v.as_str()).unwrap_or(""),
+                "team_id": team_id,
                 "user_id": user,
                 "is_bot_mentioned": is_bot_mentioned,
             }),
-            channel_external_id: Some(external_id::slack_ts(ts)),
+            channel_external_id: Some(super::external_id::message_ts(ts)),
         })))
     }
 }
@@ -567,6 +571,77 @@ impl ChannelProvider for SlackProvider {
 
     fn reply_instructions(&self) -> Option<String> {
         Some(build_slack_reply_instructions(self.bot_user_id.as_deref()))
+    }
+
+    fn binding_destination_from_existing_thread(
+        &self,
+        source_id: &str,
+        external_thread_id: &str,
+        thread_properties: &serde_json::Value,
+        filter_user_id: Option<&str>,
+    ) -> Result<BindingDestination, ChannelError> {
+        let channel = thread_properties
+            .get("channel")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or(source_id);
+        let thread_ts = thread_properties
+            .get("thread_ts")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or(external_thread_id);
+        let team = thread_properties
+            .get("team_id")
+            .and_then(serde_json::Value::as_str)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("default");
+        let ts = thread_properties
+            .get("ts")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or(thread_ts);
+        let mut destination_config = serde_json::json!({
+            "channel": channel,
+            "thread_ts": thread_ts,
+            "ts": ts,
+        });
+        if let Some(filter_user_id) = filter_user_id {
+            destination_config["filter_user_id"] = serde_json::json!(filter_user_id);
+        }
+
+        Ok(BindingDestination::new(
+            "slack_thread",
+            format!("{team}:{channel}:{thread_ts}"),
+            destination_config,
+        ))
+    }
+
+    fn binding_destination_from_new_thread(
+        &self,
+        rule: &TaskTriggerRoute,
+        new_thread_info: &NewThreadInfo,
+    ) -> Result<BindingDestination, ChannelError> {
+        let destination = self.binding_destination_from_existing_thread(
+            &rule.source_matcher,
+            &new_thread_info.external_thread_id,
+            &new_thread_info.properties,
+            None,
+        )?;
+        Ok(destination.with_last_external_event_id(new_thread_info.external_thread_id.clone()))
+    }
+
+    fn sender_label_suffix(&self, msg: &InboundMessage) -> Option<String> {
+        let provider_user_id = msg
+            .provider_context
+            .get("user_id")
+            .and_then(serde_json::Value::as_str)
+            .filter(|value| !value.is_empty())?;
+        Some(format!(", Slack: {provider_user_id}"))
+    }
+
+    fn inbound_message_prefix(&self, msg: &InboundMessage) -> Option<String> {
+        msg.provider_context
+            .get("is_bot_mentioned")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false)
+            .then(|| "[You were @mentioned - a reply via `moat reply` is required]".to_string())
     }
 
     fn thread_reply_hint(&self, msg: &InboundMessage) -> Option<String> {
@@ -614,17 +689,17 @@ impl ChannelProvider for SlackProvider {
 
     async fn send_reply(
         &self,
-        thread: &ChannelThread,
-        _config: &ChannelConfig,
+        thread: &BindingContext,
+        _config: &TriggerContext,
         message: &OutboundReply,
     ) -> Result<Option<String>, ChannelError> {
         let channel = thread
-            .properties
+            .destination_config
             .get("channel")
             .and_then(|v| v.as_str())
             .ok_or_else(|| ChannelError::Internal("No channel in thread properties".into()))?;
         let thread_ts = thread
-            .properties
+            .destination_config
             .get("thread_ts")
             .and_then(|v| v.as_str())
             .ok_or_else(|| ChannelError::Internal("No thread_ts in thread properties".into()))?;
@@ -655,23 +730,23 @@ impl ChannelProvider for SlackProvider {
             }
         }
 
-        Ok(ts.map(|t| external_id::slack_ts(&t)))
+        Ok(ts.map(|t| super::external_id::message_ts(&t)))
     }
 
-    async fn send_reply_for_subscription(
+    async fn send_reply_for_binding(
         &self,
-        subscription: &TaskSubscription,
+        binding: &TaskBinding,
         _connection: &ProviderConnection,
-        rule: Option<&IngressRule>,
+        rule: Option<&TaskTriggerRoute>,
         message: &OutboundReply,
     ) -> Result<Option<String>, ChannelError> {
-        let thread = crate::channel::subscription::synthetic_thread(subscription);
+        let thread = crate::channel::binding_runtime::binding_context(binding);
         let config = rule.map_or_else(
-            || ChannelConfig {
-                id: subscription.ingress_rule_id.clone().unwrap_or_default(),
+            || TriggerContext {
+                id: binding.trigger_id.clone().unwrap_or_default(),
                 provider: "slack".to_string(),
-                source_id: subscription
-                    .reply_target
+                source_id: binding
+                    .destination_config
                     .get("channel")
                     .and_then(serde_json::Value::as_str)
                     .unwrap_or_default()
@@ -684,7 +759,6 @@ impl ChannelProvider for SlackProvider {
                 allow_direct_send: false,
                 provider_config: None,
                 ongoing_task_id: None,
-                response_config_id: None,
                 scope: crate::scope::Scope::Global,
                 team_id: None,
                 task_name: None,
@@ -692,10 +766,10 @@ impl ChannelProvider for SlackProvider {
                 run_as_user_id: None,
                 agent_type: "claude-code".to_string(),
                 created_by: "system".to_string(),
-                created_at: subscription.created_at,
-                updated_at: subscription.last_event_at,
+                created_at: binding.created_at,
+                updated_at: binding.last_event_at,
             },
-            |r| crate::channel::subscription::synthetic_config(r, "slack"),
+            |r| crate::channel::binding_runtime::trigger_context(r, "slack"),
         );
         self.send_reply(&thread, &config, message).await
     }
@@ -731,7 +805,7 @@ impl ChannelProvider for SlackProvider {
             message_external_id: ts.clone(),
             subject_kind: "slack_thread",
             subject_key: format!("{workspace_id}:{destination}:{ts}"),
-            reply_target: serde_json::json!({
+            destination_config: serde_json::json!({
                 "channel": destination,
                 "ts": ts,
                 "thread_ts": ts,
@@ -741,7 +815,7 @@ impl ChannelProvider for SlackProvider {
 
     async fn send_message(
         &self,
-        config: &ChannelConfig,
+        config: &TriggerContext,
         message: &OutboundReply,
     ) -> Result<NewThreadInfo, ChannelError> {
         let channel = &config.source_id;
@@ -785,18 +859,18 @@ impl ChannelProvider for SlackProvider {
 
     async fn fetch_context(
         &self,
-        thread: &ChannelThread,
-        config: &ChannelConfig,
+        thread: &BindingContext,
+        config: &TriggerContext,
         limit: usize,
         exclude_external_ids: &[String],
     ) -> Result<Option<String>, ChannelError> {
         let channel = thread
-            .properties
+            .destination_config
             .get("channel")
             .and_then(|v| v.as_str())
             .unwrap_or("");
         let thread_ts = thread
-            .properties
+            .destination_config
             .get("thread_ts")
             .and_then(|v| v.as_str())
             .unwrap_or("");
@@ -808,12 +882,12 @@ impl ChannelProvider for SlackProvider {
         let slack_config = SlackProviderConfig::from_config(config);
         let config_limit = slack_config.thread_context_limit.unwrap_or(limit as u64) as usize;
 
-        // Use last_channel_external_id as cursor — only fetch messages after it.
+        // Use last_external_event_id as cursor — only fetch messages after it.
         // Strip the `slack:ts:` namespace prefix written by `send_reply` so the
         // Slack API still receives a bare ts.
         let oldest_raw = thread
-            .properties
-            .get("last_channel_external_id")
+            .destination_config
+            .get("last_external_event_id")
             .and_then(|v| v.as_str());
         let oldest = oldest_raw.map(|s| s.strip_prefix("slack:ts:").unwrap_or(s));
 
@@ -845,7 +919,7 @@ impl ChannelProvider for SlackProvider {
             })
             .filter(|r| match &r.ts {
                 Some(ts) => {
-                    let prefixed = external_id::slack_ts(ts);
+                    let prefixed = super::external_id::message_ts(ts);
                     !exclude_external_ids.contains(&prefixed) && !exclude_external_ids.contains(ts)
                 }
                 None => true,
@@ -864,6 +938,9 @@ impl ChannelProvider for SlackProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::channel::models::{RoutingMode, TaskTriggerRoute};
+    use crate::channel::provider::ChannelProvider;
+    use crate::scope::Scope;
 
     #[test]
     fn reply_instructions_include_identity_with_bot_id() {
@@ -893,5 +970,97 @@ mod tests {
         assert!(s.contains("not configured"));
         // Without a known ID the response-guidance block is skipped.
         assert!(!s.contains("### When to respond"));
+    }
+
+    #[test]
+    fn binding_destination_from_existing_thread_uses_workspace_channel_and_thread() {
+        let provider = SlackProvider::new("token", "secret", None);
+        let destination = provider
+            .binding_destination_from_existing_thread(
+                "C123",
+                "1700000000.000100",
+                &serde_json::json!({
+                    "channel": "C123",
+                    "ts": "1700000000.000100",
+                    "thread_ts": "1700000000.000100",
+                    "team_id": "T999",
+                }),
+                Some("user-1"),
+            )
+            .unwrap();
+
+        assert_eq!(destination.subject_kind, "slack_thread");
+        assert_eq!(destination.subject_key, "T999:C123:1700000000.000100");
+        assert_eq!(destination.destination_config["channel"], "C123");
+        assert_eq!(
+            destination.destination_config["thread_ts"],
+            "1700000000.000100"
+        );
+        assert_eq!(destination.destination_config["filter_user_id"], "user-1");
+        assert_eq!(destination.last_external_event_id, None);
+    }
+
+    #[test]
+    fn binding_destination_from_new_thread_preserves_direct_send_shape() {
+        let provider = SlackProvider::new("token", "secret", None);
+        let rule = test_rule("slack", "C123");
+        let destination = provider
+            .binding_destination_from_new_thread(
+                &rule,
+                &NewThreadInfo {
+                    external_thread_id: "1700000000.000100".to_string(),
+                    properties: serde_json::json!({
+                        "channel": "C123",
+                        "ts": "1700000000.000100",
+                        "thread_ts": "1700000000.000100",
+                    }),
+                },
+            )
+            .unwrap();
+
+        assert_eq!(destination.subject_kind, "slack_thread");
+        assert_eq!(destination.subject_key, "default:C123:1700000000.000100");
+        assert_eq!(
+            destination.destination_config,
+            serde_json::json!({
+                "channel": "C123",
+                "ts": "1700000000.000100",
+                "thread_ts": "1700000000.000100",
+            })
+        );
+        assert_eq!(
+            destination.last_external_event_id.as_deref(),
+            Some("1700000000.000100")
+        );
+    }
+
+    fn test_rule(provider: &str, source_matcher: &str) -> TaskTriggerRoute {
+        let now = chrono::Utc::now();
+        TaskTriggerRoute {
+            id: "tt_test".into(),
+            provider: provider.into(),
+            connection_id: "pc_test".into(),
+            source_matcher: source_matcher.into(),
+            source_name: None,
+            routing_mode: RoutingMode::ThreadBased,
+            event_filter: serde_json::json!([]),
+            repository_id: "repo-1".into(),
+            prompt_template: None,
+            task_name: None,
+            tag_ids: vec![],
+            run_as_user_id: None,
+            agent_type: "claude-code".into(),
+            allow_direct_send: true,
+            provider_config: None,
+            ongoing_task_id: None,
+            close_task_on_close: true,
+            notify_on_success: false,
+            active: true,
+            created_by: "user-1".into(),
+            scope: Scope::Global,
+            team_id: None,
+            created_at: now,
+            updated_at: now,
+        }
     }
 }

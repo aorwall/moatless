@@ -85,8 +85,10 @@ export interface CreatePluginRepoRequest {
 	gitUrl: string;
 }
 
-export interface ChannelConfigResponse {
+export interface TaskTriggerFixtureResponse {
 	id: string;
+	routeId: string;
+	connectionId: string;
 	provider: string;
 	sourceId: string;
 	sourceName?: string;
@@ -96,7 +98,39 @@ export interface ChannelConfigResponse {
 	active: boolean;
 	providerConfig?: Record<string, unknown>;
 	ongoingTaskId?: string;
-	responseConfigId?: string;
+	createdBy: string;
+	createdAt: string;
+	updatedAt: string;
+}
+
+interface ProviderConnectionResponse {
+	id: string;
+	provider: string;
+	externalAccountId: string;
+}
+
+interface TaskRouteResponse {
+	id: string;
+	repositoryId: string;
+	routingMode: string;
+	ongoingTaskId?: string | null;
+	promptTemplate?: string | null;
+	taskName?: string | null;
+	tagIds: string[];
+	createdBy: string;
+	createdAt: string;
+	updatedAt: string;
+}
+
+interface TaskTriggerResponse {
+	id: string;
+	provider: string;
+	connectionId: string;
+	sourceMatcher: string;
+	sourceName?: string | null;
+	triggerConfig?: Record<string, unknown> | null;
+	routeId: string;
+	active: boolean;
 	createdBy: string;
 	createdAt: string;
 	updatedAt: string;
@@ -690,10 +724,64 @@ export class ApiClient {
 	}
 
 	// =========================================================================
-	// Channel Operations
+	// Integration Trigger Fixture Operations
 	// =========================================================================
 
-	async createChannelConfig(config: {
+	private toTaskTriggerFixture(trigger: TaskTriggerResponse, route: TaskRouteResponse): TaskTriggerFixtureResponse {
+		return {
+			id: trigger.id,
+			routeId: route.id,
+			connectionId: trigger.connectionId,
+			provider: trigger.provider,
+			sourceId: trigger.sourceMatcher,
+			sourceName: trigger.sourceName ?? undefined,
+			repositoryId: route.repositoryId,
+			routingMode: route.routingMode,
+			promptTemplate: route.promptTemplate ?? undefined,
+			active: trigger.active,
+			providerConfig: trigger.triggerConfig ?? undefined,
+			ongoingTaskId: route.ongoingTaskId ?? undefined,
+			createdBy: trigger.createdBy,
+			createdAt: trigger.createdAt,
+			updatedAt: trigger.updatedAt,
+		};
+	}
+
+	private async listTaskRoutes(repositoryId?: string): Promise<TaskRouteResponse[]> {
+		const params = new URLSearchParams();
+		if (repositoryId) params.set("repositoryId", repositoryId);
+		const qs = params.toString();
+		return this.fetchJson<TaskRouteResponse[]>(
+			`${this.baseURL}/api/v1/task-routes${qs ? `?${qs}` : ""}`,
+		);
+	}
+
+	private async getTaskRoute(routeId: string): Promise<TaskRouteResponse> {
+		const routes = await this.listTaskRoutes();
+		const route = routes.find((candidate) => candidate.id === routeId);
+		if (!route) {
+			throw new Error(`Task route not found: ${routeId}`);
+		}
+		return route;
+	}
+
+	private async getTaskTrigger(id: string): Promise<TaskTriggerResponse> {
+		const triggers = await this.fetchJson<TaskTriggerResponse[]>(
+			`${this.baseURL}/api/v1/triggers`,
+		);
+		const trigger = triggers.find((candidate) => candidate.id === id);
+		if (!trigger) {
+			throw new Error(`Task trigger not found: ${id}`);
+		}
+		return trigger;
+	}
+
+	private providerConfigSecret(providerConfig?: Record<string, unknown>): string | null {
+		const secret = providerConfig?.secret_token ?? providerConfig?.webhook_secret;
+		return typeof secret === "string" && secret.length > 0 ? secret : null;
+	}
+
+	async createTaskTriggerFixture(config: {
 		provider: string;
 		sourceId: string;
 		sourceName?: string;
@@ -701,19 +789,53 @@ export class ApiClient {
 		routingMode: string;
 		promptTemplate?: string;
 		providerConfig?: Record<string, unknown>;
-		responseConfigId?: string;
-	}): Promise<ChannelConfigResponse> {
-		return this.fetchJson<ChannelConfigResponse>(`${this.baseURL}/api/v1/channels/configs`, {
+	}): Promise<TaskTriggerFixtureResponse> {
+		const connection = await this.fetchJson<ProviderConnectionResponse>(
+			`${this.baseURL}/api/v1/integrations/connections`,
+			{
+				method: "POST",
+				body: JSON.stringify({
+					provider: config.provider,
+					externalAccountId: config.sourceId,
+					sourceName: config.sourceName ?? config.sourceId,
+					connectionKind: config.provider === "webhook" ? "webhook" : "bot_api",
+					webhookSecret: this.providerConfigSecret(config.providerConfig),
+				}),
+			},
+		);
+		const route = await this.fetchJson<TaskRouteResponse>(`${this.baseURL}/api/v1/task-routes`, {
 			method: "POST",
-			body: JSON.stringify(config),
+			body: JSON.stringify({
+				repositoryId: config.repositoryId,
+				routingMode: config.routingMode,
+				promptTemplate: config.promptTemplate ?? null,
+			}),
 		});
+		const trigger = await this.fetchJson<TaskTriggerResponse>(`${this.baseURL}/api/v1/triggers`, {
+			method: "POST",
+			body: JSON.stringify({
+				provider: config.provider,
+				connectionId: connection.id,
+				sourceMatcher: config.sourceId,
+				sourceName: config.sourceName ?? config.sourceId,
+				triggerConfig: config.providerConfig ?? {},
+				routeId: route.id,
+				allowDirectSend: false,
+				closeTaskOnClose: true,
+				notifyOnSuccess: false,
+				active: true,
+			}),
+		});
+		return this.toTaskTriggerFixture(trigger, route);
 	}
 
-	async getChannelConfig(id: string): Promise<ChannelConfigResponse> {
-		return this.fetchJson<ChannelConfigResponse>(`${this.baseURL}/api/v1/channels/configs/${id}`);
+	async getTaskTriggerFixture(id: string): Promise<TaskTriggerFixtureResponse> {
+		const trigger = await this.getTaskTrigger(id);
+		const route = await this.getTaskRoute(trigger.routeId);
+		return this.toTaskTriggerFixture(trigger, route);
 	}
 
-	async updateChannelConfig(
+	async updateTaskTriggerFixture(
 		id: string,
 		data: {
 			sourceName?: string;
@@ -721,49 +843,74 @@ export class ApiClient {
 			promptTemplate?: string | null;
 			active?: boolean;
 			providerConfig?: Record<string, unknown>;
-			responseConfigId?: string | null;
 		},
-	): Promise<ChannelConfigResponse> {
-		return this.fetchJson<ChannelConfigResponse>(`${this.baseURL}/api/v1/channels/configs/${id}`, {
-			method: "PUT",
-			body: JSON.stringify(data),
-		});
+	): Promise<TaskTriggerFixtureResponse> {
+		const current = await this.getTaskTriggerFixture(id);
+		const route = await this.fetchJson<TaskRouteResponse>(
+			`${this.baseURL}/api/v1/task-routes/${current.routeId}`,
+			{
+				method: "PUT",
+				body: JSON.stringify({
+					routingMode: data.routingMode ?? current.routingMode,
+					promptTemplate:
+						data.promptTemplate === undefined ? current.promptTemplate ?? null : data.promptTemplate,
+				}),
+			},
+		);
+		const trigger = await this.fetchJson<TaskTriggerResponse>(
+			`${this.baseURL}/api/v1/triggers/${id}`,
+			{
+				method: "PUT",
+				body: JSON.stringify({
+					sourceName: data.sourceName === undefined ? current.sourceName ?? null : data.sourceName,
+					triggerConfig: data.providerConfig ?? current.providerConfig ?? {},
+					active: data.active ?? current.active,
+				}),
+			},
+		);
+		return this.toTaskTriggerFixture(trigger, route);
 	}
 
-	async deleteChannelConfig(id: string): Promise<void> {
-		await this.fetchRaw(`${this.baseURL}/api/v1/channels/configs/${id}`, {
+	async deleteTaskTriggerFixture(id: string): Promise<void> {
+		await this.fetchRaw(`${this.baseURL}/api/v1/triggers/${id}`, {
 			method: "DELETE",
 			throwOnError: true,
 		});
 	}
 
-	async deleteChannelConfigRaw(id: string): Promise<Response> {
-		return this.fetchRaw(`${this.baseURL}/api/v1/channels/configs/${id}`, {
+	async deleteTaskTriggerFixtureRaw(id: string): Promise<Response> {
+		return this.fetchRaw(`${this.baseURL}/api/v1/triggers/${id}`, {
 			method: "DELETE",
 		});
 	}
 
-	async listChannelConfigs(filters?: {
+	async listTaskTriggerFixtures(filters?: {
 		provider?: string;
 		repositoryId?: string;
-	}): Promise<ChannelConfigResponse[]> {
+	}): Promise<TaskTriggerFixtureResponse[]> {
 		const params = new URLSearchParams();
 		if (filters?.provider) params.set("provider", filters.provider);
-		if (filters?.repositoryId) params.set("repositoryId", filters.repositoryId);
 
 		const qs = params.toString();
-		const url = `${this.baseURL}/api/v1/channels/configs${qs ? `?${qs}` : ""}`;
-		return this.fetchJson<ChannelConfigResponse[]>(url);
+		const [routes, triggers] = await Promise.all([
+			this.listTaskRoutes(filters?.repositoryId),
+			this.fetchJson<TaskTriggerResponse[]>(`${this.baseURL}/api/v1/triggers${qs ? `?${qs}` : ""}`),
+		]);
+		const routesById = new Map(routes.map((route) => [route.id, route]));
+		return triggers.flatMap((trigger) => {
+			const route = routesById.get(trigger.routeId);
+			return route ? [this.toTaskTriggerFixture(trigger, route)] : [];
+		});
 	}
 
 	/**
 	 * Send a message via webhook inbound endpoint.
 	 */
 	async sendWebhookMessage(
-		configId: string,
+		triggerId: string,
 		payload: { text: string; threadId?: string; userId?: string; metadata?: Record<string, unknown> },
 	): Promise<Response> {
-		return this.fetchRaw(`${this.baseURL}/api/v1/channels/webhook/${configId}`, {
+		return this.fetchRaw(`${this.baseURL}/api/v1/integrations/webhook/${triggerId}`, {
 			method: "POST",
 			body: JSON.stringify(payload),
 		});
@@ -773,11 +920,11 @@ export class ApiClient {
 	 * Send a raw webhook message (for testing invalid payloads).
 	 */
 	async sendWebhookMessageRaw(
-		configId: string,
+		triggerId: string,
 		payload: unknown,
 		headers?: Record<string, string>,
 	): Promise<Response> {
-		return this.fetchRaw(`${this.baseURL}/api/v1/channels/webhook/${configId}`, {
+		return this.fetchRaw(`${this.baseURL}/api/v1/integrations/webhook/${triggerId}`, {
 			method: "POST",
 			body: JSON.stringify(payload),
 			headers,

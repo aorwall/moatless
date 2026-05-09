@@ -45,9 +45,10 @@ fn is_exempt(path: &str) -> bool {
     }
 
     // Webhook and slash-command endpoints use provider-specific verification (HMAC, secret token, etc.)
-    // Match /api/v1/channels/{provider}/webhook, /api/v1/channels/webhook/{provider},
-    // and /api/v1/channels/{provider}/slash
-    if let Some(rest) = path.strip_prefix("/api/v1/channels/") {
+    // Match /api/v1/integrations/{provider}/webhook,
+    // /api/v1/integrations/webhook/{trigger_id}, and
+    // /api/v1/integrations/{provider}/slash.
+    if let Some(rest) = path.strip_prefix("/api/v1/integrations/") {
         let segments: Vec<&str> = rest.split('/').filter(|s| !s.is_empty()).collect();
         if segments.len() >= 2
             && (segments[1] == "webhook" || segments[1] == "slash" || segments[0] == "webhook")
@@ -60,7 +61,7 @@ fn is_exempt(path: &str) -> bool {
     matches!(
         path,
         "/api/v1/feature-flags"
-            | "/api/v1/channels/providers"
+            | "/api/v1/integrations/providers"
             | "/health"
             | "/healthz"
             | "/ready"
@@ -217,18 +218,22 @@ mod tests {
 
     #[test]
     fn exempt_webhook_routes() {
-        assert!(is_exempt("/api/v1/channels/slack/webhook"));
-        assert!(is_exempt("/api/v1/channels/slack/webhook/"));
-        assert!(is_exempt("/api/v1/channels/telegram/webhook"));
-        assert!(is_exempt("/api/v1/channels/github-pr/webhook"));
-        assert!(is_exempt("/api/v1/channels/webhook/some-provider"));
-        // Non-webhook channel routes should NOT be exempt
-        assert!(!is_exempt("/api/v1/channels/configs"));
+        assert!(is_exempt("/api/v1/integrations/slack/webhook"));
+        assert!(is_exempt("/api/v1/integrations/slack/webhook/"));
+        assert!(is_exempt("/api/v1/integrations/telegram/webhook"));
+        assert!(is_exempt("/api/v1/integrations/github/webhook"));
+        assert!(is_exempt("/api/v1/integrations/linear/webhook"));
+        assert!(is_exempt("/api/v1/integrations/webhook/trigger-123"));
+        assert!(is_exempt("/api/v1/integrations/slack/slash"));
+        // Non-webhook integration routes should NOT be exempt.
+        assert!(!is_exempt("/api/v1/integrations/connections"));
+        assert!(!is_exempt("/api/v1/triggers"));
     }
 
     #[test]
     fn exempt_public_routes() {
         assert!(is_exempt("/api/v1/feature-flags"));
+        assert!(is_exempt("/api/v1/integrations/providers"));
         assert!(is_exempt("/health"));
         assert!(is_exempt("/healthz"));
         assert!(is_exempt("/ready"));

@@ -1,17 +1,26 @@
-//! Channel domain types — DB row structs.
+//! Channel domain types.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::scope::Scope;
 
+/// Persisted `task_bindings.origin` value for bindings created from inbound
+/// provider events. The stored value remains `ingress` for existing database
+/// rows and API compatibility.
+pub const PROVIDER_EVENT_BINDING_ORIGIN: &str = "ingress";
+pub const CONNECTED_THREAD_BINDING_ORIGIN: &str = "connected_thread";
+
 // =============================================================================
-// ChannelConfig (DB)
+// Provider contexts
 // =============================================================================
 
-/// Row from the `channel_configs` table.
-#[derive(sqlx::FromRow, Debug, Clone)]
-pub struct ChannelConfig {
+/// Provider-facing route context.
+///
+/// This is synthesized from canonical routes, triggers, bindings, or scheduled
+/// jobs before invoking provider-specific delivery/parsing code.
+#[derive(Debug, Clone)]
+pub struct TriggerContext {
     pub id: String,
     pub provider: String,
     pub source_id: String,
@@ -23,7 +32,6 @@ pub struct ChannelConfig {
     pub allow_direct_send: bool,
     pub provider_config: Option<serde_json::Value>,
     pub ongoing_task_id: Option<String>,
-    pub response_config_id: Option<String>,
     pub scope: Scope,
     pub team_id: Option<String>,
     pub task_name: Option<String>,
@@ -35,7 +43,7 @@ pub struct ChannelConfig {
     pub updated_at: DateTime<Utc>,
 }
 
-impl ChannelConfig {
+impl TriggerContext {
     /// The user ID to attribute tasks to when the actual sender cannot be resolved.
     /// Falls back to `created_by` when `run_as_user_id` is not set.
     pub fn effective_user_id(&self) -> &str {
@@ -44,17 +52,20 @@ impl ChannelConfig {
 }
 
 // =============================================================================
-// ChannelThread (DB)
-// =============================================================================
-
-/// Row from the `channel_threads` table.
-#[derive(sqlx::FromRow, Debug, Clone)]
-pub struct ChannelThread {
-    pub id: i32,
-    pub config_id: String,
+/// Provider-facing subject context.
+///
+/// This is synthesized from a task binding before invoking provider-specific
+/// outbound and context-fetching code.
+#[derive(Debug, Clone)]
+pub struct BindingContext {
+    pub binding_id: String,
+    pub trigger_id: Option<String>,
     pub task_id: String,
-    pub external_thread_id: String,
-    pub properties: serde_json::Value,
+    pub subject_kind: String,
+    pub subject_key: String,
+    pub destination_config: serde_json::Value,
+    pub metadata: serde_json::Value,
+    pub last_external_event_id: Option<String>,
     pub last_message_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
 }
@@ -79,7 +90,7 @@ pub struct ProviderConnection {
     /// Conventions in use today:
     /// - `source`: `"env"` | `"oauth"` — where the credential came from.
     /// - `slack_workspace_id`: e.g. `"T0000000002"` — the Slack workspace ID.
-    ///   Used to build `task_subscriptions.subject_key` for DM replies so that
+    ///   Used to build `task_bindings.subject_key` for DM replies so that
     ///   inbound webhook events route back to the originating task.
     pub transport_config: serde_json::Value,
     pub created_by: String,
@@ -89,13 +100,62 @@ pub struct ProviderConnection {
     pub updated_at: DateTime<Utc>,
 }
 
-/// Row from the `ingress_rules` table.
+/// Row from the `task_routes` table.
 #[derive(sqlx::FromRow, Debug, Clone)]
-pub struct IngressRule {
+pub struct TaskRoute {
+    pub id: String,
+    pub repository_id: String,
+    pub routing_mode: RoutingMode,
+    pub ongoing_task_id: Option<String>,
+    pub prompt_template: Option<String>,
+    pub task_name: Option<String>,
+    pub tag_ids: Vec<String>,
+    pub run_as_user_id: Option<String>,
+    pub agent_type: String,
+    pub scope: Scope,
+    pub team_id: Option<String>,
+    pub created_by: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl TaskRoute {
+    /// The user ID to attribute tasks to when the actual sender cannot be resolved.
+    /// Falls back to `created_by` when `run_as_user_id` is not set.
+    pub fn effective_user_id(&self) -> &str {
+        self.run_as_user_id.as_deref().unwrap_or(&self.created_by)
+    }
+}
+
+/// Row from the `task_triggers` table.
+#[derive(sqlx::FromRow, Debug, Clone)]
+pub struct TaskTrigger {
     pub id: String,
     pub provider: String,
     pub connection_id: String,
-    pub scope_matcher: String,
+    pub source_matcher: String,
+    pub source_name: Option<String>,
+    pub event_filter: serde_json::Value,
+    pub trigger_config: Option<serde_json::Value>,
+    pub route_id: String,
+    pub allow_direct_send: bool,
+    pub close_task_on_close: bool,
+    pub notify_on_success: bool,
+    pub active: bool,
+    pub scope: Scope,
+    pub team_id: Option<String>,
+    pub created_by: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Canonical trigger+route view backed by `task_triggers JOIN task_routes`.
+#[derive(sqlx::FromRow, Debug, Clone)]
+pub struct TaskTriggerRoute {
+    pub id: String,
+    pub provider: String,
+    pub connection_id: String,
+    pub source_matcher: String,
     pub source_name: Option<String>,
     pub routing_mode: RoutingMode,
     pub event_filter: serde_json::Value,
@@ -108,7 +168,6 @@ pub struct IngressRule {
     pub allow_direct_send: bool,
     pub provider_config: Option<serde_json::Value>,
     pub ongoing_task_id: Option<String>,
-    pub response_rule_id: Option<String>,
     pub close_task_on_close: bool,
     pub notify_on_success: bool,
     pub active: bool,
@@ -119,7 +178,7 @@ pub struct IngressRule {
     pub updated_at: DateTime<Utc>,
 }
 
-impl IngressRule {
+impl TaskTriggerRoute {
     /// The user ID to attribute tasks to when the actual sender cannot be resolved.
     /// Falls back to `created_by` when `run_as_user_id` is not set.
     pub fn effective_user_id(&self) -> &str {
@@ -127,22 +186,43 @@ impl IngressRule {
     }
 }
 
-/// Row from the `task_subscriptions` table.
+/// Row from the `task_bindings` table.
 #[derive(sqlx::FromRow, Debug, Clone)]
-pub struct TaskSubscription {
+pub struct TaskBinding {
     pub id: String,
     pub task_id: String,
     pub provider: String,
     pub subject_kind: String,
     pub subject_key: String,
     pub connection_id: String,
-    pub ingress_rule_id: Option<String>,
-    pub reply_target: serde_json::Value,
+    pub trigger_id: Option<String>,
+    pub destination_config: serde_json::Value,
     pub metadata: serde_json::Value,
-    pub last_channel_external_id: Option<String>,
-    pub created_reason: String,
+    pub last_external_event_id: Option<String>,
+    pub origin: String,
     pub created_at: DateTime<Utc>,
     pub last_event_at: DateTime<Utc>,
+}
+
+/// Row from the `scheduled_jobs` table.
+#[derive(sqlx::FromRow, Debug, Clone)]
+pub struct ScheduledJob {
+    pub id: String,
+    pub route_id: String,
+    pub schedule_expr: String,
+    pub timezone: String,
+    pub message_template: String,
+    pub run_as_user_id: Option<String>,
+    pub active: bool,
+    pub last_fired_at: Option<DateTime<Utc>>,
+    pub next_fire_at: DateTime<Utc>,
+    pub locked_by: Option<String>,
+    pub locked_until: Option<DateTime<Utc>>,
+    pub created_by: String,
+    pub scope: Scope,
+    pub team_id: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 // =============================================================================
@@ -194,7 +274,7 @@ pub struct OutboundReply {
     pub files: Vec<OutboundFile>,
 }
 
-/// Info returned by `send_message` to create a new `ChannelThread`.
+/// Info returned by `send_message` to create a new `BindingContext`.
 #[derive(Debug)]
 pub struct NewThreadInfo {
     /// Provider-specific thread/message ID (e.g., Slack message `ts`).

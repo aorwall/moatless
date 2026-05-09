@@ -22,9 +22,9 @@ const channelLabels: Record<string, string> = {
   slack: 'Slack',
   email: 'Email',
   webhook: 'Webhook',
-  cron: 'Cron',
   telegram: 'Telegram',
-  github_pr: 'GitHub PR',
+  github: 'GitHub',
+  linear: 'Linear',
 }
 
 function formatCost(cost?: number): string {

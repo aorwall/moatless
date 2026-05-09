@@ -9,16 +9,16 @@ use serde_json::Value;
 
 /// Send a webhook inbound message. Returns the raw response.
 ///
-/// POST /api/v1/channels/webhook/{config_id}
+/// POST /api/v1/integrations/webhook/{trigger_id}
 pub async fn send_webhook_message(
     http: &reqwest::Client,
-    config_id: &str,
+    trigger_id: &str,
     payload: &Value,
 ) -> reqwest::Response {
     http.post(format!(
-        "{}/api/v1/channels/webhook/{}",
+        "{}/api/v1/integrations/webhook/{}",
         base_url(),
-        config_id
+        trigger_id
     ))
     .json(payload)
     .send()
@@ -29,15 +29,15 @@ pub async fn send_webhook_message(
 /// Send a webhook inbound message with extra headers (e.g., X-Webhook-Signature).
 pub async fn send_webhook_message_with_headers(
     http: &reqwest::Client,
-    config_id: &str,
+    trigger_id: &str,
     payload: &Value,
     extra_headers: &[(String, String)],
 ) -> reqwest::Response {
     let mut req = http
         .post(format!(
-            "{}/api/v1/channels/webhook/{}",
+            "{}/api/v1/integrations/webhook/{}",
             base_url(),
-            config_id
+            trigger_id
         ))
         .json(payload);
 
@@ -86,37 +86,63 @@ pub async fn verify_auth_with_headers(
     req.send().await.unwrap()
 }
 
-/// Update a channel config (PUT).
+/// Update a task trigger (PUT).
 ///
-/// PUT /api/v1/channels/configs/{id}
-pub async fn update_channel_config(
+/// PUT /api/v1/triggers/{id}
+pub async fn update_task_trigger(
     http: &reqwest::Client,
-    config_id: &str,
+    trigger_id: &str,
     payload: &Value,
 ) -> reqwest::Response {
-    http.put(format!(
-        "{}/api/v1/channels/configs/{}",
-        base_url(),
-        config_id
-    ))
-    .json(payload)
-    .send()
-    .await
-    .unwrap()
+    http.put(format!("{}/api/v1/triggers/{}", base_url(), trigger_id))
+        .json(payload)
+        .send()
+        .await
+        .unwrap()
 }
 
-/// Delete a channel config and return raw response.
+/// Create a task route and return raw response.
 ///
-/// DELETE /api/v1/channels/configs/{id}
-pub async fn delete_channel_config(http: &reqwest::Client, config_id: &str) -> reqwest::Response {
-    http.delete(format!(
-        "{}/api/v1/channels/configs/{}",
-        base_url(),
-        config_id
-    ))
-    .send()
-    .await
-    .unwrap()
+/// POST /api/v1/task-routes
+pub async fn create_task_route_raw(http: &reqwest::Client, payload: &Value) -> reqwest::Response {
+    http.post(format!("{}/api/v1/task-routes", base_url()))
+        .json(payload)
+        .send()
+        .await
+        .unwrap()
+}
+
+/// Send a task reply and return raw response.
+///
+/// POST /api/v1/tasks/{task_id}/reply
+pub async fn send_task_reply_raw(
+    http: &reqwest::Client,
+    task_id: &str,
+    payload: &Value,
+) -> reqwest::Response {
+    http.post(format!("{}/api/v1/tasks/{}/reply", base_url(), task_id))
+        .json(payload)
+        .send()
+        .await
+        .unwrap()
+}
+
+/// Send a task reply to a specific binding and return raw response.
+pub async fn send_task_reply_to_binding_raw(
+    http: &reqwest::Client,
+    task_id: &str,
+    binding_id: &str,
+    text: &str,
+) -> reqwest::Response {
+    http.post(format!("{}/api/v1/tasks/{}/reply", base_url(), task_id))
+        .json(&serde_json::json!({
+            "text": text,
+            "bindingId": binding_id,
+            "fileIds": []
+        }))
+        .send()
+        .await
+        .unwrap()
 }
 
 /// Create a task and return raw response (for testing error cases).

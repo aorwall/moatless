@@ -6,19 +6,25 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { CreateProviderConnectionRequestTransportConfig } from './createProviderConnectionRequestTransportConfig';
+import type { IntegrationProvider } from './integrationProvider';
 
 /**
- * Request body for `POST /api/v1/channels/connections`.
+ * Request body for `POST /api/v1/integrations/connections`.
 
 Today only used for Linear, where the workspace connection has to be
 registered explicitly because each Linear workspace creates its own
 webhook with its own secret.
  */
 export interface CreateProviderConnectionRequest {
-  /** Provider value. Currently only `"linear"` is accepted via this endpoint. */
-  provider: string;
-  /** Workspace identifier (Linear org UUID). */
-  scopeValue: string;
+  /**
+   * Transport/auth style for this provider, e.g. `bot_api`, `org_webhook`.
+   * @nullable
+   */
+  connectionKind?: string | null;
+  /** External account/workspace/org identifier for this connection. */
+  externalAccountId: string;
+  /** Provider value. */
+  provider: IntegrationProvider;
   /**
    * Optional human-readable name for the connection.
    * @nullable

@@ -1,20 +1,21 @@
 //! Linear runtime — multi-rule fan-out on top of provider connections,
-//! ingress rules, and task subscriptions. Mirrors `github_pr/runtime.rs`
-//! with one shape change: `resolve_ingress` returns a `Vec` of rules so a
-//! single team can host several listeners with independent filters.
+//! task triggers, and task bindings. Mirrors `github_pr/runtime.rs`
+//! with one shape change: `resolve_provider_event` returns a `Vec` of rules so
+//! a single team can host several listeners with independent filters.
 
 use std::fmt::Write as _;
 
 use chrono::Utc;
 use tracing::{debug, info, warn};
 
+use crate::channel::dao::bindings::PgTaskBindingRepository;
+use crate::channel::dao::trigger_routes::PgTaskTriggerRouteRepository;
 use crate::channel::error::ChannelError;
-use crate::channel::ingress_rule_dao::PgIngressRuleRepository;
 use crate::channel::models::{
-    ChannelConfig, ChannelThread, InboundMessage, IngressRule, ProviderConnection, TaskSubscription,
+    BindingContext, InboundMessage, ProviderConnection, TaskBinding, TaskTriggerRoute,
+    TriggerContext, CONNECTED_THREAD_BINDING_ORIGIN, PROVIDER_EVENT_BINDING_ORIGIN,
 };
 use crate::channel::provider::ChannelType;
-use crate::channel::task_subscription_dao::PgTaskSubscriptionRepository;
 use crate::shared_models::AgentType;
 use crate::state::AppState;
 use crate::task::dao::TaskPatch;
@@ -26,8 +27,8 @@ const PROVIDER: &str = "linear";
 const SUBJECT_KIND: &str = "linear_issue";
 const CHANNEL_PROVIDER_LABEL: &str = "linear";
 
-const CREATED_REASON_INGRESS: &str = "ingress";
-const CREATED_REASON_CONNECTED_THREAD: &str = "connected_thread";
+const ORIGIN_PROVIDER_EVENT: &str = PROVIDER_EVENT_BINDING_ORIGIN;
+const ORIGIN_CONNECTED_THREAD: &str = CONNECTED_THREAD_BINDING_ORIGIN;
 
 /// Generic instructions appended to channel-originated tasks so the agent
 /// knows how to reply via `moat reply`. Identical to the GitHub PR copy —
@@ -41,25 +42,25 @@ to the channel using the `moat reply` command.
 
 - Use `moat reply --text \"<your response>\"` when this task has exactly one channel.
 - If `moat reply` reports multiple targets, list them with \
-`moat channels subscriptions --task $TASK_ID` and target one with \
-`moat reply --subscription <id> --text \"...\"` (or `--issue <ENG-42>`).
+`moat channels bindings --task $TASK_ID` and target one with \
+`moat reply --binding <id> --text \"...\"` (or `--issue <ENG-42>`).
 - For the initial message that created this task, always send a reply.
 - For follow-up thread messages, reply if you are mentioned or have useful information. \
 If the message is not directed at you and you have nothing to add, stay silent (do not send a reply).
 - Keep replies concise — the recipient is reading in a messaging app.
 - You may send multiple replies for progress updates on long-running tasks.";
 
-/// Build a synthetic `ChannelConfig` from an `IngressRule` so we can call
-/// trait methods (`fetch_context`) that still take a `ChannelConfig`.
-pub(crate) fn synthetic_config(rule: &IngressRule) -> ChannelConfig {
-    ChannelConfig {
+/// Build a synthetic `TriggerContext` from an `TaskTriggerRoute` so we can call
+/// trait methods (`fetch_context`) that still take a `TriggerContext`.
+pub(crate) fn trigger_context(rule: &TaskTriggerRoute) -> TriggerContext {
+    TriggerContext {
         id: rule.id.clone(),
         provider: CHANNEL_PROVIDER_LABEL.to_string(),
-        source_id: rule.scope_matcher.clone(),
+        source_id: rule.source_matcher.clone(),
         source_name: rule
             .source_name
             .clone()
-            .or_else(|| Some(rule.scope_matcher.clone())),
+            .or_else(|| Some(rule.source_matcher.clone())),
         repository_id: rule.repository_id.clone(),
         routing_mode: rule.routing_mode,
         prompt_template: rule.prompt_template.clone(),
@@ -67,7 +68,6 @@ pub(crate) fn synthetic_config(rule: &IngressRule) -> ChannelConfig {
         allow_direct_send: rule.allow_direct_send,
         provider_config: rule.provider_config.clone(),
         ongoing_task_id: rule.ongoing_task_id.clone(),
-        response_config_id: rule.response_rule_id.clone(),
         scope: rule.scope,
         team_id: rule.team_id.clone(),
         task_name: rule.task_name.clone(),
@@ -80,47 +80,48 @@ pub(crate) fn synthetic_config(rule: &IngressRule) -> ChannelConfig {
     }
 }
 
-/// Build a synthetic `ChannelThread` from a `TaskSubscription` so callers can
-/// invoke trait methods that still take a `ChannelThread`. `id` is `0`;
-/// callers must NOT write against this synthetic via `state.channel_threads`.
-pub(crate) fn synthetic_thread(subscription: &TaskSubscription) -> ChannelThread {
-    let mut props = subscription.reply_target.clone();
-    if let Some(obj) = props.as_object_mut() {
-        if let Some(ext_id) = subscription.last_channel_external_id.as_ref() {
-            obj.insert("last_channel_external_id".into(), serde_json::json!(ext_id));
+/// Build a provider binding context from a `TaskBinding`.
+pub(crate) fn binding_context(binding: &TaskBinding) -> BindingContext {
+    let mut destination_config = binding.destination_config.clone();
+    if let Some(obj) = destination_config.as_object_mut() {
+        if let Some(ext_id) = binding.last_external_event_id.as_ref() {
+            obj.insert("last_external_event_id".into(), serde_json::json!(ext_id));
         }
-        if let Some(filter_uid) = subscription.metadata.get("filter_user_id").cloned() {
+        if let Some(filter_uid) = binding.metadata.get("filter_user_id").cloned() {
             obj.insert("filter_user_id".into(), filter_uid);
         }
     }
-    let issue_id = subscription
-        .reply_target
+    let issue_id = binding
+        .destination_config
         .get("issue_id")
         .and_then(serde_json::Value::as_str)
         .unwrap_or("")
         .to_string();
-    ChannelThread {
-        id: 0,
-        config_id: subscription.connection_id.clone(),
-        task_id: subscription.task_id.clone(),
-        external_thread_id: issue_id,
-        properties: props,
-        last_message_at: subscription.last_event_at,
-        created_at: subscription.created_at,
+    BindingContext {
+        binding_id: binding.id.clone(),
+        trigger_id: binding.trigger_id.clone(),
+        task_id: binding.task_id.clone(),
+        subject_kind: binding.subject_kind.clone(),
+        subject_key: issue_id,
+        destination_config,
+        metadata: binding.metadata.clone(),
+        last_external_event_id: binding.last_external_event_id.clone(),
+        last_message_at: binding.last_event_at,
+        created_at: binding.created_at,
     }
 }
 
-/// Look up every active listener (ingress rule) attached to a Linear team
+/// Look up every active listener (task trigger) attached to a Linear team
 /// under the given workspace connection. Returns the rules — multiple are
 /// allowed since migration `0040` dropped the unique constraint on
-/// `(provider, scope_matcher)`.
-pub async fn resolve_ingress(
+/// `(provider, source_matcher)`.
+pub async fn resolve_provider_event(
     state: &AppState,
     connection: &ProviderConnection,
     team_id: &str,
-) -> Result<Vec<IngressRule>, ChannelError> {
-    let rules = PgIngressRuleRepository(state.db.clone())
-        .list_by_scope_matcher(PROVIDER, team_id)
+) -> Result<Vec<TaskTriggerRoute>, ChannelError> {
+    let rules = PgTaskTriggerRouteRepository(state.db.clone())
+        .list_by_source_matcher(PROVIDER, team_id)
         .await?;
 
     // Defensive: ignore rules that point at a different workspace connection.
@@ -132,7 +133,7 @@ pub async fn resolve_ingress(
             } else {
                 debug!(
                     rule_id = %r.id,
-                    "Linear ingress rule belongs to a different connection — ignoring"
+                    "Linear task trigger belongs to a different connection — ignoring"
                 );
                 false
             }
@@ -144,24 +145,25 @@ pub async fn resolve_ingress(
 pub async fn route_inbound_message(
     state: &AppState,
     connection: &ProviderConnection,
-    rule: &IngressRule,
+    rule: &TaskTriggerRoute,
     msg: InboundMessage,
 ) -> Result<(), ChannelError> {
     if !rule.active {
         debug!(
             rule_id = %rule.id,
-            scope_matcher = %rule.scope_matcher,
-            "Ignoring Linear message: ingress rule inactive"
+            source_matcher = %rule.source_matcher,
+            "Ignoring Linear message: task trigger inactive"
         );
         return Ok(());
     }
 
     let subject_key = subject_key_from_thread_properties(&msg.thread_properties)?;
-    let subscription_repo = PgTaskSubscriptionRepository(state.db.clone());
+    let binding_repo = PgTaskBindingRepository(state.db.clone());
 
     let origin_task_id = match msg.channel_external_id.as_deref() {
         Some(ext_id) => {
-            let candidates = crate::channel::external_id::legacy_and_new(ext_id);
+            let candidates =
+                crate::channel::binding_runtime::external_id_aliases(state, "linear", ext_id);
             state
                 .messages
                 .find_task_id_by_any_channel_external_id(&candidates)
@@ -170,75 +172,74 @@ pub async fn route_inbound_message(
         None => None,
     };
 
-    let mut subscriptions = subscription_repo
+    let mut bindings = binding_repo
         .find_by_subject(PROVIDER, SUBJECT_KIND, &subject_key)
         .await?;
 
-    // Attach a subscription for the originating task if the agent commented
+    // Attach a binding for the originating task if the agent commented
     // from a task that doesn't yet have one (mirrors GitHub PR behavior).
     if let Some(origin_task_id) = origin_task_id.as_deref() {
-        if !subscriptions.iter().any(|s| s.task_id == origin_task_id) {
-            match upsert_subscription(
+        if !bindings.iter().any(|s| s.task_id == origin_task_id) {
+            match upsert_binding(
                 state,
                 connection,
                 Some(rule),
                 origin_task_id,
                 &subject_key,
                 &msg.thread_properties,
-                CREATED_REASON_CONNECTED_THREAD,
+                ORIGIN_CONNECTED_THREAD,
             )
             .await
             {
-                Ok(s) => subscriptions.push(s),
+                Ok(s) => bindings.push(s),
                 Err(e) => warn!(
                     task_id = %origin_task_id,
                     subject_key = %subject_key,
                     error = %e,
-                    "Failed to attach subscription for origin task"
+                    "Failed to attach binding for origin task"
                 ),
             }
         }
     }
 
-    let mut delivery_targets: Vec<(TaskSubscription, bool)> = Vec::new();
-    for subscription in subscriptions {
-        if origin_task_id.as_deref() == Some(subscription.task_id.as_str()) {
+    let mut delivery_targets: Vec<(TaskBinding, bool)> = Vec::new();
+    for binding in bindings {
+        if origin_task_id.as_deref() == Some(binding.task_id.as_str()) {
             debug!(
-                task_id = %subscription.task_id,
+                task_id = %binding.task_id,
                 subject_key = %subject_key,
                 "Skipping Linear event for originating task"
             );
             continue;
         }
-        delivery_targets.push((subscription, false));
+        delivery_targets.push((binding, false));
     }
 
-    // Has THIS rule already spawned an ingress task for this issue?
-    let has_ingress_task_for_rule = subscription_repo
+    // Has THIS rule already spawned a provider-event task for this issue?
+    let has_provider_event_task_for_rule = binding_repo
         .find_by_subject(PROVIDER, SUBJECT_KIND, &subject_key)
         .await?
         .iter()
         .any(|s| {
-            s.created_reason == CREATED_REASON_INGRESS
-                && s.ingress_rule_id.as_deref() == Some(rule.id.as_str())
+            s.origin == ORIGIN_PROVIDER_EVENT && s.trigger_id.as_deref() == Some(rule.id.as_str())
         });
 
     let is_issue_event = msg.channel_external_id.as_deref().is_some_and(|id| {
         id.starts_with("linear:issue:opened:") || id.starts_with("linear:issue:state_changed:")
     });
 
-    if is_issue_event && !has_ingress_task_for_rule {
-        let task_id = create_ingress_task(state, rule, &msg).await?;
+    if is_issue_event && !has_provider_event_task_for_rule {
+        let task_id = create_provider_event_task(state, rule, &msg).await?;
         provision_task(state, &task_id).await;
 
-        let subscription = upsert_subscription(
+        let binding = upsert_binding(
             state,
             connection,
             Some(rule),
             &task_id,
             &subject_key,
             &msg.thread_properties,
-            CREATED_REASON_INGRESS,
+            ORIGIN_PROVIDER_EVENT,
         )
         .await?;
 
@@ -246,47 +247,59 @@ pub async fn route_inbound_message(
             task_id = %task_id,
             rule_id = %rule.id,
             subject_key = %subject_key,
-            "Created ingress task for Linear issue"
+            "Created provider event task for Linear issue"
         );
 
-        delivery_targets.insert(0, (subscription, true));
+        delivery_targets.insert(0, (binding, true));
     }
 
-    for (subscription, is_new_task) in delivery_targets {
-        deliver_to_subscription(
-            state,
-            rule,
-            connection,
-            &subscription,
-            &msg,
-            is_new_task,
-            true,
-        )
-        .await?;
+    let receipts = crate::channel::dao::receipts::PgEventReceiptRepository(state.db.clone());
+    for (binding, is_new_task) in delivery_targets {
+        if let Some(external_event_id) = msg.channel_external_id.as_deref() {
+            let is_first_delivery = receipts
+                .record_once(
+                    PROVIDER,
+                    external_event_id,
+                    SUBJECT_KIND,
+                    &subject_key,
+                    &binding.task_id,
+                )
+                .await?;
+            if !is_first_delivery {
+                debug!(
+                    task_id = %binding.task_id,
+                    external_event_id,
+                    "Skipping duplicate Linear event receipt"
+                );
+                continue;
+            }
+        }
+
+        deliver_to_binding(state, rule, connection, &binding, &msg, is_new_task, true).await?;
     }
 
     Ok(())
 }
 
-/// Close every task whose subscription was spawned by THIS rule and points at
+/// Close every task whose binding was spawned by THIS rule and points at
 /// the given issue. Other listeners' tasks are left alone.
 pub async fn close_tasks_for_issue(
     state: &AppState,
     connection: &ProviderConnection,
-    rule: &IngressRule,
+    rule: &TaskTriggerRoute,
     info: &IssueCloseInfo,
 ) -> Result<(), ChannelError> {
     let subject_key = info.issue_id.clone();
-    let subscriptions_repo = PgTaskSubscriptionRepository(state.db.clone());
-    let subscriptions = subscriptions_repo
+    let bindings_repo = PgTaskBindingRepository(state.db.clone());
+    let bindings = bindings_repo
         .find_by_subject(PROVIDER, SUBJECT_KIND, &subject_key)
         .await?
         .into_iter()
-        .filter(|s| s.ingress_rule_id.as_deref() == Some(rule.id.as_str()))
+        .filter(|s| s.trigger_id.as_deref() == Some(rule.id.as_str()))
         .collect::<Vec<_>>();
 
-    for subscription in subscriptions {
-        let task_id = &subscription.task_id;
+    for binding in bindings {
+        let task_id = &binding.task_id;
 
         match state.tasks.find_by_id_internal(task_id).await {
             Ok(Some(task)) if task.status == TaskStatus::Closed => {
@@ -307,10 +320,10 @@ pub async fn close_tasks_for_issue(
         // Bail out of the auto-close if the task is also subscribed elsewhere
         // (e.g. a GitHub PR connected to the same task) — same guard as the
         // GitHub PR runtime.
-        let siblings_count = match subscriptions_repo.find_by_task_id(task_id).await {
+        let siblings_count = match bindings_repo.find_by_task_id(task_id).await {
             Ok(rows) => rows.len(),
             Err(e) => {
-                warn!(task_id = %task_id, issue = %info.identifier, error = %e, "Failed to look up sibling subscriptions — skipping auto-close");
+                warn!(task_id = %task_id, issue = %info.identifier, error = %e, "Failed to look up sibling bindings — skipping auto-close");
                 continue;
             }
         };
@@ -318,23 +331,15 @@ pub async fn close_tasks_for_issue(
             info!(
                 task_id = %task_id,
                 issue = %info.identifier,
-                other_subscription_count = siblings_count - 1,
-                "Linear issue closed but task has other connected subscriptions — leaving task open"
+                other_binding_count = siblings_count - 1,
+                "Linear issue closed but task has other connected bindings — leaving task open"
             );
             continue;
         }
 
         let close_msg = build_close_inbound_message(rule, info);
-        if let Err(e) = deliver_to_subscription(
-            state,
-            rule,
-            connection,
-            &subscription,
-            &close_msg,
-            false,
-            false,
-        )
-        .await
+        if let Err(e) =
+            deliver_to_binding(state, rule, connection, &binding, &close_msg, false, false).await
         {
             warn!(
                 task_id = %task_id,
@@ -384,7 +389,7 @@ pub async fn close_tasks_for_issue(
     Ok(())
 }
 
-fn build_close_inbound_message(rule: &IngressRule, info: &IssueCloseInfo) -> InboundMessage {
+fn build_close_inbound_message(rule: &TaskTriggerRoute, info: &IssueCloseInfo) -> InboundMessage {
     let mut text = format!(
         "## Linear issue {} transitioned to {}\n\nClosing this task.",
         info.identifier, info.state_name,
@@ -395,7 +400,7 @@ fn build_close_inbound_message(rule: &IngressRule, info: &IssueCloseInfo) -> Inb
 
     InboundMessage {
         provider: ChannelType::Linear,
-        source_id: rule.scope_matcher.clone(),
+        source_id: rule.source_matcher.clone(),
         thread_id: None,
         message_thread_id: info.issue_id.clone(),
         user_id: rule.effective_user_id().to_string(),
@@ -404,7 +409,7 @@ fn build_close_inbound_message(rule: &IngressRule, info: &IssueCloseInfo) -> Inb
         thread_properties: serde_json::json!({
             "issue_id": info.issue_id,
             "identifier": info.identifier,
-            "team_id": rule.scope_matcher,
+            "team_id": rule.source_matcher,
             "state_name": info.state_name,
         }),
         provider_context: serde_json::json!({}),
@@ -412,15 +417,15 @@ fn build_close_inbound_message(rule: &IngressRule, info: &IssueCloseInfo) -> Inb
     }
 }
 
-pub async fn upsert_subscription(
+pub async fn upsert_binding(
     state: &AppState,
     connection: &ProviderConnection,
-    rule: Option<&IngressRule>,
+    rule: Option<&TaskTriggerRoute>,
     task_id: &str,
     subject_key: &str,
     thread_properties: &serde_json::Value,
-    created_reason: &str,
-) -> Result<TaskSubscription, ChannelError> {
+    origin: &str,
+) -> Result<TaskBinding, ChannelError> {
     let issue_id = thread_properties
         .get("issue_id")
         .and_then(serde_json::Value::as_str)
@@ -445,15 +450,15 @@ pub async fn upsert_subscription(
         .cloned()
         .unwrap_or(serde_json::Value::Null);
 
-    let subscription = TaskSubscription {
+    let binding = TaskBinding {
         id: format!("ts_{}", uuid::Uuid::new_v4()),
         task_id: task_id.to_string(),
         provider: PROVIDER.to_string(),
         subject_kind: SUBJECT_KIND.to_string(),
         subject_key: subject_key.to_string(),
         connection_id: connection.id.clone(),
-        ingress_rule_id: rule.map(|r| r.id.clone()),
-        reply_target: serde_json::json!({
+        trigger_id: rule.map(|r| r.id.clone()),
+        destination_config: serde_json::json!({
             "issue_id": issue_id,
             "identifier": identifier,
             "team_id": team_id,
@@ -461,20 +466,20 @@ pub async fn upsert_subscription(
         metadata: serde_json::json!({
             "filter_user_id": filter_uid,
         }),
-        last_channel_external_id: None,
-        created_reason: created_reason.to_string(),
+        last_external_event_id: None,
+        origin: origin.to_string(),
         created_at: now,
         last_event_at: now,
     };
 
-    Ok(PgTaskSubscriptionRepository(state.db.clone())
-        .upsert(&subscription)
+    Ok(PgTaskBindingRepository(state.db.clone())
+        .upsert(&binding)
         .await?)
 }
 
-async fn create_ingress_task(
+async fn create_provider_event_task(
     state: &AppState,
-    rule: &IngressRule,
+    rule: &TaskTriggerRoute,
     msg: &InboundMessage,
 ) -> Result<String, ChannelError> {
     let task_id = uuid::Uuid::new_v4().to_string();
@@ -545,34 +550,34 @@ async fn create_ingress_task(
                 Some("claude-code"),
                 serde_json::json!({
                     "channel": CHANNEL_PROVIDER_LABEL,
-                    "scope_matcher": rule.scope_matcher,
+                    "source_matcher": rule.source_matcher,
                 }),
             )
             .await;
     }
 
-    info!(task_id = %task_id, rule_id = %rule.id, "Created task from Linear ingress");
+    info!(task_id = %task_id, rule_id = %rule.id, "Created task from Linear provider event");
     Ok(task_id)
 }
 
-async fn deliver_to_subscription(
+async fn deliver_to_binding(
     state: &AppState,
-    rule: &IngressRule,
+    rule: &TaskTriggerRoute,
     _connection: &ProviderConnection,
-    subscription: &TaskSubscription,
+    binding: &TaskBinding,
     msg: &InboundMessage,
     is_new_task: bool,
     resume: bool,
 ) -> Result<(), ChannelError> {
-    let synthetic_cfg = synthetic_config(rule);
-    let synthetic_thr = synthetic_thread(subscription);
+    let synthetic_cfg = trigger_context(rule);
+    let synthetic_thr = binding_context(binding);
 
     let thread_context = if msg.thread_id.is_some() {
         if let Some(providers) = state.channel_providers.as_ref() {
             if let Some(provider) = providers.get_by_name(CHANNEL_PROVIDER_LABEL) {
                 let mut exclude_ids = match state
                     .messages
-                    .get_channel_external_ids(&subscription.task_id)
+                    .get_channel_external_ids(&binding.task_id)
                     .await
                 {
                     Ok(ids) => ids,
@@ -605,7 +610,7 @@ async fn deliver_to_subscription(
         None
     };
 
-    let has_cursor = subscription.last_channel_external_id.is_some();
+    let has_cursor = binding.last_external_event_id.is_some();
 
     let mut message_text = msg.text.clone();
     let sender_label = match state.users.get_user(&msg.user_id).await {
@@ -641,7 +646,7 @@ async fn deliver_to_subscription(
 
     if let Err(e) = crate::message::send::send_message_flow(
         state,
-        &subscription.task_id,
+        &binding.task_id,
         &message_text,
         None,
         None,
@@ -650,45 +655,42 @@ async fn deliver_to_subscription(
         resume,
         msg.channel_external_id.as_deref(),
         Some(CHANNEL_PROVIDER_LABEL),
-        Some(rule.scope_matcher.as_str()),
+        Some(rule.source_matcher.as_str()),
         None,
         None,
         false,
     )
     .await
     {
-        warn!(task_id = %subscription.task_id, error = %e, "Failed to send Linear channel message to task");
+        warn!(task_id = %binding.task_id, error = %e, "Failed to send Linear channel message to task");
         return Err(ChannelError::Internal(format!(
             "Failed to send message: {e}"
         )));
     }
 
-    let subscription_repo = PgTaskSubscriptionRepository(state.db.clone());
+    let binding_repo = PgTaskBindingRepository(state.db.clone());
     if let Some(ref ext_id) = msg.channel_external_id {
-        if let Err(e) = subscription_repo
-            .touch_cursor(&subscription.id, ext_id)
-            .await
-        {
+        if let Err(e) = binding_repo.touch_cursor(&binding.id, ext_id).await {
             warn!(
-                subscription_id = %subscription.id,
+                binding_id = %binding.id,
                 error = %e,
-                "Failed to update last_channel_external_id on subscription"
+                "Failed to update last_external_event_id on binding"
             );
         }
-    } else if let Err(e) = subscription_repo.touch_last_event(&subscription.id).await {
+    } else if let Err(e) = binding_repo.touch_last_event(&binding.id).await {
         warn!(
-            subscription_id = %subscription.id,
+            binding_id = %binding.id,
             error = %e,
-            "Failed to bump last_event_at on subscription"
+            "Failed to bump last_event_at on binding"
         );
     }
 
     if !is_new_task && resume {
         if let Err(e) =
-            crate::sandbox::notify::ensure_sandbox_and_notify(state, &subscription.task_id).await
+            crate::sandbox::notify::ensure_sandbox_and_notify(state, &binding.task_id).await
         {
             warn!(
-                task_id = %subscription.task_id,
+                task_id = %binding.task_id,
                 error = %e,
                 "Failed to ensure sandbox for Linear channel message"
             );
@@ -705,7 +707,9 @@ fn subject_key_from_thread_properties(
         .get("issue_id")
         .and_then(serde_json::Value::as_str)
         .map(str::to_string)
-        .ok_or_else(|| ChannelError::BadRequest("Missing issue_id in Linear thread properties".into()))
+        .ok_or_else(|| {
+            ChannelError::BadRequest("Missing issue_id in Linear thread properties".into())
+        })
 }
 
 async fn provision_task(state: &AppState, task_id: &str) {

@@ -1,6 +1,6 @@
 //! Webhook channel provider — ChannelProvider trait impl + inbound parsing.
 //!
-//! Provider config (stored in `channel_configs.provider_config` JSONB):
+//! Provider config (stored in `trigger_config` JSONB):
 //! ```json
 //! {
 //!   "webhook_secret": "optional-hmac-secret",
@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
 use crate::channel::error::ChannelError;
-use crate::channel::models::{ChannelConfig, ChannelThread, InboundMessage, OutboundReply};
+use crate::channel::models::{BindingContext, InboundMessage, OutboundReply, TriggerContext};
 use crate::channel::provider::{ChannelProvider, ChannelType};
 use crate::db::DbPool;
 
@@ -45,7 +45,7 @@ impl WebhookProvider {
     ///
     /// Verifies HMAC signature if `webhook_secret` is configured.
     pub fn parse_inbound(
-        config: &ChannelConfig,
+        config: &TriggerContext,
         body: &[u8],
         signature: Option<&str>,
     ) -> Result<InboundMessage, ChannelError> {
@@ -92,7 +92,7 @@ impl WebhookProvider {
 
         // 5. Build thread properties
         let thread_properties = serde_json::json!({
-            "config_id": config.id,
+            "trigger_id": config.id,
             "metadata": payload.metadata,
         });
 
@@ -138,8 +138,8 @@ impl ChannelProvider for WebhookProvider {
 
     async fn send_reply(
         &self,
-        thread: &ChannelThread,
-        config: &ChannelConfig,
+        thread: &BindingContext,
+        config: &TriggerContext,
         message: &OutboundReply,
     ) -> Result<Option<String>, ChannelError> {
         let callback_url = config
@@ -149,7 +149,7 @@ impl ChannelProvider for WebhookProvider {
             .and_then(|v| v.as_str());
 
         let Some(callback_url) = callback_url else {
-            debug!(config_id = %config.id, "No callback_url configured, skipping outbound webhook");
+            debug!(trigger_id = %config.id, "No callback_url configured, skipping outbound webhook");
             return Ok(None);
         };
 
@@ -162,7 +162,7 @@ impl ChannelProvider for WebhookProvider {
 
         let body = serde_json::json!({
             "task_id": thread.task_id,
-            "thread_id": thread.external_thread_id,
+            "thread_id": thread.subject_key,
             "text": message.text,
             "task_url": message.task_url,
             "is_error": message.is_error,
@@ -176,19 +176,19 @@ impl ChannelProvider for WebhookProvider {
 
         match req.send().await {
             Ok(resp) if resp.status().is_success() => {
-                debug!(config_id = %config.id, url = %callback_url, "Webhook callback sent successfully");
+                debug!(trigger_id = %config.id, url = %callback_url, "Webhook callback sent successfully");
                 Ok(None)
             }
             Ok(resp) => {
                 let status = resp.status();
                 let text = resp.text().await.unwrap_or_default();
-                warn!(config_id = %config.id, url = %callback_url, status = %status, body = %text, "Webhook callback failed");
+                warn!(trigger_id = %config.id, url = %callback_url, status = %status, body = %text, "Webhook callback failed");
                 Err(ChannelError::ProviderApi(format!(
                     "Webhook callback returned {status}: {text}"
                 )))
             }
             Err(e) => {
-                warn!(config_id = %config.id, url = %callback_url, error = %e, "Webhook callback request failed");
+                warn!(trigger_id = %config.id, url = %callback_url, error = %e, "Webhook callback request failed");
                 Err(ChannelError::ProviderApi(format!(
                     "Webhook callback failed: {e}"
                 )))
@@ -202,8 +202,8 @@ mod tests {
     use super::*;
     use crate::channel::models::RoutingMode;
 
-    fn test_config(provider_config: Option<serde_json::Value>) -> ChannelConfig {
-        ChannelConfig {
+    fn test_config(provider_config: Option<serde_json::Value>) -> TriggerContext {
+        TriggerContext {
             id: "cfg-1".into(),
             provider: "webhook".into(),
             source_id: "my-webhook".into(),
@@ -215,7 +215,6 @@ mod tests {
             allow_direct_send: false,
             provider_config,
             ongoing_task_id: None,
-            response_config_id: None,
             scope: crate::scope::Scope::User,
             team_id: None,
             task_name: None,

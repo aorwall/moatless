@@ -1,10 +1,10 @@
-//! Typed view of Linear ingress rule fields used by the webhook parser.
+//! Typed view of Linear task trigger fields used by the webhook parser.
 //!
-//! Each `IngressRule` is a "listener" with its own filter. Several rules can
+//! Each `TaskTriggerRoute` is a "listener" with its own filter. Several rules can
 //! share a single Linear team UUID (multi-rule support is what migration
 //! `0036` enables) — each one is evaluated independently.
 
-use crate::channel::models::IngressRule;
+use crate::channel::models::TaskTriggerRoute;
 
 /// Default workflow state names whose ENTRY fires task creation.
 const DEFAULT_TRIGGER_STATES: &[&str] = &["Todo", "In Progress"];
@@ -13,14 +13,14 @@ const DEFAULT_TRIGGER_STATES: &[&str] = &["Todo", "In Progress"];
 /// (when `close_task_on_close` is set on the rule).
 const DEFAULT_TERMINAL_STATES: &[&str] = &["Done", "Cancelled", "Canceled", "Duplicate"];
 
-/// Extracted Linear-specific knobs from an `IngressRule`.
+/// Extracted Linear-specific knobs from an `TaskTriggerRoute`.
 #[derive(Debug, Clone)]
 pub struct LinearRuleConfig {
     /// Required labels — issue must carry every label here to trigger.
     /// Empty = no label filter.
     pub require_labels: Vec<String>,
     /// States whose ENTRY fires task creation FOR THIS LISTENER. Per-listener:
-    /// each ingress rule can configure different trigger states (e.g. one rule
+    /// each task trigger can configure different trigger states (e.g. one rule
     /// fires on "Todo", another on "In Progress").
     pub trigger_states: Vec<String>,
     /// States whose ENTRY closes tasks owned by this listener (gated by
@@ -31,12 +31,12 @@ pub struct LinearRuleConfig {
 }
 
 impl LinearRuleConfig {
-    /// Parse from an `IngressRule`'s `provider_config` JSONB column plus
+    /// Parse from an `TaskTriggerRoute`'s `provider_config` JSONB column plus
     /// the scalar `close_task_on_close` column. We use `provider_config` (not
     /// `event_filter`) because Linear's filter is an OBJECT — `event_filter`
     /// is typed as `Vec<String>` in the public request DTO, suitable for
     /// GitHub's webhook-event-type list but not for Linear's nested knobs.
-    pub fn from_rule(rule: &IngressRule) -> Self {
+    pub fn from_rule(rule: &TaskTriggerRoute) -> Self {
         // `provider_config` may be null when no Linear-specific config was
         // supplied — fall back to an empty object so default state lists kick
         // in below.
@@ -88,12 +88,15 @@ mod tests {
     use crate::scope::Scope;
     use chrono::Utc;
 
-    fn rule_with(provider_config: serde_json::Value, close_task_on_close: bool) -> IngressRule {
-        IngressRule {
+    fn rule_with(
+        provider_config: serde_json::Value,
+        close_task_on_close: bool,
+    ) -> TaskTriggerRoute {
+        TaskTriggerRoute {
             id: "ir_test".into(),
             provider: "linear".into(),
             connection_id: "pc_test".into(),
-            scope_matcher: "team-uuid".into(),
+            source_matcher: "team-uuid".into(),
             source_name: None,
             routing_mode: RoutingMode::ThreadBased,
             event_filter: serde_json::json!([]),
@@ -106,7 +109,6 @@ mod tests {
             allow_direct_send: false,
             provider_config: Some(provider_config),
             ongoing_task_id: None,
-            response_rule_id: None,
             close_task_on_close,
             notify_on_success: false,
             active: true,

@@ -8,10 +8,10 @@
 use std::time::Duration;
 
 use integration_tests::{
-    callback_server::CallbackServer, ensure_template_repo, raw_api, sandbox_helpers, test_client,
+    callback_server::CallbackServer, create_webhook_integration, ensure_template_repo, raw_api,
+    sandbox_helpers, test_client,
 };
-use moatless_api_schemas::channel::CreateChannelConfigRequest;
-use moatless_api_schemas::enums::{ChannelType, RoutingMode};
+use moatless_api_schemas::enums::RoutingMode;
 use moatless_cli::events::EventCollector;
 use serde_json::json;
 
@@ -50,40 +50,25 @@ async fn webhook_outbound_callback() {
         .await
         .expect("Failed to start event collector");
 
-    // CHAN-61: Create webhook config with callback_url
-    let config_req = CreateChannelConfigRequest {
-        provider: ChannelType::Webhook,
-        source_id: format!("callback-{suffix}"),
-        source_name: Some("Callback Test Webhook".into()),
-        repository_id: repo_id.clone(),
-        routing_mode: RoutingMode::PerMessage,
-        prompt_template: None,
-        provider_config: Some(
-            serde_json::from_value(json!({
-                "callback_url": callback_url
-            }))
-            .unwrap(),
-        ),
-        response_config_id: None,
-        scope: None,
-        team_id: None,
-        task_name: None,
-        tag_ids: None,
-        run_as_user_id: None,
-        allow_direct_send: None,
-    };
-    let config = client
-        .api()
-        .create_channel_config(&config_req)
-        .await
-        .unwrap();
-    assert!(!config.id.is_empty());
+    // CHAN-61: Create webhook trigger with callback_url
+    let fixture = create_webhook_integration(
+        &client,
+        &repo_id,
+        &format!("callback-{suffix}"),
+        RoutingMode::PerMessage,
+        Some(json!({
+            "callback_url": callback_url
+        })),
+    )
+    .await;
+    assert!(!fixture.trigger.id.is_empty());
 
     // CHAN-62: Send webhook inbound message
     let inbound_payload = json!({
-        "message": "Create a file called hello.txt with 'Hello from webhook callback test'"
+        "text": "Create a file called hello.txt with 'Hello from webhook callback test'"
     });
-    let inbound_resp = raw_api::send_webhook_message(&http, &config.id, &inbound_payload).await;
+    let inbound_resp =
+        raw_api::send_webhook_message(&http, &fixture.trigger.id, &inbound_payload).await;
     assert_eq!(inbound_resp.status().as_u16(), 200);
     let inbound_body: serde_json::Value = inbound_resp.json().await.unwrap();
     let task_id = inbound_body["taskId"]
@@ -127,6 +112,5 @@ async fn webhook_outbound_callback() {
     // Cleanup
     collector.stop();
     callback_server.stop();
-    let _ = client.api().delete_channel_config(&config.id).await;
     let _ = client.api().delete_task(task_id).await;
 }

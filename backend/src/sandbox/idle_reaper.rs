@@ -70,14 +70,9 @@ pub fn spawn_idle_reaper(
             match leader_election.try_acquire_or_renew().await {
                 Ok(true) => {
                     debug!(identity = %identity, "Idle reaper is leader, running reap cycle");
-                    if let Err(e) = reap_idle_sandboxes(
-                        &k8s,
-                        &messages,
-                        &tasks,
-                        &sandbox,
-                        default_ttl_minutes,
-                    )
-                    .await
+                    if let Err(e) =
+                        reap_idle_sandboxes(&k8s, &messages, &tasks, &sandbox, default_ttl_minutes)
+                            .await
                     {
                         warn!(error = %e, "Idle reaper cycle failed");
                     }
@@ -174,10 +169,7 @@ async fn reap_idle_sandboxes(
     let mut stopped_count = 0u32;
 
     for task_id in &task_ids {
-        let ttl_minutes = ttl_map
-            .get(task_id)
-            .copied()
-            .unwrap_or(default_ttl_minutes);
+        let ttl_minutes = ttl_map.get(task_id).copied().unwrap_or(default_ttl_minutes);
         let latest_at = latest_times.get(task_id).copied();
 
         match decide_reap(ttl_minutes, latest_at, now) {
@@ -285,7 +277,10 @@ mod tests {
         let now = Utc::now();
         let very_old = now - chrono::Duration::days(7);
         let decision = decide_reap(0, Some(very_old), now);
-        assert_eq!(decision, ReapDecision::Skip("ttl_minutes is 0 (indefinite)"));
+        assert_eq!(
+            decision,
+            ReapDecision::Skip("ttl_minutes is 0 (indefinite)")
+        );
     }
 
     #[test]
@@ -293,7 +288,10 @@ mod tests {
         let now = Utc::now();
         let very_old = now - chrono::Duration::days(7);
         let decision = decide_reap(-1, Some(very_old), now);
-        assert_eq!(decision, ReapDecision::Skip("ttl_minutes is 0 (indefinite)"));
+        assert_eq!(
+            decision,
+            ReapDecision::Skip("ttl_minutes is 0 (indefinite)")
+        );
     }
 
     #[test]

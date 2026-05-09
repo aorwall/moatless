@@ -116,9 +116,7 @@ pub fn spawn(
 
     let listener = UnixListener::bind(socket_path)
         .map_err(|e| format!("UnixListener::bind({}): {e}", socket_path.display()))?;
-    if let Err(e) =
-        std::fs::set_permissions(socket_path, std::fs::Permissions::from_mode(0o666))
-    {
+    if let Err(e) = std::fs::set_permissions(socket_path, std::fs::Permissions::from_mode(0o666)) {
         warn!(error = %e, socket = %socket_path.display(), "Failed to chmod credential broker socket");
     }
     let app = router(state);
@@ -309,14 +307,22 @@ mod tests {
             .await
             .expect("connect to broker socket");
         stream
-            .write_all(b"GET /git-credential HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+            .write_all(
+                b"GET /git-credential HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+            )
             .await
             .unwrap();
         let mut buf = Vec::new();
         stream.read_to_end(&mut buf).await.unwrap();
         let resp = String::from_utf8_lossy(&buf);
-        assert!(resp.starts_with("HTTP/1.1 200"), "expected 200, got: {resp}");
-        assert!(resp.contains("username=oauth2"), "missing username line: {resp}");
+        assert!(
+            resp.starts_with("HTTP/1.1 200"),
+            "expected 200, got: {resp}"
+        );
+        assert!(
+            resp.contains("username=oauth2"),
+            "missing username line: {resp}"
+        );
         assert!(
             resp.contains("password=ghu_test_token"),
             "missing password line: {resp}"

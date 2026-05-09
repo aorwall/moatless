@@ -2,124 +2,25 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::enums::{ChannelType, RoutingMode, Scope};
+use crate::enums::{IntegrationProvider, RoutingMode, Scope};
 
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct CreateChannelConfigRequest {
-    pub provider: ChannelType,
-    pub source_id: String,
-    pub source_name: Option<String>,
-    pub repository_id: String,
-    pub routing_mode: RoutingMode,
-    pub prompt_template: Option<String>,
-    #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
-    pub provider_config: Option<serde_json::Value>,
-    pub response_config_id: Option<String>,
-    pub scope: Option<Scope>,
-    pub team_id: Option<String>,
-    pub task_name: Option<String>,
-    pub tag_ids: Option<Vec<String>>,
-    pub run_as_user_id: Option<String>,
-    pub allow_direct_send: Option<bool>,
-    /// Agent type for tasks created from this channel (defaults to "claude-code")
-    pub agent_type: Option<String>,
-}
-
-#[derive(Debug, Default, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct UpdateChannelConfigRequest {
-    pub source_name: Option<String>,
-    pub repository_id: Option<String>,
-    pub routing_mode: Option<RoutingMode>,
-    pub prompt_template: Option<Option<String>>,
-    pub active: Option<bool>,
-    #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
-    pub provider_config: Option<serde_json::Value>,
-    pub response_config_id: Option<Option<String>>,
-    pub task_name: Option<Option<String>>,
-    pub tag_ids: Option<Vec<String>>,
-    pub run_as_user_id: Option<Option<String>>,
-    pub allow_direct_send: Option<bool>,
-    /// Agent type for tasks created from this channel
-    pub agent_type: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct ChannelConfigResponse {
-    pub id: String,
-    pub provider: ChannelType,
-    pub source_id: String,
-    pub source_name: Option<String>,
-    pub repository_id: String,
-    pub routing_mode: RoutingMode,
-    pub prompt_template: Option<String>,
-    pub active: bool,
-    pub allow_direct_send: bool,
-    #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
-    pub provider_config: Option<serde_json::Value>,
-    pub ongoing_task_id: Option<String>,
-    pub response_config_id: Option<String>,
-    pub scope: Scope,
-    pub team_id: Option<String>,
-    pub created_by: String,
-    pub task_name: Option<String>,
-    pub tag_ids: Vec<String>,
-    pub run_as_user_id: Option<String>,
-    /// Agent type for tasks created from this channel
-    pub agent_type: String,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-/// Request to send a message through channel(s) associated with a task.
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct SendChannelMessageRequest {
-    pub text: String,
-    /// File IDs (from `/api/v1/uploads`) to attach to the message.
-    #[serde(default)]
-    pub file_ids: Vec<String>,
-}
-
-/// Response from sending a message through channel(s).
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct SendChannelMessageResponse {
-    pub sent_count: u32,
-    pub errors: Vec<String>,
-    /// Destinations that received the message. Lets clients print a "next-step"
-    /// hint and target the same subscription/thread next time.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub targets: Vec<ChannelTargetDescriptor>,
-}
-
-/// One outbound destination — used by both [`SendChannelMessageResponse::targets`]
-/// (success path) and [`MultipleTargetsErrorBody`] (multi-target error path).
+/// One outbound destination returned by task reply APIs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct ChannelTargetDescriptor {
-    /// `"thread"` for legacy `channel_threads` rows, `"subscription"` for
-    /// `task_subscriptions` rows.
+    /// Target category, currently `"binding"` for canonical task bindings.
     pub kind: String,
-    /// Stable identifier — `thread_id` (stringified i32) or `subscription_id`.
+    /// Stable target identifier, usually `task_bindings.id`.
     pub id: String,
-    /// Human-readable label such as `"slack #ops"` or `"github_pr owner/repo#42"`.
+    /// Human-readable label such as `"slack channel:C123"` or `"github pr:owner/repo#42"`.
     pub label: String,
-    /// CLI flag the caller should add to disambiguate, e.g.
-    /// `"--thread 42"` or `"--subscription sub_xyz"`.
+    /// CLI flag the caller should add to disambiguate, e.g. `"--binding bind_xyz"`.
     pub flag_hint: String,
 }
 
-/// Body returned with HTTP 400 when `POST /channels/send` cannot pick a
-/// single destination because the task is wired to multiple channels.
+/// Body returned with HTTP 400 when `POST /tasks/{task_id}/reply` cannot pick a
+/// single destination because the task is wired to multiple bindings.
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
@@ -129,217 +30,38 @@ pub struct MultipleTargetsErrorBody {
     pub hint: String,
 }
 
-/// Request to post a message to a provider-specific destination by raw ID.
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct ChatDestinationSendRequest {
-    /// Provider-specific destination identifier (e.g. Slack channel id, Telegram chat id).
-    pub destination: String,
-    /// Message text.
-    pub text: String,
-    /// Optional task to associate the resulting subscription with. When set, a
-    /// `task_subscriptions` row is written so future inbound messages on this
-    /// destination route back to the task.
-    pub task_id: Option<String>,
-    /// File IDs (from `/api/v1/uploads`) to attach to the message.
-    #[serde(default)]
-    pub file_ids: Vec<String>,
-}
-
-/// Response from posting to a chat destination.
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct ChatDestinationSendResponse {
-    /// Provider-specific external message ID (e.g. Slack message ts).
-    pub message_external_id: String,
-    /// `task_subscriptions.id` when a task was provided; `None` otherwise.
-    pub subscription_id: Option<String>,
-}
-
-/// Request to send a message directly to a channel config.
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct DirectSendRequest {
-    pub text: String,
-    /// File IDs (from `/api/v1/uploads`) to attach to the message.
-    #[serde(default)]
-    pub file_ids: Vec<String>,
-    /// Optional task ID. When set, the first send creates a thread linked to
-    /// this task; subsequent sends reply in that thread.
-    pub task_id: Option<String>,
-}
-
-/// Response from sending a message directly to a channel config.
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct DirectSendResponse {
-    /// Whether the message was sent successfully.
-    pub success: bool,
-    /// Provider-specific external message ID (e.g. Slack message ts), if available.
-    pub external_message_id: Option<String>,
-}
-
-/// Channel connected to a task (via channel_threads or task_subscriptions).
+/// External integration binding connected to a task.
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct TaskChannelResponse {
-    pub config_id: String,
-    pub provider: ChannelType,
+    pub trigger_id: String,
+    pub provider: IntegrationProvider,
     pub source_id: String,
     pub source_name: Option<String>,
-    /// Internal channel thread identifier. Use this for exact outbound targeting
-    /// when a task has multiple subscriptions under the same config.
+    /// Deprecated legacy thread identifier. Canonical callers should use
+    /// `binding_id`, which carries the task binding id.
     pub thread_id: Option<i32>,
     /// Provider thread identifier such as GitHub PR number or Slack thread ts.
     pub external_thread_id: Option<String>,
-    /// Provider-specific subject key such as `owner/repo#123` for GitHub PR subscriptions.
+    /// Provider-specific subject key such as `owner/repo#123` for GitHub PR bindings.
     pub subject_key: Option<String>,
-    /// `task_subscriptions.id` (string surrogate) when this row originated from
-    /// the GitHub subscription model. None for legacy thread-based providers.
+    /// Canonical `task_bindings.id` when available.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub subscription_id: Option<String>,
-    /// `task_subscriptions.created_reason` (e.g. `ingress`, `connected_thread`).
-    /// None for legacy thread-based providers.
+    pub binding_id: Option<String>,
+    /// Binding origin (e.g. `ingress`, `direct_send`, `scheduled_job`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub created_reason: Option<String>,
-    /// ISO-8601 timestamp of the last event seen on the subscription. None for
-    /// legacy thread-based providers.
+    pub origin: Option<String>,
+    /// ISO-8601 timestamp of the last event seen on the binding.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_event_at: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct SetChannelDefaultsRequest {
-    pub repository_id: String,
-    pub routing_mode: RoutingMode,
-    pub prompt_template: Option<String>,
-    #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
-    pub provider_config: Option<serde_json::Value>,
-    pub response_config_id: Option<String>,
-    pub team_id: Option<String>,
-    pub task_name: Option<String>,
-    pub tag_ids: Option<Vec<String>>,
-    /// Agent type for tasks created from this channel (defaults to "claude-code")
-    pub agent_type: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChannelDefaultsQuery {
-    pub team_id: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ListChannelConfigsQuery {
-    pub provider: Option<String>,
-    pub repository_id: Option<String>,
-}
-
-/// Available Slack channel info for dropdown selection.
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct SlackChannelInfoResponse {
-    pub id: String,
-    pub name: String,
-}
-
-/// Request body for manually triggering a channel config.
-#[derive(Debug, Default, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct TriggerChannelRequest {
-    /// Optional message override. If omitted, uses the channel's configured message.
-    pub message: Option<String>,
-    /// Optional thread properties for the created task. Required for `github_pr`
-    /// channels (must include `owner`, `repo`, and `pr_number`).
-    pub thread_properties: Option<serde_json::Value>,
-}
-
-/// Response from manually triggering a channel config.
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct TriggerChannelResponse {
-    pub task_id: String,
-    pub short_id: String,
-}
-
-/// Request to connect a task to an existing external thread (e.g. a GitHub PR).
-///
-/// Creates a channel thread linking the task to the external thread so that
-/// inbound messages (webhooks) are delivered and the agent can reply.
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct ConnectChannelRequest {
-    pub task_id: String,
-    pub provider: ChannelType,
-    /// Source identifier, e.g. `"owner/repo"` for GitHub PR.
-    /// Resolved from the task's repository if omitted.
-    pub source_id: Option<String>,
-    /// External thread identifier, e.g. PR number `"42"`.
-    pub external_thread_id: String,
-    /// Provider-specific properties (e.g. `{"owner","repo","pr_number"}`).
-    /// Auto-generated from source_id + external_thread_id for github_pr if omitted.
-    #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
-    pub thread_properties: Option<serde_json::Value>,
-    /// System user ID whose messages should be filtered out on this thread
-    /// (prevents echoing the agent's own PR comments back to it).
-    pub filter_user_id: Option<String>,
-}
-
-/// Response from connecting a task to a channel thread.
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct ConnectChannelResponse {
-    pub config_id: String,
-    pub thread_id: i32,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PairingQuery {
-    pub config_id: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct ApprovePairingRequest {
-    pub config_id: String,
-    pub code: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct PairingRequestResponse {
-    pub id: i32,
-    pub config_id: String,
-    pub provider_user_id: String,
-    pub code: String,
-    pub status: String,
-    #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
-    pub meta: Option<serde_json::Value>,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
 // ---------------------------------------------------------------------------
-// Provider connections + ingress rules (GitHub-native flow)
+// Provider connections
 // ---------------------------------------------------------------------------
 
-/// Request body for `POST /api/v1/channels/connections`.
+/// Request body for `POST /api/v1/integrations/connections`.
 ///
 /// Today only used for Linear, where the workspace connection has to be
 /// registered explicitly because each Linear workspace creates its own
@@ -348,10 +70,12 @@ pub struct PairingRequestResponse {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct CreateProviderConnectionRequest {
-    /// Provider value. Currently only `"linear"` is accepted via this endpoint.
-    pub provider: String,
-    /// Workspace identifier (Linear org UUID).
-    pub scope_value: String,
+    /// Provider value.
+    pub provider: IntegrationProvider,
+    /// Transport/auth style for this provider, e.g. `bot_api`, `org_webhook`.
+    pub connection_kind: Option<String>,
+    /// External account/workspace/org identifier for this connection.
+    pub external_account_id: String,
     /// HMAC secret used to verify inbound webhooks for this workspace.
     pub webhook_secret: Option<String>,
     /// Optional human-readable name for the connection.
@@ -371,9 +95,9 @@ pub struct CreateProviderConnectionRequest {
 #[serde(rename_all = "camelCase")]
 pub struct ProviderConnectionResponse {
     pub id: String,
-    pub provider: String,
+    pub provider: IntegrationProvider,
     pub connection_kind: String,
-    pub scope_value: String,
+    pub external_account_id: String,
     pub created_by: String,
     pub scope: Scope,
     pub team_id: Option<String>,
@@ -381,122 +105,231 @@ pub struct ProviderConnectionResponse {
     pub updated_at: String,
 }
 
-/// Request body for `POST /api/v1/channels/rules`.
+// ---------------------------------------------------------------------------
+// Canonical integration model
+// ---------------------------------------------------------------------------
+
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
-pub struct CreateIngressRuleRequest {
-    /// Provider value, e.g. `"github"`, `"slack"`, or `"telegram"`.
-    pub provider: String,
-    /// Provider source matcher: repo full name (`owner/repo`) for GitHub,
-    /// Slack channel id, Telegram chat id, or `*` wildcard.
-    pub scope_matcher: String,
-    pub source_name: Option<String>,
+pub struct TaskRouteResponse {
+    pub id: String,
     pub repository_id: String,
-    pub routing_mode: Option<RoutingMode>,
+    pub routing_mode: RoutingMode,
+    pub ongoing_task_id: Option<String>,
+    pub prompt_template: Option<String>,
+    pub task_name: Option<String>,
+    pub tag_ids: Vec<String>,
+    pub run_as_user_id: Option<String>,
+    pub agent_type: String,
+    pub scope: Scope,
+    pub team_id: Option<String>,
+    pub created_by: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct CreateTaskRouteRequest {
+    pub repository_id: String,
+    pub routing_mode: RoutingMode,
+    pub ongoing_task_id: Option<String>,
+    pub prompt_template: Option<String>,
     pub task_name: Option<String>,
     pub tag_ids: Option<Vec<String>>,
-    pub prompt_template: Option<String>,
-    #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
-    pub provider_config: Option<serde_json::Value>,
-    pub allow_direct_send: Option<bool>,
-    pub response_rule_id: Option<String>,
-    pub ongoing_task_id: Option<String>,
-    /// Defaults to `"claude-code"` when omitted.
-    pub agent_type: Option<String>,
     pub run_as_user_id: Option<String>,
-    pub close_task_on_close: Option<bool>,
-    pub notify_on_success: Option<bool>,
-    pub active: Option<bool>,
-    /// Optional event filter — empty means all supported events.
-    pub event_filter: Option<Vec<String>>,
-    /// Required when the caller belongs to multiple teams. Defaults to the
-    /// caller's only team when single-team.
+    pub agent_type: Option<String>,
+    pub scope: Option<Scope>,
     pub team_id: Option<String>,
 }
 
-// ---------------------------------------------------------------------------
-// Task subscriptions (provider-agnostic reply targets)
-// ---------------------------------------------------------------------------
-
-/// Request body for `POST /api/v1/tasks/{task_id}/subscriptions`.
-///
-/// Attaches an explicit reply target to an existing task. Mirrors the
-/// `task_subscriptions` row that ingress webhooks create automatically, but
-/// for tasks that were created via `moat tasks create` (e.g. from CI).
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
-pub struct CreateTaskSubscriptionRequest {
-    /// Provider identifier, e.g. `"slack"`, `"github"`, `"telegram"`.
-    pub provider: String,
-    /// Provider connection FK (`provider_connections.id`). The bot/auth used
-    /// to send replies must match this connection.
-    pub connection_id: String,
-    /// Subject category for routing — `"slack_thread"`, `"github_pr"`, etc.
-    pub subject_kind: String,
-    /// Provider-specific routing key. Must be unique with `(provider, subject_kind)`.
-    /// Slack: `{team_id}:{channel}:{thread_ts}` (or `{channel}:{thread_ts}` if
-    /// team scope is implicit). GitHub: `owner/repo#NN`.
-    pub subject_key: String,
-    /// Provider-specific reply target. Slack expects
-    /// `{"channel":..., "ts":..., "thread_ts":...}`.
-    #[cfg_attr(feature = "openapi", schema(value_type = Object))]
-    pub reply_target: serde_json::Value,
-    /// Optional metadata (defaults to `{}`).
-    #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
-    pub metadata: Option<serde_json::Value>,
+pub struct UpdateTaskRouteRequest {
+    pub repository_id: Option<String>,
+    pub routing_mode: Option<RoutingMode>,
+    pub ongoing_task_id: Option<Option<String>>,
+    pub prompt_template: Option<Option<String>>,
+    pub task_name: Option<Option<String>>,
+    pub tag_ids: Option<Vec<String>>,
+    pub run_as_user_id: Option<Option<String>>,
+    pub agent_type: Option<String>,
+    pub scope: Option<Scope>,
+    pub team_id: Option<Option<String>>,
 }
 
-/// Response from `POST /api/v1/tasks/{task_id}/subscriptions`.
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
-pub struct TaskSubscriptionResponse {
+pub struct TaskTriggerResponse {
+    pub id: String,
+    pub provider: IntegrationProvider,
+    pub connection_id: String,
+    pub source_matcher: String,
+    pub source_name: Option<String>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Object))]
+    pub event_filter: serde_json::Value,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
+    pub trigger_config: Option<serde_json::Value>,
+    pub route_id: String,
+    pub allow_direct_send: bool,
+    pub close_task_on_close: bool,
+    pub notify_on_success: bool,
+    pub active: bool,
+    pub scope: Scope,
+    pub team_id: Option<String>,
+    pub created_by: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct CreateTaskTriggerRequest {
+    pub provider: IntegrationProvider,
+    pub connection_id: String,
+    pub source_matcher: String,
+    pub source_name: Option<String>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
+    pub event_filter: Option<serde_json::Value>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
+    pub trigger_config: Option<serde_json::Value>,
+    pub route_id: String,
+    pub allow_direct_send: Option<bool>,
+    pub close_task_on_close: Option<bool>,
+    pub notify_on_success: Option<bool>,
+    pub active: Option<bool>,
+    pub scope: Option<Scope>,
+    pub team_id: Option<String>,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateTaskTriggerRequest {
+    pub connection_id: Option<String>,
+    pub source_matcher: Option<String>,
+    pub source_name: Option<Option<String>>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
+    pub event_filter: Option<serde_json::Value>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
+    pub trigger_config: Option<Option<serde_json::Value>>,
+    pub route_id: Option<String>,
+    pub allow_direct_send: Option<bool>,
+    pub close_task_on_close: Option<bool>,
+    pub notify_on_success: Option<bool>,
+    pub active: Option<bool>,
+    pub scope: Option<Scope>,
+    pub team_id: Option<Option<String>>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct TaskBindingResponse {
     pub id: String,
     pub task_id: String,
-    pub provider: String,
+    pub provider: IntegrationProvider,
+    pub connection_id: String,
+    pub trigger_id: Option<String>,
     pub subject_kind: String,
     pub subject_key: String,
-    pub connection_id: String,
     #[cfg_attr(feature = "openapi", schema(value_type = Object))]
-    pub reply_target: serde_json::Value,
+    pub destination_config: serde_json::Value,
     #[cfg_attr(feature = "openapi", schema(value_type = Object))]
     pub metadata: serde_json::Value,
-    pub created_reason: String,
+    pub last_external_event_id: Option<String>,
+    pub origin: String,
     pub created_at: String,
     pub last_event_at: String,
 }
 
-/// One row from `ingress_rules`.
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
-pub struct IngressRuleResponse {
-    pub id: String,
-    pub provider: String,
+pub struct CreateTaskBindingRequest {
+    pub provider: IntegrationProvider,
     pub connection_id: String,
-    pub scope_matcher: String,
-    pub source_name: Option<String>,
-    pub repository_id: String,
-    pub routing_mode: RoutingMode,
-    pub task_name: Option<String>,
-    pub tag_ids: Vec<String>,
-    pub prompt_template: Option<String>,
+    pub trigger_id: Option<String>,
+    pub subject_kind: String,
+    pub subject_key: String,
     #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
-    pub provider_config: Option<serde_json::Value>,
-    pub allow_direct_send: bool,
-    pub response_rule_id: Option<String>,
-    pub ongoing_task_id: Option<String>,
-    pub agent_type: String,
+    pub destination_config: Option<serde_json::Value>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
+    pub metadata: Option<serde_json::Value>,
+    pub origin: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ScheduledJobResponse {
+    pub id: String,
+    pub route_id: String,
+    pub schedule_expr: String,
+    pub timezone: String,
+    pub message_template: String,
     pub run_as_user_id: Option<String>,
-    pub close_task_on_close: bool,
-    pub notify_on_success: bool,
     pub active: bool,
-    pub event_filter: Vec<String>,
+    pub last_fired_at: Option<String>,
+    pub next_fire_at: String,
+    pub locked_by: Option<String>,
+    pub locked_until: Option<String>,
     pub created_by: String,
     pub scope: Scope,
     pub team_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct CreateScheduledJobRequest {
+    pub route_id: String,
+    pub schedule_expr: String,
+    pub timezone: Option<String>,
+    pub message_template: String,
+    pub run_as_user_id: Option<String>,
+    pub active: Option<bool>,
+    pub scope: Option<Scope>,
+    pub team_id: Option<String>,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateScheduledJobRequest {
+    pub route_id: Option<String>,
+    pub schedule_expr: Option<String>,
+    pub timezone: Option<String>,
+    pub message_template: Option<String>,
+    pub run_as_user_id: Option<Option<String>>,
+    pub active: Option<bool>,
+    pub scope: Option<Scope>,
+    pub team_id: Option<Option<String>>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct SendTaskReplyRequest {
+    pub text: String,
+    #[serde(default)]
+    pub file_ids: Vec<String>,
+    pub binding_id: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct SendTaskReplyResponse {
+    pub sent_count: u32,
+    pub errors: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub targets: Vec<ChannelTargetDescriptor>,
 }

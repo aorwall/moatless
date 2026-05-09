@@ -12,7 +12,7 @@
 
 import { test, expect } from "../fixtures/api-fixtures";
 import {
-	createWebhookConfig,
+	createWebhookTriggerFixture,
 	sendWebhookMessage,
 } from "../steps";
 
@@ -31,22 +31,22 @@ test("CHAN-50: Webhook to non-existent config returns error", async ({ api }) =>
 test("CHAN-51: Webhook to inactive config is ignored", async ({ api }) => {
 	const repo = await api.ensureTemplateRepository();
 
-	const { configId } = await createWebhookConfig(api, repo.id, {
+	const { triggerId } = await createWebhookTriggerFixture(api, repo.id, {
 		sourceId: `inactive-${Date.now()}`,
 	});
 
 	// Deactivate the config
-	await api.updateChannelConfig(configId, { active: false });
+	await api.updateTaskTriggerFixture(triggerId, { active: false });
 
 	// Send message — should be accepted but ignored
-	const response = await api.sendWebhookMessage(configId, {
+	const response = await api.sendWebhookMessage(triggerId, {
 		text: "This should be ignored",
 	});
 
 	expect(response.status).toBe(200);
 
 	// Cleanup
-	await api.deleteChannelConfig(configId).catch(() => {});
+	await api.deleteTaskTriggerFixture(triggerId).catch(() => {});
 });
 
 // ─── CHAN-52: Webhook with invalid signature ──────────────────────────
@@ -54,7 +54,7 @@ test("CHAN-51: Webhook to inactive config is ignored", async ({ api }) => {
 test("CHAN-52: Webhook with invalid signature is rejected", async ({ api }) => {
 	const repo = await api.ensureTemplateRepository();
 
-	const { configId } = await createWebhookConfig(api, repo.id, {
+	const { triggerId } = await createWebhookTriggerFixture(api, repo.id, {
 		sourceId: `sig-test-${Date.now()}`,
 		providerConfig: {
 			webhook_secret: "my-secret-key",
@@ -63,7 +63,7 @@ test("CHAN-52: Webhook with invalid signature is rejected", async ({ api }) => {
 
 	// Send message with invalid signature
 	const response = await api.sendWebhookMessageRaw(
-		configId,
+		triggerId,
 		{ text: "This should fail" },
 		{ "X-Webhook-Signature": "sha256=invalid" },
 	);
@@ -71,14 +71,14 @@ test("CHAN-52: Webhook with invalid signature is rejected", async ({ api }) => {
 	expect(response.status).toBe(401);
 
 	// Cleanup
-	await api.deleteChannelConfig(configId).catch(() => {});
+	await api.deleteTaskTriggerFixture(triggerId).catch(() => {});
 });
 
 // ─── CHAN-53: Create config with non-existent repository ──────────────
 
 test("CHAN-53: Create config with non-existent repository returns error", async ({ api }) => {
 	try {
-		await api.createChannelConfig({
+		await api.createTaskTriggerFixture({
 			provider: "webhook",
 			sourceId: `no-repo-${Date.now()}`,
 			repositoryId: "non-existent-repo-id",
@@ -97,18 +97,18 @@ test("CHAN-53: Create config with non-existent repository returns error", async 
 test("CHAN-54: Webhook with missing text field returns error", async ({ api }) => {
 	const repo = await api.ensureTemplateRepository();
 
-	const { configId } = await createWebhookConfig(api, repo.id, {
+	const { triggerId } = await createWebhookTriggerFixture(api, repo.id, {
 		sourceId: `no-text-${Date.now()}`,
 	});
 
 	// Send message without text field
 	const response = await api.sendWebhookMessageRaw(
-		configId,
+		triggerId,
 		{ threadId: "some-thread" },
 	);
 
 	expect(response.status).toBe(400);
 
 	// Cleanup
-	await api.deleteChannelConfig(configId).catch(() => {});
+	await api.deleteTaskTriggerFixture(triggerId).catch(() => {});
 });

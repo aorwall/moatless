@@ -1,6 +1,6 @@
 //! Cron channel provider — ChannelProvider trait implementation.
 //!
-//! Provider config (stored in `channel_configs.provider_config` JSONB):
+//! Provider config (stored in scheduled job metadata):
 //! ```json
 //! {
 //!   "schedule": "0 0 9 * * MON-FRI *",
@@ -10,11 +10,11 @@
 //! ```
 //!
 //! The cron provider generates `InboundMessage`s on schedule.
-//! Outbound `send_reply` is a no-op — use `response_config_id` to route
-//! replies to another channel (e.g., Slack or webhook).
+//! Outbound `send_reply` is a no-op. Scheduled jobs attach an explicit reply
+//! target when a human-visible response is needed.
 
 use crate::channel::error::ChannelError;
-use crate::channel::models::{ChannelConfig, ChannelThread, InboundMessage, OutboundReply};
+use crate::channel::models::{BindingContext, InboundMessage, OutboundReply, TriggerContext};
 use crate::channel::provider::{ChannelProvider, ChannelType};
 use crate::db::DbPool;
 
@@ -29,7 +29,7 @@ impl CronProvider {
     /// Generate an inbound message from a cron trigger.
     ///
     /// Called by the cron scheduler when a schedule fires.
-    pub fn generate_message(config: &ChannelConfig) -> InboundMessage {
+    pub fn generate_message(config: &TriggerContext) -> InboundMessage {
         let message = config
             .provider_config
             .as_ref()
@@ -87,12 +87,11 @@ impl ChannelProvider for CronProvider {
 
     async fn send_reply(
         &self,
-        _thread: &ChannelThread,
-        _config: &ChannelConfig,
+        _thread: &BindingContext,
+        _config: &TriggerContext,
         _message: &OutboundReply,
     ) -> Result<Option<String>, ChannelError> {
-        // Cron provider has no outbound channel — use response_config_id
-        // to route replies to another channel.
+        // Cron provider has no outbound channel. Agents can reply through an explicit task binding.
         Ok(None)
     }
 }
@@ -104,7 +103,7 @@ mod tests {
 
     #[test]
     fn generate_message_with_config() {
-        let config = ChannelConfig {
+        let config = TriggerContext {
             id: "cron-1".into(),
             provider: "cron".into(),
             source_id: "daily-check".into(),
@@ -120,7 +119,6 @@ mod tests {
                 "user_id": "system-user"
             })),
             ongoing_task_id: None,
-            response_config_id: None,
             scope: crate::scope::Scope::User,
             team_id: None,
             task_name: None,
@@ -143,7 +141,7 @@ mod tests {
 
     #[test]
     fn generate_message_default_fallbacks() {
-        let config = ChannelConfig {
+        let config = TriggerContext {
             id: "cron-2".into(),
             provider: "cron".into(),
             source_id: "weekly".into(),
@@ -155,7 +153,6 @@ mod tests {
             allow_direct_send: false,
             provider_config: None,
             ongoing_task_id: None,
-            response_config_id: None,
             scope: crate::scope::Scope::User,
             team_id: None,
             task_name: None,

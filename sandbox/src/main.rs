@@ -171,11 +171,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         task_id: state.config.task_id.clone(),
         backend_client: Arc::clone(&state.backend_client),
     };
-    if let Err(e) = broker::spawn(
-        broker_state,
-        &broker_socket,
-        state.lifecycle_cancel.clone(),
-    ) {
+    if let Err(e) = broker::spawn(broker_state, &broker_socket, state.lifecycle_cancel.clone()) {
         tracing::warn!(
             error = %e,
             socket = %broker_socket.display(),

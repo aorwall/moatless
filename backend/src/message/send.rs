@@ -95,7 +95,17 @@ pub async fn send_message_flow(
 
         // 2. DB check — tolerates both new prefixed format and any legacy
         //    bare-int rows written before the prefix scheme.
-        let candidates = crate::channel::external_id::legacy_and_new(ext_id);
+        let candidates = channel_provider
+            .and_then(|provider_name| {
+                state
+                    .channel_providers
+                    .as_ref()
+                    .and_then(|providers| providers.get_by_name(provider_name))
+            })
+            .map_or_else(
+                || vec![ext_id.to_string()],
+                |provider| provider.external_id_aliases(ext_id),
+            );
         let exists = state
             .messages
             .has_any_channel_external_id(task_id, &candidates)
@@ -225,7 +235,10 @@ pub async fn send_message_flow(
                 size: meta.size,
             },
             Ok(None) => {
-                tracing::warn!(file_id, "File metadata not found when synthesising File context");
+                tracing::warn!(
+                    file_id,
+                    "File metadata not found when synthesising File context"
+                );
                 FileContextData::default()
             }
             Err(e) => {

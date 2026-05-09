@@ -115,11 +115,7 @@ impl LinearApi {
     }
 
     /// Create a comment on an issue.
-    pub async fn comment_create(
-        &self,
-        issue_id: &str,
-        body: &str,
-    ) -> Result<String, ChannelError> {
+    pub async fn comment_create(&self, issue_id: &str, body: &str) -> Result<String, ChannelError> {
         let value = self
             .graphql(serde_json::json!({
                 "query": "mutation($input: CommentCreateInput!) { \

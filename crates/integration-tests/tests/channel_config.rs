@@ -1,11 +1,8 @@
-//! Channel config CRUD integration tests.
-//!
-//! Mirrors: tests/api/chains/channel-config-crud.spec.ts
-//! Spec IDs: CHAN-01 through CHAN-05.1
+//! Canonical integration route/trigger CRUD smoke tests.
 
-use integration_tests::{ensure_template_repo, test_client};
-use moatless_api_schemas::channel::{CreateChannelConfigRequest, UpdateChannelConfigRequest};
-use moatless_api_schemas::enums::{ChannelType, RoutingMode};
+use integration_tests::{create_webhook_integration, ensure_template_repo, test_client};
+use moatless_api_schemas::channel::{UpdateTaskRouteRequest, UpdateTaskTriggerRequest};
+use moatless_api_schemas::enums::RoutingMode;
 use pretty_assertions::assert_eq;
 
 fn timestamp_suffix() -> String {
@@ -16,94 +13,78 @@ fn timestamp_suffix() -> String {
         .to_string()
 }
 
-// =============================================================================
-// Chain: Channel Config CRUD (CHAN-01 through CHAN-05.1)
-// =============================================================================
-
 #[tokio::test]
-async fn channel_config_crud_chain() {
+async fn task_route_trigger_crud_chain() {
     let client = test_client();
     let repo_id = ensure_template_repo(&client).await;
     let suffix = timestamp_suffix();
+    let source = format!("crud-test-{suffix}");
 
-    // CHAN-01: Create webhook channel config
-    let req = CreateChannelConfigRequest {
-        provider: ChannelType::Webhook,
-        source_id: format!("crud-test-{suffix}"),
-        source_name: Some("CRUD Test Webhook".into()),
-        repository_id: repo_id.clone(),
-        routing_mode: RoutingMode::PerMessage,
-        prompt_template: None,
-        provider_config: None,
-        response_config_id: None,
-        scope: None,
-        team_id: None,
-        task_name: None,
-        tag_ids: None,
-        run_as_user_id: None,
-        allow_direct_send: None,
-    };
-    let config = client.api().create_channel_config(&req).await.unwrap();
-    assert!(config.active);
-    assert!(!config.id.is_empty());
-    assert_eq!(config.provider, ChannelType::Webhook);
-    assert_eq!(config.repository_id, repo_id);
+    let fixture =
+        create_webhook_integration(&client, &repo_id, &source, RoutingMode::PerMessage, None).await;
 
-    let config_id = config.id;
+    assert!(!fixture.connection.id.is_empty());
+    assert_eq!(fixture.connection.external_account_id, source);
+    assert!(!fixture.route.id.is_empty());
+    assert_eq!(fixture.route.repository_id, repo_id);
+    assert_eq!(fixture.route.routing_mode, RoutingMode::PerMessage);
+    assert!(!fixture.trigger.id.is_empty());
+    assert_eq!(fixture.trigger.route_id, fixture.route.id);
+    assert_eq!(fixture.trigger.source_matcher, source);
+    assert!(fixture.trigger.active);
 
-    // CHAN-01.1: Config appears in listing
-    let configs = client.api().list_channel_configs(None, None).await.unwrap();
-    assert!(configs.iter().any(|c| c.id == config_id));
+    let routes = client.api().list_task_routes(Some(&repo_id)).await.unwrap();
+    assert!(routes.iter().any(|route| route.id == fixture.route.id));
 
-    // CHAN-02: Get channel config by ID
-    let config = client.api().get_channel_config(&config_id).await.unwrap();
-    assert_eq!(config.id, config_id);
-    assert_eq!(config.provider, ChannelType::Webhook);
-    assert_eq!(config.routing_mode, RoutingMode::PerMessage);
-    assert!(config.active);
-
-    // CHAN-03: Update channel config
-    let update = UpdateChannelConfigRequest {
-        source_name: Some("Updated CRUD Webhook".into()),
-        prompt_template: Some(Some("Please help: {message}".into())),
-        ..Default::default()
-    };
-    let updated = client
+    let triggers = client
         .api()
-        .update_channel_config(&config_id, &update)
+        .list_task_triggers(Some("webhook"), Some(&fixture.route.id))
         .await
         .unwrap();
-    assert_eq!(updated.source_name.as_deref(), Some("Updated CRUD Webhook"));
+    assert!(triggers
+        .iter()
+        .any(|trigger| trigger.id == fixture.trigger.id));
+
+    let updated_route = client
+        .api()
+        .update_task_route(
+            &fixture.route.id,
+            &UpdateTaskRouteRequest {
+                prompt_template: Some(Some("Please help: {message}".into())),
+                task_name: Some(Some("Updated webhook task".into())),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
     assert_eq!(
-        updated.prompt_template.as_deref(),
+        updated_route.prompt_template.as_deref(),
         Some("Please help: {message}")
     );
-    assert_eq!(updated.routing_mode, RoutingMode::PerMessage);
+    assert_eq!(
+        updated_route.task_name.as_deref(),
+        Some("Updated webhook task")
+    );
 
-    // CHAN-04: Deactivate channel config
-    let update = UpdateChannelConfigRequest {
-        active: Some(false),
-        ..Default::default()
-    };
     let deactivated = client
         .api()
-        .update_channel_config(&config_id, &update)
+        .update_task_trigger(
+            &fixture.trigger.id,
+            &UpdateTaskTriggerRequest {
+                active: Some(false),
+                ..Default::default()
+            },
+        )
         .await
         .unwrap();
     assert!(!deactivated.active);
 
-    // Still appears in listing
-    let configs = client.api().list_channel_configs(None, None).await.unwrap();
-    assert!(configs.iter().any(|c| c.id == config_id));
-
-    // CHAN-05: Delete channel config
-    client
+    let triggers = client
         .api()
-        .delete_channel_config(&config_id)
+        .list_task_triggers(Some("webhook"), Some(&fixture.route.id))
         .await
         .unwrap();
-
-    // CHAN-05.1: Config removed from listing
-    let configs = client.api().list_channel_configs(None, None).await.unwrap();
-    assert!(!configs.iter().any(|c| c.id == config_id));
+    assert!(triggers
+        .iter()
+        .any(|trigger| trigger.id == fixture.trigger.id && !trigger.active));
 }

@@ -496,219 +496,150 @@ impl ApiClient {
     }
 
     // ========================================================================
-    // Channels
+    // Integrations
     // ========================================================================
 
-    /// GET /api/v1/channels/configs
-    pub async fn list_channel_configs(
+    /// GET /api/v1/integrations/connections
+    pub async fn list_integration_connections(
         &self,
         provider: Option<&str>,
-        team_id: Option<&str>,
-    ) -> Result<Vec<moatless_api_schemas::channel::ChannelConfigResponse>, ApiError> {
+    ) -> Result<Vec<moatless_api_schemas::channel::ProviderConnectionResponse>, ApiError> {
+        let qs = provider
+            .map(|p| format!("?provider={}", urlenc(p)))
+            .unwrap_or_default();
+        self.get(&format!("/api/v1/integrations/connections{qs}"))
+            .await
+    }
+
+    /// POST /api/v1/integrations/connections
+    pub async fn create_integration_connection(
+        &self,
+        req: &moatless_api_schemas::channel::CreateProviderConnectionRequest,
+    ) -> Result<moatless_api_schemas::channel::ProviderConnectionResponse, ApiError> {
+        self.post("/api/v1/integrations/connections", req).await
+    }
+
+    /// GET /api/v1/task-routes
+    pub async fn list_task_routes(
+        &self,
+        repository_id: Option<&str>,
+    ) -> Result<Vec<moatless_api_schemas::channel::TaskRouteResponse>, ApiError> {
+        let qs = repository_id
+            .map(|id| format!("?repositoryId={}", urlenc(id)))
+            .unwrap_or_default();
+        self.get(&format!("/api/v1/task-routes{qs}")).await
+    }
+
+    /// POST /api/v1/task-routes
+    pub async fn create_task_route(
+        &self,
+        req: &moatless_api_schemas::channel::CreateTaskRouteRequest,
+    ) -> Result<moatless_api_schemas::channel::TaskRouteResponse, ApiError> {
+        self.post("/api/v1/task-routes", req).await
+    }
+
+    /// PUT /api/v1/task-routes/{id}
+    pub async fn update_task_route(
+        &self,
+        id: &str,
+        req: &moatless_api_schemas::channel::UpdateTaskRouteRequest,
+    ) -> Result<moatless_api_schemas::channel::TaskRouteResponse, ApiError> {
+        self.put(&format!("/api/v1/task-routes/{id}"), req).await
+    }
+
+    /// GET /api/v1/triggers
+    pub async fn list_task_triggers(
+        &self,
+        provider: Option<&str>,
+        route_id: Option<&str>,
+    ) -> Result<Vec<moatless_api_schemas::channel::TaskTriggerResponse>, ApiError> {
         let mut params = Vec::new();
-        if let Some(p) = provider {
-            params.push(format!("provider={}", urlenc(p)));
+        if let Some(provider) = provider {
+            params.push(format!("provider={}", urlenc(provider)));
         }
-        if let Some(t) = team_id {
-            params.push(format!("teamId={}", urlenc(t)));
+        if let Some(route_id) = route_id {
+            params.push(format!("routeId={}", urlenc(route_id)));
         }
         let qs = if params.is_empty() {
             String::new()
         } else {
             format!("?{}", params.join("&"))
         };
-        self.get(&format!("/api/v1/channels/configs{qs}")).await
+        self.get(&format!("/api/v1/triggers{qs}")).await
     }
 
-    /// POST /api/v1/channels/configs
-    pub async fn create_channel_config(
+    /// POST /api/v1/triggers
+    pub async fn create_task_trigger(
         &self,
-        req: &moatless_api_schemas::channel::CreateChannelConfigRequest,
-    ) -> Result<moatless_api_schemas::channel::ChannelConfigResponse, ApiError> {
-        self.post("/api/v1/channels/configs", req).await
+        req: &moatless_api_schemas::channel::CreateTaskTriggerRequest,
+    ) -> Result<moatless_api_schemas::channel::TaskTriggerResponse, ApiError> {
+        self.post("/api/v1/triggers", req).await
     }
 
-    /// GET /api/v1/channels/configs/{config_id}
-    pub async fn get_channel_config(
+    /// PUT /api/v1/triggers/{id}
+    pub async fn update_task_trigger(
         &self,
-        config_id: &str,
-    ) -> Result<moatless_api_schemas::channel::ChannelConfigResponse, ApiError> {
-        self.get(&format!("/api/v1/channels/configs/{config_id}"))
-            .await
+        id: &str,
+        req: &moatless_api_schemas::channel::UpdateTaskTriggerRequest,
+    ) -> Result<moatless_api_schemas::channel::TaskTriggerResponse, ApiError> {
+        self.put(&format!("/api/v1/triggers/{id}"), req).await
     }
 
-    /// PUT /api/v1/channels/configs/{config_id}
-    pub async fn update_channel_config(
+    /// DELETE /api/v1/triggers/{id}
+    pub async fn delete_task_trigger(&self, id: &str) -> Result<(), ApiError> {
+        self.delete_request(&format!("/api/v1/triggers/{id}")).await
+    }
+
+    /// GET /api/v1/scheduled-jobs
+    pub async fn list_scheduled_jobs(
         &self,
-        config_id: &str,
-        req: &moatless_api_schemas::channel::UpdateChannelConfigRequest,
-    ) -> Result<moatless_api_schemas::channel::ChannelConfigResponse, ApiError> {
-        self.put(&format!("/api/v1/channels/configs/{config_id}"), req)
-            .await
+    ) -> Result<Vec<moatless_api_schemas::channel::ScheduledJobResponse>, ApiError> {
+        self.get("/api/v1/scheduled-jobs").await
     }
 
-    /// POST /api/v1/channels/configs/{config_id}/trigger
-    pub async fn trigger_channel_config(
+    /// POST /api/v1/scheduled-jobs
+    pub async fn create_scheduled_job(
         &self,
-        config_id: &str,
-        req: &moatless_api_schemas::channel::TriggerChannelRequest,
-    ) -> Result<moatless_api_schemas::channel::TriggerChannelResponse, ApiError> {
-        self.post(
-            &format!("/api/v1/channels/configs/{config_id}/trigger"),
-            req,
-        )
-        .await
+        req: &moatless_api_schemas::channel::CreateScheduledJobRequest,
+    ) -> Result<moatless_api_schemas::channel::ScheduledJobResponse, ApiError> {
+        self.post("/api/v1/scheduled-jobs", req).await
     }
 
-    /// DELETE /api/v1/channels/configs/{config_id}
-    pub async fn delete_channel_config(&self, config_id: &str) -> Result<(), ApiError> {
-        self.delete_request(&format!("/api/v1/channels/configs/{config_id}"))
-            .await
-    }
-
-    /// GET /api/v1/tasks/{task_id}/channels
-    pub async fn list_task_channels(
+    /// PUT /api/v1/scheduled-jobs/{id}
+    pub async fn update_scheduled_job(
         &self,
-        task_id: &str,
-    ) -> Result<Vec<moatless_api_schemas::channel::TaskChannelResponse>, ApiError> {
-        self.get(&format!("/api/v1/tasks/{task_id}/channels")).await
+        id: &str,
+        req: &moatless_api_schemas::channel::UpdateScheduledJobRequest,
+    ) -> Result<moatless_api_schemas::channel::ScheduledJobResponse, ApiError> {
+        self.put(&format!("/api/v1/scheduled-jobs/{id}"), req).await
     }
 
-    /// POST /api/v1/tasks/{task_id}/channels/send
-    pub async fn send_to_task_channels(
+    /// GET /api/v1/tasks/{task_id}/bindings
+    pub async fn list_task_bindings(
         &self,
         task_id: &str,
-        req: &moatless_api_schemas::channel::SendChannelMessageRequest,
-    ) -> Result<moatless_api_schemas::channel::SendChannelMessageResponse, ApiError> {
-        self.post(&format!("/api/v1/tasks/{task_id}/channels/send"), req)
-            .await
+    ) -> Result<Vec<moatless_api_schemas::channel::TaskBindingResponse>, ApiError> {
+        self.get(&format!("/api/v1/tasks/{task_id}/bindings")).await
     }
 
-    /// POST /api/v1/tasks/{task_id}/channels/{config_id}/send
-    pub async fn send_to_task_channel(
+    /// POST /api/v1/tasks/{task_id}/bindings
+    pub async fn create_task_binding(
         &self,
         task_id: &str,
-        config_id: &str,
-        req: &moatless_api_schemas::channel::SendChannelMessageRequest,
-    ) -> Result<moatless_api_schemas::channel::SendChannelMessageResponse, ApiError> {
-        self.post(
-            &format!("/api/v1/tasks/{task_id}/channels/{config_id}/send"),
-            req,
-        )
-        .await
+        req: &moatless_api_schemas::channel::CreateTaskBindingRequest,
+    ) -> Result<moatless_api_schemas::channel::TaskBindingResponse, ApiError> {
+        self.post(&format!("/api/v1/tasks/{task_id}/bindings"), req)
+            .await
     }
 
-    /// POST /api/v1/tasks/{task_id}/channels/threads/{thread_id}/send
-    pub async fn send_to_task_channel_thread(
+    /// POST /api/v1/tasks/{task_id}/reply
+    pub async fn send_task_reply(
         &self,
         task_id: &str,
-        thread_id: i32,
-        req: &moatless_api_schemas::channel::SendChannelMessageRequest,
-    ) -> Result<moatless_api_schemas::channel::SendChannelMessageResponse, ApiError> {
-        self.post(
-            &format!("/api/v1/tasks/{task_id}/channels/threads/{thread_id}/send"),
-            req,
-        )
-        .await
-    }
-
-    /// POST /api/v1/tasks/{task_id}/channels/subscriptions/{subscription_id}/send
-    pub async fn send_to_task_channel_subscription(
-        &self,
-        task_id: &str,
-        subscription_id: &str,
-        req: &moatless_api_schemas::channel::SendChannelMessageRequest,
-    ) -> Result<moatless_api_schemas::channel::SendChannelMessageResponse, ApiError> {
-        self.post(
-            &format!(
-                "/api/v1/tasks/{task_id}/channels/subscriptions/{subscription_id}/send"
-            ),
-            req,
-        )
-        .await
-    }
-
-    /// POST /api/v1/tasks/{task_id}/subscriptions
-    pub async fn create_task_subscription(
-        &self,
-        task_id: &str,
-        req: &moatless_api_schemas::channel::CreateTaskSubscriptionRequest,
-    ) -> Result<moatless_api_schemas::channel::TaskSubscriptionResponse, ApiError> {
-        self.post(&format!("/api/v1/tasks/{task_id}/subscriptions"), req)
+        req: &moatless_api_schemas::channel::SendTaskReplyRequest,
+    ) -> Result<moatless_api_schemas::channel::SendTaskReplyResponse, ApiError> {
+        self.post(&format!("/api/v1/tasks/{task_id}/reply"), req)
             .await
-    }
-
-    /// POST /api/v1/channels/connect
-    pub async fn connect_channel(
-        &self,
-        req: &moatless_api_schemas::channel::ConnectChannelRequest,
-    ) -> Result<moatless_api_schemas::channel::ConnectChannelResponse, ApiError> {
-        self.post("/api/v1/channels/connect", req).await
-    }
-
-    /// POST /api/v1/channels/configs/{config_id}/send
-    pub async fn direct_send_to_channel(
-        &self,
-        config_id: &str,
-        req: &moatless_api_schemas::channel::DirectSendRequest,
-    ) -> Result<moatless_api_schemas::channel::DirectSendResponse, ApiError> {
-        self.post(&format!("/api/v1/channels/configs/{config_id}/send"), req)
-            .await
-    }
-
-    /// POST /api/v1/channels/{provider}/send
-    pub async fn send_to_chat_destination(
-        &self,
-        provider: &str,
-        req: &moatless_api_schemas::channel::ChatDestinationSendRequest,
-    ) -> Result<moatless_api_schemas::channel::ChatDestinationSendResponse, ApiError> {
-        self.post(&format!("/api/v1/channels/{provider}/send"), req)
-            .await
-    }
-
-    /// POST /api/v1/channels/rules
-    pub async fn create_ingress_rule(
-        &self,
-        req: &moatless_api_schemas::channel::CreateIngressRuleRequest,
-    ) -> Result<moatless_api_schemas::channel::IngressRuleResponse, ApiError> {
-        self.post("/api/v1/channels/rules", req).await
-    }
-
-    /// GET /api/v1/channels/rules
-    pub async fn list_ingress_rules(
-        &self,
-        provider: Option<&str>,
-    ) -> Result<Vec<moatless_api_schemas::channel::IngressRuleResponse>, ApiError> {
-        let qs = provider
-            .map(|p| format!("?provider={p}"))
-            .unwrap_or_default();
-        self.get(&format!("/api/v1/channels/rules{qs}")).await
-    }
-
-    /// DELETE /api/v1/channels/rules/{id}
-    pub async fn delete_ingress_rule(&self, id: &str) -> Result<(), ApiError> {
-        self.delete_request(&format!("/api/v1/channels/rules/{id}"))
-            .await
-    }
-
-    /// GET /api/v1/channels/connections
-    pub async fn list_provider_connections(
-        &self,
-        provider: Option<&str>,
-    ) -> Result<Vec<moatless_api_schemas::channel::ProviderConnectionResponse>, ApiError> {
-        let qs = provider
-            .map(|p| format!("?provider={p}"))
-            .unwrap_or_default();
-        self.get(&format!("/api/v1/channels/connections{qs}"))
-            .await
-    }
-
-    /// POST /api/v1/channels/connections
-    pub async fn create_provider_connection(
-        &self,
-        req: &moatless_api_schemas::channel::CreateProviderConnectionRequest,
-    ) -> Result<moatless_api_schemas::channel::ProviderConnectionResponse, ApiError> {
-        self.post("/api/v1/channels/connections", req).await
     }
 
     // ========================================================================

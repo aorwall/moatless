@@ -71,8 +71,7 @@ pub trait GithubValidator: Send + Sync {
     async fn validate_token(&self, token: &str) -> Result<(), String>;
 
     /// `GET /repos/{owner}/{repo}` — returns `Ok(())` on 2xx.
-    async fn check_repo_access(&self, token: &str, owner: &str, repo: &str)
-        -> Result<(), String>;
+    async fn check_repo_access(&self, token: &str, owner: &str, repo: &str) -> Result<(), String>;
 }
 
 /// Production validator — delegates to the existing helpers in
@@ -87,12 +86,7 @@ impl GithubValidator for RealGithubValidator {
             .map(|_login| ())
     }
 
-    async fn check_repo_access(
-        &self,
-        token: &str,
-        owner: &str,
-        repo: &str,
-    ) -> Result<(), String> {
+    async fn check_repo_access(&self, token: &str, owner: &str, repo: &str) -> Result<(), String> {
         crate::provider_settings::github_client::check_github_repo_access(token, owner, repo).await
     }
 }
@@ -156,7 +150,10 @@ pub async fn preflight_validate_github_token(
         return Ok(());
     };
 
-    if let Err(e) = validator.check_repo_access(&token, &owner, &repo_name).await {
+    if let Err(e) = validator
+        .check_repo_access(&token, &owner, &repo_name)
+        .await
+    {
         return Err(PreflightError::NoRepoAccess {
             owner,
             repo: repo_name,
