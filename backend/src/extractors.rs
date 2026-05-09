@@ -30,6 +30,10 @@ pub struct AuthUser {
     /// Team IDs the user belongs to (populated from X-Team-Ids header).
     pub team_ids: Vec<String>,
     pub task_id: Option<String>,
+    /// True when this request was authenticated via the sandbox-issued
+    /// `X-User-Token` JWT (i.e. came from inside a sandbox pod, on behalf
+    /// of the agent's CLI). Used to mark feedback rows as `source = 'agent'`.
+    pub is_agent_context: bool,
 }
 
 impl AuthUser {
@@ -76,6 +80,7 @@ impl FromRequestParts<AppState> for AuthUser {
                 group_id: identity.group_id.clone(),
                 team_ids: identity.team_ids.clone(),
                 task_id,
+                is_agent_context: false,
             });
         }
 
@@ -103,6 +108,7 @@ impl FromRequestParts<AppState> for AuthUser {
                 group_id: None,
                 team_ids: vec![],
                 task_id,
+                is_agent_context: true,
             });
         }
 
@@ -159,6 +165,7 @@ impl FromRequestParts<AppState> for AuthUser {
                     group_id,
                     team_ids,
                     task_id,
+                    is_agent_context: false,
                 });
             }
 
@@ -171,6 +178,7 @@ impl FromRequestParts<AppState> for AuthUser {
                 group_id: None,
                 team_ids: vec![],
                 task_id,
+                is_agent_context: false,
             });
         }
 

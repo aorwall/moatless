@@ -114,4 +114,9 @@ export const queryKeys = {
     list: (params?: { scope: string; scopeId?: string }) =>
       [...queryKeys.secrets.all(), 'list', params] as const,
   },
+
+  feedback: {
+    all: ['feedback'] as const,
+    byTask: (taskId: string) => ['feedback', 'task', taskId] as const,
+  },
 } as const

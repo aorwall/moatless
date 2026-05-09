@@ -1,6 +1,7 @@
 pub mod command_mgmt;
 pub mod docker;
 pub mod events;
+pub mod feedback;
 pub mod info;
 pub mod integrations;
 pub mod k8s;

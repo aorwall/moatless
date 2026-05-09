@@ -180,6 +180,22 @@ enum SandboxCommands {
         #[arg(long = "file")]
         files: Vec<String>,
     },
+
+    /// Record feedback about this task to be used for improving moatless
+    /// logic, agent skills, or tooling.
+    Feedback {
+        /// The feedback message (what went wrong / what could be better).
+        #[arg(long, short = 'c')]
+        comment: String,
+        /// Optional: scope feedback to a specific assistant message
+        /// (`task_messages.uuid`). Defaults to task-level feedback.
+        #[arg(long)]
+        message: Option<String>,
+        /// Optional: scope feedback to a specific tool call within the
+        /// referenced message. Requires `--message`.
+        #[arg(long = "tool-use-id")]
+        tool_use_id: Option<String>,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -332,6 +348,27 @@ async fn run_sandbox(cli: SandboxCli) -> Result<(), Box<dyn std::error::Error>> 
                     eprintln!("Warning: {err}");
                 }
             }
+        }
+        SandboxCommands::Feedback {
+            comment,
+            message,
+            tool_use_id,
+        } => {
+            let task_id = require_task_id(&cfg)?;
+            if tool_use_id.is_some() && message.is_none() {
+                return Err("--tool-use-id requires --message".into());
+            }
+            commands::feedback::run(
+                &moat,
+                commands::feedback::FeedbackArgs {
+                    task_id,
+                    comment,
+                    message_uuid: message,
+                    tool_use_id,
+                },
+                cli.opts.json,
+            )
+            .await?;
         }
     }
 

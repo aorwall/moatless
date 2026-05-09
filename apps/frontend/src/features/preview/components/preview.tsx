@@ -1,5 +1,6 @@
-import { AlertCircle, Loader2, Server, XCircle } from 'lucide-react'
+import { AlertCircle, Loader2, MessageSquarePlus, Server, XCircle } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { FeedbackDialog } from '@/features/feedback/components/feedback-dialog'
 import { useSandboxRetry } from '@/features/tasks/hooks/use-sandbox-status'
 import { usePreviewPath, usePreviewViewport } from '@/features/tasks/hooks/use-task-view'
 import { Button } from '@/lib/components/ui/button'
@@ -35,20 +36,54 @@ function formatMemory(mb: number): string {
   return `${Math.round(mb)} MB`
 }
 
-function ProxyErrorOverlay({ onReload }: { onReload: () => void }) {
+function ProxyErrorOverlay({
+  taskId,
+  onReload,
+  serverName,
+  serverLabel,
+  previewUrl,
+}: {
+  taskId?: string
+  onReload: () => void
+  serverName?: string
+  serverLabel?: string
+  previewUrl?: string
+}) {
+  const [feedbackOpen, setFeedbackOpen] = useState(false)
+  const errorMessage =
+    'Could not connect to the preview server. It may have crashed or be listening on a different port.'
   return (
     <div className="absolute inset-0 flex items-center justify-center z-10 bg-background/80 backdrop-blur-sm">
       <div className="flex flex-col items-center justify-center text-center space-y-4 p-8">
         <XCircle className="h-12 w-12 text-destructive" />
         <h3 className="text-lg font-semibold">Connection Failed</h3>
-        <p className="text-sm text-muted-foreground max-w-md">
-          Could not connect to the preview server. It may have crashed or be listening on a
-          different port.
-        </p>
-        <Button variant="outline" size="sm" onClick={onReload}>
-          Retry
-        </Button>
+        <p className="text-sm text-muted-foreground max-w-md">{errorMessage}</p>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={onReload}>
+            Retry
+          </Button>
+          {taskId && (
+            <Button variant="outline" size="sm" onClick={() => setFeedbackOpen(true)}>
+              <MessageSquarePlus className="h-4 w-4 mr-2" />
+              Give feedback
+            </Button>
+          )}
+        </div>
       </div>
+      {taskId && (
+        <FeedbackDialog
+          open={feedbackOpen}
+          onOpenChange={setFeedbackOpen}
+          taskId={taskId}
+          surface="preview_failure"
+          metadata={{
+            preview_error: errorMessage,
+            server_name: serverName,
+            server_label: serverLabel,
+            preview_url: previewUrl,
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -636,7 +671,13 @@ export function Preview({
 
             {/* Proxy error overlay — only when server is started */}
             {hasProxyError && isSandboxRunning && serverStatus?.status === 'started' && (
-              <ProxyErrorOverlay onReload={reloadPreview} />
+              <ProxyErrorOverlay
+                taskId={taskId}
+                onReload={reloadPreview}
+                serverName={activeServerEntry?.name}
+                serverLabel={activeServerEntry?.label}
+                previewUrl={previewUrl ?? undefined}
+              />
             )}
 
             {/* Render iframe only when server is started */}

@@ -48,7 +48,8 @@ Available `moat` commands:
 - `moat reply --text \"<text>\"` — Send a reply back to the channel that triggered this task (Slack, etc.)
 - `moat tasks status $TASK_ID` — Show sandbox status including server states
 - `moat tasks logs $TASK_ID --server <name>` — Stream server logs (e.g., `--server preview`)
-- `moat tasks diagnose $TASK_ID` — Diagnose sandbox issues (status + container diagnostics + recent errors)";
+- `moat tasks diagnose $TASK_ID` — Diagnose sandbox issues (status + container diagnostics + recent errors)
+- `moat feedback --comment \"<text>\" [--message <uuid>] [--tool-use-id <id>]` — Record feedback about this task for later review. Use this when the user expresses frustration, when you got stuck in a long troubleshooting loop that better skills or tooling would have prevented, or when an instruction or tool clearly led you wrong. Be specific: name the skill, instruction, or tool, and explain what would have helped.";
 
 /// Build the append-system-prompt for a task.
 ///
@@ -365,6 +366,14 @@ mod tests {
         assert!(prompt.contains("# GitHub Access"));
         assert!(prompt.contains("# Sandbox CLI Reference"));
         assert!(prompt.contains("`moat reply"));
+    }
+
+    #[test]
+    fn sandbox_tools_reference_includes_moat_feedback() {
+        let inputs = base_inputs("task-123");
+        let prompt = build_append_system_prompt(&inputs);
+        assert!(prompt.contains("`moat feedback"));
+        assert!(prompt.contains("--comment"));
     }
 
     #[test]

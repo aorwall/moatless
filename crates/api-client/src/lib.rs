@@ -643,6 +643,26 @@ impl ApiClient {
     }
 
     // ========================================================================
+    // Feedback
+    // ========================================================================
+
+    /// POST /api/v1/feedback
+    pub async fn submit_feedback(
+        &self,
+        req: &moatless_api_schemas::feedback::CreateFeedbackRequest,
+    ) -> Result<moatless_api_schemas::feedback::FeedbackResponse, ApiError> {
+        self.post("/api/v1/feedback", req).await
+    }
+
+    /// GET /api/v1/tasks/{task_id}/feedback
+    pub async fn list_task_feedback(
+        &self,
+        task_id: &str,
+    ) -> Result<moatless_api_schemas::feedback::ListFeedbackResponse, ApiError> {
+        self.get(&format!("/api/v1/tasks/{task_id}/feedback")).await
+    }
+
+    // ========================================================================
     // File uploads
     // ========================================================================
 

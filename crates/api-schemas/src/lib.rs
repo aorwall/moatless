@@ -15,6 +15,7 @@ pub mod channel;
 pub mod codex;
 pub mod command;
 pub mod enums;
+pub mod feedback;
 pub mod figma;
 pub mod file_storage;
 pub mod message;

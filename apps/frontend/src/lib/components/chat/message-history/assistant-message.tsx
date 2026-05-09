@@ -9,9 +9,13 @@ import {
   FileText,
   HelpCircle,
   Loader2,
+  MessageSquare,
+  MessageSquarePlus,
   XCircle,
 } from 'lucide-react'
 import { useState } from 'react'
+import { FeedbackDialog } from '@/features/feedback/components/feedback-dialog'
+import { useTaskFeedbackIndex } from '@/features/feedback/hooks/use-task-feedback'
 import { useTaskToolCall } from '@/features/tasks/hooks/use-tasks'
 import type { UiMessageWithSubagents } from '@/features/tasks/utils/group-messages'
 import { Response } from '@/lib/components/ai-elements/response'
@@ -50,11 +54,95 @@ function ChannelChip({ channel }: { channel: NonNullable<UiMessage['channel']> }
 
 interface ToolCallProps {
   taskId?: string
+  /** UUID of the assistant message this tool call belongs to. */
+  parentMessageUuid?: string
   content: UiContentBlock
   toolResult?: UiToolResult
   expanded: boolean
   onToggle: () => void
   hasPendingUserInput?: boolean | null
+}
+
+/**
+ * Always-visible "has feedback" indicator shown next to an assistant text
+ * bubble when at least one feedback row references its `messageUuid`.
+ */
+function AssistantMessageFeedbackIndicator({
+  taskId,
+  messageUuid,
+}: {
+  taskId: string
+  messageUuid: string
+}) {
+  const index = useTaskFeedbackIndex(taskId)
+  const count = index.byMessageUuid.get(messageUuid) ?? 0
+  if (count === 0) {
+    return null
+  }
+  return (
+    <span
+      className="mt-1 inline-flex items-center gap-1 text-[10px] text-muted-foreground"
+      title={`${count} feedback note${count === 1 ? '' : 's'}`}
+    >
+      <MessageSquare className="h-3 w-3 fill-current" />
+      {count}
+    </span>
+  )
+}
+
+/**
+ * Hover-revealed feedback button + always-visible "has feedback" indicator
+ * shown next to a tool call header. Returns `null` when no taskId is known
+ * (sandbox preview mode etc.) so the chrome stays uncluttered.
+ */
+function ToolCallFeedbackChrome({
+  taskId,
+  parentMessageUuid,
+  toolUseId,
+}: {
+  taskId?: string
+  parentMessageUuid?: string
+  toolUseId?: string
+}) {
+  const [open, setOpen] = useState(false)
+  const index = useTaskFeedbackIndex(taskId)
+  if (!(taskId && toolUseId)) {
+    return null
+  }
+  const count = index.byToolUseId.get(toolUseId) ?? 0
+  return (
+    <span className="ml-auto flex items-center gap-1 flex-shrink-0">
+      {count > 0 && (
+        <span
+          className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground"
+          title={`${count} feedback note${count === 1 ? '' : 's'}`}
+        >
+          <MessageSquare className="h-3 w-3 fill-current" />
+          {count}
+        </span>
+      )}
+      <button
+        type="button"
+        aria-label="Give feedback on this tool call"
+        title="Give feedback on this tool call"
+        onClick={(e) => {
+          e.stopPropagation()
+          setOpen(true)
+        }}
+        className="opacity-0 group-hover:opacity-100 focus:opacity-100 rounded p-0.5 hover:bg-muted hover:text-foreground transition-opacity"
+      >
+        <MessageSquarePlus className="h-3 w-3" />
+      </button>
+      <FeedbackDialog
+        open={open}
+        onOpenChange={setOpen}
+        taskId={taskId}
+        messageUuid={parentMessageUuid}
+        toolUseId={toolUseId}
+        surface="tool_call"
+      />
+    </span>
+  )
 }
 
 /**
@@ -82,6 +170,7 @@ function parseImageFromToolResult(content: string | undefined): ImageContentBloc
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Component handles multiple tool types and states
 function ToolCallComponent({
   taskId,
+  parentMessageUuid,
   content,
   toolResult,
   expanded,
@@ -347,7 +436,7 @@ function ToolCallComponent({
   }
 
   return (
-    <div className="text-xs font-mono w-full max-w-full">
+    <div className="text-xs font-mono w-full max-w-full group">
       <div className="flex items-start gap-2">
         <div
           className={cn(
@@ -396,6 +485,11 @@ function ToolCallComponent({
                 {lineCount} {lineCount === 1 ? 'line' : 'lines'}
               </span>
             )}
+            <ToolCallFeedbackChrome
+              taskId={taskId}
+              parentMessageUuid={parentMessageUuid}
+              toolUseId={content.toolUseId ?? undefined}
+            />
           </div>
 
           {/* Result - only shown when expanded */}
@@ -484,6 +578,7 @@ export function renderToolCalls(
   onToggleToolCall: (toolUseId: string) => void,
   hasPendingUserInput: boolean | null | undefined,
   subagentMessages?: UiMessage[],
+  parentMessageUuid?: string,
 ): React.ReactNode {
   if (toolCalls.length === 0) {
     return null
@@ -510,6 +605,7 @@ export function renderToolCalls(
           <ToolCallComponent
             key={toolCall.toolUseId}
             taskId={taskId}
+            parentMessageUuid={parentMessageUuid}
             content={toolCall}
             toolResult={toolCall.toolUseId ? toolResultMap.get(toolCall.toolUseId) : undefined}
             expanded={expandedToolCalls.has(toolCall.toolUseId || '')}
@@ -539,6 +635,7 @@ function renderCollapsedMessage(
   hasPendingUserInput: boolean | null | undefined,
   channel: UiMessage['channel'] | null | undefined,
   subagentMessages?: UiMessage[],
+  parentMessageUuid?: string,
 ): React.ReactNode {
   return (
     <div
@@ -594,6 +691,7 @@ function renderCollapsedMessage(
               onToggleToolCall,
               hasPendingUserInput,
               subagentMessages,
+              parentMessageUuid,
             )}
           </div>
         </div>
@@ -694,6 +792,7 @@ export function AssistantMessageComponent({
       message.hasPendingUserInput,
       message.channel,
       message.subagentMessages,
+      message.uuid,
     )
   }
 
@@ -706,6 +805,9 @@ export function AssistantMessageComponent({
       {textContent && (
         <div className="text-sm w-full max-w-full">
           <Response>{textContent}</Response>
+          {taskId && (
+            <AssistantMessageFeedbackIndicator taskId={taskId} messageUuid={message.uuid} />
+          )}
         </div>
       )}
 
@@ -718,6 +820,7 @@ export function AssistantMessageComponent({
         onToggleToolCall,
         message.hasPendingUserInput,
         message.subagentMessages,
+        message.uuid,
       )}
     </div>
   )

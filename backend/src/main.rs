@@ -23,8 +23,8 @@ use moatless_vibe_backend::sse::routes::sse_router;
 use moatless_vibe_backend::startup;
 use moatless_vibe_backend::state::AppState;
 use moatless_vibe_backend::{
-    command, figma, file_storage, message, plugin_repo, provider_settings, repository, secret,
-    skill, tag, task, task_event, team,
+    command, feedback, figma, file_storage, message, plugin_repo, provider_settings, repository,
+    secret, skill, tag, task, task_event, team,
 };
 
 #[tokio::main]
@@ -251,6 +251,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let modules = vec![
             agent::routes::agent_router(app_state.clone()),
             task::routes::task_router(app_state.clone()),
+            feedback::routes::feedback_router(app_state.clone()),
             message::routes::message_router(app_state.clone()),
             command::routes::command_router(app_state.clone()),
             file_storage::routes::file_storage_router(app_state.clone()),

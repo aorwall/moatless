@@ -17,6 +17,7 @@ import { ErrorBoundary } from '@/lib/components/error-boundary.tsx'
 import { Button } from '@/lib/components/ui/button.tsx'
 import { cn } from '@/lib/utils'
 import { getErrorMessage } from '@/lib/utils/error.ts'
+import { LastAssistantActions } from '../message-actions/last-assistant-actions.tsx'
 import {
   AssistantMessageComponent,
   buildToolResultMap,
@@ -148,6 +149,7 @@ function CommandCluster({
       onToggleToolCall,
       message.hasPendingUserInput,
       message.subagentMessages,
+      message.uuid,
     )
     if (node) {
       blocks.push(<Fragment key={message.uuid}>{node}</Fragment>)
@@ -422,6 +424,18 @@ function MessageHistoryComponent({
     [flattenedMessages, collapseToolCalls],
   )
 
+  // Find the last assistant message in the rendered list. Used to anchor the
+  // action bar (Copy / Feedback) under the most recent reply only.
+  const lastAssistantMessage = useMemo<UiMessage | null>(() => {
+    for (let i = renderItems.length - 1; i >= 0; i--) {
+      const item = renderItems[i]
+      if (item.kind === 'message' && item.message.role === 'assistant') {
+        return item.message
+      }
+    }
+    return null
+  }, [renderItems])
+
   if (isLoading && (!messages || messages.length === 0)) {
     return <MessageHistorySkeleton />
   }
@@ -500,6 +514,9 @@ function MessageHistoryComponent({
               <EnvironmentIndicator status="error" errorMessage={environmentError} />
             )}
             {isRunning && environmentStatus !== 'initializing' && <ThinkingIndicator />}
+            {!isRunning && taskId && lastAssistantMessage && (
+              <LastAssistantActions taskId={taskId} message={lastAssistantMessage} />
+            )}
           </div>
         </div>
 

@@ -16,6 +16,7 @@ use crate::config::Config;
 use crate::credentials::{BroadcastContext, CredentialService};
 use crate::db::DbPool;
 use crate::events::EventPublisher;
+use crate::feedback::dao::{FeedbackRepository, PgFeedbackRepository};
 use crate::figma::dao::{FigmaRepository, PgFigmaRepository};
 use crate::file_storage::dao::{FileRepository, PgFileRepository};
 use crate::message::dao::{MessageRepository, PgMessageRepository};
@@ -66,6 +67,7 @@ pub struct AppState {
     // =========================================================================
     pub tasks: Arc<dyn TaskRepository>,
     pub messages: Arc<dyn MessageRepository>,
+    pub feedback: Arc<dyn FeedbackRepository>,
     pub repositories: Arc<dyn RepoRepository>,
     pub commands: Arc<dyn CommandRepository>,
     pub tags: Arc<dyn TagRepository>,
@@ -154,6 +156,7 @@ impl AppState {
         Self {
             tasks: Arc::new(PgTaskRepository(pool.clone())),
             messages: Arc::new(PgMessageRepository(pool.clone())),
+            feedback: Arc::new(PgFeedbackRepository(pool.clone())),
             repositories,
             commands: Arc::new(PgCommandRepository(pool.clone())),
             tags: Arc::new(PgTagRepository(pool.clone())),

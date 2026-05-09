@@ -337,6 +337,7 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     use crate::channel::routes::ChannelApiDoc;
     use crate::command::routes::CommandApiDoc;
     use crate::feature_flags::{FeatureFlagsResponse, SlackConfig};
+    use crate::feedback::routes::FeedbackApiDoc;
     use crate::figma::routes::FigmaApiDoc;
     use crate::file_storage::routes::FileStorageApiDoc;
     use crate::message::routes::MessageApiDoc;
@@ -406,6 +407,7 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     merged.merge(TaskApiDoc::openapi());
     merged.merge(MessageApiDoc::openapi());
     merged.merge(CommandApiDoc::openapi());
+    merged.merge(FeedbackApiDoc::openapi());
     merged.merge(FileStorageApiDoc::openapi());
     merged.merge(FigmaApiDoc::openapi());
     merged.merge(RepositoryApiDoc::openapi());
