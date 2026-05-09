@@ -239,8 +239,11 @@ jobs:
   build-frontend-image:
     name: Build & push frontend image
     needs: [detect-changes, lint-frontend, build-frontend]
+    # Fork (Frank-Penny/moatless-vibe) publishes to ECR via cd-ecr.yml,
+    # not Docker Hub. Gate keeps this job upstream-only.
     if: >-
       always() &&
+      github.repository == 'aorwall/moatless-vibe' &&
       ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch') &&
       (needs.detect-changes.outputs.docker-frontend == 'true' || github.event_name == 'workflow_dispatch') &&
       (needs.lint-frontend.result == 'success' || needs.lint-frontend.result == 'skipped') &&
@@ -284,8 +287,10 @@ jobs:
   build-backend-image:
     name: Build & push backend image
     needs: [detect-changes, build-backend]
+    # Fork-side: published via cd-ecr.yml to ECR, see note on build-frontend-image.
     if: >-
       always() &&
+      github.repository == 'aorwall/moatless-vibe' &&
       ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch') &&
       (needs.detect-changes.outputs.docker-backend == 'true' || github.event_name == 'workflow_dispatch') &&
       needs.build-backend.result == 'success'
@@ -333,8 +338,10 @@ jobs:
   build-preview-server-image:
     name: Build & push preview-server image
     needs: [detect-changes]
+    # Fork-side: published via cd-ecr.yml to ECR, see note on build-frontend-image.
     if: >-
       always() &&
+      github.repository == 'aorwall/moatless-vibe' &&
       ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch') &&
       (needs.detect-changes.outputs.docker-preview == 'true' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
@@ -371,8 +378,10 @@ jobs:
   publish-helm-dev:
     name: Publish dev Helm chart
     needs: [detect-changes, build-frontend-image, build-backend-image, build-preview-server-image]
+    # Fork-side: published via cd-ecr.yml (publish-helm job) on fp-v* tags.
     if: >-
       always() &&
+      github.repository == 'aorwall/moatless-vibe' &&
       ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch') &&
       !contains(needs.*.result, 'failure') &&
       (

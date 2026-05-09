@@ -102,8 +102,13 @@ jobs:
   build-tools-image:
     name: Build & push sandbox-tools
     needs: [detect-changes, build-binaries]
+    # Fork (Frank-Penny/moatless-vibe) doesn't publish sandbox-* images
+    # — it pulls aorwall/moatless-sandbox-{base,tools} from Docker Hub
+    # and only builds/pushes the leaf moatless-sandbox image to ECR
+    # (via cd-ecr.yml). Gate keeps these jobs upstream-only.
     if: >-
       always() &&
+      github.repository == 'aorwall/moatless-vibe' &&
       ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch') &&
       needs.build-binaries.result == 'success'
     runs-on: ubuntu-latest
@@ -158,8 +163,10 @@ jobs:
   build-sandbox-base:
     name: Build & push sandbox-base (stable)
     needs: [detect-changes]
+    # Fork-side: see note on build-tools-image.
     if: >-
       always() &&
+      github.repository == 'aorwall/moatless-vibe' &&
       ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch') &&
       (
         needs.detect-changes.outputs.sandbox == 'true' ||
@@ -205,7 +212,9 @@ jobs:
   build-sandbox:
     name: Build & push sandbox (+ sandbox-js alias)
     needs: [build-tools-image, build-sandbox-base]
+    # Fork-side: published via cd-ecr.yml (publish-sandbox job) to ECR.
     if: >-
+      github.repository == 'aorwall/moatless-vibe' &&
       ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch') &&
       needs.build-tools-image.result == 'success' &&
       needs.build-sandbox-base.result == 'success'
@@ -263,7 +272,10 @@ jobs:
   build-sandbox-java:
     name: Build & push sandbox-java:${{ matrix.java-version }}
     needs: [build-tools-image]
+    # Fork-side: not published. Java sandbox use cases run against
+    # aorwall's Docker Hub image directly.
     if: >-
+      github.repository == 'aorwall/moatless-vibe' &&
       ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch') &&
       needs.build-tools-image.result == 'success'
     runs-on: ubuntu-latest

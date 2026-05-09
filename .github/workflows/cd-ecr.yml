@@ -1,0 +1,250 @@
+# Fork-only CD: publish images + helm chart to platform ECR (eu-north-1,
+# account 111111111111) via the audited reusable workflows in
+# Frank-Penny/soap-platform-ci. Replaces the upstream Docker Hub publish
+# jobs in ci.yml/release.yml/build-sandbox-images.yml — those are gated
+# off on the fork via `if: github.repository == 'aorwall/moatless-vibe'`.
+#
+# Triggered on:
+#   - push to main → image tags = short SHA, no helm publish
+#   - tag fp-v*    → image tags = tag name + helm chart push
+#   - workflow_dispatch → opt-in subset via `images` input
+#
+# OIDC trust: pinned to GHA-ECRPush-moatless / GHA-HelmPush-moatless,
+# which trust this repo (Frank-Penny/moatless-vibe) AND the calling
+# reusable workflow refs (build-push-ecr.yml@refs/heads/main,
+# publish-helm-ecr.yml@refs/heads/main). See Frank-Penny/soap-infra
+# `environments/terraform/platform/ecr/services.yaml`.
+
+name: CD - Publish to ECR
+
+on:
+  push:
+    branches: [main]
+    tags: ['fp-v*']
+  workflow_dispatch:
+    inputs:
+      images:
+        description: 'Comma-separated list of images to publish (frontend,backend,sandbox,preview-server) or "all"'
+        type: string
+        default: 'all'
+      tag:
+        description: 'Override image tag (defaults to short SHA on main, tag name on fp-v* tags)'
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+  id-token: write
+  packages: write
+
+jobs:
+  # ── Compute tag + which images this run touches ──
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.compute.outputs.tag }}
+      build-frontend: ${{ steps.compute.outputs.frontend }}
+      build-backend: ${{ steps.compute.outputs.backend }}
+      build-sandbox: ${{ steps.compute.outputs.sandbox }}
+      build-preview: ${{ steps.compute.outputs.preview }}
+      publish-helm: ${{ steps.compute.outputs.helm }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: compute
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_IMAGES: ${{ inputs.images }}
+        run: |
+          # Tag: explicit input → tag name (on fp-v*) → short SHA
+          if [ -n "$INPUT_TAG" ]; then
+            TAG="$INPUT_TAG"
+          elif [[ "$GITHUB_REF" == refs/tags/fp-v* ]]; then
+            TAG="${GITHUB_REF_NAME}"
+          else
+            TAG=$(git rev-parse --short HEAD)
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+          # Image set: input on workflow_dispatch, else 'all'
+          IMAGES="${INPUT_IMAGES:-all}"
+          if [ "$IMAGES" = "all" ] || [ -z "$IMAGES" ]; then
+            IMAGES="frontend,backend,sandbox,preview-server"
+          fi
+          for pair in frontend:frontend backend:backend sandbox:sandbox preview:preview-server; do
+            short="${pair%:*}"
+            full="${pair#*:}"
+            if echo ",$IMAGES," | grep -q ",${full},"; then
+              echo "${short}=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "${short}=false" >> "$GITHUB_OUTPUT"
+            fi
+          done
+
+          # Helm: only on fp-v* tag pushes
+          if [[ "$GITHUB_REF" == refs/tags/fp-v* ]]; then
+            echo "helm=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "helm=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ── Build Rust binaries once, share across backend + sandbox publish ──
+  # Uses rust:1.91-bookworm to link against GLIBC 2.36, matching distroless/cc
+  # in Dockerfile.backend-cross and the sandbox-base bookworm baseline.
+  build-binaries:
+    needs: setup
+    if: needs.setup.outputs.build-backend == 'true' || needs.setup.outputs.build-sandbox == 'true'
+    runs-on: ubuntu-latest
+    container:
+      image: rust:1.91-bookworm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install protoc
+        run: apt-get update && apt-get install -y --no-install-recommends protobuf-compiler
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+          shared-key: rust-cd
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build release binaries
+        run: |
+          cargo build --release \
+            -p moatless-vibe-backend \
+            -p moatless-sandbox \
+            -p moatless-cli
+
+      - name: Stage backend artifact (root-level binary)
+        if: needs.setup.outputs.build-backend == 'true'
+        run: |
+          mkdir -p dist/backend
+          cp target/release/moatless-vibe-backend dist/backend/
+
+      - name: Upload backend artifact
+        if: needs.setup.outputs.build-backend == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-binary
+          path: dist/backend/
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Stage sandbox artifact (TARGETARCH-nested)
+        if: needs.setup.outputs.build-sandbox == 'true'
+        run: |
+          # Dockerfile.sandbox does: COPY --from=binaries ${TARGETARCH}/sandbox
+          # Linux/amd64 → amd64/. Add arm64 here if the runner cross-compiles.
+          mkdir -p dist/sandbox/amd64
+          cp target/release/sandbox dist/sandbox/amd64/
+          cp target/release/moat dist/sandbox/amd64/
+
+      - name: Upload sandbox artifact
+        if: needs.setup.outputs.build-sandbox == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sandbox-binaries
+          path: dist/sandbox/
+          retention-days: 1
+          if-no-files-found: error
+
+  # ── Build frontend dist for the nginx image ──
+  # Dockerfile.app does `COPY apps/frontend/dist /usr/share/nginx/html`,
+  # so we materialize the dist as an artifact and download it back into
+  # apps/frontend/dist inside the reusable workflow's checkout.
+  build-frontend-dist:
+    needs: setup
+    if: needs.setup.outputs.build-frontend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build frontend
+        run: bun run build
+
+      - name: Upload frontend dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: apps/frontend/dist/
+          retention-days: 1
+          if-no-files-found: error
+
+  # ── Publish: frontend ──
+  # Uses the binary-artifact-name input to materialize apps/frontend/dist
+  # back into the build context. The build-contexts arg the reusable
+  # workflow generates (`dist=apps/frontend/dist`) is harmless because
+  # Dockerfile.app doesn't reference any --from contexts.
+  publish-frontend:
+    needs: [setup, build-frontend-dist]
+    if: needs.setup.outputs.build-frontend == 'true'
+    uses: Frank-Penny/soap-platform-ci/.github/workflows/build-push-ecr.yml@main
+    with:
+      service-name: moatless
+      ecr-repository: moatless-frontend
+      image-tag: ${{ needs.setup.outputs.tag }}
+      dockerfile: docker/Dockerfile.app
+      tag-latest: true
+      binary-artifact-name: frontend-dist
+      binary-context-name: dist
+      binary-artifact-path: apps/frontend/dist
+
+  # ── Publish: backend ──
+  publish-backend:
+    needs: [setup, build-binaries]
+    if: needs.setup.outputs.build-backend == 'true'
+    uses: Frank-Penny/soap-platform-ci/.github/workflows/build-push-ecr.yml@main
+    with:
+      service-name: moatless
+      ecr-repository: moatless-backend
+      image-tag: ${{ needs.setup.outputs.tag }}
+      dockerfile: docker/Dockerfile.backend-cross
+      tag-latest: true
+      binary-artifact-name: backend-binary
+      binary-context-name: binary
+
+  # ── Publish: sandbox ──
+  publish-sandbox:
+    needs: [setup, build-binaries]
+    if: needs.setup.outputs.build-sandbox == 'true'
+    uses: Frank-Penny/soap-platform-ci/.github/workflows/build-push-ecr.yml@main
+    with:
+      service-name: moatless
+      ecr-repository: moatless-sandbox
+      image-tag: ${{ needs.setup.outputs.tag }}
+      dockerfile: docker/Dockerfile.sandbox
+      tag-latest: true
+      binary-artifact-name: sandbox-binaries
+      binary-context-name: binaries
+
+  # ── Publish: preview-server (no binary input) ──
+  publish-preview-server:
+    needs: setup
+    if: needs.setup.outputs.build-preview == 'true'
+    uses: Frank-Penny/soap-platform-ci/.github/workflows/build-push-ecr.yml@main
+    with:
+      service-name: moatless
+      ecr-repository: moatless-preview-server
+      image-tag: ${{ needs.setup.outputs.tag }}
+      dockerfile: docker/Dockerfile.preview-server
+      tag-latest: true
+
+  # ── Publish: helm chart (tag pushes only) ──
+  publish-helm:
+    needs: setup
+    if: needs.setup.outputs.publish-helm == 'true'
+    uses: Frank-Penny/soap-platform-ci/.github/workflows/publish-helm-ecr.yml@main
+    with:
+      service-name: moatless
+      chart-path: k8s/helm/moatless-vibe
+      image-tag: ${{ needs.setup.outputs.tag }}
+      ecr-helm-repository: helm-charts
