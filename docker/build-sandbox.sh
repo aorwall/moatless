@@ -9,7 +9,9 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Default values
-REGISTRY="aorwall"
+# Registry org segment. Override via REGISTRY_ORG env var; defaults to `aorwall`
+# so upstream builds work unchanged. Forks export REGISTRY_ORG=<their-org>.
+REGISTRY="${REGISTRY_ORG:-aorwall}"
 TAG="latest"
 PLATFORM="linux/amd64,linux/arm64"
 MULTI_ARCH=true
@@ -22,9 +24,9 @@ DEV_BROWSER_DIR="${DEV_BROWSER_DIR:-}"
 CLEANUP_DEV_BROWSER=false
 
 # Sandbox is published under two tags pointing at the same image:
-#   - aorwall/moatless-vibe-sandbox:<tag>
-#   - aorwall/moatless-vibe-sandbox-js:<tag>  (alias kept for back-compat with
-#     downstream consumers that still reference sandbox-js).
+#   - ${REGISTRY}/moatless-vibe-sandbox:<tag>
+#   - ${REGISTRY}/moatless-vibe-sandbox-js:<tag>  (alias kept for back-compat
+#     with downstream consumers that still reference sandbox-js).
 SANDBOX_IMAGE_NAME="moatless-vibe-sandbox"
 SANDBOX_JS_ALIAS_NAME="moatless-vibe-sandbox-js"
 
