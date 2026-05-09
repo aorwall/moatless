@@ -10,12 +10,16 @@ on:
         required: true
 
 env:
-  IMAGE_NAME: aorwall/moatless-vibe-frontend
-  SANDBOX_BASE_IMAGE: aorwall/moatless-vibe-sandbox
-  SANDBOX_JS_IMAGE: aorwall/moatless-vibe-sandbox-js
-  SANDBOX_JAVA_IMAGE: aorwall/moatless-vibe-sandbox-java
-  BACKEND_IMAGE_NAME: aorwall/moatless-vibe-backend
-  PREVIEW_SERVER_IMAGE: aorwall/moatless-vibe-preview-server
+  # Registry org segment. Override per-fork via repo variable `REGISTRY_ORG`
+  # (Settings → Secrets and variables → Actions → Variables). Defaults to
+  # `aorwall` so upstream CI keeps working with no configuration.
+  REGISTRY_ORG: ${{ vars.REGISTRY_ORG || 'aorwall' }}
+  IMAGE_NAME: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-vibe-frontend
+  SANDBOX_BASE_IMAGE: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-vibe-sandbox
+  SANDBOX_JS_IMAGE: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-vibe-sandbox-js
+  SANDBOX_JAVA_IMAGE: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-vibe-sandbox-java
+  BACKEND_IMAGE_NAME: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-vibe-backend
+  PREVIEW_SERVER_IMAGE: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-vibe-preview-server
 
 jobs:
   # ── Shared setup: determine version + commit SHA ─────────────
@@ -110,7 +114,7 @@ jobs:
       - name: Package and push chart
         run: |
           helm package k8s/helm/moatless-vibe -d ./dist
-          helm push ./dist/moatless-vibe-*.tgz oci://registry-1.docker.io/aorwall
+          helm push ./dist/moatless-vibe-*.tgz "oci://registry-1.docker.io/${{ env.REGISTRY_ORG }}"
 
       - name: Setup Node for changelog
         uses: actions/setup-node@v4
@@ -135,4 +139,4 @@ jobs:
           echo "- **Preview Server:** \`${{ env.PREVIEW_SERVER_IMAGE }}:${{ needs.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Helm Chart" >> $GITHUB_STEP_SUMMARY
-          echo "- **Chart:** \`oci://registry-1.docker.io/aorwall/moatless-vibe:${{ needs.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Chart:** \`oci://registry-1.docker.io/${{ env.REGISTRY_ORG }}/moatless-vibe:${{ needs.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY

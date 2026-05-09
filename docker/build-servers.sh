@@ -4,7 +4,10 @@ set -e
 # Build and push server container images to Docker Hub.
 #
 # Images:
-#   aorwall/moatless-vibe-preview-server  (preview/custom servers)
+#   ${REGISTRY_ORG}/moatless-vibe-preview-server  (preview/custom servers)
+#
+# Registry org defaults to `aorwall` so upstream builds work unchanged. Forks
+# export REGISTRY_ORG=<their-org> to publish under their own namespace.
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -12,6 +15,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
+REGISTRY="${REGISTRY_ORG:-aorwall}"
 TAG="latest"
 PLATFORM="linux/amd64,linux/arm64"
 MULTI_ARCH=true
@@ -100,7 +104,7 @@ fi
 build_image() {
   local dockerfile=$1
   local image_name=$2
-  local dockerhub_name="aorwall/${image_name}:${TAG}"
+  local dockerhub_name="${REGISTRY}/${image_name}:${TAG}"
 
   echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
   echo -e "${GREEN}Building ${image_name}...${NC}"
@@ -120,7 +124,7 @@ build_image() {
   fi
 
   if [ "$USE_REGISTRY_CACHE" = true ]; then
-    BUILD_CMD="$BUILD_CMD --cache-from type=registry,ref=aorwall/${image_name}:buildcache"
+    BUILD_CMD="$BUILD_CMD --cache-from type=registry,ref=${REGISTRY}/${image_name}:buildcache"
   fi
 
   BUILD_CMD="$BUILD_CMD -f docker/${dockerfile} ."
@@ -149,5 +153,5 @@ echo -e "${GREEN}Preview server image build complete!${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 echo -e "${GREEN}Image on Docker Hub:${NC}"
-echo "  aorwall/moatless-vibe-preview-server:${TAG}"
+echo "  ${REGISTRY}/moatless-vibe-preview-server:${TAG}"
 echo ""

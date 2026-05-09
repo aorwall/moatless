@@ -13,9 +13,13 @@ on:
         default: true
 
 env:
-  IMAGE_NAME: aorwall/moatless-vibe-frontend
-  BACKEND_IMAGE_NAME: aorwall/moatless-vibe-backend
-  PREVIEW_SERVER_IMAGE: aorwall/moatless-vibe-preview-server
+  # Registry org segment. Override per-fork via repo variable `REGISTRY_ORG`
+  # (Settings → Secrets and variables → Actions → Variables). Defaults to
+  # `aorwall` so upstream CI keeps working with no configuration.
+  REGISTRY_ORG: ${{ vars.REGISTRY_ORG || 'aorwall' }}
+  IMAGE_NAME: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-vibe-frontend
+  BACKEND_IMAGE_NAME: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-vibe-backend
+  PREVIEW_SERVER_IMAGE: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-vibe-preview-server
   CARGO_INCREMENTAL: 0
   # Shorthand for "manual trigger with build_all checked"
   BUILD_ALL: ${{ github.event_name == 'workflow_dispatch' && inputs.build_all }}
@@ -400,4 +404,4 @@ jobs:
       - name: Package and push chart
         run: |
           helm package k8s/helm/moatless-vibe -d ./dist
-          helm push ./dist/moatless-vibe-*.tgz oci://registry-1.docker.io/aorwall
+          helm push ./dist/moatless-vibe-*.tgz "oci://registry-1.docker.io/${{ env.REGISTRY_ORG }}"
