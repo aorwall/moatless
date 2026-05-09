@@ -8,7 +8,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Default values
-IMAGE_NAME="moatless-vibe-frontend"
+IMAGE_NAME="moatless-frontend"
 # Registry org segment. Override via REGISTRY_ORG env var; defaults to `aorwall`
 # so upstream builds work unchanged. Forks export REGISTRY_ORG=<their-org>.
 REGISTRY="${REGISTRY_ORG:-aorwall}"

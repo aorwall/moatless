@@ -4,7 +4,7 @@ set -e
 # Build and push server container images to Docker Hub.
 #
 # Images:
-#   ${REGISTRY_ORG}/moatless-vibe-preview-server  (preview/custom servers)
+#   ${REGISTRY_ORG}/moatless-preview-server  (preview/custom servers)
 #
 # Registry org defaults to `aorwall` so upstream builds work unchanged. Forks
 # export REGISTRY_ORG=<their-org> to publish under their own namespace.
@@ -61,7 +61,7 @@ while [[ $# -gt 0 ]]; do
       echo "Build the preview-server container image for dynamic sandbox provisioning."
       echo ""
       echo "Image built:"
-      echo "  moatless-vibe-preview-server  - Preview/custom server runtime"
+      echo "  moatless-preview-server  - Preview/custom server runtime"
       echo ""
       echo "Options:"
       echo "  --tag TAG         Docker image tag (default: latest)"
@@ -146,12 +146,12 @@ build_image() {
   fi
 }
 
-build_image "Dockerfile.preview-server" "moatless-vibe-preview-server"
+build_image "Dockerfile.preview-server" "moatless-preview-server"
 
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "${GREEN}Preview server image build complete!${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 echo -e "${GREEN}Image on Docker Hub:${NC}"
-echo "  ${REGISTRY}/moatless-vibe-preview-server:${TAG}"
+echo "  ${REGISTRY}/moatless-preview-server:${TAG}"
 echo ""

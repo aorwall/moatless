@@ -7,15 +7,15 @@ This directory contains Docker configurations for building the application and s
 | Image | Base | Size | Purpose |
 |-------|------|------|---------|
 | `moatless-vibe` | `bun:alpine` | ~150MB | Main web application (self-contained) |
-| `moatless-vibe-sandbox` | Ubuntu 24.04 | ~500MB | Minimal base for sandboxes |
-| `moatless-vibe-sandbox-js` | sandbox | ~2GB | JS/TS environment with Playwright |
-| `moatless-vibe-sandbox-full` | sandbox | ~5-8GB | Full dev environment (Python, Rust, Go, Java) |
+| `moatless-sandbox` | Ubuntu 24.04 | ~500MB | Minimal base for sandboxes |
+| `moatless-sandbox-js` | sandbox | ~2GB | JS/TS environment with Playwright |
+| `moatless-sandbox-full` | sandbox | ~5-8GB | Full dev environment (Python, Rust, Go, Java) |
 
 ## Image Hierarchy
 
 ```
 ┌─────────────────────────────────┐
-│     moatless-vibe-sandbox       │
+│     moatless-sandbox       │
 │  Ubuntu 24.04, Node.js 22, npm  │
 │  Claude Code CLI, git-delta     │
 │  moatless user (UID 1000)       │
@@ -118,7 +118,7 @@ Lightweight image for running the main web application server.
 docker build -f docker/Dockerfile.app -t moatless-vibe:latest .
 ```
 
-## moatless-vibe-sandbox-base (Stable Base)
+## moatless-sandbox-base (Stable Base)
 
 Stable base image extended by the runtime sandbox images. Holds every layer
 that doesn't depend on the Rust binaries, so cache hits are preserved across
@@ -139,17 +139,17 @@ normal code changes — only the binary `COPY` in the leaf images invalidates.
 ```bash
 ./docker/build-sandbox.sh --only sandbox-base
 # or
-docker build -f docker/Dockerfile.sandbox-base -t moatless-vibe-sandbox-base:latest .
+docker build -f docker/Dockerfile.sandbox-base -t moatless-sandbox-base:latest .
 ```
 
-## moatless-vibe-sandbox / moatless-vibe-sandbox-js (Runtime Sandbox)
+## moatless-sandbox / moatless-sandbox-js (Runtime Sandbox)
 
 The default runtime sandbox: `sandbox-base` plus entrypoint scripts and the
 Rust `sandbox` and `moat` binaries. Published under two repository names that
 point at the same image content:
 
-- `aorwall/moatless-vibe-sandbox:<tag>`
-- `aorwall/moatless-vibe-sandbox-js:<tag>` (alias kept for back-compat)
+- `aorwall/moatless-sandbox:<tag>`
+- `aorwall/moatless-sandbox-js:<tag>` (alias kept for back-compat)
 
 ### Building
 
@@ -157,13 +157,13 @@ point at the same image content:
 ./docker/build-sandbox.sh --only sandbox
 # or
 docker build -f docker/Dockerfile.sandbox \
-  --build-arg SANDBOX_BASE=moatless-vibe-sandbox-base:latest \
+  --build-arg SANDBOX_BASE=moatless-sandbox-base:latest \
   --build-context binaries=/path/to/staged/binaries \
-  -t moatless-vibe-sandbox:latest \
-  -t moatless-vibe-sandbox-js:latest .
+  -t moatless-sandbox:latest \
+  -t moatless-sandbox-js:latest .
 ```
 
-## moatless-vibe-sandbox-full (Full Sandbox)
+## moatless-sandbox-full (Full Sandbox)
 
 Full development environment for executing agent tasks with all major languages.
 
@@ -177,9 +177,9 @@ Full development environment for executing agent tasks with all major languages.
 
 ```bash
 docker build -f docker/Dockerfile.sandbox-full \
-  --build-arg BASE_IMAGE=moatless-vibe-sandbox-base:latest \
+  --build-arg BASE_IMAGE=moatless-sandbox-base:latest \
   --build-context binaries=/path/to/staged/binaries \
-  -t moatless-vibe-sandbox-full:latest .
+  -t moatless-sandbox-full:latest .
 ```
 
 ## Environment Variables
@@ -222,7 +222,7 @@ docker build -f docker/Dockerfile.sandbox-full \
 In Kubernetes, the Helm chart deploys:
 
 - **Main deployment**: Uses `moatless-vibe` for the API/web app
-- **Worker pods**: Uses `moatless-vibe-sandbox-js` (or configured alternative) for task execution
+- **Worker pods**: Uses `moatless-sandbox-js` (or configured alternative) for task execution
 
 ### Permissions
 
@@ -245,7 +245,7 @@ To use a specific sandbox image in your repository configuration:
 {
   "codeExecution": {
     "workspaceType": "docker",
-    "dockerImage": "moatless-vibe-sandbox-js:latest",
+    "dockerImage": "moatless-sandbox-js:latest",
     "setupCommands": "npm install",
     "workerResources": {
       "cpuLimit": "2",
@@ -255,7 +255,7 @@ To use a specific sandbox image in your repository configuration:
 }
 ```
 
-Use `moatless-vibe-sandbox-full:latest` for projects needing Python, Rust, Go, or Java.
+Use `moatless-sandbox-full:latest` for projects needing Python, Rust, Go, or Java.
 
 ## Troubleshooting
 

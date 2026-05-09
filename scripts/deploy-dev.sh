@@ -15,8 +15,8 @@
 set -e
 
 # Configuration
-IMAGE_NAME="aorwall/moatless-vibe-frontend"
-SANDBOX_IMAGE_NAME="aorwall/moatless-vibe-sandbox-js"
+IMAGE_NAME="aorwall/moatless-frontend"
+SANDBOX_IMAGE_NAME="aorwall/moatless-sandbox-js"
 NAMESPACE="vibe"
 HELM_RELEASE="moatless-vibe"
 VALUES_FILE="./k8s/helm/values-moatless.yaml"

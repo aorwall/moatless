@@ -45,7 +45,7 @@ services:
       - moatless
 
   backend:
-    image: aorwall/moatless-vibe-backend:${APP_VERSION:-latest}
+    image: aorwall/moatless-backend:${APP_VERSION:-latest}
     container_name: moatless-backend
     restart: unless-stopped
     labels:
@@ -94,7 +94,7 @@ services:
 
       # Docker Configuration
       TASK_TOKEN_SECRET: ${TASK_TOKEN_SECRET:?TASK_TOKEN_SECRET must be set}
-      DOCKER_SANDBOX_IMAGE: ${SANDBOX_IMAGE:-aorwall/moatless-vibe-sandbox-js:latest}
+      DOCKER_SANDBOX_IMAGE: ${SANDBOX_IMAGE:-aorwall/moatless-sandbox-js:latest}
       DOCKER_NETWORK: ${DOCKER_NETWORK:-moatless_moatless}
       DOCKER_BACKEND_HOSTNAME: moatless-backend
       SANDBOX_GRPC_PORT: ${SANDBOX_GRPC_PORT:-50052}

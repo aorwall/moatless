@@ -54,7 +54,7 @@ WORKDIR /app/apps/backend
 # Environment variables for K8s testing
 ENV K8S_ENABLED=true
 ENV K8S_NAMESPACE=vibe
-ENV K8S_SANDBOX_IMAGE=aorwall/moatless-vibe-sandbox:latest
+ENV K8S_SANDBOX_IMAGE=aorwall/moatless-sandbox:latest
 ENV USE_JSON_LOGGING=true
 ENV NODE_TLS_REJECT_UNAUTHORIZED=0
 

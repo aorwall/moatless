@@ -21,7 +21,7 @@ cd "$(dirname "$0")/.."
 # Default org is `aorwall` so upstream builds work unchanged. Forks export
 # REGISTRY_ORG=<their-org> (or pass an explicit IMAGE_NAME as $1).
 REGISTRY_ORG="${REGISTRY_ORG:-aorwall}"
-IMAGE_NAME="${1:-${REGISTRY_ORG}/moatless-vibe-backend}"
+IMAGE_NAME="${1:-${REGISTRY_ORG}/moatless-backend}"
 IMAGE_TAG="${2:-latest}"
 
 # Opt-in registry-backed buildcache. Set USE_REGISTRY_CACHE=1 to enable.

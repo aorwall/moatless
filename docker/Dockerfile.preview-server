@@ -1,6 +1,6 @@
-# moatless-vibe-preview-server: Generic preview server for workspace pods
+# moatless-preview-server: Generic preview server for workspace pods
 #
-# Published as: aorwall/moatless-vibe-preview-server on Docker Hub
+# Published as: aorwall/moatless-preview-server on Docker Hub
 # No default CMD — command comes from K8s pod spec (set by pod_builder from repo config).
 
 FROM node:22-slim

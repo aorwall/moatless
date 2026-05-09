@@ -97,7 +97,7 @@ echo "=========================================="
 echo "Building backend Docker image..."
 echo "=========================================="
 docker buildx use desktop-linux 2>/dev/null || true
-docker build -t aorwall/moatless-vibe-backend:latest -f docker/Dockerfile.backend .
+docker build -t aorwall/moatless-backend:latest -f docker/Dockerfile.backend .
 
 echo ""
 echo "=========================================="

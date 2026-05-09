@@ -14,12 +14,12 @@ env:
   # (Settings → Secrets and variables → Actions → Variables). Defaults to
   # `aorwall` so upstream CI keeps working with no configuration.
   REGISTRY_ORG: ${{ vars.REGISTRY_ORG || 'aorwall' }}
-  IMAGE_NAME: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-vibe-frontend
-  SANDBOX_BASE_IMAGE: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-vibe-sandbox
-  SANDBOX_JS_IMAGE: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-vibe-sandbox-js
-  SANDBOX_JAVA_IMAGE: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-vibe-sandbox-java
-  BACKEND_IMAGE_NAME: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-vibe-backend
-  PREVIEW_SERVER_IMAGE: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-vibe-preview-server
+  IMAGE_NAME: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-frontend
+  SANDBOX_BASE_IMAGE: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-sandbox
+  SANDBOX_JS_IMAGE: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-sandbox-js
+  SANDBOX_JAVA_IMAGE: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-sandbox-java
+  BACKEND_IMAGE_NAME: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-backend
+  PREVIEW_SERVER_IMAGE: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-preview-server
 
 jobs:
   # ── Shared setup: determine version + commit SHA ─────────────

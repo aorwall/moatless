@@ -1,4 +1,4 @@
-# moatless-vibe-sandbox-base: Stable base image for all sandbox variants.
+# moatless-sandbox-base: Stable base image for all sandbox variants.
 #
 # Contains: Ubuntu, Node.js, npm, Claude Code CLI, Codex CLI, Bun, pnpm, yarn,
 # TypeScript/tsx, Playwright + Chromium, git, system tools, moatless user.
@@ -10,7 +10,7 @@
 # install rebuilds this image (and invalidates leaf-image caches from the FROM
 # step onward — that's intended).
 #
-# Published as: aorwall/moatless-vibe-sandbox-base:latest
+# Published as: aorwall/moatless-sandbox-base:latest
 
 FROM ubuntu:24.04
 
