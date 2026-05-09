@@ -164,7 +164,6 @@ tasks:
       - >-
         helm upgrade {{.RELEASE_NAME}} {{.HELM_CHART}}
         --namespace {{.NAMESPACE}}
-        -f k8s/helm/values-moatless.yaml
         --set image.tag={{.TAG}}
         --set backend.image.tag={{.TAG}}
         --set sandboxImage.tag={{.TAG}}

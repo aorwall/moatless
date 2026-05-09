@@ -19,7 +19,7 @@ IMAGE_NAME="aorwall/moatless-vibe-frontend"
 SANDBOX_IMAGE_NAME="aorwall/moatless-vibe-sandbox-js"
 NAMESPACE="vibe"
 HELM_RELEASE="moatless-vibe"
-VALUES_FILE="./k8s/helm/values-moatless.yaml"
+VALUES_FILE=""
 
 # Parse arguments
 TAG=""
@@ -92,9 +92,11 @@ HELM_ARGS=(
   "${HELM_RELEASE}"
   "./k8s/helm/moatless-vibe"
   "-n" "${NAMESPACE}"
-  "-f" "${VALUES_FILE}"
   "--set" "image.tag=${TAG}"
 )
+if [ -n "${VALUES_FILE}" ]; then
+  HELM_ARGS+=("-f" "${VALUES_FILE}")
+fi
 
 if [ "$APP_ONLY" = false ]; then
   HELM_ARGS+=("--set" "kubernetes.sandboxImage.repository=${SANDBOX_IMAGE_NAME}")

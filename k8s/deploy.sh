@@ -40,7 +40,7 @@ Options:
     --tag TAG         Docker image tag (default: latest)
     --image IMAGE     Docker image name (default: aorwall/moatless-vibe-sandbox)
     --namespace NS    Kubernetes namespace (default: vibe)
-    --values FILE     Values file for Helm (e.g., ./k8s/helm/values-moatless.yaml)
+    --values FILE     Values file for Helm (e.g., ./my-values.yaml)
     -h, --help        Show this help message
 
 Examples:
@@ -48,7 +48,7 @@ Examples:
     $0 --build-only                         # Only build locally
     $0 --deploy-only                        # Only upgrade Helm release
     $0 --tag v1.0.0                         # Build and deploy with specific tag
-    $0 --values ./k8s/helm/values-moatless.yaml  # Deploy with custom values
+    $0 --values ./my-values.yaml            # Deploy with custom values
 EOF
     exit 0
 }
