@@ -374,7 +374,7 @@ impl PgTaskBindingRepository {
         limit: i64,
     ) -> Result<Vec<TriggerRecentTaskRow>, sqlx::Error> {
         sqlx::query_as::<_, TriggerRecentTaskRow>(
-            r#"SELECT t.task_id, t.short_id, t.title, t.status,
+            r#"SELECT t.task_id, t.short_id, t.name AS title, t.status,
                       t.created_at AS task_created_at,
                       tb.id AS binding_id, tb.provider, tb.subject_kind, tb.subject_key,
                       tb.connection_id, tb.trigger_id, tb.destination_config, tb.metadata,

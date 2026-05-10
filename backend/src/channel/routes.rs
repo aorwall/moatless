@@ -1,5 +1,6 @@
 //! Canonical integration API routes with OpenAPI documentation.
 
+use axum::routing::post;
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
@@ -83,8 +84,38 @@ pub fn channel_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenAp
         .routes(routes!(github_pr::handlers::github_webhook))
         .routes(routes!(linear::handlers::linear_webhook))
         .routes(routes!(webhook::handlers::webhook_inbound))
-        .with_state(state)
+        .with_state(state.clone())
         .split_for_parts();
 
-    (router, api)
+    // Legacy /api/v1/channels/... aliases for external systems (Slack, GitHub,
+    // Linear, Telegram) configured before the integrations rename. Not exposed
+    // in OpenAPI; kept until all webhook URLs are migrated externally.
+    let legacy = axum::Router::new()
+        .route(
+            "/api/v1/channels/slack/webhook",
+            post(slack::handlers::slack_webhook),
+        )
+        .route(
+            "/api/v1/channels/slack/slash",
+            post(slack::handlers::slack_slash_command),
+        )
+        .route(
+            "/api/v1/channels/telegram/webhook",
+            post(telegram::handlers::telegram_webhook),
+        )
+        .route(
+            "/api/v1/channels/github-pr/webhook",
+            post(github_pr::handlers::github_webhook),
+        )
+        .route(
+            "/api/v1/channels/linear/webhook",
+            post(linear::handlers::linear_webhook),
+        )
+        .route(
+            "/api/v1/channels/webhook/{trigger_id}",
+            post(webhook::handlers::webhook_inbound),
+        )
+        .with_state(state);
+
+    (router.merge(legacy), api)
 }
