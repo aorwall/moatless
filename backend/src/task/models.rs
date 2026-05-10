@@ -14,6 +14,12 @@ pub use moatless_api_schemas::enums::{TaskStatus, Visibility};
 /// column default.
 pub const DEFAULT_TTL_MINUTES: i32 = 15;
 
+/// Default inactive TTL in days for newly inserted tasks when the caller has no
+/// access to platform config (e.g. channel runtimes). Matches the
+/// `TASK_INACTIVE_TIMEOUT_DAYS` env-var default and the
+/// `tasks.inactive_ttl_days` column default.
+pub const DEFAULT_INACTIVE_TTL_DAYS: i32 = 7;
+
 // =============================================================================
 // Task (DB)
 // =============================================================================
@@ -51,6 +57,9 @@ pub struct Task {
     /// Idle TTL in minutes. The reaper stops the sandbox when no activity has
     /// occurred for this many minutes. `0` means "indefinite — never reap".
     pub ttl_minutes: i32,
+    /// Inactive TTL in days. The reaper auto-closes the task when no activity
+    /// has occurred for this many days. `0` means "indefinite — never close".
+    pub inactive_ttl_days: i32,
     /// Optional reference to the task template used to create this task.
     pub task_template_id: Option<String>,
 }

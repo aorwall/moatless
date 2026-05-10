@@ -11,7 +11,6 @@ pub mod error;
 pub mod file_handlers;
 pub mod grpc_server;
 pub mod handlers;
-pub mod idle_reaper;
 pub mod jwt;
 pub mod k8s;
 pub mod models;

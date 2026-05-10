@@ -177,6 +177,7 @@ pub async fn create_task(
         sandbox_started_at: None,
         headless: req.headless.unwrap_or(false),
         ttl_minutes: state.config.sandbox.idle_timeout_minutes as i32,
+        inactive_ttl_days: state.config.sandbox.inactive_task_timeout_days as i32,
         task_template_id: req.task_template_id.clone(),
     };
 

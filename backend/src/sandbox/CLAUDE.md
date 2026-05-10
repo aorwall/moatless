@@ -58,9 +58,9 @@ There is no Redis caching layer for status — all reads go directly to the K8s 
 - Publishes events to Redis Streams (sandbox, server, agent events) for SSE and event handler consumption
 - Tracks pods by pod_name (not task_id) to handle rolling updates correctly
 
-### Idle Reaper
+### Task Reaper
 
-`idle_reaper.rs` is a separate leader-elected background task that periodically scans running Deployments, queries latest message timestamps from the DB, and stops idle sandboxes (scale to 0).
+The unified task reaper lives in `task/reaper.rs` (not in this module). It is a leader-elected background task that on each cycle: (1) scales idle sandbox Deployments to 0 after `ttl_minutes`, and (2) auto-closes Open tasks inactive past `inactive_ttl_days` via the same `cleanup` + `update_task(Closed)` + `TaskSubType::Closed` sequence as the manual close handler.
 
 ### gRPC Communication
 
@@ -133,7 +133,7 @@ All managed resources use:
 
 Two independent leader-elected subsystems use K8s Leases:
 - `moatless-pod-watcher` — pod lifecycle watcher (15s default lease)
-- `moatless-idle-reaper` — idle sandbox reaper (2x check interval lease)
+- `moatless-task-reaper` — unified task reaper (idle-sandbox stop + inactive-task close, 2x check interval lease). Implementation lives in `task/reaper.rs`.
 
 Both use `HOSTNAME` env var as identity.
 
@@ -151,7 +151,6 @@ sandbox/
 ├── file_handlers.rs    # File operation handlers (tree, read, write, list, search-by-name)
 ├── client.rs           # SandboxClient gRPC wrapper + classify_grpc_error()
 ├── notify.rs           # Fire-and-forget gRPC notification
-├── idle_reaper.rs      # Background idle sandbox detector
 ├── jwt.rs              # JWT generation/verification
 ├── docker/
 │   ├── mod.rs           # Docker submodule declarations

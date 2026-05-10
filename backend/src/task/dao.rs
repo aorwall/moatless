@@ -53,6 +53,14 @@ pub trait TaskRepository: Send + Sync {
         &self,
         task_ids: &[String],
     ) -> Result<HashMap<String, i32>, sqlx::Error>;
+    /// Batch-fetch `inactive_ttl_days` for the given tasks. Tasks with no row
+    /// are omitted (not present in the map).
+    async fn get_inactive_ttl_days_map(
+        &self,
+        task_ids: &[String],
+    ) -> Result<HashMap<String, i32>, sqlx::Error>;
+    /// List task IDs of all tasks currently in `status = 'open'`.
+    async fn list_open_task_ids(&self) -> Result<Vec<String>, sqlx::Error>;
 }
 
 /// PostgreSQL implementation of [`TaskRepository`].
@@ -94,11 +102,11 @@ impl TaskRepository for PgTaskRepository {
                 vibe, name, description, site_id, site_provider, branch,
                 created_by, visibility, scope, team_id, owner_user_id, parent_task_id,
                 append_system_prompt, updated_at, sandbox_started_at, headless,
-                ttl_minutes, task_template_id
+                ttl_minutes, task_template_id, inactive_ttl_days
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
                 $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22,
-                $23, NOW(), $24, $25, $26, $27
+                $23, NOW(), $24, $25, $26, $27, $28
             )"#,
         )
         .bind(&row.task_id)
@@ -128,6 +136,7 @@ impl TaskRepository for PgTaskRepository {
         .bind(row.headless)
         .bind(row.ttl_minutes)
         .bind(&row.task_template_id)
+        .bind(row.inactive_ttl_days)
         .execute(&self.0)
         .await?;
         Ok(())
@@ -165,6 +174,7 @@ impl TaskRepository for PgTaskRepository {
             sandbox_started_at: Option<DateTime<Utc>>,
             headless: bool,
             ttl_minutes: i32,
+            inactive_ttl_days: i32,
             task_template_id: Option<String>,
             total_count: i64,
         }
@@ -177,7 +187,8 @@ impl TaskRepository for PgTaskRepository {
                 t.vibe, t.name, t.description, t.site_id, t.site_provider, t.branch,
                 t.created_by, t.visibility, t.scope, t.team_id, t.owner_user_id,
                 t.created_at_db, t.updated_at, t.parent_task_id, t.append_system_prompt,
-                t.sandbox_started_at, t.headless, t.ttl_minutes, t.task_template_id,
+                t.sandbox_started_at, t.headless, t.ttl_minutes, t.inactive_ttl_days,
+                t.task_template_id,
                 COUNT(*) OVER() AS total_count
             FROM tasks t
             LEFT JOIN task_tags tt ON t.task_id = tt.task_id
@@ -239,6 +250,7 @@ impl TaskRepository for PgTaskRepository {
                 sandbox_started_at: r.sandbox_started_at,
                 headless: r.headless,
                 ttl_minutes: r.ttl_minutes,
+                inactive_ttl_days: r.inactive_ttl_days,
                 task_template_id: r.task_template_id,
             })
             .collect();
@@ -341,6 +353,15 @@ impl TaskRepository for PgTaskRepository {
                 .execute(&self.0)
                 .await?;
         }
+        if let Some(inactive_ttl_days) = patch.inactive_ttl_days {
+            sqlx::query(
+                "UPDATE tasks SET inactive_ttl_days = $2, updated_at = NOW() WHERE task_id = $1",
+            )
+            .bind(task_id)
+            .bind(inactive_ttl_days)
+            .execute(&self.0)
+            .await?;
+        }
         Ok(())
     }
 
@@ -415,6 +436,32 @@ impl TaskRepository for PgTaskRepository {
 
         Ok(rows.into_iter().collect())
     }
+
+    async fn get_inactive_ttl_days_map(
+        &self,
+        task_ids: &[String],
+    ) -> Result<HashMap<String, i32>, sqlx::Error> {
+        if task_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let rows: Vec<(String, i32)> = sqlx::query_as(
+            r#"SELECT task_id, inactive_ttl_days FROM tasks WHERE task_id = ANY($1)"#,
+        )
+        .bind(task_ids)
+        .fetch_all(&self.0)
+        .await?;
+
+        Ok(rows.into_iter().collect())
+    }
+
+    async fn list_open_task_ids(&self) -> Result<Vec<String>, sqlx::Error> {
+        let rows: Vec<(String,)> =
+            sqlx::query_as(r#"SELECT task_id FROM tasks WHERE status = 'open'"#)
+                .fetch_all(&self.0)
+                .await?;
+        Ok(rows.into_iter().map(|(id,)| id).collect())
+    }
 }
 /// Patch struct for partial task updates.
 #[derive(Default)]
@@ -432,6 +479,7 @@ pub struct TaskPatch {
     pub append_system_prompt: Option<Option<String>>,
     pub sandbox_started_at: Option<DateTime<Utc>>,
     pub ttl_minutes: Option<i32>,
+    pub inactive_ttl_days: Option<i32>,
 }
 
 // =========================================================================

@@ -346,9 +346,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
 
         if let Some(k8s) = reaper_k8s {
-            spawn_idle_reaper(&app_state, k8s, cancel.clone());
+            spawn_task_reaper(&app_state, k8s, cancel.clone());
         } else {
-            info!("Idle sandbox reaper disabled (Docker mode — K8s leader election not available)");
+            info!("Task reaper disabled (Docker mode — K8s leader election not available)");
         }
 
         // Cron scheduler (if channel providers are configured)
@@ -436,27 +436,29 @@ async fn spawn_event_handler(config: &Config, app_state: &AppState, cancel: Canc
     info!("Event handler consumer spawned");
 }
 
-/// Spawn the idle-sandbox reaper if enabled.
-fn spawn_idle_reaper(
+/// Spawn the unified task reaper (idle-sandbox stop + inactive-task close) if enabled.
+fn spawn_task_reaper(
     app_state: &AppState,
     k8s: sandbox::k8s::client::K8sClient,
     cancel: CancellationToken,
 ) {
     if !app_state.config.sandbox.idle_reaper_enabled {
-        info!("Idle sandbox reaper disabled");
+        info!("Task reaper disabled");
         return;
     }
-    sandbox::idle_reaper::spawn_idle_reaper(
+    task::reaper::spawn_task_reaper(
         k8s,
         app_state.messages.clone(),
         app_state.tasks.clone(),
         Arc::clone(&app_state.sandbox),
+        app_state.events.clone(),
         Arc::clone(&app_state.config),
         cancel,
     );
     info!(
         idle_timeout_minutes = app_state.config.sandbox.idle_timeout_minutes,
         check_interval_secs = app_state.config.sandbox.idle_check_interval_secs,
-        "Idle sandbox reaper spawned"
+        inactive_task_timeout_days = app_state.config.sandbox.inactive_task_timeout_days,
+        "Task reaper spawned"
     );
 }

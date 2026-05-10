@@ -560,6 +560,7 @@ async fn create_provider_event_task(
         sandbox_started_at: None,
         headless: true,
         ttl_minutes: crate::task::models::DEFAULT_TTL_MINUTES,
+        inactive_ttl_days: crate::task::models::DEFAULT_INACTIVE_TTL_DAYS,
         task_template_id: None,
     };
 

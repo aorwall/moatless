@@ -123,6 +123,7 @@ pub fn test_config() -> Config {
             idle_reaper_enabled: false,
             idle_timeout_minutes: 15,
             idle_check_interval_secs: 300,
+            inactive_task_timeout_days: 0,
             max_crash_restart_count: 5,
             node_selector_json: None,
             tolerations_json: None,
@@ -272,6 +273,7 @@ pub fn make_task_row(task_id: &str, user_id: &str) -> Task {
         sandbox_started_at: None,
         headless: false,
         ttl_minutes: 15,
+        inactive_ttl_days: 7,
         task_template_id: None,
     }
 }

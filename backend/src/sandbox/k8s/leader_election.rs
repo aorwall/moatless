@@ -32,7 +32,7 @@ impl LeaderElection {
     /// Create a new leader election instance with a custom lease name.
     ///
     /// Use distinct lease names for independent leader-elected subsystems
-    /// (e.g., `"moatless-pod-watcher"` vs `"moatless-idle-reaper"`).
+    /// (e.g., `"moatless-pod-watcher"` vs `"moatless-task-reaper"`).
     pub fn new_with_name(k8s: &K8sClient, identity: String, lease_name: String) -> Self {
         Self {
             leases: Api::namespaced(k8s.client.clone(), k8s.namespace()),
