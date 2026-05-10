@@ -19,7 +19,6 @@ env:
   REGISTRY_ORG: ${{ vars.REGISTRY_ORG || 'aorwall' }}
   IMAGE_NAME: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-vibe-frontend
   BACKEND_IMAGE_NAME: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-vibe-backend
-  PREVIEW_SERVER_IMAGE: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-vibe-preview-server
   CARGO_INCREMENTAL: 0
   # Shorthand for "manual trigger with build_all checked"
   BUILD_ALL: ${{ github.event_name == 'workflow_dispatch' && inputs.build_all }}
@@ -36,7 +35,6 @@ jobs:
       frontend: ${{ steps.filter.outputs.frontend }}
       docker-frontend: ${{ steps.filter.outputs.docker-frontend }}
       docker-backend: ${{ steps.filter.outputs.docker-backend }}
-      docker-preview: ${{ steps.filter.outputs.docker-preview }}
       helm: ${{ steps.filter.outputs.helm }}
     steps:
       - uses: actions/checkout@v4
@@ -62,8 +60,6 @@ jobs:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'docker/Dockerfile.backend-cross'
-            docker-preview:
-              - 'docker/Dockerfile.preview-server'
             helm:
               - 'k8s/helm/**'
 
@@ -335,49 +331,10 @@ jobs:
           cache-from: type=gha,scope=backend
           cache-to: type=gha,mode=max,scope=backend
 
-  build-preview-server-image:
-    name: Build & push preview-server image
-    needs: [detect-changes]
-    # Fork-side: published via cd-ecr.yml to ECR, see note on build-frontend-image.
-    if: >-
-      always() &&
-      github.repository == 'aorwall/moatless-vibe' &&
-      ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch') &&
-      (needs.detect-changes.outputs.docker-preview == 'true' || github.event_name == 'workflow_dispatch')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Compute short SHA
-        id: sha
-        run: echo "short=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Build and push preview-server image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: docker/Dockerfile.preview-server
-          platforms: linux/amd64
-          push: true
-          tags: |
-            ${{ env.PREVIEW_SERVER_IMAGE }}:latest
-            ${{ env.PREVIEW_SERVER_IMAGE }}:sha-${{ steps.sha.outputs.short }}
-          cache-from: type=gha,scope=preview-server
-          cache-to: type=gha,mode=max,scope=preview-server
-
   # ── Publish dev Helm chart (push to main + manual dispatch) ──
   publish-helm-dev:
     name: Publish dev Helm chart
-    needs: [detect-changes, build-frontend-image, build-backend-image, build-preview-server-image]
+    needs: [detect-changes, build-frontend-image, build-backend-image]
     # Fork-side: published via cd-ecr.yml (publish-helm job) on fp-v* tags.
     if: >-
       always() &&
@@ -388,8 +345,7 @@ jobs:
         github.event_name == 'workflow_dispatch' ||
         needs.detect-changes.outputs.helm == 'true' ||
         needs.build-frontend-image.result == 'success' ||
-        needs.build-backend-image.result == 'success' ||
-        needs.build-preview-server-image.result == 'success'
+        needs.build-backend-image.result == 'success'
       )
     runs-on: ubuntu-latest
     steps:

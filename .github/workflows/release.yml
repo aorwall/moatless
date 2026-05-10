@@ -19,7 +19,6 @@ env:
   SANDBOX_JS_IMAGE: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-vibe-sandbox-js
   SANDBOX_JAVA_IMAGE: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-vibe-sandbox-java
   BACKEND_IMAGE_NAME: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-vibe-backend
-  PREVIEW_SERVER_IMAGE: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-vibe-preview-server
 
 jobs:
   # ── Shared setup: determine version + commit SHA ─────────────
@@ -64,8 +63,7 @@ jobs:
             "${{ env.IMAGE_NAME }}" \
             "${{ env.BACKEND_IMAGE_NAME }}" \
             "${{ env.SANDBOX_BASE_IMAGE }}" \
-            "${{ env.SANDBOX_JS_IMAGE }}" \
-            "${{ env.PREVIEW_SERVER_IMAGE }}"; do
+            "${{ env.SANDBOX_JS_IMAGE }}"; do
 
             echo "Retagging ${IMAGE}:${SHA_TAG} → ${IMAGE}:${VERSION}"
             if docker pull "${IMAGE}:${SHA_TAG}"; then
@@ -141,7 +139,6 @@ jobs:
           echo "- **Sandbox JS:** \`${{ env.SANDBOX_JS_IMAGE }}:${{ needs.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Sandbox Java:** \`${{ env.SANDBOX_JAVA_IMAGE }}:21-${{ needs.version.outputs.version }}\`, \`:25-${{ needs.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Backend:** \`${{ env.BACKEND_IMAGE_NAME }}:${{ needs.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Preview Server:** \`${{ env.PREVIEW_SERVER_IMAGE }}:${{ needs.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Helm Chart" >> $GITHUB_STEP_SUMMARY
           echo "- **Chart:** \`oci://registry-1.docker.io/${{ env.REGISTRY_ORG }}/moatless-vibe:${{ needs.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY

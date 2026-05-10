@@ -11,7 +11,6 @@ All push commands cross-compile for `linux/amd64` and push to Docker Hub (`aorwa
 task push:backend           # Rust cross-compile + push
 task push:frontend          # Vite build + nginx + push
 task push:sandbox           # Sandbox binary + images + push
-task push:servers           # files-server, preview-server + push
 
 # Push frontend + sandbox together
 task push

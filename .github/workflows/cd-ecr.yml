@@ -24,7 +24,7 @@ on:
   workflow_dispatch:
     inputs:
       images:
-        description: 'Comma-separated list of images to publish (frontend,backend,sandbox,preview-server) or "all"'
+        description: 'Comma-separated list of images to publish (frontend,backend,sandbox) or "all"'
         type: string
         default: 'all'
       tag:
@@ -51,7 +51,6 @@ jobs:
       build-frontend: ${{ steps.compute.outputs.frontend }}
       build-backend: ${{ steps.compute.outputs.backend }}
       build-sandbox: ${{ steps.compute.outputs.sandbox }}
-      build-preview: ${{ steps.compute.outputs.preview }}
       publish-helm: ${{ steps.compute.outputs.helm }}
     steps:
       - uses: actions/checkout@v4
@@ -87,9 +86,9 @@ jobs:
           # Image set: input on workflow_dispatch, else 'all'
           IMAGES="${INPUT_IMAGES:-all}"
           if [ "$IMAGES" = "all" ] || [ -z "$IMAGES" ]; then
-            IMAGES="frontend,backend,sandbox,preview-server"
+            IMAGES="frontend,backend,sandbox"
           fi
-          for pair in frontend:frontend backend:backend sandbox:sandbox preview:preview-server; do
+          for pair in frontend:frontend backend:backend sandbox:sandbox; do
             short="${pair%:*}"
             full="${pair#*:}"
             if echo ",$IMAGES," | grep -q ",${full},"; then
@@ -248,18 +247,6 @@ jobs:
       binary-artifact-name: sandbox-binaries
       binary-context-name: binaries
 
-  # ── Publish: preview-server (no binary input) ──
-  publish-preview-server:
-    needs: setup
-    if: needs.setup.outputs.build-preview == 'true'
-    uses: Frank-Penny/soap-platform-ci/.github/workflows/build-push-ecr.yml@main
-    with:
-      service-name: moatless
-      ecr-repository: moatless-preview-server
-      image-tag: ${{ needs.setup.outputs.tag }}
-      dockerfile: docker/Dockerfile.preview-server
-      tag-latest: true
-
   # ── Publish: helm chart (every push to main + fp-v* tags) ──
   # The reusable workflow's `image-tag` input is used as the chart version
   # — so we pass `chart-version` (`0.0.0-<sha>` on main, `<X.Y.Z>` on
@@ -298,7 +285,6 @@ jobs:
       - publish-frontend
       - publish-backend
       - publish-sandbox
-      - publish-preview-server
       - publish-helm
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
@@ -323,7 +309,6 @@ jobs:
               "imageTagPaths": [
                 ".image.tag",
                 ".backend.image.tag",
-                ".sandboxImage.tag",
-                ".kubernetes.previewServerImage.tag"
+                ".sandboxImage.tag"
               ]
             }

@@ -446,13 +446,6 @@ kubernetes:
     requests:
       cpu: "1"
       memory: 2Gi
-  # -- Server container images (dynamic containers alongside sandbox)
-  filesServerImage:
-    repository: aorwall/moatless-vibe-files-server
-    tag: ""
-  previewServerImage:
-    repository: aorwall/moatless-vibe-preview-server
-    tag: ""
   # -- Resource limits for server containers
   serverResources:
     limits:

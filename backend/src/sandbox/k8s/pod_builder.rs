@@ -370,10 +370,9 @@ fn build_server_containers(
             }
         }
 
-        // Command: always set command to override image ENTRYPOINT.
-        // Server containers may use either the dedicated preview-server image
-        // (ENTRYPOINT: server-entrypoint.sh) or the sandbox-js fallback image
-        // (ENTRYPOINT: runs sandbox binary). We must override both.
+        // Command: always set command to override the image ENTRYPOINT.
+        // Server containers reuse the sandbox image (ENTRYPOINT: runs sandbox
+        // binary), which we must override.
         // The inline wait polls for the workspace-ready sentinel written by
         // the sandbox container after setup commands complete, then sources
         // the shared server.env file written by the sandbox init.

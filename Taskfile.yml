@@ -85,11 +85,6 @@ tasks:
     cmds:
       - ./docker/build-sandbox.sh --tag {{.TAG}} --platform {{.PLATFORM}}
 
-  build:servers:
-    desc: Build preview-server Docker image
-    cmds:
-      - ./docker/build-servers.sh --tag {{.TAG}} --platform {{.PLATFORM}}
-
   build:
     desc: Build frontend and sandbox Docker images
     deps: [build:frontend, build:sandbox]
@@ -118,11 +113,6 @@ tasks:
     desc: Build and push sandbox image
     cmds:
       - ./docker/build-sandbox.sh --tag {{.TAG}} --platform {{.PLATFORM}} --push
-
-  push:servers:
-    desc: Build and push server images
-    cmds:
-      - ./docker/build-servers.sh --tag {{.TAG}} --platform {{.PLATFORM}} --push
 
   push:
     desc: Build and push all images

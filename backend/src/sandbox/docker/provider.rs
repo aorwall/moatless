@@ -199,9 +199,13 @@ impl SandboxProvider for DockerSandboxProvider {
             // kicking off any container create calls. Publishes a `failed`
             // event per broken server so operators see the reason in
             // `moat tasks diagnose` / the event feed.
-            let sandbox_image = plan.repo_config.docker_image.as_deref();
+            let sandbox_image: &str = plan
+                .repo_config
+                .docker_image
+                .as_deref()
+                .unwrap_or(&self.config.docker.image);
             for server in servers {
-                if let Err(msg) = container_builder::validate_server_config(server, sandbox_image) {
+                if let Err(msg) = container_builder::validate_server_config(server) {
                     error!(
                         task_id = %task_id,
                         server = %server.name,
@@ -464,7 +468,7 @@ impl DockerSandboxProvider {
         &self,
         task_id: &str,
         server: &ServerConfig,
-        sandbox_image: Option<&str>,
+        sandbox_image: &str,
     ) -> Result<(), SandboxError> {
         let server_container_name = generate_server_container_name(task_id, &server.name);
 

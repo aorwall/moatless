@@ -99,7 +99,6 @@ Test tiers:
 ./docker/build-app.sh [--tag v1.0.0] [--push]         # frontend (Nginx)
 ./docker/build-backend.sh [IMAGE_NAME] [TAG]           # backend (cross-compile + push)
 ./docker/build-sandbox.sh [--tag v1.0.0] [--push]      # sandbox images
-./docker/build-servers.sh [--tag v1.0.0] [--push]      # files-server, preview-server
 
 # Local development with Docker Compose
 bun run dev:docker
@@ -128,7 +127,7 @@ git push origin v0.1.21
 
 This triggers the **release.yml** workflow which:
 - Builds Rust sandbox binary
-- Creates Docker images (app, sandbox, backend, files-server, preview-server)
+- Creates Docker images (app, sandbox, backend)
 - Packages and pushes Helm chart to GHCR
 - Generates changelog using `changelogithub`
 

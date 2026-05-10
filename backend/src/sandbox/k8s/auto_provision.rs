@@ -169,9 +169,9 @@ pub async fn get_server_configs(
 ///
 /// If the `servers` JSONB column contains entries, those are used as-is
 /// (data-driven). If empty or missing, a backwards-compatible "preview"
-/// server is injected when the repository has start commands.
-/// The files view is now built into the frontend and no longer needs a
-/// sidecar container.
+/// server is injected when the repository has start commands. The injected
+/// server has `docker_image: None` so it falls through to the global
+/// sandbox image at pod-build time.
 fn build_servers(repo: &Repository) -> Vec<ServerConfig> {
     let mut servers: Vec<ServerConfig> = repo
         .servers
@@ -193,7 +193,7 @@ fn build_servers(repo: &Repository) -> Vec<ServerConfig> {
                 default: true,
                 enable_inspector: repo.enable_inspector.unwrap_or(false),
                 start_commands,
-                docker_image: Some("aorwall/moatless-vibe-preview-server:latest".to_string()),
+                docker_image: None,
                 ..Default::default()
             });
         }

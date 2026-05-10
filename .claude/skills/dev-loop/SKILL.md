@@ -140,7 +140,6 @@ Push images and deploy to the moatless cluster. Consult `references/k8s-deployme
 task push:backend           # Cross-compile + push to Docker Hub
 task push:frontend          # Build + push frontend
 task push:sandbox           # Build + push sandbox
-task push:servers           # Build + push files-server, preview-server
 
 # Deploy via Helm
 helm upgrade vibe k8s/helm/moatless-vibe -n vibe -f k8s/helm/values-moatless.yaml
@@ -265,7 +264,6 @@ BASE_URL=https://moatless.dev GITHUB_PAT=$GITHUB_PAT task test:api
 | Backend | `task build:backend` | `task push:backend` | `kubectl rollout restart deployment/moatless-vibe-backend -n vibe` | `task logs` |
 | Frontend | `task build:frontend` | `task push:frontend` | `task deploy:frontend` | playwright-cli on moatless.dev |
 | Sandbox | `task build:sandbox` | `task push:sandbox` | New pods use new image automatically | Create test task |
-| Servers | `task build:servers` | `task push:servers` | New pods use new image automatically | Check server status API |
 
 ## Troubleshooting
 

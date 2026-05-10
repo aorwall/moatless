@@ -137,7 +137,6 @@ full design. Short version:
 | frontend | `moatless-frontend` | `docker/Dockerfile.app` | push main, tag `fp-v*` |
 | backend | `moatless-backend` | `docker/Dockerfile.backend-cross` | push main, tag `fp-v*` |
 | sandbox | `moatless-sandbox` | `docker/Dockerfile.sandbox` | push main, tag `fp-v*` |
-| preview-server | `moatless-preview-server` | `docker/Dockerfile.preview-server` | push main, tag `fp-v*` |
 | helm chart | `helm-charts/moatless` | `k8s/helm/moatless-vibe/` | tag `fp-v*` only |
 
 `sandbox-base`, `sandbox-tools`, `sandbox-js`, `sandbox-java` are **not** built

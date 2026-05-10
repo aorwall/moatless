@@ -77,10 +77,6 @@ spec:
               value: {{ include "moatless-vibe.sandboxImage" . | quote }}
             - name: SANDBOX_IMAGE_PULL_POLICY
               value: {{ .Values.sandboxImage.pullPolicy | default "IfNotPresent" | quote }}
-            - name: FILES_SERVER_IMAGE
-              value: "{{ .Values.kubernetes.filesServerImage.repository }}:{{ .Values.kubernetes.filesServerImage.tag | default .Chart.AppVersion }}"
-            - name: PREVIEW_SERVER_IMAGE
-              value: "{{ .Values.kubernetes.previewServerImage.repository }}:{{ .Values.kubernetes.previewServerImage.tag | default .Chart.AppVersion }}"
             - name: SERVER_RESOURCES_CPU_LIMIT
               value: {{ .Values.kubernetes.serverResources.limits.cpu | quote }}
             - name: SERVER_RESOURCES_MEMORY_LIMIT

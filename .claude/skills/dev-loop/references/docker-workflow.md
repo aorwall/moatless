@@ -11,7 +11,6 @@ All build commands use Taskfile (`task <command>`). Run from the project root.
 | Backend | `task build:backend` | Cross-compile Rust + Docker image (local load) |
 | Frontend | `task build:frontend` | Vite build + nginx image |
 | Sandbox | `task build:sandbox` | Rust sandbox binary + base/js images |
-| Servers | `task build:servers` | files-server, preview-server images |
 
 ### Backend Build Details
 
