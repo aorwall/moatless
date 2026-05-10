@@ -3,6 +3,7 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
+use crate::access_control::AccessControlError;
 use crate::error::error_response;
 
 #[derive(Debug, thiserror::Error)]
@@ -17,6 +18,16 @@ pub enum TeamError {
     Forbidden(String),
     #[error("Database error: {0}")]
     Db(#[from] sqlx::Error),
+}
+
+impl From<AccessControlError> for TeamError {
+    fn from(value: AccessControlError) -> Self {
+        match value {
+            AccessControlError::BadRequest(msg) => Self::BadRequest(msg),
+            AccessControlError::Forbidden(msg) => Self::Forbidden(msg),
+            AccessControlError::Db(err) => Self::Db(err),
+        }
+    }
 }
 
 impl IntoResponse for TeamError {

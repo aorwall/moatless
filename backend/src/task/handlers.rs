@@ -5,12 +5,16 @@ use axum::Json;
 
 use moatless_events::{SandboxEventPayload, SandboxStatus, SandboxSubType, TaskSubType};
 
+use crate::access_control::{
+    ensure_can_control_task, ensure_can_use_repository, resolve_scope_for_create,
+};
 use crate::sandbox::auto_provision::get_server_configs_for_task;
 use crate::sandbox::models::AgentState;
 
 use super::dao::{TaskFilter, TaskPatch};
 use super::models::Task;
 use crate::extractors::AuthUser;
+use crate::scope::{Scope, ScopedResource};
 use crate::shared_models::{AgentMode, AgentType};
 use crate::state::AppState;
 use crate::task::models::{TaskStatus, Visibility};
@@ -40,12 +44,22 @@ pub async fn create_task(
     auth: AuthUser,
     Json(req): Json<CreateTaskRequest>,
 ) -> Result<Json<CreateTaskResponse>, TaskError> {
-    // Validate repository exists
+    let scope_ctx = auth.scope_context();
+
+    // Validate repository exists and is usable by this caller.
     let repo = state
         .repositories
-        .find_repository_by_id(&req.repository_id)
+        .find_by_id(&req.repository_id, &scope_ctx)
         .await?
         .ok_or_else(|| TaskError::RepoNotFound(req.repository_id.clone()))?;
+    ensure_can_use_repository(
+        &scope_ctx,
+        &ScopedResource::borrowed(
+            repo.scope,
+            repo.team_id.as_deref(),
+            repo.owner_user_id.as_deref().or(repo.created_by.as_deref()),
+        ),
+    )?;
 
     // Verify GitHub repository access for non-template repos
     if repo.provider == Some(RepositoryProvider::Github) && repo.kind != RepositoryKind::Template {
@@ -118,6 +132,18 @@ pub async fn create_task(
         .agent_type
         .unwrap_or_else(|| AgentType(AgentType::CLAUDE_CODE.into()));
 
+    let (task_scope, task_team_id, task_owner_user_id) = if repo.scope == Scope::Team {
+        (Scope::Team, repo.team_id.clone(), None)
+    } else {
+        let resolved_scope =
+            resolve_scope_for_create(&state, &auth, Some(Scope::User), None).await?;
+        (
+            resolved_scope.scope,
+            Some(resolved_scope.team_id),
+            resolved_scope.owner_user_id,
+        )
+    };
+
     let row = Task {
         task_id: task_id.clone(),
         short_id: Some(short_id),
@@ -141,8 +167,9 @@ pub async fn create_task(
         branch: req.branch.clone().or(repo.default_branch.clone()),
         created_by: Some(auth.user_id.clone()),
         visibility: Visibility::Private,
-        scope: repo.scope,
-        team_id: repo.team_id.clone(),
+        scope: task_scope,
+        team_id: task_team_id,
+        owner_user_id: task_owner_user_id,
         created_at_db: None,
         updated_at: None,
         parent_task_id: req.parent_task_id.clone(),
@@ -510,6 +537,7 @@ pub async fn update_task_metadata(
         .find_by_id(&task_id, &auth.scope_context())
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
+    ensure_can_control_task(&state, &auth, &task_resource(&existing)).await?;
 
     state
         .tasks
@@ -566,11 +594,12 @@ pub async fn delete_task(
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<axum::http::StatusCode, TaskError> {
-    let _existing = state
+    let existing = state
         .tasks
         .find_by_id(&task_id, &auth.scope_context())
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
+    ensure_can_control_task(&state, &auth, &task_resource(&existing)).await?;
 
     // Cleanup workspace (best-effort)
     if let Err(e) = state.sandbox.cleanup(&task_id).await {
@@ -606,6 +635,7 @@ pub async fn close_task(
         .find_by_id(&task_id, &auth.scope_context())
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
+    ensure_can_control_task(&state, &auth, &task_resource(&row)).await?;
 
     // Cleanup sandbox (best-effort)
     if let Err(e) = state.sandbox.cleanup(&task_id).await {
@@ -669,6 +699,7 @@ pub async fn start_task(
         .find_by_id(&task_id, &auth.scope_context())
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
+    ensure_can_control_task(&state, &auth, &task_resource(&row)).await?;
 
     if row.status != TaskStatus::Open && row.status != TaskStatus::Error {
         return Err(TaskError::BadRequest(format!(
@@ -766,11 +797,12 @@ pub async fn stop_task(
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<axum::http::StatusCode, TaskError> {
-    let _task = state
+    let task = state
         .tasks
         .find_by_id(&task_id, &auth.scope_context())
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
+    ensure_can_control_task(&state, &auth, &task_resource(&task)).await?;
 
     // Stop the agent process via gRPC (keeps sandbox pod running). When this
     // call succeeds the sandbox publishes `agent.stopped` itself, so we must
@@ -844,11 +876,12 @@ pub async fn set_task_tags(
     Path(task_id): Path<String>,
     Json(req): Json<SetTagsRequest>,
 ) -> Result<Json<Vec<TagResponse>>, TaskError> {
-    let _existing = state
+    let existing = state
         .tasks
         .find_by_id(&task_id, &auth.scope_context())
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
+    ensure_can_control_task(&state, &auth, &task_resource(&existing)).await?;
 
     let tags = state.tags.find_or_create_tags(&req.tags).await?;
     let tag_ids: Vec<String> = tags.iter().map(|t| t.tag_id.clone()).collect();
@@ -887,11 +920,12 @@ pub async fn update_visibility(
     Path(task_id): Path<String>,
     Json(req): Json<UpdateVisibilityRequest>,
 ) -> Result<Json<TaskResponse>, TaskError> {
-    let _existing = state
+    let existing = state
         .tasks
         .find_by_id(&task_id, &auth.scope_context())
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
+    ensure_can_control_task(&state, &auth, &task_resource(&existing)).await?;
 
     state
         .tasks
@@ -943,11 +977,12 @@ pub async fn update_ttl(
         ));
     }
 
-    let _existing = state
+    let existing = state
         .tasks
         .find_by_id(&task_id, &auth.scope_context())
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
+    ensure_can_control_task(&state, &auth, &task_resource(&existing)).await?;
 
     state
         .tasks
@@ -1071,6 +1106,7 @@ fn build_task_response(
         visibility: row.visibility,
         scope: row.scope,
         team_id: row.team_id.clone(),
+        owner_user_id: row.owner_user_id.clone(),
         parent_task_id: row.parent_task_id.clone(),
         append_system_prompt: row.append_system_prompt.clone(),
         tags,
@@ -1080,6 +1116,14 @@ fn build_task_response(
         is_running: None,
         ttl_minutes: row.ttl_minutes,
     }
+}
+
+fn task_resource(row: &Task) -> ScopedResource {
+    ScopedResource::borrowed(
+        row.scope,
+        row.team_id.as_deref(),
+        row.owner_user_id.as_deref().or(row.created_by.as_deref()),
+    )
 }
 
 /// Derive task title: name > description first line > agent_type > "Task"

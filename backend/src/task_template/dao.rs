@@ -21,6 +21,7 @@ pub struct TaskTemplatePatch {
     pub skills: Option<Option<serde_json::Value>>,
     pub scope: Option<Scope>,
     pub team_id: Option<Option<String>>,
+    pub owner_user_id: Option<Option<String>>,
     pub featured: Option<bool>,
     pub display_order: Option<i32>,
 }
@@ -30,10 +31,7 @@ pub struct TaskTemplatePatch {
 #[async_trait]
 pub trait TaskTemplateRepository: Send + Sync {
     /// Find by id without access control (internal use).
-    async fn find_by_id_internal(
-        &self,
-        id: &str,
-    ) -> Result<Option<TaskTemplate>, sqlx::Error>;
+    async fn find_by_id_internal(&self, id: &str) -> Result<Option<TaskTemplate>, sqlx::Error>;
 
     /// Find by id, scoped to access control.
     async fn find_by_id(
@@ -43,10 +41,7 @@ pub trait TaskTemplateRepository: Send + Sync {
     ) -> Result<Option<TaskTemplate>, sqlx::Error>;
 
     /// List all templates visible to the user.
-    async fn list_for_user(
-        &self,
-        ctx: &ScopeContext,
-    ) -> Result<Vec<TaskTemplate>, sqlx::Error>;
+    async fn list_for_user(&self, ctx: &ScopeContext) -> Result<Vec<TaskTemplate>, sqlx::Error>;
 
     /// List templates for the chip strip: recent-used first, then featured,
     /// capped at `limit`. User-scoped by `user_id` for the recency join.
@@ -71,13 +66,10 @@ pub struct PgTaskTemplateRepository(pub DbPool);
 
 #[async_trait]
 impl TaskTemplateRepository for PgTaskTemplateRepository {
-    async fn find_by_id_internal(
-        &self,
-        id: &str,
-    ) -> Result<Option<TaskTemplate>, sqlx::Error> {
+    async fn find_by_id_internal(&self, id: &str) -> Result<Option<TaskTemplate>, sqlx::Error> {
         sqlx::query_as::<_, TaskTemplate>(
             "SELECT id, name, description, icon, color, repository_id, agent_type, agent_mode, \
-             default_model, initial_prompt, skills, scope, team_id, featured, display_order, \
+             default_model, initial_prompt, skills, scope, team_id, owner_user_id, featured, display_order, \
              created_by, created_at, updated_at \
              FROM task_templates WHERE id = $1",
         )
@@ -94,7 +86,7 @@ impl TaskTemplateRepository for PgTaskTemplateRepository {
         let access = ctx.access_filter(ScopedEntity::Integration, "", 2);
         let sql = format!(
             "SELECT id, name, description, icon, color, repository_id, agent_type, agent_mode, \
-             default_model, initial_prompt, skills, scope, team_id, featured, display_order, \
+             default_model, initial_prompt, skills, scope, team_id, owner_user_id, featured, display_order, \
              created_by, created_at, updated_at \
              FROM task_templates WHERE id = $1 AND {}",
             access.sql()
@@ -108,14 +100,11 @@ impl TaskTemplateRepository for PgTaskTemplateRepository {
             .await
     }
 
-    async fn list_for_user(
-        &self,
-        ctx: &ScopeContext,
-    ) -> Result<Vec<TaskTemplate>, sqlx::Error> {
+    async fn list_for_user(&self, ctx: &ScopeContext) -> Result<Vec<TaskTemplate>, sqlx::Error> {
         let access = ctx.access_filter(ScopedEntity::Integration, "", 1);
         let sql = format!(
             "SELECT id, name, description, icon, color, repository_id, agent_type, agent_mode, \
-             default_model, initial_prompt, skills, scope, team_id, featured, display_order, \
+             default_model, initial_prompt, skills, scope, team_id, owner_user_id, featured, display_order, \
              created_by, created_at, updated_at \
              FROM task_templates WHERE {} \
              ORDER BY display_order ASC, name ASC",
@@ -140,7 +129,7 @@ impl TaskTemplateRepository for PgTaskTemplateRepository {
         let sql = format!(
             "SELECT tt.id, tt.name, tt.description, tt.icon, tt.color, tt.repository_id, \
              tt.agent_type, tt.agent_mode, tt.default_model, tt.initial_prompt, tt.skills, \
-             tt.scope, tt.team_id, tt.featured, tt.display_order, tt.created_by, \
+             tt.scope, tt.team_id, tt.owner_user_id, tt.featured, tt.display_order, tt.created_by, \
              tt.created_at, tt.updated_at \
              FROM task_templates tt \
              LEFT JOIN ( \
@@ -159,11 +148,11 @@ impl TaskTemplateRepository for PgTaskTemplateRepository {
             access.sql()
         );
         sqlx::query_as::<_, TaskTemplate>(&sql)
-            .bind(&ctx.user_id)   // $1  — recent-used filter
-            .bind(ctx.is_admin)   // $2  — access_filter $1
-            .bind(&ctx.team_ids)  // $3  — access_filter $2
-            .bind(&ctx.user_id)   // $4  — access_filter $3
-            .bind(limit)          // $5  — LIMIT
+            .bind(&ctx.user_id) // $1  — recent-used filter
+            .bind(ctx.is_admin) // $2  — access_filter $1
+            .bind(&ctx.team_ids) // $3  — access_filter $2
+            .bind(&ctx.user_id) // $4  — access_filter $3
+            .bind(limit) // $5  — LIMIT
             .fetch_all(&self.0)
             .await
     }
@@ -173,11 +162,11 @@ impl TaskTemplateRepository for PgTaskTemplateRepository {
             "INSERT INTO task_templates (
                 id, name, description, icon, color, repository_id,
                 agent_type, agent_mode, default_model, initial_prompt, skills,
-                scope, team_id, featured, display_order, created_by, created_at, updated_at
+                scope, team_id, owner_user_id, featured, display_order, created_by, created_at, updated_at
             ) VALUES (
                 $1, $2, $3, $4, $5, $6,
                 $7, $8, $9, $10, $11,
-                $12, $13, $14, $15, $16, $17, $18
+                $12, $13, $14, $15, $16, $17, $18, $19
             )",
         )
         .bind(&row.id)
@@ -193,6 +182,7 @@ impl TaskTemplateRepository for PgTaskTemplateRepository {
         .bind(&row.skills)
         .bind(row.scope)
         .bind(&row.team_id)
+        .bind(&row.owner_user_id)
         .bind(row.featured)
         .bind(row.display_order)
         .bind(&row.created_by)
@@ -228,6 +218,7 @@ impl TaskTemplateRepository for PgTaskTemplateRepository {
         push_set!(skills);
         push_set!(scope);
         push_set!(team_id);
+        push_set!(owner_user_id);
         push_set!(featured);
         push_set!(display_order);
 
@@ -265,6 +256,7 @@ impl TaskTemplateRepository for PgTaskTemplateRepository {
         bind_opt!(skills);
         bind_opt!(scope);
         bind_opt!(team_id);
+        bind_opt!(owner_user_id);
         bind_opt!(featured);
         bind_opt!(display_order);
 

@@ -7,6 +7,7 @@
  */
 import type { CreateProviderConnectionRequestTransportConfig } from './createProviderConnectionRequestTransportConfig';
 import type { IntegrationProvider } from './integrationProvider';
+import type { Scope } from './scope';
 
 /**
  * Request body for `POST /api/v1/integrations/connections`.
@@ -25,6 +26,7 @@ export interface CreateProviderConnectionRequest {
   externalAccountId: string;
   /** Provider value. */
   provider: IntegrationProvider;
+  scope?: null | Scope;
   /**
    * Optional human-readable name for the connection.
    * @nullable

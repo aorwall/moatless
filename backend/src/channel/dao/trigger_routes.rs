@@ -59,6 +59,7 @@ const TASK_TRIGGER_ROUTE_SELECT: &str = r#"
            tt.created_by,
            tt.scope,
            tt.team_id,
+           tt.owner_user_id,
            tt.created_at,
            tt.updated_at
     FROM task_triggers tt
@@ -148,8 +149,8 @@ impl PgTaskTriggerRouteRepository {
             r#"INSERT INTO task_routes
                (id, repository_id, routing_mode, ongoing_task_id, prompt_template,
                 task_name, tag_ids, run_as_user_id, agent_type, scope, team_id,
-                created_by, created_at, updated_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                owner_user_id, created_by, created_at, updated_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
                ON CONFLICT (id) DO UPDATE
                SET repository_id   = EXCLUDED.repository_id,
                    routing_mode    = EXCLUDED.routing_mode,
@@ -161,6 +162,7 @@ impl PgTaskTriggerRouteRepository {
                    agent_type      = EXCLUDED.agent_type,
                    scope           = EXCLUDED.scope,
                    team_id         = EXCLUDED.team_id,
+                   owner_user_id   = EXCLUDED.owner_user_id,
                    updated_at      = EXCLUDED.updated_at"#,
         )
         .bind(&route_id)
@@ -174,6 +176,7 @@ impl PgTaskTriggerRouteRepository {
         .bind(&row.agent_type)
         .bind(row.scope)
         .bind(&row.team_id)
+        .bind(&row.owner_user_id)
         .bind(&row.created_by)
         .bind(row.created_at)
         .bind(row.updated_at)
@@ -185,9 +188,9 @@ impl PgTaskTriggerRouteRepository {
                (id, provider, connection_id, source_matcher, source_name,
                 event_filter, trigger_config, route_id,
                 allow_direct_send, close_task_on_close, notify_on_success,
-                active, created_by, scope, team_id, created_at, updated_at)
+                active, created_by, scope, team_id, owner_user_id, created_at, updated_at)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
-                       $10, $11, $12, $13, $14, $15, $16, $17)
+                       $10, $11, $12, $13, $14, $15, $16, $17, $18)
                ON CONFLICT (id) DO UPDATE
                SET provider             = EXCLUDED.provider,
                    connection_id        = EXCLUDED.connection_id,
@@ -203,6 +206,7 @@ impl PgTaskTriggerRouteRepository {
                    created_by           = EXCLUDED.created_by,
                    scope                = EXCLUDED.scope,
                    team_id              = EXCLUDED.team_id,
+                   owner_user_id        = EXCLUDED.owner_user_id,
                    updated_at           = EXCLUDED.updated_at"#,
         )
         .bind(&row.id)
@@ -220,6 +224,7 @@ impl PgTaskTriggerRouteRepository {
         .bind(&row.created_by)
         .bind(row.scope)
         .bind(&row.team_id)
+        .bind(&row.owner_user_id)
         .bind(row.created_at)
         .bind(row.updated_at)
         .execute(&self.0)

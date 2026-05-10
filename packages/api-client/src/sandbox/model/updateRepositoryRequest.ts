@@ -8,7 +8,6 @@
 import type { ResourceConfig } from './resourceConfig';
 import type { ServerConfig } from './serverConfig';
 import type { UpdateRepositoryRequestEnvVars } from './updateRepositoryRequestEnvVars';
-import type { Visibility } from './visibility';
 
 export interface UpdateRepositoryRequest {
   /** @nullable */
@@ -44,5 +43,4 @@ export interface UpdateRepositoryRequest {
   startupTimeoutSeconds?: number | null;
   /** @nullable */
   systemPrompt?: string | null;
-  visibility?: null | Visibility;
 }

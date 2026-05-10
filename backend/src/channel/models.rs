@@ -96,6 +96,7 @@ pub struct ProviderConnection {
     pub created_by: String,
     pub scope: Scope,
     pub team_id: Option<String>,
+    pub owner_user_id: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -114,6 +115,7 @@ pub struct TaskRoute {
     pub agent_type: String,
     pub scope: Scope,
     pub team_id: Option<String>,
+    pub owner_user_id: Option<String>,
     pub created_by: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -144,6 +146,7 @@ pub struct TaskTrigger {
     pub active: bool,
     pub scope: Scope,
     pub team_id: Option<String>,
+    pub owner_user_id: Option<String>,
     pub created_by: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -174,6 +177,7 @@ pub struct TaskTriggerRoute {
     pub created_by: String,
     pub scope: Scope,
     pub team_id: Option<String>,
+    pub owner_user_id: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -221,6 +225,7 @@ pub struct ScheduledJob {
     pub created_by: String,
     pub scope: Scope,
     pub team_id: Option<String>,
+    pub owner_user_id: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

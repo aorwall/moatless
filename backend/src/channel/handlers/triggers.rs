@@ -11,9 +11,10 @@ use serde::Deserialize;
 use utoipa::ToSchema;
 
 use super::common::{
-    default_scope, ensure_can_write_scope, ensure_repository_exists,
-    load_provider_connection_for_auth, load_task_route_for_auth, load_task_trigger_for_auth,
-    parse_provider, task_trigger_response, TriggerFilter,
+    ensure_can_write_channel_resource, ensure_repository_exists, load_provider_connection_for_auth,
+    load_task_route_for_auth, load_task_trigger_for_auth, parse_provider,
+    resolve_scope_for_channel_create, resolve_scope_for_channel_update, scoped_resource,
+    task_trigger_response, TeamIdUpdate, TriggerFilter,
 };
 use crate::channel::dao::bindings::{PgTaskBindingRepository, TriggerRecentTaskRow};
 use crate::channel::dao::triggers::PgTaskTriggerRepository;
@@ -98,8 +99,8 @@ pub async fn create_task_trigger(
     }
     let route = load_task_route_for_auth(&state, &ctx, &req.route_id).await?;
     ensure_repository_exists(&state, &ctx, &route.repository_id).await?;
-    let scope = default_scope(req.scope, req.team_id.as_deref());
-    ensure_can_write_scope(&ctx, scope, req.team_id.as_deref())?;
+    let resolved =
+        resolve_scope_for_channel_create(&state, &auth, req.scope, req.team_id.clone()).await?;
 
     let now = Utc::now();
     let row = sqlx::query_as::<_, TaskTrigger>(
@@ -107,9 +108,9 @@ pub async fn create_task_trigger(
            (id, provider, connection_id, source_matcher, source_name, event_filter,
             trigger_config, route_id, allow_direct_send,
             close_task_on_close, notify_on_success, active, scope, team_id,
-            created_by, created_at, updated_at)
+            owner_user_id, created_by, created_at, updated_at)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
-                   $10, $11, $12, $13, $14, $15, $16, $17)
+                   $10, $11, $12, $13, $14, $15, $16, $17, $18)
            RETURNING *"#,
     )
     .bind(format!("tt_{}", uuid::Uuid::new_v4()))
@@ -124,8 +125,9 @@ pub async fn create_task_trigger(
     .bind(req.close_task_on_close.unwrap_or(true))
     .bind(req.notify_on_success.unwrap_or(false))
     .bind(req.active.unwrap_or(true))
-    .bind(scope)
-    .bind(req.team_id)
+    .bind(resolved.scope)
+    .bind(Some(resolved.team_id))
+    .bind(resolved.owner_user_id)
     .bind(auth.user_id)
     .bind(now)
     .bind(now)
@@ -150,6 +152,13 @@ pub async fn update_task_trigger(
 ) -> Result<Json<TaskTriggerResponse>, ChannelError> {
     let ctx = auth.scope_context();
     let current = load_task_trigger_for_auth(&state, &ctx, &id).await?;
+    let current_resource = scoped_resource(
+        current.scope,
+        current.team_id.as_deref(),
+        current.owner_user_id.as_deref(),
+        &current.created_by,
+    );
+    ensure_can_write_channel_resource(&state, &auth, &current_resource, "task trigger").await?;
     let next_connection_id = req
         .connection_id
         .clone()
@@ -167,12 +176,16 @@ pub async fn update_task_trigger(
         .unwrap_or_else(|| current.route_id.clone());
     let next_route = load_task_route_for_auth(&state, &ctx, &next_route_id).await?;
     ensure_repository_exists(&state, &ctx, &next_route.repository_id).await?;
-    let next_scope = req.scope.unwrap_or(current.scope);
-    let next_team_id = req
-        .team_id
-        .clone()
-        .unwrap_or_else(|| current.team_id.clone());
-    ensure_can_write_scope(&ctx, next_scope, next_team_id.as_deref())?;
+    let resolved = resolve_scope_for_channel_update(
+        &state,
+        &auth,
+        req.scope,
+        req.team_id
+            .clone()
+            .map_or(TeamIdUpdate::Unchanged, TeamIdUpdate::Set),
+        &current_resource,
+    )
+    .await?;
 
     let row = sqlx::query_as::<_, TaskTrigger>(
         r#"UPDATE task_triggers
@@ -188,6 +201,7 @@ pub async fn update_task_trigger(
                active = $11,
                scope = $12,
                team_id = $13,
+               owner_user_id = $14,
                updated_at = now()
            WHERE id = $1
            RETURNING *"#,
@@ -206,8 +220,9 @@ pub async fn update_task_trigger(
     )
     .bind(req.notify_on_success.unwrap_or(current.notify_on_success))
     .bind(req.active.unwrap_or(current.active))
-    .bind(next_scope)
-    .bind(next_team_id)
+    .bind(resolved.scope)
+    .bind(Some(resolved.team_id))
+    .bind(resolved.owner_user_id)
     .fetch_one(&state.db)
     .await?;
 
@@ -276,7 +291,14 @@ pub async fn delete_task_trigger(
     Path(id): Path<String>,
 ) -> Result<StatusCode, ChannelError> {
     let ctx = auth.scope_context();
-    load_task_trigger_for_auth(&state, &ctx, &id).await?;
+    let current = load_task_trigger_for_auth(&state, &ctx, &id).await?;
+    let resource = scoped_resource(
+        current.scope,
+        current.team_id.as_deref(),
+        current.owner_user_id.as_deref(),
+        &current.created_by,
+    );
+    ensure_can_write_channel_resource(&state, &auth, &resource, "task trigger").await?;
     let result = sqlx::query("DELETE FROM task_triggers WHERE id = $1")
         .bind(&id)
         .execute(&state.db)

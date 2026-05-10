@@ -15,6 +15,7 @@ use tower::ServiceExt;
 
 use moatless_vibe_backend::repository::dao as repository_dao;
 use moatless_vibe_backend::repository::routes::repository_router;
+use moatless_vibe_backend::scope::ScopeContext;
 
 use common::{authed_json_request, authed_request, body_json, make_repository_row, test_app_state};
 
@@ -22,6 +23,14 @@ fn build_router(pool: PgPool) -> axum::Router {
     let state = test_app_state(pool);
     let (router, _api) = repository_router(state);
     router
+}
+
+fn scope_ctx(user_id: &str) -> ScopeContext {
+    ScopeContext {
+        user_id: user_id.into(),
+        team_ids: vec![],
+        is_admin: false,
+    }
 }
 
 #[sqlx::test]
@@ -107,7 +116,7 @@ async fn delete_repository(pool: PgPool) {
     assert_eq!(resp.status(), StatusCode::NO_CONTENT);
 
     // Verify soft-deleted
-    let found = repository_dao::find_by_id(&pool, "repo-del", "user-1")
+    let found = repository_dao::find_by_id(&pool, "repo-del", &scope_ctx("user-1"))
         .await
         .unwrap();
     assert!(found.is_none());

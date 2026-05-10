@@ -4,6 +4,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use tracing::error;
 
+use crate::access_control::AccessControlError;
 use crate::error::error_response;
 
 #[derive(Debug, thiserror::Error)]
@@ -19,6 +20,16 @@ pub enum TaskTemplateError {
 
     #[error("Database error: {0}")]
     Db(#[from] sqlx::Error),
+}
+
+impl From<AccessControlError> for TaskTemplateError {
+    fn from(value: AccessControlError) -> Self {
+        match value {
+            AccessControlError::BadRequest(msg) => Self::BadRequest(msg),
+            AccessControlError::Forbidden(msg) => Self::Forbidden(msg),
+            AccessControlError::Db(err) => Self::Db(err),
+        }
+    }
 }
 
 impl IntoResponse for TaskTemplateError {

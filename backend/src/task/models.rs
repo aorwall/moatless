@@ -41,6 +41,7 @@ pub struct Task {
     pub visibility: Visibility,
     pub scope: Scope,
     pub team_id: Option<String>,
+    pub owner_user_id: Option<String>,
     pub created_at_db: Option<DateTime<Utc>>,
     pub updated_at: Option<DateTime<Utc>>,
     pub parent_task_id: Option<String>,

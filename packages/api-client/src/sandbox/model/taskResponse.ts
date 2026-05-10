@@ -36,6 +36,8 @@ export interface TaskResponse {
   /** @nullable */
   name?: string | null;
   /** @nullable */
+  ownerUserId?: string | null;
+  /** @nullable */
   parentTaskId?: string | null;
   repositoryId: string;
   /** @nullable */

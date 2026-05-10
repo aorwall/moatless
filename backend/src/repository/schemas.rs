@@ -5,16 +5,9 @@
 pub use moatless_api_schemas::repository::*;
 
 use super::models::Repository;
-use crate::scope::Scope;
-use moatless_api_schemas::enums::Visibility;
 
 impl From<Repository> for RepositoryResponse {
     fn from(r: Repository) -> Self {
-        // Compute visibility from scope for backwards compat
-        let visibility = match r.scope {
-            Scope::Global => Visibility::Public,
-            _ => r.visibility.unwrap_or(Visibility::Private),
-        };
         Self {
             id: r.id,
             name: r.name,
@@ -25,9 +18,9 @@ impl From<Repository> for RepositoryResponse {
             system_prompt: r.system_prompt,
             description: r.description,
             provider: r.provider,
-            visibility,
             scope: r.scope,
             team_id: r.team_id,
+            owner_user_id: r.owner_user_id,
             servers: r.servers.and_then(|v| serde_json::from_value(v).ok()),
             plugins: r.plugins.and_then(|v| serde_json::from_value(v).ok()),
             env_vars: r.env_vars.and_then(|v| serde_json::from_value(v).ok()),

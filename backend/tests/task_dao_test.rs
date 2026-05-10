@@ -9,11 +9,20 @@
 
 mod common;
 
+use moatless_vibe_backend::scope::ScopeContext;
 use moatless_vibe_backend::task::dao::{self as task_dao, TaskPatch};
 use moatless_vibe_backend::task::models::{TaskStatus, Visibility};
 use sqlx::PgPool;
 
 use common::{make_repository_row, make_task_row};
+
+fn scope_ctx(user_id: &str) -> ScopeContext {
+    ScopeContext {
+        user_id: user_id.into(),
+        team_ids: vec![],
+        is_admin: false,
+    }
+}
 
 /// Helper: insert a repository so task FK references are satisfied.
 async fn seed_repo(pool: &PgPool, id: &str, user_id: &str) {
@@ -31,7 +40,9 @@ async fn insert_and_find_by_id(pool: PgPool) {
     let row = make_task_row("task-aaa", user);
     task_dao::insert_task(&pool, &row).await.unwrap();
 
-    let found = task_dao::find_by_id(&pool, "task-aaa", user).await.unwrap();
+    let found = task_dao::find_by_id(&pool, "task-aaa", &scope_ctx(user))
+        .await
+        .unwrap();
     assert!(found.is_some());
     let found = found.unwrap();
     assert_eq!(found.task_id, "task-aaa");
@@ -49,7 +60,7 @@ async fn find_by_id_access_control_private(pool: PgPool) {
     task_dao::insert_task(&pool, &row).await.unwrap();
 
     // Other user cannot see private task
-    let found = task_dao::find_by_id(&pool, "task-private", other)
+    let found = task_dao::find_by_id(&pool, "task-private", &scope_ctx(other))
         .await
         .unwrap();
     assert!(found.is_none());
@@ -66,7 +77,7 @@ async fn find_by_id_access_control_public(pool: PgPool) {
     task_dao::insert_task(&pool, &row).await.unwrap();
 
     // Other user can see public task
-    let found = task_dao::find_by_id(&pool, "task-public", other)
+    let found = task_dao::find_by_id(&pool, "task-public", &scope_ctx(other))
         .await
         .unwrap();
     assert!(found.is_some());
@@ -97,9 +108,10 @@ async fn list_tasks_pagination(pool: PgPool) {
         task_dao::insert_task(&pool, &row).await.unwrap();
     }
 
-    let (rows, total) = task_dao::list_tasks(&pool, user, 2, 0, None, None, None, None, None)
-        .await
-        .unwrap();
+    let (rows, total) =
+        task_dao::list_tasks(&pool, &scope_ctx(user), 2, 0, None, None, None, None, None)
+            .await
+            .unwrap();
 
     assert_eq!(rows.len(), 2);
     assert_eq!(total, 5);
@@ -119,7 +131,7 @@ async fn list_tasks_status_filter(pool: PgPool) {
 
     let (rows, total) = task_dao::list_tasks(
         &pool,
-        user,
+        &scope_ctx(user),
         50,
         0,
         Some(TaskStatus::Open),
@@ -155,10 +167,19 @@ async fn list_tasks_tag_filter(pool: PgPool) {
         .await
         .unwrap();
 
-    let (rows, total) =
-        task_dao::list_tasks(&pool, user, 50, 0, None, None, None, Some("bug"), None)
-            .await
-            .unwrap();
+    let (rows, total) = task_dao::list_tasks(
+        &pool,
+        &scope_ctx(user),
+        50,
+        0,
+        None,
+        None,
+        None,
+        Some("bug"),
+        None,
+    )
+    .await
+    .unwrap();
 
     assert_eq!(total, 1);
     assert_eq!(rows[0].task_id, "task-tagged");
@@ -183,7 +204,7 @@ async fn update_task_partial(pool: PgPool) {
     .await
     .unwrap();
 
-    let found = task_dao::find_by_id(&pool, "task-update", user)
+    let found = task_dao::find_by_id(&pool, "task-update", &scope_ctx(user))
         .await
         .unwrap()
         .unwrap();
@@ -211,7 +232,7 @@ async fn update_task_cost_increment(pool: PgPool) {
     .await
     .unwrap();
 
-    let found = task_dao::find_by_id(&pool, "task-cost", user)
+    let found = task_dao::find_by_id(&pool, "task-cost", &scope_ctx(user))
         .await
         .unwrap()
         .unwrap();
@@ -228,7 +249,9 @@ async fn delete_task(pool: PgPool) {
 
     task_dao::delete_task(&pool, "task-del").await.unwrap();
 
-    let found = task_dao::find_by_id(&pool, "task-del", user).await.unwrap();
+    let found = task_dao::find_by_id(&pool, "task-del", &scope_ctx(user))
+        .await
+        .unwrap();
     assert!(found.is_none());
 }
 

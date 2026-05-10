@@ -20,6 +20,8 @@ export interface ScheduledJobResponse {
   lockedUntil?: string | null;
   messageTemplate: string;
   nextFireAt: string;
+  /** @nullable */
+  ownerUserId?: string | null;
   routeId: string;
   /** @nullable */
   runAsUserId?: string | null;

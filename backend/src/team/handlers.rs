@@ -10,6 +10,7 @@ use super::schemas::{
     AddTeamMemberRequest, CreateTeamRequest, TeamCredentialResponse, TeamMemberResponse,
     TeamResponse, UpdateTeamRequest, UpsertTeamCredentialRequest,
 };
+use crate::access_control::ensure_team_manager;
 use crate::extractors::AuthUser;
 use crate::state::AppState;
 
@@ -74,8 +75,8 @@ pub async fn create_team(
     };
 
     state.teams.insert(&team).await?;
-    // Add creator as admin member
-    state.teams.add_member(&id, &auth.user_id, "admin").await?;
+    // Add creator as owner member
+    state.teams.add_member(&id, &auth.user_id, "owner").await?;
 
     Ok((StatusCode::CREATED, Json(team.into())))
 }
@@ -127,7 +128,7 @@ pub async fn get_team(
 )]
 pub async fn update_team(
     State(state): State<AppState>,
-    _auth: AuthUser,
+    auth: AuthUser,
     Path(team_id): Path<String>,
     Json(req): Json<UpdateTeamRequest>,
 ) -> Result<Json<TeamResponse>, TeamError> {
@@ -136,6 +137,7 @@ pub async fn update_team(
         .find_by_id(&team_id)
         .await?
         .ok_or_else(|| TeamError::NotFound(team_id.clone()))?;
+    ensure_team_manager(&state, &auth, &team_id).await?;
 
     state
         .teams
@@ -164,7 +166,7 @@ pub async fn update_team(
 )]
 pub async fn delete_team(
     State(state): State<AppState>,
-    _auth: AuthUser,
+    auth: AuthUser,
     Path(team_id): Path<String>,
 ) -> Result<StatusCode, TeamError> {
     let _existing = state
@@ -172,6 +174,7 @@ pub async fn delete_team(
         .find_by_id(&team_id)
         .await?
         .ok_or_else(|| TeamError::NotFound(team_id.clone()))?;
+    ensure_team_manager(&state, &auth, &team_id).await?;
 
     state.teams.delete(&team_id).await?;
     Ok(StatusCode::NO_CONTENT)
@@ -189,9 +192,10 @@ pub async fn delete_team(
 )]
 pub async fn list_members(
     State(state): State<AppState>,
-    _auth: AuthUser,
+    auth: AuthUser,
     Path(team_id): Path<String>,
 ) -> Result<Json<Vec<TeamMemberResponse>>, TeamError> {
+    require_team_access(&state, &auth, &team_id).await?;
     let members = state.teams.find_members(&team_id).await?;
     let resp: Vec<TeamMemberResponse> = members.into_iter().map(Into::into).collect();
     Ok(Json(resp))
@@ -211,7 +215,7 @@ pub async fn list_members(
 )]
 pub async fn add_member(
     State(state): State<AppState>,
-    _auth: AuthUser,
+    auth: AuthUser,
     Path(team_id): Path<String>,
     Json(req): Json<AddTeamMemberRequest>,
 ) -> Result<StatusCode, TeamError> {
@@ -220,6 +224,7 @@ pub async fn add_member(
         .find_by_id(&team_id)
         .await?
         .ok_or_else(|| TeamError::NotFound(team_id.clone()))?;
+    ensure_team_manager(&state, &auth, &team_id).await?;
 
     let role = req.role.as_deref().unwrap_or("member");
     state.teams.add_member(&team_id, &req.user_id, role).await?;
@@ -242,7 +247,7 @@ pub async fn add_member(
 )]
 pub async fn remove_member(
     State(state): State<AppState>,
-    _auth: AuthUser,
+    auth: AuthUser,
     Path((team_id, user_id)): Path<(String, String)>,
 ) -> Result<StatusCode, TeamError> {
     let _existing = state
@@ -250,6 +255,7 @@ pub async fn remove_member(
         .find_by_id(&team_id)
         .await?
         .ok_or_else(|| TeamError::NotFound(team_id.clone()))?;
+    ensure_team_manager(&state, &auth, &team_id).await?;
 
     state.teams.remove_member(&team_id, &user_id).await?;
     Ok(StatusCode::NO_CONTENT)
@@ -273,7 +279,7 @@ pub async fn list_credentials(
     auth: AuthUser,
     Path(team_id): Path<String>,
 ) -> Result<Json<Vec<TeamCredentialResponse>>, TeamError> {
-    require_team_access(&state, &auth, &team_id).await?;
+    ensure_team_manager(&state, &auth, &team_id).await?;
 
     let tokens = state.provider_tokens.list_by_team(&team_id).await?;
     let resp: Vec<TeamCredentialResponse> = tokens
@@ -308,7 +314,7 @@ pub async fn upsert_credential(
     Path((team_id, provider)): Path<(String, String)>,
     Json(req): Json<UpsertTeamCredentialRequest>,
 ) -> Result<StatusCode, TeamError> {
-    require_team_access(&state, &auth, &team_id).await?;
+    ensure_team_manager(&state, &auth, &team_id).await?;
 
     state
         .provider_tokens

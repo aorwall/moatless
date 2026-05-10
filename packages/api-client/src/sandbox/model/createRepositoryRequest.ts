@@ -11,7 +11,6 @@ import type { RepositoryProvider } from './repositoryProvider';
 import type { ResourceConfig } from './resourceConfig';
 import type { Scope } from './scope';
 import type { ServerConfig } from './serverConfig';
-import type { Visibility } from './visibility';
 
 export interface CreateRepositoryRequest {
   /** @nullable */
@@ -51,5 +50,4 @@ export interface CreateRepositoryRequest {
   systemPrompt?: string | null;
   /** @nullable */
   teamId?: string | null;
-  visibility?: null | Visibility;
 }

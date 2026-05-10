@@ -19,6 +19,9 @@ pub enum FileStorageError {
     #[error("Invalid request: {0}")]
     BadRequest(String),
 
+    #[error("Forbidden: {0}")]
+    Forbidden(String),
+
     #[error("Database error: {0}")]
     Db(#[from] sqlx::Error),
 }
@@ -38,6 +41,7 @@ impl IntoResponse for FileStorageError {
                 )
             }
             FileStorageError::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
+            FileStorageError::Forbidden(_) => (StatusCode::FORBIDDEN, self.to_string()),
             FileStorageError::Db(e) => {
                 tracing::error!(error = %e, "Database error in file storage handler");
                 (

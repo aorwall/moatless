@@ -24,6 +24,7 @@ pub struct TaskTemplate {
     pub skills: Option<serde_json::Value>,
     pub scope: Scope,
     pub team_id: Option<String>,
+    pub owner_user_id: Option<String>,
     pub featured: bool,
     pub display_order: i32,
     pub created_by: Option<String>,

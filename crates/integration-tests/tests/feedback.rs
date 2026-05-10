@@ -23,6 +23,7 @@ fn create_request(repo_id: String) -> CreateTaskRequest {
         model: None,
         command_name: None,
         headless: None,
+        task_template_id: None,
     }
 }
 
@@ -92,7 +93,11 @@ async fn submit_and_list_feedback_for_task() {
     // List endpoint returns all three
     let listed = client.api().list_task_feedback(&task_id).await.unwrap();
     assert_eq!(listed.items.len(), 3);
-    let ids: Vec<&str> = listed.items.iter().map(|i| i.feedback_id.as_str()).collect();
+    let ids: Vec<&str> = listed
+        .items
+        .iter()
+        .map(|i| i.feedback_id.as_str())
+        .collect();
     assert!(ids.contains(&task_fb.feedback_id.as_str()));
     assert!(ids.contains(&msg_fb.feedback_id.as_str()));
     assert!(ids.contains(&tool_fb.feedback_id.as_str()));
@@ -123,7 +128,10 @@ async fn tool_use_id_without_message_uuid_is_rejected() {
             metadata: None,
         })
         .await;
-    assert!(err.is_err(), "expected 400 when tool_use_id has no message_uuid");
+    assert!(
+        err.is_err(),
+        "expected 400 when tool_use_id has no message_uuid"
+    );
 
     let _ = client.api().delete_task(&task_id).await;
 }

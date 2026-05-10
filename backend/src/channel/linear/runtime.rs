@@ -514,6 +514,8 @@ async fn create_provider_event_task(
         visibility: Visibility::Private,
         scope: rule.scope,
         team_id: rule.team_id.clone(),
+        owner_user_id: (rule.scope == crate::scope::Scope::User)
+            .then(|| rule.effective_user_id().to_string()),
         created_at_db: None,
         updated_at: None,
         parent_task_id: None,

@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use clap::Subcommand;
-use moatless_api_schemas::enums::{RepositoryKind, RepositoryProvider, Scope, Visibility};
+use moatless_api_schemas::enums::{RepositoryKind, RepositoryProvider, Scope};
 use moatless_api_schemas::repository::{
     CreateRepositoryRequest, RepositoryResponse, ResourceConfig, ServerConfig,
     UpdateRepositoryRequest,
@@ -55,9 +55,6 @@ pub enum RepoAction {
         /// Repository description
         #[arg(long)]
         description: Option<String>,
-        /// Visibility: public or private
-        #[arg(long)]
-        visibility: Option<String>,
         /// Build command
         #[arg(long)]
         build_command: Option<String>,
@@ -140,9 +137,6 @@ pub enum RepoAction {
         /// Repository description
         #[arg(long)]
         description: Option<String>,
-        /// Visibility: public or private
-        #[arg(long)]
-        visibility: Option<String>,
         /// Build command
         #[arg(long)]
         build_command: Option<String>,
@@ -199,7 +193,6 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
             plugins,
             system_prompt,
             description,
-            visibility,
             build_command,
             build_output_dir,
             enable_inspector,
@@ -259,7 +252,6 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
                 scope: scope.as_deref().and_then(parse_scope),
                 system_prompt,
                 team_id,
-                visibility: visibility.as_deref().and_then(parse_visibility),
                 resources,
             };
             let created = client.api().create_repository(&req).await?;
@@ -287,7 +279,6 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
             plugins,
             system_prompt,
             description,
-            visibility,
             build_command,
             build_output_dir,
             enable_inspector,
@@ -336,7 +327,6 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
                 },
                 startup_timeout_seconds: startup_timeout,
                 system_prompt,
-                visibility: visibility.as_deref().and_then(parse_visibility),
                 resources,
             };
             let updated = client.api().update_repository(&repo_id, &req).await?;
@@ -454,14 +444,6 @@ fn parse_repo_provider(s: &str) -> Option<RepositoryProvider> {
         "github" => Some(RepositoryProvider::Github),
         "gitlab" => Some(RepositoryProvider::Gitlab),
         "gitness" => Some(RepositoryProvider::Gitness),
-        _ => None,
-    }
-}
-
-fn parse_visibility(s: &str) -> Option<Visibility> {
-    match s {
-        "public" => Some(Visibility::Public),
-        "private" => Some(Visibility::Private),
         _ => None,
     }
 }
@@ -594,10 +576,12 @@ fn format_repo_detail(r: &RepositoryResponse) {
         };
         println!("System prompt: {display}");
     }
-    println!("Visibility: {}", r.visibility);
     println!("Scope:      {}", r.scope);
     if let Some(ref tid) = r.team_id {
         println!("Team ID:    {tid}");
+    }
+    if let Some(ref owner) = r.owner_user_id {
+        println!("Owner:      {owner}");
     }
     if let Some(ref plugins) = r.plugins {
         if !plugins.is_empty() {

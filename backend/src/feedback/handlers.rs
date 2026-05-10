@@ -39,7 +39,11 @@ pub async fn create_feedback(
     }
 
     // Validate scope is consistent with surface.
-    match (req.surface, req.message_uuid.is_some(), req.tool_use_id.is_some()) {
+    match (
+        req.surface,
+        req.message_uuid.is_some(),
+        req.tool_use_id.is_some(),
+    ) {
         (FeedbackSurface::Task, false, false) => {}
         (FeedbackSurface::Message, true, false) => {}
         (FeedbackSurface::ToolCall, true, true) => {}
@@ -137,12 +141,10 @@ pub async fn list_task_feedback(
 }
 
 fn to_response(row: &Feedback) -> Result<FeedbackResponse, FeedbackError> {
-    let source = FeedbackSource::try_from(row.source.as_str()).map_err(|e| {
-        FeedbackError::Internal(format!("invalid feedback source in db: {e}"))
-    })?;
-    let surface = FeedbackSurface::try_from(row.surface.as_str()).map_err(|e| {
-        FeedbackError::Internal(format!("invalid feedback surface in db: {e}"))
-    })?;
+    let source = FeedbackSource::try_from(row.source.as_str())
+        .map_err(|e| FeedbackError::Internal(format!("invalid feedback source in db: {e}")))?;
+    let surface = FeedbackSurface::try_from(row.surface.as_str())
+        .map_err(|e| FeedbackError::Internal(format!("invalid feedback surface in db: {e}")))?;
     Ok(FeedbackResponse {
         feedback_id: row.feedback_id.clone(),
         task_id: row.task_id.clone(),

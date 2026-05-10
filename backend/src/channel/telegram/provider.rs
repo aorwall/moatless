@@ -858,6 +858,7 @@ mod tests {
             created_by: "system".into(),
             scope: Scope::Global,
             team_id: None,
+            owner_user_id: None,
             created_at: now,
             updated_at: now,
         }

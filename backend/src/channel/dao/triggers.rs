@@ -40,6 +40,7 @@ pub struct NewTaskTrigger {
     pub active: bool,
     pub scope: crate::scope::Scope,
     pub team_id: Option<String>,
+    pub owner_user_id: Option<String>,
     pub created_by: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
@@ -58,6 +59,7 @@ pub struct UpdateTaskTriggerRow {
     pub active: bool,
     pub scope: crate::scope::Scope,
     pub team_id: Option<String>,
+    pub owner_user_id: Option<String>,
 }
 
 impl PgTaskTriggerRepository {
@@ -148,9 +150,9 @@ impl PgTaskTriggerRepository {
                (id, provider, connection_id, source_matcher, source_name, event_filter,
                 trigger_config, route_id, allow_direct_send,
                 close_task_on_close, notify_on_success, active, scope, team_id,
-                created_by, created_at, updated_at)
+                owner_user_id, created_by, created_at, updated_at)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
-                       $10, $11, $12, $13, $14, $15, $16, $16)
+                       $10, $11, $12, $13, $14, $15, $16, $17, $17)
                RETURNING *"#,
         )
         .bind(row.id)
@@ -167,6 +169,7 @@ impl PgTaskTriggerRepository {
         .bind(row.active)
         .bind(row.scope)
         .bind(row.team_id)
+        .bind(row.owner_user_id)
         .bind(row.created_by)
         .bind(row.created_at)
         .fetch_one(&self.0)
@@ -188,6 +191,7 @@ impl PgTaskTriggerRepository {
                    active = $11,
                    scope = $12,
                    team_id = $13,
+                   owner_user_id = $14,
                    updated_at = now()
                WHERE id = $1
                RETURNING *"#,
@@ -205,6 +209,7 @@ impl PgTaskTriggerRepository {
         .bind(row.active)
         .bind(row.scope)
         .bind(row.team_id)
+        .bind(row.owner_user_id)
         .fetch_one(&self.0)
         .await
     }

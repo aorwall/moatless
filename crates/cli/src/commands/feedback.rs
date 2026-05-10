@@ -13,11 +13,7 @@ pub struct FeedbackArgs {
     pub tool_use_id: Option<String>,
 }
 
-pub async fn run(
-    client: &MoatClient,
-    args: FeedbackArgs,
-    json: bool,
-) -> Result<(), ClientError> {
+pub async fn run(client: &MoatClient, args: FeedbackArgs, json: bool) -> Result<(), ClientError> {
     let surface = if args.tool_use_id.is_some() {
         FeedbackSurface::ToolCall
     } else if args.message_uuid.is_some() {

@@ -320,6 +320,7 @@ async fn run_connections(
                 source_name: None,
                 transport_config: parse_json_opt(transport_config.as_deref())?,
                 team_id,
+                scope: None,
             };
             let created = client.api().create_integration_connection(&req).await?;
             if json {
@@ -715,10 +716,7 @@ fn fold_clearable_json(
 /// Fold `--tag` (repeatable) and `--clear-tags` into `Option<Vec<String>>`.
 /// Both empty ⇒ `None`; non-empty `--tag` ⇒ `Some(v)`; only `--clear-tags` ⇒ `Some(vec![])`.
 /// Both ⇒ `Err`.
-fn fold_tag_ids(
-    tag_ids: Vec<String>,
-    clear: bool,
-) -> Result<Option<Vec<String>>, ClientError> {
+fn fold_tag_ids(tag_ids: Vec<String>, clear: bool) -> Result<Option<Vec<String>>, ClientError> {
     match (tag_ids.is_empty(), clear) {
         (false, true) => Err(ClientError::Other(
             "--tag and --clear-tags are mutually exclusive".to_string(),

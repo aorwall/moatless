@@ -927,6 +927,10 @@ mod tests {
                 filename: "legacy.txt".to_string(),
                 mime_type: "text/plain".to_string(),
                 size: 7,
+                scope: crate::scope::Scope::User,
+                team_id: "personal-user-1".to_string(),
+                owner_user_id: Some("user-1".to_string()),
+                created_by: Some("user-1".to_string()),
                 uploaded_at: chrono::Utc::now(),
             },
         );

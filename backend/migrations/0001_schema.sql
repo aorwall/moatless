@@ -92,7 +92,9 @@ CREATE TABLE IF NOT EXISTS "repositories" (
     "startup_timeout_seconds" integer DEFAULT 30,
     "auto_reload" boolean,
     "created_by" text,
-    "visibility" text DEFAULT 'private' NOT NULL,
+    "scope" text DEFAULT 'user' NOT NULL,
+    "team_id" text DEFAULT 'system' NOT NULL,
+    "owner_user_id" text,
     "created_at" timestamptz,
     "updated_at" timestamptz,
     "servers" jsonb DEFAULT '[]'::jsonb,
@@ -100,7 +102,7 @@ CREATE TABLE IF NOT EXISTS "repositories" (
 );
 
 CREATE INDEX IF NOT EXISTS "repositories_created_by_idx" ON "repositories" USING btree ("created_by");
-CREATE INDEX IF NOT EXISTS "repositories_visibility_idx" ON "repositories" USING btree ("visibility");
+CREATE INDEX IF NOT EXISTS "repositories_scope_team_owner_idx" ON "repositories" ("scope", "team_id", "owner_user_id");
 
 -- =========================================================================
 -- Tasks
@@ -125,6 +127,9 @@ CREATE TABLE IF NOT EXISTS "tasks" (
     "branch" text,
     "created_by" text,
     "visibility" text DEFAULT 'private' NOT NULL,
+    "scope" text DEFAULT 'user' NOT NULL,
+    "team_id" text DEFAULT 'system' NOT NULL,
+    "owner_user_id" text,
     "created_at_db" timestamptz DEFAULT now()
 );
 
@@ -279,7 +284,11 @@ CREATE TABLE IF NOT EXISTS "commands" (
     "variant" text,
     "active" boolean,
     "will_not_resume" boolean,
-    "agent_mode" text
+    "agent_mode" text,
+    "scope" text NOT NULL DEFAULT 'global',
+    "team_id" text NOT NULL DEFAULT 'system',
+    "owner_user_id" text,
+    "created_by" text DEFAULT 'system'
 );
 
 CREATE INDEX IF NOT EXISTS "commands_active_idx" ON "commands" USING btree ("active");
@@ -292,8 +301,15 @@ CREATE TABLE IF NOT EXISTS "file_metadata" (
     "filename" text NOT NULL,
     "mime_type" text NOT NULL,
     "size" bigint NOT NULL,
+    "scope" text NOT NULL DEFAULT 'global',
+    "team_id" text NOT NULL DEFAULT 'system',
+    "owner_user_id" text,
+    "created_by" text DEFAULT 'system',
     "uploaded_at" timestamptz NOT NULL DEFAULT now()
 );
+
+CREATE INDEX IF NOT EXISTS "file_metadata_scope_team_owner_idx"
+    ON "file_metadata" ("scope", "team_id", "owner_user_id");
 
 -- =========================================================================
 -- Figma imports

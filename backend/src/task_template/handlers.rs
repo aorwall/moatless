@@ -6,8 +6,9 @@ use axum::Json;
 use serde::Deserialize;
 use tracing::info;
 
+use crate::access_control::{ensure_can_write_resource, resolve_scope_for_create};
 use crate::extractors::AuthUser;
-use crate::scope::Scope;
+use crate::scope::ScopedResource;
 use crate::state::AppState;
 
 use super::dao::TaskTemplatePatch;
@@ -31,15 +32,8 @@ pub async fn create_task_template(
     auth: AuthUser,
     Json(req): Json<CreateTaskTemplateRequest>,
 ) -> Result<(StatusCode, Json<TaskTemplateResponse>), TaskTemplateError> {
-    let scope = req.scope.unwrap_or(Scope::User);
-    let is_admin = auth.role.as_deref() == Some("admin");
-
-    // Only admins may create team/global scoped templates.
-    if scope != Scope::User && !is_admin {
-        return Err(TaskTemplateError::Forbidden(
-            "Admin role required for team or global scope".to_string(),
-        ));
-    }
+    let resolved_scope =
+        resolve_scope_for_create(&state, &auth, req.scope, req.team_id.clone()).await?;
 
     let id = uuid::Uuid::new_v4().to_string();
     let now = chrono::Utc::now();
@@ -59,8 +53,9 @@ pub async fn create_task_template(
         default_model: req.default_model,
         initial_prompt: req.initial_prompt,
         skills: skills_json,
-        scope,
-        team_id: req.team_id,
+        scope: resolved_scope.scope,
+        team_id: Some(resolved_scope.team_id),
+        owner_user_id: resolved_scope.owner_user_id,
         featured: req.featured.unwrap_or(false),
         display_order: req.display_order.unwrap_or(0),
         created_by: Some(auth.user_id.clone()),
@@ -181,23 +176,19 @@ pub async fn update_task_template(
         .await?
         .ok_or_else(|| TaskTemplateError::NotFound(template_id.clone()))?;
 
-    let is_admin = auth.role.as_deref() == Some("admin");
-    // Authorization: owner or admin.
-    let is_owner = existing.created_by.as_deref() == Some(auth.user_id.as_str());
-    if !is_owner && !is_admin {
-        return Err(TaskTemplateError::Forbidden(
-            "Only the owner or an admin can update this template".to_string(),
-        ));
-    }
+    ensure_can_write_resource(
+        &state,
+        &auth,
+        &template_resource(&existing),
+        "task template",
+    )
+    .await?;
 
-    // Scope escalation check.
-    if let Some(new_scope) = req.scope {
-        if new_scope != Scope::User && !is_admin {
-            return Err(TaskTemplateError::Forbidden(
-                "Admin role required for team or global scope".to_string(),
-            ));
-        }
-    }
+    let resolved_scope = if req.scope.is_some() || req.team_id.is_some() {
+        Some(resolve_scope_for_create(&state, &auth, req.scope, req.team_id.clone()).await?)
+    } else {
+        None
+    };
 
     let skills_json = req
         .skills
@@ -214,8 +205,13 @@ pub async fn update_task_template(
         default_model: req.default_model.map(Some),
         initial_prompt: req.initial_prompt.map(Some),
         skills: skills_json.map(Some),
-        scope: req.scope,
-        team_id: req.team_id.map(Some),
+        scope: resolved_scope.as_ref().map(|scope| scope.scope),
+        team_id: resolved_scope
+            .as_ref()
+            .map(|scope| Some(scope.team_id.clone())),
+        owner_user_id: resolved_scope
+            .as_ref()
+            .map(|scope| scope.owner_user_id.clone()),
         featured: req.featured,
         display_order: req.display_order,
     };
@@ -256,16 +252,26 @@ pub async fn delete_task_template(
         .await?
         .ok_or_else(|| TaskTemplateError::NotFound(template_id.clone()))?;
 
-    let is_admin = auth.role.as_deref() == Some("admin");
-    // Authorization: owner or admin.
-    let is_owner = existing.created_by.as_deref() == Some(auth.user_id.as_str());
-    if !is_owner && !is_admin {
-        return Err(TaskTemplateError::Forbidden(
-            "Only the owner or an admin can delete this template".to_string(),
-        ));
-    }
+    ensure_can_write_resource(
+        &state,
+        &auth,
+        &template_resource(&existing),
+        "task template",
+    )
+    .await?;
 
     state.task_templates.delete(&template_id).await?;
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+fn template_resource(template: &TaskTemplate) -> ScopedResource {
+    ScopedResource::borrowed(
+        template.scope,
+        template.team_id.as_deref(),
+        template
+            .owner_user_id
+            .as_deref()
+            .or(template.created_by.as_deref()),
+    )
 }

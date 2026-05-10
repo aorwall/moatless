@@ -27,13 +27,20 @@ pub struct PgFileRepository(pub DbPool);
 impl FileRepository for PgFileRepository {
     async fn insert_metadata(&self, row: &FileMetadata) -> Result<(), sqlx::Error> {
         sqlx::query(
-            r#"INSERT INTO file_metadata (file_id, filename, mime_type, size, uploaded_at)
-               VALUES ($1, $2, $3, $4, $5)"#,
+            r#"INSERT INTO file_metadata (
+                file_id, filename, mime_type, size, scope, team_id,
+                owner_user_id, created_by, uploaded_at
+            )
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"#,
         )
         .bind(&row.file_id)
         .bind(&row.filename)
         .bind(&row.mime_type)
         .bind(row.size)
+        .bind(row.scope)
+        .bind(&row.team_id)
+        .bind(&row.owner_user_id)
+        .bind(&row.created_by)
         .bind(row.uploaded_at)
         .execute(&self.0)
         .await?;
@@ -56,7 +63,7 @@ impl FileRepository for PgFileRepository {
         }
 
         let rows = sqlx::query_as::<_, FileMetadata>(
-            r#"SELECT file_id, filename, mime_type, size, uploaded_at
+            r#"SELECT *
                FROM file_metadata
                WHERE file_id = ANY($1)"#,
         )

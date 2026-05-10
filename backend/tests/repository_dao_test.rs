@@ -10,8 +10,7 @@
 mod common;
 
 use moatless_vibe_backend::repository::dao::{self as repository_dao, RepositoryPatch};
-use moatless_vibe_backend::scope::ScopeContext;
-use moatless_vibe_backend::task::models::Visibility;
+use moatless_vibe_backend::scope::{Scope, ScopeContext};
 use sqlx::PgPool;
 
 use common::make_repository_row;
@@ -46,17 +45,16 @@ async fn insert_and_find_by_id(pool: PgPool) {
 
 #[sqlx::test]
 async fn find_by_id_access_control(pool: PgPool) {
-    let mut row = make_repository_row("repo-priv", "user-1");
-    row.visibility = Some(Visibility::Private);
+    let row = make_repository_row("repo-priv", "user-1");
     repository_dao::insert(&pool, &row).await.unwrap();
 
-    // Owner can see it
+    // Owner can see a user-scoped repository.
     let found = repository_dao::find_by_id(&pool, "repo-priv", &scope_ctx("user-1"))
         .await
         .unwrap();
     assert!(found.is_some());
 
-    // Other user cannot
+    // Other users cannot read another user's user-scoped repository.
     let found = repository_dao::find_by_id(&pool, "repo-priv", &scope_ctx("user-2"))
         .await
         .unwrap();
@@ -64,27 +62,29 @@ async fn find_by_id_access_control(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn list_all_visibility_scoping(pool: PgPool) {
-    let mut private_repo = make_repository_row("repo-priv", "user-1");
-    private_repo.visibility = Some(Visibility::Private);
-    repository_dao::insert(&pool, &private_repo).await.unwrap();
+async fn list_all_canonical_scope_filtering(pool: PgPool) {
+    let user_repo = make_repository_row("repo-user", "user-1");
+    repository_dao::insert(&pool, &user_repo).await.unwrap();
 
-    let public_repo = make_repository_row("repo-pub", "user-2");
-    // Default visibility is "public" from make_repository_row
-    repository_dao::insert(&pool, &public_repo).await.unwrap();
+    let mut global_repo = make_repository_row("repo-global", "system");
+    global_repo.scope = Scope::Global;
+    global_repo.team_id = Some("system".to_string());
+    global_repo.owner_user_id = None;
+    global_repo.created_by = Some("system".to_string());
+    repository_dao::insert(&pool, &global_repo).await.unwrap();
 
-    // user-1 sees own private + other's public
+    // user-1 sees own user-scoped repository plus global repositories.
     let list = repository_dao::list_all(&pool, &scope_ctx("user-1"))
         .await
         .unwrap();
     assert_eq!(list.len(), 2);
 
-    // user-2 sees own public but not user-1's private
+    // user-2 sees global repositories but not user-1's user-scoped repository.
     let list = repository_dao::list_all(&pool, &scope_ctx("user-2"))
         .await
         .unwrap();
     assert_eq!(list.len(), 1);
-    assert_eq!(list[0].id, "repo-pub");
+    assert_eq!(list[0].id, "repo-global");
 }
 
 #[sqlx::test]

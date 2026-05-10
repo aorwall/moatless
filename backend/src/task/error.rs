@@ -3,6 +3,7 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
+use crate::access_control::AccessControlError;
 use crate::error::error_response;
 
 #[derive(Debug, thiserror::Error)]
@@ -24,6 +25,16 @@ pub enum TaskError {
 
     #[error("Forbidden: {0}")]
     Forbidden(String),
+}
+
+impl From<AccessControlError> for TaskError {
+    fn from(value: AccessControlError) -> Self {
+        match value {
+            AccessControlError::BadRequest(msg) => Self::BadRequest(msg),
+            AccessControlError::Forbidden(msg) => Self::Forbidden(msg),
+            AccessControlError::Db(err) => Self::Db(err),
+        }
+    }
 }
 
 impl IntoResponse for TaskError {

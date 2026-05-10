@@ -208,7 +208,10 @@ pub async fn run(
                 featured,
                 display_order,
             )?;
-            let updated = client.api().update_task_template(&template_id, &req).await?;
+            let updated = client
+                .api()
+                .update_task_template(&template_id, &req)
+                .await?;
             if json {
                 output::print_json_typed(&updated);
             } else {
@@ -295,8 +298,9 @@ fn load_create_request(
     }
 
     // Build from flags — validate required fields.
-    let name = name
-        .ok_or_else(|| ClientError::Other("--name is required when not using --file".to_string()))?;
+    let name = name.ok_or_else(|| {
+        ClientError::Other("--name is required when not using --file".to_string())
+    })?;
     let repository_id = repository_id.ok_or_else(|| {
         ClientError::Other("--repository-id is required when not using --file".to_string())
     })?;
@@ -314,7 +318,11 @@ fn load_create_request(
         agent_mode,
         default_model,
         initial_prompt,
-        skills: if skills.is_empty() { None } else { Some(skills) },
+        skills: if skills.is_empty() {
+            None
+        } else {
+            Some(skills)
+        },
         scope: scope.as_deref().and_then(parse_scope),
         team_id,
         featured: if featured { Some(true) } else { None },
@@ -369,7 +377,11 @@ fn load_update_request(
         agent_mode,
         default_model,
         initial_prompt,
-        skills: if skills.is_empty() { None } else { Some(skills) },
+        skills: if skills.is_empty() {
+            None
+        } else {
+            Some(skills)
+        },
         scope: scope.as_deref().and_then(parse_scope),
         team_id,
         featured,
@@ -402,7 +414,10 @@ fn format_template_list(templates: &[TaskTemplateResponse]) {
         })
         .collect();
 
-    output::print_table(&["ID", "NAME", "SCOPE", "FEATURED", "ORDER", "AGENT"], &rows);
+    output::print_table(
+        &["ID", "NAME", "SCOPE", "FEATURED", "ORDER", "AGENT"],
+        &rows,
+    );
 }
 
 fn format_template_detail(t: &TaskTemplateResponse) {

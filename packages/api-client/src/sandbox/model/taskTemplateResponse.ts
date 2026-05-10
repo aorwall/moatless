@@ -31,6 +31,8 @@ export interface TaskTemplateResponse {
   /** @nullable */
   initialPrompt?: string | null;
   name: string;
+  /** @nullable */
+  ownerUserId?: string | null;
   repositoryId: string;
   scope: Scope;
   /** @nullable */

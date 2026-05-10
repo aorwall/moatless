@@ -4,7 +4,8 @@ use chrono::Utc;
 use moatless_api_schemas::channel::{CreateProviderConnectionRequest, ProviderConnectionResponse};
 
 use super::common::{
-    default_scope, ensure_can_write_scope, provider_connection_response, ProviderFilter,
+    ensure_can_write_channel_resource, provider_connection_response,
+    resolve_scope_for_channel_create, scoped_resource, ProviderFilter,
 };
 use crate::channel::dao::connections::PgProviderConnectionRepository;
 use crate::channel::error::ChannelError;
@@ -57,7 +58,9 @@ pub async fn list_provider_connections(
     let rows = PgProviderConnectionRepository(state.db.clone())
         .list(&ctx, provider.as_deref())
         .await?;
-    Ok(Json(rows.iter().map(provider_connection_response).collect()))
+    Ok(Json(
+        rows.iter().map(provider_connection_response).collect(),
+    ))
 }
 
 #[utoipa::path(
@@ -80,9 +83,21 @@ pub async fn create_provider_connection(
 
     let now = Utc::now();
     let provider = req.provider.as_str().to_string();
-    let ctx = auth.scope_context();
-    let scope = default_scope(None, req.team_id.as_deref());
-    ensure_can_write_scope(&ctx, scope, req.team_id.as_deref())?;
+    let repo = PgProviderConnectionRepository(state.db.clone());
+    if let Some(existing) = repo
+        .find_by_external_account(&provider, &req.external_account_id)
+        .await?
+    {
+        let resource = scoped_resource(
+            existing.scope,
+            existing.team_id.as_deref(),
+            existing.owner_user_id.as_deref(),
+            &existing.created_by,
+        );
+        ensure_can_write_channel_resource(&state, &auth, &resource, "provider connection").await?;
+    }
+    let resolved =
+        resolve_scope_for_channel_create(&state, &auth, req.scope, req.team_id.clone()).await?;
     let row = ProviderConnection {
         id: format!("pc_{}", uuid::Uuid::new_v4()),
         provider,
@@ -94,13 +109,12 @@ pub async fn create_provider_connection(
             .transport_config
             .unwrap_or_else(|| serde_json::json!({})),
         created_by: auth.user_id,
-        scope,
-        team_id: req.team_id,
+        scope: resolved.scope,
+        team_id: Some(resolved.team_id),
+        owner_user_id: resolved.owner_user_id,
         created_at: now,
         updated_at: now,
     };
-    let saved = PgProviderConnectionRepository(state.db.clone())
-        .upsert(&row)
-        .await?;
+    let saved = repo.upsert(&row).await?;
     Ok(Json(provider_connection_response(&saved)))
 }

@@ -16,6 +16,8 @@ export interface TaskRouteResponse {
   /** @nullable */
   ongoingTaskId?: string | null;
   /** @nullable */
+  ownerUserId?: string | null;
+  /** @nullable */
   promptTemplate?: string | null;
   repositoryId: string;
   routingMode: RoutingMode;

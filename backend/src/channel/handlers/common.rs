@@ -5,6 +5,9 @@ use moatless_api_schemas::channel::{
 use moatless_api_schemas::enums::{IntegrationProvider, Scope};
 use serde::Deserialize;
 
+use crate::access_control::{
+    ensure_can_use_repository, ensure_can_write_resource, resolve_scope_for_create, ResolvedScope,
+};
 use crate::channel::dao::connections::PgProviderConnectionRepository;
 use crate::channel::dao::routes::PgTaskRouteRepository;
 use crate::channel::dao::triggers::PgTaskTriggerRepository;
@@ -13,7 +16,8 @@ use crate::channel::models::{
     ProviderConnection, ScheduledJob, TaskBinding, TaskRoute, TaskTrigger,
 };
 use crate::channel::services::scheduled_jobs::ScheduledJobService;
-use crate::scope::ScopeContext;
+use crate::extractors::AuthUser;
+use crate::scope::{ScopeContext, ScopedResource};
 use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]
@@ -56,6 +60,7 @@ pub(crate) fn provider_connection_response(row: &ProviderConnection) -> Provider
         created_by: row.created_by.clone(),
         scope: row.scope,
         team_id: row.team_id.clone(),
+        owner_user_id: row.owner_user_id.clone(),
         created_at: row.created_at.to_rfc3339(),
         updated_at: row.updated_at.to_rfc3339(),
     }
@@ -74,6 +79,7 @@ pub(crate) fn task_route_response(row: &TaskRoute) -> TaskRouteResponse {
         agent_type: row.agent_type.clone(),
         scope: row.scope,
         team_id: row.team_id.clone(),
+        owner_user_id: row.owner_user_id.clone(),
         created_by: row.created_by.clone(),
         created_at: row.created_at.to_rfc3339(),
         updated_at: row.updated_at.to_rfc3339(),
@@ -96,6 +102,7 @@ pub(crate) fn task_trigger_response(row: &TaskTrigger) -> TaskTriggerResponse {
         active: row.active,
         scope: row.scope,
         team_id: row.team_id.clone(),
+        owner_user_id: row.owner_user_id.clone(),
         created_by: row.created_by.clone(),
         created_at: row.created_at.to_rfc3339(),
         updated_at: row.updated_at.to_rfc3339(),
@@ -136,6 +143,7 @@ pub(crate) fn scheduled_job_response(row: &ScheduledJob) -> ScheduledJobResponse
         created_by: row.created_by.clone(),
         scope: row.scope,
         team_id: row.team_id.clone(),
+        owner_user_id: row.owner_user_id.clone(),
         created_at: row.created_at.to_rfc3339(),
         updated_at: row.updated_at.to_rfc3339(),
     }
@@ -171,10 +179,19 @@ pub(crate) async fn ensure_repository_exists(
         ctx,
         repo.scope,
         repo.team_id.as_deref(),
-        repo.created_by.as_deref(),
+        repo.owner_user_id.as_deref().or(repo.created_by.as_deref()),
         "repository",
         repository_id,
-    )
+    )?;
+    ensure_can_use_repository(
+        ctx,
+        &ScopedResource::borrowed(
+            repo.scope,
+            repo.team_id.as_deref(),
+            repo.owner_user_id.as_deref().or(repo.created_by.as_deref()),
+        ),
+    )?;
+    Ok(())
 }
 
 pub(crate) fn ensure_scope_access(
@@ -194,32 +211,79 @@ pub(crate) fn ensure_scope_access(
     }
 }
 
-pub(crate) fn ensure_can_write_scope(
-    ctx: &ScopeContext,
+pub(crate) fn scoped_resource(
     scope: Scope,
     team_id: Option<&str>,
-) -> Result<(), ChannelError> {
-    match scope {
-        Scope::Global if ctx.is_admin => Ok(()),
-        Scope::Global => Err(ChannelError::AccessDenied(
-            "Only admins can create global integration resources".into(),
-        )),
-        Scope::Team => {
-            let Some(team_id) = team_id else {
-                return Err(ChannelError::BadRequest(
-                    "team_id is required for team-scoped integration resources".into(),
-                ));
-            };
-            if ctx.is_admin || ctx.team_ids.iter().any(|id| id == team_id) {
-                Ok(())
-            } else {
-                Err(ChannelError::AccessDenied(format!(
-                    "No access to team {team_id}"
-                )))
-            }
-        }
-        Scope::User => Ok(()),
+    owner_user_id: Option<&str>,
+    created_by: &str,
+) -> ScopedResource {
+    ScopedResource::borrowed(scope, team_id, owner_user_id.or(Some(created_by)))
+}
+
+pub(crate) enum TeamIdUpdate {
+    Unchanged,
+    Set(Option<String>),
+}
+
+pub(crate) async fn resolve_scope_for_channel_create(
+    state: &AppState,
+    auth: &AuthUser,
+    requested_scope: Option<Scope>,
+    requested_team_id: Option<String>,
+) -> Result<ResolvedScope, ChannelError> {
+    let scope = default_scope(requested_scope, requested_team_id.as_deref());
+    Ok(resolve_scope_for_create(state, auth, Some(scope), requested_team_id).await?)
+}
+
+pub(crate) async fn resolve_scope_for_channel_update(
+    state: &AppState,
+    auth: &AuthUser,
+    requested_scope: Option<Scope>,
+    requested_team_id: TeamIdUpdate,
+    current: &ScopedResource,
+) -> Result<ResolvedScope, ChannelError> {
+    if requested_scope.is_none() && matches!(requested_team_id, TeamIdUpdate::Unchanged) {
+        let Some(team_id) = current.team_id.clone() else {
+            return Err(ChannelError::BadRequest(
+                "teamId is required for scoped integration resources".into(),
+            ));
+        };
+        return Ok(ResolvedScope {
+            scope: current.scope,
+            team_id,
+            owner_user_id: current.owner_user_id.clone(),
+        });
     }
+
+    let next_scope = requested_scope.unwrap_or(current.scope);
+    let next_team_id = match requested_team_id {
+        TeamIdUpdate::Set(team_id) => team_id,
+        TeamIdUpdate::Unchanged => current.team_id.clone(),
+    };
+    Ok(resolve_scope_for_create(state, auth, Some(next_scope), next_team_id).await?)
+}
+
+pub(crate) async fn ensure_can_write_channel_resource(
+    state: &AppState,
+    auth: &AuthUser,
+    resource: &ScopedResource,
+    resource_name: &str,
+) -> Result<(), ChannelError> {
+    Ok(ensure_can_write_resource(state, auth, resource, resource_name).await?)
+}
+
+pub(crate) fn ensure_can_run_as(
+    ctx: &ScopeContext,
+    run_as_user_id: Option<&str>,
+) -> Result<(), ChannelError> {
+    if let Some(run_as_user_id) = run_as_user_id {
+        if !ctx.can_run_as(run_as_user_id) {
+            return Err(ChannelError::AccessDenied(format!(
+                "Cannot run as user {run_as_user_id}"
+            )));
+        }
+    }
+    Ok(())
 }
 
 pub(crate) async fn load_provider_connection_for_auth(
@@ -235,7 +299,9 @@ pub(crate) async fn load_provider_connection_for_auth(
         ctx,
         row.scope,
         row.team_id.as_deref(),
-        Some(&row.created_by),
+        row.owner_user_id
+            .as_deref()
+            .or(Some(row.created_by.as_str())),
         "provider connection",
         id,
     )?;
@@ -255,7 +321,9 @@ pub(crate) async fn load_task_route_for_auth(
         ctx,
         row.scope,
         row.team_id.as_deref(),
-        Some(&row.created_by),
+        row.owner_user_id
+            .as_deref()
+            .or(Some(row.created_by.as_str())),
         "task route",
         id,
     )?;
@@ -275,7 +343,9 @@ pub(crate) async fn load_task_trigger_for_auth(
         ctx,
         row.scope,
         row.team_id.as_deref(),
-        Some(&row.created_by),
+        row.owner_user_id
+            .as_deref()
+            .or(Some(row.created_by.as_str())),
         "task trigger",
         id,
     )?;
@@ -296,7 +366,9 @@ pub(crate) async fn load_scheduled_job_for_auth(
         ctx,
         row.scope,
         row.team_id.as_deref(),
-        Some(&row.created_by),
+        row.owner_user_id
+            .as_deref()
+            .or(Some(row.created_by.as_str())),
         "scheduled job",
         id,
     )?;
@@ -318,7 +390,7 @@ pub(crate) async fn ensure_task_access(
         ctx,
         task.scope,
         task.team_id.as_deref(),
-        task.created_by.as_deref(),
+        task.owner_user_id.as_deref().or(task.created_by.as_deref()),
         "task",
         task_id,
     )?;

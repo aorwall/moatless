@@ -11,19 +11,12 @@ import {
 } from '@/lib/components/ui/dialog'
 import { Input } from '@/lib/components/ui/input'
 import { Label } from '@/lib/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/lib/components/ui/select'
 
 interface CreateRepoDialogProps {
   isOpen: boolean
   onOpenChange: (open: boolean) => void
   defaultName: string
-  onSubmit: (repositoryName: string, visibility: 'private' | 'public') => void
+  onSubmit: (repositoryName: string) => void
   isPending: boolean
 }
 
@@ -44,14 +37,12 @@ export function CreateRepoDialog({
   isPending,
 }: CreateRepoDialogProps) {
   const [repositoryName, setRepositoryName] = useState(sanitizeRepoName(defaultName))
-  const [visibility, setVisibility] = useState<'private' | 'public'>('private')
   const [error, setError] = useState<string | null>(null)
 
   // Reset form when dialog opens
   const handleOpenChange = (open: boolean) => {
     if (open) {
       setRepositoryName(sanitizeRepoName(defaultName))
-      setVisibility('private')
       setError(null)
     }
     onOpenChange(open)
@@ -80,7 +71,7 @@ export function CreateRepoDialog({
     }
 
     setError(null)
-    onSubmit(repositoryName, visibility)
+    onSubmit(repositoryName)
   }
 
   return (
@@ -108,25 +99,6 @@ export function CreateRepoDialog({
                 disabled={isPending}
               />
               {error && <p className="text-sm text-destructive">{error}</p>}
-            </div>
-
-            <div className="grid gap-2">
-              <Label>Visibility</Label>
-              <Select
-                value={visibility}
-                onValueChange={(value: 'private' | 'public') => setVisibility(value)}
-                disabled={isPending}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select visibility" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="private">
-                    Private - Only you can see this repository
-                  </SelectItem>
-                  <SelectItem value="public">Public - Anyone can see this repository</SelectItem>
-                </SelectContent>
-              </Select>
             </div>
           </div>
 

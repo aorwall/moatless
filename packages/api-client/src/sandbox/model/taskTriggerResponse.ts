@@ -20,6 +20,8 @@ export interface TaskTriggerResponse {
   eventFilter: TaskTriggerResponseEventFilter;
   id: string;
   notifyOnSuccess: boolean;
+  /** @nullable */
+  ownerUserId?: string | null;
   provider: IntegrationProvider;
   routeId: string;
   scope: Scope;

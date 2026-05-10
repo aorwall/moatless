@@ -5,6 +5,7 @@ use axum::response::{IntoResponse, Response};
 use axum::Json;
 use moatless_api_schemas::channel::{ChannelTargetDescriptor, MultipleTargetsErrorBody};
 
+use crate::access_control::AccessControlError;
 use crate::error::error_response;
 
 #[derive(Debug, thiserror::Error)]
@@ -43,6 +44,16 @@ pub enum ChannelError {
 
     #[error("Internal error: {0}")]
     Internal(String),
+}
+
+impl From<AccessControlError> for ChannelError {
+    fn from(value: AccessControlError) -> Self {
+        match value {
+            AccessControlError::BadRequest(msg) => Self::BadRequest(msg),
+            AccessControlError::Forbidden(msg) => Self::AccessDenied(msg),
+            AccessControlError::Db(err) => Self::Db(err),
+        }
+    }
 }
 
 impl IntoResponse for ChannelError {

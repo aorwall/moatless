@@ -3,6 +3,7 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
+use super::provider_token_dao::ensure_personal_team;
 use crate::db::DbPool;
 
 #[derive(sqlx::FromRow, Debug)]
@@ -50,20 +51,23 @@ pub struct PgProviderTokenAuthRepository(pub DbPool);
 #[async_trait]
 impl ProviderTokenAuthRepository for PgProviderTokenAuthRepository {
     async fn upsert_provider_token(&self, token: &ProviderToken) -> Result<(), sqlx::Error> {
+        let team_id = ensure_personal_team(&self.0, &token.user_id).await?;
         sqlx::query(
             r#"
             INSERT INTO provider_tokens (
                 user_id, provider, auth_method, access_token, refresh_token,
-                token_type, scope, provider_user_id, provider_login,
-                connected_at, expires_at
+                token_type, oauth_scope, provider_user_id, provider_login,
+                connected_at, expires_at, scope, team_id, owner_user_id
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'user', $12, $1)
             ON CONFLICT (user_id, provider, team_id) DO UPDATE SET
                 auth_method = EXCLUDED.auth_method,
                 access_token = EXCLUDED.access_token,
                 refresh_token = EXCLUDED.refresh_token,
                 token_type = EXCLUDED.token_type,
+                oauth_scope = EXCLUDED.oauth_scope,
                 scope = EXCLUDED.scope,
+                owner_user_id = EXCLUDED.owner_user_id,
                 provider_user_id = COALESCE(EXCLUDED.provider_user_id, provider_tokens.provider_user_id),
                 provider_login = COALESCE(EXCLUDED.provider_login, provider_tokens.provider_login),
                 connected_at = EXCLUDED.connected_at,
@@ -81,6 +85,7 @@ impl ProviderTokenAuthRepository for PgProviderTokenAuthRepository {
         .bind(&token.provider_login)
         .bind(token.connected_at)
         .bind(token.expires_at)
+        .bind(team_id)
         .execute(&self.0)
         .await?;
         Ok(())

@@ -18,6 +18,8 @@ export interface ProviderConnectionResponse {
   createdBy: string;
   externalAccountId: string;
   id: string;
+  /** @nullable */
+  ownerUserId?: string | null;
   provider: IntegrationProvider;
   scope: Scope;
   /** @nullable */

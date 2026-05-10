@@ -4,6 +4,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use tracing::{error, warn};
 
+use crate::access_control::AccessControlError;
 use crate::error::error_response;
 
 #[derive(Debug, thiserror::Error)]
@@ -25,6 +26,16 @@ pub enum RepositoryError {
 
     #[error("Access denied: {0}")]
     Forbidden(String),
+}
+
+impl From<AccessControlError> for RepositoryError {
+    fn from(value: AccessControlError) -> Self {
+        match value {
+            AccessControlError::BadRequest(msg) => Self::BadRequest(msg),
+            AccessControlError::Forbidden(msg) => Self::Forbidden(msg),
+            AccessControlError::Db(err) => Self::Db(err),
+        }
+    }
 }
 
 impl IntoResponse for RepositoryError {

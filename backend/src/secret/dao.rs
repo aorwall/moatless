@@ -3,6 +3,7 @@
 use async_trait::async_trait;
 
 use super::models::SecretRecord;
+use crate::access_control::SYSTEM_TEAM_ID;
 use crate::db::DbPool;
 
 pub struct SecretInsert<'a> {
@@ -108,15 +109,18 @@ impl SecretRepository for PgSecretRepository {
     }
 
     async fn insert(&self, input: SecretInsert<'_>) -> Result<SecretRecord, sqlx::Error> {
+        let (scope, team_id, owner_user_id) =
+            canonical_secret_scope(input.scope_type, input.scope_id);
         sqlx::query_as::<_, SecretRecord>(
             r#"INSERT INTO secrets (
                    id, scope_type, scope_id, key, kind, provider,
+                   scope, team_id, owner_user_id,
                    value_ciphertext, encryption_nonce, encrypted_data_key,
                    external_ref, kms_key_id, encryption_version,
                    created_by, updated_by, created_at, updated_at, version
                )
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-                       $13, $13, now(), now(), 1)
+                       $13, $14, $15, $16, $16, now(), now(), 1)
                RETURNING *"#,
         )
         .bind(input.id)
@@ -125,6 +129,9 @@ impl SecretRepository for PgSecretRepository {
         .bind(input.key)
         .bind(input.kind)
         .bind(input.provider)
+        .bind(scope)
+        .bind(&team_id)
+        .bind(owner_user_id)
         .bind(input.value_ciphertext)
         .bind(input.encryption_nonce)
         .bind(input.encrypted_data_key)
@@ -181,5 +188,25 @@ impl SecretRepository for PgSecretRepository {
             .execute(&self.0)
             .await?;
         Ok(())
+    }
+}
+
+fn canonical_secret_scope<'a>(
+    scope_type: &'a str,
+    scope_id: Option<&'a str>,
+) -> (&'a str, String, Option<&'a str>) {
+    match scope_type {
+        "global" => (scope_type, SYSTEM_TEAM_ID.to_string(), None),
+        "team" => (
+            scope_type,
+            scope_id.unwrap_or(SYSTEM_TEAM_ID).to_string(),
+            None,
+        ),
+        "user" => (
+            scope_type,
+            format!("personal-{}", scope_id.unwrap_or("system")),
+            scope_id,
+        ),
+        _ => (scope_type, SYSTEM_TEAM_ID.to_string(), None),
     }
 }

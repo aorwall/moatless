@@ -72,6 +72,7 @@ mod tests {
             created_by: "alice".into(),
             scope: Scope::User,
             team_id: None,
+            owner_user_id: Some("alice".into()),
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }

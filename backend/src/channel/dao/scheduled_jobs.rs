@@ -29,6 +29,7 @@ pub struct NewScheduledJob {
     pub created_by: String,
     pub scope: crate::scope::Scope,
     pub team_id: Option<String>,
+    pub owner_user_id: Option<String>,
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -43,6 +44,7 @@ pub struct UpdateScheduledJobRow {
     pub next_fire_at: chrono::DateTime<chrono::Utc>,
     pub scope: crate::scope::Scope,
     pub team_id: Option<String>,
+    pub owner_user_id: Option<String>,
 }
 
 impl PgScheduledJobRepository {
@@ -66,8 +68,8 @@ impl PgScheduledJobRepository {
             r#"INSERT INTO scheduled_jobs
                (id, route_id, schedule_expr, timezone, message_template,
                 run_as_user_id, active, next_fire_at, created_by, scope, team_id,
-                created_at, updated_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12)
+                owner_user_id, created_at, updated_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13)
                RETURNING *"#,
         )
         .bind(row.id)
@@ -81,6 +83,7 @@ impl PgScheduledJobRepository {
         .bind(row.created_by)
         .bind(row.scope)
         .bind(row.team_id)
+        .bind(row.owner_user_id)
         .bind(row.created_at)
         .fetch_one(&self.0)
         .await
@@ -98,6 +101,7 @@ impl PgScheduledJobRepository {
                    next_fire_at = $8,
                    scope = $9,
                    team_id = $10,
+                   owner_user_id = $11,
                    updated_at = now()
                WHERE id = $1
                RETURNING *"#,
@@ -112,6 +116,7 @@ impl PgScheduledJobRepository {
         .bind(row.next_fire_at)
         .bind(row.scope)
         .bind(row.team_id)
+        .bind(row.owner_user_id)
         .fetch_one(&self.0)
         .await
     }

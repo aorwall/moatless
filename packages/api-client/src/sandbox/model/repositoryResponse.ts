@@ -11,7 +11,6 @@ import type { RepositoryResponseEnvVars } from './repositoryResponseEnvVars';
 import type { ResourceConfig } from './resourceConfig';
 import type { Scope } from './scope';
 import type { ServerConfig } from './serverConfig';
-import type { Visibility } from './visibility';
 
 export interface RepositoryResponse {
   /** @nullable */
@@ -38,6 +37,8 @@ export interface RepositoryResponse {
   kind: RepositoryKind;
   name: string;
   /** @nullable */
+  ownerUserId?: string | null;
+  /** @nullable */
   plugins?: string[] | null;
   provider?: null | RepositoryProvider;
   /** @nullable */
@@ -58,5 +59,4 @@ export interface RepositoryResponse {
   teamId?: string | null;
   /** @nullable */
   updatedAt?: string | null;
-  visibility: Visibility;
 }

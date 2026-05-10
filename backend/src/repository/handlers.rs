@@ -6,11 +6,11 @@ use axum::Json;
 
 use tracing::{debug, info, warn};
 
+use crate::access_control::{ensure_can_write_resource, resolve_scope_for_create};
 use crate::extractors::AuthUser;
-use crate::scope::Scope;
+use crate::scope::ScopedResource;
 use crate::secret::models::looks_like_secret_key;
 use crate::state::AppState;
-use crate::task::models::Visibility;
 
 use super::config_reader::{config_to_patch, fetch_moatless_config};
 use super::dao::RepositoryPatch;
@@ -71,15 +71,12 @@ pub async fn create_repository(
     let id = uuid::Uuid::new_v4().to_string();
     let now = chrono::Utc::now();
     let has_servers = req.servers.is_some();
-    let scope_ctx = auth.scope_context();
-    let user_id = auth.user_id;
+    let user_id = auth.user_id.clone();
     validate_non_secret_env_vars(req.env_vars.as_ref())?;
 
-    // Determine scope: use explicit scope from request, or derive from visibility for backwards compat
-    let scope = req.scope.unwrap_or(match req.visibility {
-        Some(Visibility::Public) => Scope::Global,
-        _ => Scope::User,
-    });
+    let resolved_scope =
+        resolve_scope_for_create(&state, &auth, req.scope, req.team_id.clone()).await?;
+    let scope_ctx = auth.scope_context();
 
     let row = Repository {
         id: id.clone(),
@@ -102,9 +99,9 @@ pub async fn create_repository(
         resources: req.resources.map(to_json).transpose()?,
         description: req.description,
         provider: req.provider,
-        visibility: Some(req.visibility.unwrap_or(Visibility::Public)),
-        scope,
-        team_id: req.team_id,
+        scope: resolved_scope.scope,
+        team_id: Some(resolved_scope.team_id),
+        owner_user_id: resolved_scope.owner_user_id,
         created_by: Some(user_id.clone()),
         deleted: Some(false),
         created_at: Some(now),
@@ -234,12 +231,25 @@ pub async fn update_repository(
     Path(repository_id): Path<String>,
     Json(req): Json<UpdateRepositoryRequest>,
 ) -> Result<Json<RepositoryResponse>, RepositoryError> {
-    // Verify ownership
-    let _existing = state
+    let existing = state
         .repositories
         .find_by_id(&repository_id, &auth.scope_context())
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id.clone()))?;
+    ensure_can_write_resource(
+        &state,
+        &auth,
+        &ScopedResource::borrowed(
+            existing.scope,
+            existing.team_id.as_deref(),
+            existing
+                .owner_user_id
+                .as_deref()
+                .or(existing.created_by.as_deref()),
+        ),
+        "repository",
+    )
+    .await?;
     validate_non_secret_env_vars(req.env_vars.as_ref())?;
 
     let patch = RepositoryPatch {
@@ -249,7 +259,6 @@ pub async fn update_repository(
         docker_image: req.docker_image.map(Some),
         system_prompt: req.system_prompt.map(Some),
         description: req.description.map(Some),
-        visibility: req.visibility,
         servers: req.servers.map(to_json).transpose()?.map(Some),
         plugins: req.plugins.map(to_json).transpose()?.map(Some),
         env_vars: req.env_vars.map(to_json).transpose()?.map(Some),
@@ -298,12 +307,25 @@ pub async fn delete_repository(
     auth: AuthUser,
     Path(repository_id): Path<String>,
 ) -> Result<StatusCode, RepositoryError> {
-    // Verify ownership
-    let _existing = state
+    let existing = state
         .repositories
         .find_by_id(&repository_id, &auth.scope_context())
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id.clone()))?;
+    ensure_can_write_resource(
+        &state,
+        &auth,
+        &ScopedResource::borrowed(
+            existing.scope,
+            existing.team_id.as_deref(),
+            existing
+                .owner_user_id
+                .as_deref()
+                .or(existing.created_by.as_deref()),
+        ),
+        "repository",
+    )
+    .await?;
 
     state.repositories.soft_delete(&repository_id).await?;
 
@@ -334,6 +356,20 @@ pub async fn convert_to_template(
         .find_by_id(&repository_id, &auth.scope_context())
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id.clone()))?;
+    ensure_can_write_resource(
+        &state,
+        &auth,
+        &ScopedResource::borrowed(
+            existing.scope,
+            existing.team_id.as_deref(),
+            existing
+                .owner_user_id
+                .as_deref()
+                .or(existing.created_by.as_deref()),
+        ),
+        "repository",
+    )
+    .await?;
 
     if existing.kind != RepositoryKind::Remote {
         return Err(RepositoryError::BadRequest(format!(

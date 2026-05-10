@@ -6,8 +6,10 @@ use moatless_api_schemas::channel::{
 };
 
 use super::common::{
-    default_scope, ensure_can_write_scope, ensure_repository_exists, load_scheduled_job_for_auth,
-    load_task_route_for_auth, next_fire_at, scheduled_job_response,
+    ensure_can_run_as, ensure_can_write_channel_resource, ensure_repository_exists,
+    load_scheduled_job_for_auth, load_task_route_for_auth, next_fire_at,
+    resolve_scope_for_channel_create, resolve_scope_for_channel_update, scheduled_job_response,
+    scoped_resource, TeamIdUpdate,
 };
 use crate::channel::error::ChannelError;
 use crate::channel::models::ScheduledJob;
@@ -32,7 +34,15 @@ pub async fn list_scheduled_jobs(
     .await?;
     Ok(Json(
         rows.iter()
-            .filter(|row| ctx.can_access(row.scope, row.team_id.as_deref(), Some(&row.created_by)))
+            .filter(|row| {
+                ctx.can_access(
+                    row.scope,
+                    row.team_id.as_deref(),
+                    row.owner_user_id
+                        .as_deref()
+                        .or(Some(row.created_by.as_str())),
+                )
+            })
             .map(scheduled_job_response)
             .collect(),
     ))
@@ -53,8 +63,9 @@ pub async fn create_scheduled_job(
     let ctx = auth.scope_context();
     let route = load_task_route_for_auth(&state, &ctx, &req.route_id).await?;
     ensure_repository_exists(&state, &ctx, &route.repository_id).await?;
-    let scope = default_scope(req.scope, req.team_id.as_deref());
-    ensure_can_write_scope(&ctx, scope, req.team_id.as_deref())?;
+    ensure_can_run_as(&ctx, req.run_as_user_id.as_deref())?;
+    let resolved =
+        resolve_scope_for_channel_create(&state, &auth, req.scope, req.team_id.clone()).await?;
 
     let now = Utc::now();
     let next = next_fire_at(&req.schedule_expr)?;
@@ -62,8 +73,8 @@ pub async fn create_scheduled_job(
         r#"INSERT INTO scheduled_jobs
            (id, route_id, schedule_expr, timezone, message_template,
             run_as_user_id, active, next_fire_at, created_by, scope, team_id,
-            created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            owner_user_id, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
            RETURNING *"#,
     )
     .bind(format!("sj_{}", uuid::Uuid::new_v4()))
@@ -75,8 +86,9 @@ pub async fn create_scheduled_job(
     .bind(req.active.unwrap_or(true))
     .bind(next)
     .bind(auth.user_id)
-    .bind(scope)
-    .bind(req.team_id)
+    .bind(resolved.scope)
+    .bind(Some(resolved.team_id))
+    .bind(resolved.owner_user_id)
     .bind(now)
     .bind(now)
     .fetch_one(&state.db)
@@ -100,18 +112,36 @@ pub async fn update_scheduled_job(
 ) -> Result<Json<ScheduledJobResponse>, ChannelError> {
     let ctx = auth.scope_context();
     let current = load_scheduled_job_for_auth(&state, &ctx, &id).await?;
+    let current_resource = scoped_resource(
+        current.scope,
+        current.team_id.as_deref(),
+        current.owner_user_id.as_deref(),
+        &current.created_by,
+    );
+    ensure_can_write_channel_resource(&state, &auth, &current_resource, "scheduled job").await?;
     let next_route_id = req
         .route_id
         .clone()
         .unwrap_or_else(|| current.route_id.clone());
     let next_route = load_task_route_for_auth(&state, &ctx, &next_route_id).await?;
     ensure_repository_exists(&state, &ctx, &next_route.repository_id).await?;
-    let next_scope = req.scope.unwrap_or(current.scope);
-    let next_team_id = req
-        .team_id
-        .clone()
-        .unwrap_or_else(|| current.team_id.clone());
-    ensure_can_write_scope(&ctx, next_scope, next_team_id.as_deref())?;
+    if let Some(run_as_user_id) = req
+        .run_as_user_id
+        .as_ref()
+        .and_then(|value| value.as_deref())
+    {
+        ensure_can_run_as(&ctx, Some(run_as_user_id))?;
+    }
+    let resolved = resolve_scope_for_channel_update(
+        &state,
+        &auth,
+        req.scope,
+        req.team_id
+            .clone()
+            .map_or(TeamIdUpdate::Unchanged, TeamIdUpdate::Set),
+        &current_resource,
+    )
+    .await?;
 
     let schedule_expr = req.schedule_expr.unwrap_or(current.schedule_expr);
     let next = next_fire_at(&schedule_expr)?;
@@ -126,6 +156,7 @@ pub async fn update_scheduled_job(
                next_fire_at = $8,
                scope = $9,
                team_id = $10,
+               owner_user_id = $11,
                updated_at = now()
            WHERE id = $1
            RETURNING *"#,
@@ -138,8 +169,9 @@ pub async fn update_scheduled_job(
     .bind(req.run_as_user_id.unwrap_or(current.run_as_user_id))
     .bind(req.active.unwrap_or(current.active))
     .bind(next)
-    .bind(next_scope)
-    .bind(next_team_id)
+    .bind(resolved.scope)
+    .bind(Some(resolved.team_id))
+    .bind(resolved.owner_user_id)
     .fetch_one(&state.db)
     .await?;
 

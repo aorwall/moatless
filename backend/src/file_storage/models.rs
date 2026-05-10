@@ -2,6 +2,8 @@
 
 use chrono::{DateTime, Utc};
 
+use crate::scope::Scope;
+
 // =============================================================================
 // FileMetadata (DB)
 // =============================================================================
@@ -13,5 +15,9 @@ pub struct FileMetadata {
     pub filename: String,
     pub mime_type: String,
     pub size: i64,
+    pub scope: Scope,
+    pub team_id: String,
+    pub owner_user_id: Option<String>,
+    pub created_by: Option<String>,
     pub uploaded_at: DateTime<Utc>,
 }

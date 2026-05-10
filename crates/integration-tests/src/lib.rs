@@ -126,14 +126,16 @@ pub fn create_repo_request(name: &str, kind: RepositoryKind) -> CreateRepository
         startup_timeout_seconds: None,
         system_prompt: None,
         team_id: None,
-        visibility: None,
     }
 }
 
 /// Ensure a template repository exists for tests that need one. Returns the repository ID.
 pub async fn ensure_template_repo(client: &MoatClient) -> String {
     let repos = client.api().list_repositories().await.unwrap();
-    if let Some(repo) = repos.iter().find(|r| r.kind == RepositoryKind::Template) {
+    if let Some(repo) = repos
+        .iter()
+        .find(|r| r.kind == RepositoryKind::Template && r.name == "E2E Template Repository")
+    {
         return repo.id.clone();
     }
     let mut req = create_repo_request("E2E Template Repository", RepositoryKind::Template);
@@ -166,6 +168,7 @@ pub async fn create_webhook_integration(
             source_name: None,
             transport_config: None,
             team_id: None,
+            scope: None,
         })
         .await
         .unwrap();

@@ -1,7 +1,9 @@
-//! Access control scope types.
+//! Canonical access-control scope policy.
 //!
 //! The `Scope` enum is re-exported from `moatless-api-schemas`.
-//! `ScopeContext` is backend-only (used for query filtering).
+//! `ScopeContext` is backend-only and is used for both query filtering and
+//! pure policy checks. Database-backed team-role validation lives in handlers
+//! and passes a parsed [`TeamRole`] into the write/create helpers.
 
 pub use moatless_api_schemas::enums::Scope;
 
@@ -17,7 +19,7 @@ pub use moatless_api_schemas::enums::Scope;
 pub enum ScopedEntity {
     /// `tasks` table — has a `visibility` column.
     Task,
-    /// `repositories` table — has a `visibility` column.
+    /// `repositories` table — canonical scoped resource; no visibility bypass.
     Repository,
     /// Integration tables — no `visibility` column.
     Integration,
@@ -26,8 +28,69 @@ pub enum ScopedEntity {
 impl ScopedEntity {
     fn has_visibility(self) -> bool {
         match self {
-            Self::Task | Self::Repository => true,
-            Self::Integration => false,
+            Self::Task => true,
+            Self::Repository | Self::Integration => false,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ScopedResource — canonical persisted shape
+// ---------------------------------------------------------------------------
+
+/// Canonical access-control fields for root scoped resources.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScopedResource {
+    pub scope: Scope,
+    pub team_id: Option<String>,
+    pub owner_user_id: Option<String>,
+}
+
+impl ScopedResource {
+    pub fn new<T, U>(scope: Scope, team_id: Option<T>, owner_user_id: Option<U>) -> Self
+    where
+        T: Into<String>,
+        U: Into<String>,
+    {
+        Self {
+            scope,
+            team_id: team_id.map(Into::into),
+            owner_user_id: owner_user_id.map(Into::into),
+        }
+    }
+
+    pub fn borrowed(scope: Scope, team_id: Option<&str>, owner_user_id: Option<&str>) -> Self {
+        Self {
+            scope,
+            team_id: team_id.map(str::to_string),
+            owner_user_id: owner_user_id.map(str::to_string),
+        }
+    }
+}
+
+/// Team membership role used by write/create checks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TeamRole {
+    Owner,
+    Admin,
+    Member,
+}
+
+impl TeamRole {
+    pub fn can_manage(self) -> bool {
+        matches!(self, Self::Owner | Self::Admin)
+    }
+}
+
+impl TryFrom<&str> for TeamRole {
+    type Error = ();
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "owner" => Ok(Self::Owner),
+            "admin" => Ok(Self::Admin),
+            "member" => Ok(Self::Member),
+            _ => Err(()),
         }
     }
 }
@@ -93,7 +156,7 @@ impl ScopeContext {
         let sql = format!(
             "(${p1}{vis} OR {prefix}scope = 'global' \
              OR ({prefix}scope = 'team' AND {prefix}team_id = ANY(${p2})) \
-             OR ({prefix}scope = 'user' AND {prefix}created_by = ${p3}))"
+             OR ({prefix}scope = 'user' AND COALESCE({prefix}owner_user_id, {prefix}created_by) = ${p3}))"
         );
         AccessFilter {
             sql,
@@ -101,22 +164,87 @@ impl ScopeContext {
         }
     }
 
-    /// Check if this context has access to a resource with the given scope.
-    pub fn can_access(&self, scope: Scope, team_id: Option<&str>, owner_id: Option<&str>) -> bool {
+    /// Check if this context can read a resource with the given scope.
+    pub fn can_read(&self, resource: &ScopedResource) -> bool {
         if self.is_admin {
             return true;
         }
-        match scope {
+        match resource.scope {
             Scope::Global => true,
             Scope::Team => {
-                if let Some(tid) = team_id {
+                if let Some(tid) = resource.team_id.as_deref() {
                     self.team_ids.iter().any(|t| t == tid)
                 } else {
                     false
                 }
             }
-            Scope::User => owner_id.is_some_and(|oid| oid == self.user_id),
+            Scope::User => resource
+                .owner_user_id
+                .as_deref()
+                .is_some_and(|oid| oid == self.user_id),
         }
+    }
+
+    /// Backwards-compatible read check for call sites that have not yet been
+    /// converted to `ScopedResource`.
+    pub fn can_access(&self, scope: Scope, team_id: Option<&str>, owner_id: Option<&str>) -> bool {
+        self.can_read(&ScopedResource::borrowed(scope, team_id, owner_id))
+    }
+
+    /// Check if this context can write an existing resource.
+    ///
+    /// `team_role` is the caller's role in `resource.team_id` when known.
+    pub fn can_write(&self, resource: &ScopedResource, team_role: Option<TeamRole>) -> bool {
+        if self.is_admin {
+            return true;
+        }
+        match resource.scope {
+            Scope::Global => false,
+            Scope::Team => team_role.is_some_and(TeamRole::can_manage),
+            Scope::User => resource
+                .owner_user_id
+                .as_deref()
+                .is_some_and(|oid| oid == self.user_id),
+        }
+    }
+
+    /// Check if this context can create a resource with the requested scope.
+    ///
+    /// User-scoped resources must be created for the current user inside the
+    /// resolved team. Team/global resources require elevated privileges.
+    pub fn can_create_scope(
+        &self,
+        scope: Scope,
+        owner_user_id: Option<&str>,
+        team_role: Option<TeamRole>,
+    ) -> bool {
+        if self.is_admin {
+            return true;
+        }
+        match scope {
+            Scope::Global => false,
+            Scope::Team => team_role.is_some_and(TeamRole::can_manage),
+            Scope::User => owner_user_id.is_some_and(|oid| oid == self.user_id),
+        }
+    }
+
+    /// Semantic gate for task/sandbox creation from a repository.
+    ///
+    /// Today this intentionally delegates to repository read access; call sites
+    /// use this method anyway so future policy can diverge without hunting for
+    /// generic reads.
+    pub fn can_use_repository(&self, repository: &ScopedResource) -> bool {
+        self.can_read(repository)
+    }
+
+    /// Explicit task-control helper for mutating or operating a task.
+    pub fn can_control_task(&self, task: &ScopedResource, team_role: Option<TeamRole>) -> bool {
+        self.can_write(task, team_role)
+    }
+
+    /// Explicit run-as helper for automation rules.
+    pub fn can_run_as(&self, target_user_id: &str) -> bool {
+        self.is_admin || self.user_id == target_user_id
     }
 }
 
@@ -150,6 +278,7 @@ mod tests {
             is_admin: false,
         };
         assert!(ctx.can_access(Scope::Global, None, None));
+        assert!(ctx.can_read(&ScopedResource::borrowed(Scope::Global, None, None)));
     }
 
     #[test]
@@ -183,6 +312,38 @@ mod tests {
         };
         assert!(ctx.can_access(Scope::User, None, Some("u2")));
         assert!(ctx.can_access(Scope::Team, Some("t99"), None));
+        assert!(ctx.can_write(
+            &ScopedResource::borrowed(Scope::Global, Some("system"), None),
+            None
+        ));
+    }
+
+    #[test]
+    fn write_policy_is_stricter_than_read_for_team_resources() {
+        let ctx = ScopeContext {
+            user_id: "u1".into(),
+            team_ids: vec!["t1".into()],
+            is_admin: false,
+        };
+        let resource = ScopedResource::borrowed(Scope::Team, Some("t1"), None);
+        assert!(ctx.can_read(&resource));
+        assert!(!ctx.can_write(&resource, Some(TeamRole::Member)));
+        assert!(ctx.can_write(&resource, Some(TeamRole::Admin)));
+        assert!(ctx.can_write(&resource, Some(TeamRole::Owner)));
+    }
+
+    #[test]
+    fn create_policy_uses_requested_scope() {
+        let ctx = ScopeContext {
+            user_id: "u1".into(),
+            team_ids: vec!["t1".into()],
+            is_admin: false,
+        };
+        assert!(ctx.can_create_scope(Scope::User, Some("u1"), None));
+        assert!(!ctx.can_create_scope(Scope::User, Some("u2"), None));
+        assert!(!ctx.can_create_scope(Scope::Team, None, Some(TeamRole::Member)));
+        assert!(ctx.can_create_scope(Scope::Team, None, Some(TeamRole::Admin)));
+        assert!(!ctx.can_create_scope(Scope::Global, None, None));
     }
 
     // -- access_filter tests --
@@ -202,19 +363,19 @@ mod tests {
             f.sql(),
             "($1 OR visibility = 'public' OR scope = 'global' \
              OR (scope = 'team' AND team_id = ANY($2)) \
-             OR (scope = 'user' AND created_by = $3))"
+             OR (scope = 'user' AND COALESCE(owner_user_id, created_by) = $3))"
         );
         assert_eq!(f.next_param(), 4);
     }
 
     #[test]
-    fn access_filter_repository_includes_visibility() {
+    fn access_filter_repository_excludes_visibility() {
         let f = test_ctx().access_filter(ScopedEntity::Repository, "", 2);
         assert_eq!(
             f.sql(),
-            "($2 OR visibility = 'public' OR scope = 'global' \
+            "($2 OR scope = 'global' \
              OR (scope = 'team' AND team_id = ANY($3)) \
-             OR (scope = 'user' AND created_by = $4))"
+             OR (scope = 'user' AND COALESCE(owner_user_id, created_by) = $4))"
         );
         assert_eq!(f.next_param(), 5);
     }
@@ -226,7 +387,7 @@ mod tests {
             f.sql(),
             "($1 OR scope = 'global' \
              OR (scope = 'team' AND team_id = ANY($2)) \
-             OR (scope = 'user' AND created_by = $3))"
+             OR (scope = 'user' AND COALESCE(owner_user_id, created_by) = $3))"
         );
         assert_eq!(f.next_param(), 4);
     }
@@ -238,7 +399,7 @@ mod tests {
             f.sql(),
             "($1 OR t.visibility = 'public' OR t.scope = 'global' \
              OR (t.scope = 'team' AND t.team_id = ANY($2)) \
-             OR (t.scope = 'user' AND t.created_by = $3))"
+             OR (t.scope = 'user' AND COALESCE(t.owner_user_id, t.created_by) = $3))"
         );
     }
 }

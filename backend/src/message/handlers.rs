@@ -137,10 +137,12 @@ pub struct GetMessagesQuery {
 )]
 pub async fn get_messages(
     State(state): State<AppState>,
-    _auth: AuthUser,
+    auth: AuthUser,
     Path(task_id): Path<String>,
     Query(query): Query<GetMessagesQuery>,
 ) -> Result<Json<GetMessagesResponse>, MessageError> {
+    ensure_task_read_access(&state, &auth, &task_id).await?;
+
     let limit = query
         .limit
         .unwrap_or(DEFAULT_MESSAGE_LIMIT)
@@ -287,9 +289,11 @@ fn truncate_with_ellipsis(s: &str, max_chars: usize) -> String {
 )]
 pub async fn get_tool_call_detail(
     State(state): State<AppState>,
-    _auth: AuthUser,
+    auth: AuthUser,
     Path((task_id, tool_use_id)): Path<(String, String)>,
 ) -> Result<Json<ToolCallDetailResponse>, MessageError> {
+    ensure_task_read_access(&state, &auth, &task_id).await?;
+
     let row = state
         .messages
         .find_tool_call(&task_id, &tool_use_id)
@@ -484,9 +488,11 @@ mod strip_heavy_fields_tests {
 )]
 pub async fn get_pending_messages(
     State(state): State<AppState>,
-    _auth: AuthUser,
+    auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<Json<GetPendingMessagesResponse>, MessageError> {
+    ensure_task_read_access(&state, &auth, &task_id).await?;
+
     let pending = state.messages.get_pending_user(&task_id).await?;
     let last_result = state.messages.get_last_result(&task_id).await?;
 
@@ -540,9 +546,11 @@ pub async fn get_pending_messages(
 )]
 pub async fn delete_queued_message(
     State(state): State<AppState>,
-    _auth: AuthUser,
+    auth: AuthUser,
     Path((task_id, message_id)): Path<(String, String)>,
 ) -> Result<Json<DeleteMessageResponse>, MessageError> {
+    ensure_task_read_access(&state, &auth, &task_id).await?;
+
     let deleted = state.messages.delete_queued(&task_id, &message_id).await?;
     if !deleted {
         return Err(MessageError::NotFound(message_id));
@@ -553,4 +561,17 @@ pub async fn delete_queued_message(
     Ok(Json(DeleteMessageResponse {
         status: "deleted".to_string(),
     }))
+}
+
+async fn ensure_task_read_access(
+    state: &AppState,
+    auth: &AuthUser,
+    task_id: &str,
+) -> Result<(), MessageError> {
+    state
+        .tasks
+        .find_by_id(task_id, &auth.scope_context())
+        .await?
+        .ok_or_else(|| MessageError::NotFound(task_id.to_string()))?;
+    Ok(())
 }

@@ -92,13 +92,13 @@ impl TaskRepository for PgTaskRepository {
                 task_id, short_id, created_at, last_message_at, agent_type,
                 repository_id, status, total_cost_usd, site_url, template_id,
                 vibe, name, description, site_id, site_provider, branch,
-                created_by, visibility, scope, team_id, parent_task_id,
+                created_by, visibility, scope, team_id, owner_user_id, parent_task_id,
                 append_system_prompt, updated_at, sandbox_started_at, headless,
                 ttl_minutes, task_template_id
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-                $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21,
-                $22, NOW(), $23, $24, $25, $26
+                $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22,
+                $23, NOW(), $24, $25, $26, $27
             )"#,
         )
         .bind(&row.task_id)
@@ -121,6 +121,7 @@ impl TaskRepository for PgTaskRepository {
         .bind(row.visibility)
         .bind(row.scope)
         .bind(&row.team_id)
+        .bind(&row.owner_user_id)
         .bind(&row.parent_task_id)
         .bind(&row.append_system_prompt)
         .bind(row.sandbox_started_at)
@@ -156,6 +157,7 @@ impl TaskRepository for PgTaskRepository {
             visibility: Visibility,
             scope: Scope,
             team_id: Option<String>,
+            owner_user_id: Option<String>,
             created_at_db: Option<DateTime<Utc>>,
             updated_at: Option<DateTime<Utc>>,
             parent_task_id: Option<String>,
@@ -173,8 +175,8 @@ impl TaskRepository for PgTaskRepository {
                 t.task_id, t.short_id, t.created_at, t.last_message_at, t.agent_type,
                 t.repository_id, t.status, t.total_cost_usd, t.site_url, t.template_id,
                 t.vibe, t.name, t.description, t.site_id, t.site_provider, t.branch,
-                t.created_by, t.visibility, t.scope, t.team_id, t.created_at_db,
-                t.updated_at, t.parent_task_id, t.append_system_prompt,
+                t.created_by, t.visibility, t.scope, t.team_id, t.owner_user_id,
+                t.created_at_db, t.updated_at, t.parent_task_id, t.append_system_prompt,
                 t.sandbox_started_at, t.headless, t.ttl_minutes, t.task_template_id,
                 COUNT(*) OVER() AS total_count
             FROM tasks t
@@ -229,6 +231,7 @@ impl TaskRepository for PgTaskRepository {
                 visibility: r.visibility,
                 scope: r.scope,
                 team_id: r.team_id,
+                owner_user_id: r.owner_user_id,
                 created_at_db: r.created_at_db,
                 updated_at: r.updated_at,
                 parent_task_id: r.parent_task_id,

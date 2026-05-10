@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::enums::{RepositoryKind, RepositoryProvider, Scope, Visibility};
+use crate::enums::{RepositoryKind, RepositoryProvider, Scope};
 
 // =============================================================================
 // ResourceConfig
@@ -66,7 +66,6 @@ pub struct CreateRepositoryRequest {
     pub system_prompt: Option<String>,
     pub description: Option<String>,
     pub provider: Option<RepositoryProvider>,
-    pub visibility: Option<Visibility>,
     pub scope: Option<Scope>,
     pub team_id: Option<String>,
     pub servers: Option<Vec<ServerConfig>>,
@@ -96,7 +95,6 @@ pub struct UpdateRepositoryRequest {
     pub docker_image: Option<String>,
     pub system_prompt: Option<String>,
     pub description: Option<String>,
-    pub visibility: Option<Visibility>,
     pub servers: Option<Vec<ServerConfig>>,
     pub plugins: Option<Vec<String>>,
     pub env_vars: Option<HashMap<String, String>>,
@@ -127,9 +125,9 @@ pub struct RepositoryResponse {
     pub system_prompt: Option<String>,
     pub description: Option<String>,
     pub provider: Option<RepositoryProvider>,
-    pub visibility: Visibility,
     pub scope: Scope,
     pub team_id: Option<String>,
+    pub owner_user_id: Option<String>,
     pub servers: Option<Vec<ServerConfig>>,
     pub plugins: Option<Vec<String>>,
     pub env_vars: Option<HashMap<String, String>>,

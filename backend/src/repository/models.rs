@@ -3,7 +3,6 @@
 use chrono::{DateTime, Utc};
 
 use crate::scope::Scope;
-use crate::task::models::Visibility;
 
 pub use moatless_api_schemas::enums::{RepositoryKind, RepositoryProvider};
 pub use moatless_api_schemas::repository::ResourceConfig;
@@ -36,9 +35,9 @@ pub struct Repository {
     // CRUD fields
     pub description: Option<String>,
     pub provider: Option<RepositoryProvider>,
-    pub visibility: Option<Visibility>,
     pub scope: Scope,
     pub team_id: Option<String>,
+    pub owner_user_id: Option<String>,
     pub created_by: Option<String>,
     pub resources: Option<serde_json::Value>,
     pub deleted: Option<bool>,

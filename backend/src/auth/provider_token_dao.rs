@@ -5,6 +5,60 @@ use async_trait::async_trait;
 use super::models::{ProviderAccessToken, ProviderToken};
 use crate::db::DbPool;
 
+pub(crate) async fn ensure_personal_team(
+    pool: &DbPool,
+    user_id: &str,
+) -> Result<String, sqlx::Error> {
+    let team_id = format!("personal-{user_id}");
+    let team_name = format!("{user_id} Personal");
+    let team_slug = personal_team_slug(user_id);
+
+    sqlx::query(
+        r#"INSERT INTO users (id, login, provider, role, created_at, last_login_at, settings)
+           VALUES ($1, $1, 'local', 'user', NOW(), NOW(), '{}'::jsonb)
+           ON CONFLICT (id) DO NOTHING"#,
+    )
+    .bind(user_id)
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"INSERT INTO teams (id, name, slug, description, is_default, settings, created_at, updated_at)
+           VALUES ($1, $2, $3, 'Personal workspace', false, '{}'::jsonb, NOW(), NOW())
+           ON CONFLICT (id) DO NOTHING"#,
+    )
+    .bind(&team_id)
+    .bind(team_name)
+    .bind(team_slug)
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"INSERT INTO team_members (team_id, user_id, role, created_at)
+           VALUES ($1, $2, 'owner', NOW())
+           ON CONFLICT (team_id, user_id) DO UPDATE SET role = EXCLUDED.role"#,
+    )
+    .bind(&team_id)
+    .bind(user_id)
+    .execute(pool)
+    .await?;
+
+    Ok(team_id)
+}
+
+fn personal_team_slug(user_id: &str) -> String {
+    let mut slug = String::with_capacity(user_id.len() + "personal-".len());
+    slug.push_str("personal-");
+    for ch in user_id.chars() {
+        if ch.is_ascii_alphanumeric() {
+            slug.push(ch.to_ascii_lowercase());
+        } else if !slug.ends_with('-') {
+            slug.push('-');
+        }
+    }
+    slug.trim_end_matches('-').to_string()
+}
+
 /// Repository trait for provider token credential resolution.
 ///
 /// Note: `automock` is intentionally omitted — mockall cannot synthesise
@@ -109,11 +163,16 @@ impl ProviderTokenRepository for PgProviderTokenRepository {
         token_type: Option<&str>,
         metadata: Option<&serde_json::Value>,
     ) -> Result<(), sqlx::Error> {
+        let team_id = ensure_personal_team(&self.0, user_id).await?;
         sqlx::query(
-            r#"INSERT INTO provider_tokens (user_id, provider, access_token, refresh_token, token_type, metadata, auth_method, connected_at, updated_at)
-               VALUES ($1, $2, $3, $4, $5, $6, 'manual', NOW(), NOW())
+            r#"INSERT INTO provider_tokens (
+                   user_id, provider, access_token, refresh_token, token_type, metadata,
+                   auth_method, connected_at, updated_at, scope, team_id, owner_user_id
+               )
+               VALUES ($1, $2, $3, $4, $5, $6, 'manual', NOW(), NOW(), 'user', $7, $1)
                ON CONFLICT ON CONSTRAINT provider_tokens_scope_uq
-               DO UPDATE SET access_token = $3, refresh_token = $4, token_type = $5, metadata = $6, updated_at = NOW()"#,
+               DO UPDATE SET access_token = $3, refresh_token = $4, token_type = $5, metadata = $6,
+                             scope = 'user', owner_user_id = $1, updated_at = NOW()"#,
         )
         .bind(user_id)
         .bind(provider)
@@ -121,6 +180,7 @@ impl ProviderTokenRepository for PgProviderTokenRepository {
         .bind(refresh_token)
         .bind(token_type)
         .bind(metadata)
+        .bind(team_id)
         .execute(&self.0)
         .await?;
         Ok(())
@@ -159,10 +219,14 @@ impl ProviderTokenRepository for PgProviderTokenRepository {
         metadata: Option<&serde_json::Value>,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
-            r#"INSERT INTO provider_tokens (team_id, provider, access_token, refresh_token, token_type, metadata, updated_at)
-               VALUES ($1, $2, $3, $4, $5, $6, NOW())
+            r#"INSERT INTO provider_tokens (
+                   team_id, provider, access_token, refresh_token, token_type,
+                   metadata, updated_at, scope, owner_user_id
+               )
+               VALUES ($1, $2, $3, $4, $5, $6, NOW(), 'team', NULL)
                ON CONFLICT ON CONSTRAINT provider_tokens_scope_uq
-               DO UPDATE SET access_token = $3, refresh_token = $4, token_type = $5, metadata = $6, updated_at = NOW()"#,
+               DO UPDATE SET access_token = $3, refresh_token = $4, token_type = $5, metadata = $6,
+                             scope = 'team', owner_user_id = NULL, updated_at = NOW()"#,
         )
         .bind(team_id)
         .bind(provider)

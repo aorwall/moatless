@@ -6592,6 +6592,17 @@
             "$ref": "#/components/schemas/IntegrationProvider",
             "description": "Provider value."
           },
+          "scope": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Scope",
+                "description": "Access scope for this connection. Defaults to `user`, or `team` when\nonly `teamId` is supplied for legacy callers."
+              }
+            ]
+          },
           "sourceName": {
             "type": [
               "string",
@@ -6778,16 +6789,6 @@
             "type": [
               "string",
               "null"
-            ]
-          },
-          "visibility": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/Visibility"
-              }
             ]
           }
         }
@@ -8543,6 +8544,12 @@
           "id": {
             "type": "string"
           },
+          "ownerUserId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "provider": {
             "$ref": "#/components/schemas/IntegrationProvider"
           },
@@ -8685,7 +8692,6 @@
           "id",
           "name",
           "kind",
-          "visibility",
           "scope"
         ],
         "properties": {
@@ -8763,6 +8769,12 @@
           },
           "name": {
             "type": "string"
+          },
+          "ownerUserId": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "plugins": {
             "type": [
@@ -8853,9 +8865,6 @@
               "string",
               "null"
             ]
-          },
-          "visibility": {
-            "$ref": "#/components/schemas/Visibility"
           }
         }
       },
@@ -9413,6 +9422,12 @@
           },
           "nextFireAt": {
             "type": "string"
+          },
+          "ownerUserId": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "routeId": {
             "type": "string"
@@ -10438,6 +10453,12 @@
               "null"
             ]
           },
+          "ownerUserId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "parentTaskId": {
             "type": [
               "string",
@@ -10542,6 +10563,12 @@
             "type": "string"
           },
           "ongoingTaskId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ownerUserId": {
             "type": [
               "string",
               "null"
@@ -10687,6 +10714,12 @@
           "name": {
             "type": "string"
           },
+          "ownerUserId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "repositoryId": {
             "type": "string"
           },
@@ -10758,6 +10791,12 @@
           },
           "notifyOnSuccess": {
             "type": "boolean"
+          },
+          "ownerUserId": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "provider": {
             "$ref": "#/components/schemas/IntegrationProvider"
@@ -11505,16 +11544,6 @@
             "type": [
               "string",
               "null"
-            ]
-          },
-          "visibility": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/Visibility"
-              }
             ]
           }
         }

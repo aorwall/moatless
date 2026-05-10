@@ -24,6 +24,7 @@ impl From<TaskTemplate> for TaskTemplateResponse {
                 .and_then(|v| serde_json::from_value::<Vec<String>>(v).ok()),
             scope: t.scope,
             team_id: t.team_id,
+            owner_user_id: t.owner_user_id,
             featured: t.featured,
             display_order: t.display_order,
             created_by: t.created_by,

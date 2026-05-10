@@ -66,7 +66,6 @@ export function RepositoryConfigEditSection({
       name: repository.name || '',
       description: repository.description || '',
       systemPrompt: repository.systemPrompt || '',
-      visibility: repository.visibility || 'private',
       dockerImage: repository.dockerImage,
       setupCommands: repository.setupCommands,
       envVars: repository.envVars,

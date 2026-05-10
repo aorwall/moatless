@@ -5,7 +5,6 @@ use async_trait::async_trait;
 use super::models::{Repository, RepositoryKind, RepositoryProvider};
 use crate::db::DbPool;
 use crate::scope::{ScopeContext, ScopedEntity};
-use crate::task::models::Visibility;
 
 /// Patch struct for partial updates.
 #[derive(Default)]
@@ -18,7 +17,6 @@ pub struct RepositoryPatch {
     pub system_prompt: Option<Option<String>>,
     pub description: Option<Option<String>>,
     pub provider: Option<Option<RepositoryProvider>>,
-    pub visibility: Option<Visibility>,
     pub servers: Option<Option<serde_json::Value>>,
     pub plugins: Option<Option<serde_json::Value>>,
     pub env_vars: Option<Option<serde_json::Value>>,
@@ -125,7 +123,7 @@ impl RepoRepository for PgRepoRepository {
                 server_start_commands, startup_timeout_seconds,
                 build_command, build_output_directory,
                 enable_inspector, auto_reload,
-                description, provider, visibility, scope, team_id, created_by,
+                description, provider, scope, team_id, owner_user_id, created_by,
                 resources,
                 deleted, created_at, updated_at
             ) VALUES (
@@ -159,9 +157,9 @@ impl RepoRepository for PgRepoRepository {
         .bind(row.auto_reload)
         .bind(&row.description)
         .bind(row.provider)
-        .bind(row.visibility)
         .bind(row.scope)
         .bind(&row.team_id)
+        .bind(&row.owner_user_id)
         .bind(&row.created_by)
         .bind(&row.resources)
         .bind(row.deleted)
@@ -193,7 +191,6 @@ impl RepoRepository for PgRepoRepository {
         push_set!(system_prompt);
         push_set!(description);
         push_set!(provider);
-        push_set!(visibility);
         push_set!(servers);
         push_set!(plugins);
         push_set!(env_vars);
@@ -236,7 +233,6 @@ impl RepoRepository for PgRepoRepository {
         bind_opt!(system_prompt);
         bind_opt!(description);
         bind_opt!(provider);
-        bind_opt!(visibility);
         bind_opt!(servers);
         bind_opt!(plugins);
         bind_opt!(env_vars);

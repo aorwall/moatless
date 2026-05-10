@@ -34,6 +34,7 @@ pub struct NewTaskRoute {
     pub agent_type: String,
     pub scope: crate::scope::Scope,
     pub team_id: Option<String>,
+    pub owner_user_id: Option<String>,
     pub created_by: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
@@ -50,6 +51,7 @@ pub struct UpdateTaskRouteRow {
     pub agent_type: String,
     pub scope: crate::scope::Scope,
     pub team_id: Option<String>,
+    pub owner_user_id: Option<String>,
 }
 
 impl PgTaskRouteRepository {
@@ -102,8 +104,8 @@ impl PgTaskRouteRepository {
             r#"INSERT INTO task_routes
                (id, repository_id, routing_mode, ongoing_task_id, prompt_template,
                 task_name, tag_ids, run_as_user_id, agent_type, scope, team_id,
-                created_by, created_at, updated_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13)
+                owner_user_id, created_by, created_at, updated_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14)
                RETURNING *"#,
         )
         .bind(row.id)
@@ -117,6 +119,7 @@ impl PgTaskRouteRepository {
         .bind(row.agent_type)
         .bind(row.scope)
         .bind(row.team_id)
+        .bind(row.owner_user_id)
         .bind(row.created_by)
         .bind(row.created_at)
         .fetch_one(&self.0)
@@ -136,6 +139,7 @@ impl PgTaskRouteRepository {
                    agent_type = $9,
                    scope = $10,
                    team_id = $11,
+                   owner_user_id = $12,
                    updated_at = now()
                WHERE id = $1
                RETURNING *"#,
@@ -151,6 +155,7 @@ impl PgTaskRouteRepository {
         .bind(row.agent_type)
         .bind(row.scope)
         .bind(row.team_id)
+        .bind(row.owner_user_id)
         .fetch_one(&self.0)
         .await
     }

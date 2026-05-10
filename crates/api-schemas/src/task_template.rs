@@ -64,6 +64,7 @@ pub struct TaskTemplateResponse {
     pub skills: Option<Vec<String>>,
     pub scope: Scope,
     pub team_id: Option<String>,
+    pub owner_user_id: Option<String>,
     pub featured: bool,
     pub display_order: i32,
     pub created_by: Option<String>,
