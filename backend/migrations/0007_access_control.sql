@@ -101,16 +101,8 @@ END $$;
 ALTER TABLE "repositories" ADD COLUMN IF NOT EXISTS "scope" text NOT NULL DEFAULT 'user';
 ALTER TABLE "repositories" ADD COLUMN IF NOT EXISTS "team_id" text REFERENCES "teams"("id");
 
-DO $$
-BEGIN
-    IF EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_name = 'repositories' AND column_name = 'visibility'
-    ) THEN
-        UPDATE "repositories" SET scope = 'global' WHERE visibility = 'public';
-        UPDATE "repositories" SET scope = 'user' WHERE visibility = 'private' OR visibility IS NULL;
-    END IF;
-END $$;
+UPDATE "repositories" SET scope = 'global' WHERE visibility = 'public';
+UPDATE "repositories" SET scope = 'user' WHERE visibility = 'private' OR visibility IS NULL;
 
 -- =============================================
 -- Alter tasks: add scope + team_id
