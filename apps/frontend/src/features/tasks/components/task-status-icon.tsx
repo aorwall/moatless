@@ -1,78 +1,9 @@
 import type { SandboxStatusFullResponse, TaskResponse } from '@moatless/api-client'
 import { AlertCircle, CheckCircle, Clock, XCircle } from 'lucide-react'
 import { getTaskStatusConfig } from '@/features/tasks/utils/task-status'
-import { Badge } from '@/lib/components/ui/badge'
-import { Popover, PopoverContent, PopoverTrigger } from '@/lib/components/ui/popover'
-
-interface SandboxStatusPopupProps {
-  totalCostUsd: number
-  sandbox?: SandboxStatusFullResponse
-}
-
-function SandboxStatusPopup({ totalCostUsd, sandbox }: SandboxStatusPopupProps) {
-  return (
-    <div className="space-y-3 w-64">
-      <div>
-        <h4 className="font-medium text-sm mb-2">Task Statistics</h4>
-        <div className="space-y-2 text-xs">
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Total Cost:</span>
-            <Badge variant="outline" className="h-5 text-xs">
-              ${totalCostUsd.toFixed(4)}
-            </Badge>
-          </div>
-        </div>
-      </div>
-
-      {sandbox && (
-        <div>
-          <h4 className="font-medium text-sm mb-2">Sandbox Status</h4>
-          <div className="space-y-2 text-xs">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Environment:</span>
-              <Badge
-                variant={sandbox.environmentStatus === 'ready' ? 'default' : 'secondary'}
-                className="h-5 text-xs"
-              >
-                {sandbox.environmentStatus}
-              </Badge>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Agent:</span>
-              <Badge
-                variant={sandbox.agentState === 'running' ? 'default' : 'outline'}
-                className="h-5 text-xs"
-              >
-                {sandbox.agentState}
-              </Badge>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Sandbox:</span>
-              <Badge
-                variant={sandbox.sandboxState === 'exists' ? 'default' : 'destructive'}
-                className="h-5 text-xs"
-              >
-                {sandbox.sandboxState}
-              </Badge>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {sandbox?.environmentError && (
-        <div>
-          <h4 className="font-medium text-sm mb-2 text-red-600">Error</h4>
-          <div className="text-xs text-red-600 bg-red-50 p-2 rounded">
-            {sandbox.environmentError}
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
 
 interface TaskStatusIconProps {
-  task: Pick<TaskResponse, 'status' | 'totalCostUsd'>
+  task: Pick<TaskResponse, 'status'>
   sandbox?: SandboxStatusFullResponse
   showText?: boolean
   className?: string
@@ -118,22 +49,10 @@ export function TaskStatusIcon({
   }
   // For other statuses (running, merged, closed, etc.), use the default from statusConfig
 
-  const totalCostUsd = task.totalCostUsd || 0
-
   return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className={`flex items-center gap-1 ${color} ${className} hover:opacity-80 transition-opacity cursor-pointer`}
-        >
-          {icon}
-          {showText && <span>{displayText}</span>}
-        </button>
-      </PopoverTrigger>
-      <PopoverContent className="w-auto p-3" align="start">
-        <SandboxStatusPopup totalCostUsd={totalCostUsd} sandbox={sandbox} />
-      </PopoverContent>
-    </Popover>
+    <span className={`flex items-center gap-1 ${color} ${className}`}>
+      {icon}
+      {showText && <span>{displayText}</span>}
+    </span>
   )
 }

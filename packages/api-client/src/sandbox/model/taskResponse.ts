@@ -30,6 +30,9 @@ export interface TaskResponse {
   description?: string | null;
   /** @nullable */
   environmentStatus?: string | null;
+  /** Inactive TTL in days. The reaper auto-closes the task when no activity
+has occurred for this many days. `0` means "never auto-close". */
+  inactiveTtlDays: number;
   /** @nullable */
   isRunning?: boolean | null;
   lastMessageAt: string;
@@ -42,6 +45,12 @@ export interface TaskResponse {
   repositoryId: string;
   /** @nullable */
   repositoryName?: string | null;
+  /**
+   * RFC3339 timestamp of when the sandbox was last started. `None` if the
+task has never had a sandbox running.
+   * @nullable
+   */
+  sandboxStartedAt?: string | null;
   scope: Scope;
   /** @nullable */
   shortId?: string | null;

@@ -192,6 +192,13 @@ pub struct TaskResponse {
     /// Idle TTL in minutes. The reaper stops the sandbox when no activity has
     /// occurred for this many minutes. `0` means "never reap".
     pub ttl_minutes: i32,
+    /// Inactive TTL in days. The reaper auto-closes the task when no activity
+    /// has occurred for this many days. `0` means "never auto-close".
+    pub inactive_ttl_days: i32,
+    /// RFC3339 timestamp of when the sandbox was last started. `None` if the
+    /// task has never had a sandbox running.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sandbox_started_at: Option<String>,
 }
 
 /// Tag as embedded in a task response (minimal: id + name only).

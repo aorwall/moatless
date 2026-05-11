@@ -1116,6 +1116,8 @@ fn build_task_response(
         agent_state: None,
         is_running: None,
         ttl_minutes: row.ttl_minutes,
+        inactive_ttl_days: row.inactive_ttl_days,
+        sandbox_started_at: row.sandbox_started_at.map(|t| t.to_rfc3339()),
     }
 }
 

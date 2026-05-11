@@ -301,6 +301,11 @@ export type readFileHandlerResponse200 = {
   status: 200
 }
 
+export type readFileHandlerResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
 export type readFileHandlerResponse404 = {
   data: ErrorBody
   status: 404
@@ -319,7 +324,7 @@ export type readFileHandlerResponse503 = {
 export type readFileHandlerResponseSuccess = (readFileHandlerResponse200) & {
   headers: Headers;
 };
-export type readFileHandlerResponseError = (readFileHandlerResponse404 | readFileHandlerResponse500 | readFileHandlerResponse503) & {
+export type readFileHandlerResponseError = (readFileHandlerResponse400 | readFileHandlerResponse404 | readFileHandlerResponse500 | readFileHandlerResponse503) & {
   headers: Headers;
 };
 

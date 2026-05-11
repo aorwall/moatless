@@ -167,6 +167,16 @@
               }
             }
           },
+          "400": {
+            "description": "Invalid path or path is a directory",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
           "404": {
             "description": "File not found",
             "content": {
@@ -10381,7 +10391,8 @@
           "visibility",
           "scope",
           "tags",
-          "ttlMinutes"
+          "ttlMinutes",
+          "inactiveTtlDays"
         ],
         "properties": {
           "agentState": {
@@ -10438,6 +10449,11 @@
               "null"
             ]
           },
+          "inactiveTtlDays": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Inactive TTL in days. The reaper auto-closes the task when no activity\nhas occurred for this many days. `0` means \"never auto-close\"."
+          },
           "isRunning": {
             "type": [
               "boolean",
@@ -10473,6 +10489,13 @@
               "string",
               "null"
             ]
+          },
+          "sandboxStartedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "RFC3339 timestamp of when the sandbox was last started. `None` if the\ntask has never had a sandbox running."
           },
           "scope": {
             "$ref": "#/components/schemas/Scope"

@@ -31,6 +31,7 @@ import { SidebarTrigger } from '@/lib/components/ui/sidebar'
 import { CreateRepoButton } from './create-repo-button'
 import { EditTaskDialog } from './edit-task-dialog'
 import { ScheduledJobsPill } from './scheduled-jobs-pill'
+import { TaskInfoSection } from './task-info-section'
 
 const TTL_PRESETS: Array<{ label: string; minutes: number }> = [
   { label: '15 minutes', minutes: 15 },
@@ -117,7 +118,7 @@ export function TaskLeftHeader() {
             </>
           )}
           <span className="text-muted-foreground hidden sm:inline">•</span>
-          <TaskStatusIcon task={{ status, totalCostUsd: task.totalCostUsd }} showText={false} />
+          <TaskStatusIcon task={{ status }} sandbox={sandboxStatus} showText={false} />
           {(createdByDisplayName || createdBy) && (
             <>
               <span className="text-muted-foreground hidden sm:inline">•</span>
@@ -141,7 +142,9 @@ export function TaskLeftHeader() {
               <MoreVertical className="h-4 w-4" />
             </Button>
           </PopoverTrigger>
-          <PopoverContent className="w-48 p-1" align="end">
+          <PopoverContent className="w-64 p-1" align="end">
+            <TaskInfoSection task={task} sandbox={sandboxStatus} />
+            <div className="my-1 border-t" />
             <Button
               variant="ghost"
               className="w-full justify-start gap-2 h-8 px-2"

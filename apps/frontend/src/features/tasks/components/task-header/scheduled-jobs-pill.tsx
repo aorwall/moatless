@@ -1,5 +1,6 @@
 import type { ScheduledJobInfo } from '@moatless/api-client'
 import { Clock, Timer } from 'lucide-react'
+import { formatRelativeTime } from '@/features/tasks/utils/format-relative-time'
 import { Button } from '@/lib/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/lib/components/ui/popover'
 
@@ -40,24 +41,4 @@ function ScheduledJobRow({ job }: { job: ScheduledJobInfo }) {
       </div>
     </div>
   )
-}
-
-function formatRelativeTime(unixMs: number): string {
-  const diffSec = Math.round((unixMs - Date.now()) / 1000)
-  const abs = Math.abs(diffSec)
-  const parts: string[] = []
-  const hours = Math.floor(abs / 3600)
-  const minutes = Math.floor((abs % 3600) / 60)
-  const seconds = abs % 60
-  if (hours > 0) {
-    parts.push(`${hours}h`)
-  }
-  if (minutes > 0) {
-    parts.push(`${minutes}m`)
-  }
-  if (hours === 0 && (seconds > 0 || parts.length === 0)) {
-    parts.push(`${seconds}s`)
-  }
-  const formatted = parts.join(' ')
-  return diffSec >= 0 ? `in ${formatted}` : `${formatted} ago`
 }
