@@ -8,6 +8,9 @@
 # Layer order is volatile-last so a Rust-binary edit only invalidates the
 # final COPY layer, not the JDK / jira / kubectl / go-task layers above it.
 
+# Global ARGs declared before any FROM so they're consumable by all stages.
+ARG SANDBOX_BASE=aorwall/moatless-vibe-sandbox-base:latest
+
 # Stage 1: rebuild jira-cli from source against current Go to clear stale
 # stdlib CVEs flagged by AWS Inspector on upstream binary releases.
 FROM golang:1.26-bookworm AS jira-builder
@@ -15,7 +18,6 @@ ARG JIRA_VERSION=v1.7.0
 ENV CGO_ENABLED=0
 RUN go install github.com/ankitpokhrel/jira-cli/cmd/jira@${JIRA_VERSION}
 
-ARG SANDBOX_BASE=aorwall/moatless-vibe-sandbox-base:latest
 FROM ${SANDBOX_BASE}
 
 # Entrypoint scripts come from the sandbox-tools image so script edits don't

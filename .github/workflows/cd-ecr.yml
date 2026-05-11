@@ -255,7 +255,7 @@ jobs:
     uses: Frank-Penny/soap-platform-ci/.github/workflows/build-push-ecr.yml@main
     with:
       service-name: moatless
-      ecr-repository: moatless-sandbox
+      ecr-repository: soap-moatless
       image-tag: ${{ needs.setup.outputs.tag }}
       dockerfile: docker/Dockerfile.sandbox-soap
       tag-latest: true
