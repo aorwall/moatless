@@ -1,148 +1,111 @@
 import type {
-  CreateProviderConnectionRequest,
-  CreateTaskRouteRequest,
-  CreateTaskTriggerRequest,
-  ProviderConnectionResponse,
-  TaskRouteResponse,
-  TaskTriggerResponse,
+  AdapterConnectionResponse,
+  CreateAdapterConnectionRequest,
+  CreateTriggerRequest,
   TriggerRecentTaskItem,
-  UpdateTaskRouteRequest,
-  UpdateTaskTriggerRequest,
+  TriggerResponse,
+  UpdateTriggerRequest,
 } from '@moatless/api-client'
 import type { UseQueryOptions } from '@tanstack/react-query'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { integrationsApi } from '@/features/integrations/api/integrations.api'
 import { queryKeys } from '@/lib/api/query-keys'
 
-export function useIntegrationProviders() {
+export function useIntegrationAdapters() {
   return useQuery({
-    queryKey: queryKeys.integrations.providers(),
-    queryFn: () => integrationsApi.listProviders(),
+    queryKey: queryKeys.integrations.adapters(),
+    queryFn: () => integrationsApi.listAdapters(),
     staleTime: 5 * 60_000,
   })
 }
 
-export function useProviderConnections(
-  options?: Omit<UseQueryOptions<ProviderConnectionResponse[]>, 'queryKey' | 'queryFn'>,
+export function useIntegrationConnections(
+  options?: Omit<UseQueryOptions<AdapterConnectionResponse[]>, 'queryKey' | 'queryFn'>,
 ) {
   return useQuery({
-    queryKey: queryKeys.integrations.providerConnectionsList(),
-    queryFn: () => integrationsApi.listProviderConnections(),
+    queryKey: queryKeys.integrations.connectionsList(),
+    queryFn: () => integrationsApi.listAdapterConnections(),
     ...options,
   })
 }
 
-export function useCreateProviderConnection() {
+export function useCreateIntegrationConnection() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (request: CreateProviderConnectionRequest) =>
-      integrationsApi.createProviderConnection(request),
+    mutationFn: (request: CreateAdapterConnectionRequest) =>
+      integrationsApi.createAdapterConnection(request),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.integrations.providerConnections() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.integrations.connections() })
     },
   })
 }
 
-export function useTaskRoutes(
-  options?: Omit<UseQueryOptions<TaskRouteResponse[]>, 'queryKey' | 'queryFn'>,
+export function useTriggers(
+  options?: Omit<UseQueryOptions<TriggerResponse[]>, 'queryKey' | 'queryFn'>,
 ) {
   return useQuery({
-    queryKey: queryKeys.integrations.taskRoutesList(),
-    queryFn: () => integrationsApi.listTaskRoutes(),
+    queryKey: queryKeys.triggers.list(),
+    queryFn: () => integrationsApi.listTriggers(),
     ...options,
   })
 }
 
-export function useCreateTaskRoute() {
+export function useCreateTrigger() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (request: CreateTaskRouteRequest) => integrationsApi.createTaskRoute(request),
+    mutationFn: (request: CreateTriggerRequest) => integrationsApi.createTrigger(request),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.integrations.taskRoutes() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.triggers.all() })
     },
   })
 }
 
-export function useUpdateTaskRoute() {
+export function useUpdateTrigger() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: ({ id, request }: { id: string; request: UpdateTaskRouteRequest }) =>
-      integrationsApi.updateTaskRoute(id, request),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.integrations.taskRoutes() })
-      queryClient.invalidateQueries({ queryKey: queryKeys.integrations.taskTriggers() })
-    },
-  })
-}
-
-export function useTaskTriggers(
-  options?: Omit<UseQueryOptions<TaskTriggerResponse[]>, 'queryKey' | 'queryFn'>,
-) {
-  return useQuery({
-    queryKey: queryKeys.integrations.taskTriggersList(),
-    queryFn: () => integrationsApi.listTaskTriggers(),
-    ...options,
-  })
-}
-
-export function useCreateTaskTrigger() {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: (request: CreateTaskTriggerRequest) => integrationsApi.createTaskTrigger(request),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.integrations.taskTriggers() })
-    },
-  })
-}
-
-export function useUpdateTaskTrigger() {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: ({ id, request }: { id: string; request: UpdateTaskTriggerRequest }) =>
-      integrationsApi.updateTaskTrigger(id, request),
+    mutationFn: ({ id, request }: { id: string; request: UpdateTriggerRequest }) =>
+      integrationsApi.updateTrigger(id, request),
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.integrations.taskTriggers() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.triggers.all() })
       queryClient.invalidateQueries({
-        queryKey: queryKeys.integrations.taskTrigger(variables.id),
+        queryKey: queryKeys.triggers.detail(variables.id),
       })
       queryClient.invalidateQueries({
-        queryKey: queryKeys.integrations.taskTriggerRecentTasks(variables.id),
+        queryKey: queryKeys.triggers.recentTasks(variables.id),
       })
     },
   })
 }
 
-export function useDeleteTaskTrigger() {
+export function useDeleteTrigger() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (id: string) => integrationsApi.deleteTaskTrigger(id),
+    mutationFn: (id: string) => integrationsApi.deleteTrigger(id),
     onSuccess: (_data, id) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.integrations.taskTriggers() })
-      queryClient.invalidateQueries({ queryKey: queryKeys.integrations.taskTrigger(id) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.triggers.all() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.triggers.detail(id) })
       queryClient.invalidateQueries({
-        queryKey: queryKeys.integrations.taskTriggerRecentTasks(id),
+        queryKey: queryKeys.triggers.recentTasks(id),
       })
     },
   })
 }
 
-export function useTaskTrigger(triggerId: string) {
+export function useTrigger(triggerId: string) {
   return useQuery({
-    queryKey: queryKeys.integrations.taskTrigger(triggerId),
-    queryFn: () => integrationsApi.getTaskTrigger(triggerId),
+    queryKey: queryKeys.triggers.detail(triggerId),
+    queryFn: () => integrationsApi.getTrigger(triggerId),
     enabled: !!triggerId,
   })
 }
 
 export function useTriggerRecentTasks(triggerId: string, opts?: { limit?: number }) {
   return useQuery<TriggerRecentTaskItem[]>({
-    queryKey: queryKeys.integrations.taskTriggerRecentTasks(triggerId),
+    queryKey: queryKeys.triggers.recentTasks(triggerId),
     queryFn: () => integrationsApi.listTriggerRecentTasks(triggerId, { limit: opts?.limit ?? 10 }),
     enabled: !!triggerId,
   })

@@ -9,14 +9,14 @@ use serde_json::Value;
 
 /// Send a webhook inbound message. Returns the raw response.
 ///
-/// POST /api/v1/integrations/webhook/{trigger_id}
+/// POST /api/v1/adapters/webhook/{trigger_id}
 pub async fn send_webhook_message(
     http: &reqwest::Client,
     trigger_id: &str,
     payload: &Value,
 ) -> reqwest::Response {
     http.post(format!(
-        "{}/api/v1/integrations/webhook/{}",
+        "{}/api/v1/adapters/webhook/{}",
         base_url(),
         trigger_id
     ))
@@ -35,7 +35,7 @@ pub async fn send_webhook_message_with_headers(
 ) -> reqwest::Response {
     let mut req = http
         .post(format!(
-            "{}/api/v1/integrations/webhook/{}",
+            "{}/api/v1/adapters/webhook/{}",
             base_url(),
             trigger_id
         ))
@@ -86,10 +86,10 @@ pub async fn verify_auth_with_headers(
     req.send().await.unwrap()
 }
 
-/// Update a task trigger (PUT).
+/// Update a trigger (PUT).
 ///
 /// PUT /api/v1/triggers/{id}
-pub async fn update_task_trigger(
+pub async fn update_trigger_raw(
     http: &reqwest::Client,
     trigger_id: &str,
     payload: &Value,
@@ -101,11 +101,11 @@ pub async fn update_task_trigger(
         .unwrap()
 }
 
-/// Create a task route and return raw response.
+/// Create a trigger and return raw response.
 ///
-/// POST /api/v1/task-routes
-pub async fn create_task_route_raw(http: &reqwest::Client, payload: &Value) -> reqwest::Response {
-    http.post(format!("{}/api/v1/task-routes", base_url()))
+/// POST /api/v1/triggers
+pub async fn create_trigger_raw(http: &reqwest::Client, payload: &Value) -> reqwest::Response {
+    http.post(format!("{}/api/v1/triggers", base_url()))
         .json(payload)
         .send()
         .await

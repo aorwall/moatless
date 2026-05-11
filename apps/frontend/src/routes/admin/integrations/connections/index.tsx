@@ -2,7 +2,7 @@ import { createFileRoute, Link } from '@tanstack/react-router'
 import { Loader2, Plug, Plus } from 'lucide-react'
 import { useState } from 'react'
 import { AdminPage } from '@/features/admin'
-import { useProviderConnections } from '@/features/integrations/hooks/use-integrations'
+import { useIntegrationConnections } from '@/features/integrations/hooks/use-integrations'
 import { ConnectionFormDialog } from '@/features/settings/components/connection-form-dialog'
 import { Alert, AlertDescription, AlertTitle } from '@/lib/components/ui/alert'
 import { Button } from '@/lib/components/ui/button'
@@ -15,7 +15,7 @@ import {
   TableRow,
 } from '@/lib/components/ui/table'
 
-const PROVIDER_LABELS: Record<string, string> = {
+const ADAPTER_LABELS: Record<string, string> = {
   slack: 'Slack',
   telegram: 'Telegram',
   github: 'GitHub',
@@ -23,8 +23,8 @@ const PROVIDER_LABELS: Record<string, string> = {
   webhook: 'Webhook',
 }
 
-function getProviderLabel(provider: string): string {
-  return PROVIDER_LABELS[provider] ?? provider
+function getAdapterLabel(adapter: string): string {
+  return ADAPTER_LABELS[adapter] ?? adapter
 }
 
 function formatTimestamp(value: string | null | undefined): string {
@@ -43,14 +43,14 @@ export const Route = createFileRoute('/admin/integrations/connections/')({
 })
 
 function ConnectionsListPage() {
-  const { data: connections, isLoading, error } = useProviderConnections()
+  const { data: connections, isLoading, error } = useIntegrationConnections()
   const [dialogOpen, setDialogOpen] = useState(false)
   const items = connections ?? []
 
   return (
     <AdminPage
       title="Connections"
-      description="Provider connections used by triggers to authenticate and route messages."
+      description="Adapter connections used by triggers to authenticate and route messages."
       actions={
         <Button onClick={() => setDialogOpen(true)} size="sm">
           <Plus className="mr-2 h-4 w-4" />
@@ -76,7 +76,7 @@ function ConnectionsListPage() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Provider</TableHead>
+              <TableHead>Adapter</TableHead>
               <TableHead>External Account ID</TableHead>
               <TableHead>Connection Kind</TableHead>
               <TableHead>Created</TableHead>
@@ -85,7 +85,7 @@ function ConnectionsListPage() {
           <TableBody>
             {items.map((connection) => (
               <TableRow key={connection.id}>
-                <TableCell>{getProviderLabel(connection.provider)}</TableCell>
+                <TableCell>{getAdapterLabel(connection.adapterKind)}</TableCell>
                 <TableCell className="font-medium">
                   <Link
                     to="/admin/integrations/connections/$connection-id"

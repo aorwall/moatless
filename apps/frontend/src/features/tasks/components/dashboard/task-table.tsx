@@ -18,7 +18,7 @@ import {
 } from '@/lib/components/ui/table'
 import { useApiError } from '@/lib/hooks/use-api-error'
 
-const channelLabels: Record<string, string> = {
+const adapterLabels: Record<string, string> = {
   slack: 'Slack',
   email: 'Email',
   webhook: 'Webhook',
@@ -160,25 +160,25 @@ const columns: ColumnDef<TaskResponse>[] = [
     },
   },
   {
-    id: 'channel',
-    header: 'Channel',
+    id: 'bindings',
+    header: 'Source',
     cell: ({ row }) => {
-      const channels = row.original.channels
-      if (!channels || channels.length === 0) {
+      const bindings = row.original.bindings
+      if (!bindings || bindings.length === 0) {
         return null
       }
-      const first = channels[0]
+      const first = bindings[0]
       const label = first.sourceName
-        ? `${channelLabels[first.provider] ?? first.provider}: ${first.sourceName}`
-        : (channelLabels[first.provider] ?? first.provider)
+        ? `${adapterLabels[first.adapterKind] ?? first.adapterKind}: ${first.sourceName}`
+        : (adapterLabels[first.adapterKind] ?? first.adapterKind)
       return (
         <div className="flex gap-1 items-center">
           <Badge variant="secondary" className="text-xs">
             {label}
           </Badge>
-          {channels.length > 1 && (
+          {bindings.length > 1 && (
             <Badge variant="outline" className="text-xs">
-              +{channels.length - 1}
+              +{bindings.length - 1}
             </Badge>
           )}
         </div>

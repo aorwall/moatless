@@ -9,13 +9,13 @@ use crate::shared_models::AgentType;
 pub use moatless_api_schemas::enums::{TaskStatus, Visibility};
 
 /// Default idle TTL in minutes for newly inserted tasks when the caller has no
-/// access to platform config (e.g. channel runtimes). Matches the
+/// access to platform config (e.g. integration runtimes). Matches the
 /// `SANDBOX_IDLE_TIMEOUT_MINUTES` env-var default and the `tasks.ttl_minutes`
 /// column default.
 pub const DEFAULT_TTL_MINUTES: i32 = 15;
 
 /// Default inactive TTL in days for newly inserted tasks when the caller has no
-/// access to platform config (e.g. channel runtimes). Matches the
+/// access to platform config (e.g. adapter runtimes). Matches the
 /// `TASK_INACTIVE_TIMEOUT_DAYS` env-var default and the
 /// `tasks.inactive_ttl_days` column default.
 pub const DEFAULT_INACTIVE_TTL_DAYS: i32 = 7;

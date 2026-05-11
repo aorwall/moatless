@@ -2,7 +2,7 @@
 //!
 //! Inspects the persisted `tool_result` blocks for known `gh ...` / `git ...`
 //! commands and dispatches side effects:
-//! - `gh pr create` → connect the channel thread for the new PR + append a
+//! - `gh pr create` → connect the external thread for the new PR + append a
 //!   `Moatless task: <url>` footer to the PR body.
 //! - `gh pr comment` / `gh issue comment` → tag the persisted tool_result row
 //!   with the comment id so the inbound webhook is deduped per-task.
@@ -17,9 +17,9 @@ use serde_json::json;
 use tracing::{debug, info, warn};
 
 use super::models::MessageType;
+use crate::adapters::github_pr::api::GithubPrApi;
 use crate::auth::models::ProviderAccessToken;
-use crate::channel::dao::bindings::PgTaskBindingRepository;
-use crate::channel::github_pr::api::GithubPrApi;
+use crate::bindings::dao::PgTaskBindingRepository;
 use crate::state::AppState;
 
 /// Footer marker so we can detect if the URL was already appended (and skip
@@ -49,7 +49,7 @@ impl ParsedPr {
 ///
 /// `_message_uuid` is the System tool_result row's uuid. We intentionally do
 /// not tag that row anymore — the gh side effects look up the parent Assistant
-/// row's uuid via `find_tool_call` and tag it instead so the channel chip
+/// row's uuid via `find_tool_call` and tag it instead so the source chip
 /// renders on the visible assistant bubble. The argument is kept for
 /// symmetry with sibling persistence hooks.
 pub async fn on_agent_message_persisted(
@@ -143,7 +143,7 @@ async fn handle_gh_pr_create(
         "pr_number": pr.number,
     });
 
-    match crate::channel::listen::connect_github_binding(
+    match crate::triggers::listen::connect_github_binding(
         state,
         &source_id,
         task_id,
@@ -166,11 +166,11 @@ async fn handle_gh_pr_create(
         }
     }
 
-    let external_id = crate::channel::github_pr::external_id::pr_opened(pr.number);
+    let external_id = crate::adapters::github_pr::external_id::pr_opened(pr.number);
     state.recently_sent.note(task_id, &external_id);
     match state
         .messages
-        .set_channel_metadata(parent_uuid, &external_id, "github_pr", Some(&source_id))
+        .set_external_source_metadata(parent_uuid, &external_id, "github_pr", Some(&source_id))
         .await
     {
         Ok(true) => {
@@ -178,7 +178,7 @@ async fn handle_gh_pr_create(
                 task_id,
                 parent_uuid,
                 pr_number = pr.number,
-                "Tagged assistant tool_use row with channel_external_id for gh pr create"
+                "Tagged assistant tool_use row with external_event_id for gh pr create"
             );
         }
         Ok(false) => {
@@ -186,11 +186,11 @@ async fn handle_gh_pr_create(
                 task_id,
                 parent_uuid,
                 pr_number = pr.number,
-                "Assistant row already had channel_external_id — leaving untouched"
+                "Assistant row already had external_event_id — leaving untouched"
             );
         }
         Err(e) => {
-            warn!(task_id, parent_uuid, pr_number = pr.number, error = %e, "Failed to tag assistant row with channel_external_id");
+            warn!(task_id, parent_uuid, pr_number = pr.number, error = %e, "Failed to tag assistant row with external_event_id");
         }
     }
 
@@ -293,12 +293,12 @@ async fn handle_gh_comment(state: &AppState, task_id: &str, parent_uuid: &str, r
 
     // Wrap in the issue-comment namespace so the tagged row matches what the
     // GitHub `issue_comment` webhook will produce for the same comment.
-    let external_id = crate::channel::github_pr::external_id::issue_comment(parsed.id);
+    let external_id = crate::adapters::github_pr::external_id::issue_comment(parsed.id);
     state.recently_sent.note(task_id, &external_id);
     let source_name = format!("{}/{}", parsed.owner, parsed.repo);
     match state
         .messages
-        .set_channel_metadata(parent_uuid, &external_id, "github_pr", Some(&source_name))
+        .set_external_source_metadata(parent_uuid, &external_id, "github_pr", Some(&source_name))
         .await
     {
         Ok(true) => {
@@ -306,7 +306,7 @@ async fn handle_gh_comment(state: &AppState, task_id: &str, parent_uuid: &str, r
                 task_id,
                 parent_uuid,
                 comment_id = parsed.id,
-                "Tagged assistant tool_use row with channel_external_id for gh comment"
+                "Tagged assistant tool_use row with external_event_id for gh comment"
             );
         }
         Ok(false) => {
@@ -314,11 +314,11 @@ async fn handle_gh_comment(state: &AppState, task_id: &str, parent_uuid: &str, r
                 task_id,
                 parent_uuid,
                 comment_id = parsed.id,
-                "Assistant row already had channel_external_id — leaving untouched"
+                "Assistant row already had external_event_id — leaving untouched"
             );
         }
         Err(e) => {
-            warn!(task_id, parent_uuid, comment_id = parsed.id, error = %e, "Failed to tag assistant row with channel_external_id");
+            warn!(task_id, parent_uuid, comment_id = parsed.id, error = %e, "Failed to tag assistant row with external_event_id");
         }
     }
 }
@@ -456,11 +456,11 @@ async fn handle_git_push(state: &AppState, task_id: &str, parent_uuid: &str, res
         return;
     };
 
-    let external_id = crate::channel::github_pr::external_id::pr_synchronize(pr_number, &head_sha);
+    let external_id = crate::adapters::github_pr::external_id::pr_synchronize(pr_number, &head_sha);
     state.recently_sent.note(task_id, &external_id);
     match state
         .messages
-        .set_channel_metadata(parent_uuid, &external_id, "github_pr", Some(&repo_full))
+        .set_external_source_metadata(parent_uuid, &external_id, "github_pr", Some(&repo_full))
         .await
     {
         Ok(true) => {
@@ -469,7 +469,7 @@ async fn handle_git_push(state: &AppState, task_id: &str, parent_uuid: &str, res
                 parent_uuid,
                 pr_number,
                 head_sha = %head_sha,
-                "Tagged assistant tool_use row with channel_external_id for git push"
+                "Tagged assistant tool_use row with external_event_id for git push"
             );
         }
         Ok(false) => {
@@ -477,11 +477,11 @@ async fn handle_git_push(state: &AppState, task_id: &str, parent_uuid: &str, res
                 task_id,
                 parent_uuid,
                 pr_number,
-                "Assistant row already had channel_external_id — leaving untouched"
+                "Assistant row already had external_event_id — leaving untouched"
             );
         }
         Err(e) => {
-            warn!(task_id, parent_uuid, pr_number, error = %e, "Failed to tag assistant row with channel_external_id for git push");
+            warn!(task_id, parent_uuid, pr_number, error = %e, "Failed to tag assistant row with external_event_id for git push");
         }
     }
 }

@@ -83,7 +83,7 @@ impl TaskTemplateRepository for PgTaskTemplateRepository {
         id: &str,
         ctx: &ScopeContext,
     ) -> Result<Option<TaskTemplate>, sqlx::Error> {
-        let access = ctx.access_filter(ScopedEntity::Integration, "", 2);
+        let access = ctx.access_filter(ScopedEntity::Resource, "", 2);
         let sql = format!(
             "SELECT id, name, description, icon, color, repository_id, agent_type, agent_mode, \
              default_model, initial_prompt, skills, scope, team_id, owner_user_id, featured, display_order, \
@@ -101,7 +101,7 @@ impl TaskTemplateRepository for PgTaskTemplateRepository {
     }
 
     async fn list_for_user(&self, ctx: &ScopeContext) -> Result<Vec<TaskTemplate>, sqlx::Error> {
-        let access = ctx.access_filter(ScopedEntity::Integration, "", 1);
+        let access = ctx.access_filter(ScopedEntity::Resource, "", 1);
         let sql = format!(
             "SELECT id, name, description, icon, color, repository_id, agent_type, agent_mode, \
              default_model, initial_prompt, skills, scope, team_id, owner_user_id, featured, display_order, \
@@ -125,7 +125,7 @@ impl TaskTemplateRepository for PgTaskTemplateRepository {
     ) -> Result<Vec<TaskTemplate>, sqlx::Error> {
         // Server-side merge: user's recent-used first (JOIN tasks), then featured,
         // deduped, capped at limit. Leak-check: tasks join filters by created_by = user_id.
-        let access = ctx.access_filter(ScopedEntity::Integration, "tt.", 2);
+        let access = ctx.access_filter(ScopedEntity::Resource, "tt.", 2);
         let sql = format!(
             "SELECT tt.id, tt.name, tt.description, tt.icon, tt.color, tt.repository_id, \
              tt.agent_type, tt.agent_mode, tt.default_model, tt.initial_prompt, tt.skills, \

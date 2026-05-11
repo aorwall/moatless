@@ -8,7 +8,7 @@
 import type { AgentType } from './agentType';
 import type { Scope } from './scope';
 import type { TagResponse } from './tagResponse';
-import type { TaskChannelResponse } from './taskChannelResponse';
+import type { TaskBindingSummary } from './taskBindingSummary';
 import type { TaskStatus } from './taskStatus';
 import type { Visibility } from './visibility';
 
@@ -18,9 +18,9 @@ export interface TaskResponse {
   agentType: AgentType;
   /** @nullable */
   appendSystemPrompt?: string | null;
+  bindings?: TaskBindingSummary[];
   /** @nullable */
   branch?: string | null;
-  channels?: TaskChannelResponse[];
   createdAt: string;
   /** @nullable */
   createdBy?: string | null;

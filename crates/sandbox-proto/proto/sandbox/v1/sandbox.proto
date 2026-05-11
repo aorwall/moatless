@@ -17,7 +17,7 @@ service BackendSandboxService {
   rpc GetCredentials(GetCredentialsRequest) returns (GetCredentialsResponse);
 
   // Fetch the assembled append-system-prompt for a task. Backend owns assembly
-  // (task name, repo prompt, channel prompt, server section, task URL, CLI
+  // (task name, repo prompt, external-source prompt, server section, task URL, CLI
   // hints); sandbox calls this once per agent run and caches the result for
   // fallback on subsequent gRPC failures.
   rpc GetSystemPrompt(GetSystemPromptRequest) returns (GetSystemPromptResponse);

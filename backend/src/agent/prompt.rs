@@ -20,7 +20,7 @@ pub struct PromptInputs<'a> {
     pub task_name: Option<&'a str>,
     /// Set when this task was spawned by another task.
     pub parent_task_id: Option<&'a str>,
-    /// `Task.append_system_prompt` — channel-set instructions.
+    /// `Task.append_system_prompt` — trigger-set instructions.
     pub task_append_system_prompt: Option<&'a str>,
     /// `Repository.system_prompt`.
     pub repo_system_prompt: Option<&'a str>,
@@ -45,7 +45,7 @@ const SANDBOX_TOOLS_PROMPT: &str = "\
 Available `moat` commands:
 - `moat set-name \"<name>\"` — Update the task name
 - `moat set-tags <tag1> <tag2> ...` — Set tags on this task
-- `moat reply --text \"<text>\"` — Send a reply back to the channel that triggered this task (Slack, etc.)
+- `moat reply --text \"<text>\"` — Send a reply back to the external target that triggered this task (Slack, etc.)
 - `moat tasks status $TASK_ID` — Show sandbox status including server states
 - `moat tasks logs $TASK_ID --server <name>` — Stream server logs (e.g., `--server preview`)
 - `moat tasks diagnose $TASK_ID` — Diagnose sandbox issues (status + container diagnostics + recent errors)
@@ -342,20 +342,20 @@ mod tests {
     }
 
     #[test]
-    fn repo_and_channel_prompts_both_included() {
+    fn repo_and_trigger_prompts_both_included() {
         let inputs = PromptInputs {
             repo_system_prompt: Some("REPO PROMPT TEXT"),
-            task_append_system_prompt: Some("CHANNEL PROMPT TEXT"),
+            task_append_system_prompt: Some("TRIGGER PROMPT TEXT"),
             ..base_inputs("task-123")
         };
         let prompt = build_append_system_prompt(&inputs);
         assert!(prompt.contains("REPO PROMPT TEXT"));
-        assert!(prompt.contains("CHANNEL PROMPT TEXT"));
+        assert!(prompt.contains("TRIGGER PROMPT TEXT"));
         let repo_idx = prompt.find("REPO PROMPT TEXT").unwrap();
-        let channel_idx = prompt.find("CHANNEL PROMPT TEXT").unwrap();
+        let trigger_idx = prompt.find("TRIGGER PROMPT TEXT").unwrap();
         assert!(
-            repo_idx < channel_idx,
-            "repo prompt must come before channel prompt"
+            repo_idx < trigger_idx,
+            "repo prompt must come before trigger prompt"
         );
     }
 

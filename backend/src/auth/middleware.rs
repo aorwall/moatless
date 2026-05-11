@@ -44,20 +44,24 @@ fn is_exempt(path: &str) -> bool {
         return true;
     }
 
-    // Webhook and slash-command endpoints use provider-specific verification (HMAC, secret token, etc.)
-    // Match /api/v1/integrations/{provider}/webhook,
-    // /api/v1/integrations/webhook/{trigger_id}, and
-    // /api/v1/integrations/{provider}/slash.
-    // Also accept the legacy /api/v1/channels/... prefix for external systems
-    // (Slack apps, GitHub webhooks, etc.) configured before the rename.
-    for prefix in ["/api/v1/integrations/", "/api/v1/channels/"] {
-        if let Some(rest) = path.strip_prefix(prefix) {
-            let segments: Vec<&str> = rest.split('/').filter(|s| !s.is_empty()).collect();
-            if segments.len() >= 2
-                && (segments[1] == "webhook" || segments[1] == "slash" || segments[0] == "webhook")
-            {
-                return true;
-            }
+    // Webhook and slash-command endpoints use adapter-specific verification (HMAC, secret token, etc.)
+    // Match /api/v1/adapters/{adapter}/webhook,
+    // /api/v1/adapters/webhook/{trigger_id}, and
+    // /api/v1/adapters/{adapter}/slash.
+    if let Some(rest) = path.strip_prefix("/api/v1/adapters/") {
+        let segments: Vec<&str> = rest.split('/').filter(|s| !s.is_empty()).collect();
+        if segments.len() >= 2
+            && (segments[1] == "webhook" || segments[1] == "slash" || segments[0] == "webhook")
+        {
+            return true;
+        }
+    }
+
+    // Legacy webhook callback aliases. These are the only `/channels/*` routes.
+    if let Some(rest) = path.strip_prefix("/api/v1/channels/") {
+        let segments: Vec<&str> = rest.split('/').filter(|s| !s.is_empty()).collect();
+        if segments.len() >= 2 && (segments[1] == "webhook" || segments[0] == "webhook") {
+            return true;
         }
     }
 
@@ -65,7 +69,7 @@ fn is_exempt(path: &str) -> bool {
     matches!(
         path,
         "/api/v1/feature-flags"
-            | "/api/v1/integrations/providers"
+            | "/api/v1/adapters"
             | "/health"
             | "/healthz"
             | "/ready"
@@ -222,30 +226,25 @@ mod tests {
 
     #[test]
     fn exempt_webhook_routes() {
-        assert!(is_exempt("/api/v1/integrations/slack/webhook"));
-        assert!(is_exempt("/api/v1/integrations/slack/webhook/"));
-        assert!(is_exempt("/api/v1/integrations/telegram/webhook"));
-        assert!(is_exempt("/api/v1/integrations/github/webhook"));
-        assert!(is_exempt("/api/v1/integrations/linear/webhook"));
-        assert!(is_exempt("/api/v1/integrations/webhook/trigger-123"));
-        assert!(is_exempt("/api/v1/integrations/slack/slash"));
-        // Legacy /api/v1/channels/... aliases (kept for external systems
-        // configured before the integrations rename).
+        assert!(is_exempt("/api/v1/adapters/slack/webhook"));
+        assert!(is_exempt("/api/v1/adapters/slack/webhook/"));
+        assert!(is_exempt("/api/v1/adapters/telegram/webhook"));
+        assert!(is_exempt("/api/v1/adapters/github/webhook"));
+        assert!(is_exempt("/api/v1/adapters/linear/webhook"));
+        assert!(is_exempt("/api/v1/adapters/webhook/trigger-123"));
+        assert!(is_exempt("/api/v1/adapters/slack/slash"));
         assert!(is_exempt("/api/v1/channels/slack/webhook"));
-        assert!(is_exempt("/api/v1/channels/slack/slash"));
-        assert!(is_exempt("/api/v1/channels/telegram/webhook"));
-        assert!(is_exempt("/api/v1/channels/github-pr/webhook"));
-        assert!(is_exempt("/api/v1/channels/linear/webhook"));
         assert!(is_exempt("/api/v1/channels/webhook/trigger-123"));
+        assert!(!is_exempt("/api/v1/channels/slack/slash"));
         // Non-webhook integration routes should NOT be exempt.
-        assert!(!is_exempt("/api/v1/integrations/connections"));
+        assert!(!is_exempt("/api/v1/adapters/connections"));
         assert!(!is_exempt("/api/v1/triggers"));
     }
 
     #[test]
     fn exempt_public_routes() {
         assert!(is_exempt("/api/v1/feature-flags"));
-        assert!(is_exempt("/api/v1/integrations/providers"));
+        assert!(is_exempt("/api/v1/adapters"));
         assert!(is_exempt("/health"));
         assert!(is_exempt("/healthz"));
         assert!(is_exempt("/ready"));

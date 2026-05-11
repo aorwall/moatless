@@ -59,7 +59,7 @@ pub enum PollStatus {
 /// The JWT signature is NOT verified — we only read it for display. The
 /// trustworthy step is the server-side token exchange against `oauth/token`
 /// which runs over TLS to `auth.openai.com` and only accepts `code_verifier`
-/// pairs we received over that same channel.
+/// pairs we received over that same path.
 #[derive(Debug, Clone, Default)]
 pub struct IdTokenClaims {
     pub email: Option<String>,

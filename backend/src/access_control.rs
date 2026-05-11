@@ -186,7 +186,7 @@ async fn ensure_system_team(state: &AppState) -> Result<String, AccessControlErr
         created_at: now,
         updated_at: now,
     };
-    state.teams.insert(&team).await?;
+    state.teams.insert_if_absent(&team).await?;
     Ok(SYSTEM_TEAM_ID.to_string())
 }
 
@@ -212,7 +212,7 @@ async fn ensure_personal_team(
             created_at: now,
             updated_at: now,
         };
-        state.teams.insert(&team).await?;
+        state.teams.insert_if_absent(&team).await?;
     }
 
     state

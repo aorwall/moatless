@@ -17,6 +17,7 @@ pub trait TeamRepository: Send + Sync {
     ) -> Result<Option<Team>, sqlx::Error>;
     async fn list_all(&self) -> Result<Vec<Team>, sqlx::Error>;
     async fn insert(&self, team: &Team) -> Result<(), sqlx::Error>;
+    async fn insert_if_absent(&self, team: &Team) -> Result<(), sqlx::Error>;
     async fn update(
         &self,
         id: &str,
@@ -86,6 +87,27 @@ impl TeamRepository for PgTeamRepository {
         sqlx::query(
             r#"INSERT INTO teams (id, name, slug, description, external_id, external_provider, is_default, settings, created_at, updated_at)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"#,
+        )
+        .bind(&team.id)
+        .bind(&team.name)
+        .bind(&team.slug)
+        .bind(&team.description)
+        .bind(&team.external_id)
+        .bind(&team.external_provider)
+        .bind(team.is_default)
+        .bind(&team.settings)
+        .bind(team.created_at)
+        .bind(team.updated_at)
+        .execute(&self.0)
+        .await?;
+        Ok(())
+    }
+
+    async fn insert_if_absent(&self, team: &Team) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"INSERT INTO teams (id, name, slug, description, external_id, external_provider, is_default, settings, created_at, updated_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+               ON CONFLICT (id) DO NOTHING"#,
         )
         .bind(&team.id)
         .bind(&team.name)

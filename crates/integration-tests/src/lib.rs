@@ -7,13 +7,14 @@ pub mod callback_server;
 pub mod raw_api;
 pub mod sandbox_helpers;
 
-use moatless_api_schemas::channel::{
-    CreateProviderConnectionRequest, CreateTaskRouteRequest, CreateTaskTriggerRequest,
-    ProviderConnectionResponse, TaskRouteResponse, TaskTriggerResponse,
-};
+use moatless_api_schemas::adapters::{AdapterConnectionResponse, CreateAdapterConnectionRequest};
 use moatless_api_schemas::enums::RepositoryKind;
-use moatless_api_schemas::enums::{IntegrationProvider, RoutingMode};
+use moatless_api_schemas::enums::{AdapterKind, RoutingMode};
 use moatless_api_schemas::repository::CreateRepositoryRequest;
+use moatless_api_schemas::triggers::{
+    CreateAdapterEventTriggerSource, CreateTriggerRequest, CreateTriggerRule, CreateTriggerSource,
+    TriggerKind, TriggerResponse,
+};
 use moatless_cli::client::MoatClient;
 
 /// Create a test client with no auth headers.
@@ -143,12 +144,11 @@ pub async fn ensure_template_repo(client: &MoatClient) -> String {
     client.api().create_repository(&req).await.unwrap().id
 }
 
-/// Canonical webhook integration fixture: one provider connection, task route,
-/// and task trigger.
+/// Canonical webhook integration fixture: one integration connection and one
+/// unified adapter-event trigger with an embedded rule.
 pub struct WebhookIntegrationFixture {
-    pub connection: ProviderConnectionResponse,
-    pub route: TaskRouteResponse,
-    pub trigger: TaskTriggerResponse,
+    pub connection: AdapterConnectionResponse,
+    pub trigger: TriggerResponse,
 }
 
 pub async fn create_webhook_integration(
@@ -160,8 +160,8 @@ pub async fn create_webhook_integration(
 ) -> WebhookIntegrationFixture {
     let connection = client
         .api()
-        .create_integration_connection(&CreateProviderConnectionRequest {
-            provider: IntegrationProvider::Webhook,
+        .create_adapter_connection(&CreateAdapterConnectionRequest {
+            adapter_kind: AdapterKind::Webhook,
             connection_kind: Some("incoming_webhook".into()),
             external_account_id: source_matcher.into(),
             webhook_secret: None,
@@ -173,46 +173,41 @@ pub async fn create_webhook_integration(
         .await
         .unwrap();
 
-    let route = client
-        .api()
-        .create_task_route(&CreateTaskRouteRequest {
-            repository_id: repository_id.into(),
-            routing_mode,
-            ongoing_task_id: None,
-            prompt_template: None,
-            task_name: None,
-            tag_ids: None,
-            run_as_user_id: None,
-            agent_type: None,
-            scope: None,
-            team_id: None,
-        })
-        .await
-        .unwrap();
-
     let trigger = client
         .api()
-        .create_task_trigger(&CreateTaskTriggerRequest {
-            provider: IntegrationProvider::Webhook,
-            connection_id: connection.id.clone(),
-            source_matcher: source_matcher.into(),
-            source_name: Some(source_matcher.into()),
-            event_filter: None,
-            trigger_config,
-            route_id: route.id.clone(),
-            allow_direct_send: Some(false),
-            close_task_on_close: Some(true),
-            notify_on_success: Some(false),
+        .create_trigger(&CreateTriggerRequest {
+            name: Some(source_matcher.into()),
+            kind: TriggerKind::AdapterEvent,
             active: Some(true),
             scope: None,
             team_id: None,
+            rule: CreateTriggerRule {
+                repository_id: repository_id.into(),
+                routing_mode,
+                ongoing_task_id: None,
+                task_name: None,
+                prompt: None,
+                tag_ids: None,
+                run_as_user_id: None,
+                agent_type: None,
+            },
+            source: CreateTriggerSource::AdapterEvent(CreateAdapterEventTriggerSource {
+                adapter_kind: AdapterKind::Webhook,
+                connection_id: connection.id.clone(),
+                source_matcher: source_matcher.into(),
+                source_name: Some(source_matcher.into()),
+                event_filter: None,
+                adapter_config: trigger_config,
+                allow_direct_send: Some(false),
+                close_task_on_close: Some(true),
+                notify_on_success: Some(false),
+            }),
         })
         .await
         .unwrap();
 
     WebhookIntegrationFixture {
         connection,
-        route,
         trigger,
     }
 }
@@ -231,13 +226,14 @@ pub fn reset_database() {
         "repository_plugin_repos",
         "plugin_repos",
         "repositories",
-        "event_receipts",
+        "trigger_receipts",
         "task_bindings",
-        "scheduled_jobs",
-        "task_triggers",
-        "task_routes",
-        "provider_connections",
-        "channel_pairing_requests",
+        "adapter_event_trigger_sources",
+        "schedule_trigger_sources",
+        "trigger_rules",
+        "triggers",
+        "integration_connections",
+        "integration_pairing_requests",
         "team_members",
         "teams",
         "sessions",

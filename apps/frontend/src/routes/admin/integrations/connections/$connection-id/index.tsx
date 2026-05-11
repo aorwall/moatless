@@ -1,10 +1,10 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { Loader2 } from 'lucide-react'
 import { AdminPage } from '@/features/admin'
-import { useProviderConnections } from '@/features/integrations/hooks/use-integrations'
+import { useIntegrationConnections } from '@/features/integrations/hooks/use-integrations'
 import { DetailItem } from '@/features/settings/components/detail-item'
 
-const PROVIDER_LABELS: Record<string, string> = {
+const ADAPTER_LABELS: Record<string, string> = {
   slack: 'Slack',
   telegram: 'Telegram',
   github: 'GitHub',
@@ -12,8 +12,8 @@ const PROVIDER_LABELS: Record<string, string> = {
   webhook: 'Webhook',
 }
 
-function getProviderLabel(provider: string): string {
-  return PROVIDER_LABELS[provider] ?? provider
+function getAdapterLabel(adapter: string): string {
+  return ADAPTER_LABELS[adapter] ?? adapter
 }
 
 function formatTimestamp(value: string | null | undefined): string {
@@ -34,13 +34,13 @@ export const Route = createFileRoute('/admin/integrations/connections/$connectio
 function ConnectionDetailPage() {
   const params = Route.useParams()
   const connectionId = params['connection-id']
-  const { data: connections, isLoading } = useProviderConnections()
+  const { data: connections, isLoading } = useIntegrationConnections()
   const connection = connections?.find((item) => item.id === connectionId)
 
   return (
     <AdminPage
       title={connection?.externalAccountId ?? 'Connection'}
-      description={connection ? `${getProviderLabel(connection.provider)} connection` : undefined}
+      description={connection ? `${getAdapterLabel(connection.adapterKind)} connection` : undefined}
       backTo={{ to: '/admin/integrations/connections', label: 'Back to connections' }}
     >
       {isLoading ? (
@@ -54,7 +54,7 @@ function ConnectionDetailPage() {
         </div>
       ) : (
         <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2 rounded-md border p-4">
-          <DetailItem label="Provider" value={getProviderLabel(connection.provider)} />
+          <DetailItem label="Adapter" value={getAdapterLabel(connection.adapterKind)} />
           <DetailItem label="Connection Kind" value={connection.connectionKind} />
           <DetailItem label="External Account ID" value={connection.externalAccountId} />
           <DetailItem label="Scope" value={connection.scope} />

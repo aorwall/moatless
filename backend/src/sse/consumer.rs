@@ -2,7 +2,7 @@
 //!
 //! Scans for `task-events:*` streams, creates consumer groups, and reads
 //! events via `XREADGROUP`. Each event's `payload` field (raw JSON) is
-//! broadcast to all connected SSE clients via a `tokio::sync::broadcast` channel.
+//! broadcast to all connected SSE clients via the shared SSE event bus.
 
 use redis::aio::ConnectionManager;
 use redis::Value;

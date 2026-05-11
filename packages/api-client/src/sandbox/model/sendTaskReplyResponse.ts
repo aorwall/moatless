@@ -5,11 +5,11 @@
  * Sandbox orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
-import type { ChannelTargetDescriptor } from './channelTargetDescriptor';
+import type { ReplyTargetDescriptor } from './replyTargetDescriptor';
 
 export interface SendTaskReplyResponse {
   errors: string[];
   /** @minimum 0 */
   sentCount: number;
-  targets?: ChannelTargetDescriptor[];
+  targets?: ReplyTargetDescriptor[];
 }

@@ -1,43 +1,39 @@
 import {
-  type CreateProviderConnectionRequest,
-  type CreateTaskTriggerRequest,
-  IntegrationProvider,
-  type ProviderConnectionResponse,
+  type AdapterConnectionResponse,
+  AdapterKind,
+  type CreateAdapterConnectionRequest,
+  type CreateTriggerRequest,
   RoutingMode,
   Scope,
-  type TaskTriggerResponse,
+  TriggerKind,
+  type TriggerResponse,
 } from '@moatless/api-client'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { integrationsApi } from '../integrations.api'
 
-const mockListIntegrationProviders = vi.hoisted(() => vi.fn())
-const mockListProviderConnections = vi.hoisted(() => vi.fn())
-const mockCreateProviderConnection = vi.hoisted(() => vi.fn())
-const mockListTaskRoutes = vi.hoisted(() => vi.fn())
-const mockCreateTaskRoute = vi.hoisted(() => vi.fn())
-const mockUpdateTaskRoute = vi.hoisted(() => vi.fn())
-const mockListTaskTriggers = vi.hoisted(() => vi.fn())
-const mockCreateTaskTrigger = vi.hoisted(() => vi.fn())
-const mockUpdateTaskTrigger = vi.hoisted(() => vi.fn())
-const mockDeleteTaskTrigger = vi.hoisted(() => vi.fn())
+const mockListAdapters = vi.hoisted(() => vi.fn())
+const mockListAdapterConnections = vi.hoisted(() => vi.fn())
+const mockCreateAdapterConnection = vi.hoisted(() => vi.fn())
+const mockListTriggers = vi.hoisted(() => vi.fn())
+const mockCreateTrigger = vi.hoisted(() => vi.fn())
+const mockUpdateTrigger = vi.hoisted(() => vi.fn())
+const mockDeleteTrigger = vi.hoisted(() => vi.fn())
+const mockGetTrigger = vi.hoisted(() => vi.fn())
+const mockListTriggerRecentTasks = vi.hoisted(() => vi.fn())
 
-vi.mock('@moatless/api-client/sandbox/integrations/integrations', () => ({
-  listIntegrationProviders: mockListIntegrationProviders,
-  listProviderConnections: mockListProviderConnections,
-  createProviderConnection: mockCreateProviderConnection,
-}))
-
-vi.mock('@moatless/api-client/sandbox/task-routes/task-routes', () => ({
-  listTaskRoutes: mockListTaskRoutes,
-  createTaskRoute: mockCreateTaskRoute,
-  updateTaskRoute: mockUpdateTaskRoute,
+vi.mock('@moatless/api-client/sandbox/adapters/adapters', () => ({
+  listAdapters: mockListAdapters,
+  listAdapterConnections: mockListAdapterConnections,
+  createAdapterConnection: mockCreateAdapterConnection,
 }))
 
 vi.mock('@moatless/api-client/sandbox/triggers/triggers', () => ({
-  listTaskTriggers: mockListTaskTriggers,
-  createTaskTrigger: mockCreateTaskTrigger,
-  updateTaskTrigger: mockUpdateTaskTrigger,
-  deleteTaskTrigger: mockDeleteTaskTrigger,
+  listTriggers: mockListTriggers,
+  createTrigger: mockCreateTrigger,
+  updateTrigger: mockUpdateTrigger,
+  deleteTrigger: mockDeleteTrigger,
+  getTrigger: mockGetTrigger,
+  listTriggerRecentTasks: mockListTriggerRecentTasks,
 }))
 
 describe('integrationsApi', () => {
@@ -45,18 +41,18 @@ describe('integrationsApi', () => {
     vi.clearAllMocks()
   })
 
-  it('uses generated provider and trigger handlers for trigger creation inputs', async () => {
-    const connectionRequest: CreateProviderConnectionRequest = {
-      provider: IntegrationProvider.slack,
+  it('uses generated adapter and connection handlers', async () => {
+    const connectionRequest: CreateAdapterConnectionRequest = {
+      adapterKind: AdapterKind.slack,
       externalAccountId: 'T123',
       sourceName: 'Workspace',
       connectionKind: 'bot_api',
       webhookSecret: null,
       transportConfig: null,
     }
-    const connectionResponse: ProviderConnectionResponse = {
+    const connectionResponse: AdapterConnectionResponse = {
       id: 'connection-1',
-      provider: IntegrationProvider.slack,
+      adapterKind: AdapterKind.slack,
       externalAccountId: 'T123',
       connectionKind: 'bot_api',
       createdBy: 'user-1',
@@ -64,76 +60,87 @@ describe('integrationsApi', () => {
       updatedAt: '2026-05-07T10:00:00Z',
       scope: Scope.user,
     }
-    const triggerRequest: CreateTaskTriggerRequest = {
-      provider: IntegrationProvider.slack,
-      connectionId: connectionResponse.id,
-      sourceMatcher: 'C123',
-      sourceName: '#triage',
-      routeId: 'route-1',
+
+    mockListAdapters.mockResolvedValue(['slack'])
+    mockListAdapterConnections.mockResolvedValue([connectionResponse])
+    mockCreateAdapterConnection.mockResolvedValue(connectionResponse)
+
+    await expect(integrationsApi.listAdapters()).resolves.toEqual(['slack'])
+    await expect(integrationsApi.listAdapterConnections()).resolves.toEqual([connectionResponse])
+    await expect(integrationsApi.createAdapterConnection(connectionRequest)).resolves.toEqual(
+      connectionResponse,
+    )
+
+    expect(mockCreateAdapterConnection).toHaveBeenCalledWith(connectionRequest)
+  })
+
+  it('uses generated unified trigger handlers', async () => {
+    const triggerRequest: CreateTriggerRequest = {
+      kind: TriggerKind.adapter_event,
       active: true,
-      eventFilter: {},
-      triggerConfig: { trigger: 'mention_only' },
+      rule: {
+        repositoryId: 'repo-1',
+        routingMode: RoutingMode.by_subject,
+        prompt: null,
+        taskName: null,
+        tagIds: [],
+      },
+      source: {
+        adapterKind: AdapterKind.slack,
+        connectionId: 'connection-1',
+        sourceMatcher: 'C123',
+        sourceName: '#triage',
+        eventFilter: {},
+        adapterConfig: { trigger: 'mention_only' },
+      },
     }
-    const triggerResponse: TaskTriggerResponse = {
+    const triggerResponse: TriggerResponse = {
       id: 'trigger-1',
-      provider: IntegrationProvider.slack,
-      connectionId: connectionResponse.id,
-      sourceMatcher: 'C123',
-      sourceName: '#triage',
-      routeId: 'route-1',
+      kind: TriggerKind.adapter_event,
+      name: null,
       active: true,
-      eventFilter: {},
-      triggerConfig: { trigger: 'mention_only' },
-      allowDirectSend: false,
-      closeTaskOnClose: true,
-      notifyOnSuccess: false,
       createdBy: 'user-1',
       createdAt: '2026-05-07T10:00:00Z',
       updatedAt: '2026-05-07T11:00:00Z',
       scope: Scope.user,
+      rule: {
+        repositoryId: 'repo-1',
+        routingMode: RoutingMode.by_subject,
+        ongoingTaskId: null,
+        taskName: null,
+        prompt: null,
+        tagIds: [],
+        runAsUserId: null,
+        agentType: 'claude-code',
+      },
+      source: {
+        adapterKind: AdapterKind.slack,
+        connectionId: 'connection-1',
+        sourceMatcher: 'C123',
+        sourceName: '#triage',
+        eventFilter: {},
+        adapterConfig: { trigger: 'mention_only' },
+        allowDirectSend: false,
+        closeTaskOnClose: true,
+        notifyOnSuccess: false,
+      },
     }
 
-    mockCreateProviderConnection.mockResolvedValue(connectionResponse)
-    mockCreateTaskTrigger.mockResolvedValue(triggerResponse)
+    mockListTriggers.mockResolvedValue([triggerResponse])
+    mockCreateTrigger.mockResolvedValue(triggerResponse)
+    mockUpdateTrigger.mockResolvedValue(triggerResponse)
+    mockGetTrigger.mockResolvedValue(triggerResponse)
+    mockDeleteTrigger.mockResolvedValue(undefined)
 
-    await expect(integrationsApi.createProviderConnection(connectionRequest)).resolves.toEqual(
-      connectionResponse,
-    )
-    await expect(integrationsApi.createTaskTrigger(triggerRequest)).resolves.toEqual(
+    await expect(integrationsApi.listTriggers()).resolves.toEqual([triggerResponse])
+    await expect(integrationsApi.createTrigger(triggerRequest)).resolves.toEqual(triggerResponse)
+    await expect(integrationsApi.updateTrigger('trigger-1', { active: false })).resolves.toEqual(
       triggerResponse,
     )
+    await expect(integrationsApi.getTrigger('trigger-1')).resolves.toEqual(triggerResponse)
+    await expect(integrationsApi.deleteTrigger('trigger-1')).resolves.toBeUndefined()
 
-    expect(mockCreateProviderConnection).toHaveBeenCalledWith(connectionRequest)
-    expect(mockCreateTaskTrigger).toHaveBeenCalledWith(triggerRequest)
-  })
-
-  it('uses generated task route handlers', async () => {
-    const routeRequest = {
-      repositoryId: 'repo-1',
-      routingMode: RoutingMode.by_subject,
-      promptTemplate: null,
-      taskName: null,
-      tagIds: [],
-    }
-    const routeResponse = {
-      id: 'route-1',
-      ...routeRequest,
-      agentType: 'claude',
-      createdBy: 'user-1',
-      createdAt: '2026-05-07T10:00:00Z',
-      updatedAt: '2026-05-07T10:00:00Z',
-      scope: Scope.user,
-    }
-
-    mockCreateTaskRoute.mockResolvedValue(routeResponse)
-    mockUpdateTaskRoute.mockResolvedValue(routeResponse)
-
-    await expect(integrationsApi.createTaskRoute(routeRequest)).resolves.toEqual(routeResponse)
-    await expect(integrationsApi.updateTaskRoute('route-1', routeRequest)).resolves.toEqual(
-      routeResponse,
-    )
-
-    expect(mockCreateTaskRoute).toHaveBeenCalledWith(routeRequest)
-    expect(mockUpdateTaskRoute).toHaveBeenCalledWith('route-1', routeRequest)
+    expect(mockCreateTrigger).toHaveBeenCalledWith(triggerRequest)
+    expect(mockUpdateTrigger).toHaveBeenCalledWith('trigger-1', { active: false })
   })
 })

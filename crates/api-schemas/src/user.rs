@@ -40,8 +40,9 @@ pub struct SendDmRequest {
 pub struct SendDmResponse {
     /// The created or updated task_binding id.
     pub binding_id: String,
-    /// DM channel ID opened (Slack: starts with "D").
-    pub channel_id: String,
+    /// External DM conversation ID opened by the adapter.
+    #[serde(rename = "conversationId")]
+    pub conversation_id: String,
     /// Message timestamp (Slack ts).
     pub message_ts: String,
 }

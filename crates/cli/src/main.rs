@@ -6,7 +6,7 @@
 //! - **Standalone** (human user): login/logout, no sandbox-only commands
 
 use clap::{Parser, Subcommand};
-use moatless_api_schemas::channel::SendTaskReplyRequest;
+use moatless_api_schemas::bindings::SendTaskReplyRequest;
 use moatless_api_schemas::task::{SetTagsRequest, UpdateTaskMetadataRequest};
 
 use moatless_cli::auth;
@@ -51,32 +51,20 @@ enum SharedCommands {
         #[command(subcommand)]
         action: Box<commands::repos::RepoAction>,
     },
-    /// Integration provider management
-    Integrations {
+    /// Adapter connection management
+    Adapters {
         #[command(subcommand)]
-        action: commands::integrations::IntegrationsAction,
-    },
-    /// Task route management
-    #[command(name = "task-routes")]
-    TaskRoutes {
-        #[command(subcommand)]
-        action: commands::integrations::TaskRouteAction,
+        action: commands::adapters::AdaptersAction,
     },
     /// Trigger management
     Triggers {
         #[command(subcommand)]
-        action: commands::integrations::TriggerAction,
-    },
-    /// Scheduled job management
-    #[command(name = "scheduled-jobs")]
-    ScheduledJobs {
-        #[command(subcommand)]
-        action: commands::integrations::ScheduledJobAction,
+        action: commands::adapters::TriggerAction,
     },
     /// Task binding management
     Bindings {
         #[command(subcommand)]
-        action: commands::integrations::BindingAction,
+        action: commands::adapters::BindingAction,
     },
     /// Task event history
     Events {
@@ -173,7 +161,7 @@ enum SandboxCommands {
         action: commands::messages::MessageAction,
     },
 
-    /// Reply to the task's bound channel, or target one binding explicitly
+    /// Reply to the task's bound external target, or target one binding explicitly
     Reply {
         /// Exact task binding ID to target
         #[arg(long)]
@@ -445,20 +433,14 @@ async fn run_shared(
         SharedCommands::Repos { action } => {
             commands::repos::run(moat, *action, json).await?;
         }
-        SharedCommands::Integrations { action } => {
-            commands::integrations::run_integrations(moat, action, json).await?;
-        }
-        SharedCommands::TaskRoutes { action } => {
-            commands::integrations::run_task_routes(moat, action, json).await?;
+        SharedCommands::Adapters { action } => {
+            commands::adapters::run_adapters(moat, action, json).await?;
         }
         SharedCommands::Triggers { action } => {
-            commands::integrations::run_triggers(moat, action, json).await?;
-        }
-        SharedCommands::ScheduledJobs { action } => {
-            commands::integrations::run_scheduled_jobs(moat, action, json).await?;
+            commands::adapters::run_triggers(moat, action, json).await?;
         }
         SharedCommands::Bindings { action } => {
-            commands::integrations::run_bindings(moat, action, json).await?;
+            commands::adapters::run_bindings(moat, action, json).await?;
         }
         SharedCommands::Events { action } => {
             commands::events::run(moat, action, json).await?;

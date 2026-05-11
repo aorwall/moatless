@@ -56,6 +56,9 @@ pub fn init_tracing() {
 pub fn spawn_metrics_server(port: u16) {
     let handle = metrics::init_metrics();
     crate::events::describe_event_metrics();
+    crate::adapters::metrics::describe_adapter_metrics();
+    crate::triggers::metrics::describe_trigger_metrics();
+    crate::bindings::metrics::describe_binding_metrics();
     let router = metrics::metrics_router(handle);
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     tokio::spawn(async move {
@@ -122,7 +125,7 @@ pub async fn init_event_publisher(config: &Config) -> Option<Arc<dyn EventPublis
 // SSE
 // =========================================================================
 
-/// Create the SSE broadcast channel and optionally spawn the Redis consumer.
+/// Create the SSE broadcast sender and optionally spawn the Redis consumer.
 pub async fn init_sse(
     config: &Config,
     cancel: CancellationToken,
@@ -332,9 +335,9 @@ pub fn build_docker_sandbox_provider(
 /// All `*ApiDoc` structs register their paths via `#[openapi(paths(...))]`,
 /// so we can build the full spec without constructing any routers.
 pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
+    use crate::adapters::routes::AdapterApiDoc;
     use crate::agent::routes::AgentApiDoc;
     use crate::auth::routes::AuthApiDoc;
-    use crate::channel::routes::ChannelApiDoc;
     use crate::command::routes::CommandApiDoc;
     use crate::feature_flags::{FeatureFlagsResponse, SlackConfig};
     use crate::feedback::routes::FeedbackApiDoc;
@@ -415,7 +418,7 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     merged.merge(SecretApiDoc::openapi());
     merged.merge(TagApiDoc::openapi());
     merged.merge(ProviderSettingsApiDoc::openapi());
-    merged.merge(ChannelApiDoc::openapi());
+    merged.merge(AdapterApiDoc::openapi());
     merged.merge(TeamApiDoc::openapi());
     merged.merge(EventsApiDoc::openapi());
     merged.merge(TaskEventApiDoc::openapi());

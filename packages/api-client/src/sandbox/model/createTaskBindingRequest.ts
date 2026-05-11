@@ -5,11 +5,12 @@
  * Sandbox orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
+import type { AdapterKind } from './adapterKind';
 import type { CreateTaskBindingRequestDestinationConfig } from './createTaskBindingRequestDestinationConfig';
 import type { CreateTaskBindingRequestMetadata } from './createTaskBindingRequestMetadata';
-import type { IntegrationProvider } from './integrationProvider';
 
 export interface CreateTaskBindingRequest {
+  adapterKind: AdapterKind;
   connectionId: string;
   /** @nullable */
   destinationConfig?: CreateTaskBindingRequestDestinationConfig;
@@ -17,7 +18,6 @@ export interface CreateTaskBindingRequest {
   metadata?: CreateTaskBindingRequestMetadata;
   /** @nullable */
   origin?: string | null;
-  provider: IntegrationProvider;
   subjectKey: string;
   subjectKind: string;
   /** @nullable */

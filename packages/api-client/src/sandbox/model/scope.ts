@@ -7,7 +7,7 @@
  */
 
 /**
- * 3-level scope for repositories, tasks, channels, and credentials.
+ * 3-level scope for repositories, tasks, integrations, and credentials.
  */
 export type Scope = typeof Scope[keyof typeof Scope];
 

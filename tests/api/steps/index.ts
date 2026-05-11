@@ -68,9 +68,9 @@ export {
 	updateRepository,
 } from "./repository.steps";
 
-// Channel steps (CHAN-01 through CHAN-54)
+// Integration steps (INT-01 through INT-54)
 export {
 	createWebhookTriggerFixture,
 	createWebhookTriggerFixtureWithRouting,
 	sendWebhookMessage,
-} from "./channel.steps";
+} from "./integrations.steps";

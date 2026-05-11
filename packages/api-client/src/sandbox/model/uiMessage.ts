@@ -10,7 +10,7 @@ import type { MessageContextInput } from './messageContextInput';
 import type { MessageRole } from './messageRole';
 import type { MessageType } from './messageType';
 import type { UiContentBlock } from './uiContentBlock';
-import type { UiMessageChannel } from './uiMessageChannel';
+import type { UiMessageExternalSource } from './uiMessageExternalSource';
 import type { UiMessageSdkMetadata } from './uiMessageSdkMetadata';
 import type { UiResultMeta } from './uiResultMeta';
 import type { UiToolResult } from './uiToolResult';
@@ -21,7 +21,6 @@ import type { UiUsage } from './uiUsage';
  */
 export interface UiMessage {
   agentMode?: null | AgentMode;
-  channel?: null | UiMessageChannel;
   /**
    * Command name if this message was sent via a slash command.
    * @nullable
@@ -32,6 +31,7 @@ export interface UiMessage {
   /** Contexts attached to this user message (file uploads, Figma imports,
 preview URLs, selected elements). */
   contexts?: MessageContextInput[];
+  externalSource?: null | UiMessageExternalSource;
   /**
    * Whether this assistant message has pending user input.
    * @nullable

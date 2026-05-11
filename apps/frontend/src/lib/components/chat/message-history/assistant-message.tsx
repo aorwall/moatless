@@ -22,7 +22,7 @@ import { Response } from '@/lib/components/ai-elements/response'
 import { type ImageContentBlock, isImageContentBlock } from '@/lib/types/content-guards'
 import type { AllowedPrompt, Question } from '@/lib/types/user-input'
 import { cn } from '@/lib/utils'
-import { getProviderIcon, getProviderLabel } from './channel-meta'
+import { getAdapterIcon, getAdapterLabel } from './external-source-meta'
 import { ImageThumbnail } from './image-thumbnail'
 import { CodexToolCall, SubagentToolCall, type Todo, TodoList } from './tool-calls'
 
@@ -33,20 +33,20 @@ interface AssistantMessageProps {
   onToggleToolCall: (toolUseId: string) => void
 }
 
-function ChannelChip({ channel }: { channel: NonNullable<UiMessage['channel']> }) {
-  if (!channel.externalLabel) {
+function ExternalSourceChip({ source }: { source: NonNullable<UiMessage['externalSource']> }) {
+  if (!source.externalLabel) {
     return null
   }
   return (
     <div className="flex items-center gap-1.5 mb-1 text-xs text-muted-foreground">
-      <span className="text-blue-500/70">{getProviderIcon(channel.provider)}</span>
-      <span className="font-medium">via {getProviderLabel(channel.provider)}</span>
-      {channel.sourceName && <span className="text-muted-foreground/70">{channel.sourceName}</span>}
+      <span className="text-blue-500/70">{getAdapterIcon(source.adapterKind)}</span>
+      <span className="font-medium">via {getAdapterLabel(source.adapterKind)}</span>
+      {source.sourceName && <span className="text-muted-foreground/70">{source.sourceName}</span>}
       <span
         className="ml-auto font-mono text-[10px] text-muted-foreground/70"
-        title={channel.externalId ?? channel.externalLabel}
+        title={source.externalId ?? source.externalLabel}
       >
-        {channel.externalLabel}
+        {source.externalLabel}
       </span>
     </div>
   )
@@ -633,7 +633,7 @@ function renderCollapsedMessage(
   expandedToolCalls: Set<string>,
   onToggleToolCall: (toolUseId: string) => void,
   hasPendingUserInput: boolean | null | undefined,
-  channel: UiMessage['channel'] | null | undefined,
+  externalSource: UiMessage['externalSource'] | null | undefined,
   subagentMessages?: UiMessage[],
   parentMessageUuid?: string,
 ): React.ReactNode {
@@ -646,7 +646,7 @@ function renderCollapsedMessage(
           : 'border-muted-foreground/30 bg-muted/20',
       )}
     >
-      {channel && <ChannelChip channel={channel} />}
+      {externalSource && <ExternalSourceChip source={externalSource} />}
       <button
         type="button"
         onClick={() => setIsExpanded(!isExpanded)}
@@ -790,7 +790,7 @@ export function AssistantMessageComponent({
       expandedToolCalls,
       onToggleToolCall,
       message.hasPendingUserInput,
-      message.channel,
+      message.externalSource,
       message.subagentMessages,
       message.uuid,
     )
@@ -799,7 +799,7 @@ export function AssistantMessageComponent({
   // Normal message display
   return (
     <div className="space-y-2 w-full max-w-full">
-      {message.channel && <ChannelChip channel={message.channel} />}
+      {message.externalSource && <ExternalSourceChip source={message.externalSource} />}
 
       {/* Text content */}
       {textContent && (

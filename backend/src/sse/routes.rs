@@ -1,7 +1,7 @@
 //! SSE endpoint handler.
 //!
 //! Serves `GET /api/v1/events/stream` as an NDJSON stream, fanning out
-//! events from the `tokio::sync::broadcast` channel to each connected client.
+//! events from the shared SSE event bus to each connected client.
 
 use async_stream::stream;
 use axum::body::Body;
@@ -100,7 +100,7 @@ async fn sse_handler(State(state): State<SseState>, Query(query): Query<SseQuery
                             continue;
                         }
                         Err(broadcast::error::RecvError::Closed) => {
-                            debug!("SSE broadcast channel closed");
+                            debug!("SSE broadcast sender closed");
                             break;
                         }
                     }

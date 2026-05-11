@@ -25,12 +25,12 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
-  CreateTaskTriggerRequest,
+  CreateTriggerRequest,
   ErrorBody,
   ListTriggerRecentTasksParams,
-  TaskTriggerResponse,
   TriggerRecentTaskItem,
-  UpdateTaskTriggerRequest
+  TriggerResponse,
+  UpdateTriggerRequest
 } from '.././model';
 
 import { customInstance } from '../../../custom-instance';
@@ -45,19 +45,19 @@ type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
 
 
 
-export type listTaskTriggersResponse200 = {
-  data: TaskTriggerResponse[]
+export type listTriggersResponse200 = {
+  data: TriggerResponse[]
   status: 200
 }
     
-export type listTaskTriggersResponseSuccess = (listTaskTriggersResponse200) & {
+export type listTriggersResponseSuccess = (listTriggersResponse200) & {
   headers: Headers;
 };
 ;
 
-export type listTaskTriggersResponse = (listTaskTriggersResponseSuccess)
+export type listTriggersResponse = (listTriggersResponseSuccess)
 
-export const getListTaskTriggersUrl = () => {
+export const getListTriggersUrl = () => {
 
 
   
@@ -65,9 +65,9 @@ export const getListTaskTriggersUrl = () => {
   return `/api/v1/triggers`
 }
 
-export const listTaskTriggers = async ( options?: RequestInit): Promise<listTaskTriggersResponse> => {
+export const listTriggers = async ( options?: RequestInit): Promise<listTriggersResponse> => {
   
-  return customInstance<listTaskTriggersResponse>(getListTaskTriggersUrl(),
+  return customInstance<listTriggersResponse>(getListTriggersUrl(),
   {      
     ...options,
     method: 'GET'
@@ -80,78 +80,78 @@ export const listTaskTriggers = async ( options?: RequestInit): Promise<listTask
 
 
 
-export const getListTaskTriggersQueryKey = () => {
+export const getListTriggersQueryKey = () => {
     return [
     `/api/v1/triggers`
     ] as const;
     }
 
     
-export const getListTaskTriggersQueryOptions = <TData = Awaited<ReturnType<typeof listTaskTriggers>>, TError = ErrorType<unknown>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listTaskTriggers>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+export const getListTriggersQueryOptions = <TData = Awaited<ReturnType<typeof listTriggers>>, TError = ErrorType<unknown>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listTriggers>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getListTaskTriggersQueryKey();
+  const queryKey =  queryOptions?.queryKey ?? getListTriggersQueryKey();
 
   
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof listTaskTriggers>>> = ({ signal }) => listTaskTriggers({ signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listTriggers>>> = ({ signal }) => listTriggers({ signal, ...requestOptions });
 
       
 
       
 
-   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listTaskTriggers>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listTriggers>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
 }
 
-export type ListTaskTriggersQueryResult = NonNullable<Awaited<ReturnType<typeof listTaskTriggers>>>
-export type ListTaskTriggersQueryError = ErrorType<unknown>
+export type ListTriggersQueryResult = NonNullable<Awaited<ReturnType<typeof listTriggers>>>
+export type ListTriggersQueryError = ErrorType<unknown>
 
 
-export function useListTaskTriggers<TData = Awaited<ReturnType<typeof listTaskTriggers>>, TError = ErrorType<unknown>>(
-  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listTaskTriggers>>, TError, TData>> & Pick<
+export function useListTriggers<TData = Awaited<ReturnType<typeof listTriggers>>, TError = ErrorType<unknown>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listTriggers>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof listTaskTriggers>>,
+          Awaited<ReturnType<typeof listTriggers>>,
           TError,
-          Awaited<ReturnType<typeof listTaskTriggers>>
+          Awaited<ReturnType<typeof listTriggers>>
         > , 'initialData'
       >, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
-export function useListTaskTriggers<TData = Awaited<ReturnType<typeof listTaskTriggers>>, TError = ErrorType<unknown>>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listTaskTriggers>>, TError, TData>> & Pick<
+export function useListTriggers<TData = Awaited<ReturnType<typeof listTriggers>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listTriggers>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof listTaskTriggers>>,
+          Awaited<ReturnType<typeof listTriggers>>,
           TError,
-          Awaited<ReturnType<typeof listTaskTriggers>>
+          Awaited<ReturnType<typeof listTriggers>>
         > , 'initialData'
       >, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
-export function useListTaskTriggers<TData = Awaited<ReturnType<typeof listTaskTriggers>>, TError = ErrorType<unknown>>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listTaskTriggers>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+export function useListTriggers<TData = Awaited<ReturnType<typeof listTriggers>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listTriggers>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
 
-export function useListTaskTriggers<TData = Awaited<ReturnType<typeof listTaskTriggers>>, TError = ErrorType<unknown>>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listTaskTriggers>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+export function useListTriggers<TData = Awaited<ReturnType<typeof listTriggers>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listTriggers>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient 
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
 
-  const queryOptions = getListTaskTriggersQueryOptions(options)
+  const queryOptions = getListTriggersQueryOptions(options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
 
-export const prefetchListTaskTriggersQuery = async <TData = Awaited<ReturnType<typeof listTaskTriggers>>, TError = ErrorType<unknown>>(
- queryClient: QueryClient,  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listTaskTriggers>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+export const prefetchListTriggersQuery = async <TData = Awaited<ReturnType<typeof listTriggers>>, TError = ErrorType<unknown>>(
+ queryClient: QueryClient,  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listTriggers>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 
   ): Promise<QueryClient> => {
 
-  const queryOptions = getListTaskTriggersQueryOptions(options)
+  const queryOptions = getListTriggersQueryOptions(options)
 
   await queryClient.prefetchQuery(queryOptions);
 
@@ -160,19 +160,19 @@ export const prefetchListTaskTriggersQuery = async <TData = Awaited<ReturnType<t
 
 
 
-export type createTaskTriggerResponse200 = {
-  data: TaskTriggerResponse
+export type createTriggerResponse200 = {
+  data: TriggerResponse
   status: 200
 }
     
-export type createTaskTriggerResponseSuccess = (createTaskTriggerResponse200) & {
+export type createTriggerResponseSuccess = (createTriggerResponse200) & {
   headers: Headers;
 };
 ;
 
-export type createTaskTriggerResponse = (createTaskTriggerResponseSuccess)
+export type createTriggerResponse = (createTriggerResponseSuccess)
 
-export const getCreateTaskTriggerUrl = () => {
+export const getCreateTriggerUrl = () => {
 
 
   
@@ -180,26 +180,26 @@ export const getCreateTaskTriggerUrl = () => {
   return `/api/v1/triggers`
 }
 
-export const createTaskTrigger = async (createTaskTriggerRequest: CreateTaskTriggerRequest, options?: RequestInit): Promise<createTaskTriggerResponse> => {
+export const createTrigger = async (createTriggerRequest: CreateTriggerRequest, options?: RequestInit): Promise<createTriggerResponse> => {
   
-  return customInstance<createTaskTriggerResponse>(getCreateTaskTriggerUrl(),
+  return customInstance<createTriggerResponse>(getCreateTriggerUrl(),
   {      
     ...options,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
     body: JSON.stringify(
-      createTaskTriggerRequest,)
+      createTriggerRequest,)
   }
 );}
 
 
 
 
-export const getCreateTaskTriggerMutationOptions = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createTaskTrigger>>, TError,{data: CreateTaskTriggerRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
-): UseMutationOptions<Awaited<ReturnType<typeof createTaskTrigger>>, TError,{data: CreateTaskTriggerRequest}, TContext> => {
+export const getCreateTriggerMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createTrigger>>, TError,{data: CreateTriggerRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof createTrigger>>, TError,{data: CreateTriggerRequest}, TContext> => {
 
-const mutationKey = ['createTaskTrigger'];
+const mutationKey = ['createTrigger'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -209,10 +209,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createTaskTrigger>>, {data: CreateTaskTriggerRequest}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createTrigger>>, {data: CreateTriggerRequest}> = (props) => {
           const {data} = props ?? {};
 
-          return  createTaskTrigger(data,requestOptions)
+          return  createTrigger(data,requestOptions)
         }
 
 
@@ -222,40 +222,40 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
   return  { mutationFn, ...mutationOptions }}
 
-    export type CreateTaskTriggerMutationResult = NonNullable<Awaited<ReturnType<typeof createTaskTrigger>>>
-    export type CreateTaskTriggerMutationBody = CreateTaskTriggerRequest
-    export type CreateTaskTriggerMutationError = ErrorType<unknown>
+    export type CreateTriggerMutationResult = NonNullable<Awaited<ReturnType<typeof createTrigger>>>
+    export type CreateTriggerMutationBody = CreateTriggerRequest
+    export type CreateTriggerMutationError = ErrorType<unknown>
 
-    export const useCreateTaskTrigger = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createTaskTrigger>>, TError,{data: CreateTaskTriggerRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+    export const useCreateTrigger = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createTrigger>>, TError,{data: CreateTriggerRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): UseMutationResult<
-        Awaited<ReturnType<typeof createTaskTrigger>>,
+        Awaited<ReturnType<typeof createTrigger>>,
         TError,
-        {data: CreateTaskTriggerRequest},
+        {data: CreateTriggerRequest},
         TContext
       > => {
-      return useMutation(getCreateTaskTriggerMutationOptions(options), queryClient);
+      return useMutation(getCreateTriggerMutationOptions(options), queryClient);
     }
-    export type getTaskTriggerResponse200 = {
-  data: TaskTriggerResponse
+    export type getTriggerResponse200 = {
+  data: TriggerResponse
   status: 200
 }
 
-export type getTaskTriggerResponse404 = {
+export type getTriggerResponse404 = {
   data: ErrorBody
   status: 404
 }
     
-export type getTaskTriggerResponseSuccess = (getTaskTriggerResponse200) & {
+export type getTriggerResponseSuccess = (getTriggerResponse200) & {
   headers: Headers;
 };
-export type getTaskTriggerResponseError = (getTaskTriggerResponse404) & {
+export type getTriggerResponseError = (getTriggerResponse404) & {
   headers: Headers;
 };
 
-export type getTaskTriggerResponse = (getTaskTriggerResponseSuccess | getTaskTriggerResponseError)
+export type getTriggerResponse = (getTriggerResponseSuccess | getTriggerResponseError)
 
-export const getGetTaskTriggerUrl = (id: string,) => {
+export const getGetTriggerUrl = (id: string,) => {
 
 
   
@@ -263,9 +263,9 @@ export const getGetTaskTriggerUrl = (id: string,) => {
   return `/api/v1/triggers/${id}`
 }
 
-export const getTaskTrigger = async (id: string, options?: RequestInit): Promise<getTaskTriggerResponse> => {
+export const getTrigger = async (id: string, options?: RequestInit): Promise<getTriggerResponse> => {
   
-  return customInstance<getTaskTriggerResponse>(getGetTaskTriggerUrl(id),
+  return customInstance<getTriggerResponse>(getGetTriggerUrl(id),
   {      
     ...options,
     method: 'GET'
@@ -278,78 +278,78 @@ export const getTaskTrigger = async (id: string, options?: RequestInit): Promise
 
 
 
-export const getGetTaskTriggerQueryKey = (id: string,) => {
+export const getGetTriggerQueryKey = (id: string,) => {
     return [
     `/api/v1/triggers/${id}`
     ] as const;
     }
 
     
-export const getGetTaskTriggerQueryOptions = <TData = Awaited<ReturnType<typeof getTaskTrigger>>, TError = ErrorType<ErrorBody>>(id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getTaskTrigger>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+export const getGetTriggerQueryOptions = <TData = Awaited<ReturnType<typeof getTrigger>>, TError = ErrorType<ErrorBody>>(id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getTrigger>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getGetTaskTriggerQueryKey(id);
+  const queryKey =  queryOptions?.queryKey ?? getGetTriggerQueryKey(id);
 
   
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof getTaskTrigger>>> = ({ signal }) => getTaskTrigger(id, { signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getTrigger>>> = ({ signal }) => getTrigger(id, { signal, ...requestOptions });
 
       
 
       
 
-   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getTaskTrigger>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getTrigger>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
 }
 
-export type GetTaskTriggerQueryResult = NonNullable<Awaited<ReturnType<typeof getTaskTrigger>>>
-export type GetTaskTriggerQueryError = ErrorType<ErrorBody>
+export type GetTriggerQueryResult = NonNullable<Awaited<ReturnType<typeof getTrigger>>>
+export type GetTriggerQueryError = ErrorType<ErrorBody>
 
 
-export function useGetTaskTrigger<TData = Awaited<ReturnType<typeof getTaskTrigger>>, TError = ErrorType<ErrorBody>>(
- id: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getTaskTrigger>>, TError, TData>> & Pick<
+export function useGetTrigger<TData = Awaited<ReturnType<typeof getTrigger>>, TError = ErrorType<ErrorBody>>(
+ id: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getTrigger>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getTaskTrigger>>,
+          Awaited<ReturnType<typeof getTrigger>>,
           TError,
-          Awaited<ReturnType<typeof getTaskTrigger>>
+          Awaited<ReturnType<typeof getTrigger>>
         > , 'initialData'
       >, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
-export function useGetTaskTrigger<TData = Awaited<ReturnType<typeof getTaskTrigger>>, TError = ErrorType<ErrorBody>>(
- id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getTaskTrigger>>, TError, TData>> & Pick<
+export function useGetTrigger<TData = Awaited<ReturnType<typeof getTrigger>>, TError = ErrorType<ErrorBody>>(
+ id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getTrigger>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getTaskTrigger>>,
+          Awaited<ReturnType<typeof getTrigger>>,
           TError,
-          Awaited<ReturnType<typeof getTaskTrigger>>
+          Awaited<ReturnType<typeof getTrigger>>
         > , 'initialData'
       >, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
-export function useGetTaskTrigger<TData = Awaited<ReturnType<typeof getTaskTrigger>>, TError = ErrorType<ErrorBody>>(
- id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getTaskTrigger>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+export function useGetTrigger<TData = Awaited<ReturnType<typeof getTrigger>>, TError = ErrorType<ErrorBody>>(
+ id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getTrigger>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
 
-export function useGetTaskTrigger<TData = Awaited<ReturnType<typeof getTaskTrigger>>, TError = ErrorType<ErrorBody>>(
- id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getTaskTrigger>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+export function useGetTrigger<TData = Awaited<ReturnType<typeof getTrigger>>, TError = ErrorType<ErrorBody>>(
+ id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getTrigger>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient 
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
 
-  const queryOptions = getGetTaskTriggerQueryOptions(id,options)
+  const queryOptions = getGetTriggerQueryOptions(id,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
 
-export const prefetchGetTaskTriggerQuery = async <TData = Awaited<ReturnType<typeof getTaskTrigger>>, TError = ErrorType<ErrorBody>>(
- queryClient: QueryClient, id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getTaskTrigger>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+export const prefetchGetTriggerQuery = async <TData = Awaited<ReturnType<typeof getTrigger>>, TError = ErrorType<ErrorBody>>(
+ queryClient: QueryClient, id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getTrigger>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 
   ): Promise<QueryClient> => {
 
-  const queryOptions = getGetTaskTriggerQueryOptions(id,options)
+  const queryOptions = getGetTriggerQueryOptions(id,options)
 
   await queryClient.prefetchQuery(queryOptions);
 
@@ -358,19 +358,19 @@ export const prefetchGetTaskTriggerQuery = async <TData = Awaited<ReturnType<typ
 
 
 
-export type updateTaskTriggerResponse200 = {
-  data: TaskTriggerResponse
+export type updateTriggerResponse200 = {
+  data: TriggerResponse
   status: 200
 }
     
-export type updateTaskTriggerResponseSuccess = (updateTaskTriggerResponse200) & {
+export type updateTriggerResponseSuccess = (updateTriggerResponse200) & {
   headers: Headers;
 };
 ;
 
-export type updateTaskTriggerResponse = (updateTaskTriggerResponseSuccess)
+export type updateTriggerResponse = (updateTriggerResponseSuccess)
 
-export const getUpdateTaskTriggerUrl = (id: string,) => {
+export const getUpdateTriggerUrl = (id: string,) => {
 
 
   
@@ -378,27 +378,27 @@ export const getUpdateTaskTriggerUrl = (id: string,) => {
   return `/api/v1/triggers/${id}`
 }
 
-export const updateTaskTrigger = async (id: string,
-    updateTaskTriggerRequest: UpdateTaskTriggerRequest, options?: RequestInit): Promise<updateTaskTriggerResponse> => {
+export const updateTrigger = async (id: string,
+    updateTriggerRequest: UpdateTriggerRequest, options?: RequestInit): Promise<updateTriggerResponse> => {
   
-  return customInstance<updateTaskTriggerResponse>(getUpdateTaskTriggerUrl(id),
+  return customInstance<updateTriggerResponse>(getUpdateTriggerUrl(id),
   {      
     ...options,
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
     body: JSON.stringify(
-      updateTaskTriggerRequest,)
+      updateTriggerRequest,)
   }
 );}
 
 
 
 
-export const getUpdateTaskTriggerMutationOptions = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateTaskTrigger>>, TError,{id: string;data: UpdateTaskTriggerRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
-): UseMutationOptions<Awaited<ReturnType<typeof updateTaskTrigger>>, TError,{id: string;data: UpdateTaskTriggerRequest}, TContext> => {
+export const getUpdateTriggerMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateTrigger>>, TError,{id: string;data: UpdateTriggerRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateTrigger>>, TError,{id: string;data: UpdateTriggerRequest}, TContext> => {
 
-const mutationKey = ['updateTaskTrigger'];
+const mutationKey = ['updateTrigger'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -408,10 +408,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateTaskTrigger>>, {id: string;data: UpdateTaskTriggerRequest}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateTrigger>>, {id: string;data: UpdateTriggerRequest}> = (props) => {
           const {id,data} = props ?? {};
 
-          return  updateTaskTrigger(id,data,requestOptions)
+          return  updateTrigger(id,data,requestOptions)
         }
 
 
@@ -421,40 +421,40 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
   return  { mutationFn, ...mutationOptions }}
 
-    export type UpdateTaskTriggerMutationResult = NonNullable<Awaited<ReturnType<typeof updateTaskTrigger>>>
-    export type UpdateTaskTriggerMutationBody = UpdateTaskTriggerRequest
-    export type UpdateTaskTriggerMutationError = ErrorType<unknown>
+    export type UpdateTriggerMutationResult = NonNullable<Awaited<ReturnType<typeof updateTrigger>>>
+    export type UpdateTriggerMutationBody = UpdateTriggerRequest
+    export type UpdateTriggerMutationError = ErrorType<unknown>
 
-    export const useUpdateTaskTrigger = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateTaskTrigger>>, TError,{id: string;data: UpdateTaskTriggerRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+    export const useUpdateTrigger = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateTrigger>>, TError,{id: string;data: UpdateTriggerRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): UseMutationResult<
-        Awaited<ReturnType<typeof updateTaskTrigger>>,
+        Awaited<ReturnType<typeof updateTrigger>>,
         TError,
-        {id: string;data: UpdateTaskTriggerRequest},
+        {id: string;data: UpdateTriggerRequest},
         TContext
       > => {
-      return useMutation(getUpdateTaskTriggerMutationOptions(options), queryClient);
+      return useMutation(getUpdateTriggerMutationOptions(options), queryClient);
     }
-    export type deleteTaskTriggerResponse204 = {
+    export type deleteTriggerResponse204 = {
   data: void
   status: 204
 }
 
-export type deleteTaskTriggerResponse404 = {
+export type deleteTriggerResponse404 = {
   data: ErrorBody
   status: 404
 }
     
-export type deleteTaskTriggerResponseSuccess = (deleteTaskTriggerResponse204) & {
+export type deleteTriggerResponseSuccess = (deleteTriggerResponse204) & {
   headers: Headers;
 };
-export type deleteTaskTriggerResponseError = (deleteTaskTriggerResponse404) & {
+export type deleteTriggerResponseError = (deleteTriggerResponse404) & {
   headers: Headers;
 };
 
-export type deleteTaskTriggerResponse = (deleteTaskTriggerResponseSuccess | deleteTaskTriggerResponseError)
+export type deleteTriggerResponse = (deleteTriggerResponseSuccess | deleteTriggerResponseError)
 
-export const getDeleteTaskTriggerUrl = (id: string,) => {
+export const getDeleteTriggerUrl = (id: string,) => {
 
 
   
@@ -462,9 +462,9 @@ export const getDeleteTaskTriggerUrl = (id: string,) => {
   return `/api/v1/triggers/${id}`
 }
 
-export const deleteTaskTrigger = async (id: string, options?: RequestInit): Promise<deleteTaskTriggerResponse> => {
+export const deleteTrigger = async (id: string, options?: RequestInit): Promise<deleteTriggerResponse> => {
   
-  return customInstance<deleteTaskTriggerResponse>(getDeleteTaskTriggerUrl(id),
+  return customInstance<deleteTriggerResponse>(getDeleteTriggerUrl(id),
   {      
     ...options,
     method: 'DELETE'
@@ -476,11 +476,11 @@ export const deleteTaskTrigger = async (id: string, options?: RequestInit): Prom
 
 
 
-export const getDeleteTaskTriggerMutationOptions = <TError = ErrorType<ErrorBody>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteTaskTrigger>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customInstance>}
-): UseMutationOptions<Awaited<ReturnType<typeof deleteTaskTrigger>>, TError,{id: string}, TContext> => {
+export const getDeleteTriggerMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteTrigger>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteTrigger>>, TError,{id: string}, TContext> => {
 
-const mutationKey = ['deleteTaskTrigger'];
+const mutationKey = ['deleteTrigger'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -490,10 +490,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteTaskTrigger>>, {id: string}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteTrigger>>, {id: string}> = (props) => {
           const {id} = props ?? {};
 
-          return  deleteTaskTrigger(id,requestOptions)
+          return  deleteTrigger(id,requestOptions)
         }
 
 
@@ -503,19 +503,19 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
   return  { mutationFn, ...mutationOptions }}
 
-    export type DeleteTaskTriggerMutationResult = NonNullable<Awaited<ReturnType<typeof deleteTaskTrigger>>>
+    export type DeleteTriggerMutationResult = NonNullable<Awaited<ReturnType<typeof deleteTrigger>>>
     
-    export type DeleteTaskTriggerMutationError = ErrorType<ErrorBody>
+    export type DeleteTriggerMutationError = ErrorType<ErrorBody>
 
-    export const useDeleteTaskTrigger = <TError = ErrorType<ErrorBody>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteTaskTrigger>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+    export const useDeleteTrigger = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteTrigger>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): UseMutationResult<
-        Awaited<ReturnType<typeof deleteTaskTrigger>>,
+        Awaited<ReturnType<typeof deleteTrigger>>,
         TError,
         {id: string},
         TContext
       > => {
-      return useMutation(getDeleteTaskTriggerMutationOptions(options), queryClient);
+      return useMutation(getDeleteTriggerMutationOptions(options), queryClient);
     }
     export type listTriggerRecentTasksResponse200 = {
   data: TriggerRecentTaskItem[]

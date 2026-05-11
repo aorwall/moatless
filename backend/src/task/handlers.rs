@@ -21,8 +21,8 @@ use crate::task::models::{TaskStatus, Visibility};
 
 use crate::repository::models::{RepositoryKind, RepositoryProvider};
 
-use crate::channel::dao::bindings::get_channels_for_tasks;
-use crate::channel::schemas::TaskChannelResponse;
+use crate::bindings::dao::get_bindings_for_tasks;
+use crate::bindings::schemas::TaskBindingSummary;
 
 use super::error::TaskError;
 use super::schemas::*;
@@ -413,11 +413,11 @@ pub async fn list_tasks(
         .collect();
     let repo_names = resolve_repo_names_batch(&state, &repo_ids).await;
 
-    // Batch resolve channels for tasks (single query instead of N+1)
-    let all_channels = get_channels_for_tasks(&state.db, &task_ids)
+    // Batch resolve external bindings for tasks (single query instead of N+1)
+    let all_bindings = get_bindings_for_tasks(&state.db, &task_ids)
         .await
         .unwrap_or_else(|e| {
-            tracing::warn!(error = %e, "Failed to batch resolve task channels");
+            tracing::warn!(error = %e, "Failed to batch resolve task bindings");
             vec![]
         });
 
@@ -441,19 +441,17 @@ pub async fn list_tasks(
 
             let repo_name = repo_names.get(&row.repository_id).cloned();
 
-            let channels: Vec<TaskChannelResponse> = all_channels
+            let bindings: Vec<TaskBindingSummary> = all_bindings
                 .iter()
                 .filter(|c| c.task_id == row.task_id)
-                .map(|c| TaskChannelResponse {
+                .map(|c| TaskBindingSummary {
                     trigger_id: c.trigger_id.clone(),
-                    provider: match c.provider.as_str() {
-                        "github" | "github_pr" => {
-                            moatless_api_schemas::enums::IntegrationProvider::Github
-                        }
-                        "linear" => moatless_api_schemas::enums::IntegrationProvider::Linear,
-                        "telegram" => moatless_api_schemas::enums::IntegrationProvider::Telegram,
-                        "webhook" => moatless_api_schemas::enums::IntegrationProvider::Webhook,
-                        _ => moatless_api_schemas::enums::IntegrationProvider::Slack,
+                    adapter_kind: match c.provider.as_str() {
+                        "github" | "github_pr" => moatless_api_schemas::enums::AdapterKind::Github,
+                        "linear" => moatless_api_schemas::enums::AdapterKind::Linear,
+                        "telegram" => moatless_api_schemas::enums::AdapterKind::Telegram,
+                        "webhook" => moatless_api_schemas::enums::AdapterKind::Webhook,
+                        _ => moatless_api_schemas::enums::AdapterKind::Slack,
                     },
                     source_id: c.source_id.clone(),
                     source_name: c.source_name.clone(),
@@ -466,7 +464,7 @@ pub async fn list_tasks(
                 })
                 .collect();
 
-            build_task_response(row, tags, display_name, repo_name, channels)
+            build_task_response(row, tags, display_name, repo_name, bindings)
         })
         .collect();
 
@@ -1043,10 +1041,10 @@ async fn enrich_task(
         None
     };
 
-    // Resolve channels for this task
-    let channels = resolve_task_channels(state, &row.task_id).await;
+    // Resolve external bindings for this task.
+    let bindings = resolve_task_bindings(state, &row.task_id).await;
 
-    let mut resp = build_task_response(row, tag_responses, display_name, repo_name, channels);
+    let mut resp = build_task_response(row, tag_responses, display_name, repo_name, bindings);
 
     // Resolve live sandbox status (best-effort — leave None on failure)
     let server_configs = get_server_configs_for_task(
@@ -1075,13 +1073,13 @@ async fn enrich_task(
     Ok(resp)
 }
 
-/// Build a TaskResponse from a row + pre-resolved tags/names/channels.
+/// Build a TaskResponse from a row plus pre-resolved tags, names, and bindings.
 fn build_task_response(
     row: &Task,
     tags: Vec<TagResponse>,
     display_name: Option<String>,
     repo_name: Option<String>,
-    channels: Vec<TaskChannelResponse>,
+    bindings: Vec<TaskBindingSummary>,
 ) -> TaskResponse {
     let title = derive_title(row);
 
@@ -1111,7 +1109,7 @@ fn build_task_response(
         parent_task_id: row.parent_task_id.clone(),
         append_system_prompt: row.append_system_prompt.clone(),
         tags,
-        channels,
+        bindings,
         environment_status: None,
         agent_state: None,
         is_running: None,
@@ -1203,23 +1201,23 @@ async fn resolve_single_user_display_name(state: &AppState, user_id: &str) -> Op
     }
 }
 
-/// Resolve channels for a single task (used by enrich_task).
-async fn resolve_task_channels(state: &AppState, task_id: &str) -> Vec<TaskChannelResponse> {
-    let bindings = match crate::channel::dao::bindings::PgTaskBindingRepository(state.db.clone())
+/// Resolve external bindings for a single task (used by enrich_task).
+async fn resolve_task_bindings(state: &AppState, task_id: &str) -> Vec<TaskBindingSummary> {
+    let bindings = match crate::bindings::dao::PgTaskBindingRepository(state.db.clone())
         .find_by_task_id(task_id)
         .await
     {
         Ok(bindings) => bindings,
         Err(e) => {
-            tracing::warn!(error = %e, task_id = %task_id, "Failed to resolve task channels");
+            tracing::warn!(error = %e, task_id = %task_id, "Failed to resolve task bindings");
             return vec![];
         }
     };
 
-    let mut channels = Vec::new();
+    let mut summaries = Vec::new();
     for binding in &bindings {
         let trigger = if let Some(ref trigger_id) = binding.trigger_id {
-            crate::channel::dao::trigger_routes::PgTaskTriggerRouteRepository(state.db.clone())
+            crate::triggers::rule_dao::PgTaskTriggerRouteRepository(state.db.clone())
                 .find_by_id(trigger_id)
                 .await
                 .ok()
@@ -1227,12 +1225,12 @@ async fn resolve_task_channels(state: &AppState, task_id: &str) -> Vec<TaskChann
         } else {
             None
         };
-        channels.push(crate::channel::schemas::task_channel_from_binding(
+        summaries.push(crate::bindings::schemas::task_binding_summary_from_binding(
             binding,
             trigger.as_ref(),
         ));
     }
-    channels
+    summaries
 }
 
 /// Resolve repository names for multiple repo IDs in a single batch query.

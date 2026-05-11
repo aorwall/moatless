@@ -298,7 +298,7 @@ pub async fn handle_agent_error(state: &AppState, event: &AgentEvent) {
     }
 
     if let Some(ref events) = state.events {
-        // Include message_id in payload for outbound channel tracking
+        // Include message_id in payload for outbound integration tracking
         let mut turn_payload = event.payload.clone();
         if let Some(obj) = turn_payload.as_object_mut() {
             obj.insert("message_id".to_string(), serde_json::json!(msg_uuid));
@@ -502,9 +502,9 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
         resume: true,
         sent_at: None,
         created_at: None,
-        channel_external_id: None,
-        channel_provider: None,
-        channel_source_name: None,
+        external_event_id: None,
+        external_adapter: None,
+        external_source_name: None,
         command_name: None,
         source_task_id: None,
         start_fresh: false,
@@ -741,9 +741,9 @@ fn build_result_message_row(
         resume: true,
         sent_at: None,
         created_at: None,
-        channel_external_id: None,
-        channel_provider: None,
-        channel_source_name: None,
+        external_event_id: None,
+        external_adapter: None,
+        external_source_name: None,
         command_name: None,
         source_task_id: None,
         start_fresh: false,

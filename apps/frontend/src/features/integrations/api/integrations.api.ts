@@ -1,84 +1,59 @@
 import type {
-  CreateProviderConnectionRequest,
-  CreateTaskRouteRequest,
-  CreateTaskTriggerRequest,
-  ProviderConnectionResponse,
-  TaskRouteResponse,
-  TaskTriggerResponse,
+  AdapterConnectionResponse,
+  CreateAdapterConnectionRequest,
+  CreateTriggerRequest,
   TriggerRecentTaskItem,
-  UpdateTaskRouteRequest,
-  UpdateTaskTriggerRequest,
+  TriggerResponse,
+  UpdateTriggerRequest,
 } from '@moatless/api-client'
 import { unwrapResponse } from '@moatless/api-client/custom-instance'
 import {
-  createProviderConnection as createProviderConnectionHandler,
-  listIntegrationProviders as listIntegrationProvidersHandler,
-  listProviderConnections as listProviderConnectionsHandler,
-} from '@moatless/api-client/sandbox/integrations/integrations'
+  createAdapterConnection as createAdapterConnectionHandler,
+  listAdapterConnections as listAdapterConnectionsHandler,
+  listAdapters as listAdaptersHandler,
+} from '@moatless/api-client/sandbox/adapters/adapters'
 import {
-  createTaskRoute as createTaskRouteHandler,
-  listTaskRoutes as listTaskRoutesHandler,
-  updateTaskRoute as updateTaskRouteHandler,
-} from '@moatless/api-client/sandbox/task-routes/task-routes'
-import {
-  createTaskTrigger as createTaskTriggerHandler,
-  deleteTaskTrigger as deleteTaskTriggerHandler,
-  getTaskTrigger as getTaskTriggerHandler,
-  listTaskTriggers as listTaskTriggersHandler,
+  createTrigger as createTriggerHandler,
+  deleteTrigger as deleteTriggerHandler,
+  getTrigger as getTriggerHandler,
   listTriggerRecentTasks as listTriggerRecentTasksHandler,
-  updateTaskTrigger as updateTaskTriggerHandler,
+  listTriggers as listTriggersHandler,
+  updateTrigger as updateTriggerHandler,
 } from '@moatless/api-client/sandbox/triggers/triggers'
 
 export const integrationsApi = {
-  async listProviders(): Promise<string[]> {
-    return await unwrapResponse<string[]>(listIntegrationProvidersHandler())
+  async listAdapters(): Promise<string[]> {
+    return await unwrapResponse<string[]>(listAdaptersHandler())
   },
 
-  async listProviderConnections(): Promise<ProviderConnectionResponse[]> {
-    return await unwrapResponse<ProviderConnectionResponse[]>(listProviderConnectionsHandler())
+  async listAdapterConnections(): Promise<AdapterConnectionResponse[]> {
+    return await unwrapResponse<AdapterConnectionResponse[]>(listAdapterConnectionsHandler())
   },
 
-  async createProviderConnection(
-    request: CreateProviderConnectionRequest,
-  ): Promise<ProviderConnectionResponse> {
-    return await unwrapResponse<ProviderConnectionResponse>(
-      createProviderConnectionHandler(request),
-    )
+  async createAdapterConnection(
+    request: CreateAdapterConnectionRequest,
+  ): Promise<AdapterConnectionResponse> {
+    return await unwrapResponse<AdapterConnectionResponse>(createAdapterConnectionHandler(request))
   },
 
-  async listTaskRoutes(): Promise<TaskRouteResponse[]> {
-    return await unwrapResponse<TaskRouteResponse[]>(listTaskRoutesHandler())
+  async listTriggers(): Promise<TriggerResponse[]> {
+    return await unwrapResponse<TriggerResponse[]>(listTriggersHandler())
   },
 
-  async createTaskRoute(request: CreateTaskRouteRequest): Promise<TaskRouteResponse> {
-    return await unwrapResponse<TaskRouteResponse>(createTaskRouteHandler(request))
+  async createTrigger(request: CreateTriggerRequest): Promise<TriggerResponse> {
+    return await unwrapResponse<TriggerResponse>(createTriggerHandler(request))
   },
 
-  async updateTaskRoute(id: string, request: UpdateTaskRouteRequest): Promise<TaskRouteResponse> {
-    return await unwrapResponse<TaskRouteResponse>(updateTaskRouteHandler(id, request))
+  async updateTrigger(id: string, request: UpdateTriggerRequest): Promise<TriggerResponse> {
+    return await unwrapResponse<TriggerResponse>(updateTriggerHandler(id, request))
   },
 
-  async listTaskTriggers(): Promise<TaskTriggerResponse[]> {
-    return await unwrapResponse<TaskTriggerResponse[]>(listTaskTriggersHandler())
+  async deleteTrigger(id: string): Promise<void> {
+    await unwrapResponse<void>(deleteTriggerHandler(id))
   },
 
-  async createTaskTrigger(request: CreateTaskTriggerRequest): Promise<TaskTriggerResponse> {
-    return await unwrapResponse<TaskTriggerResponse>(createTaskTriggerHandler(request))
-  },
-
-  async updateTaskTrigger(
-    id: string,
-    request: UpdateTaskTriggerRequest,
-  ): Promise<TaskTriggerResponse> {
-    return await unwrapResponse<TaskTriggerResponse>(updateTaskTriggerHandler(id, request))
-  },
-
-  async deleteTaskTrigger(id: string): Promise<void> {
-    await unwrapResponse<void>(deleteTaskTriggerHandler(id))
-  },
-
-  async getTaskTrigger(id: string): Promise<TaskTriggerResponse> {
-    return await unwrapResponse<TaskTriggerResponse>(getTaskTriggerHandler(id))
+  async getTrigger(id: string): Promise<TriggerResponse> {
+    return await unwrapResponse<TriggerResponse>(getTriggerHandler(id))
   },
 
   async listTriggerRecentTasks(

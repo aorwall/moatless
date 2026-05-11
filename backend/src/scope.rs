@@ -21,15 +21,15 @@ pub enum ScopedEntity {
     Task,
     /// `repositories` table — canonical scoped resource; no visibility bypass.
     Repository,
-    /// Integration tables — no `visibility` column.
-    Integration,
+    /// Scoped tables without a `visibility` column.
+    Resource,
 }
 
 impl ScopedEntity {
     fn has_visibility(self) -> bool {
         match self {
             Self::Task => true,
-            Self::Repository | Self::Integration => false,
+            Self::Repository | Self::Resource => false,
         }
     }
 }
@@ -381,8 +381,8 @@ mod tests {
     }
 
     #[test]
-    fn access_filter_integration_no_visibility() {
-        let f = test_ctx().access_filter(ScopedEntity::Integration, "", 1);
+    fn access_filter_resource_no_visibility() {
+        let f = test_ctx().access_filter(ScopedEntity::Resource, "", 1);
         assert_eq!(
             f.sql(),
             "($1 OR scope = 'global' \

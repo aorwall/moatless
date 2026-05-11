@@ -137,7 +137,7 @@ impl sqlx::Encode<'_, sqlx::Postgres> for Visibility {
 // Scope
 // =============================================================================
 
-/// 3-level scope for repositories, tasks, channels, and credentials.
+/// 3-level scope for repositories, tasks, integrations, and credentials.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
@@ -545,7 +545,7 @@ impl sqlx::Encode<'_, sqlx::Postgres> for UserRole {
 // RoutingMode
 // =============================================================================
 
-/// Channel routing mode for message-to-task mapping.
+/// Trigger routing mode for message-to-task mapping.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
@@ -606,30 +606,36 @@ impl sqlx::Encode<'_, sqlx::Postgres> for RoutingMode {
 }
 
 // =============================================================================
-// IntegrationProvider
+// AdapterKind
 // =============================================================================
 
-/// Canonical external integration provider identifier.
+/// Canonical external adapter identifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
-pub enum IntegrationProvider {
+pub enum AdapterKind {
     Slack,
     Telegram,
     Github,
+    GithubPr,
     Linear,
     Webhook,
 }
 
-impl IntegrationProvider {
+impl AdapterKind {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Slack => "slack",
             Self::Telegram => "telegram",
             Self::Github => "github",
+            Self::GithubPr => "github_pr",
             Self::Linear => "linear",
             Self::Webhook => "webhook",
         }
+    }
+
+    pub fn is_replyable(&self) -> bool {
+        true
     }
 
     pub fn parse(s: &str) -> Option<Self> {
@@ -637,81 +643,15 @@ impl IntegrationProvider {
             "slack" => Some(Self::Slack),
             "telegram" => Some(Self::Telegram),
             "github" => Some(Self::Github),
-            "linear" => Some(Self::Linear),
-            "webhook" => Some(Self::Webhook),
-            _ => None,
-        }
-    }
-}
-
-impl std::fmt::Display for IntegrationProvider {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-// =============================================================================
-// ChannelType (internal/legacy compatibility)
-// =============================================================================
-
-/// Channel provider identifier.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "snake_case")]
-pub enum ChannelType {
-    Slack,
-    Email,
-    Webhook,
-    Cron,
-    Telegram,
-    GithubPr,
-    Linear,
-}
-
-impl ChannelType {
-    /// Whether this channel type supports outbound replies.
-    ///
-    /// Non-replyable channel triggers require an explicit task binding before
-    /// agents can reply through an external destination.
-    pub fn is_replyable(&self) -> bool {
-        match self {
-            Self::Cron => false,
-            Self::Slack
-            | Self::Email
-            | Self::Webhook
-            | Self::Telegram
-            | Self::GithubPr
-            | Self::Linear => true,
-        }
-    }
-
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Slack => "slack",
-            Self::Email => "email",
-            Self::Webhook => "webhook",
-            Self::Cron => "cron",
-            Self::Telegram => "telegram",
-            Self::GithubPr => "github_pr",
-            Self::Linear => "linear",
-        }
-    }
-
-    pub fn parse(s: &str) -> Option<Self> {
-        match s {
-            "slack" => Some(Self::Slack),
-            "email" => Some(Self::Email),
-            "webhook" => Some(Self::Webhook),
-            "cron" => Some(Self::Cron),
-            "telegram" => Some(Self::Telegram),
             "github_pr" => Some(Self::GithubPr),
             "linear" => Some(Self::Linear),
+            "webhook" => Some(Self::Webhook),
             _ => None,
         }
     }
 }
 
-impl std::fmt::Display for ChannelType {
+impl std::fmt::Display for AdapterKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.as_str())
     }
@@ -983,9 +923,9 @@ mod tests {
     }
 
     #[test]
-    fn channel_type_linear_roundtrip() {
-        assert_eq!(ChannelType::Linear.as_str(), "linear");
-        assert_eq!(ChannelType::parse("linear"), Some(ChannelType::Linear));
-        assert!(ChannelType::Linear.is_replyable());
+    fn adapter_kind_linear_roundtrip() {
+        assert_eq!(AdapterKind::Linear.as_str(), "linear");
+        assert_eq!(AdapterKind::parse("linear"), Some(AdapterKind::Linear));
+        assert!(AdapterKind::Linear.is_replyable());
     }
 }

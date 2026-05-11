@@ -52,9 +52,9 @@ pub struct UiMessage {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
     pub sdk_metadata: Option<serde_json::Value>,
-    /// Channel source metadata (present only for channel-originated messages).
+    /// External source metadata for messages originating from adapters.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub channel: Option<UiMessageChannel>,
+    pub external_source: Option<UiMessageExternalSource>,
     /// Command name if this message was sent via a slash command.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command_name: Option<String>,
@@ -66,14 +66,14 @@ pub struct UiMessage {
     pub source_task_id: Option<String>,
 }
 
-/// Channel source metadata for messages originating from external channels.
+/// External source metadata for messages originating from adapters.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
-pub struct UiMessageChannel {
-    /// Integration provider type (e.g. "slack", "webhook", "github", "linear").
-    pub provider: String,
-    /// Human-readable channel name (e.g. "#engineering").
+pub struct UiMessageExternalSource {
+    /// Adapter type (e.g. "slack", "webhook", "github", "linear").
+    pub adapter_kind: String,
+    /// Human-readable source name (e.g. "#engineering").
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_name: Option<String>,
     /// Stable, type-namespaced external id (e.g. "github:ic:12345",

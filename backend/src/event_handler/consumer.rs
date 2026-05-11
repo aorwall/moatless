@@ -258,12 +258,12 @@ impl EventHandlerConsumer {
     async fn dispatch_event(&self, event: &AgentEvent) {
         match event.event_key() {
             EventKey::Agent(AgentSubType::Completed) => {
-                // handle_agent_completed publishes task_turn.completed; channel
+                // handle_agent_completed publishes task_turn.completed; external
                 // notification is handled by the agent via `moat reply`.
                 agent_handlers::handle_agent_completed(&self.state, event).await;
             }
             EventKey::TaskTurn(TaskTurnSubType::Completed) => {
-                // Channel notification is handled by the agent via `moat reply`.
+                // External notification is handled by the agent via `moat reply`.
             }
             EventKey::Agent(AgentSubType::Message) => {
                 agent_handlers::handle_agent_message(&self.state, event).await;
@@ -277,21 +277,21 @@ impl EventHandlerConsumer {
                 agent_handlers::handle_agent_stopped(&self.state, event).await;
             }
             EventKey::TaskTurn(TaskTurnSubType::Stopped) => {
-                // Channel notification is handled by the agent via `moat reply`.
+                // External notification is handled by the agent via `moat reply`.
             }
             EventKey::Agent(AgentSubType::Error) => {
-                // handle_agent_error publishes task_turn.error; channel
+                // handle_agent_error publishes task_turn.error; external
                 // notification is handled by the agent via `moat reply`.
                 agent_handlers::handle_agent_error(&self.state, event).await;
             }
             EventKey::TaskTurn(TaskTurnSubType::Error) => {
-                // Channel notification is handled by the agent via `moat reply`.
+                // External notification is handled by the agent via `moat reply`.
             }
             EventKey::Task(TaskSubType::MetadataUpdated) => {
                 agent_handlers::handle_task_metadata_updated(&self.state, event).await;
             }
             // Sandbox error — pod watcher detected a fatal crash; transcript-only,
-            // do not auto-notify channels.
+            // do not auto-notify external targets.
             EventKey::Sandbox(SandboxSubType::Error) => {
                 agent_handlers::handle_sandbox_fatal(&self.state, event).await;
             }

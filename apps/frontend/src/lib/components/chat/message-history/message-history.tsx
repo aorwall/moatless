@@ -24,9 +24,9 @@ import {
   parseMessageContent,
   renderToolCalls,
 } from './assistant-message.tsx'
-import { ChannelMessageComponent } from './channel-message.tsx'
 import { EnvironmentIndicator } from './environment-indicator.tsx'
 import { ErrorMessageComponent } from './error-message.tsx'
+import { ExternalSourceMessageComponent } from './external-source-message.tsx'
 import { MessageHistorySkeleton } from './message-history-skeleton.tsx'
 import { SystemMessageComponent } from './system-message.tsx'
 import { ThinkingIndicator } from './thinking-indicator.tsx'
@@ -389,10 +389,10 @@ function MessageHistoryComponent({
         return <ErrorMessageComponent key={item.uuid} message={item} />
       }
       if (item.role === 'user' && item.sourceTaskId) {
-        return <ChannelMessageComponent key={item.uuid} message={item} variant="task" />
+        return <ExternalSourceMessageComponent key={item.uuid} message={item} variant="task" />
       }
-      if (item.role === 'user' && item.channel) {
-        return <ChannelMessageComponent key={item.uuid} message={item} />
+      if (item.role === 'user' && item.externalSource) {
+        return <ExternalSourceMessageComponent key={item.uuid} message={item} />
       }
       if (item.role === 'user') {
         return (

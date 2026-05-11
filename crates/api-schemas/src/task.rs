@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::channel::TaskChannelResponse;
+use crate::bindings::TaskBindingSummary;
 use crate::enums::{Scope, TaskStatus, Visibility};
 use crate::shared::{AgentMode, AgentType};
 
@@ -182,7 +182,7 @@ pub struct TaskResponse {
     pub append_system_prompt: Option<String>,
     pub tags: Vec<TagResponse>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub channels: Vec<TaskChannelResponse>,
+    pub bindings: Vec<TaskBindingSummary>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub environment_status: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

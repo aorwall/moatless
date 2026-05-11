@@ -73,17 +73,16 @@ export const queryKeys = {
 
   integrations: {
     all: () => [...queryKeys.all, 'integrations'] as const,
-    providers: () => [...queryKeys.integrations.all(), 'providers'] as const,
-    providerConnections: () => [...queryKeys.integrations.all(), 'provider-connections'] as const,
-    providerConnectionsList: () =>
-      [...queryKeys.integrations.providerConnections(), 'list'] as const,
-    taskRoutes: () => [...queryKeys.integrations.all(), 'task-routes'] as const,
-    taskRoutesList: () => [...queryKeys.integrations.taskRoutes(), 'list'] as const,
-    taskTriggers: () => [...queryKeys.integrations.all(), 'task-triggers'] as const,
-    taskTriggersList: () => [...queryKeys.integrations.taskTriggers(), 'list'] as const,
-    taskTrigger: (id: string) => [...queryKeys.integrations.taskTriggers(), 'detail', id] as const,
-    taskTriggerRecentTasks: (id: string) =>
-      [...queryKeys.integrations.taskTrigger(id), 'recent-tasks'] as const,
+    adapters: () => [...queryKeys.integrations.all(), 'adapters'] as const,
+    connections: () => [...queryKeys.integrations.all(), 'connections'] as const,
+    connectionsList: () => [...queryKeys.integrations.connections(), 'list'] as const,
+  },
+
+  triggers: {
+    all: () => [...queryKeys.all, 'triggers'] as const,
+    list: () => [...queryKeys.triggers.all(), 'list'] as const,
+    detail: (id: string) => [...queryKeys.triggers.all(), 'detail', id] as const,
+    recentTasks: (id: string) => [...queryKeys.triggers.detail(id), 'recent-tasks'] as const,
   },
 
   settings: {

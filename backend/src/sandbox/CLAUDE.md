@@ -210,7 +210,7 @@ Each domain module owns its types and persistence layer. Auth persistence lives 
 
 - **`models.rs`** = owned by the module, used by anyone. Contains domain enums (with `sqlx::Type`/`Encode`/`Decode`), DB row structs (`sqlx::FromRow`), and internal domain types. Use domain names (e.g. `Task`, `Repository`) — no `Row` suffix.
 - **`schemas.rs`** = API boundary shapes. Request/response structs with `serde` + `utoipa`. Imports from `models.rs` for conversions.
-- **`dao.rs`** = persistence layer. Uses `models.rs` row types + `crate::db::DbPool`. One DAO per module (channel has two: `config_dao.rs` + `thread_dao.rs`).
+- **`dao.rs`** = persistence layer. Uses `models.rs` row types + `crate::db::DbPool`. One DAO per module.
 
 ### Import Conventions
 

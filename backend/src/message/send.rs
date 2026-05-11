@@ -59,7 +59,7 @@ async fn resolve_command_from_message(
     }
 }
 
-/// The main message flow — called by message handlers, task creation, and channel inbound.
+/// The main message flow — called by message handlers, task creation, and external inbound.
 #[allow(clippy::too_many_arguments)]
 pub async fn send_message_flow(
     state: &AppState,
@@ -70,24 +70,24 @@ pub async fn send_message_flow(
     file_ids: &[String],
     contexts: &[MessageContextInput],
     resume: bool,
-    channel_external_id: Option<&str>,
-    channel_provider: Option<&str>,
-    channel_source_name: Option<&str>,
+    external_event_id: Option<&str>,
+    external_adapter: Option<&str>,
+    external_source_name: Option<&str>,
     command_name: Option<&str>,
     source_task_id: Option<&str>,
     start_fresh: bool,
 ) -> Result<(), MessageError> {
-    // Dedup: if this channel message was already persisted (or was just sent
+    // Dedup: if this external message was already persisted (or was just sent
     // outbound and is racing the webhook), skip the insert entirely. Prevents
     // duplicates from Slack retries, re-delivered webhooks, and `moat reply`
     // self-echoes.
-    if let Some(ext_id) = channel_external_id {
+    if let Some(ext_id) = external_event_id {
         // 1. In-memory race-window check — catches webhooks that land before
-        //    `set_channel_external_id` has committed.
+        //    `set_external_event_id` has committed.
         if state.recently_sent.contains(task_id, ext_id) {
             tracing::debug!(
                 task_id = %task_id,
-                channel_external_id = %ext_id,
+                external_event_id = %ext_id,
                 "Filtered self-echo via recently_sent cache"
             );
             return Ok(());
@@ -95,10 +95,10 @@ pub async fn send_message_flow(
 
         // 2. DB check — tolerates both new prefixed format and any legacy
         //    bare-int rows written before the prefix scheme.
-        let candidates = channel_provider
+        let candidates = external_adapter
             .and_then(|provider_name| {
                 state
-                    .channel_providers
+                    .adapters
                     .as_ref()
                     .and_then(|providers| providers.get_by_name(provider_name))
             })
@@ -108,11 +108,11 @@ pub async fn send_message_flow(
             );
         let exists = state
             .messages
-            .has_any_channel_external_id(task_id, &candidates)
+            .has_any_external_event_id(task_id, &candidates)
             .await
             .map_err(|e| MessageError::Internal(format!("Dedup check failed: {e}")))?;
         if exists {
-            tracing::debug!(task_id = %task_id, channel_external_id = %ext_id, "Duplicate channel message, skipping");
+            tracing::debug!(task_id = %task_id, external_event_id = %ext_id, "Duplicate external message, skipping");
             return Ok(());
         }
     }
@@ -198,9 +198,9 @@ pub async fn send_message_flow(
         resume,
         sent_at: None,
         created_at: None,
-        channel_external_id: channel_external_id.map(std::string::ToString::to_string),
-        channel_provider: channel_provider.map(std::string::ToString::to_string),
-        channel_source_name: channel_source_name.map(std::string::ToString::to_string),
+        external_event_id: external_event_id.map(std::string::ToString::to_string),
+        external_adapter: external_adapter.map(std::string::ToString::to_string),
+        external_source_name: external_source_name.map(std::string::ToString::to_string),
         command_name: effective_command_name,
         source_task_id: source_task_id.map(std::string::ToString::to_string),
         start_fresh,
@@ -338,9 +338,9 @@ pub async fn persist_error_result(state: &AppState, task_id: &str, error_text: &
         resume: true,
         sent_at: None,
         created_at: None,
-        channel_external_id: None,
-        channel_provider: None,
-        channel_source_name: None,
+        external_event_id: None,
+        external_adapter: None,
+        external_source_name: None,
         command_name: None,
         source_task_id: None,
         start_fresh: false,
@@ -503,9 +503,9 @@ pub async fn send_tool_response_flow(
         resume: true,
         sent_at: None,
         created_at: None,
-        channel_external_id: None,
-        channel_provider: None,
-        channel_source_name: None,
+        external_event_id: None,
+        external_adapter: None,
+        external_source_name: None,
         command_name: None,
         source_task_id: None,
         start_fresh: false,

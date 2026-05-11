@@ -685,8 +685,7 @@ mod tests {
     fn server_config_has_correct_labels() {
         let config = test_config();
         let server = test_server_config();
-        let cc =
-            build_server_container_config(&config, "task-1", &server, TEST_SANDBOX_IMAGE);
+        let cc = build_server_container_config(&config, "task-1", &server, TEST_SANDBOX_IMAGE);
         let labels = cc.labels.unwrap();
         assert_eq!(labels.get("moatless.service").unwrap(), "server");
         assert_eq!(labels.get("moatless.io/task-id").unwrap(), "task-1");
@@ -697,8 +696,7 @@ mod tests {
     fn server_config_has_workspace_ready_wait() {
         let config = test_config();
         let server = test_server_config();
-        let cc =
-            build_server_container_config(&config, "task-1", &server, TEST_SANDBOX_IMAGE);
+        let cc = build_server_container_config(&config, "task-1", &server, TEST_SANDBOX_IMAGE);
         let cmd = cc.cmd.unwrap();
         assert_eq!(cmd[0], "bash");
         assert_eq!(cmd[1], "-c");
@@ -710,8 +708,7 @@ mod tests {
     fn server_config_sources_shared_server_env_file() {
         let config = test_config();
         let server = test_server_config();
-        let cc =
-            build_server_container_config(&config, "task-1", &server, TEST_SANDBOX_IMAGE);
+        let cc = build_server_container_config(&config, "task-1", &server, TEST_SANDBOX_IMAGE);
         let env = cc.env.unwrap();
         assert!(!env
             .iter()
@@ -727,8 +724,7 @@ mod tests {
     fn server_config_exposes_server_port() {
         let config = test_config();
         let server = test_server_config();
-        let cc =
-            build_server_container_config(&config, "task-1", &server, TEST_SANDBOX_IMAGE);
+        let cc = build_server_container_config(&config, "task-1", &server, TEST_SANDBOX_IMAGE);
         let ports = cc.exposed_ports.unwrap();
         assert!(ports.contains_key("3000/tcp"));
     }
@@ -737,8 +733,7 @@ mod tests {
     fn server_config_has_bind_mounts() {
         let config = test_config();
         let server = test_server_config();
-        let cc =
-            build_server_container_config(&config, "task-1", &server, TEST_SANDBOX_IMAGE);
+        let cc = build_server_container_config(&config, "task-1", &server, TEST_SANDBOX_IMAGE);
         let host_config = cc.host_config.unwrap();
         let mounts = host_config.mounts.unwrap();
         assert_eq!(mounts.len(), 2);
@@ -750,8 +745,7 @@ mod tests {
     fn server_config_env_vars() {
         let config = test_config();
         let server = test_server_config();
-        let cc =
-            build_server_container_config(&config, "task-1", &server, TEST_SANDBOX_IMAGE);
+        let cc = build_server_container_config(&config, "task-1", &server, TEST_SANDBOX_IMAGE);
         let env = cc.env.unwrap();
         assert!(env.iter().any(|e| e == "PORT=3000"));
         assert!(env.iter().any(|e| e == "WORKSPACE_PATH=/opt/moatless/repo"));

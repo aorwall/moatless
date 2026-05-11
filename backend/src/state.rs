@@ -5,12 +5,12 @@
 
 use std::sync::Arc;
 
+use crate::adapters::Adapters;
 use crate::auth::github_app_service::GitHubAppService;
 use crate::auth::provider_token_dao::{PgProviderTokenRepository, ProviderTokenRepository};
 use crate::auth::provider_tokens::{PgProviderTokenAuthRepository, ProviderTokenAuthRepository};
 use crate::auth::users::{PgUserRepository, UserRepository};
-use crate::channel::provider::ChannelProviders;
-use crate::channel::recently_sent::RecentlySent;
+use crate::bindings::recently_sent::RecentlySent;
 use crate::command::dao::{CommandRepository, PgCommandRepository};
 use crate::config::Config;
 use crate::credentials::{BroadcastContext, CredentialService};
@@ -51,16 +51,16 @@ pub struct AppState {
     pub events: Option<Arc<dyn EventPublisher>>,
     /// Optional S3 client for file uploads/downloads.
     pub s3: Option<aws_sdk_s3::Client>,
-    /// Optional channel providers for Slack/Email integrations.
-    pub channel_providers: Option<Arc<ChannelProviders>>,
+    /// Optional external adapters.
+    pub adapters: Option<Arc<Adapters>>,
     /// Optional GitHub App service for installation tokens and user token refresh.
     pub github_app_service: Option<Arc<GitHubAppService>>,
     /// Generic credential service — serializes refreshes per `(user, key)` and
     /// broadcasts rotations to running sandboxes.
     pub credentials_svc: Arc<CredentialService>,
-    /// Short-lived in-memory cache of `(task_id, channel_external_id)` we
+    /// Short-lived in-memory cache of `(task_id, external_event_id)` we
     /// just sent outbound — closes the race where the inbound webhook lands
-    /// before `set_channel_external_id` commits. See [`RecentlySent`].
+    /// before `set_external_event_id` commits. See [`RecentlySent`].
     pub recently_sent: Arc<RecentlySent>,
 
     // =========================================================================
@@ -100,7 +100,7 @@ impl AppState {
         sandbox: Arc<dyn SandboxProvider>,
         events: Option<Arc<dyn EventPublisher>>,
         s3: Option<aws_sdk_s3::Client>,
-        channel_providers: Option<Arc<ChannelProviders>>,
+        adapters: Option<Arc<Adapters>>,
     ) -> Self {
         let github_app_service = GitHubAppService::from_config(&config).map(Arc::new);
 
@@ -180,7 +180,7 @@ impl AppState {
             sandbox,
             events,
             s3,
-            channel_providers,
+            adapters,
             github_app_service,
             credentials_svc,
             recently_sent: Arc::new(RecentlySent::new()),

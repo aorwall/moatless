@@ -1,0 +1,414 @@
+//! Persistence helpers for `task_bindings`.
+
+use chrono::{DateTime, Utc};
+
+use crate::db::DbPool;
+
+use crate::adapters::models::{TaskBinding, ADAPTER_EVENT_BINDING_ORIGIN};
+
+#[async_trait::async_trait]
+pub trait TaskBindingRepository: Send + Sync {
+    async fn find_by_id(&self, id: &str) -> Result<Option<TaskBinding>, sqlx::Error>;
+
+    async fn find_by_subject(
+        &self,
+        provider: &str,
+        subject_kind: &str,
+        subject_key: &str,
+    ) -> Result<Vec<TaskBinding>, sqlx::Error>;
+
+    async fn find_all_by_subject_excluding_task(
+        &self,
+        provider: &str,
+        subject_kind: &str,
+        subject_key: &str,
+        exclude_task_id: &str,
+    ) -> Result<Vec<TaskBinding>, sqlx::Error>;
+
+    async fn find_by_task_id(&self, task_id: &str) -> Result<Vec<TaskBinding>, sqlx::Error>;
+
+    async fn find_by_task_id_and_subject(
+        &self,
+        task_id: &str,
+        provider: &str,
+        subject_kind: &str,
+        subject_key: &str,
+    ) -> Result<Option<TaskBinding>, sqlx::Error>;
+
+    async fn find_provider_event_created_for_subject(
+        &self,
+        provider: &str,
+        subject_kind: &str,
+        subject_key: &str,
+    ) -> Result<Option<TaskBinding>, sqlx::Error>;
+
+    async fn upsert(&self, row: &TaskBinding) -> Result<TaskBinding, sqlx::Error>;
+
+    async fn delete(&self, id: &str) -> Result<u64, sqlx::Error>;
+
+    async fn touch_last_event(&self, id: &str) -> Result<(), sqlx::Error>;
+
+    async fn touch_cursor(&self, id: &str, last_external_event_id: &str)
+        -> Result<(), sqlx::Error>;
+}
+
+pub struct PgTaskBindingRepository(pub DbPool);
+
+/// Flat row returned by `find_recent_for_trigger`.
+#[derive(sqlx::FromRow, Debug)]
+pub struct TriggerRecentTaskRow {
+    pub task_id: String,
+    pub short_id: Option<String>,
+    pub title: String,
+    pub status: String,
+    pub task_created_at: DateTime<Utc>,
+    // binding fields
+    pub binding_id: String,
+    pub provider: String,
+    pub subject_kind: String,
+    pub subject_key: String,
+    pub connection_id: String,
+    pub trigger_id: Option<String>,
+    pub destination_config: serde_json::Value,
+    pub metadata: serde_json::Value,
+    pub last_external_event_id: Option<String>,
+    pub origin: String,
+    pub binding_created_at: DateTime<Utc>,
+    pub last_event_at: DateTime<Utc>,
+}
+
+/// Flat row returned by the batch binding query.
+#[derive(sqlx::FromRow, Debug)]
+pub struct TaskBindingInfo {
+    pub task_id: String,
+    pub trigger_id: String,
+    pub provider: String,
+    pub source_id: String,
+    pub source_name: Option<String>,
+}
+
+#[async_trait::async_trait]
+impl TaskBindingRepository for PgTaskBindingRepository {
+    async fn find_by_id(&self, id: &str) -> Result<Option<TaskBinding>, sqlx::Error> {
+        PgTaskBindingRepository::find_by_id(self, id).await
+    }
+
+    async fn find_by_subject(
+        &self,
+        provider: &str,
+        subject_kind: &str,
+        subject_key: &str,
+    ) -> Result<Vec<TaskBinding>, sqlx::Error> {
+        PgTaskBindingRepository::find_by_subject(self, provider, subject_kind, subject_key).await
+    }
+
+    async fn find_all_by_subject_excluding_task(
+        &self,
+        provider: &str,
+        subject_kind: &str,
+        subject_key: &str,
+        exclude_task_id: &str,
+    ) -> Result<Vec<TaskBinding>, sqlx::Error> {
+        PgTaskBindingRepository::find_all_by_subject_excluding_task(
+            self,
+            provider,
+            subject_kind,
+            subject_key,
+            exclude_task_id,
+        )
+        .await
+    }
+
+    async fn find_by_task_id(&self, task_id: &str) -> Result<Vec<TaskBinding>, sqlx::Error> {
+        PgTaskBindingRepository::find_by_task_id(self, task_id).await
+    }
+
+    async fn find_by_task_id_and_subject(
+        &self,
+        task_id: &str,
+        provider: &str,
+        subject_kind: &str,
+        subject_key: &str,
+    ) -> Result<Option<TaskBinding>, sqlx::Error> {
+        PgTaskBindingRepository::find_by_task_id_and_subject(
+            self,
+            task_id,
+            provider,
+            subject_kind,
+            subject_key,
+        )
+        .await
+    }
+
+    async fn find_provider_event_created_for_subject(
+        &self,
+        provider: &str,
+        subject_kind: &str,
+        subject_key: &str,
+    ) -> Result<Option<TaskBinding>, sqlx::Error> {
+        PgTaskBindingRepository::find_provider_event_created_for_subject(
+            self,
+            provider,
+            subject_kind,
+            subject_key,
+        )
+        .await
+    }
+
+    async fn upsert(&self, row: &TaskBinding) -> Result<TaskBinding, sqlx::Error> {
+        PgTaskBindingRepository::upsert(self, row).await
+    }
+
+    async fn delete(&self, id: &str) -> Result<u64, sqlx::Error> {
+        PgTaskBindingRepository::delete(self, id).await
+    }
+
+    async fn touch_last_event(&self, id: &str) -> Result<(), sqlx::Error> {
+        PgTaskBindingRepository::touch_last_event(self, id).await
+    }
+
+    async fn touch_cursor(
+        &self,
+        id: &str,
+        last_external_event_id: &str,
+    ) -> Result<(), sqlx::Error> {
+        PgTaskBindingRepository::touch_cursor(self, id, last_external_event_id).await
+    }
+}
+
+/// Batch-fetch task binding source info for multiple tasks in a single query.
+pub async fn get_bindings_for_tasks(
+    pool: &DbPool,
+    task_ids: &[String],
+) -> Result<Vec<TaskBindingInfo>, sqlx::Error> {
+    if task_ids.is_empty() {
+        return Ok(vec![]);
+    }
+    sqlx::query_as::<_, TaskBindingInfo>(
+        r#"SELECT tb.task_id,
+                  COALESCE(aes.trigger_id, '') AS trigger_id,
+                  tb.adapter_kind AS provider,
+                  COALESCE(aes.source_matcher, tb.subject_key) AS source_id,
+                  aes.source_name
+           FROM task_bindings tb
+           LEFT JOIN adapter_event_trigger_sources aes ON aes.trigger_id = tb.trigger_id
+           WHERE tb.task_id = ANY($1)"#,
+    )
+    .bind(task_ids)
+    .fetch_all(pool)
+    .await
+}
+
+const TASK_BINDING_SELECT: &str = r#"
+    SELECT id,
+           task_id,
+           adapter_kind AS provider,
+           subject_kind,
+           subject_key,
+           connection_id,
+           trigger_id AS trigger_id,
+           destination_config AS destination_config,
+           metadata,
+           last_external_event_id AS last_external_event_id,
+           origin AS origin,
+           created_at,
+           last_event_at
+    FROM task_bindings
+"#;
+
+impl PgTaskBindingRepository {
+    pub async fn find_by_id(&self, id: &str) -> Result<Option<TaskBinding>, sqlx::Error> {
+        sqlx::query_as::<_, TaskBinding>(&format!("{TASK_BINDING_SELECT} WHERE id = $1"))
+            .bind(id)
+            .fetch_optional(&self.0)
+            .await
+    }
+
+    pub async fn find_by_subject(
+        &self,
+        provider: &str,
+        subject_kind: &str,
+        subject_key: &str,
+    ) -> Result<Vec<TaskBinding>, sqlx::Error> {
+        sqlx::query_as::<_, TaskBinding>(&format!(
+            "{TASK_BINDING_SELECT} WHERE adapter_kind = $1 AND subject_kind = $2 AND subject_key = $3 ORDER BY created_at ASC"
+        ))
+        .bind(provider)
+        .bind(subject_kind)
+        .bind(subject_key)
+        .fetch_all(&self.0)
+        .await
+    }
+
+    pub async fn find_all_by_subject_excluding_task(
+        &self,
+        provider: &str,
+        subject_kind: &str,
+        subject_key: &str,
+        exclude_task_id: &str,
+    ) -> Result<Vec<TaskBinding>, sqlx::Error> {
+        sqlx::query_as::<_, TaskBinding>(&format!(
+            "{TASK_BINDING_SELECT} WHERE adapter_kind = $1 AND subject_kind = $2 AND subject_key = $3 AND task_id <> $4 ORDER BY created_at ASC"
+        ))
+        .bind(provider)
+        .bind(subject_kind)
+        .bind(subject_key)
+        .bind(exclude_task_id)
+        .fetch_all(&self.0)
+        .await
+    }
+
+    pub async fn find_by_task_id(&self, task_id: &str) -> Result<Vec<TaskBinding>, sqlx::Error> {
+        sqlx::query_as::<_, TaskBinding>(&format!(
+            "{TASK_BINDING_SELECT} WHERE task_id = $1 ORDER BY created_at ASC"
+        ))
+        .bind(task_id)
+        .fetch_all(&self.0)
+        .await
+    }
+
+    pub async fn find_by_task_id_and_subject(
+        &self,
+        task_id: &str,
+        provider: &str,
+        subject_kind: &str,
+        subject_key: &str,
+    ) -> Result<Option<TaskBinding>, sqlx::Error> {
+        sqlx::query_as::<_, TaskBinding>(&format!(
+            "{TASK_BINDING_SELECT} WHERE task_id = $1 AND adapter_kind = $2 AND subject_kind = $3 AND subject_key = $4 LIMIT 1"
+        ))
+        .bind(task_id)
+        .bind(provider)
+        .bind(subject_kind)
+        .bind(subject_key)
+        .fetch_optional(&self.0)
+        .await
+    }
+
+    pub async fn find_provider_event_created_for_subject(
+        &self,
+        provider: &str,
+        subject_kind: &str,
+        subject_key: &str,
+    ) -> Result<Option<TaskBinding>, sqlx::Error> {
+        sqlx::query_as::<_, TaskBinding>(&format!(
+            "{TASK_BINDING_SELECT} WHERE adapter_kind = $1 AND subject_kind = $2 AND subject_key = $3 AND origin = $4 ORDER BY created_at ASC LIMIT 1"
+        ))
+        .bind(provider)
+        .bind(subject_kind)
+        .bind(subject_key)
+        .bind(ADAPTER_EVENT_BINDING_ORIGIN)
+        .fetch_optional(&self.0)
+        .await
+    }
+
+    pub async fn upsert(&self, row: &TaskBinding) -> Result<TaskBinding, sqlx::Error> {
+        sqlx::query_as::<_, TaskBinding>(
+            r#"INSERT INTO task_bindings
+               (id, task_id, adapter_kind, subject_kind, subject_key, connection_id,
+                trigger_id, destination_config, metadata,
+                last_external_event_id, origin, created_at, last_event_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+               ON CONFLICT (task_id, adapter_kind, subject_kind, subject_key) DO UPDATE
+               SET connection_id            = EXCLUDED.connection_id,
+                   trigger_id               = COALESCE(task_bindings.trigger_id, EXCLUDED.trigger_id),
+                   destination_config      = EXCLUDED.destination_config,
+                   metadata                 = task_bindings.metadata || EXCLUDED.metadata,
+                   last_external_event_id   = COALESCE(EXCLUDED.last_external_event_id, task_bindings.last_external_event_id),
+                   last_event_at            = GREATEST(task_bindings.last_event_at, EXCLUDED.last_event_at)
+               RETURNING id,
+                         task_id,
+                         adapter_kind AS provider,
+                         subject_kind,
+                         subject_key,
+                         connection_id,
+                         trigger_id AS trigger_id,
+                         destination_config AS destination_config,
+                         metadata,
+                         last_external_event_id AS last_external_event_id,
+                         origin AS origin,
+                         created_at,
+                         last_event_at"#,
+        )
+        .bind(&row.id)
+        .bind(&row.task_id)
+        .bind(&row.provider)
+        .bind(&row.subject_kind)
+        .bind(&row.subject_key)
+        .bind(&row.connection_id)
+        .bind(&row.trigger_id)
+        .bind(&row.destination_config)
+        .bind(&row.metadata)
+        .bind(&row.last_external_event_id)
+        .bind(&row.origin)
+        .bind(row.created_at)
+        .bind(row.last_event_at)
+        .fetch_one(&self.0)
+        .await
+    }
+
+    pub async fn delete(&self, id: &str) -> Result<u64, sqlx::Error> {
+        let result = sqlx::query("DELETE FROM task_bindings WHERE id = $1")
+            .bind(id)
+            .execute(&self.0)
+            .await?;
+        Ok(result.rows_affected())
+    }
+
+    pub async fn touch_last_event(&self, id: &str) -> Result<(), sqlx::Error> {
+        sqlx::query("UPDATE task_bindings SET last_event_at = now() WHERE id = $1")
+            .bind(id)
+            .execute(&self.0)
+            .await?;
+        Ok(())
+    }
+
+    /// Fetch the most recent tasks created via the given trigger, joined with
+    /// their task bindings. Tasks reached via `task_bindings.trigger_id` inherit
+    /// the trigger's scope by construction (a binding is created in the same
+    /// scope as the route+trigger that produced it), so no additional task-level
+    /// scope predicate is needed.
+    pub async fn find_recent_for_trigger(
+        &self,
+        trigger_id: &str,
+        limit: i64,
+    ) -> Result<Vec<TriggerRecentTaskRow>, sqlx::Error> {
+        sqlx::query_as::<_, TriggerRecentTaskRow>(
+            r#"SELECT t.task_id, t.short_id, t.name AS title, t.status,
+                      t.created_at AS task_created_at,
+                      tb.id AS binding_id, tb.adapter_kind AS provider, tb.subject_kind, tb.subject_key,
+                      tb.connection_id, tb.trigger_id, tb.destination_config, tb.metadata,
+                      tb.last_external_event_id, tb.origin,
+                      tb.created_at AS binding_created_at, tb.last_event_at
+               FROM task_bindings tb
+               JOIN tasks t ON t.task_id = tb.task_id
+               WHERE tb.trigger_id = $1
+               ORDER BY tb.created_at DESC
+               LIMIT $2"#,
+        )
+        .bind(trigger_id)
+        .bind(limit)
+        .fetch_all(&self.0)
+        .await
+    }
+
+    /// Stamp the latest external id we've seen on this binding so context
+    /// replay can skip the agent's own posts. Also bumps `last_event_at`.
+    pub async fn touch_cursor(
+        &self,
+        id: &str,
+        last_external_event_id: &str,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"UPDATE task_bindings
+               SET last_external_event_id = $2,
+                   last_event_at = now()
+               WHERE id = $1"#,
+        )
+        .bind(id)
+        .bind(last_external_event_id)
+        .execute(&self.0)
+        .await?;
+        Ok(())
+    }
+}

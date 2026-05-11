@@ -197,7 +197,7 @@ pub struct RedisConfig {
 /// SSE (Server-Sent Events) settings.
 #[derive(Debug, Clone)]
 pub struct SseConfig {
-    /// Broadcast channel capacity for SSE fan-out (default: 4096)
+    /// Broadcast buffer capacity for SSE fan-out (default: 4096)
     pub broadcast_capacity: usize,
     /// Consumer ID for the SSE Redis consumer group (default: "sse-{HOSTNAME}")
     pub consumer_id: String,
@@ -331,7 +331,7 @@ pub struct S3Config {
     pub region: String,
 }
 
-/// Slack channel integration settings.
+/// Slack adapter settings.
 ///
 /// Implements a custom `Debug` to redact secrets.
 #[derive(Clone)]
@@ -379,7 +379,7 @@ impl fmt::Debug for TelegramConfig {
     }
 }
 
-/// GitHub PR channel integration settings.
+/// GitHub PR adapter settings.
 ///
 /// Implements a custom `Debug` to redact secrets.
 #[derive(Clone)]
@@ -403,7 +403,7 @@ impl fmt::Debug for GithubPrConfig {
     }
 }
 
-/// Linear channel integration settings.
+/// Linear adapter settings.
 ///
 /// Implements a custom `Debug` to redact secrets.
 #[derive(Clone)]

@@ -13,7 +13,6 @@ use tracing::info;
 
 use moatless_vibe_backend::agent;
 use moatless_vibe_backend::auth;
-use moatless_vibe_backend::channel;
 use moatless_vibe_backend::config::{Config, SandboxProviderType};
 use moatless_vibe_backend::event_handler;
 use moatless_vibe_backend::feature_flags;
@@ -23,8 +22,8 @@ use moatless_vibe_backend::sse::routes::sse_router;
 use moatless_vibe_backend::startup;
 use moatless_vibe_backend::state::AppState;
 use moatless_vibe_backend::{
-    command, feedback, figma, file_storage, message, plugin_repo, provider_settings, repository,
-    secret, skill, tag, task, task_event, task_template, team,
+    adapters, command, feedback, figma, file_storage, message, plugin_repo, provider_settings,
+    repository, secret, skill, tag, task, task_event, task_template, team, triggers,
 };
 
 #[tokio::main]
@@ -237,15 +236,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Domain routes (need DB)
     if let Some(pool) = db_pool {
-        let channel_providers =
-            channel::provider::ChannelProviders::from_config(&config, pool.clone()).await;
+        let adapter_registry = adapters::Adapters::from_config(&config, pool.clone()).await;
         let app_state = AppState::new(
             pool,
             Arc::new(config.clone()),
             sandbox_provider,
             event_publisher,
             s3_client,
-            channel_providers.map(Arc::new),
+            adapter_registry.map(Arc::new),
         );
 
         let modules = vec![
@@ -260,7 +258,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             secret::routes::secret_router(app_state.clone()),
             tag::routes::tag_router(app_state.clone()),
             provider_settings::routes::provider_settings_router(app_state.clone()),
-            channel::routes::channel_router(app_state.clone()),
+            adapters::routes::adapter_router(app_state.clone()),
             team::routes::team_router(app_state.clone()),
             task_event::routes::task_event_router(app_state.clone()),
             task_template::routes::task_template_router(app_state.clone()),
@@ -351,9 +349,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             info!("Task reaper disabled (Docker mode — K8s leader election not available)");
         }
 
-        // Cron scheduler (if channel providers are configured)
-        if let Some(ref providers) = app_state.channel_providers {
-            channel::cron::scheduler::spawn_cron_scheduler(
+        // Schedule runner and long-polling adapters (when configured).
+        if let Some(ref adapter_registry) = app_state.adapters {
+            triggers::schedule_runner::spawn_cron_scheduler(
                 app_state.clone(),
                 cron_leader,
                 cancel.clone(),
@@ -361,9 +359,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // Telegram long-polling (when webhook mode is not available)
             if config.telegram.bot_token.is_some() && config.telegram.mode == "polling" {
-                channel::telegram::poller::spawn_telegram_poller(
+                adapters::telegram::poller::spawn_telegram_poller(
                     app_state.clone(),
-                    providers.clone(),
+                    adapter_registry.clone(),
                     cancel.clone(),
                 );
             }

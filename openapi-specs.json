@@ -717,6 +717,228 @@
         }
       }
     },
+    "/api/v1/adapters": {
+      "get": {
+        "tags": [
+          "adapters"
+        ],
+        "operationId": "list_adapters",
+        "responses": {
+          "200": {
+            "description": "Configured adapter names",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/adapters/connections": {
+      "get": {
+        "tags": [
+          "adapters"
+        ],
+        "operationId": "list_adapter_connections",
+        "responses": {
+          "200": {
+            "description": "Adapter connections",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AdapterConnectionResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "adapters"
+        ],
+        "operationId": "create_adapter_connection",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAdapterConnectionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Adapter connection upserted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdapterConnectionResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/adapters/github/webhook": {
+      "post": {
+        "tags": [
+          "adapters"
+        ],
+        "operationId": "github_webhook",
+        "requestBody": {
+          "content": {
+            "text/plain": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook processed"
+          }
+        }
+      }
+    },
+    "/api/v1/adapters/linear/webhook": {
+      "post": {
+        "tags": [
+          "adapters"
+        ],
+        "operationId": "linear_webhook",
+        "requestBody": {
+          "content": {
+            "text/plain": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook processed"
+          }
+        }
+      }
+    },
+    "/api/v1/adapters/slack/slash": {
+      "post": {
+        "tags": [
+          "adapters"
+        ],
+        "operationId": "slack_slash_command",
+        "requestBody": {
+          "content": {
+            "text/plain": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Command acknowledged"
+          }
+        }
+      }
+    },
+    "/api/v1/adapters/slack/webhook": {
+      "post": {
+        "tags": [
+          "adapters"
+        ],
+        "operationId": "slack_webhook",
+        "requestBody": {
+          "content": {
+            "text/plain": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook processed"
+          }
+        }
+      }
+    },
+    "/api/v1/adapters/telegram/webhook": {
+      "post": {
+        "tags": [
+          "adapters"
+        ],
+        "operationId": "telegram_webhook",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook processed"
+          }
+        }
+      }
+    },
+    "/api/v1/adapters/webhook/{trigger_id}": {
+      "post": {
+        "tags": [
+          "adapters"
+        ],
+        "operationId": "webhook_inbound",
+        "parameters": [
+          {
+            "name": "trigger_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WebhookPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook accepted"
+          }
+        }
+      }
+    },
     "/api/v1/agents": {
       "get": {
         "tags": [
@@ -1529,228 +1751,6 @@
         }
       }
     },
-    "/api/v1/integrations/connections": {
-      "get": {
-        "tags": [
-          "integrations"
-        ],
-        "operationId": "list_provider_connections",
-        "responses": {
-          "200": {
-            "description": "Provider connections",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/ProviderConnectionResponse"
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "integrations"
-        ],
-        "operationId": "create_provider_connection",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateProviderConnectionRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Provider connection upserted",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProviderConnectionResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/integrations/github/webhook": {
-      "post": {
-        "tags": [
-          "integrations"
-        ],
-        "operationId": "github_webhook",
-        "requestBody": {
-          "content": {
-            "text/plain": {
-              "schema": {
-                "type": "string"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Webhook processed"
-          }
-        }
-      }
-    },
-    "/api/v1/integrations/linear/webhook": {
-      "post": {
-        "tags": [
-          "integrations"
-        ],
-        "operationId": "linear_webhook",
-        "requestBody": {
-          "content": {
-            "text/plain": {
-              "schema": {
-                "type": "string"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Webhook processed"
-          }
-        }
-      }
-    },
-    "/api/v1/integrations/providers": {
-      "get": {
-        "tags": [
-          "integrations"
-        ],
-        "operationId": "list_integration_providers",
-        "responses": {
-          "200": {
-            "description": "Configured provider names",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/integrations/slack/slash": {
-      "post": {
-        "tags": [
-          "integrations"
-        ],
-        "operationId": "slack_slash_command",
-        "requestBody": {
-          "content": {
-            "text/plain": {
-              "schema": {
-                "type": "string"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Command acknowledged"
-          }
-        }
-      }
-    },
-    "/api/v1/integrations/slack/webhook": {
-      "post": {
-        "tags": [
-          "integrations"
-        ],
-        "operationId": "slack_webhook",
-        "requestBody": {
-          "content": {
-            "text/plain": {
-              "schema": {
-                "type": "string"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Webhook processed"
-          }
-        }
-      }
-    },
-    "/api/v1/integrations/telegram/webhook": {
-      "post": {
-        "tags": [
-          "integrations"
-        ],
-        "operationId": "telegram_webhook",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Webhook processed"
-          }
-        }
-      }
-    },
-    "/api/v1/integrations/webhook/{trigger_id}": {
-      "post": {
-        "tags": [
-          "integrations"
-        ],
-        "operationId": "webhook_inbound",
-        "parameters": [
-          {
-            "name": "trigger_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/WebhookPayload"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Webhook accepted"
-          }
-        }
-      }
-    },
     "/api/v1/internal/secrets/resolve": {
       "post": {
         "tags": [
@@ -2191,97 +2191,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/scheduled-jobs": {
-      "get": {
-        "tags": [
-          "scheduled-jobs"
-        ],
-        "operationId": "list_scheduled_jobs",
-        "responses": {
-          "200": {
-            "description": "Scheduled jobs",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/ScheduledJobResponse"
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "scheduled-jobs"
-        ],
-        "operationId": "create_scheduled_job",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateScheduledJobRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Scheduled job created",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ScheduledJobResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/scheduled-jobs/{id}": {
-      "put": {
-        "tags": [
-          "scheduled-jobs"
-        ],
-        "operationId": "update_scheduled_job",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateScheduledJobRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Scheduled job updated",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ScheduledJobResponse"
                 }
               }
             }
@@ -3071,97 +2980,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/task-routes": {
-      "get": {
-        "tags": [
-          "task-routes"
-        ],
-        "operationId": "list_task_routes",
-        "responses": {
-          "200": {
-            "description": "Task routes",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/TaskRouteResponse"
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "task-routes"
-        ],
-        "operationId": "create_task_route",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateTaskRouteRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Task route created",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TaskRouteResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/task-routes/{id}": {
-      "put": {
-        "tags": [
-          "task-routes"
-        ],
-        "operationId": "update_task_route",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateTaskRouteRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Task route updated",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TaskRouteResponse"
                 }
               }
             }
@@ -4985,16 +4803,16 @@
         "tags": [
           "triggers"
         ],
-        "operationId": "list_task_triggers",
+        "operationId": "list_triggers",
         "responses": {
           "200": {
-            "description": "Task triggers",
+            "description": "Triggers",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/TaskTriggerResponse"
+                    "$ref": "#/components/schemas/TriggerResponse"
                   }
                 }
               }
@@ -5006,12 +4824,12 @@
         "tags": [
           "triggers"
         ],
-        "operationId": "create_task_trigger",
+        "operationId": "create_trigger",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CreateTaskTriggerRequest"
+                "$ref": "#/components/schemas/CreateTriggerRequest"
               }
             }
           },
@@ -5019,11 +4837,11 @@
         },
         "responses": {
           "200": {
-            "description": "Task trigger created",
+            "description": "Trigger created",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TaskTriggerResponse"
+                  "$ref": "#/components/schemas/TriggerResponse"
                 }
               }
             }
@@ -5036,12 +4854,12 @@
         "tags": [
           "triggers"
         ],
-        "operationId": "get_task_trigger",
+        "operationId": "get_trigger",
         "parameters": [
           {
             "name": "id",
             "in": "path",
-            "description": "Task trigger id",
+            "description": "Trigger id",
             "required": true,
             "schema": {
               "type": "string"
@@ -5050,11 +4868,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Task trigger",
+            "description": "Trigger",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TaskTriggerResponse"
+                  "$ref": "#/components/schemas/TriggerResponse"
                 }
               }
             }
@@ -5075,7 +4893,7 @@
         "tags": [
           "triggers"
         ],
-        "operationId": "update_task_trigger",
+        "operationId": "update_trigger",
         "parameters": [
           {
             "name": "id",
@@ -5090,7 +4908,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/UpdateTaskTriggerRequest"
+                "$ref": "#/components/schemas/UpdateTriggerRequest"
               }
             }
           },
@@ -5098,11 +4916,11 @@
         },
         "responses": {
           "200": {
-            "description": "Task trigger updated",
+            "description": "Trigger updated",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TaskTriggerResponse"
+                  "$ref": "#/components/schemas/TriggerResponse"
                 }
               }
             }
@@ -5113,12 +4931,12 @@
         "tags": [
           "triggers"
         ],
-        "operationId": "delete_task_trigger",
+        "operationId": "delete_trigger",
         "parameters": [
           {
             "name": "id",
             "in": "path",
-            "description": "Task trigger id",
+            "description": "Trigger id",
             "required": true,
             "schema": {
               "type": "string"
@@ -5127,10 +4945,10 @@
         ],
         "responses": {
           "204": {
-            "description": "Task trigger deleted"
+            "description": "Trigger deleted"
           },
           "404": {
-            "description": "Task trigger not found",
+            "description": "Trigger not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -5152,7 +4970,7 @@
           {
             "name": "id",
             "in": "path",
-            "description": "Task trigger id",
+            "description": "Trigger id",
             "required": true,
             "schema": {
               "type": "string"
@@ -5528,6 +5346,117 @@
   },
   "components": {
     "schemas": {
+      "AdapterConnectionResponse": {
+        "type": "object",
+        "description": "One adapter connection, describing a transport/auth scope.",
+        "required": [
+          "id",
+          "adapterKind",
+          "connectionKind",
+          "externalAccountId",
+          "createdBy",
+          "scope",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "adapterKind": {
+            "$ref": "#/components/schemas/AdapterKind"
+          },
+          "connectionKind": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "createdBy": {
+            "type": "string"
+          },
+          "externalAccountId": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "ownerUserId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "teamId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        }
+      },
+      "AdapterEventTriggerSource": {
+        "type": "object",
+        "required": [
+          "adapterKind",
+          "connectionId",
+          "sourceMatcher",
+          "eventFilter",
+          "allowDirectSend",
+          "closeTaskOnClose",
+          "notifyOnSuccess"
+        ],
+        "properties": {
+          "adapterConfig": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "adapterKind": {
+            "$ref": "#/components/schemas/AdapterKind"
+          },
+          "allowDirectSend": {
+            "type": "boolean"
+          },
+          "closeTaskOnClose": {
+            "type": "boolean"
+          },
+          "connectionId": {
+            "type": "string"
+          },
+          "eventFilter": {
+            "type": "object"
+          },
+          "notifyOnSuccess": {
+            "type": "boolean"
+          },
+          "sourceMatcher": {
+            "type": "string"
+          },
+          "sourceName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "AdapterKind": {
+        "type": "string",
+        "description": "Canonical external adapter identifier.",
+        "enum": [
+          "slack",
+          "telegram",
+          "github",
+          "github_pr",
+          "linear",
+          "webhook"
+        ]
+      },
       "AddTeamMemberRequest": {
         "type": "object",
         "required": [
@@ -5963,34 +5892,6 @@
               "string",
               "null"
             ]
-          }
-        }
-      },
-      "ChannelTargetDescriptor": {
-        "type": "object",
-        "description": "One outbound destination returned by task reply APIs.",
-        "required": [
-          "kind",
-          "id",
-          "label",
-          "flagHint"
-        ],
-        "properties": {
-          "flagHint": {
-            "type": "string",
-            "description": "CLI flag the caller should add to disambiguate, e.g. `\"--binding bind_xyz\"`."
-          },
-          "id": {
-            "type": "string",
-            "description": "Stable target identifier, usually `task_bindings.id`."
-          },
-          "kind": {
-            "type": "string",
-            "description": "Target category, currently `\"binding\"` for canonical task bindings."
-          },
-          "label": {
-            "type": "string",
-            "description": "Human-readable label such as `\"slack channel:C123\"` or `\"github pr:owner/repo#42\"`."
           }
         }
       },
@@ -6458,6 +6359,125 @@
         ],
         "description": "A content block within an API message."
       },
+      "CreateAdapterConnectionRequest": {
+        "type": "object",
+        "description": "Request body for `POST /api/v1/adapters/connections`.",
+        "required": [
+          "adapterKind",
+          "externalAccountId"
+        ],
+        "properties": {
+          "adapterKind": {
+            "$ref": "#/components/schemas/AdapterKind",
+            "description": "Adapter implementation kind, such as `slack`, `github`, or `webhook`."
+          },
+          "connectionKind": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Transport/auth style for this adapter, e.g. `bot_api`, `org_webhook`."
+          },
+          "externalAccountId": {
+            "type": "string",
+            "description": "External account/workspace/org identifier for this connection."
+          },
+          "scope": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Scope",
+                "description": "Access scope for this connection. Defaults to `user`, or `team` when\nonly `teamId` is supplied."
+              }
+            ]
+          },
+          "sourceName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional human-readable name for the connection."
+          },
+          "teamId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Required when the caller belongs to multiple teams."
+          },
+          "transportConfig": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Optional transport-specific metadata."
+          },
+          "webhookSecret": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "HMAC secret used to verify inbound webhooks for this workspace."
+          }
+        }
+      },
+      "CreateAdapterEventTriggerSource": {
+        "type": "object",
+        "required": [
+          "adapterKind",
+          "connectionId",
+          "sourceMatcher"
+        ],
+        "properties": {
+          "adapterConfig": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "adapterKind": {
+            "$ref": "#/components/schemas/AdapterKind"
+          },
+          "allowDirectSend": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "closeTaskOnClose": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "connectionId": {
+            "type": "string"
+          },
+          "eventFilter": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "notifyOnSuccess": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "sourceMatcher": {
+            "type": "string"
+          },
+          "sourceName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "CreateApiKeyRequest": {
         "type": "object",
         "description": "Body for POST /api/v1/auth/api-keys.",
@@ -6576,70 +6596,6 @@
               "string",
               "null"
             ]
-          }
-        }
-      },
-      "CreateProviderConnectionRequest": {
-        "type": "object",
-        "description": "Request body for `POST /api/v1/integrations/connections`.\n\nToday only used for Linear, where the workspace connection has to be\nregistered explicitly because each Linear workspace creates its own\nwebhook with its own secret.",
-        "required": [
-          "provider",
-          "externalAccountId"
-        ],
-        "properties": {
-          "connectionKind": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Transport/auth style for this provider, e.g. `bot_api`, `org_webhook`."
-          },
-          "externalAccountId": {
-            "type": "string",
-            "description": "External account/workspace/org identifier for this connection."
-          },
-          "provider": {
-            "$ref": "#/components/schemas/IntegrationProvider",
-            "description": "Provider value."
-          },
-          "scope": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/Scope",
-                "description": "Access scope for this connection. Defaults to `user`, or `team` when\nonly `teamId` is supplied for legacy callers."
-              }
-            ]
-          },
-          "sourceName": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Optional human-readable name for the connection."
-          },
-          "teamId": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Required when the caller belongs to multiple teams."
-          },
-          "transportConfig": {
-            "type": [
-              "object",
-              "null"
-            ],
-            "description": "Optional transport-specific metadata (merged into `transport_config`).\nLinear example: `{\"workspace_url_key\":\"acme\"}`."
-          },
-          "webhookSecret": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "HMAC secret used to verify inbound webhooks for this workspace."
           }
         }
       },
@@ -6803,50 +6759,18 @@
           }
         }
       },
-      "CreateScheduledJobRequest": {
+      "CreateScheduleTriggerSource": {
         "type": "object",
         "required": [
-          "routeId",
-          "scheduleExpr",
+          "cronExpression",
           "messageTemplate"
         ],
         "properties": {
-          "active": {
-            "type": [
-              "boolean",
-              "null"
-            ]
+          "cronExpression": {
+            "type": "string"
           },
           "messageTemplate": {
             "type": "string"
-          },
-          "routeId": {
-            "type": "string"
-          },
-          "runAsUserId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "scheduleExpr": {
-            "type": "string"
-          },
-          "scope": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/Scope"
-              }
-            ]
-          },
-          "teamId": {
-            "type": [
-              "string",
-              "null"
-            ]
           },
           "timezone": {
             "type": [
@@ -6859,12 +6783,15 @@
       "CreateTaskBindingRequest": {
         "type": "object",
         "required": [
-          "provider",
+          "adapterKind",
           "connectionId",
           "subjectKind",
           "subjectKey"
         ],
         "properties": {
+          "adapterKind": {
+            "$ref": "#/components/schemas/AdapterKind"
+          },
           "connectionId": {
             "type": "string"
           },
@@ -6885,9 +6812,6 @@
               "string",
               "null"
             ]
-          },
-          "provider": {
-            "$ref": "#/components/schemas/IntegrationProvider"
           },
           "subjectKey": {
             "type": "string"
@@ -7019,76 +6943,6 @@
           }
         }
       },
-      "CreateTaskRouteRequest": {
-        "type": "object",
-        "required": [
-          "repositoryId",
-          "routingMode"
-        ],
-        "properties": {
-          "agentType": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "ongoingTaskId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "promptTemplate": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "repositoryId": {
-            "type": "string"
-          },
-          "routingMode": {
-            "$ref": "#/components/schemas/RoutingMode"
-          },
-          "runAsUserId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "scope": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/Scope"
-              }
-            ]
-          },
-          "tagIds": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "type": "string"
-            }
-          },
-          "taskName": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "teamId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        }
-      },
       "CreateTaskTemplateRequest": {
         "type": "object",
         "description": "Request to create a task template.",
@@ -7183,87 +7037,6 @@
           }
         }
       },
-      "CreateTaskTriggerRequest": {
-        "type": "object",
-        "required": [
-          "provider",
-          "connectionId",
-          "sourceMatcher",
-          "routeId"
-        ],
-        "properties": {
-          "active": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "allowDirectSend": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "closeTaskOnClose": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "connectionId": {
-            "type": "string"
-          },
-          "eventFilter": {
-            "type": [
-              "object",
-              "null"
-            ]
-          },
-          "notifyOnSuccess": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "provider": {
-            "$ref": "#/components/schemas/IntegrationProvider"
-          },
-          "routeId": {
-            "type": "string"
-          },
-          "scope": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/Scope"
-              }
-            ]
-          },
-          "sourceMatcher": {
-            "type": "string"
-          },
-          "sourceName": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "teamId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "triggerConfig": {
-            "type": [
-              "object",
-              "null"
-            ]
-          }
-        }
-      },
       "CreateTeamRequest": {
         "type": "object",
         "required": [
@@ -7284,6 +7057,120 @@
             "type": "string"
           }
         }
+      },
+      "CreateTriggerRequest": {
+        "type": "object",
+        "required": [
+          "kind",
+          "rule",
+          "source"
+        ],
+        "properties": {
+          "active": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "kind": {
+            "$ref": "#/components/schemas/TriggerKind"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rule": {
+            "$ref": "#/components/schemas/CreateTriggerRule"
+          },
+          "scope": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
+            ]
+          },
+          "source": {
+            "$ref": "#/components/schemas/CreateTriggerSource"
+          },
+          "teamId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CreateTriggerRule": {
+        "type": "object",
+        "required": [
+          "repositoryId",
+          "routingMode"
+        ],
+        "properties": {
+          "agentType": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ongoingTaskId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "prompt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "repositoryId": {
+            "type": "string"
+          },
+          "routingMode": {
+            "$ref": "#/components/schemas/RoutingMode"
+          },
+          "runAsUserId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tagIds": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "taskName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CreateTriggerSource": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/CreateAdapterEventTriggerSource"
+          },
+          {
+            "$ref": "#/components/schemas/CreateScheduleTriggerSource"
+          },
+          {
+            "$ref": "#/components/schemas/ManualTriggerSource"
+          }
+        ]
       },
       "DeleteMessageResponse": {
         "type": "object",
@@ -8001,17 +7888,6 @@
           }
         }
       },
-      "IntegrationProvider": {
-        "type": "string",
-        "description": "Canonical external integration provider identifier.",
-        "enum": [
-          "slack",
-          "telegram",
-          "github",
-          "linear",
-          "webhook"
-        ]
-      },
       "ListAgentsResponse": {
         "type": "object",
         "required": [
@@ -8103,6 +7979,9 @@
             "$ref": "#/components/schemas/PaginationResponse"
           }
         }
+      },
+      "ManualTriggerSource": {
+        "type": "object"
       },
       "MessageContextInput": {
         "oneOf": [
@@ -8525,58 +8404,6 @@
           }
         }
       },
-      "ProviderConnectionResponse": {
-        "type": "object",
-        "description": "One row from `provider_connections` — describes a transport/auth scope\n(e.g. one GitHub org webhook).",
-        "required": [
-          "id",
-          "provider",
-          "connectionKind",
-          "externalAccountId",
-          "createdBy",
-          "scope",
-          "createdAt",
-          "updatedAt"
-        ],
-        "properties": {
-          "connectionKind": {
-            "type": "string"
-          },
-          "createdAt": {
-            "type": "string"
-          },
-          "createdBy": {
-            "type": "string"
-          },
-          "externalAccountId": {
-            "type": "string"
-          },
-          "id": {
-            "type": "string"
-          },
-          "ownerUserId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "provider": {
-            "$ref": "#/components/schemas/IntegrationProvider"
-          },
-          "scope": {
-            "$ref": "#/components/schemas/Scope"
-          },
-          "teamId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "updatedAt": {
-            "type": "string"
-          }
-        }
-      },
       "ProvisionResponse": {
         "type": "object",
         "description": "Provision response",
@@ -8675,6 +8502,34 @@
           },
           "label": {
             "type": "string"
+          }
+        }
+      },
+      "ReplyTargetDescriptor": {
+        "type": "object",
+        "description": "One outbound destination returned by task reply APIs.",
+        "required": [
+          "kind",
+          "id",
+          "label",
+          "flagHint"
+        ],
+        "properties": {
+          "flagHint": {
+            "type": "string",
+            "description": "CLI flag the caller should add to disambiguate, e.g. `\"--binding bind_xyz\"`."
+          },
+          "id": {
+            "type": "string",
+            "description": "Stable target identifier, usually `task_bindings.id`."
+          },
+          "kind": {
+            "type": "string",
+            "description": "Target category, currently `\"binding\"` for canonical task bindings."
+          },
+          "label": {
+            "type": "string",
+            "description": "Human-readable label such as `\"slack source:C123\"` or `\"github pr:owner/repo#42\"`."
           }
         }
       },
@@ -9128,7 +8983,7 @@
       },
       "RoutingMode": {
         "type": "string",
-        "description": "Channel routing mode for message-to-task mapping.",
+        "description": "Trigger routing mode for message-to-task mapping.",
         "enum": [
           "ongoing",
           "by_subject"
@@ -9331,6 +9186,47 @@
           }
         }
       },
+      "ScheduleTriggerSource": {
+        "type": "object",
+        "required": [
+          "cronExpression",
+          "timezone",
+          "messageTemplate",
+          "nextFireAt"
+        ],
+        "properties": {
+          "cronExpression": {
+            "type": "string"
+          },
+          "lastFiredAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lockedBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lockedUntil": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "messageTemplate": {
+            "type": "string"
+          },
+          "nextFireAt": {
+            "type": "string"
+          },
+          "timezone": {
+            "type": "string"
+          }
+        }
+      },
       "ScheduledJobInfo": {
         "allOf": [
           {
@@ -9381,96 +9277,9 @@
         ],
         "description": "Per-kind payload for a scheduled job."
       },
-      "ScheduledJobResponse": {
-        "type": "object",
-        "required": [
-          "id",
-          "routeId",
-          "scheduleExpr",
-          "timezone",
-          "messageTemplate",
-          "active",
-          "nextFireAt",
-          "createdBy",
-          "scope",
-          "createdAt",
-          "updatedAt"
-        ],
-        "properties": {
-          "active": {
-            "type": "boolean"
-          },
-          "createdAt": {
-            "type": "string"
-          },
-          "createdBy": {
-            "type": "string"
-          },
-          "id": {
-            "type": "string"
-          },
-          "lastFiredAt": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "lockedBy": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "lockedUntil": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "messageTemplate": {
-            "type": "string"
-          },
-          "nextFireAt": {
-            "type": "string"
-          },
-          "ownerUserId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "routeId": {
-            "type": "string"
-          },
-          "runAsUserId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "scheduleExpr": {
-            "type": "string"
-          },
-          "scope": {
-            "$ref": "#/components/schemas/Scope"
-          },
-          "teamId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "timezone": {
-            "type": "string"
-          },
-          "updatedAt": {
-            "type": "string"
-          }
-        }
-      },
       "Scope": {
         "type": "string",
-        "description": "3-level scope for repositories, tasks, channels, and credentials.",
+        "description": "3-level scope for repositories, tasks, integrations, and credentials.",
         "enum": [
           "global",
           "team",
@@ -9756,7 +9565,7 @@
           "targets": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/ChannelTargetDescriptor"
+              "$ref": "#/components/schemas/ReplyTargetDescriptor"
             }
           }
         }
@@ -10191,10 +10000,11 @@
       },
       "TaskBindingResponse": {
         "type": "object",
+        "description": "External adapter binding connected to a task.",
         "required": [
           "id",
           "taskId",
-          "provider",
+          "adapterKind",
           "connectionId",
           "subjectKind",
           "subjectKey",
@@ -10205,6 +10015,9 @@
           "lastEventAt"
         ],
         "properties": {
+          "adapterKind": {
+            "$ref": "#/components/schemas/AdapterKind"
+          },
           "connectionId": {
             "type": "string"
           },
@@ -10232,9 +10045,6 @@
           "origin": {
             "type": "string"
           },
-          "provider": {
-            "$ref": "#/components/schemas/IntegrationProvider"
-          },
           "subjectKey": {
             "type": "string"
           },
@@ -10252,15 +10062,18 @@
           }
         }
       },
-      "TaskChannelResponse": {
+      "TaskBindingSummary": {
         "type": "object",
-        "description": "External integration binding connected to a task.",
+        "description": "External adapter binding summary attached to a task response.",
         "required": [
           "triggerId",
-          "provider",
+          "adapterKind",
           "sourceId"
         ],
         "properties": {
+          "adapterKind": {
+            "$ref": "#/components/schemas/AdapterKind"
+          },
           "bindingId": {
             "type": [
               "string",
@@ -10273,7 +10086,7 @@
               "string",
               "null"
             ],
-            "description": "Provider thread identifier such as GitHub PR number or Slack thread ts."
+            "description": "Adapter thread identifier such as GitHub PR number or Slack thread ts."
           },
           "lastEventAt": {
             "type": [
@@ -10289,9 +10102,6 @@
             ],
             "description": "Binding origin (e.g. `ingress`, `direct_send`, `scheduled_job`)."
           },
-          "provider": {
-            "$ref": "#/components/schemas/IntegrationProvider"
-          },
           "sourceId": {
             "type": "string"
           },
@@ -10306,7 +10116,7 @@
               "string",
               "null"
             ],
-            "description": "Provider-specific subject key such as `owner/repo#123` for GitHub PR bindings."
+            "description": "Adapter-specific subject key such as `owner/repo#123` for GitHub PR bindings."
           },
           "threadId": {
             "type": [
@@ -10410,17 +10220,17 @@
               "null"
             ]
           },
+          "bindings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TaskBindingSummary"
+            }
+          },
           "branch": {
             "type": [
               "string",
               "null"
             ]
-          },
-          "channels": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/TaskChannelResponse"
-            }
           },
           "createdAt": {
             "type": "string"
@@ -10559,88 +10369,6 @@
           }
         }
       },
-      "TaskRouteResponse": {
-        "type": "object",
-        "required": [
-          "id",
-          "repositoryId",
-          "routingMode",
-          "tagIds",
-          "agentType",
-          "scope",
-          "createdBy",
-          "createdAt",
-          "updatedAt"
-        ],
-        "properties": {
-          "agentType": {
-            "type": "string"
-          },
-          "createdAt": {
-            "type": "string"
-          },
-          "createdBy": {
-            "type": "string"
-          },
-          "id": {
-            "type": "string"
-          },
-          "ongoingTaskId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "ownerUserId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "promptTemplate": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "repositoryId": {
-            "type": "string"
-          },
-          "routingMode": {
-            "$ref": "#/components/schemas/RoutingMode"
-          },
-          "runAsUserId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "scope": {
-            "$ref": "#/components/schemas/Scope"
-          },
-          "tagIds": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "taskName": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "teamId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "updatedAt": {
-            "type": "string"
-          }
-        }
-      },
       "TaskStatus": {
         "type": "string",
         "description": "Task lifecycle status.",
@@ -10761,93 +10489,6 @@
           "teamId": {
             "type": [
               "string",
-              "null"
-            ]
-          },
-          "updatedAt": {
-            "type": "string"
-          }
-        }
-      },
-      "TaskTriggerResponse": {
-        "type": "object",
-        "required": [
-          "id",
-          "provider",
-          "connectionId",
-          "sourceMatcher",
-          "eventFilter",
-          "routeId",
-          "allowDirectSend",
-          "closeTaskOnClose",
-          "notifyOnSuccess",
-          "active",
-          "scope",
-          "createdBy",
-          "createdAt",
-          "updatedAt"
-        ],
-        "properties": {
-          "active": {
-            "type": "boolean"
-          },
-          "allowDirectSend": {
-            "type": "boolean"
-          },
-          "closeTaskOnClose": {
-            "type": "boolean"
-          },
-          "connectionId": {
-            "type": "string"
-          },
-          "createdAt": {
-            "type": "string"
-          },
-          "createdBy": {
-            "type": "string"
-          },
-          "eventFilter": {
-            "type": "object"
-          },
-          "id": {
-            "type": "string"
-          },
-          "notifyOnSuccess": {
-            "type": "boolean"
-          },
-          "ownerUserId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "provider": {
-            "$ref": "#/components/schemas/IntegrationProvider"
-          },
-          "routeId": {
-            "type": "string"
-          },
-          "scope": {
-            "$ref": "#/components/schemas/Scope"
-          },
-          "sourceMatcher": {
-            "type": "string"
-          },
-          "sourceName": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "teamId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "triggerConfig": {
-            "type": [
-              "object",
               "null"
             ]
           },
@@ -11014,6 +10655,14 @@
           }
         }
       },
+      "TriggerKind": {
+        "type": "string",
+        "enum": [
+          "adapter_event",
+          "schedule",
+          "manual"
+        ]
+      },
       "TriggerRecentTaskItem": {
         "type": "object",
         "required": [
@@ -11057,6 +10706,130 @@
             "type": "string"
           }
         }
+      },
+      "TriggerResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "active",
+          "scope",
+          "createdBy",
+          "createdAt",
+          "updatedAt",
+          "rule",
+          "source"
+        ],
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "createdBy": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/TriggerKind"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ownerUserId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rule": {
+            "$ref": "#/components/schemas/TriggerRule"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "source": {
+            "$ref": "#/components/schemas/TriggerSource"
+          },
+          "teamId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        }
+      },
+      "TriggerRule": {
+        "type": "object",
+        "required": [
+          "repositoryId",
+          "routingMode",
+          "tagIds",
+          "agentType"
+        ],
+        "properties": {
+          "agentType": {
+            "type": "string"
+          },
+          "ongoingTaskId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "prompt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "repositoryId": {
+            "type": "string"
+          },
+          "routingMode": {
+            "$ref": "#/components/schemas/RoutingMode"
+          },
+          "runAsUserId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tagIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "taskName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "TriggerSource": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/AdapterEventTriggerSource"
+          },
+          {
+            "$ref": "#/components/schemas/ScheduleTriggerSource"
+          },
+          {
+            "$ref": "#/components/schemas/ManualTriggerSource"
+          }
+        ]
       },
       "UiContentBlock": {
         "type": "object",
@@ -11118,17 +10891,6 @@
               }
             ]
           },
-          "channel": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/UiMessageChannel",
-                "description": "Channel source metadata (present only for channel-originated messages)."
-              }
-            ]
-          },
           "commandName": {
             "type": [
               "string",
@@ -11149,6 +10911,17 @@
               "$ref": "#/components/schemas/MessageContextInput"
             },
             "description": "Contexts attached to this user message (file uploads, Figma imports,\npreview URLs, selected elements)."
+          },
+          "externalSource": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/UiMessageExternalSource",
+                "description": "External source metadata for messages originating from adapters."
+              }
+            ]
           },
           "hasPendingUserInput": {
             "type": [
@@ -11267,13 +11040,17 @@
           }
         }
       },
-      "UiMessageChannel": {
+      "UiMessageExternalSource": {
         "type": "object",
-        "description": "Channel source metadata for messages originating from external channels.",
+        "description": "External source metadata for messages originating from adapters.",
         "required": [
-          "provider"
+          "adapterKind"
         ],
         "properties": {
+          "adapterKind": {
+            "type": "string",
+            "description": "Adapter type (e.g. \"slack\", \"webhook\", \"github\", \"linear\")."
+          },
           "externalId": {
             "type": [
               "string",
@@ -11288,16 +11065,12 @@
             ],
             "description": "Human-readable rendering of `external_id` (e.g. \"Comment #12345\",\n\"PR #42 opened\", \"ts 1700000.000123\"). Falls back to the raw\n`external_id` for legacy or unknown prefix shapes."
           },
-          "provider": {
-            "type": "string",
-            "description": "Integration provider type (e.g. \"slack\", \"webhook\", \"github\", \"linear\")."
-          },
           "sourceName": {
             "type": [
               "string",
               "null"
             ],
-            "description": "Human-readable channel name (e.g. \"#engineering\")."
+            "description": "Human-readable source name (e.g. \"#engineering\")."
           }
         }
       },
@@ -11383,6 +11156,60 @@
             "format": "int32"
           }
         }
+      },
+      "UpdateAdapterEventTriggerSource": {
+        "type": "object",
+        "properties": {
+          "adapterConfig": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "allowDirectSend": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "closeTaskOnClose": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "connectionId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "eventFilter": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "notifyOnSuccess": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "sourceMatcher": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sourceName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
       },
       "UpdateCommandRequest": {
         "type": "object",
@@ -11571,50 +11398,16 @@
           }
         }
       },
-      "UpdateScheduledJobRequest": {
+      "UpdateScheduleTriggerSource": {
         "type": "object",
         "properties": {
-          "active": {
+          "cronExpression": {
             "type": [
-              "boolean",
+              "string",
               "null"
             ]
           },
           "messageTemplate": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "routeId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "runAsUserId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "scheduleExpr": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "scope": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/Scope"
-              }
-            ]
-          },
-          "teamId": {
             "type": [
               "string",
               "null"
@@ -11626,7 +11419,8 @@
               "null"
             ]
           }
-        }
+        },
+        "additionalProperties": false
       },
       "UpdateTaskMetadataRequest": {
         "type": "object",
@@ -11638,82 +11432,6 @@
             ]
           },
           "name": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        }
-      },
-      "UpdateTaskRouteRequest": {
-        "type": "object",
-        "properties": {
-          "agentType": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "ongoingTaskId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "promptTemplate": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "repositoryId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "routingMode": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/RoutingMode"
-              }
-            ]
-          },
-          "runAsUserId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "scope": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/Scope"
-              }
-            ]
-          },
-          "tagIds": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "type": "string"
-            }
-          },
-          "taskName": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "teamId": {
             "type": [
               "string",
               "null"
@@ -11819,87 +11537,6 @@
           }
         }
       },
-      "UpdateTaskTriggerRequest": {
-        "type": "object",
-        "properties": {
-          "active": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "allowDirectSend": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "closeTaskOnClose": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "connectionId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "eventFilter": {
-            "type": [
-              "object",
-              "null"
-            ]
-          },
-          "notifyOnSuccess": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "routeId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "scope": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/Scope"
-              }
-            ]
-          },
-          "sourceMatcher": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "sourceName": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "teamId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "triggerConfig": {
-            "type": [
-              "object",
-              "null"
-            ]
-          }
-        }
-      },
       "UpdateTaskTtlRequest": {
         "type": "object",
         "required": [
@@ -11929,6 +11566,132 @@
             "type": "string"
           }
         }
+      },
+      "UpdateTriggerRequest": {
+        "type": "object",
+        "properties": {
+          "active": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rule": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/UpdateTriggerRule"
+              }
+            ]
+          },
+          "scope": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
+            ]
+          },
+          "source": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/UpdateTriggerSource"
+              }
+            ]
+          },
+          "teamId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "UpdateTriggerRule": {
+        "type": "object",
+        "properties": {
+          "agentType": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ongoingTaskId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "prompt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "repositoryId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "routingMode": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RoutingMode"
+              }
+            ]
+          },
+          "runAsUserId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tagIds": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "taskName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "UpdateTriggerSource": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/UpdateAdapterEventTriggerSource"
+          },
+          {
+            "$ref": "#/components/schemas/UpdateScheduleTriggerSource"
+          },
+          {
+            "$ref": "#/components/schemas/ManualTriggerSource"
+          }
+        ]
       },
       "UpdateUserRequest": {
         "type": "object",
@@ -12375,20 +12138,12 @@
       "description": "GitHub, Gitness, and Codex credential management"
     },
     {
-      "name": "integrations",
-      "description": "Provider connections and webhooks"
-    },
-    {
-      "name": "task-routes",
-      "description": "Task routing policies"
+      "name": "adapters",
+      "description": "Adapter connections and webhooks"
     },
     {
       "name": "triggers",
-      "description": "External event triggers"
-    },
-    {
-      "name": "scheduled-jobs",
-      "description": "Durable scheduled task triggers"
+      "description": "Work triggers"
     },
     {
       "name": "task-bindings",

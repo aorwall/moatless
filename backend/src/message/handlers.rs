@@ -394,7 +394,7 @@ mod strip_heavy_fields_tests {
             usage: None,
             result: None,
             sdk_metadata: None,
-            channel: None,
+            external_source: None,
             command_name: None,
             parent_uuid: None,
             source_task_id: None,

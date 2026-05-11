@@ -87,9 +87,8 @@ export interface CreatePluginRepoRequest {
 
 export interface TaskTriggerFixtureResponse {
 	id: string;
-	routeId: string;
 	connectionId: string;
-	provider: string;
+	adapterKind: string;
 	sourceId: string;
 	sourceName?: string;
 	repositoryId: string;
@@ -103,34 +102,34 @@ export interface TaskTriggerFixtureResponse {
 	updatedAt: string;
 }
 
-interface ProviderConnectionResponse {
+interface AdapterConnectionResponse {
 	id: string;
-	provider: string;
+	adapterKind: string;
 	externalAccountId: string;
 }
 
-interface TaskRouteResponse {
-	id: string;
+interface TriggerRuleResponse {
 	repositoryId: string;
 	routingMode: string;
 	ongoingTaskId?: string | null;
-	promptTemplate?: string | null;
-	taskName?: string | null;
-	tagIds: string[];
-	createdBy: string;
-	createdAt: string;
-	updatedAt: string;
+	prompt?: string | null;
 }
 
-interface TaskTriggerResponse {
-	id: string;
-	provider: string;
+interface AdapterEventTriggerSourceResponse {
+	adapterKind: string;
 	connectionId: string;
 	sourceMatcher: string;
 	sourceName?: string | null;
-	triggerConfig?: Record<string, unknown> | null;
-	routeId: string;
+	adapterConfig?: Record<string, unknown> | null;
+}
+
+interface TriggerResponse {
+	id: string;
+	name?: string | null;
+	kind: string;
 	active: boolean;
+	rule: TriggerRuleResponse;
+	source: AdapterEventTriggerSourceResponse | Record<string, never>;
 	createdBy: string;
 	createdAt: string;
 	updatedAt: string;
@@ -727,53 +726,43 @@ export class ApiClient {
 	// Integration Trigger Fixture Operations
 	// =========================================================================
 
-	private toTaskTriggerFixture(trigger: TaskTriggerResponse, route: TaskRouteResponse): TaskTriggerFixtureResponse {
+	private isAdapterEventSource(
+		source: TriggerResponse["source"],
+	): source is AdapterEventTriggerSourceResponse {
+		return "adapterKind" in source;
+	}
+
+	private normalizeRoutingMode(mode: string): string {
+		if (mode === "per_message" || mode === "thread_based") {
+			return "by_subject";
+		}
+		return mode;
+	}
+
+	private toTaskTriggerFixture(trigger: TriggerResponse): TaskTriggerFixtureResponse {
+		if (!this.isAdapterEventSource(trigger.source)) {
+			throw new Error(`Trigger is not an adapter-event trigger: ${trigger.id}`);
+		}
 		return {
 			id: trigger.id,
-			routeId: route.id,
-			connectionId: trigger.connectionId,
-			provider: trigger.provider,
-			sourceId: trigger.sourceMatcher,
-			sourceName: trigger.sourceName ?? undefined,
-			repositoryId: route.repositoryId,
-			routingMode: route.routingMode,
-			promptTemplate: route.promptTemplate ?? undefined,
+			connectionId: trigger.source.connectionId,
+			adapterKind: trigger.source.adapterKind,
+			sourceId: trigger.source.sourceMatcher,
+			sourceName: trigger.source.sourceName ?? undefined,
+			repositoryId: trigger.rule.repositoryId,
+			routingMode: trigger.rule.routingMode,
+			promptTemplate: trigger.rule.prompt ?? undefined,
 			active: trigger.active,
-			providerConfig: trigger.triggerConfig ?? undefined,
-			ongoingTaskId: route.ongoingTaskId ?? undefined,
+			providerConfig: trigger.source.adapterConfig ?? undefined,
+			ongoingTaskId: trigger.rule.ongoingTaskId ?? undefined,
 			createdBy: trigger.createdBy,
 			createdAt: trigger.createdAt,
 			updatedAt: trigger.updatedAt,
 		};
 	}
 
-	private async listTaskRoutes(repositoryId?: string): Promise<TaskRouteResponse[]> {
-		const params = new URLSearchParams();
-		if (repositoryId) params.set("repositoryId", repositoryId);
-		const qs = params.toString();
-		return this.fetchJson<TaskRouteResponse[]>(
-			`${this.baseURL}/api/v1/task-routes${qs ? `?${qs}` : ""}`,
-		);
-	}
-
-	private async getTaskRoute(routeId: string): Promise<TaskRouteResponse> {
-		const routes = await this.listTaskRoutes();
-		const route = routes.find((candidate) => candidate.id === routeId);
-		if (!route) {
-			throw new Error(`Task route not found: ${routeId}`);
-		}
-		return route;
-	}
-
-	private async getTaskTrigger(id: string): Promise<TaskTriggerResponse> {
-		const triggers = await this.fetchJson<TaskTriggerResponse[]>(
-			`${this.baseURL}/api/v1/triggers`,
-		);
-		const trigger = triggers.find((candidate) => candidate.id === id);
-		if (!trigger) {
-			throw new Error(`Task trigger not found: ${id}`);
-		}
-		return trigger;
+	private async getTaskTrigger(id: string): Promise<TriggerResponse> {
+		return this.fetchJson<TriggerResponse>(`${this.baseURL}/api/v1/triggers/${id}`);
 	}
 
 	private providerConfigSecret(providerConfig?: Record<string, unknown>): string | null {
@@ -782,7 +771,8 @@ export class ApiClient {
 	}
 
 	async createTaskTriggerFixture(config: {
-		provider: string;
+		adapterKind?: string;
+		provider?: string;
 		sourceId: string;
 		sourceName?: string;
 		repositoryId: string;
@@ -790,49 +780,50 @@ export class ApiClient {
 		promptTemplate?: string;
 		providerConfig?: Record<string, unknown>;
 	}): Promise<TaskTriggerFixtureResponse> {
-		const connection = await this.fetchJson<ProviderConnectionResponse>(
-			`${this.baseURL}/api/v1/integrations/connections`,
+		const adapterKind = config.adapterKind ?? config.provider ?? "webhook";
+		const connection = await this.fetchJson<AdapterConnectionResponse>(
+			`${this.baseURL}/api/v1/adapters/connections`,
 			{
 				method: "POST",
 				body: JSON.stringify({
-					provider: config.provider,
+					adapterKind,
 					externalAccountId: config.sourceId,
 					sourceName: config.sourceName ?? config.sourceId,
-					connectionKind: config.provider === "webhook" ? "webhook" : "bot_api",
+					connectionKind: adapterKind === "webhook" ? "webhook" : "bot_api",
 					webhookSecret: this.providerConfigSecret(config.providerConfig),
 				}),
 			},
 		);
-		const route = await this.fetchJson<TaskRouteResponse>(`${this.baseURL}/api/v1/task-routes`, {
+		const trigger = await this.fetchJson<TriggerResponse>(`${this.baseURL}/api/v1/triggers`, {
 			method: "POST",
 			body: JSON.stringify({
-				repositoryId: config.repositoryId,
-				routingMode: config.routingMode,
-				promptTemplate: config.promptTemplate ?? null,
-			}),
-		});
-		const trigger = await this.fetchJson<TaskTriggerResponse>(`${this.baseURL}/api/v1/triggers`, {
-			method: "POST",
-			body: JSON.stringify({
-				provider: config.provider,
-				connectionId: connection.id,
-				sourceMatcher: config.sourceId,
-				sourceName: config.sourceName ?? config.sourceId,
-				triggerConfig: config.providerConfig ?? {},
-				routeId: route.id,
-				allowDirectSend: false,
-				closeTaskOnClose: true,
-				notifyOnSuccess: false,
+				name: config.sourceName ?? config.sourceId,
+				kind: "adapter_event",
 				active: true,
+				rule: {
+					repositoryId: config.repositoryId,
+					routingMode: this.normalizeRoutingMode(config.routingMode),
+					prompt: config.promptTemplate ?? null,
+				},
+				source: {
+					adapterKind,
+					connectionId: connection.id,
+					sourceMatcher: config.sourceId,
+					sourceName: config.sourceName ?? config.sourceId,
+					eventFilter: {},
+					adapterConfig: config.providerConfig ?? {},
+					allowDirectSend: false,
+					closeTaskOnClose: true,
+					notifyOnSuccess: false,
+				},
 			}),
 		});
-		return this.toTaskTriggerFixture(trigger, route);
+		return this.toTaskTriggerFixture(trigger);
 	}
 
 	async getTaskTriggerFixture(id: string): Promise<TaskTriggerFixtureResponse> {
 		const trigger = await this.getTaskTrigger(id);
-		const route = await this.getTaskRoute(trigger.routeId);
-		return this.toTaskTriggerFixture(trigger, route);
+		return this.toTaskTriggerFixture(trigger);
 	}
 
 	async updateTaskTriggerFixture(
@@ -846,29 +837,30 @@ export class ApiClient {
 		},
 	): Promise<TaskTriggerFixtureResponse> {
 		const current = await this.getTaskTriggerFixture(id);
-		const route = await this.fetchJson<TaskRouteResponse>(
-			`${this.baseURL}/api/v1/task-routes/${current.routeId}`,
-			{
-				method: "PUT",
-				body: JSON.stringify({
-					routingMode: data.routingMode ?? current.routingMode,
-					promptTemplate:
-						data.promptTemplate === undefined ? current.promptTemplate ?? null : data.promptTemplate,
-				}),
-			},
-		);
-		const trigger = await this.fetchJson<TaskTriggerResponse>(
+		const trigger = await this.fetchJson<TriggerResponse>(
 			`${this.baseURL}/api/v1/triggers/${id}`,
 			{
 				method: "PUT",
 				body: JSON.stringify({
-					sourceName: data.sourceName === undefined ? current.sourceName ?? null : data.sourceName,
-					triggerConfig: data.providerConfig ?? current.providerConfig ?? {},
 					active: data.active ?? current.active,
+					rule: {
+						routingMode: data.routingMode
+							? this.normalizeRoutingMode(data.routingMode)
+							: current.routingMode,
+						prompt:
+							data.promptTemplate === undefined
+								? current.promptTemplate ?? null
+								: data.promptTemplate,
+					},
+					source: {
+						sourceName:
+							data.sourceName === undefined ? current.sourceName ?? null : data.sourceName,
+						adapterConfig: data.providerConfig ?? current.providerConfig ?? {},
+					},
 				}),
 			},
 		);
-		return this.toTaskTriggerFixture(trigger, route);
+		return this.toTaskTriggerFixture(trigger);
 	}
 
 	async deleteTaskTriggerFixture(id: string): Promise<void> {
@@ -885,22 +877,25 @@ export class ApiClient {
 	}
 
 	async listTaskTriggerFixtures(filters?: {
+		adapterKind?: string;
 		provider?: string;
 		repositoryId?: string;
 	}): Promise<TaskTriggerFixtureResponse[]> {
 		const params = new URLSearchParams();
-		if (filters?.provider) params.set("provider", filters.provider);
+		params.set("kind", "adapter_event");
+		const adapterKind = filters?.adapterKind ?? filters?.provider;
+		if (adapterKind) params.set("adapterKind", adapterKind);
 
 		const qs = params.toString();
-		const [routes, triggers] = await Promise.all([
-			this.listTaskRoutes(filters?.repositoryId),
-			this.fetchJson<TaskTriggerResponse[]>(`${this.baseURL}/api/v1/triggers${qs ? `?${qs}` : ""}`),
-		]);
-		const routesById = new Map(routes.map((route) => [route.id, route]));
-		return triggers.flatMap((trigger) => {
-			const route = routesById.get(trigger.routeId);
-			return route ? [this.toTaskTriggerFixture(trigger, route)] : [];
-		});
+		const triggers = await this.fetchJson<TriggerResponse[]>(
+			`${this.baseURL}/api/v1/triggers?${qs}`,
+		);
+		return triggers
+			.map((trigger) => this.toTaskTriggerFixture(trigger))
+			.filter(
+				(fixture) =>
+					!filters?.repositoryId || fixture.repositoryId === filters.repositoryId,
+			);
 	}
 
 	/**
@@ -910,7 +905,7 @@ export class ApiClient {
 		triggerId: string,
 		payload: { text: string; threadId?: string; userId?: string; metadata?: Record<string, unknown> },
 	): Promise<Response> {
-		return this.fetchRaw(`${this.baseURL}/api/v1/integrations/webhook/${triggerId}`, {
+		return this.fetchRaw(`${this.baseURL}/api/v1/adapters/webhook/${triggerId}`, {
 			method: "POST",
 			body: JSON.stringify(payload),
 		});
@@ -924,7 +919,7 @@ export class ApiClient {
 		payload: unknown,
 		headers?: Record<string, string>,
 	): Promise<Response> {
-		return this.fetchRaw(`${this.baseURL}/api/v1/integrations/webhook/${triggerId}`, {
+		return this.fetchRaw(`${this.baseURL}/api/v1/adapters/webhook/${triggerId}`, {
 			method: "POST",
 			body: JSON.stringify(payload),
 			headers,

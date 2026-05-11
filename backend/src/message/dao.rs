@@ -103,7 +103,7 @@ pub trait MessageRepository: Send + Sync {
         &self,
         task_ids: &[String],
     ) -> Result<HashMap<String, DateTime<Utc>>, sqlx::Error>;
-    async fn set_channel_metadata<'a>(
+    async fn set_external_source_metadata<'a>(
         &self,
         message_uuid: &'a str,
         external_id: &'a str,
@@ -111,30 +111,30 @@ pub trait MessageRepository: Send + Sync {
         source_name: Option<&'a str>,
     ) -> Result<bool, sqlx::Error>;
 
-    async fn has_channel_external_id(
+    async fn has_external_event_id(
         &self,
         task_id: &str,
         external_id: &str,
     ) -> Result<bool, sqlx::Error>;
 
-    /// Like [`Self::has_channel_external_id`] but matches any of the supplied
+    /// Like [`Self::has_external_event_id`] but matches any of the supplied
     /// candidate ids. Used by the dedup gate to recognize both the new
     /// `<provider>:<kind>:<id>` form and any legacy bare-int form for the
     /// same row in a single round-trip.
-    async fn has_any_channel_external_id(
+    async fn has_any_external_event_id(
         &self,
         task_id: &str,
         external_ids: &[String],
     ) -> Result<bool, sqlx::Error>;
 
-    async fn get_channel_external_ids(&self, task_id: &str) -> Result<Vec<String>, sqlx::Error>;
+    async fn get_external_event_ids(&self, task_id: &str) -> Result<Vec<String>, sqlx::Error>;
 
     /// Find the owning task for any one of the supplied external IDs.
     ///
     /// Used by GitHub webhook delivery to suppress only the task that authored
     /// a comment or PR event, while still allowing sibling bindings on the
     /// same subject to receive it.
-    async fn find_task_id_by_any_channel_external_id(
+    async fn find_task_id_by_any_external_event_id(
         &self,
         external_ids: &[String],
     ) -> Result<Option<String>, sqlx::Error>;
@@ -269,8 +269,8 @@ impl MessageRepository for PgMessageRepository {
                 assistant_usage_cache_read_input_tokens,
                 tool_use_result, sdk_metadata, attachments, agent_session_id,
                 will_not_resume, run_metrics,
-                agent_mode, model, resume, channel_external_id,
-                channel_provider, channel_source_name, command_name, source_task_id,
+                agent_mode, model, resume, external_event_id,
+                external_adapter, external_source_name, command_name, source_task_id,
                 start_fresh
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
@@ -320,9 +320,9 @@ impl MessageRepository for PgMessageRepository {
         .bind(&msg.agent_mode)
         .bind(&msg.model)
         .bind(msg.resume)
-        .bind(&msg.channel_external_id)
-        .bind(&msg.channel_provider)
-        .bind(&msg.channel_source_name)
+        .bind(&msg.external_event_id)
+        .bind(&msg.external_adapter)
+        .bind(&msg.external_source_name)
         .bind(&msg.command_name)
         .bind(&msg.source_task_id)
         .bind(msg.start_fresh)
@@ -561,7 +561,7 @@ impl MessageRepository for PgMessageRepository {
         Ok(rows.into_iter().collect())
     }
 
-    async fn set_channel_metadata<'a>(
+    async fn set_external_source_metadata<'a>(
         &self,
         message_uuid: &'a str,
         external_id: &'a str,
@@ -570,10 +570,10 @@ impl MessageRepository for PgMessageRepository {
     ) -> Result<bool, sqlx::Error> {
         let result = sqlx::query(
             r#"UPDATE task_messages
-               SET channel_external_id = $2,
-                   channel_provider    = $3,
-                   channel_source_name = $4
-               WHERE uuid = $1 AND channel_external_id IS NULL"#,
+               SET external_event_id = $2,
+                   external_adapter    = $3,
+                   external_source_name = $4
+               WHERE uuid = $1 AND external_event_id IS NULL"#,
         )
         .bind(message_uuid)
         .bind(external_id)
@@ -585,7 +585,7 @@ impl MessageRepository for PgMessageRepository {
         Ok(result.rows_affected() > 0)
     }
 
-    async fn has_channel_external_id(
+    async fn has_external_event_id(
         &self,
         task_id: &str,
         external_id: &str,
@@ -593,7 +593,7 @@ impl MessageRepository for PgMessageRepository {
         let row: (bool,) = sqlx::query_as(
             r#"SELECT EXISTS(
                 SELECT 1 FROM task_messages
-                WHERE task_id = $1 AND channel_external_id = $2
+                WHERE task_id = $1 AND external_event_id = $2
             )"#,
         )
         .bind(task_id)
@@ -604,7 +604,7 @@ impl MessageRepository for PgMessageRepository {
         Ok(row.0)
     }
 
-    async fn has_any_channel_external_id(
+    async fn has_any_external_event_id(
         &self,
         task_id: &str,
         external_ids: &[String],
@@ -615,7 +615,7 @@ impl MessageRepository for PgMessageRepository {
         let row: (bool,) = sqlx::query_as(
             r#"SELECT EXISTS(
                 SELECT 1 FROM task_messages
-                WHERE task_id = $1 AND channel_external_id = ANY($2)
+                WHERE task_id = $1 AND external_event_id = ANY($2)
             )"#,
         )
         .bind(task_id)
@@ -626,10 +626,10 @@ impl MessageRepository for PgMessageRepository {
         Ok(row.0)
     }
 
-    async fn get_channel_external_ids(&self, task_id: &str) -> Result<Vec<String>, sqlx::Error> {
+    async fn get_external_event_ids(&self, task_id: &str) -> Result<Vec<String>, sqlx::Error> {
         let rows: Vec<(String,)> = sqlx::query_as(
-            r#"SELECT channel_external_id FROM task_messages
-               WHERE task_id = $1 AND channel_external_id IS NOT NULL"#,
+            r#"SELECT external_event_id FROM task_messages
+               WHERE task_id = $1 AND external_event_id IS NOT NULL"#,
         )
         .bind(task_id)
         .fetch_all(&self.0)
@@ -638,7 +638,7 @@ impl MessageRepository for PgMessageRepository {
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
-    async fn find_task_id_by_any_channel_external_id(
+    async fn find_task_id_by_any_external_event_id(
         &self,
         external_ids: &[String],
     ) -> Result<Option<String>, sqlx::Error> {
@@ -649,7 +649,7 @@ impl MessageRepository for PgMessageRepository {
         sqlx::query_scalar::<_, String>(
             r#"SELECT task_id
                FROM task_messages
-               WHERE channel_external_id = ANY($1)
+               WHERE external_event_id = ANY($1)
                ORDER BY id DESC
                LIMIT 1"#,
         )

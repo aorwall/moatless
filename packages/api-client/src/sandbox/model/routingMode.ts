@@ -7,7 +7,7 @@
  */
 
 /**
- * Channel routing mode for message-to-task mapping.
+ * Trigger routing mode for message-to-task mapping.
  */
 export type RoutingMode = typeof RoutingMode[keyof typeof RoutingMode];
 

@@ -9,9 +9,10 @@
 //! - `openapi` — enables `utoipa::ToSchema` / `utoipa::IntoParams` derives
 //! - `database` — enables `sqlx` `Type`/`Encode`/`Decode` impls for enums
 
+pub mod adapters;
 pub mod agent;
 pub mod auth;
-pub mod channel;
+pub mod bindings;
 pub mod codex;
 pub mod command;
 pub mod enums;
@@ -30,4 +31,5 @@ pub mod task;
 pub mod task_event;
 pub mod task_template;
 pub mod team;
+pub mod triggers;
 pub mod user;

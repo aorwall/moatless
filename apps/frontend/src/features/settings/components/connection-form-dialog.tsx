@@ -1,10 +1,10 @@
-import { IntegrationProvider } from '@moatless/api-client'
+import { AdapterKind } from '@moatless/api-client'
 import { Loader2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import {
-  useCreateProviderConnection,
-  useIntegrationProviders,
+  useCreateIntegrationConnection,
+  useIntegrationAdapters,
 } from '@/features/integrations/hooks/use-integrations'
 import { Button } from '@/lib/components/ui/button'
 import {
@@ -35,7 +35,7 @@ interface ConnectionFormDialogProps {
 }
 
 interface ConnectionFormState {
-  provider: string
+  adapter: string
   externalAccountId: string
   sourceName: string
   connectionKind: string
@@ -43,7 +43,7 @@ interface ConnectionFormState {
   transportConfigJson: string
 }
 
-const PROVIDER_LABELS: Record<string, string> = {
+const ADAPTER_LABELS: Record<string, string> = {
   slack: 'Slack',
   telegram: 'Telegram',
   github: 'GitHub',
@@ -51,23 +51,21 @@ const PROVIDER_LABELS: Record<string, string> = {
   webhook: 'Webhook',
 }
 
-const INTEGRATION_PROVIDER_VALUES = Object.values(IntegrationProvider)
+const ADAPTER_VALUES = Object.values(AdapterKind)
 
-function getProviderLabel(provider: string): string {
-  return PROVIDER_LABELS[provider] ?? provider
+function getAdapterLabel(adapter: string): string {
+  return ADAPTER_LABELS[adapter] ?? adapter
 }
 
-function toIntegrationProvider(provider: string): IntegrationProvider | null {
-  return INTEGRATION_PROVIDER_VALUES.includes(provider as IntegrationProvider)
-    ? (provider as IntegrationProvider)
-    : null
+function toAdapterKind(adapter: string): AdapterKind | null {
+  return ADAPTER_VALUES.includes(adapter as AdapterKind) ? (adapter as AdapterKind) : null
 }
 
-function defaultConnectionKind(provider: string): string {
-  if (provider === 'webhook') {
+function defaultConnectionKind(adapter: string): string {
+  if (adapter === 'webhook') {
     return 'webhook'
   }
-  if (provider === 'github') {
+  if (adapter === 'github') {
     return 'org_webhook'
   }
   return 'bot_api'
@@ -92,43 +90,43 @@ function parseJsonObject(value: string, label: string): JsonObject | null {
   return parsed
 }
 
-function makeInitialForm(defaultProvider: string): ConnectionFormState {
+function makeInitialForm(defaultAdapter: string): ConnectionFormState {
   return {
-    provider: defaultProvider,
+    adapter: defaultAdapter,
     externalAccountId: '',
     sourceName: '',
-    connectionKind: defaultConnectionKind(defaultProvider),
+    connectionKind: defaultConnectionKind(defaultAdapter),
     webhookSecret: '',
     transportConfigJson: '{}',
   }
 }
 
 export function ConnectionFormDialog({ open, onOpenChange }: ConnectionFormDialogProps) {
-  const { data: providers } = useIntegrationProviders()
-  const providerItems = providers ?? []
-  const defaultProvider = providerItems[0] ?? IntegrationProvider.slack
-  const [form, setForm] = useState<ConnectionFormState>(() => makeInitialForm(defaultProvider))
-  const createConnection = useCreateProviderConnection()
+  const { data: adapters } = useIntegrationAdapters()
+  const adapterItems = adapters ?? []
+  const defaultAdapter = adapterItems[0] ?? AdapterKind.slack
+  const [form, setForm] = useState<ConnectionFormState>(() => makeInitialForm(defaultAdapter))
+  const createConnection = useCreateIntegrationConnection()
   const isPending = createConnection.isPending
 
   useEffect(() => {
     if (open) {
-      setForm(makeInitialForm(defaultProvider))
+      setForm(makeInitialForm(defaultAdapter))
     }
-  }, [open, defaultProvider])
+  }, [open, defaultAdapter])
 
-  const setProvider = (provider: string) => {
+  const setAdapter = (adapter: string) => {
     setForm((prev) => ({
       ...prev,
-      provider,
-      connectionKind: defaultConnectionKind(provider),
+      adapter,
+      connectionKind: defaultConnectionKind(adapter),
     }))
   }
 
   const handleSubmit = async () => {
-    const provider = toIntegrationProvider(form.provider)
-    if (!provider) {
-      toast.error('Select a provider')
+    const adapterKind = toAdapterKind(form.adapter)
+    if (!adapterKind) {
+      toast.error('Select an adapter')
       return
     }
     if (!form.externalAccountId.trim()) {
@@ -139,7 +137,7 @@ export function ConnectionFormDialog({ open, onOpenChange }: ConnectionFormDialo
     try {
       const transportConfig = parseJsonObject(form.transportConfigJson, 'Transport Config JSON')
       await createConnection.mutateAsync({
-        provider,
+        adapterKind,
         externalAccountId: form.externalAccountId.trim(),
         sourceName: form.sourceName.trim() || null,
         connectionKind: form.connectionKind.trim() || null,
@@ -161,21 +159,21 @@ export function ConnectionFormDialog({ open, onOpenChange }: ConnectionFormDialo
         <DialogHeader>
           <DialogTitle>New Connection</DialogTitle>
           <DialogDescription>
-            Create a new provider connection for triggers to use.
+            Create a new adapter connection for triggers to use.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-4">
           <div className="space-y-2">
-            <Label>Provider</Label>
-            <Select value={form.provider} onValueChange={setProvider}>
+            <Label>Adapter</Label>
+            <Select value={form.adapter} onValueChange={setAdapter}>
               <SelectTrigger>
-                <SelectValue placeholder="Select provider" />
+                <SelectValue placeholder="Select adapter" />
               </SelectTrigger>
               <SelectContent>
-                {providerItems.map((provider) => (
-                  <SelectItem key={provider} value={provider}>
-                    {getProviderLabel(provider)}
+                {adapterItems.map((adapter) => (
+                  <SelectItem key={adapter} value={adapter}>
+                    {getAdapterLabel(adapter)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -250,7 +248,7 @@ export function ConnectionFormDialog({ open, onOpenChange }: ConnectionFormDialo
           </Button>
           <Button
             onClick={handleSubmit}
-            disabled={isPending || !form.externalAccountId.trim() || providerItems.length === 0}
+            disabled={isPending || !form.externalAccountId.trim() || adapterItems.length === 0}
           >
             {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Create

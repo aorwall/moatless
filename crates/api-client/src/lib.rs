@@ -548,74 +548,45 @@ impl ApiClient {
     }
 
     // ========================================================================
-    // Integrations
+    // Adapters
     // ========================================================================
 
-    /// GET /api/v1/integrations/providers
-    pub async fn list_integration_providers(&self) -> Result<Vec<String>, ApiError> {
-        self.get("/api/v1/integrations/providers").await
+    /// GET /api/v1/adapters
+    pub async fn list_adapters(&self) -> Result<Vec<String>, ApiError> {
+        self.get("/api/v1/adapters").await
     }
 
-    /// GET /api/v1/integrations/connections
-    pub async fn list_integration_connections(
+    /// GET /api/v1/adapters/connections
+    pub async fn list_adapter_connections(
         &self,
-        provider: Option<&str>,
-    ) -> Result<Vec<moatless_api_schemas::channel::ProviderConnectionResponse>, ApiError> {
-        let qs = provider
-            .map(|p| format!("?provider={}", urlenc(p)))
+        adapter_kind: Option<&str>,
+    ) -> Result<Vec<moatless_api_schemas::adapters::AdapterConnectionResponse>, ApiError> {
+        let qs = adapter_kind
+            .map(|p| format!("?adapterKind={}", urlenc(p)))
             .unwrap_or_default();
-        self.get(&format!("/api/v1/integrations/connections{qs}"))
-            .await
+        self.get(&format!("/api/v1/adapters/connections{qs}")).await
     }
 
-    /// POST /api/v1/integrations/connections
-    pub async fn create_integration_connection(
+    /// POST /api/v1/adapters/connections
+    pub async fn create_adapter_connection(
         &self,
-        req: &moatless_api_schemas::channel::CreateProviderConnectionRequest,
-    ) -> Result<moatless_api_schemas::channel::ProviderConnectionResponse, ApiError> {
-        self.post("/api/v1/integrations/connections", req).await
-    }
-
-    /// GET /api/v1/task-routes
-    pub async fn list_task_routes(
-        &self,
-        repository_id: Option<&str>,
-    ) -> Result<Vec<moatless_api_schemas::channel::TaskRouteResponse>, ApiError> {
-        let qs = repository_id
-            .map(|id| format!("?repositoryId={}", urlenc(id)))
-            .unwrap_or_default();
-        self.get(&format!("/api/v1/task-routes{qs}")).await
-    }
-
-    /// POST /api/v1/task-routes
-    pub async fn create_task_route(
-        &self,
-        req: &moatless_api_schemas::channel::CreateTaskRouteRequest,
-    ) -> Result<moatless_api_schemas::channel::TaskRouteResponse, ApiError> {
-        self.post("/api/v1/task-routes", req).await
-    }
-
-    /// PUT /api/v1/task-routes/{id}
-    pub async fn update_task_route(
-        &self,
-        id: &str,
-        req: &moatless_api_schemas::channel::UpdateTaskRouteRequest,
-    ) -> Result<moatless_api_schemas::channel::TaskRouteResponse, ApiError> {
-        self.put(&format!("/api/v1/task-routes/{id}"), req).await
+        req: &moatless_api_schemas::adapters::CreateAdapterConnectionRequest,
+    ) -> Result<moatless_api_schemas::adapters::AdapterConnectionResponse, ApiError> {
+        self.post("/api/v1/adapters/connections", req).await
     }
 
     /// GET /api/v1/triggers
-    pub async fn list_task_triggers(
+    pub async fn list_triggers(
         &self,
-        provider: Option<&str>,
-        route_id: Option<&str>,
-    ) -> Result<Vec<moatless_api_schemas::channel::TaskTriggerResponse>, ApiError> {
+        kind: Option<&str>,
+        adapter_kind: Option<&str>,
+    ) -> Result<Vec<moatless_api_schemas::triggers::TriggerResponse>, ApiError> {
         let mut params = Vec::new();
-        if let Some(provider) = provider {
-            params.push(format!("provider={}", urlenc(provider)));
+        if let Some(kind) = kind {
+            params.push(format!("kind={}", urlenc(kind)));
         }
-        if let Some(route_id) = route_id {
-            params.push(format!("routeId={}", urlenc(route_id)));
+        if let Some(adapter_kind) = adapter_kind {
+            params.push(format!("adapterKind={}", urlenc(adapter_kind)));
         }
         let qs = if params.is_empty() {
             String::new()
@@ -626,56 +597,52 @@ impl ApiClient {
     }
 
     /// POST /api/v1/triggers
-    pub async fn create_task_trigger(
+    pub async fn create_trigger(
         &self,
-        req: &moatless_api_schemas::channel::CreateTaskTriggerRequest,
-    ) -> Result<moatless_api_schemas::channel::TaskTriggerResponse, ApiError> {
+        req: &moatless_api_schemas::triggers::CreateTriggerRequest,
+    ) -> Result<moatless_api_schemas::triggers::TriggerResponse, ApiError> {
         self.post("/api/v1/triggers", req).await
     }
 
-    /// PUT /api/v1/triggers/{id}
-    pub async fn update_task_trigger(
+    /// GET /api/v1/triggers/{id}
+    pub async fn get_trigger(
         &self,
         id: &str,
-        req: &moatless_api_schemas::channel::UpdateTaskTriggerRequest,
-    ) -> Result<moatless_api_schemas::channel::TaskTriggerResponse, ApiError> {
+    ) -> Result<moatless_api_schemas::triggers::TriggerResponse, ApiError> {
+        self.get(&format!("/api/v1/triggers/{id}")).await
+    }
+
+    /// PUT /api/v1/triggers/{id}
+    pub async fn update_trigger(
+        &self,
+        id: &str,
+        req: &moatless_api_schemas::triggers::UpdateTriggerRequest,
+    ) -> Result<moatless_api_schemas::triggers::TriggerResponse, ApiError> {
         self.put(&format!("/api/v1/triggers/{id}"), req).await
     }
 
     /// DELETE /api/v1/triggers/{id}
-    pub async fn delete_task_trigger(&self, id: &str) -> Result<(), ApiError> {
+    pub async fn delete_trigger(&self, id: &str) -> Result<(), ApiError> {
         self.delete_request(&format!("/api/v1/triggers/{id}")).await
     }
 
-    /// GET /api/v1/scheduled-jobs
-    pub async fn list_scheduled_jobs(
-        &self,
-    ) -> Result<Vec<moatless_api_schemas::channel::ScheduledJobResponse>, ApiError> {
-        self.get("/api/v1/scheduled-jobs").await
-    }
-
-    /// POST /api/v1/scheduled-jobs
-    pub async fn create_scheduled_job(
-        &self,
-        req: &moatless_api_schemas::channel::CreateScheduledJobRequest,
-    ) -> Result<moatless_api_schemas::channel::ScheduledJobResponse, ApiError> {
-        self.post("/api/v1/scheduled-jobs", req).await
-    }
-
-    /// PUT /api/v1/scheduled-jobs/{id}
-    pub async fn update_scheduled_job(
+    /// GET /api/v1/triggers/{id}/tasks
+    pub async fn list_trigger_recent_tasks(
         &self,
         id: &str,
-        req: &moatless_api_schemas::channel::UpdateScheduledJobRequest,
-    ) -> Result<moatless_api_schemas::channel::ScheduledJobResponse, ApiError> {
-        self.put(&format!("/api/v1/scheduled-jobs/{id}"), req).await
+        limit: Option<u32>,
+    ) -> Result<Vec<moatless_api_schemas::triggers::TriggerRecentTaskItem>, ApiError> {
+        let qs = limit
+            .map(|limit| format!("?limit={limit}"))
+            .unwrap_or_default();
+        self.get(&format!("/api/v1/triggers/{id}/tasks{qs}")).await
     }
 
     /// GET /api/v1/tasks/{task_id}/bindings
     pub async fn list_task_bindings(
         &self,
         task_id: &str,
-    ) -> Result<Vec<moatless_api_schemas::channel::TaskBindingResponse>, ApiError> {
+    ) -> Result<Vec<moatless_api_schemas::bindings::TaskBindingResponse>, ApiError> {
         self.get(&format!("/api/v1/tasks/{task_id}/bindings")).await
     }
 
@@ -683,8 +650,8 @@ impl ApiClient {
     pub async fn create_task_binding(
         &self,
         task_id: &str,
-        req: &moatless_api_schemas::channel::CreateTaskBindingRequest,
-    ) -> Result<moatless_api_schemas::channel::TaskBindingResponse, ApiError> {
+        req: &moatless_api_schemas::bindings::CreateTaskBindingRequest,
+    ) -> Result<moatless_api_schemas::bindings::TaskBindingResponse, ApiError> {
         self.post(&format!("/api/v1/tasks/{task_id}/bindings"), req)
             .await
     }
@@ -693,8 +660,8 @@ impl ApiClient {
     pub async fn send_task_reply(
         &self,
         task_id: &str,
-        req: &moatless_api_schemas::channel::SendTaskReplyRequest,
-    ) -> Result<moatless_api_schemas::channel::SendTaskReplyResponse, ApiError> {
+        req: &moatless_api_schemas::bindings::SendTaskReplyRequest,
+    ) -> Result<moatless_api_schemas::bindings::SendTaskReplyResponse, ApiError> {
         self.post(&format!("/api/v1/tasks/{task_id}/reply"), req)
             .await
     }

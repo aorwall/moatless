@@ -24,20 +24,17 @@ import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as AuthCallbackRouteImport } from './routes/auth/callback'
 import { Route as TasksTaskIdIndexRouteImport } from './routes/tasks/$task-id/index'
 import { Route as SandboxTaskIdIndexRouteImport } from './routes/sandbox/$task-id/index'
+import { Route as AdminTriggersIndexRouteImport } from './routes/admin/triggers/index'
 import { Route as AdminMarketplacesIndexRouteImport } from './routes/admin/marketplaces/index'
 import { Route as AdminCommandsIndexRouteImport } from './routes/admin/commands/index'
 import { Route as TasksTaskIdKioskRouteImport } from './routes/tasks/$task-id/kiosk'
 import { Route as OauthGithubCallbackRouteImport } from './routes/oauth/github/callback'
 import { Route as OauthFigmaCallbackRouteImport } from './routes/oauth/figma/callback'
-import { Route as AdminIntegrationsTriggersIndexRouteImport } from './routes/admin/integrations/triggers/index'
-import { Route as AdminIntegrationsRoutesIndexRouteImport } from './routes/admin/integrations/routes/index'
+import { Route as AdminTriggersNewRouteImport } from './routes/admin/triggers/new'
+import { Route as AdminTriggersTriggerIdIndexRouteImport } from './routes/admin/triggers/$trigger-id/index'
 import { Route as AdminIntegrationsConnectionsIndexRouteImport } from './routes/admin/integrations/connections/index'
-import { Route as AdminIntegrationsTriggersNewRouteImport } from './routes/admin/integrations/triggers/new'
-import { Route as AdminIntegrationsRoutesNewRouteImport } from './routes/admin/integrations/routes/new'
-import { Route as AdminIntegrationsTriggersTriggerIdIndexRouteImport } from './routes/admin/integrations/triggers/$trigger-id/index'
-import { Route as AdminIntegrationsRoutesRouteIdIndexRouteImport } from './routes/admin/integrations/routes/$route-id/index'
+import { Route as AdminTriggersTriggerIdEditRouteImport } from './routes/admin/triggers/$trigger-id/edit'
 import { Route as AdminIntegrationsConnectionsConnectionIdIndexRouteImport } from './routes/admin/integrations/connections/$connection-id/index'
-import { Route as AdminIntegrationsTriggersTriggerIdEditRouteImport } from './routes/admin/integrations/triggers/$trigger-id/edit'
 
 const TasksRoute = TasksRouteImport.update({
   id: '/tasks',
@@ -114,6 +111,11 @@ const SandboxTaskIdIndexRoute = SandboxTaskIdIndexRouteImport.update({
   path: '/$task-id/',
   getParentRoute: () => SandboxRoute,
 } as any)
+const AdminTriggersIndexRoute = AdminTriggersIndexRouteImport.update({
+  id: '/triggers/',
+  path: '/triggers/',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminMarketplacesIndexRoute = AdminMarketplacesIndexRouteImport.update({
   id: '/marketplaces/',
   path: '/marketplaces/',
@@ -139,16 +141,15 @@ const OauthFigmaCallbackRoute = OauthFigmaCallbackRouteImport.update({
   path: '/oauth/figma/callback',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AdminIntegrationsTriggersIndexRoute =
-  AdminIntegrationsTriggersIndexRouteImport.update({
-    id: '/integrations/triggers/',
-    path: '/integrations/triggers/',
-    getParentRoute: () => AdminRoute,
-  } as any)
-const AdminIntegrationsRoutesIndexRoute =
-  AdminIntegrationsRoutesIndexRouteImport.update({
-    id: '/integrations/routes/',
-    path: '/integrations/routes/',
+const AdminTriggersNewRoute = AdminTriggersNewRouteImport.update({
+  id: '/triggers/new',
+  path: '/triggers/new',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminTriggersTriggerIdIndexRoute =
+  AdminTriggersTriggerIdIndexRouteImport.update({
+    id: '/triggers/$trigger-id/',
+    path: '/triggers/$trigger-id/',
     getParentRoute: () => AdminRoute,
   } as any)
 const AdminIntegrationsConnectionsIndexRoute =
@@ -157,40 +158,16 @@ const AdminIntegrationsConnectionsIndexRoute =
     path: '/integrations/connections/',
     getParentRoute: () => AdminRoute,
   } as any)
-const AdminIntegrationsTriggersNewRoute =
-  AdminIntegrationsTriggersNewRouteImport.update({
-    id: '/integrations/triggers/new',
-    path: '/integrations/triggers/new',
-    getParentRoute: () => AdminRoute,
-  } as any)
-const AdminIntegrationsRoutesNewRoute =
-  AdminIntegrationsRoutesNewRouteImport.update({
-    id: '/integrations/routes/new',
-    path: '/integrations/routes/new',
-    getParentRoute: () => AdminRoute,
-  } as any)
-const AdminIntegrationsTriggersTriggerIdIndexRoute =
-  AdminIntegrationsTriggersTriggerIdIndexRouteImport.update({
-    id: '/integrations/triggers/$trigger-id/',
-    path: '/integrations/triggers/$trigger-id/',
-    getParentRoute: () => AdminRoute,
-  } as any)
-const AdminIntegrationsRoutesRouteIdIndexRoute =
-  AdminIntegrationsRoutesRouteIdIndexRouteImport.update({
-    id: '/integrations/routes/$route-id/',
-    path: '/integrations/routes/$route-id/',
+const AdminTriggersTriggerIdEditRoute =
+  AdminTriggersTriggerIdEditRouteImport.update({
+    id: '/triggers/$trigger-id/edit',
+    path: '/triggers/$trigger-id/edit',
     getParentRoute: () => AdminRoute,
   } as any)
 const AdminIntegrationsConnectionsConnectionIdIndexRoute =
   AdminIntegrationsConnectionsConnectionIdIndexRouteImport.update({
     id: '/integrations/connections/$connection-id/',
     path: '/integrations/connections/$connection-id/',
-    getParentRoute: () => AdminRoute,
-  } as any)
-const AdminIntegrationsTriggersTriggerIdEditRoute =
-  AdminIntegrationsTriggersTriggerIdEditRouteImport.update({
-    id: '/integrations/triggers/$trigger-id/edit',
-    path: '/integrations/triggers/$trigger-id/edit',
     getParentRoute: () => AdminRoute,
   } as any)
 
@@ -208,22 +185,19 @@ export interface FileRoutesByFullPath {
   '/admin/': typeof AdminIndexRoute
   '/sandbox/': typeof SandboxIndexRoute
   '/tasks/': typeof TasksIndexRoute
+  '/admin/triggers/new': typeof AdminTriggersNewRoute
   '/oauth/figma/callback': typeof OauthFigmaCallbackRoute
   '/oauth/github/callback': typeof OauthGithubCallbackRoute
   '/tasks/$task-id/kiosk': typeof TasksTaskIdKioskRoute
   '/admin/commands': typeof AdminCommandsIndexRoute
   '/admin/marketplaces': typeof AdminMarketplacesIndexRoute
+  '/admin/triggers': typeof AdminTriggersIndexRoute
   '/sandbox/$task-id': typeof SandboxTaskIdIndexRoute
   '/tasks/$task-id': typeof TasksTaskIdIndexRoute
-  '/admin/integrations/routes/new': typeof AdminIntegrationsRoutesNewRoute
-  '/admin/integrations/triggers/new': typeof AdminIntegrationsTriggersNewRoute
+  '/admin/triggers/$trigger-id/edit': typeof AdminTriggersTriggerIdEditRoute
   '/admin/integrations/connections': typeof AdminIntegrationsConnectionsIndexRoute
-  '/admin/integrations/routes': typeof AdminIntegrationsRoutesIndexRoute
-  '/admin/integrations/triggers': typeof AdminIntegrationsTriggersIndexRoute
-  '/admin/integrations/triggers/$trigger-id/edit': typeof AdminIntegrationsTriggersTriggerIdEditRoute
+  '/admin/triggers/$trigger-id': typeof AdminTriggersTriggerIdIndexRoute
   '/admin/integrations/connections/$connection-id': typeof AdminIntegrationsConnectionsConnectionIdIndexRoute
-  '/admin/integrations/routes/$route-id': typeof AdminIntegrationsRoutesRouteIdIndexRoute
-  '/admin/integrations/triggers/$trigger-id': typeof AdminIntegrationsTriggersTriggerIdIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -236,22 +210,19 @@ export interface FileRoutesByTo {
   '/admin': typeof AdminIndexRoute
   '/sandbox': typeof SandboxIndexRoute
   '/tasks': typeof TasksIndexRoute
+  '/admin/triggers/new': typeof AdminTriggersNewRoute
   '/oauth/figma/callback': typeof OauthFigmaCallbackRoute
   '/oauth/github/callback': typeof OauthGithubCallbackRoute
   '/tasks/$task-id/kiosk': typeof TasksTaskIdKioskRoute
   '/admin/commands': typeof AdminCommandsIndexRoute
   '/admin/marketplaces': typeof AdminMarketplacesIndexRoute
+  '/admin/triggers': typeof AdminTriggersIndexRoute
   '/sandbox/$task-id': typeof SandboxTaskIdIndexRoute
   '/tasks/$task-id': typeof TasksTaskIdIndexRoute
-  '/admin/integrations/routes/new': typeof AdminIntegrationsRoutesNewRoute
-  '/admin/integrations/triggers/new': typeof AdminIntegrationsTriggersNewRoute
+  '/admin/triggers/$trigger-id/edit': typeof AdminTriggersTriggerIdEditRoute
   '/admin/integrations/connections': typeof AdminIntegrationsConnectionsIndexRoute
-  '/admin/integrations/routes': typeof AdminIntegrationsRoutesIndexRoute
-  '/admin/integrations/triggers': typeof AdminIntegrationsTriggersIndexRoute
-  '/admin/integrations/triggers/$trigger-id/edit': typeof AdminIntegrationsTriggersTriggerIdEditRoute
+  '/admin/triggers/$trigger-id': typeof AdminTriggersTriggerIdIndexRoute
   '/admin/integrations/connections/$connection-id': typeof AdminIntegrationsConnectionsConnectionIdIndexRoute
-  '/admin/integrations/routes/$route-id': typeof AdminIntegrationsRoutesRouteIdIndexRoute
-  '/admin/integrations/triggers/$trigger-id': typeof AdminIntegrationsTriggersTriggerIdIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -268,22 +239,19 @@ export interface FileRoutesById {
   '/admin/': typeof AdminIndexRoute
   '/sandbox/': typeof SandboxIndexRoute
   '/tasks/': typeof TasksIndexRoute
+  '/admin/triggers/new': typeof AdminTriggersNewRoute
   '/oauth/figma/callback': typeof OauthFigmaCallbackRoute
   '/oauth/github/callback': typeof OauthGithubCallbackRoute
   '/tasks/$task-id/kiosk': typeof TasksTaskIdKioskRoute
   '/admin/commands/': typeof AdminCommandsIndexRoute
   '/admin/marketplaces/': typeof AdminMarketplacesIndexRoute
+  '/admin/triggers/': typeof AdminTriggersIndexRoute
   '/sandbox/$task-id/': typeof SandboxTaskIdIndexRoute
   '/tasks/$task-id/': typeof TasksTaskIdIndexRoute
-  '/admin/integrations/routes/new': typeof AdminIntegrationsRoutesNewRoute
-  '/admin/integrations/triggers/new': typeof AdminIntegrationsTriggersNewRoute
+  '/admin/triggers/$trigger-id/edit': typeof AdminTriggersTriggerIdEditRoute
   '/admin/integrations/connections/': typeof AdminIntegrationsConnectionsIndexRoute
-  '/admin/integrations/routes/': typeof AdminIntegrationsRoutesIndexRoute
-  '/admin/integrations/triggers/': typeof AdminIntegrationsTriggersIndexRoute
-  '/admin/integrations/triggers/$trigger-id/edit': typeof AdminIntegrationsTriggersTriggerIdEditRoute
+  '/admin/triggers/$trigger-id/': typeof AdminTriggersTriggerIdIndexRoute
   '/admin/integrations/connections/$connection-id/': typeof AdminIntegrationsConnectionsConnectionIdIndexRoute
-  '/admin/integrations/routes/$route-id/': typeof AdminIntegrationsRoutesRouteIdIndexRoute
-  '/admin/integrations/triggers/$trigger-id/': typeof AdminIntegrationsTriggersTriggerIdIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -301,22 +269,19 @@ export interface FileRouteTypes {
     | '/admin/'
     | '/sandbox/'
     | '/tasks/'
+    | '/admin/triggers/new'
     | '/oauth/figma/callback'
     | '/oauth/github/callback'
     | '/tasks/$task-id/kiosk'
     | '/admin/commands'
     | '/admin/marketplaces'
+    | '/admin/triggers'
     | '/sandbox/$task-id'
     | '/tasks/$task-id'
-    | '/admin/integrations/routes/new'
-    | '/admin/integrations/triggers/new'
+    | '/admin/triggers/$trigger-id/edit'
     | '/admin/integrations/connections'
-    | '/admin/integrations/routes'
-    | '/admin/integrations/triggers'
-    | '/admin/integrations/triggers/$trigger-id/edit'
+    | '/admin/triggers/$trigger-id'
     | '/admin/integrations/connections/$connection-id'
-    | '/admin/integrations/routes/$route-id'
-    | '/admin/integrations/triggers/$trigger-id'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -329,22 +294,19 @@ export interface FileRouteTypes {
     | '/admin'
     | '/sandbox'
     | '/tasks'
+    | '/admin/triggers/new'
     | '/oauth/figma/callback'
     | '/oauth/github/callback'
     | '/tasks/$task-id/kiosk'
     | '/admin/commands'
     | '/admin/marketplaces'
+    | '/admin/triggers'
     | '/sandbox/$task-id'
     | '/tasks/$task-id'
-    | '/admin/integrations/routes/new'
-    | '/admin/integrations/triggers/new'
+    | '/admin/triggers/$trigger-id/edit'
     | '/admin/integrations/connections'
-    | '/admin/integrations/routes'
-    | '/admin/integrations/triggers'
-    | '/admin/integrations/triggers/$trigger-id/edit'
+    | '/admin/triggers/$trigger-id'
     | '/admin/integrations/connections/$connection-id'
-    | '/admin/integrations/routes/$route-id'
-    | '/admin/integrations/triggers/$trigger-id'
   id:
     | '__root__'
     | '/'
@@ -360,22 +322,19 @@ export interface FileRouteTypes {
     | '/admin/'
     | '/sandbox/'
     | '/tasks/'
+    | '/admin/triggers/new'
     | '/oauth/figma/callback'
     | '/oauth/github/callback'
     | '/tasks/$task-id/kiosk'
     | '/admin/commands/'
     | '/admin/marketplaces/'
+    | '/admin/triggers/'
     | '/sandbox/$task-id/'
     | '/tasks/$task-id/'
-    | '/admin/integrations/routes/new'
-    | '/admin/integrations/triggers/new'
+    | '/admin/triggers/$trigger-id/edit'
     | '/admin/integrations/connections/'
-    | '/admin/integrations/routes/'
-    | '/admin/integrations/triggers/'
-    | '/admin/integrations/triggers/$trigger-id/edit'
+    | '/admin/triggers/$trigger-id/'
     | '/admin/integrations/connections/$connection-id/'
-    | '/admin/integrations/routes/$route-id/'
-    | '/admin/integrations/triggers/$trigger-id/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -500,6 +459,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SandboxTaskIdIndexRouteImport
       parentRoute: typeof SandboxRoute
     }
+    '/admin/triggers/': {
+      id: '/admin/triggers/'
+      path: '/triggers'
+      fullPath: '/admin/triggers'
+      preLoaderRoute: typeof AdminTriggersIndexRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/marketplaces/': {
       id: '/admin/marketplaces/'
       path: '/marketplaces'
@@ -535,18 +501,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OauthFigmaCallbackRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/admin/integrations/triggers/': {
-      id: '/admin/integrations/triggers/'
-      path: '/integrations/triggers'
-      fullPath: '/admin/integrations/triggers'
-      preLoaderRoute: typeof AdminIntegrationsTriggersIndexRouteImport
+    '/admin/triggers/new': {
+      id: '/admin/triggers/new'
+      path: '/triggers/new'
+      fullPath: '/admin/triggers/new'
+      preLoaderRoute: typeof AdminTriggersNewRouteImport
       parentRoute: typeof AdminRoute
     }
-    '/admin/integrations/routes/': {
-      id: '/admin/integrations/routes/'
-      path: '/integrations/routes'
-      fullPath: '/admin/integrations/routes'
-      preLoaderRoute: typeof AdminIntegrationsRoutesIndexRouteImport
+    '/admin/triggers/$trigger-id/': {
+      id: '/admin/triggers/$trigger-id/'
+      path: '/triggers/$trigger-id'
+      fullPath: '/admin/triggers/$trigger-id'
+      preLoaderRoute: typeof AdminTriggersTriggerIdIndexRouteImport
       parentRoute: typeof AdminRoute
     }
     '/admin/integrations/connections/': {
@@ -556,32 +522,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminIntegrationsConnectionsIndexRouteImport
       parentRoute: typeof AdminRoute
     }
-    '/admin/integrations/triggers/new': {
-      id: '/admin/integrations/triggers/new'
-      path: '/integrations/triggers/new'
-      fullPath: '/admin/integrations/triggers/new'
-      preLoaderRoute: typeof AdminIntegrationsTriggersNewRouteImport
-      parentRoute: typeof AdminRoute
-    }
-    '/admin/integrations/routes/new': {
-      id: '/admin/integrations/routes/new'
-      path: '/integrations/routes/new'
-      fullPath: '/admin/integrations/routes/new'
-      preLoaderRoute: typeof AdminIntegrationsRoutesNewRouteImport
-      parentRoute: typeof AdminRoute
-    }
-    '/admin/integrations/triggers/$trigger-id/': {
-      id: '/admin/integrations/triggers/$trigger-id/'
-      path: '/integrations/triggers/$trigger-id'
-      fullPath: '/admin/integrations/triggers/$trigger-id'
-      preLoaderRoute: typeof AdminIntegrationsTriggersTriggerIdIndexRouteImport
-      parentRoute: typeof AdminRoute
-    }
-    '/admin/integrations/routes/$route-id/': {
-      id: '/admin/integrations/routes/$route-id/'
-      path: '/integrations/routes/$route-id'
-      fullPath: '/admin/integrations/routes/$route-id'
-      preLoaderRoute: typeof AdminIntegrationsRoutesRouteIdIndexRouteImport
+    '/admin/triggers/$trigger-id/edit': {
+      id: '/admin/triggers/$trigger-id/edit'
+      path: '/triggers/$trigger-id/edit'
+      fullPath: '/admin/triggers/$trigger-id/edit'
+      preLoaderRoute: typeof AdminTriggersTriggerIdEditRouteImport
       parentRoute: typeof AdminRoute
     }
     '/admin/integrations/connections/$connection-id/': {
@@ -591,49 +536,33 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminIntegrationsConnectionsConnectionIdIndexRouteImport
       parentRoute: typeof AdminRoute
     }
-    '/admin/integrations/triggers/$trigger-id/edit': {
-      id: '/admin/integrations/triggers/$trigger-id/edit'
-      path: '/integrations/triggers/$trigger-id/edit'
-      fullPath: '/admin/integrations/triggers/$trigger-id/edit'
-      preLoaderRoute: typeof AdminIntegrationsTriggersTriggerIdEditRouteImport
-      parentRoute: typeof AdminRoute
-    }
   }
 }
 
 interface AdminRouteChildren {
   AdminIndexRoute: typeof AdminIndexRoute
+  AdminTriggersNewRoute: typeof AdminTriggersNewRoute
   AdminCommandsIndexRoute: typeof AdminCommandsIndexRoute
   AdminMarketplacesIndexRoute: typeof AdminMarketplacesIndexRoute
-  AdminIntegrationsRoutesNewRoute: typeof AdminIntegrationsRoutesNewRoute
-  AdminIntegrationsTriggersNewRoute: typeof AdminIntegrationsTriggersNewRoute
+  AdminTriggersIndexRoute: typeof AdminTriggersIndexRoute
+  AdminTriggersTriggerIdEditRoute: typeof AdminTriggersTriggerIdEditRoute
   AdminIntegrationsConnectionsIndexRoute: typeof AdminIntegrationsConnectionsIndexRoute
-  AdminIntegrationsRoutesIndexRoute: typeof AdminIntegrationsRoutesIndexRoute
-  AdminIntegrationsTriggersIndexRoute: typeof AdminIntegrationsTriggersIndexRoute
-  AdminIntegrationsTriggersTriggerIdEditRoute: typeof AdminIntegrationsTriggersTriggerIdEditRoute
+  AdminTriggersTriggerIdIndexRoute: typeof AdminTriggersTriggerIdIndexRoute
   AdminIntegrationsConnectionsConnectionIdIndexRoute: typeof AdminIntegrationsConnectionsConnectionIdIndexRoute
-  AdminIntegrationsRoutesRouteIdIndexRoute: typeof AdminIntegrationsRoutesRouteIdIndexRoute
-  AdminIntegrationsTriggersTriggerIdIndexRoute: typeof AdminIntegrationsTriggersTriggerIdIndexRoute
 }
 
 const AdminRouteChildren: AdminRouteChildren = {
   AdminIndexRoute: AdminIndexRoute,
+  AdminTriggersNewRoute: AdminTriggersNewRoute,
   AdminCommandsIndexRoute: AdminCommandsIndexRoute,
   AdminMarketplacesIndexRoute: AdminMarketplacesIndexRoute,
-  AdminIntegrationsRoutesNewRoute: AdminIntegrationsRoutesNewRoute,
-  AdminIntegrationsTriggersNewRoute: AdminIntegrationsTriggersNewRoute,
+  AdminTriggersIndexRoute: AdminTriggersIndexRoute,
+  AdminTriggersTriggerIdEditRoute: AdminTriggersTriggerIdEditRoute,
   AdminIntegrationsConnectionsIndexRoute:
     AdminIntegrationsConnectionsIndexRoute,
-  AdminIntegrationsRoutesIndexRoute: AdminIntegrationsRoutesIndexRoute,
-  AdminIntegrationsTriggersIndexRoute: AdminIntegrationsTriggersIndexRoute,
-  AdminIntegrationsTriggersTriggerIdEditRoute:
-    AdminIntegrationsTriggersTriggerIdEditRoute,
+  AdminTriggersTriggerIdIndexRoute: AdminTriggersTriggerIdIndexRoute,
   AdminIntegrationsConnectionsConnectionIdIndexRoute:
     AdminIntegrationsConnectionsConnectionIdIndexRoute,
-  AdminIntegrationsRoutesRouteIdIndexRoute:
-    AdminIntegrationsRoutesRouteIdIndexRoute,
-  AdminIntegrationsTriggersTriggerIdIndexRoute:
-    AdminIntegrationsTriggersTriggerIdIndexRoute,
 }
 
 const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)

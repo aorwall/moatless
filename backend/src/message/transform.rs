@@ -248,12 +248,12 @@ fn transform_assistant(
         false
     };
 
-    let channel = msg.channel_provider.as_ref().map(|provider| {
-        let external_id = msg.channel_external_id.clone();
+    let external_source = msg.external_adapter.as_ref().map(|adapter_kind| {
+        let external_id = msg.external_event_id.clone();
         let external_label = external_id.as_deref().map(format_external_label);
-        UiMessageChannel {
-            provider: provider.clone(),
-            source_name: msg.channel_source_name.clone(),
+        UiMessageExternalSource {
+            adapter_kind: adapter_kind.clone(),
+            source_name: msg.external_source_name.clone(),
             external_id,
             external_label,
         }
@@ -287,7 +287,7 @@ fn transform_assistant(
         }),
         result: None,
         sdk_metadata: msg.sdk_metadata.clone(),
-        channel,
+        external_source,
         command_name: msg.command_name.clone(),
         parent_uuid: msg.parent_uuid.clone(),
         source_task_id: None,
@@ -323,12 +323,12 @@ fn transform_user(
             .collect()
     };
 
-    let channel = msg.channel_provider.as_ref().map(|provider| {
-        let external_id = msg.channel_external_id.clone();
+    let external_source = msg.external_adapter.as_ref().map(|adapter_kind| {
+        let external_id = msg.external_event_id.clone();
         let external_label = external_id.as_deref().map(format_external_label);
-        UiMessageChannel {
-            provider: provider.clone(),
-            source_name: msg.channel_source_name.clone(),
+        UiMessageExternalSource {
+            adapter_kind: adapter_kind.clone(),
+            source_name: msg.external_source_name.clone(),
             external_id,
             external_label,
         }
@@ -356,7 +356,7 @@ fn transform_user(
         usage: None,
         result: None,
         sdk_metadata: msg.sdk_metadata.clone(),
-        channel,
+        external_source,
         command_name: msg.command_name.clone(),
         parent_uuid: msg.parent_uuid.clone(),
         source_task_id: msg.source_task_id.clone(),
@@ -404,7 +404,7 @@ fn transform_result(msg: &TaskMessage, blocks: &[&TaskMessageContentBlock]) -> U
             run_metrics: msg.run_metrics.clone(),
         }),
         sdk_metadata: msg.sdk_metadata.clone(),
-        channel: None,
+        external_source: None,
         command_name: msg.command_name.clone(),
         parent_uuid: msg.parent_uuid.clone(),
         source_task_id: None,
@@ -515,9 +515,9 @@ pub(crate) fn enrich_codex_typed_result(
     }
 }
 
-/// Render a stable channel external id as a short human-readable label.
+/// Render a stable external event id as a short human-readable label.
 ///
-/// Mirrors the prefix scheme produced by inbound channel providers:
+/// Mirrors the prefix scheme produced by inbound adapters:
 /// `github:ic:N`, `github:rc:N`, `github:rv:N`, `github:cr:N`, `github:cs:N`,
 /// `github:pr:<action>:<number>[:<sha>]`, `slack:ts:<ts>`, `tg:m:<id>`.
 /// Falls back to the raw value for legacy bare-int rows or unknown shapes.
@@ -724,9 +724,9 @@ mod tests {
             resume: true,
             sent_at: None,
             created_at: None,
-            channel_external_id: None,
-            channel_provider: None,
-            channel_source_name: None,
+            external_event_id: None,
+            external_adapter: None,
+            external_source_name: None,
             command_name: None,
             source_task_id: None,
             start_fresh: false,
@@ -833,7 +833,7 @@ mod tests {
     }
 
     #[test]
-    fn transform_assistant_surfaces_tagged_channel() {
+    fn transform_assistant_surfaces_tagged_external_source() {
         let mut assistant = make_msg(
             1,
             "a1",
@@ -842,21 +842,30 @@ mod tests {
             Some(1),
             "opening pr",
         );
-        assistant.channel_provider = Some("github_pr".to_string());
-        assistant.channel_source_name = Some("foo/bar".to_string());
-        assistant.channel_external_id = Some("github:pr:opened:42".to_string());
+        assistant.external_adapter = Some("github_pr".to_string());
+        assistant.external_source_name = Some("foo/bar".to_string());
+        assistant.external_event_id = Some("github:pr:opened:42".to_string());
 
         let ui = transform_to_ui(&[assistant], &[], &[]);
         assert_eq!(ui.len(), 1);
-        let channel = ui[0].channel.as_ref().expect("channel populated");
-        assert_eq!(channel.provider, "github_pr");
-        assert_eq!(channel.source_name.as_deref(), Some("foo/bar"));
-        assert_eq!(channel.external_id.as_deref(), Some("github:pr:opened:42"));
-        assert_eq!(channel.external_label.as_deref(), Some("PR #42 opened"));
+        let external_source = ui[0]
+            .external_source
+            .as_ref()
+            .expect("external source populated");
+        assert_eq!(external_source.adapter_kind, "github_pr");
+        assert_eq!(external_source.source_name.as_deref(), Some("foo/bar"));
+        assert_eq!(
+            external_source.external_id.as_deref(),
+            Some("github:pr:opened:42")
+        );
+        assert_eq!(
+            external_source.external_label.as_deref(),
+            Some("PR #42 opened")
+        );
     }
 
     #[test]
-    fn transform_assistant_no_channel_when_provider_null() {
+    fn transform_assistant_has_no_external_source_when_provider_null() {
         let assistant = make_msg(
             1,
             "a1",
@@ -867,7 +876,7 @@ mod tests {
         );
         let ui = transform_to_ui(&[assistant], &[], &[]);
         assert_eq!(ui.len(), 1);
-        assert!(ui[0].channel.is_none());
+        assert!(ui[0].external_source.is_none());
     }
 
     #[test]
