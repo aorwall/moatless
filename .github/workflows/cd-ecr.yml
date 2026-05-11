@@ -170,6 +170,21 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
+      - name: Stage moat release asset
+        if: needs.setup.outputs.build-sandbox == 'true'
+        run: |
+          mkdir -p dist/moat
+          cp target/release/moat dist/moat/moat-linux-amd64
+
+      - name: Upload moat release asset
+        if: needs.setup.outputs.build-sandbox == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: moat-cli
+          path: dist/moat/
+          retention-days: 1
+          if-no-files-found: error
+
   # ── Build frontend dist for the nginx image ──
   # Dockerfile.app does `COPY apps/frontend/dist /usr/share/nginx/html`,
   # so we materialize the dist as an artifact and download it back into
@@ -242,7 +257,7 @@ jobs:
       service-name: moatless
       ecr-repository: moatless-sandbox
       image-tag: ${{ needs.setup.outputs.tag }}
-      dockerfile: docker/Dockerfile.sandbox
+      dockerfile: docker/Dockerfile.sandbox-soap
       tag-latest: true
       binary-artifact-name: sandbox-binaries
       binary-context-name: binaries
@@ -260,6 +275,64 @@ jobs:
       chart-path: k8s/helm/moatless-vibe
       image-tag: ${{ needs.setup.outputs.chart-version }}
       ecr-helm-repository: helm-charts
+
+  # ── Release moat CLI to a GitHub Release ──
+  # The release tag becomes the MOAT_VERSION build-arg that ARC and E2E
+  # runner Dockerfiles consume via `gh release download "${MOAT_VERSION}"`
+  # from Frank-Penny/moatless-vibe.
+  release-moat:
+    needs: [setup, publish-sandbox]
+    if: needs.setup.outputs.build-sandbox == 'true' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/fp-v'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      moat-version: ${{ steps.release.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: moat-cli
+          path: dist/moat/
+      - id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/fp-v* ]]; then
+            TAG="moat-cli-${GITHUB_REF_NAME#fp-v}"
+          else
+            TAG="moat-cli-${{ needs.setup.outputs.tag }}"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/moat/moat-linux-amd64 --clobber
+          else
+            gh release create "$TAG" dist/moat/moat-linux-amd64 \
+              --title "moat CLI $TAG" \
+              --notes "Auto-published from cd-ecr.yml run ${{ github.run_id }} (commit ${{ github.sha }})" \
+              --prerelease
+          fi
+
+  # ── Rebuild ARC + E2E runners with the new moat binary ──
+  # Fires `repository_dispatch` to soap-platform-ci. The receiver workflows
+  # (.github/workflows/build-arc-runner.yml + build-e2e-runner.yml) consume
+  # `client_payload.moatVersion` as the MOAT_VERSION build-arg.
+  trigger-runners:
+    needs: [release-moat]
+    if: needs.release-moat.outputs.moat-version != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.GITOPS_PAT }}
+          repository: Frank-Penny/soap-platform-ci
+          event-type: rebuild-runners
+          client-payload: |
+            {
+              "moatVersion": "${{ needs.release-moat.outputs.moat-version }}",
+              "sourceRunId": "${{ github.run_id }}",
+              "sourceRepository": "${{ github.repository }}"
+            }
 
   # ── Trigger GitOps promotion in soap-k8s-nonprod ──
   # Fires `repository_dispatch` to soap-k8s-nonprod (the App-of-Apps

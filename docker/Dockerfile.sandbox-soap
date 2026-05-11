@@ -1,0 +1,168 @@
+# moatless-vibe sandbox image — soap (Frank-Penny) variant.
+#
+# Combines the binary-injection from Dockerfile.sandbox with the soap overlay
+# that previously lived in Frank-Penny/soap-platform-ci/docker/moatless/Dockerfile.
+# A single image, built and published in one workflow, replaces the prior
+# two-step pipeline (publish moatless-sandbox → rebuild as soap-moatless).
+#
+# Layer order is volatile-last so a Rust-binary edit only invalidates the
+# final COPY layer, not the JDK / jira / kubectl / go-task layers above it.
+
+# Stage 1: rebuild jira-cli from source against current Go to clear stale
+# stdlib CVEs flagged by AWS Inspector on upstream binary releases.
+FROM golang:1.26-bookworm AS jira-builder
+ARG JIRA_VERSION=v1.7.0
+ENV CGO_ENABLED=0
+RUN go install github.com/ankitpokhrel/jira-cli/cmd/jira@${JIRA_VERSION}
+
+ARG SANDBOX_BASE=aorwall/moatless-vibe-sandbox-base:latest
+FROM ${SANDBOX_BASE}
+
+# Entrypoint scripts come from the sandbox-tools image so script edits don't
+# invalidate the binary COPY layer below (and vice versa).
+COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/docker-entrypoint-sandbox.sh /usr/local/bin/docker-entrypoint-sandbox.sh
+COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/sync-plugins.sh /usr/local/bin/sync-plugins.sh
+COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/moatless-git-cred /usr/local/bin/moatless-git-cred
+RUN chmod +x /usr/local/bin/docker-entrypoint-sandbox.sh /usr/local/bin/sync-plugins.sh /usr/local/bin/moatless-git-cred
+
+# Eclipse Temurin JDK 25 + Maven + postgresql-client.
+# apt-get upgrade pulls security patches for everything inherited from the base
+# image (notably gh, docker-ce-cli — Go binaries that age out of CVE compliance).
+RUN apt-get update && \
+    apt-get upgrade -y && \
+    apt-get install -y --no-install-recommends wget apt-transport-https gpg maven postgresql-client && \
+    wget -qO - https://packages.adoptium.net/artifactory/api/gpg/key/public | gpg --dearmor -o /etc/apt/keyrings/adoptium.gpg && \
+    echo "deb [signed-by=/etc/apt/keyrings/adoptium.gpg] https://packages.adoptium.net/artifactory/deb $(. /etc/os-release && echo $VERSION_CODENAME) main" > /etc/apt/sources.list.d/adoptium.list && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends temurin-25-jdk && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN ln -s /usr/lib/jvm/temurin-25-jdk-* /usr/lib/jvm/temurin-25-jdk
+
+# jira-cli — copy the binary we rebuilt above with current Go.
+COPY --from=jira-builder /go/bin/jira /usr/local/bin/jira
+
+# jira-cli config (the login field is overwritten at runtime by the wrapper).
+COPY docker/.config/jira-config.yml /home/moatless/.config/.jira/.config.yml
+RUN chown -R moatless:moatless /home/moatless/.config/.jira
+
+# kubectl — pinned. v1.36 is compiled with Go 1.24+ which clears the critical
+# go/stdlib CVEs flagged by AWS Inspector for older kubectl builds.
+ARG KUBECTL_VERSION=v1.36.0
+RUN ARCH=$(dpkg --print-architecture) && \
+    curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl" -o /usr/local/bin/kubectl && \
+    chmod +x /usr/local/bin/kubectl
+
+# go-task — pinned to a release built with current Go.
+ARG TASK_VERSION=v3.50.0
+RUN ARCH=$(dpkg --print-architecture) && \
+    curl -fsSL "https://github.com/go-task/task/releases/download/${TASK_VERSION}/task_linux_${ARCH}.tar.gz" \
+        | tar -xz -C /usr/local/bin task && \
+    chmod +x /usr/local/bin/task
+
+# Volatile layers last — our Rust binaries change on every code edit.
+# The K8s pod spec calls `sandbox` directly (bypassing ENTRYPOINT), so we
+# install the real binary as sandbox-real and write a wrapper at sandbox
+# that sets up Maven settings, jira-cli login, npm/Playwright, and an
+# in-cluster kubeconfig before exec'ing the real binary.
+ARG TARGETARCH
+COPY --from=binaries ${TARGETARCH}/sandbox /usr/local/bin/sandbox-real
+COPY --from=binaries ${TARGETARCH}/moat /usr/local/bin/moat
+RUN chmod +x /usr/local/bin/sandbox-real /usr/local/bin/moat && \
+    cat > /usr/local/bin/sandbox <<'WRAPPER' && chmod +x /usr/local/bin/sandbox
+#!/bin/sh
+# Generate Maven settings.xml from GH_PACKAGES_TOKEN env var
+if [ -n "$GH_PACKAGES_TOKEN" ]; then
+  mkdir -p /root/.m2
+  cat > /root/.m2/settings.xml <<EOF
+<settings>
+  <servers>
+    <server>
+      <id>soap-github</id>
+      <username>oauth2</username>
+      <password>${GH_PACKAGES_TOKEN}</password>
+    </server>
+  </servers>
+  <profiles>
+    <profile>
+      <id>github</id>
+      <repositories>
+        <repository>
+          <id>soap-github</id>
+          <url>https://maven.pkg.github.com/Frank-Penny/*</url>
+          <snapshots>
+            <enabled>true</enabled>
+          </snapshots>
+        </repository>
+      </repositories>
+    </profile>
+  </profiles>
+  <activeProfiles>
+    <activeProfile>github</activeProfile>
+  </activeProfiles>
+</settings>
+EOF
+fi
+# Update jira-cli login with the git committer's email (set by moatless sandbox)
+if [ -n "$GIT_USER_EMAIL" ]; then
+  sed -i "s/^login: .*/login: ${GIT_USER_EMAIL}/" /home/moatless/.config/.jira/.config.yml
+fi
+# Install npm deps if missing — required before playwright install so the
+# correct @playwright/test version from package.json is used, not the global one.
+REPO_DIR=/opt/moatless/repo
+if [ -f "$REPO_DIR/package.json" ] && [ ! -d "$REPO_DIR/node_modules" ]; then
+  (cd "$REPO_DIR" && npm install --silent 2>/dev/null) || true
+fi
+# Ensure Playwright Chromium matches the project's @playwright/test version.
+# Run from the project dir so npx resolves the local package version.
+if [ -f "$REPO_DIR/node_modules/.bin/playwright" ]; then
+  (cd "$REPO_DIR" && npx playwright install chromium >/dev/null 2>&1) || true
+else
+  npx playwright install chromium >/dev/null 2>&1 || true
+fi
+# Set up kubectl for in-cluster K8s access with a named context
+if [ -f /var/run/secrets/kubernetes.io/serviceaccount/token ] && [ -n "${KUBERNETES_SERVICE_HOST:-}" ]; then
+  mkdir -p /home/moatless/.kube
+  cat > /home/moatless/.kube/config <<KUBEEOF
+apiVersion: v1
+kind: Config
+clusters:
+- cluster:
+    certificate-authority: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+    server: https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT_HTTPS}
+  name: soap-nonprod
+contexts:
+- context:
+    cluster: soap-nonprod
+    user: service-account
+  name: soap-nonprod
+current-context: soap-nonprod
+users:
+- name: service-account
+  user:
+    tokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+KUBEEOF
+fi
+exec /usr/local/bin/sandbox-real "$@"
+WRAPPER
+
+WORKDIR /opt/moatless
+
+# Sandbox runtime paths
+ENV HOME=/home/moatless
+ENV WORKSPACE_DIR=/opt/moatless/repo
+ENV CLAUDE_CONFIG_DIR=/opt/moatless/.claude
+ENV CODEX_HOME=/opt/moatless/.codex
+ENV CLAUDE_BIN_DIR=/usr/local/bin
+ENV DATA_DIR=/opt/moatless/data
+ENV DEVCONTAINER=true
+ENV NODE_ENV=production
+ENV TZ="UTC"
+ENV UV_THREADPOOL_SIZE=16
+ENV JAVA_HOME=/usr/lib/jvm/temurin-25-jdk
+ENV PATH="${JAVA_HOME}/bin:${PATH}"
+
+# Expose ports: sandbox API (8001) and gRPC (50052)
+EXPOSE 8001 50052
+
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint-sandbox.sh"]

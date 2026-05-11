@@ -1,0 +1,86 @@
+auth_type: basic
+board:
+    id: 4
+    name: TMT-anslagstavla
+    type: simple
+epic:
+    name: ""
+    link: ""
+installation: Cloud
+issue:
+    fields:
+        custom:
+            - name: Vulnerability
+              key: customfield_10033
+              schema:
+                datatype: any
+            - name: Design
+              key: customfield_10034
+              schema:
+                datatype: array
+                items: design.field.name
+            - name: Sprint
+              key: customfield_10020
+              schema:
+                datatype: array
+                items: json
+            - name: Flagged
+              key: customfield_10021
+              schema:
+                datatype: array
+                items: option
+            - name: Kategori
+              key: customfield_10103
+              schema:
+                datatype: option
+            - name: Story point estimate
+              key: customfield_10016
+              schema:
+                datatype: number
+            - name: Issue color
+              key: customfield_10017
+              schema:
+                datatype: string
+            - name: Rank
+              key: customfield_10019
+              schema:
+                datatype: any
+            - name: Start date
+              key: customfield_10015
+              schema:
+                datatype: date
+            - name: Development
+              key: customfield_10000
+              schema:
+                datatype: any
+            - name: Team
+              key: customfield_10001
+              schema:
+                datatype: team
+    types:
+        - id: "10013"
+          name: Task
+          handle: Task
+          subtask: false
+        - id: "10014"
+          name: Bug
+          handle: Bug
+          subtask: false
+        - id: "10015"
+          name: Story
+          handle: Story
+          subtask: false
+        - id: "10016"
+          name: Epic
+          handle: Epic
+          subtask: false
+        - id: "10017"
+          name: Deluppgift
+          handle: Deluppgift
+          subtask: true
+login: albert.orwall@frankpenny.se
+project:
+    key: TM
+    type: next-gen
+server: https://frankpenny.atlassian.net
+timezone: Europe/Stockholm

@@ -60,6 +60,8 @@ temp/client/src/routeTree.gen.ts
 
 .local
 .config
+!docker/.config/
+!docker/.config/jira-config.yml
 .cache
 .gitconfig
 .playwright-mcp/
