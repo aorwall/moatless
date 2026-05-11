@@ -62,12 +62,18 @@ pub enum ClientError {
 
 /// Classify gRPC errors into appropriate `SandboxError` variants.
 ///
-/// Unavailable/connection errors → `NotReady` (503),
-/// everything else → `Internal` (500).
+/// - `Unavailable`/`DeadlineExceeded` → `NotReady` (503)
+/// - `NotFound` → `NotFound` (404)
+/// - `FailedPrecondition`/`InvalidArgument` → `BadRequest` (400)
+/// - everything else → `Internal` (500)
 pub fn classify_grpc_error(e: tonic::Status, operation: &str) -> SandboxError {
     match e.code() {
         tonic::Code::Unavailable | tonic::Code::DeadlineExceeded => {
             SandboxError::NotReady(format!("Sandbox unreachable: {operation}"))
+        }
+        tonic::Code::NotFound => SandboxError::NotFound(e.message().to_string()),
+        tonic::Code::FailedPrecondition | tonic::Code::InvalidArgument => {
+            SandboxError::BadRequest(e.message().to_string())
         }
         _ => SandboxError::Internal(format!("gRPC {operation} failed: {e}")),
     }

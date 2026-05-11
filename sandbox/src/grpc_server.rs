@@ -297,6 +297,9 @@ fn file_error_to_status(e: files::FileError) -> Status {
     match e {
         files::FileError::InvalidPath(msg) => Status::invalid_argument(msg),
         files::FileError::NotFound(msg) => Status::not_found(msg),
+        files::FileError::IsDirectory(msg) => {
+            Status::failed_precondition(format!("Path is a directory: {msg}"))
+        }
         files::FileError::Io(e) => Status::internal(format!("IO error: {e}")),
     }
 }

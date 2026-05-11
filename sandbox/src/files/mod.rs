@@ -15,6 +15,8 @@ pub enum FileError {
     InvalidPath(String),
     #[error("File not found: {0}")]
     NotFound(String),
+    #[error("Path is a directory: {0}")]
+    IsDirectory(String),
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 }

@@ -87,6 +87,7 @@ pub async fn file_tree_handler(
     ),
     responses(
         (status = 200, description = "File content", body = FileContentResponse),
+        (status = 400, description = "Invalid path or path is a directory", body = crate::error::ErrorBody),
         (status = 404, description = "File not found", body = crate::error::ErrorBody),
         (status = 503, description = "Sandbox not ready", body = crate::error::ErrorBody),
         (status = 500, description = "Internal error", body = crate::error::ErrorBody)

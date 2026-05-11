@@ -26,6 +26,12 @@ pub enum SandboxError {
     #[error("Sandbox not ready: {0}")]
     NotReady(String),
 
+    #[error("Not found: {0}")]
+    NotFound(String),
+
+    #[error("Bad request: {0}")]
+    BadRequest(String),
+
     #[error("Internal error: {0}")]
     Internal(String),
 }
@@ -34,6 +40,8 @@ impl IntoResponse for SandboxError {
     fn into_response(self) -> Response {
         let (status, message) = match &self {
             Self::NotReady(_) => (StatusCode::SERVICE_UNAVAILABLE, self.to_string()),
+            Self::NotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
+            Self::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             Self::ConfigMissing(ref msg) => {
                 tracing::error!(error = %msg, "Sandbox config missing");
                 (
@@ -113,6 +121,18 @@ mod tests {
     async fn not_ready_returns_503() {
         let resp = SandboxError::NotReady("still starting".into()).into_response();
         assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[tokio::test]
+    async fn not_found_returns_404() {
+        let resp = SandboxError::NotFound("missing.txt".into()).into_response();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn bad_request_returns_400() {
+        let resp = SandboxError::BadRequest("Path is a directory: subdir".into()).into_response();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]

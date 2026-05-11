@@ -66,6 +66,10 @@ pub async fn read_file(workspace_dir: &str, path: &str) -> Result<ReadResult, Fi
         return Err(FileError::NotFound(path.to_string()));
     }
 
+    if full_path.is_dir() {
+        return Err(FileError::IsDirectory(path.to_string()));
+    }
+
     match fs::read_to_string(&full_path).await {
         Ok(content) => Ok(ReadResult {
             content,
@@ -171,6 +175,14 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let result = read_file(tmp.path().to_str().unwrap(), "nope.txt").await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn read_directory_returns_is_directory() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir(tmp.path().join("subdir")).unwrap();
+        let result = read_file(tmp.path().to_str().unwrap(), "subdir").await;
+        assert!(matches!(result, Err(FileError::IsDirectory(_))));
     }
 
     #[tokio::test]
