@@ -341,113 +341,189 @@ moat messages send <task-id> --text "Add error handling to the login form"
 
 ---
 
-## Channel Commands
+## Adapter, Trigger, and Binding Commands
 
-### `moat channels list`
+The legacy `moat channels` command group has been removed. External integrations
+are now split across three orthogonal CLI groups:
 
-List all channel configurations.
+- **adapters** — register credentials/webhook-secrets for an external system (Slack workspace, GitHub org, etc.)
+- **triggers** — declare what should happen when events arrive (route a webhook to a repo, or fire on a cron schedule)
+- **bindings** — connect a specific task to a specific destination (used by `moat reply`)
 
-- **API**: `GET /api/v1/channels/configs`
-- **Table columns**: ID, PROVIDER, SOURCE, MODE
+Adapter kinds (`--adapter`): `slack`, `telegram`, `github`, `linear`, `webhook`.
+Cron is **not** an adapter — use `triggers create-schedule`.
 
-### `moat channels create`
+### `moat adapters list`
 
-Create a channel configuration.
+List adapter kinds supported by the backend.
 
-| Flag | Required | Description |
-|------|----------|-------------|
-| `--provider` | Yes | Channel provider: `slack`, `telegram`, `github_pr` |
-| `--source` | Yes | Source identifier (see per-provider details below) |
-| `--repo` | Yes | Repository ID to route messages to |
-| `--mode` | Yes | Routing mode: `ongoing`, `per_message`, `thread_based` |
-| `--provider-config` | No | Provider-specific config as JSON object |
+### `moat adapters connections list`
 
-- **API**: `POST /api/v1/channels/configs`
-
-#### Slack
-
-Source ID is the Slack channel ID (e.g., `C0123456789`).
-
-```bash
-# Basic — mention-only trigger (default)
-moat channels create --provider slack --source C0123456789 --repo <repo-id> --mode per_message
-
-# All messages trigger
-moat channels create --provider slack --source C0123456789 --repo <repo-id> --mode per_message \
-  --provider-config '{"trigger":"all_messages"}'
-```
-
-#### Telegram
-
-Source ID is the chat ID (numeric, e.g., `-1001234567890`) or `*` for all DMs.
-
-```bash
-# Specific group chat
-moat channels create --provider telegram --source -1001234567890 --repo <repo-id> --mode thread_based
-
-# All DMs (wildcard)
-moat channels create --provider telegram --source '*' --repo <repo-id> --mode ongoing \
-  --provider-config '{"bot_username":"@mybot","secret_token":"my-webhook-secret"}'
-```
-
-**Provider config fields** (`--provider-config` JSON):
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `secret_token` | string | Webhook verification token (X-Telegram-Bot-Api-Secret-Token) |
-| `bot_username` | string | Bot's @username for filtering self-replies |
-
-#### GitHub PR
-
-Source ID is the repository in `owner/repo` format. Each PR becomes a separate thread. Recommended routing mode: `thread_based`.
-
-```bash
-# Basic
-moat channels create --provider github_pr --source aorwall/my-repo --repo <repo-id> --mode thread_based
-
-# With bot token and webhook secret
-moat channels create --provider github_pr --source aorwall/my-repo --repo <repo-id> --mode thread_based \
-  --provider-config '{"bot_token":"ghp_abc123","webhook_secret":"whsec_xyz","bot_username":"my-bot[bot]"}'
-```
-
-**Provider config fields** (`--provider-config` JSON):
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `webhook_secret` | string | — | Per-channel webhook secret (overrides `GITHUB_CHANNEL_WEBHOOK_SECRET` env) |
-| `bot_token` | string | — | GitHub token for API calls (overrides `GITHUB_CHANNEL_TOKEN` env, falls back to owner's linked GitHub token) |
-| `bot_username` | string | — | Bot's GitHub login (filters self-replies from webhooks) |
-| `events_filter` | string[] | `[]` (all) | Filter event types: `"pull_request"`, `"issue_comment"`, `"pull_request_review_comment"`, `"pull_request_review"` |
-
-**Webhook URL**: Configure your GitHub repository webhook to point to `{API_URL}/api/v1/channels/github-pr/webhook` with content type `application/json`.
-
-### `moat channels defaults get`
-
-Get default settings for a channel provider. Useful for Slack and Telegram where wildcard routing applies. Not applicable to GitHub PR (always specific `owner/repo`).
-
-```bash
-moat channels defaults get --provider slack
-moat channels defaults get --provider telegram --json
-```
-
-### `moat channels defaults set`
-
-Set default settings for a channel provider (creates or updates a wildcard config).
+List adapter connections.
 
 | Flag | Required | Description |
 |------|----------|-------------|
-| `--provider` | Yes | Channel provider name |
-| `--repo` | Yes | Default repository ID |
-| `--mode` | Yes | Default routing mode |
-| `--provider-config` | No | Default provider config JSON |
-| `--team` | No | Scope defaults to a team |
+| `--adapter` | No | Filter by adapter kind |
+
+### `moat adapters connections create`
+
+Create or upsert an adapter connection. The same `external_account_id` upserts —
+re-running with the same value updates the existing connection.
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--adapter` | Yes | Adapter kind |
+| `--external-account-id` | Yes | Workspace/org/account ID at the external system (e.g. Slack team ID, GitHub org) |
+| `--connection-kind` | No | Adapter-specific subtype (e.g. `oauth`, `personal_access_token`) |
+| `--webhook-secret` | No | Secret used to verify inbound webhooks for this connection |
+| `--transport-config` | No | Adapter-specific transport JSON (e.g. base URL, OAuth tokens) |
+| `--team-id` | No | Scope the connection to a team |
 
 ```bash
-moat channels defaults set --provider slack --repo <repo-id> --mode per_message \
-  --provider-config '{"trigger":"mention_only"}'
+# Slack workspace
+moat adapters connections create --adapter slack --external-account-id T0123456789
 
-moat channels defaults set --provider telegram --repo <repo-id> --mode ongoing --team <team-id>
+# GitHub org with webhook secret
+WEBHOOK_SECRET=$(openssl rand -hex 20)
+moat adapters connections create --adapter github \
+  --external-account-id soaplabs \
+  --webhook-secret "$WEBHOOK_SECRET"
 ```
+
+### `moat triggers list`
+
+List triggers, optionally filtered.
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--kind` | No | `adapter-event` or `schedule` |
+| `--adapter` | No | Filter adapter-event triggers by adapter kind |
+
+### `moat triggers create-adapter-event`
+
+Create a trigger that fires when a webhook arrives via a given adapter connection
+and routes matching events into a task on the chosen repo.
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--adapter` | Yes | Adapter kind |
+| `--connection-id` | Yes | Adapter connection ID (from `adapters connections create`) |
+| `--source-matcher` | Yes | Matcher for the source/subject (e.g. Slack channel ID `C0123456789`, GitHub `owner/repo`, or `*` wildcard) |
+| `--source-name` | No | Human-readable source name |
+| `--repository-id` | Yes | Repo to route events into |
+| `--routing-mode` | No | Default `by_subject` |
+| `--agent-type` | No | Default `claude-code` |
+| `--prompt` | No | Prompt template appended to the agent prompt |
+| `--task-name` | No | Task name template |
+| `--tag` | No | Tag ID (repeatable) |
+| `--run-as-user-id` | No | Attribute trigger-created tasks to this user; required for GitHub triggers so PR replies use that user's GitHub token |
+| `--event-filter` | No | Adapter-specific event-filter JSON |
+| `--adapter-config` | No | Extra adapter-specific JSON |
+| `--allow-direct-send` | No | Bool — allow direct (non-task) outbound messages |
+| `--close-task-on-close` | No | Bool — close the task when the upstream subject closes (default true) |
+| `--notify-on-success` | No | Bool — emit a notification when the agent finishes |
+| `--name` | No | Trigger display name |
+| `--team-id` | No | Scope to a team |
+
+```bash
+# Slack channel → repo
+moat triggers create-adapter-event \
+  --adapter slack --connection-id <conn-id> \
+  --source-matcher C0123456789 \
+  --repository-id <repo-id> --routing-mode by_subject --agent-type claude-code
+
+# GitHub PRs from a repo → repo, attributed to moatless-soap
+moat triggers create-adapter-event \
+  --adapter github --connection-id <conn-id> \
+  --source-matcher "soaplabs/my-service" \
+  --repository-id <repo-id> --routing-mode by_subject --agent-type claude-code \
+  --run-as-user-id 225125419 \
+  --name "PR review – soaplabs/my-service"
+```
+
+### `moat triggers create-schedule`
+
+Create a cron-driven trigger that fires on a schedule.
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--cron-expression` | Yes | 7-field cron: `sec min hour dom month dow year` (5-field crontab is rejected) |
+| `--timezone` | No | IANA TZ (e.g. `Europe/Stockholm`) |
+| `--message-template` | Yes | Message text sent to the agent on each tick |
+| `--repository-id` | Yes | Repo to route the scheduled task into |
+| `--routing-mode` | No | Default `by_subject` |
+| `--agent-type` | No | Default `claude-code` |
+| `--prompt`, `--task-name`, `--tag`, `--run-as-user-id`, `--name`, `--team-id` | No | Same semantics as `create-adapter-event` |
+
+```bash
+moat triggers create-schedule \
+  --cron-expression "0 0 6 * * MON-FRI *" \
+  --timezone "Europe/Stockholm" \
+  --message-template "Run daily check" \
+  --repository-id <repo-id> --routing-mode by_subject --agent-type claude-code
+```
+
+### `moat triggers update`
+
+Update base fields, rule, or source on an existing trigger. Most string fields
+have a paired `--clear-<field>` flag for explicitly clearing them.
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--id` | Yes | Trigger ID |
+| `--name` / `--clear-name` | No | Update or clear the name |
+| `--active` | No | Bool — enable/disable |
+| `--repository-id`, `--routing-mode`, `--ongoing-task-id` / `--clear-ongoing-task-id` | No | Rule fields |
+| `--prompt` / `--clear-prompt`, `--task-name` / `--clear-task-name`, `--tag` / `--clear-tags` | No | Rule fields |
+| `--run-as-user-id` / `--clear-run-as-user-id`, `--agent-type` | No | Rule fields |
+| `--connection-id`, `--source-matcher`, `--source-name` / `--clear-source-name` | No | Adapter-event source fields |
+| `--event-filter`, `--adapter-config` / `--clear-adapter-config` | No | Adapter-event source fields |
+| `--allow-direct-send`, `--close-task-on-close`, `--notify-on-success` | No | Adapter-event source fields |
+| `--cron-expression`, `--timezone`, `--message-template` | No | Schedule source fields |
+| `--scope`, `--team-id` / `--clear-team-id` | No | Scope (`global`, `team`, `user`) and team scoping |
+
+Adapter-event and schedule source fields cannot be set in the same invocation.
+
+### `moat triggers delete`
+
+Delete a trigger. Requires `--yes` in non-interactive contexts; otherwise prompts.
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--id` | Yes | Trigger ID |
+| `--yes` | No | Skip the interactive confirmation |
+
+### `moat bindings list`
+
+List task bindings (destinations the task replies into).
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--task` | Yes | Task ID |
+
+### `moat bindings create`
+
+Create a task binding. Most bindings are created automatically when a trigger
+spawns a task — manual creation is mainly for testing or seeding state.
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--task` | Yes | Task ID |
+| `--adapter` | Yes | Adapter kind |
+| `--connection-id` | Yes | Adapter connection ID |
+| `--subject-kind` | Yes | Subject type (e.g. `pr`, `thread`, `channel`) |
+| `--subject-key` | Yes | Subject key (e.g. `owner/repo#42`) |
+| `--trigger-id` | No | Trigger that created the binding |
+| `--destination-config` | No | Adapter-specific destination JSON |
+| `--metadata` | No | Free-form metadata JSON |
+
+### GitHub PR webhook
+
+The backend still listens at `{API_URL}/api/v1/channels/github-pr/webhook`
+(the path retains the legacy `channels` segment server-side; this is not a CLI
+concern). The webhook secret lives on the **adapter connection**
+(`--webhook-secret` on `adapters connections create`) — one connection can serve
+many triggers as long as they share that secret.
 
 ---
 
@@ -480,7 +556,7 @@ moat teams get <team-id>
 Show a team's settings.
 
 - **API**: `GET /api/v1/teams/{team_id}/settings`
-- **Output**: Default channel repository ID
+- **Output**: Default repository ID
 
 ```bash
 moat teams settings get <team-id>
@@ -493,7 +569,7 @@ Update a team's settings. Requires team membership or admin role.
 
 | Flag | Required | Description |
 |------|----------|-------------|
-| `--default-repo` | No | Default repository ID for channel integrations |
+| `--default-repo` | No | Default repository ID for trigger-created tasks |
 
 - **API**: `PATCH /api/v1/teams/{team_id}/settings`
 - **Body**: `{"defaultChannelRepositoryId": "{repo-id}"}`
@@ -512,7 +588,7 @@ moat teams settings set <team-id> --default-repo <repo-id>
 Show current user settings.
 
 - **API**: `GET /api/v1/users/me/settings`
-- **Output**: Default channel repository ID
+- **Output**: Default repository ID
 
 ```bash
 moat settings get
@@ -525,7 +601,7 @@ Update user settings.
 
 | Flag | Required | Description |
 |------|----------|-------------|
-| `--default-repo` | No | Default repository ID for channel integrations (e.g., Telegram auto-routing) |
+| `--default-repo` | No | Default repository ID for trigger-created tasks (e.g., Telegram auto-routing) |
 
 - **API**: `PATCH /api/v1/users/me/settings`
 - **Body**: `{"defaultChannelRepositoryId": "{repo-id}"}`
@@ -576,10 +652,16 @@ List available tags.
 | `sandbox restart` | POST | `/api/sandbox/v1/tasks/{id}/restart` |
 | `messages list` | GET | `/api/v1/tasks/{id}/messages` |
 | `messages send` | POST | `/api/v1/tasks/{id}/messages` |
-| `channels list` | GET | `/api/v1/channels/configs` |
-| `channels create` | POST | `/api/v1/channels/configs` |
-| `channels defaults get` | GET | `/api/v1/channels/defaults/{provider}` |
-| `channels defaults set` | PUT | `/api/v1/channels/defaults/{provider}` |
+| `adapters list` | GET | `/api/v1/adapters` |
+| `adapters connections list` | GET | `/api/v1/adapters/connections` |
+| `adapters connections create` | POST | `/api/v1/adapters/connections` |
+| `triggers list` | GET | `/api/v1/triggers` |
+| `triggers create-adapter-event` | POST | `/api/v1/triggers` |
+| `triggers create-schedule` | POST | `/api/v1/triggers` |
+| `triggers update` | PUT | `/api/v1/triggers/{id}` |
+| `triggers delete` | DELETE | `/api/v1/triggers/{id}` |
+| `bindings list` | GET | `/api/v1/tasks/{task_id}/bindings` |
+| `bindings create` | POST | `/api/v1/tasks/{task_id}/bindings` |
 | `teams list` | GET | `/api/v1/teams` |
 | `teams get` | GET | `/api/v1/teams/{id}` |
 | `teams settings get` | GET | `/api/v1/teams/{id}/settings` |

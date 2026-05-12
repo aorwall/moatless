@@ -575,6 +575,23 @@ impl ApiClient {
         self.post("/api/v1/adapters/connections", req).await
     }
 
+    /// POST /api/v1/adapters/send
+    pub async fn adapter_send(
+        &self,
+        req: &moatless_api_schemas::adapters::AdapterSendRequest,
+    ) -> Result<moatless_api_schemas::adapters::AdapterSendResponse, ApiError> {
+        self.post("/api/v1/adapters/send", req).await
+    }
+
+    /// POST /api/v1/users/{login}/dm
+    pub async fn send_user_dm(
+        &self,
+        login: &str,
+        req: &moatless_api_schemas::user::SendDmRequest,
+    ) -> Result<moatless_api_schemas::user::SendDmResponse, ApiError> {
+        self.post(&format!("/api/v1/users/{login}/dm"), req).await
+    }
+
     /// GET /api/v1/triggers
     pub async fn list_triggers(
         &self,

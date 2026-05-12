@@ -75,8 +75,8 @@ re-running the backfill.
 ## 5. Smoke test
 
 ```bash
-moat channels rules list --provider github     # expect 6 rules
-moat channels subscriptions --task <recent-task-id>  # REASON / LAST_EVENT populated
+moat triggers list --adapter github            # expect 6 adapter-event triggers
+moat bindings list --task <recent-task-id>     # confirm task is bound to its PR thread
 ```
 
 Trigger a manual PR comment from a soaplabs repo and confirm the agent

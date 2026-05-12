@@ -524,7 +524,9 @@ fn create_rule(args: CreateRuleArgs) -> Result<CreateTriggerRule, ClientError> {
     })
 }
 
-#[allow(clippy::too_many_arguments)]
+// reason: the trigger-rule update API exposes a clear/value pair per
+// nullable field, so the bool count is intrinsic to the surface.
+#[allow(clippy::too_many_arguments, clippy::fn_params_excessive_bools)]
 fn update_rule(
     repository_id: Option<String>,
     routing_mode: Option<RoutingMode>,

@@ -553,6 +553,54 @@ impl SlackAdapter {
     }
 }
 
+/// Parse a Slack destination string into `(channel, optional thread_ts)`.
+///
+/// Accepted shapes:
+/// - `channel:<id>` — top-level post to `<id>`
+/// - `dm:<id>` — top-level post to DM channel `<id>` (`D…`)
+/// - `thread:<channel>/<thread_ts>` — reply in existing thread
+/// - raw `<id>` (no prefix) — treated as a channel ID; matches the legacy
+///   behavior before the prefix syntax was introduced.
+fn parse_slack_destination(destination: &str) -> Result<(String, Option<String>), AdapterError> {
+    let raw = destination.trim();
+    if raw.is_empty() {
+        return Err(AdapterError::BadRequest(
+            "Slack destination must not be empty".into(),
+        ));
+    }
+    if let Some(rest) = raw.strip_prefix("thread:") {
+        let (channel, thread_ts) = rest.split_once('/').ok_or_else(|| {
+            AdapterError::BadRequest(
+                "Slack thread destination must be `thread:<channel>/<thread_ts>`".into(),
+            )
+        })?;
+        if channel.is_empty() || thread_ts.is_empty() {
+            return Err(AdapterError::BadRequest(
+                "Slack thread destination requires both channel and thread_ts".into(),
+            ));
+        }
+        return Ok((channel.to_string(), Some(thread_ts.to_string())));
+    }
+    if let Some(rest) = raw.strip_prefix("channel:") {
+        if rest.is_empty() {
+            return Err(AdapterError::BadRequest(
+                "Slack channel destination must not be empty".into(),
+            ));
+        }
+        return Ok((rest.to_string(), None));
+    }
+    if let Some(rest) = raw.strip_prefix("dm:") {
+        if rest.is_empty() {
+            return Err(AdapterError::BadRequest(
+                "Slack DM destination must not be empty".into(),
+            ));
+        }
+        return Ok((rest.to_string(), None));
+    }
+    // Raw fallback — accept a bare channel ID for backward compatibility.
+    Ok((raw.to_string(), None))
+}
+
 #[async_trait::async_trait]
 impl Adapter for SlackAdapter {
     fn adapter_kind(&self) -> AdapterKind {
@@ -778,17 +826,25 @@ impl Adapter for SlackAdapter {
         message: &OutboundReply,
     ) -> Result<DestinationPostResult, AdapterError> {
         let workspace_id = self.ensure_workspace_id().await?;
+        let (channel, thread_ts) = parse_slack_destination(destination)?;
 
         let ts = self
             .api
-            .post_message(destination, &message.text, None)
+            .post_message(&channel, &message.text, thread_ts.as_deref())
             .await?
             .ok_or_else(|| AdapterError::Internal("Slack did not return message ts".into()))?;
 
+        // Files upload into the same thread (or top-level when there's no thread).
+        let upload_thread_ts = thread_ts.clone().unwrap_or_else(|| ts.clone());
         for file in &message.files {
             if let Err(e) = self
                 .api
-                .upload_file(destination, Some(&ts), &file.filename, file.data.clone())
+                .upload_file(
+                    &channel,
+                    Some(&upload_thread_ts),
+                    &file.filename,
+                    file.data.clone(),
+                )
                 .await
             {
                 warn!(
@@ -799,14 +855,19 @@ impl Adapter for SlackAdapter {
             }
         }
 
+        // For top-level posts the binding's `thread_ts` IS the new `ts`.
+        // For thread replies the binding's `thread_ts` is the ORIGINAL thread anchor
+        // (so future replies thread under the same parent, not under our new message).
+        let binding_thread_ts = thread_ts.clone().unwrap_or_else(|| ts.clone());
+
         Ok(DestinationPostResult {
             message_external_id: ts.clone(),
             subject_kind: "slack_thread",
-            subject_key: format!("{workspace_id}:{destination}:{ts}"),
+            subject_key: format!("{workspace_id}:{channel}:{binding_thread_ts}"),
             destination_config: serde_json::json!({
-                "channel": destination,
+                "channel": channel,
                 "ts": ts,
-                "thread_ts": ts,
+                "thread_ts": binding_thread_ts,
             }),
         })
     }

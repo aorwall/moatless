@@ -295,6 +295,55 @@ pub(crate) async fn load_adapter_connection_for_auth(
     Ok(row)
 }
 
+/// Resolve an adapter connection for the caller.
+///
+/// - `Some(id)` → load and authorize that specific connection.
+/// - `None` → find all `kind` connections accessible to `ctx`:
+///   * 0 → `BadRequest` "no <kind> connection configured"
+///   * 1 → return it
+///   * 2+ → `BadRequest` with the list of accessible IDs and a hint
+pub(crate) async fn resolve_connection(
+    state: &AppState,
+    ctx: &ScopeContext,
+    kind: AdapterKind,
+    connection_id: Option<&str>,
+) -> Result<AdapterConnection, AdapterError> {
+    if let Some(id) = connection_id {
+        let conn = load_adapter_connection_for_auth(state, ctx, id).await?;
+        if conn.provider != kind.as_str() {
+            return Err(AdapterError::BadRequest(format!(
+                "Connection {id} is for provider {}, not {}",
+                conn.provider,
+                kind.as_str()
+            )));
+        }
+        return Ok(conn);
+    }
+    let rows = PgAdapterConnectionRepository(state.db.clone())
+        .list(ctx, Some(kind.as_str()))
+        .await?;
+    let mut iter = rows.into_iter();
+    match (iter.next(), iter.next()) {
+        (None, _) => Err(AdapterError::BadRequest(format!(
+            "No {} connection configured. Create one with `moat adapters connections create --adapter {} ...` first.",
+            kind.as_str(),
+            kind.as_str()
+        ))),
+        (Some(only), None) => Ok(only),
+        (Some(first), Some(second)) => {
+            let mut ids: Vec<String> = vec![first.id, second.id];
+            for row in iter {
+                ids.push(row.id);
+            }
+            Err(AdapterError::BadRequest(format!(
+                "Multiple {} connections accessible: [{}]. Pass --connection <id> to choose.",
+                kind.as_str(),
+                ids.join(", ")
+            )))
+        }
+    }
+}
+
 pub(crate) async fn load_trigger_for_auth(
     state: &AppState,
     ctx: &ScopeContext,

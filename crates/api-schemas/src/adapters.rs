@@ -45,3 +45,43 @@ pub struct AdapterConnectionResponse {
     pub created_at: String,
     pub updated_at: String,
 }
+
+/// Request body for `POST /api/v1/adapters/send` — generic adapter pass-through send.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct AdapterSendRequest {
+    /// Which adapter to dispatch through.
+    pub adapter: AdapterKind,
+    /// Optional connection ID. When omitted, the backend picks the single
+    /// accessible connection of `adapter` kind, or returns an error if zero
+    /// or more than one match.
+    pub connection_id: Option<String>,
+    /// Adapter-specific destination string. Each adapter defines its own
+    /// format (e.g. Slack: `channel:C123` / `dm:D123` / `thread:C/ts`;
+    /// Linear: `issue:LIN-123`).
+    pub destination: String,
+    /// Message text.
+    pub text: String,
+    /// File IDs (uploaded via `POST /api/v1/uploads`) to attach.
+    #[serde(default)]
+    pub file_ids: Vec<String>,
+    /// Optional task to bind this send to. When set, a `task_bindings` row
+    /// is created so future `moat reply` calls thread under this destination.
+    pub task_id: Option<String>,
+}
+
+/// Response from `POST /api/v1/adapters/send`.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct AdapterSendResponse {
+    /// Adapter-specific external message ID (e.g. Slack `ts`, Linear comment ID).
+    pub external_id: String,
+    /// Binding `subject_kind` produced by the adapter (e.g. `slack_thread`,
+    /// `linear_comment`). Surfaced so callers can correlate with bindings.
+    pub subject_kind: String,
+    /// ID of the binding created/updated by this send. Present only when
+    /// `task_id` was provided on the request.
+    pub binding_id: Option<String>,
+}

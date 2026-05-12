@@ -12,7 +12,7 @@ use crate::adapters::models::{
     AdapterConnection, BindingContext, InboundMessage, OutboundReply, TaskBinding,
     TaskTriggerRoute, TriggerContext,
 };
-use crate::adapters::{Adapter, AdapterKind};
+use crate::adapters::{Adapter, AdapterKind, DestinationPostResult};
 use crate::db::DbPool;
 use crate::state::AppState;
 
@@ -466,6 +466,46 @@ impl Adapter for LinearAdapter {
         Ok(Some(format!("linear:comment:{comment_id}")))
     }
 
+    /// Post a comment on a Linear issue identified by the destination string.
+    ///
+    /// Accepted destination formats:
+    /// - `issue:<id-or-key>` — e.g. `issue:LIN-123` or the Linear issue UUID
+    /// - raw `<id-or-key>` — bare value for backward compatibility
+    ///
+    /// Authentication uses the global Linear token (`LINEAR_CHANNEL_TOKEN`).
+    /// For per-user attribution, use the binding-based `send_reply` path.
+    async fn post_to_destination(
+        &self,
+        destination: &str,
+        message: &OutboundReply,
+    ) -> Result<DestinationPostResult, AdapterError> {
+        let issue_id = parse_linear_destination(destination)?;
+        let token = self.global_api_token.clone().ok_or_else(|| {
+            AdapterError::AdapterApi(
+                "No global Linear token configured (LINEAR_CHANNEL_TOKEN). \
+                 Set the env var or use the binding-based reply path."
+                    .into(),
+            )
+        })?;
+        let api = LinearApi::new(&token);
+
+        let mut body = format!("{AGENT_MARKER}\n{}", message.text);
+        if let Some(ref url) = message.task_url {
+            let _ = write!(body, "\n\n---\n[View task]({url})");
+        }
+        let comment_id = api.comment_create(&issue_id, &body).await?;
+
+        Ok(DestinationPostResult {
+            message_external_id: format!("linear:comment:{comment_id}"),
+            subject_kind: "linear_comment",
+            subject_key: format!("linear:issue:{issue_id}"),
+            destination_config: serde_json::json!({
+                "issue_id": issue_id,
+                "comment_id": comment_id,
+            }),
+        })
+    }
+
     async fn send_reply_for_binding(
         &self,
         binding: &TaskBinding,
@@ -551,6 +591,29 @@ impl Adapter for LinearAdapter {
     fn thread_reply_hint(&self, _msg: &InboundMessage) -> Option<String> {
         Some("[New comment on Linear issue]".to_string())
     }
+}
+
+/// Parse a Linear destination string into the issue identifier.
+///
+/// Accepted shapes:
+/// - `issue:<id-or-key>` — preferred, e.g. `issue:LIN-123` or `issue:<uuid>`
+/// - `<id-or-key>` — bare value (backward-compatible fallback)
+fn parse_linear_destination(destination: &str) -> Result<String, AdapterError> {
+    let raw = destination.trim();
+    if raw.is_empty() {
+        return Err(AdapterError::BadRequest(
+            "Linear destination must not be empty".into(),
+        ));
+    }
+    if let Some(rest) = raw.strip_prefix("issue:") {
+        if rest.is_empty() {
+            return Err(AdapterError::BadRequest(
+                "Linear issue destination must not be empty".into(),
+            ));
+        }
+        return Ok(rest.to_string());
+    }
+    Ok(raw.to_string())
 }
 
 /// Process a Linear webhook: verify signature, parse, fan out to every rule

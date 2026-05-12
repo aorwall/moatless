@@ -5,7 +5,7 @@ description: "This skill should be used when the user asks to 'list tasks', 'cre
 
 # Moat CLI
 
-The `moat` CLI is a Rust command-line tool for interacting with the Moatless Vibe platform. It manages tasks, repositories, messages, and channels.
+The `moat` CLI is a Rust command-line tool for interacting with the Moatless Vibe platform. It manages tasks, repositories, messages, and external integrations (adapters, triggers, bindings).
 
 ## Installation
 
@@ -70,10 +70,16 @@ Activated automatically when `USER_AUTH_TOKEN` env var is set. Exchanges token f
 | `moat tasks files <id> list` | List files in workspace | `--path`, `--recursive` |
 | `moat messages list <id>` | List messages for a task | — |
 | `moat messages send <id>` | Send message to a task | `--text` |
-| `moat channels list` | List channel configs | — |
-| `moat channels create` | Create channel config | `--provider`, `--source`, `--repo`, `--mode`, `--provider-config` |
-| `moat channels defaults get` | Get provider defaults | `--provider` |
-| `moat channels defaults set` | Set provider defaults | `--provider`, `--repo`, `--mode`, `--provider-config`, `--team` |
+| `moat adapters list` | List supported adapter kinds | — |
+| `moat adapters connections list` | List adapter connections | `--adapter` |
+| `moat adapters connections create` | Create/upsert an adapter connection | `--adapter`, `--external-account-id`, `--connection-kind`, `--webhook-secret`, `--transport-config`, `--team-id` |
+| `moat triggers list` | List triggers | `--kind`, `--adapter` |
+| `moat triggers create-adapter-event` | Webhook-driven trigger | `--adapter`, `--connection-id`, `--source-matcher`, `--repository-id`, `--routing-mode`, `--agent-type`, `--prompt`, `--task-name`, `--tag`, `--run-as-user-id`, `--event-filter`, `--adapter-config`, `--allow-direct-send`, `--close-task-on-close`, `--notify-on-success`, `--name`, `--team-id` |
+| `moat triggers create-schedule` | Cron-driven trigger | `--cron-expression`, `--timezone`, `--message-template`, `--repository-id`, `--routing-mode`, `--agent-type`, `--prompt`, `--task-name`, `--tag`, `--run-as-user-id`, `--name`, `--team-id` |
+| `moat triggers update --id <id>` | Update a trigger (paired `--clear-*` flags) | many — see source |
+| `moat triggers delete --id <id>` | Delete a trigger | `--yes` |
+| `moat bindings list --task <id>` | List task bindings | — |
+| `moat bindings create` | Create a task binding | `--task`, `--adapter`, `--connection-id`, `--subject-kind`, `--subject-key`, `--trigger-id`, `--destination-config`, `--metadata` |
 | `moat teams list` | List teams | — |
 | `moat teams get <id>` | Get team details | — |
 | `moat teams settings get <id>` | Show team settings | — |
@@ -125,35 +131,59 @@ moat tasks start <task-id>       # Resume task (provisions sandbox if needed)
 moat tasks restart <task-id>     # Recreate pod (keeps PVC)
 ```
 
-### Configure channel integrations
+### Configure adapter & trigger integrations
+
+Setting up an external integration is **two steps**: create an adapter connection
+(credentials/webhook secret), then create a trigger that routes events from that
+connection into tasks on a specific repo.
+
+Valid `--adapter` kinds: `slack`, `telegram`, `github`, `linear`, `webhook`.
+Cron is **not** an adapter — it's a separate trigger kind (`triggers create-schedule`).
 
 ```bash
 # Slack — route a specific channel to a repo
-moat channels create --provider slack --source C0123456789 --repo <repo-id> --mode per_message
+moat adapters connections create --adapter slack --external-account-id T0123456789
+# → returns <conn-id>
+moat triggers create-adapter-event \
+  --adapter slack --connection-id <conn-id> \
+  --source-matcher C0123456789 \
+  --repository-id <repo-id> --routing-mode by_subject --agent-type claude-code
 
-# Telegram — all DMs to a repo
-moat channels create --provider telegram --source '*' --repo <repo-id> --mode ongoing
+# Telegram — all DMs to a repo (wildcard matcher)
+moat adapters connections create --adapter telegram --external-account-id <bot-id>
+moat triggers create-adapter-event \
+  --adapter telegram --connection-id <conn-id> \
+  --source-matcher '*' \
+  --repository-id <repo-id> --routing-mode by_subject --agent-type claude-code
 
-# GitHub PR — each PR becomes a task
-moat channels create --provider github_pr --source owner/repo --repo <repo-id> --mode thread_based
+# GitHub PR — each PR becomes a task (full walkthrough in soap-plugin skill)
+WEBHOOK_SECRET=$(openssl rand -hex 20)
+moat adapters connections create --adapter github --external-account-id <org-or-user> \
+  --webhook-secret "$WEBHOOK_SECRET"
+moat triggers create-adapter-event \
+  --adapter github --connection-id <conn-id> \
+  --source-matcher "owner/repo" \
+  --repository-id <repo-id> --routing-mode by_subject --agent-type claude-code \
+  --run-as-user-id <gh-connected-user-id>
 
-# GitHub PR with full config
-moat channels create --provider github_pr --source owner/repo --repo <repo-id> --mode thread_based \
-  --provider-config '{"bot_token":"ghp_abc","webhook_secret":"whsec_xyz","bot_username":"my-bot[bot]"}'
+# Cron — scheduled trigger (7-field cron: sec min hour dom month dow year)
+# Standard 5-field crontab (e.g. "0 6 * * MON-FRI") is rejected.
+moat triggers create-schedule \
+  --cron-expression "0 0 6 * * MON-FRI *" \
+  --timezone "Europe/Stockholm" \
+  --message-template "Run daily check" \
+  --repository-id <repo-id> --routing-mode by_subject --agent-type claude-code
 
-# Cron — scheduled task trigger (runs on a cron schedule)
-# IMPORTANT: The cron library requires 7-field expressions:
-#   sec min hour dom month dow year
-# Standard 5-field crontab (e.g. "0 6 * * MON-FRI") will be rejected.
-moat channels create --provider cron --source daily-check --repo <repo-id> --mode per_message \
-  --provider-config '{"schedule":"0 0 6 * * MON-FRI *","message":"Run daily check","user_id":"<user-id>"}'
-
-# Set provider defaults (Slack/Telegram only — GitHub PR is always per-repo)
-moat channels defaults set --provider slack --repo <repo-id> --mode per_message
-
-# List all configured channels
-moat channels list
+# Listing
+moat adapters connections list                    # all connections
+moat adapters connections list --adapter github
+moat triggers list                                # all triggers
+moat triggers list --kind adapter-event --adapter slack
+moat bindings list --task <task-id>               # destinations a task is bound to
 ```
+
+> `routing-mode` defaults to `by_subject`. The old `moat channels defaults`
+> command has no replacement — add a trigger per repo instead.
 
 ### Configure settings
 
@@ -261,7 +291,7 @@ CLI source lives at `crates/cli/src/`:
 | `commands/repos.rs` | Repository subcommands |
 | `commands/messages.rs` | Message subcommands |
 | `commands/events.rs` | Event subcommands (list, follow) |
-| `commands/channels.rs` | Channel subcommands |
+| `commands/adapters.rs` | Adapter, trigger, and binding subcommands |
 | `commands/settings.rs` | User settings subcommands |
 | `commands/teams.rs` | Team subcommands |
 | `commands/info.rs` | `whoami`, `commands`, `tags` |

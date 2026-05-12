@@ -15,11 +15,14 @@ use crate::{bindings, triggers};
         (name = "adapters", description = "Adapter connections and webhooks"),
         (name = "triggers", description = "Work triggers"),
         (name = "task-bindings", description = "Task-to-external-subject bindings"),
+        (name = "users", description = "Users"),
     ),
     paths(
         handlers::list_adapters,
         handlers::list_adapter_connections,
         handlers::create_adapter_connection,
+        handlers::adapter_send,
+        handlers::send_user_dm,
         triggers::handlers::list_triggers,
         triggers::handlers::create_trigger,
         triggers::handlers::get_trigger,
@@ -47,6 +50,8 @@ pub fn adapter_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenAp
             handlers::list_adapter_connections,
             handlers::create_adapter_connection
         ))
+        .routes(routes!(handlers::adapter_send))
+        .routes(routes!(handlers::send_user_dm))
         .routes(routes!(
             triggers::handlers::list_triggers,
             triggers::handlers::create_trigger

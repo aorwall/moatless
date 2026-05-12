@@ -10,6 +10,7 @@ pub mod misc;
 pub mod plugins;
 pub mod repos;
 pub mod secrets;
+pub mod send;
 pub mod settings;
 pub mod tasks;
 pub mod teams;

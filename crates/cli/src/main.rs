@@ -6,7 +6,6 @@
 //! - **Standalone** (human user): login/logout, no sandbox-only commands
 
 use clap::{Parser, Subcommand};
-use moatless_api_schemas::bindings::SendTaskReplyRequest;
 use moatless_api_schemas::task::{SetTagsRequest, UpdateTaskMetadataRequest};
 
 use moatless_cli::auth;
@@ -59,12 +58,12 @@ enum SharedCommands {
     /// Trigger management
     Triggers {
         #[command(subcommand)]
-        action: commands::adapters::TriggerAction,
+        action: Box<commands::adapters::TriggerAction>,
     },
     /// Task binding management
     Bindings {
         #[command(subcommand)]
-        action: commands::adapters::BindingAction,
+        action: Box<commands::adapters::BindingAction>,
     },
     /// Task event history
     Events {
@@ -117,6 +116,9 @@ enum SharedCommands {
         #[command(subcommand)]
         action: commands::users::UserAction,
     },
+    /// Send a message — drive a task, reply to bindings, DM a user, or
+    /// pass through an adapter destination (Slack channel/DM/thread, Linear issue, ...).
+    Send(Box<commands::send::SendArgs>),
     /// Task template management
     Templates {
         #[command(subcommand)]
@@ -159,19 +161,6 @@ enum SandboxCommands {
     Messages {
         #[command(subcommand)]
         action: commands::messages::MessageAction,
-    },
-
-    /// Reply to the task's bound external target, or target one binding explicitly
-    Reply {
-        /// Exact task binding ID to target
-        #[arg(long)]
-        binding: Option<String>,
-        /// Message text (reads from stdin if omitted and stdin is piped)
-        #[arg(long)]
-        text: Option<String>,
-        /// File(s) to attach (can be specified multiple times)
-        #[arg(long = "file")]
-        files: Vec<String>,
     },
 
     /// Record feedback about this task to be used for improving moatless
@@ -292,55 +281,7 @@ async fn run_sandbox(cli: SandboxCli) -> Result<(), Box<dyn std::error::Error>> 
             }
         }
         SandboxCommands::Messages { action } => {
-            commands::messages::run(&moat, action, cli.opts.json, &cfg).await?;
-        }
-        SandboxCommands::Reply {
-            binding,
-            text,
-            files,
-        } => {
-            let task_id = require_task_id(&cfg)?;
-            let message_text = read_text_or_stdin(text)?;
-
-            // Upload files first, collect file_ids
-            let mut file_ids = Vec::new();
-            for path_str in &files {
-                let path = std::path::Path::new(path_str);
-                if !path.exists() {
-                    return Err(format!("File not found: {path_str}").into());
-                }
-                let data =
-                    std::fs::read(path).map_err(|e| format!("Failed to read {path_str}: {e}"))?;
-                let filename = path
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("unnamed");
-                let mime_type = mime_guess::from_path(path)
-                    .first_or_octet_stream()
-                    .to_string();
-
-                let upload_resp = moat
-                    .api()
-                    .upload_file(filename, &mime_type, data)
-                    .await
-                    .map_err(|e| format!("Failed to upload {path_str}: {e}"))?;
-                file_ids.push(upload_resp.file_id);
-            }
-
-            let req = SendTaskReplyRequest {
-                text: message_text,
-                file_ids,
-                binding_id: binding,
-            };
-            let resp = moat.api().send_task_reply(&task_id, &req).await?;
-            if cli.opts.json {
-                output::print_json_typed(&resp);
-            } else {
-                println!("Sent to {} binding(s).", resp.sent_count);
-                for err in &resp.errors {
-                    eprintln!("Warning: {err}");
-                }
-            }
+            commands::messages::run(&moat, action, cli.opts.json).await?;
         }
         SandboxCommands::Feedback {
             comment,
@@ -398,7 +339,7 @@ async fn run_standalone(cli: StandaloneCli) -> Result<(), Box<dyn std::error::Er
             }
         }
         StandaloneCommands::Messages { action } => {
-            commands::messages::run(&moat, action, cli.opts.json, &cfg).await?;
+            commands::messages::run(&moat, action, cli.opts.json).await?;
         }
     }
 
@@ -437,10 +378,10 @@ async fn run_shared(
             commands::adapters::run_adapters(moat, action, json).await?;
         }
         SharedCommands::Triggers { action } => {
-            commands::adapters::run_triggers(moat, action, json).await?;
+            commands::adapters::run_triggers(moat, *action, json).await?;
         }
         SharedCommands::Bindings { action } => {
-            commands::adapters::run_bindings(moat, action, json).await?;
+            commands::adapters::run_bindings(moat, *action, json).await?;
         }
         SharedCommands::Events { action } => {
             commands::events::run(moat, action, json).await?;
@@ -479,6 +420,9 @@ async fn run_shared(
         }
         SharedCommands::Templates { action } => {
             commands::templates::run(moat, *action, json).await?;
+        }
+        SharedCommands::Send(args) => {
+            commands::send::run(moat, *args, cfg, json).await?;
         }
     }
 
@@ -521,15 +465,3 @@ fn is_status_command_standalone(cmd: &StandaloneCommands) -> bool {
     )
 }
 
-fn read_text_or_stdin(text: Option<String>) -> Result<String, Box<dyn std::error::Error>> {
-    if let Some(t) = text {
-        return Ok(t);
-    }
-    use std::io::{IsTerminal, Read};
-    if std::io::stdin().is_terminal() {
-        return Err("Provide --text or pipe message via stdin".into());
-    }
-    let mut buf = String::new();
-    std::io::stdin().read_to_string(&mut buf)?;
-    Ok(buf.trim().to_string())
-}

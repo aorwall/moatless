@@ -1,4 +1,4 @@
-//! User provider ID management and DM send commands.
+//! User provider ID management.
 
 use clap::Subcommand;
 
@@ -7,18 +7,6 @@ use crate::output;
 
 #[derive(Subcommand)]
 pub enum UserAction {
-    /// Send a DM to the user via an external provider (e.g. Slack)
-    Send {
-        /// Provider to send through (e.g. "slack")
-        #[arg(long)]
-        provider: String,
-        /// Message text
-        #[arg(long)]
-        text: String,
-        /// Task ID to associate replies with (optional)
-        #[arg(long)]
-        task_id: Option<String>,
-    },
     /// Associate a provider-specific user ID with this moatless user
     SetProviderId {
         /// Provider name (e.g. "slack")
@@ -45,33 +33,6 @@ pub async fn run(
     json: bool,
 ) -> Result<(), ClientError> {
     match action {
-        UserAction::Send {
-            provider,
-            text,
-            task_id,
-        } => {
-            let mut body = serde_json::json!({
-                "provider": provider,
-                "text": text,
-            });
-            if let Some(ref tid) = task_id {
-                body["task_id"] = serde_json::Value::String(tid.clone());
-            }
-            let resp = moat
-                .raw_post(&format!("/api/v1/users/{login}/dm"), &body)
-                .await?;
-            if json {
-                output::print_json_typed(&resp);
-            } else {
-                println!(
-                    "DM sent. Conversation: {}, ts: {}, binding: {}",
-                    resp["conversationId"].as_str().unwrap_or(""),
-                    resp["message_ts"].as_str().unwrap_or(""),
-                    resp["binding_id"].as_str().unwrap_or("(none)"),
-                );
-            }
-        }
-
         UserAction::SetProviderId { provider, id } => {
             let body = serde_json::json!({ "provider_user_id": id });
             let resp = moat
