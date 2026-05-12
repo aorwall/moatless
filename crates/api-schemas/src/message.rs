@@ -64,6 +64,11 @@ pub struct UiMessage {
     /// Task ID that sent this message (present for inter-task messages only).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_task_id: Option<String>,
+    /// Moatless user id that authored this message. Absent for system- or
+    /// adapter-originated rows (schedulers, bindings, external webhooks,
+    /// assistant turns, error results).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sent_by: Option<String>,
 }
 
 /// External source metadata for messages originating from adapters.

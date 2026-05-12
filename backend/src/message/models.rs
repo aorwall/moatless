@@ -124,6 +124,9 @@ pub struct TaskMessage {
     /// User declared the next agent run should NOT resume the prior session.
     /// Distinct from `will_not_resume`, which lives on the result row.
     pub start_fresh: bool,
+    /// Moatless user id of the sender. `None` for system-/adapter-originated
+    /// rows (schedulers, bindings, external webhooks, error results).
+    pub sent_by: Option<String>,
 }
 
 impl TaskMessage {
@@ -177,6 +180,7 @@ impl TaskMessage {
             command_name: None,
             source_task_id: None,
             start_fresh: false,
+            sent_by: None,
         }
     }
 

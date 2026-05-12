@@ -76,6 +76,7 @@ pub async fn send_message_flow(
     command_name: Option<&str>,
     source_task_id: Option<&str>,
     start_fresh: bool,
+    sent_by: Option<&str>,
 ) -> Result<(), MessageError> {
     // Dedup: if this external message was already persisted (or was just sent
     // outbound and is racing the webhook), skip the insert entirely. Prevents
@@ -204,6 +205,7 @@ pub async fn send_message_flow(
         command_name: effective_command_name,
         source_task_id: source_task_id.map(std::string::ToString::to_string),
         start_fresh,
+        sent_by: sent_by.map(std::string::ToString::to_string),
     };
 
     // Build content blocks for the showInUI=true user text
@@ -344,6 +346,7 @@ pub async fn persist_error_result(state: &AppState, task_id: &str, error_text: &
         command_name: None,
         source_task_id: None,
         start_fresh: false,
+        sent_by: None,
     };
 
     let blocks = vec![TaskMessageContentBlock {
@@ -445,6 +448,7 @@ pub async fn send_tool_response_flow(
     tool_use_id: &str,
     _tool_name: &str,
     tool_response: Option<&serde_json::Value>,
+    sent_by: Option<&str>,
 ) -> Result<(), MessageError> {
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let msg_uuid = uuid::Uuid::new_v4().to_string();
@@ -509,6 +513,7 @@ pub async fn send_tool_response_flow(
         command_name: None,
         source_task_id: None,
         start_fresh: false,
+        sent_by: sent_by.map(std::string::ToString::to_string),
     };
 
     let contexts: Vec<TaskMessageContext> = vec![];

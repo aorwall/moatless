@@ -520,6 +520,7 @@ async fn deliver_to_binding(
         cmd_name,
         None,
         false,
+        None,
     )
     .await
     .map_err(|e| AdapterError::Internal(format!("Failed to send message: {e}")))?;

@@ -345,6 +345,7 @@ async fn insert_and_provision_task(
             command_name,
             None,
             false,
+            Some(&auth.user_id),
         )
         .await
         {

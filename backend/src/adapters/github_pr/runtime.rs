@@ -689,6 +689,7 @@ async fn deliver_to_binding(
         None,
         None,
         false,
+        None,
     )
     .await
     {

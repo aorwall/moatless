@@ -49,6 +49,7 @@ pub async fn send_message(
             req.tool_use_id.as_deref().unwrap_or_default(),
             req.tool_name.as_deref().unwrap_or_default(),
             req.tool_response.as_ref(),
+            Some(&auth.user_id),
         )
         .await?;
     } else {
@@ -69,6 +70,7 @@ pub async fn send_message(
             req.command_name.as_deref(),
             req.source_task_id.as_deref(),
             req.start_fresh.unwrap_or(false),
+            Some(&auth.user_id),
         )
         .await?;
     }
@@ -398,6 +400,7 @@ mod strip_heavy_fields_tests {
             command_name: None,
             parent_uuid: None,
             source_task_id: None,
+            sent_by: None,
         }
     }
 

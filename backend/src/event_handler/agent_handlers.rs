@@ -508,6 +508,7 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
         command_name: None,
         source_task_id: None,
         start_fresh: false,
+        sent_by: None,
     };
 
     // 7. Build content blocks from the content array
@@ -747,6 +748,7 @@ fn build_result_message_row(
         command_name: None,
         source_task_id: None,
         start_fresh: false,
+        sent_by: None,
     }
 }
 
