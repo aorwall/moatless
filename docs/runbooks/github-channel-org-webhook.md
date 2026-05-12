@@ -17,10 +17,10 @@ openssl rand -hex 32 > /tmp/gh-org-webhook-secret
 chmod 600 /tmp/gh-org-webhook-secret
 ```
 
-## 2. Register the org webhook on `Frank-Penny`
+## 2. Register the org webhook on `soaplabs`
 
 ```bash
-gh api -X POST /orgs/Frank-Penny/hooks \
+gh api -X POST /orgs/soaplabs/hooks \
   -f name=web \
   -f active=true \
   -F 'events[]=pull_request' \
@@ -79,7 +79,7 @@ moat channels rules list --provider github     # expect 6 rules
 moat channels subscriptions --task <recent-task-id>  # REASON / LAST_EVENT populated
 ```
 
-Trigger a manual PR comment from a Frank-Penny repo and confirm the agent
+Trigger a manual PR comment from a soaplabs repo and confirm the agent
 receives it. Backend logs should show the org connection resolving and the
 ingress rule routing the event to the right task.
 
@@ -87,14 +87,14 @@ ingress rule routing the event to the right task.
 
 ```bash
 for repo in soap-auth soap-config soap-external-api soap-specs tm-api tm-interface; do
-  gh api /repos/Frank-Penny/$repo/hooks --jq \
+  gh api /repos/soaplabs/$repo/hooks --jq \
     '.[] | select(.config.url | contains("/api/v1/channels/webhooks/github")) | .id' \
-    | xargs -I{} gh api -X DELETE /repos/Frank-Penny/$repo/hooks/{}
+    | xargs -I{} gh api -X DELETE /repos/soaplabs/$repo/hooks/{}
 done
 
 # Verify
 for repo in soap-auth soap-config soap-external-api soap-specs tm-api tm-interface; do
-  count=$(gh api /repos/Frank-Penny/$repo/hooks --jq 'length')
+  count=$(gh api /repos/soaplabs/$repo/hooks --jq 'length')
   echo "$repo: $count"
 done
 ```
@@ -110,7 +110,7 @@ rm -P /tmp/gh-org-webhook-secret
 ## Rollback
 
 ```sql
-DELETE FROM provider_connections WHERE scope_value = 'Frank-Penny';
+DELETE FROM provider_connections WHERE scope_value = 'soaplabs';
 -- This cascades through ingress_rules and task_subscriptions.
 ```
 

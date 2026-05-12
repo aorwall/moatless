@@ -235,7 +235,7 @@ jobs:
   build-frontend-image:
     name: Build & push frontend image
     needs: [detect-changes, lint-frontend, build-frontend]
-    # Fork (Frank-Penny/moatless-vibe) publishes to ECR via cd-ecr.yml,
+    # Fork (soaplabs/moatless-vibe) publishes to ECR via cd-ecr.yml,
     # not Docker Hub. Gate keeps this job upstream-only.
     if: >-
       always() &&

@@ -1,7 +1,7 @@
-# moatless-vibe sandbox image — soap (Frank-Penny) variant.
+# moatless-vibe sandbox image — soap (soaplabs) variant.
 #
 # Combines the binary-injection from Dockerfile.sandbox with the soap overlay
-# that previously lived in Frank-Penny/soap-platform-ci/docker/moatless/Dockerfile.
+# that previously lived in soaplabs/soap-platform-ci/docker/moatless/Dockerfile.
 # A single image, built and published in one workflow, replaces the prior
 # two-step pipeline (publish moatless-sandbox → rebuild as soap-moatless).
 #
@@ -91,7 +91,7 @@ if [ -n "$GH_PACKAGES_TOKEN" ]; then
       <repositories>
         <repository>
           <id>soap-github</id>
-          <url>https://maven.pkg.github.com/Frank-Penny/*</url>
+          <url>https://maven.pkg.github.com/soaplabs/*</url>
           <snapshots>
             <enabled>true</enabled>
           </snapshots>

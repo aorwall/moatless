@@ -1,4 +1,4 @@
-# Weekly upstream sync — opens a PR from upstream/main into Frank-Penny/main.
+# Weekly upstream sync — opens a PR from upstream/main into soaplabs/main.
 #
 # Strategy: never rebase main (it's shared); merge upstream/main into a
 # short-lived sync branch, push, open PR. Conflicts are committed as-is

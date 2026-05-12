@@ -1,6 +1,6 @@
 # Fork-only CD: publish images + helm chart to platform ECR (eu-north-1,
 # account 111111111111) via the audited reusable workflows in
-# Frank-Penny/soap-platform-ci. Replaces the upstream Docker Hub publish
+# soaplabs/soap-platform-ci. Replaces the upstream Docker Hub publish
 # jobs in ci.yml/release.yml/build-sandbox-images.yml — those are gated
 # off on the fork via `if: github.repository == 'aorwall/moatless-vibe'`.
 #
@@ -10,9 +10,9 @@
 #   - workflow_dispatch → opt-in subset via `images` input
 #
 # OIDC trust: pinned to GHA-ECRPush-moatless / GHA-HelmPush-moatless,
-# which trust this repo (Frank-Penny/moatless-vibe) AND the calling
+# which trust this repo (soaplabs/moatless-vibe) AND the calling
 # reusable workflow refs (build-push-ecr.yml@refs/heads/main,
-# publish-helm-ecr.yml@refs/heads/main). See Frank-Penny/soap-infra
+# publish-helm-ecr.yml@refs/heads/main). See soaplabs/soap-infra
 # `environments/terraform/platform/ecr/services.yaml`.
 
 name: CD - Publish to ECR
@@ -99,7 +99,7 @@ jobs:
           done
 
           # Helm: publish on every push to main + fp-v* tag pushes.
-          # The chart is consumed by Frank-Penny/soap-k8s-nonprod's ArgoCD
+          # The chart is consumed by soaplabs/soap-k8s-nonprod's ArgoCD
           # Application via `oci://629…/helm-charts/moatless`; SHA-pinned
           # promotion is wired in promote-to-staging.yml on that side.
           if [[ "$GITHUB_REF" == refs/heads/main || "$GITHUB_REF" == refs/tags/fp-v* ]]; then
@@ -223,7 +223,7 @@ jobs:
   publish-frontend:
     needs: [setup, build-frontend-dist]
     if: needs.setup.outputs.build-frontend == 'true'
-    uses: Frank-Penny/soap-platform-ci/.github/workflows/build-push-ecr.yml@main
+    uses: soaplabs/soap-platform-ci/.github/workflows/build-push-ecr.yml@main
     with:
       service-name: moatless
       ecr-repository: moatless-frontend
@@ -238,7 +238,7 @@ jobs:
   publish-backend:
     needs: [setup, build-binaries]
     if: needs.setup.outputs.build-backend == 'true'
-    uses: Frank-Penny/soap-platform-ci/.github/workflows/build-push-ecr.yml@main
+    uses: soaplabs/soap-platform-ci/.github/workflows/build-push-ecr.yml@main
     with:
       service-name: moatless
       ecr-repository: moatless-backend
@@ -252,7 +252,7 @@ jobs:
   publish-sandbox:
     needs: [setup, build-binaries]
     if: needs.setup.outputs.build-sandbox == 'true'
-    uses: Frank-Penny/soap-platform-ci/.github/workflows/build-push-ecr.yml@main
+    uses: soaplabs/soap-platform-ci/.github/workflows/build-push-ecr.yml@main
     with:
       service-name: moatless
       ecr-repository: soap-moatless
@@ -269,7 +269,7 @@ jobs:
   publish-helm:
     needs: setup
     if: needs.setup.outputs.publish-helm == 'true'
-    uses: Frank-Penny/soap-platform-ci/.github/workflows/publish-helm-ecr.yml@main
+    uses: soaplabs/soap-platform-ci/.github/workflows/publish-helm-ecr.yml@main
     with:
       service-name: moatless
       chart-path: k8s/helm/moatless-vibe
@@ -279,7 +279,7 @@ jobs:
   # ── Release moat CLI to a GitHub Release ──
   # The release tag becomes the MOAT_VERSION build-arg that ARC and E2E
   # runner Dockerfiles consume via `gh release download "${MOAT_VERSION}"`
-  # from Frank-Penny/moatless-vibe.
+  # from soaplabs/moatless-vibe.
   release-moat:
     needs: [setup, publish-sandbox]
     if: needs.setup.outputs.build-sandbox == 'true' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/fp-v'))
@@ -325,7 +325,7 @@ jobs:
       - uses: peter-evans/repository-dispatch@v3
         with:
           token: ${{ secrets.GITOPS_PAT }}
-          repository: Frank-Penny/soap-platform-ci
+          repository: soaplabs/soap-platform-ci
           event-type: rebuild-runners
           client-payload: |
             {
@@ -351,7 +351,7 @@ jobs:
   #
   # Requires the GITOPS_PAT repo secret: a fine-scoped PAT with
   # contents:write + actions:write + pull-requests:write on
-  # Frank-Penny/soap-k8s-nonprod only.
+  # soaplabs/soap-k8s-nonprod only.
   trigger-promotion:
     needs:
       - setup
@@ -366,7 +366,7 @@ jobs:
         uses: peter-evans/repository-dispatch@v3
         with:
           token: ${{ secrets.GITOPS_PAT }}
-          repository: Frank-Penny/soap-k8s-nonprod
+          repository: soaplabs/soap-k8s-nonprod
           event-type: promote-to-staging
           client-payload: |
             {

@@ -902,10 +902,10 @@ mod tests {
     #[test]
     fn is_gh_pr_create_with_env_prefix() {
         assert!(is_gh_pr_create(
-            "GH_REPO=Frank-Penny/foo gh pr create --title bar"
+            "GH_REPO=soaplabs/foo gh pr create --title bar"
         ));
         assert!(is_gh_pr_create(
-            "GH_REPO=Frank-Penny/foo   gh pr create --base main --head fix/foo --title \"x y\" --body-file /tmp/b.md 2>&1 | tee /tmp/out"
+            "GH_REPO=soaplabs/foo   gh pr create --base main --head fix/foo --title \"x y\" --body-file /tmp/b.md 2>&1 | tee /tmp/out"
         ));
         assert!(is_gh_pr_create("FOO=1 BAR=2 gh pr create"));
     }
@@ -1080,13 +1080,13 @@ mod tests {
     fn parse_git_push_https() {
         let out = "Enumerating objects: 5, done.\n\
                    Counting objects: 100% (5/5), done.\n\
-                   To https://github.com/Frank-Penny/soap-config.git\n   \
+                   To https://github.com/soaplabs/soap-config.git\n   \
                    2fa9788..7fc0612  fix/TM-1331-prevent-orphan-draft-branches -> fix/TM-1331-prevent-orphan-draft-branches\n";
         let target = parse_git_push(out).unwrap();
         assert_eq!(
             target,
             GitPushTarget {
-                owner: "Frank-Penny".into(),
+                owner: "soaplabs".into(),
                 repo: "soap-config".into(),
                 branch: "fix/TM-1331-prevent-orphan-draft-branches".into(),
             }
@@ -1143,8 +1143,8 @@ mod tests {
     #[test]
     fn parse_github_remote_https_strips_dot_git() {
         assert_eq!(
-            parse_github_remote("https://github.com/Frank-Penny/soap-config.git"),
-            Some(("Frank-Penny".into(), "soap-config".into()))
+            parse_github_remote("https://github.com/soaplabs/soap-config.git"),
+            Some(("soaplabs".into(), "soap-config".into()))
         );
         assert_eq!(
             parse_github_remote("https://github.com/o/r"),

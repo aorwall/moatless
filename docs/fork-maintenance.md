@@ -1,6 +1,6 @@
 # Fork Maintenance Runbook
 
-Frank-Penny/moatless-vibe is a deploy-target fork of aorwall/moatless-vibe.
+soaplabs/moatless-vibe is a deploy-target fork of aorwall/moatless-vibe.
 This document is the day-to-day playbook for keeping them in sync without
 painful merges, and for shipping fork-only customizations cleanly.
 
@@ -8,22 +8,22 @@ painful merges, and for shipping fork-only customizations cleanly.
 
 | Branch | Owner | Purpose |
 |---|---|---|
-| `main` | Frank-Penny | Fork's deployed branch. Carries upstream + fork customizations. **Never rebased.** |
+| `main` | soaplabs | Fork's deployed branch. Carries upstream + fork customizations. **Never rebased.** |
 | `upstream/main` | aorwall | Read-only ref via the `upstream` remote. Never checked out, only fetched. |
-| `feat/<name>`, `fix/<name>` | Frank-Penny | Fork-only feature branches. PR'd to `Frank-Penny/main`. |
-| `upstream/<name>` | Frank-Penny | Upstream-bound branches. Branched off `upstream/main`, pushed to `aorwall` remote, PR'd against `aorwall/moatless-vibe`. |
+| `feat/<name>`, `fix/<name>` | soaplabs | Fork-only feature branches. PR'd to `soaplabs/main`. |
+| `upstream/<name>` | soaplabs | Upstream-bound branches. Branched off `upstream/main`, pushed to `aorwall` remote, PR'd against `aorwall/moatless-vibe`. |
 | `sync/upstream-YYYYMMDD` | github-actions[bot] | Short-lived sync branches opened by `sync-upstream.yml`. Deleted after merge. |
 
 ### Decision tree: where does this change go?
 
 ```
 Is the change fork-specific (deploy config, fork CD, fork helm overlay)?
-├── Yes  → feat/<name> off Frank-Penny/main → PR to Frank-Penny/main
+├── Yes  → feat/<name> off soaplabs/main → PR to soaplabs/main
 └── No   → upstream/<name> off upstream/main → push to aorwall → PR to aorwall/main
 ```
 
 After an upstream PR merges, **drop the local branch**. The next weekly sync
-PR will pull the change into Frank-Penny/main automatically.
+PR will pull the change into soaplabs/main automatically.
 
 ### One-time setup
 
@@ -118,7 +118,7 @@ Avoid the next collision:
 
 - `k8s/helm/moatless-vibe/values.yaml` is **upstream's defaults**. Don't edit
   it for fork-specific values.
-- The **fork's nonprod overlay** lives in `Frank-Penny/soap-k8s-nonprod` at
+- The **fork's nonprod overlay** lives in `soaplabs/soap-k8s-nonprod` at
   `envs/staging/apps/moatless-vibe/values-{env,settings,replicas,version}.yaml`,
   consumed by `argocd/applications/moatless-vibe-staging.yaml`. Edit that
   repo for environment-specific overrides — never the upstream chart.
@@ -143,16 +143,16 @@ full design. Short version:
 or pushed by the fork — we pull `aorwall/moatless-sandbox-{base,tools}` from
 Docker Hub.
 
-OIDC role: `GHA-ECRPush-moatless` (defined in `Frank-Penny/soap-infra`
+OIDC role: `GHA-ECRPush-moatless` (defined in `soaplabs/soap-infra`
 `environments/terraform/platform/ecr/services.yaml`, `moatless` entry).
-Trust is pinned to `repo:Frank-Penny/moatless-vibe:*` AND
-`job_workflow_ref = Frank-Penny/soap-platform-ci/.github/workflows/build-push-ecr.yml@refs/heads/main`.
+Trust is pinned to `repo:soaplabs/moatless-vibe:*` AND
+`job_workflow_ref = soaplabs/soap-platform-ci/.github/workflows/build-push-ecr.yml@refs/heads/main`.
 
 ### Debugging a failed publish
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| OIDC token-exchange fails | `services.yaml` `moatless` entry's `trust_repos` doesn't include `moatless-vibe`, or workflow wasn't called from `Frank-Penny/soap-platform-ci@main` | Verify in soap-infra; re-apply if needed |
+| OIDC token-exchange fails | `services.yaml` `moatless` entry's `trust_repos` doesn't include `moatless-vibe`, or workflow wasn't called from `soaplabs/soap-platform-ci@main` | Verify in soap-infra; re-apply if needed |
 | `denied: ... not authorized` | ECR repo not in `services.yaml` `ecr_repos` list | Add to soap-infra and re-apply |
 | `cargo build` fails in `build-binaries` job | Toolchain drift in `rust:1.91-bookworm` | Update the container image tag in `cd-ecr.yml` |
 | Sandbox image missing `sandbox` binary | `binary-context-name: binaries` not matching `Dockerfile.sandbox`'s `--from=binaries` | Re-check `cd-ecr.yml` `publish-sandbox` job |
@@ -177,4 +177,4 @@ The fork's image-name segments are `moatless-*` (no `-vibe`); upstream uses
 | Change the publish workflow API | soap-platform-ci | `.github/workflows/{build-push-ecr,publish-helm-ecr}.yml` |
 | Change what gets published or how | moatless-vibe | `.github/workflows/cd-ecr.yml` |
 | Add an upstream-bound feature | moatless-vibe (this repo) | `upstream/<name>` branch off `upstream/main`, push to `aorwall` |
-| Add a fork-only feature | moatless-vibe (this repo) | `feat/<name>` branch off `Frank-Penny/main` |
+| Add a fork-only feature | moatless-vibe (this repo) | `feat/<name>` branch off `soaplabs/main` |

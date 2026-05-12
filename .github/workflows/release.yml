@@ -46,7 +46,7 @@ jobs:
   # ── Retag images from CI commit SHA to release version ───────
   retag-images:
     needs: version
-    # Fork (Frank-Penny/moatless-vibe) publishes to ECR via cd-ecr.yml on
+    # Fork (soaplabs/moatless-vibe) publishes to ECR via cd-ecr.yml on
     # fp-v* tags, not Docker Hub. Gate keeps this job upstream-only.
     if: github.repository == 'aorwall/moatless-vibe'
     runs-on: ubuntu-latest

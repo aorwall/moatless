@@ -53,7 +53,7 @@ mod tests {
             id: "ir_test".into(),
             provider: "github".into(),
             connection_id: "pc_test".into(),
-            source_matcher: "Frank-Penny/repo".into(),
+            source_matcher: "soaplabs/repo".into(),
             source_name: None,
             routing_mode: crate::adapters::models::RoutingMode::BySubject,
             event_filter: events_filter,

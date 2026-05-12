@@ -102,7 +102,7 @@ jobs:
   build-tools-image:
     name: Build & push sandbox-tools
     needs: [detect-changes, build-binaries]
-    # Fork (Frank-Penny/moatless-vibe) doesn't publish sandbox-* images
+    # Fork (soaplabs/moatless-vibe) doesn't publish sandbox-* images
     # — it pulls aorwall/moatless-sandbox-{base,tools} from Docker Hub
     # and only builds/pushes the leaf moatless-sandbox image to ECR
     # (via cd-ecr.yml). Gate keeps these jobs upstream-only.
