@@ -294,10 +294,13 @@ pub fn build_server_container_config(
 ) -> ContainerConfig<String> {
     let container_name = generate_server_container_name(task_id, &server.name);
 
-    // ── Image: per-server override → sandbox image fallback
+    // ── Image: per-server override → sandbox image fallback.
+    // Treat empty strings as unset so cleared-but-non-null DB values fall through.
     let image = server
         .docker_image
-        .clone()
+        .as_ref()
+        .filter(|s| !s.is_empty())
+        .cloned()
         .unwrap_or_else(|| sandbox_image.to_string());
 
     // ── Environment variables ─────────────────────────────────────
@@ -577,6 +580,15 @@ mod tests {
     }
 
     #[test]
+    fn container_config_treats_empty_repo_image_as_unset() {
+        let config = test_config();
+        let mut plan = test_plan();
+        plan.repo_config.docker_image = Some(String::new());
+        let cc = build_container_config(&config, "task-1", &plan, None);
+        assert_eq!(cc.image.unwrap(), "sandbox:latest");
+    }
+
+    #[test]
     fn container_config_includes_required_env_vars() {
         let config = test_config();
         let plan = test_plan();
@@ -670,6 +682,15 @@ mod tests {
         server.docker_image = Some("custom-server:v1".into());
         let cc = build_server_container_config(&config, "task-1", &server, TEST_SANDBOX_IMAGE);
         assert_eq!(cc.image.unwrap(), "custom-server:v1");
+    }
+
+    #[test]
+    fn server_config_treats_empty_image_as_unset() {
+        let config = test_config();
+        let mut server = test_server_config();
+        server.docker_image = Some(String::new());
+        let cc = build_server_container_config(&config, "task-1", &server, TEST_SANDBOX_IMAGE);
+        assert_eq!(cc.image.unwrap(), TEST_SANDBOX_IMAGE);
     }
 
     #[test]

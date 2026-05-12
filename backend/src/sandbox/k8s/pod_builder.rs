@@ -349,11 +349,20 @@ fn build_server_containers(
         let container_name = format!("{}-server", server.name);
         let port = server.port;
 
-        // Image: per-server override → repo-level override → global fallback
+        // Image: per-server override → repo-level override → global fallback.
+        // Treat empty strings as unset so cleared-but-non-null DB values fall through.
         let image = server
             .docker_image
-            .clone()
-            .or_else(|| plan.repo_config.docker_image.clone())
+            .as_ref()
+            .filter(|s| !s.is_empty())
+            .cloned()
+            .or_else(|| {
+                plan.repo_config
+                    .docker_image
+                    .as_ref()
+                    .filter(|s| !s.is_empty())
+                    .cloned()
+            })
             .unwrap_or_else(|| config.sandbox.image.clone());
 
         // Standard env vars for all server containers
@@ -781,5 +790,35 @@ mod tests {
             startup.contains(".workspace-ready"),
             "expected workspace-ready gate in startup command, got: {startup}"
         );
+    }
+
+    #[test]
+    fn server_container_treats_empty_repo_image_as_unset() {
+        let config = test_config();
+        let mut plan = test_plan();
+        plan.repo_config.docker_image = Some(String::new());
+
+        let containers = build_server_containers(&config, &plan, Some("pvc")).unwrap();
+        let web = containers
+            .iter()
+            .find(|container| container.name == "web-server")
+            .unwrap();
+        assert_eq!(web.image.as_deref(), Some("sandbox:latest"));
+    }
+
+    #[test]
+    fn server_container_treats_empty_server_image_as_unset() {
+        let config = test_config();
+        let mut plan = test_plan();
+        if let Some(ref mut servers) = plan.repo_config.servers {
+            servers[0].docker_image = Some(String::new());
+        }
+
+        let containers = build_server_containers(&config, &plan, Some("pvc")).unwrap();
+        let web = containers
+            .iter()
+            .find(|container| container.name == "web-server")
+            .unwrap();
+        assert_eq!(web.image.as_deref(), Some("sandbox:latest"));
     }
 }

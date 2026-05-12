@@ -203,6 +203,7 @@ impl SandboxProvider for DockerSandboxProvider {
                 .repo_config
                 .docker_image
                 .as_deref()
+                .filter(|s| !s.is_empty())
                 .unwrap_or(&self.config.docker.image);
             for server in servers {
                 if let Err(msg) = container_builder::validate_server_config(server) {
