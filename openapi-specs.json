@@ -837,6 +837,56 @@
         }
       }
     },
+    "/api/v1/adapters/send": {
+      "post": {
+        "tags": [
+          "adapters"
+        ],
+        "operationId": "adapter_send",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdapterSendRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Adapter send result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdapterSendResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Connection or task not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/adapters/slack/slash": {
       "post": {
         "tags": [
@@ -5125,6 +5175,67 @@
         }
       }
     },
+    "/api/v1/users/{login}/dm": {
+      "post": {
+        "tags": [
+          "users"
+        ],
+        "operationId": "send_user_dm",
+        "parameters": [
+          {
+            "name": "login",
+            "in": "path",
+            "description": "Moatless user login",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendDmRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "DM sent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SendDmResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "User or provider mapping not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/users/{login}/provider-ids": {
       "get": {
         "tags": [
@@ -5456,6 +5567,75 @@
           "linear",
           "webhook"
         ]
+      },
+      "AdapterSendRequest": {
+        "type": "object",
+        "description": "Request body for `POST /api/v1/adapters/send` — generic adapter pass-through send.",
+        "required": [
+          "adapter",
+          "destination",
+          "text"
+        ],
+        "properties": {
+          "adapter": {
+            "$ref": "#/components/schemas/AdapterKind",
+            "description": "Which adapter to dispatch through."
+          },
+          "connectionId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional connection ID. When omitted, the backend picks the single\naccessible connection of `adapter` kind, or returns an error if zero\nor more than one match."
+          },
+          "destination": {
+            "type": "string",
+            "description": "Adapter-specific destination string. Each adapter defines its own\nformat (e.g. Slack: `channel:C123` / `dm:D123` / `thread:C/ts`;\nLinear: `issue:LIN-123`)."
+          },
+          "fileIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "File IDs (uploaded via `POST /api/v1/uploads`) to attach."
+          },
+          "taskId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional task to bind this send to. When set, a `task_bindings` row\nis created so future `moat reply` calls thread under this destination."
+          },
+          "text": {
+            "type": "string",
+            "description": "Message text."
+          }
+        }
+      },
+      "AdapterSendResponse": {
+        "type": "object",
+        "description": "Response from `POST /api/v1/adapters/send`.",
+        "required": [
+          "externalId",
+          "subjectKind"
+        ],
+        "properties": {
+          "bindingId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "ID of the binding created/updated by this send. Present only when\n`task_id` was provided on the request."
+          },
+          "externalId": {
+            "type": "string",
+            "description": "Adapter-specific external message ID (e.g. Slack `ts`, Linear comment ID)."
+          },
+          "subjectKind": {
+            "type": "string",
+            "description": "Binding `subject_kind` produced by the adapter (e.g. `slack_thread`,\n`linear_comment`). Surfaced so callers can correlate with bindings."
+          }
+        }
       },
       "AddTeamMemberRequest": {
         "type": "object",
@@ -9423,6 +9603,54 @@
           "external_ref"
         ]
       },
+      "SendDmRequest": {
+        "type": "object",
+        "description": "Send a DM to a user via an external provider.",
+        "required": [
+          "provider",
+          "text"
+        ],
+        "properties": {
+          "provider": {
+            "type": "string",
+            "description": "Provider to send through (e.g. \"slack\")."
+          },
+          "task_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional task to associate the DM binding with."
+          },
+          "text": {
+            "type": "string",
+            "description": "Message text."
+          }
+        }
+      },
+      "SendDmResponse": {
+        "type": "object",
+        "description": "Result of sending a DM.",
+        "required": [
+          "binding_id",
+          "conversationId",
+          "message_ts"
+        ],
+        "properties": {
+          "binding_id": {
+            "type": "string",
+            "description": "The created or updated task_binding id."
+          },
+          "conversationId": {
+            "type": "string",
+            "description": "External DM conversation ID opened by the adapter."
+          },
+          "message_ts": {
+            "type": "string",
+            "description": "Message timestamp (Slack ts)."
+          }
+        }
+      },
       "SendMessageRequest": {
         "type": "object",
         "required": [
@@ -10666,12 +10894,19 @@
       "TriggerRecentTaskItem": {
         "type": "object",
         "required": [
-          "task",
-          "binding"
+          "task"
         ],
         "properties": {
           "binding": {
-            "$ref": "#/components/schemas/TaskBindingResponse"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TaskBindingResponse",
+                "description": "`None` for schedule triggers (no return-channel binding) and for\nadapter-event tasks that lost their original binding."
+              }
+            ]
           },
           "task": {
             "$ref": "#/components/schemas/TriggerRecentTaskSummary"
@@ -10979,6 +11214,13 @@
               "null"
             ],
             "description": "SDK metadata (user flags, assistant extras)."
+          },
+          "sentBy": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Moatless user id that authored this message. Absent for system- or\nadapter-originated rows (schedulers, bindings, external webhooks,\nassistant turns, error results)."
           },
           "sessionId": {
             "type": [
@@ -12148,6 +12390,10 @@
     {
       "name": "task-bindings",
       "description": "Task-to-external-subject bindings"
+    },
+    {
+      "name": "users",
+      "description": "Users"
     },
     {
       "name": "teams",

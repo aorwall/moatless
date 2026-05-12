@@ -26,7 +26,10 @@ import type {
 
 import type {
   AdapterConnectionResponse,
+  AdapterSendRequest,
+  AdapterSendResponse,
   CreateAdapterConnectionRequest,
+  ErrorBody,
   TelegramWebhookBody,
   WebhookPayload
 } from '.././model';
@@ -500,6 +503,94 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
         TContext
       > => {
       return useMutation(getLinearWebhookMutationOptions(options), queryClient);
+    }
+    export type adapterSendResponse200 = {
+  data: AdapterSendResponse
+  status: 200
+}
+
+export type adapterSendResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
+export type adapterSendResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+    
+export type adapterSendResponseSuccess = (adapterSendResponse200) & {
+  headers: Headers;
+};
+export type adapterSendResponseError = (adapterSendResponse400 | adapterSendResponse404) & {
+  headers: Headers;
+};
+
+export type adapterSendResponse = (adapterSendResponseSuccess | adapterSendResponseError)
+
+export const getAdapterSendUrl = () => {
+
+
+  
+
+  return `/api/v1/adapters/send`
+}
+
+export const adapterSend = async (adapterSendRequest: AdapterSendRequest, options?: RequestInit): Promise<adapterSendResponse> => {
+  
+  return customInstance<adapterSendResponse>(getAdapterSendUrl(),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      adapterSendRequest,)
+  }
+);}
+
+
+
+
+export const getAdapterSendMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adapterSend>>, TError,{data: AdapterSendRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof adapterSend>>, TError,{data: AdapterSendRequest}, TContext> => {
+
+const mutationKey = ['adapterSend'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adapterSend>>, {data: AdapterSendRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adapterSend(data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdapterSendMutationResult = NonNullable<Awaited<ReturnType<typeof adapterSend>>>
+    export type AdapterSendMutationBody = AdapterSendRequest
+    export type AdapterSendMutationError = ErrorType<ErrorBody>
+
+    export const useAdapterSend = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adapterSend>>, TError,{data: AdapterSendRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof adapterSend>>,
+        TError,
+        {data: AdapterSendRequest},
+        TContext
+      > => {
+      return useMutation(getAdapterSendMutationOptions(options), queryClient);
     }
     export type slackSlashCommandResponse200 = {
   data: void

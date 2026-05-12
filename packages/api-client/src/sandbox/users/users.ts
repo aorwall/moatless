@@ -27,6 +27,8 @@ import type {
 import type {
   ErrorBody,
   MessageResponse,
+  SendDmRequest,
+  SendDmResponse,
   SetProviderIdRequest,
   UserListResponse,
   UserProviderIdItem
@@ -175,7 +177,96 @@ export const prefetchListUsersHandlerQuery = async <TData = Awaited<ReturnType<t
 
 
 
-/**
+export type sendUserDmResponse200 = {
+  data: SendDmResponse
+  status: 200
+}
+
+export type sendUserDmResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
+export type sendUserDmResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+    
+export type sendUserDmResponseSuccess = (sendUserDmResponse200) & {
+  headers: Headers;
+};
+export type sendUserDmResponseError = (sendUserDmResponse400 | sendUserDmResponse404) & {
+  headers: Headers;
+};
+
+export type sendUserDmResponse = (sendUserDmResponseSuccess | sendUserDmResponseError)
+
+export const getSendUserDmUrl = (login: string,) => {
+
+
+  
+
+  return `/api/v1/users/${login}/dm`
+}
+
+export const sendUserDm = async (login: string,
+    sendDmRequest: SendDmRequest, options?: RequestInit): Promise<sendUserDmResponse> => {
+  
+  return customInstance<sendUserDmResponse>(getSendUserDmUrl(login),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      sendDmRequest,)
+  }
+);}
+
+
+
+
+export const getSendUserDmMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendUserDm>>, TError,{login: string;data: SendDmRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof sendUserDm>>, TError,{login: string;data: SendDmRequest}, TContext> => {
+
+const mutationKey = ['sendUserDm'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof sendUserDm>>, {login: string;data: SendDmRequest}> = (props) => {
+          const {login,data} = props ?? {};
+
+          return  sendUserDm(login,data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SendUserDmMutationResult = NonNullable<Awaited<ReturnType<typeof sendUserDm>>>
+    export type SendUserDmMutationBody = SendDmRequest
+    export type SendUserDmMutationError = ErrorType<ErrorBody>
+
+    export const useSendUserDm = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendUserDm>>, TError,{login: string;data: SendDmRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof sendUserDm>>,
+        TError,
+        {login: string;data: SendDmRequest},
+        TContext
+      > => {
+      return useMutation(getSendUserDmMutationOptions(options), queryClient);
+    }
+    /**
  * Only the user themselves or an admin may call this.
  * @summary List all provider ID mappings for a moatless user.
  */

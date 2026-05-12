@@ -59,6 +59,13 @@ preview URLs, selected elements). */
    * @nullable
    */
   sdkMetadata?: UiMessageSdkMetadata;
+  /**
+   * Moatless user id that authored this message. Absent for system- or
+adapter-originated rows (schedulers, bindings, external webhooks,
+assistant turns, error results).
+   * @nullable
+   */
+  sentBy?: string | null;
   /** @nullable */
   sessionId?: string | null;
   /**

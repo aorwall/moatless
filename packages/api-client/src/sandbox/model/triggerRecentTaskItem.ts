@@ -9,6 +9,6 @@ import type { TaskBindingResponse } from './taskBindingResponse';
 import type { TriggerRecentTaskSummary } from './triggerRecentTaskSummary';
 
 export interface TriggerRecentTaskItem {
-  binding?: TaskBindingResponse;
+  binding?: null | TaskBindingResponse;
   task: TriggerRecentTaskSummary;
 }
