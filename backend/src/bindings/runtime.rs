@@ -94,7 +94,7 @@ pub async fn resolve_chat_provider_event(
             provider,
             scope_value, "No provider connection matched incoming event"
         );
-        record_inbound(provider, "ignored", "no_connection");
+        record_inbound(provider, "ignored", "no_connection", "", "");
         return Ok(None);
     };
 
@@ -104,7 +104,7 @@ pub async fn resolve_chat_provider_event(
         .await?
         .or(rule_repo.find_wildcard(provider).await?);
     let Some(rule) = rule else {
-        record_inbound(provider, "ignored", "no_rule_match");
+        record_inbound(provider, "ignored", "no_rule_match", "", &connection.id);
         return Ok(None);
     };
 
@@ -116,7 +116,13 @@ pub async fn resolve_chat_provider_event(
             connection_id = %connection.id,
             "Task trigger belongs to a different connection"
         );
-        record_inbound(provider, "ignored", "wrong_connection");
+        record_inbound(
+            provider,
+            "ignored",
+            "wrong_connection",
+            &rule.id,
+            &connection.id,
+        );
         return Ok(None);
     }
 
@@ -137,7 +143,13 @@ pub async fn route_inbound_message(
 ) -> Result<String, AdapterError> {
     if !rule.active {
         debug!(rule_id = %rule.id, "Ignoring external message: task trigger inactive");
-        record_inbound(provider_label, "ignored", "inactive_rule");
+        record_inbound(
+            provider_label,
+            "ignored",
+            "inactive_rule",
+            &rule.id,
+            &connection.id,
+        );
         return Err(AdapterError::ConfigNotFound(rule.id.clone()));
     }
 
@@ -244,7 +256,13 @@ pub async fn route_inbound_message(
                 provider = provider_label,
                 "Skipping self-echo/originating binding"
             );
-            record_inbound(provider_label, "ignored", "self_echo");
+            record_inbound(
+                provider_label,
+                "ignored",
+                "self_echo",
+                &rule.id,
+                &connection.id,
+            );
             delivered_task_id = Some(binding.task_id.clone());
             continue;
         }
@@ -266,7 +284,13 @@ pub async fn route_inbound_message(
                     provider = provider_label,
                     "Skipping duplicate external event receipt"
                 );
-                record_inbound(provider_label, "ignored", "duplicate_receipt");
+                record_inbound(
+                    provider_label,
+                    "ignored",
+                    "duplicate_receipt",
+                    &rule.id,
+                    &connection.id,
+                );
                 delivered_task_id = Some(binding.task_id.clone());
                 continue;
             }
@@ -286,10 +310,16 @@ pub async fn route_inbound_message(
         {
             Ok(()) => {
                 let reason = if this_is_new { "new_task" } else { "existing_task" };
-                record_inbound(provider_label, "success", reason);
+                record_inbound(provider_label, "success", reason, &rule.id, &connection.id);
             }
             Err(e) => {
-                record_inbound(provider_label, "error", "deliver_failed");
+                record_inbound(
+                    provider_label,
+                    "error",
+                    "deliver_failed",
+                    &rule.id,
+                    &connection.id,
+                );
                 return Err(e);
             }
         }

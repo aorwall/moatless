@@ -88,10 +88,10 @@ pub async fn telegram_webhook(
         .await
     {
         Ok(()) => {
-            record_webhook("telegram", "success", "");
+            record_webhook("telegram", "success", "", "", "");
         }
         Err(e) => {
-            record_webhook("telegram", "error", "delivery_failed");
+            record_webhook("telegram", "error", "delivery_failed", "", "");
             warn!(error = %e, "Telegram webhook processing error");
         }
     }

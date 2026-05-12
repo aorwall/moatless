@@ -38,7 +38,7 @@ pub async fn webhook_inbound(
         )));
     }
     if !rule.active {
-        record_webhook("webhook", "ignored", "inactive");
+        record_webhook("webhook", "ignored", "inactive", &trigger_id, &rule.connection_id);
         return Ok(StatusCode::OK.into_response());
     }
 
@@ -71,12 +71,18 @@ pub async fn webhook_inbound(
         .await
     {
         Ok(task_id) => {
-            record_webhook("webhook", "success", "");
+            record_webhook("webhook", "success", "", &trigger_id, &connection.id);
             info!(task_id = %task_id, trigger_id = %trigger_id, "Webhook routed to task");
             Ok(Json(serde_json::json!({ "taskId": task_id })).into_response())
         }
         Err(e) => {
-            record_webhook("webhook", "error", "delivery_failed");
+            record_webhook(
+                "webhook",
+                "error",
+                "delivery_failed",
+                &trigger_id,
+                &connection.id,
+            );
             warn!(trigger_id = %trigger_id, error = %e, "Webhook routing failed");
             Err(e)
         }

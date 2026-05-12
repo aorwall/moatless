@@ -37,12 +37,12 @@ pub fn spawn_cron_scheduler(
                             Ok(true) => {}
                             Ok(false) => {
                                 debug!("Scheduled job runner not leader, skipping tick");
-                                record_job("ignored", "not_leader");
+                                record_job("ignored", "not_leader", "");
                                 continue;
                             }
                             Err(e) => {
                                 warn!(error = %e, "Scheduled job leader election error, skipping tick");
-                                record_job("error", "leader_election_failed");
+                                record_job("error", "leader_election_failed", "");
                                 continue;
                             }
                         }
@@ -50,7 +50,7 @@ pub fn spawn_cron_scheduler(
 
                     if let Err(e) = tick(&state, &worker_id).await {
                         error!(error = %e, "Scheduled job tick failed");
-                        record_job("error", "tick_failed");
+                        record_job("error", "tick_failed", "");
                     }
                 }
             }
@@ -137,16 +137,16 @@ async fn tick(
         .await?;
 
         let Some(locked) = locked else {
-            record_job("ignored", "no_lock");
+            record_job("ignored", "no_lock", &job.id);
             continue;
         };
 
         match execute_job(state, &locked).await {
             Ok(()) => {
-                record_job("success", "");
+                record_job("success", "", &locked.id);
             }
             Err(e) => {
-                record_job("error", "execution_failed");
+                record_job("error", "execution_failed", &locked.id);
                 warn!(job_id = %locked.id, error = %e, "Scheduled job execution failed");
             }
         }
@@ -307,12 +307,12 @@ async fn create_scheduled_task(
     {
         Ok(request) => {
             if let Err(e) = state.sandbox.provision(&task_id, &request).await {
-                record_job("error", "provision_failed");
+                record_job("error", "provision_failed", &config.id);
                 warn!(task_id = %task_id, error = %e, "Failed to provision sandbox for scheduled task");
             }
         }
         Err(e) => {
-            record_job("error", "provision_failed");
+            record_job("error", "provision_failed", &config.id);
             warn!(task_id = %task_id, error = %e, "Failed to build provision request for scheduled task");
         }
     }

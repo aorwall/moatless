@@ -56,7 +56,13 @@ pub async fn direct_send_to_rule(
 
     let files = resolve_files(state, file_ids).await;
     if !files.is_empty() && !provider.supports_files() {
-        record_outbound(provider_label, "error", "unsupported_feature");
+        record_outbound(
+            provider_label,
+            "error",
+            "unsupported_feature",
+            &rule.id,
+            &connection.id,
+        );
         return Err(AdapterError::BadRequest(format!(
             "Provider {:?} does not support file attachments",
             provider.adapter_kind()
@@ -73,7 +79,13 @@ pub async fn direct_send_to_rule(
     let thread_info = match provider.send_message(&config, &reply).await {
         Ok(info) => info,
         Err(e) => {
-            record_outbound(provider_label, "error", "send_failed");
+            record_outbound(
+                provider_label,
+                "error",
+                "send_failed",
+                &rule.id,
+                &connection.id,
+            );
             return Err(AdapterError::AdapterApi(format!(
                 "Failed to send message via {}: {e}",
                 rule.provider
@@ -99,7 +111,13 @@ pub async fn direct_send_to_rule(
         .await?;
     }
 
-    record_outbound(provider_label, "success", "direct_send");
+    record_outbound(
+        provider_label,
+        "success",
+        "direct_send",
+        &rule.id,
+        &connection.id,
+    );
     Ok(Some(thread_info.external_thread_id))
 }
 
@@ -219,9 +237,16 @@ pub async fn send_to_binding(
         .ok_or_else(|| AdapterError::AdapterNotConfigured(binding.provider.clone()))?;
     let provider_label = provider.provider_key();
 
+    let binding_trigger_id = binding.trigger_id.as_deref().unwrap_or("");
     let files = resolve_files(state, file_ids).await;
     if !files.is_empty() && !provider.supports_files() {
-        record_outbound(provider_label, "error", "unsupported_feature");
+        record_outbound(
+            provider_label,
+            "error",
+            "unsupported_feature",
+            binding_trigger_id,
+            &binding.connection_id,
+        );
         return Ok((
             0,
             vec![format!(
@@ -250,7 +275,13 @@ pub async fn send_to_binding(
     {
         Ok(id) => id,
         Err(e) => {
-            record_outbound(provider_label, "error", "send_failed");
+            record_outbound(
+                provider_label,
+                "error",
+                "send_failed",
+                binding_trigger_id,
+                &binding.connection_id,
+            );
             return Ok((
                 0,
                 vec![format!(
@@ -286,7 +317,13 @@ pub async fn send_to_binding(
         }
     }
 
-    record_outbound(provider_label, "success", "");
+    record_outbound(
+        provider_label,
+        "success",
+        "",
+        binding_trigger_id,
+        &binding.connection_id,
+    );
     Ok((1, vec![]))
 }
 

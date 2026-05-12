@@ -80,7 +80,7 @@ pub async fn slack_webhook(
             event_type,
             event_subtype, "Slack webhook has no channel ID in event payload, ignoring"
         );
-        record_webhook("slack", "ignored", "no_channel");
+        record_webhook("slack", "ignored", "no_channel", "", "");
         return Ok(StatusCode::OK.into_response());
     }
 
@@ -97,7 +97,7 @@ pub async fn slack_webhook(
             source_id,
             team_id, "Slack message ignored: no task trigger for this source"
         );
-        record_webhook("slack", "ignored", "no_trigger");
+        record_webhook("slack", "ignored", "no_trigger", "", "");
         return Ok(StatusCode::OK.into_response());
     };
     let config = crate::bindings::runtime::trigger_context(&rule, "slack");
@@ -146,7 +146,7 @@ pub async fn slack_webhook(
                 Ok(destination) => destination,
                 Err(e) => {
                     warn!(error = %e, "Failed to build Slack binding destination");
-                    record_webhook("slack", "error", "internal");
+                    record_webhook("slack", "error", "internal", &rule.id, &connection.id);
                     return Ok(StatusCode::OK.into_response());
                 }
             };
@@ -168,10 +168,16 @@ pub async fn slack_webhook(
                     .await
                 {
                     Ok(_) => {
-                        record_webhook("slack", "success", "");
+                        record_webhook("slack", "success", "", &rule.id, &connection.id);
                     }
                     Err(e) => {
-                        record_webhook("slack", "error", "delivery_failed");
+                        record_webhook(
+                            "slack",
+                            "error",
+                            "delivery_failed",
+                            &rule.id,
+                            &connection.id,
+                        );
                         warn!(error = %e, "Failed to process Slack inbound message");
                     }
                 }
@@ -180,7 +186,13 @@ pub async fn slack_webhook(
         }
         super::adapter::SlackWebhookResult::Ignore => {
             debug!(source_id, "Slack event ignored by provider");
-            record_webhook("slack", "ignored", "provider_filtered");
+            record_webhook(
+                "slack",
+                "ignored",
+                "provider_filtered",
+                &rule.id,
+                &connection.id,
+            );
             Ok(StatusCode::OK.into_response())
         }
     }
@@ -292,10 +304,10 @@ pub async fn slack_slash_command(
         .await
         {
             Ok(()) => {
-                record_webhook("slack", "success", "");
+                record_webhook("slack", "success", "", "", "");
             }
             Err(e) => {
-                record_webhook("slack", "error", "delivery_failed");
+                record_webhook("slack", "error", "delivery_failed", "", "");
                 warn!(
                     error = %e,
                     channel = %channel_id,

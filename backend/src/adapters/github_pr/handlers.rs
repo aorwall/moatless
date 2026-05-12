@@ -43,10 +43,10 @@ pub async fn github_webhook(
     .await
     {
         Ok(()) => {
-            record_webhook("github_pr", "success", "");
+            record_webhook("github_pr", "success", "", "", "");
         }
         Err(e) => {
-            record_webhook("github_pr", "error", "delivery_failed");
+            record_webhook("github_pr", "error", "delivery_failed", "", "");
             warn!(error = %e, "GitHub PR webhook processing error");
         }
     }

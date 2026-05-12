@@ -1,4 +1,7 @@
 //! Prometheus counters for binding inbound routing and outbound send.
+//!
+//! `trigger_id` and `connection_id` are emitted as labels so the admin UI
+//! can render per-trigger / per-connection counts.
 
 pub(crate) const BINDING_INBOUND_TOTAL: &str = "moatless_binding_inbound_total";
 pub(crate) const BINDING_OUTBOUND_TOTAL: &str = "moatless_binding_outbound_total";
@@ -9,32 +12,48 @@ pub(crate) const BINDING_OUTBOUND_TOTAL: &str = "moatless_binding_outbound_total
 pub fn describe_binding_metrics() {
     metrics::describe_counter!(
         BINDING_INBOUND_TOTAL,
-        "Inbound binding routing outcomes (success | ignored | error) by provider and reason"
+        "Inbound binding routing outcomes (success | ignored | error) by provider, trigger, connection, and reason"
     );
     metrics::describe_counter!(
         BINDING_OUTBOUND_TOTAL,
-        "Outbound binding send outcomes (success | ignored | error) by provider and reason"
+        "Outbound binding send outcomes (success | ignored | error) by provider, trigger, connection, and reason"
     );
 }
 
 /// Record one inbound routing outcome.
-pub(crate) fn record_inbound(provider: &str, outcome: &'static str, reason: &'static str) {
+pub(crate) fn record_inbound(
+    provider: &str,
+    outcome: &'static str,
+    reason: &'static str,
+    trigger_id: &str,
+    connection_id: &str,
+) {
     metrics::counter!(
         BINDING_INBOUND_TOTAL,
         "provider" => provider.to_string(),
         "outcome" => outcome,
         "reason" => reason,
+        "trigger_id" => trigger_id.to_string(),
+        "connection_id" => connection_id.to_string(),
     )
     .increment(1);
 }
 
 /// Record one outbound send outcome.
-pub(crate) fn record_outbound(provider: &str, outcome: &'static str, reason: &'static str) {
+pub(crate) fn record_outbound(
+    provider: &str,
+    outcome: &'static str,
+    reason: &'static str,
+    trigger_id: &str,
+    connection_id: &str,
+) {
     metrics::counter!(
         BINDING_OUTBOUND_TOTAL,
         "provider" => provider.to_string(),
         "outcome" => outcome,
         "reason" => reason,
+        "trigger_id" => trigger_id.to_string(),
+        "connection_id" => connection_id.to_string(),
     )
     .increment(1);
 }
