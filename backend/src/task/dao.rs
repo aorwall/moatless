@@ -102,11 +102,11 @@ impl TaskRepository for PgTaskRepository {
                 vibe, name, description, site_id, site_provider, branch,
                 created_by, visibility, scope, team_id, owner_user_id, parent_task_id,
                 append_system_prompt, updated_at, sandbox_started_at, headless,
-                ttl_minutes, task_template_id, inactive_ttl_days
+                ttl_minutes, task_template_id, inactive_ttl_days, trigger_id
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
                 $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22,
-                $23, NOW(), $24, $25, $26, $27, $28
+                $23, NOW(), $24, $25, $26, $27, $28, $29
             )"#,
         )
         .bind(&row.task_id)
@@ -137,6 +137,7 @@ impl TaskRepository for PgTaskRepository {
         .bind(row.ttl_minutes)
         .bind(&row.task_template_id)
         .bind(row.inactive_ttl_days)
+        .bind(&row.trigger_id)
         .execute(&self.0)
         .await?;
         Ok(())
@@ -176,6 +177,7 @@ impl TaskRepository for PgTaskRepository {
             ttl_minutes: i32,
             inactive_ttl_days: i32,
             task_template_id: Option<String>,
+            trigger_id: Option<String>,
             total_count: i64,
         }
 
@@ -188,7 +190,7 @@ impl TaskRepository for PgTaskRepository {
                 t.created_by, t.visibility, t.scope, t.team_id, t.owner_user_id,
                 t.created_at_db, t.updated_at, t.parent_task_id, t.append_system_prompt,
                 t.sandbox_started_at, t.headless, t.ttl_minutes, t.inactive_ttl_days,
-                t.task_template_id,
+                t.task_template_id, t.trigger_id,
                 COUNT(*) OVER() AS total_count
             FROM tasks t
             LEFT JOIN task_tags tt ON t.task_id = tt.task_id
@@ -252,6 +254,7 @@ impl TaskRepository for PgTaskRepository {
                 ttl_minutes: r.ttl_minutes,
                 inactive_ttl_days: r.inactive_ttl_days,
                 task_template_id: r.task_template_id,
+                trigger_id: r.trigger_id,
             })
             .collect();
 

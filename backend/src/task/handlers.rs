@@ -179,6 +179,7 @@ pub async fn create_task(
         ttl_minutes: state.config.sandbox.idle_timeout_minutes as i32,
         inactive_ttl_days: state.config.sandbox.inactive_task_timeout_days as i32,
         task_template_id: req.task_template_id.clone(),
+        trigger_id: None,
     };
 
     insert_and_provision_task(

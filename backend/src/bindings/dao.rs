@@ -54,27 +54,28 @@ pub trait TaskBindingRepository: Send + Sync {
 
 pub struct PgTaskBindingRepository(pub DbPool);
 
-/// Flat row returned by `find_recent_for_trigger`.
+/// Flat row returned by `find_recent_for_trigger`. Binding columns are
+/// optional — schedule triggers spawn tasks without a binding.
 #[derive(sqlx::FromRow, Debug)]
 pub struct TriggerRecentTaskRow {
     pub task_id: String,
     pub short_id: Option<String>,
-    pub title: String,
+    pub title: Option<String>,
     pub status: String,
-    pub task_created_at: DateTime<Utc>,
-    // binding fields
-    pub binding_id: String,
-    pub provider: String,
-    pub subject_kind: String,
-    pub subject_key: String,
-    pub connection_id: String,
+    pub task_created_at: String,
+    // binding fields (None for schedule triggers — no return-channel binding)
+    pub binding_id: Option<String>,
+    pub provider: Option<String>,
+    pub subject_kind: Option<String>,
+    pub subject_key: Option<String>,
+    pub connection_id: Option<String>,
     pub trigger_id: Option<String>,
-    pub destination_config: serde_json::Value,
-    pub metadata: serde_json::Value,
+    pub destination_config: Option<serde_json::Value>,
+    pub metadata: Option<serde_json::Value>,
     pub last_external_event_id: Option<String>,
-    pub origin: String,
-    pub binding_created_at: DateTime<Utc>,
-    pub last_event_at: DateTime<Utc>,
+    pub origin: Option<String>,
+    pub binding_created_at: Option<DateTime<Utc>>,
+    pub last_event_at: Option<DateTime<Utc>>,
 }
 
 /// Flat row returned by the batch binding query.
@@ -363,11 +364,13 @@ impl PgTaskBindingRepository {
         Ok(())
     }
 
-    /// Fetch the most recent tasks created via the given trigger, joined with
-    /// their task bindings. Tasks reached via `task_bindings.trigger_id` inherit
-    /// the trigger's scope by construction (a binding is created in the same
-    /// scope as the route+trigger that produced it), so no additional task-level
-    /// scope predicate is needed.
+    /// Fetch the most recent tasks created via the given trigger. Drives from
+    /// `tasks.trigger_id` so all trigger kinds — including schedule triggers
+    /// that never create a binding — are reachable. A LEFT JOIN LATERAL pulls
+    /// the earliest matching binding for adapter-event triggers; schedule
+    /// triggers yield NULL binding columns. Tasks scoped via `trigger_id`
+    /// inherit the trigger's scope by construction, so no additional
+    /// task-level scope predicate is needed.
     pub async fn find_recent_for_trigger(
         &self,
         trigger_id: &str,
@@ -380,10 +383,18 @@ impl PgTaskBindingRepository {
                       tb.connection_id, tb.trigger_id, tb.destination_config, tb.metadata,
                       tb.last_external_event_id, tb.origin,
                       tb.created_at AS binding_created_at, tb.last_event_at
-               FROM task_bindings tb
-               JOIN tasks t ON t.task_id = tb.task_id
-               WHERE tb.trigger_id = $1
-               ORDER BY tb.created_at DESC
+               FROM tasks t
+               LEFT JOIN LATERAL (
+                   SELECT id, adapter_kind, subject_kind, subject_key, connection_id,
+                          trigger_id, destination_config, metadata,
+                          last_external_event_id, origin, created_at, last_event_at
+                   FROM task_bindings
+                   WHERE task_id = t.task_id AND trigger_id = $1
+                   ORDER BY created_at ASC
+                   LIMIT 1
+               ) tb ON true
+               WHERE t.trigger_id = $1
+               ORDER BY t.created_at DESC
                LIMIT $2"#,
         )
         .bind(trigger_id)

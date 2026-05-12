@@ -62,6 +62,9 @@ pub struct Task {
     pub inactive_ttl_days: i32,
     /// Optional reference to the task template used to create this task.
     pub task_template_id: Option<String>,
+    /// Trigger that spawned this task (route + schedule). Independent from any
+    /// communication binding — schedule triggers never create a binding.
+    pub trigger_id: Option<String>,
 }
 
 #[cfg(test)]

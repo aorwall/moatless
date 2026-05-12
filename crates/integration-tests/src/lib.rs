@@ -96,6 +96,33 @@ pub async fn seed_user(user_id: &str, login: &str, role: &str) {
     );
 }
 
+/// Run an arbitrary SQL statement via `docker exec moatless-postgres psql`.
+///
+/// Useful for tests that need to set up rows the public API does not expose
+/// (e.g. stamping `tasks.trigger_id` directly to simulate a scheduler tick).
+pub fn exec_psql(sql: &str) {
+    let output = std::process::Command::new("docker")
+        .args([
+            "exec",
+            "moatless-postgres",
+            "psql",
+            "-U",
+            "moatless",
+            "-d",
+            "moatless",
+            "-c",
+            sql,
+        ])
+        .output()
+        .expect("failed to run docker exec for psql");
+
+    assert!(
+        output.status.success(),
+        "psql exec failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 /// Seed the standard test users (alice, bob, carol).
 pub async fn seed_test_users() {
     seed_user("alice-test", "alice", "user").await;

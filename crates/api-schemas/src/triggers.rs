@@ -253,5 +253,7 @@ pub struct TriggerRecentTaskSummary {
 #[serde(rename_all = "camelCase")]
 pub struct TriggerRecentTaskItem {
     pub task: TriggerRecentTaskSummary,
-    pub binding: TaskBindingResponse,
+    /// `None` for schedule triggers (no return-channel binding) and for
+    /// adapter-event tasks that lost their original binding.
+    pub binding: Option<TaskBindingResponse>,
 }

@@ -170,7 +170,7 @@ function RecentTasksSection({ items }: { items: TriggerRecentTaskItem[] }) {
             <TableCell>
               <Badge variant="secondary">{item.task.status}</Badge>
             </TableCell>
-            <TableCell className="text-sm">{item.binding.subjectKey}</TableCell>
+            <TableCell className="text-sm">{item.binding?.subjectKey ?? '-'}</TableCell>
             <TableCell className="text-sm">{formatTimestamp(item.task.createdAt)}</TableCell>
           </TableRow>
         ))}
