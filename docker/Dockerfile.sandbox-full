@@ -1,15 +1,15 @@
-# moatless-vibe-sandbox-full: Full development environment for agent task execution.
+# moatless-sandbox-full: Full development environment for agent task execution.
 #
 # Extends sandbox-base with Python (pyenv), Rust (rustup), Go and Java/Maven.
 # Bun, pnpm, yarn, TypeScript and Playwright + Chromium come from sandbox-base.
 #
 # For the lightweight image (everything in base + Rust binaries), use the
-# `aorwall/moatless-vibe-sandbox` (or its alias `aorwall/moatless-vibe-sandbox-js`)
+# `aorwall/moatless-sandbox` (or its alias `aorwall/moatless-sandbox-js`)
 # image instead.
 #
-# Published as: aorwall/moatless-vibe-sandbox-full:latest
+# Published as: aorwall/moatless-sandbox-full:latest
 
-ARG BASE_IMAGE=aorwall/moatless-vibe-sandbox-base:latest
+ARG BASE_IMAGE=aorwall/moatless-sandbox-base:latest
 FROM ${BASE_IMAGE}
 
 USER root
@@ -56,9 +56,9 @@ ENV JAVA_HOME="/usr/lib/jvm/default-java"
 
 # Entrypoint scripts come from the sandbox-tools image so script edits don't
 # invalidate the toolchain layers above.
-COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/docker-entrypoint-sandbox.sh /usr/local/bin/docker-entrypoint-sandbox.sh
-COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/sync-plugins.sh /usr/local/bin/sync-plugins.sh
-COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/moatless-git-cred /usr/local/bin/moatless-git-cred
+COPY --from=aorwall/moatless-sandbox-tools:latest /tools/docker-entrypoint-sandbox.sh /usr/local/bin/docker-entrypoint-sandbox.sh
+COPY --from=aorwall/moatless-sandbox-tools:latest /tools/sync-plugins.sh /usr/local/bin/sync-plugins.sh
+COPY --from=aorwall/moatless-sandbox-tools:latest /tools/moatless-git-cred /usr/local/bin/moatless-git-cred
 RUN chmod +x /usr/local/bin/docker-entrypoint-sandbox.sh /usr/local/bin/sync-plugins.sh /usr/local/bin/moatless-git-cred
 
 # Volatile layers last — Rust binaries change on every code edit.

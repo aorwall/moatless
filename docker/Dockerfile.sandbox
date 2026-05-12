@@ -1,11 +1,11 @@
-# moatless-vibe-sandbox: Runtime sandbox image.
+# moatless-sandbox: Runtime sandbox image.
 #
 # This is sandbox-base + entrypoint scripts + Rust binaries (sandbox, moat).
 # All the heavy tooling (Node, Bun, pnpm/yarn, TypeScript, Playwright + Chromium,
 # Claude/Codex CLIs) lives in sandbox-base so it caches across every code change —
 # only the binary COPY below invalidates per build.
 #
-# This same image is also published under the alias `aorwall/moatless-vibe-sandbox-js`
+# This same image is also published under the alias `aorwall/moatless-sandbox-js`
 # (built and pushed with both tags from the same Dockerfile).
 #
 # For richer language toolchains (Python/Rust/Go/Java) use sandbox-full, which
@@ -13,17 +13,17 @@
 # does not invalidate its toolchain layers.
 #
 # Published as:
-#   - aorwall/moatless-vibe-sandbox:latest
-#   - aorwall/moatless-vibe-sandbox-js:latest  (same content, different tag)
+#   - aorwall/moatless-sandbox:latest
+#   - aorwall/moatless-sandbox-js:latest  (same content, different tag)
 
-ARG SANDBOX_BASE=aorwall/moatless-vibe-sandbox-base:latest
+ARG SANDBOX_BASE=aorwall/moatless-sandbox-base:latest
 FROM ${SANDBOX_BASE}
 
 # Entrypoint scripts come from the sandbox-tools image so script edits don't
 # invalidate the binary COPY layer below (and vice versa).
-COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/docker-entrypoint-sandbox.sh /usr/local/bin/docker-entrypoint-sandbox.sh
-COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/sync-plugins.sh /usr/local/bin/sync-plugins.sh
-COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/moatless-git-cred /usr/local/bin/moatless-git-cred
+COPY --from=aorwall/moatless-sandbox-tools:latest /tools/docker-entrypoint-sandbox.sh /usr/local/bin/docker-entrypoint-sandbox.sh
+COPY --from=aorwall/moatless-sandbox-tools:latest /tools/sync-plugins.sh /usr/local/bin/sync-plugins.sh
+COPY --from=aorwall/moatless-sandbox-tools:latest /tools/moatless-git-cred /usr/local/bin/moatless-git-cred
 RUN chmod +x /usr/local/bin/docker-entrypoint-sandbox.sh /usr/local/bin/sync-plugins.sh /usr/local/bin/moatless-git-cred
 
 # Volatile layers last — our Rust binaries change on every code edit.

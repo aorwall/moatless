@@ -11,7 +11,7 @@ NC='\033[0m' # No Color
 # Default values
 CONTAINER_NAME="sandbox-dev"
 NETWORK_NAME="moatless"
-LOCAL_IMAGE="aorwall/moatless-vibe-sandbox-js:latest"
+LOCAL_IMAGE="aorwall/moatless-sandbox-js:latest"
 GIT_CLONE_URL="https://github.com/aorwall/moatable"
 HOST_PORT_API=""
 HOST_PORT_PREVIEW=""

@@ -5,13 +5,13 @@
 # CLI directly via npm with a pinned CLAUDE_CLI_VERSION build arg — this avoids
 # copying npm-shim scripts that depend on host node_modules.
 #
-# Published as: aorwall/moatless-vibe-sandbox-tools:latest
+# Published as: aorwall/moatless-sandbox-tools:latest
 #
 # Usage in any Dockerfile:
-#   COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/sandbox /usr/local/bin/sandbox
-#   COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/moat /usr/local/bin/moat
-#   COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/docker-entrypoint-sandbox.sh /usr/local/bin/docker-entrypoint-sandbox.sh
-#   COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/sync-plugins.sh /usr/local/bin/sync-plugins.sh
+#   COPY --from=aorwall/moatless-sandbox-tools:latest /tools/sandbox /usr/local/bin/sandbox
+#   COPY --from=aorwall/moatless-sandbox-tools:latest /tools/moat /usr/local/bin/moat
+#   COPY --from=aorwall/moatless-sandbox-tools:latest /tools/docker-entrypoint-sandbox.sh /usr/local/bin/docker-entrypoint-sandbox.sh
+#   COPY --from=aorwall/moatless-sandbox-tools:latest /tools/sync-plugins.sh /usr/local/bin/sync-plugins.sh
 
 FROM ubuntu:24.04
 

@@ -24,11 +24,11 @@ DEV_BROWSER_DIR="${DEV_BROWSER_DIR:-}"
 CLEANUP_DEV_BROWSER=false
 
 # Sandbox is published under two tags pointing at the same image:
-#   - ${REGISTRY}/moatless-vibe-sandbox:<tag>
-#   - ${REGISTRY}/moatless-vibe-sandbox-js:<tag>  (alias kept for back-compat
+#   - ${REGISTRY}/moatless-sandbox:<tag>
+#   - ${REGISTRY}/moatless-sandbox-js:<tag>  (alias kept for back-compat
 #     with downstream consumers that still reference sandbox-js).
-SANDBOX_IMAGE_NAME="moatless-vibe-sandbox"
-SANDBOX_JS_ALIAS_NAME="moatless-vibe-sandbox-js"
+SANDBOX_IMAGE_NAME="moatless-sandbox"
+SANDBOX_JS_ALIAS_NAME="moatless-sandbox-js"
 
 # Pinned CLI versions (kept in sync with .github/workflows/build-sandbox-images.yml)
 CLAUDE_CLI_VERSION="${CLAUDE_CLI_VERSION:-2.1.121}"
@@ -243,7 +243,7 @@ fi
 # Helper function to build an image. Accepts an optional 4th argument: a
 # space-separated list of *additional* image names to tag (same registry, same
 # TAG) alongside the primary one — used to publish sandbox under both
-# moatless-vibe-sandbox and moatless-vibe-sandbox-js without rebuilding.
+# moatless-sandbox and moatless-sandbox-js without rebuilding.
 build_image() {
   local dockerfile=$1
   local image_name=$2
@@ -329,7 +329,7 @@ build_image() {
 # Build images in order: stable base first, then sandbox runtime (dual-tagged
 # as both sandbox and sandbox-js).
 if [ "$BUILD_SANDBOX_BASE" = true ]; then
-  build_image "Dockerfile.sandbox-base" "moatless-vibe-sandbox-base" \
+  build_image "Dockerfile.sandbox-base" "moatless-sandbox-base" \
     "--build-arg CLAUDE_CLI_VERSION=${CLAUDE_CLI_VERSION} \
      --build-arg CODEX_CLI_VERSION=${CODEX_CLI_VERSION}"
 fi
@@ -347,22 +347,22 @@ echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━�
 
 if [ "$MULTI_ARCH" = true ]; then
   echo -e "\n${GREEN}Built multi-arch images (amd64 + arm64) and pushed to:${NC}"
-  echo -e "  - ${REGISTRY}/moatless-vibe-sandbox-*:${TAG}"
+  echo -e "  - ${REGISTRY}/moatless-sandbox-*:${TAG}"
 else
   echo -e "\n${GREEN}Built images:${NC}"
-  docker images | grep -E "REPOSITORY|moatless-vibe-sandbox" | head -5
+  docker images | grep -E "REPOSITORY|moatless-sandbox" | head -5
   if [ "$PUSH" = true ]; then
     echo -e "\n${GREEN}Pushed to:${NC}"
-    echo -e "  - ${REGISTRY}/moatless-vibe-sandbox-*:${TAG}"
+    echo -e "  - ${REGISTRY}/moatless-sandbox-*:${TAG}"
   fi
 fi
 
 echo -e "\n${GREEN}To use in Kubernetes:${NC}"
-echo "  K8S_SANDBOX_IMAGE=${REGISTRY}/moatless-vibe-sandbox-js:${TAG}"
+echo "  K8S_SANDBOX_IMAGE=${REGISTRY}/moatless-sandbox-js:${TAG}"
 
 if [ "$MULTI_ARCH" = true ]; then
   echo -e "\n${GREEN}To use with Docker (works on both amd64 and arm64):${NC}"
-  echo "  DOCKER_SANDBOX_IMAGE=${REGISTRY}/moatless-vibe-sandbox-js:${TAG}"
+  echo "  DOCKER_SANDBOX_IMAGE=${REGISTRY}/moatless-sandbox-js:${TAG}"
 fi
 
 echo ""

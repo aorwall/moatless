@@ -17,8 +17,8 @@ env:
   # (Settings → Secrets and variables → Actions → Variables). Defaults to
   # `aorwall` so upstream CI keeps working with no configuration.
   REGISTRY_ORG: ${{ vars.REGISTRY_ORG || 'aorwall' }}
-  IMAGE_NAME: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-vibe-frontend
-  BACKEND_IMAGE_NAME: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-vibe-backend
+  IMAGE_NAME: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-frontend
+  BACKEND_IMAGE_NAME: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-backend
   CARGO_INCREMENTAL: 0
   # Shorthand for "manual trigger with build_all checked"
   BUILD_ALL: ${{ github.event_name == 'workflow_dispatch' && inputs.build_all }}

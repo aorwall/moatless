@@ -1,7 +1,7 @@
 # Java sandbox: Eclipse Temurin JDK + Maven + moatless sandbox tools
 # Can be built independently using COPY --from sandbox-tools image.
 #
-# Published as: aorwall/moatless-vibe-sandbox-java:<version>
+# Published as: aorwall/moatless-sandbox-java:<version>
 #
 # Build: docker build --build-arg JAVA_VERSION=25 -f docker/Dockerfile.sandbox-java -t sandbox-java:25 .
 
@@ -56,14 +56,14 @@ RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CLI_VERSION}" \
     && ln -sf "$(which claude)" /usr/local/bin/claude
 
 # Copy moatless helper scripts from published tools image (stable)
-COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/docker-entrypoint-sandbox.sh /usr/local/bin/docker-entrypoint-sandbox.sh
-COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/sync-plugins.sh /usr/local/bin/sync-plugins.sh
-COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/moatless-git-cred /usr/local/bin/moatless-git-cred
+COPY --from=aorwall/moatless-sandbox-tools:latest /tools/docker-entrypoint-sandbox.sh /usr/local/bin/docker-entrypoint-sandbox.sh
+COPY --from=aorwall/moatless-sandbox-tools:latest /tools/sync-plugins.sh /usr/local/bin/sync-plugins.sh
+COPY --from=aorwall/moatless-sandbox-tools:latest /tools/moatless-git-cred /usr/local/bin/moatless-git-cred
 RUN chmod +x /usr/local/bin/docker-entrypoint-sandbox.sh /usr/local/bin/sync-plugins.sh /usr/local/bin/moatless-git-cred
 
 # Volatile layers last — our Rust binaries change on every code edit.
-COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/sandbox /usr/local/bin/sandbox
-COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/moat /usr/local/bin/moat
+COPY --from=aorwall/moatless-sandbox-tools:latest /tools/sandbox /usr/local/bin/sandbox
+COPY --from=aorwall/moatless-sandbox-tools:latest /tools/moat /usr/local/bin/moat
 RUN chmod +x /usr/local/bin/sandbox /usr/local/bin/moat
 
 # Environment
