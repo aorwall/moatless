@@ -13,10 +13,25 @@ ARG SANDBOX_BASE=aorwall/moatless-vibe-sandbox-base:latest
 
 # Stage 1: rebuild jira-cli from source against current Go to clear stale
 # stdlib CVEs flagged by AWS Inspector on upstream binary releases.
-FROM golang:1.26-bookworm AS jira-builder
+# Pin patch version to ensure reproducible builds and clear go/stdlib CVEs.
+FROM golang:1.26.3-bookworm AS jira-builder
 ARG JIRA_VERSION=v1.7.0
 ENV CGO_ENABLED=0
-RUN go install github.com/ankitpokhrel/jira-cli/cmd/jira@${JIRA_VERSION}
+RUN git clone --depth 1 --branch ${JIRA_VERSION} https://github.com/ankitpokhrel/jira-cli.git /src && \
+    cd /src && \
+    go get golang.org/x/net@v0.54.0 && \
+    go mod tidy && \
+    go build -o /go/bin/jira ./cmd/jira
+
+# Stage 2: rebuild go-task from source to clear golang.org/x/net CVE-2026-33814.
+FROM golang:1.26.3-bookworm AS task-builder
+ARG TASK_VERSION=v3.50.0
+ENV CGO_ENABLED=0
+RUN git clone --depth 1 --branch ${TASK_VERSION} https://github.com/go-task/task.git /src && \
+    cd /src && \
+    go get golang.org/x/net@v0.54.0 && \
+    go mod tidy && \
+    go build -o /go/bin/task ./cmd/task
 
 FROM ${SANDBOX_BASE}
 
@@ -55,12 +70,9 @@ RUN ARCH=$(dpkg --print-architecture) && \
     curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl" -o /usr/local/bin/kubectl && \
     chmod +x /usr/local/bin/kubectl
 
-# go-task — pinned to a release built with current Go.
-ARG TASK_VERSION=v3.50.0
-RUN ARCH=$(dpkg --print-architecture) && \
-    curl -fsSL "https://github.com/go-task/task/releases/download/${TASK_VERSION}/task_linux_${ARCH}.tar.gz" \
-        | tar -xz -C /usr/local/bin task && \
-    chmod +x /usr/local/bin/task
+# go-task — rebuilt from source in task-builder stage above.
+COPY --from=task-builder /go/bin/task /usr/local/bin/task
+RUN chmod +x /usr/local/bin/task
 
 # Volatile layers last — our Rust binaries change on every code edit.
 # The K8s pod spec calls `sandbox` directly (bypassing ENTRYPOINT), so we
