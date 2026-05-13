@@ -1535,7 +1535,9 @@ async fn linear_install_handler(
 /// 2. Exchange code → workspace token (form-encoded).
 /// 3. Fetch viewer + organization to identify the agent + workspace.
 /// 4. Upsert `integration_connections(provider="linear", external_account_id=org_id)`.
-/// 5. Upsert `provider_tokens(team_id=org_id, provider="linear")`.
+/// 5. Upsert `provider_tokens(team_id="system", provider="linear")` (workspace
+///    OAuth tokens are stored globally — the Linear org UUID lives in
+///    `integration_connections.scope_value` and `provider_tokens.metadata`).
 async fn linear_callback_handler(
     State(state): State<AuthState>,
     headers: HeaderMap,
@@ -1608,6 +1610,8 @@ async fn linear_callback_handler(
         .expires_in
         .map(|secs| now + chrono::Duration::seconds(secs as i64));
     let metadata = serde_json::json!({
+        "organization_id": identity.organization_id,
+        "organization_name": identity.organization_name,
         "agent_viewer_id": identity.agent_viewer_id,
         "agent_viewer_name": identity.agent_viewer_name,
         "agent_viewer_email": identity.agent_viewer_email,
@@ -1616,7 +1620,7 @@ async fn linear_callback_handler(
     state
         .provider_tokens_dao
         .upsert_team_token(
-            &identity.organization_id,
+            "system",
             "linear",
             "oauth",
             &tokens.access_token,
@@ -1630,10 +1634,9 @@ async fn linear_callback_handler(
     if let Some(expires) = expires_at {
         sqlx::query(
             "UPDATE provider_tokens SET expires_at = $1 \
-             WHERE team_id = $2 AND provider = 'linear' AND user_id IS NULL",
+             WHERE team_id = 'system' AND provider = 'linear' AND user_id IS NULL",
         )
         .bind(expires)
-        .bind(&identity.organization_id)
         .execute(&state.db)
         .await
         .map_err(AuthError::Database)?;

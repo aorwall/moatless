@@ -110,10 +110,9 @@ impl LinearAgentApi {
         >(
             "SELECT access_token, refresh_token, expires_at, metadata \
              FROM provider_tokens \
-             WHERE team_id = $1 AND provider = $2 AND user_id IS NULL \
+             WHERE team_id = 'system' AND provider = $1 AND user_id IS NULL \
              LIMIT 1",
         )
-        .bind(&self.org_id)
         .bind(PROVIDER)
         .fetch_optional(&self.db)
         .await
@@ -121,11 +120,11 @@ impl LinearAgentApi {
 
         let (access_token, refresh_token, expires_at, metadata) =
             full.ok_or_else(|| {
-                AdapterError::AdapterApi(format!(
-                    "No Linear OAuth token registered for workspace {} — \
-                     run `moat adapters install --adapter linear` first",
-                    self.org_id
-                ))
+                AdapterError::AdapterApi(
+                    "No Linear OAuth token registered — \
+                     run `moat adapters install --adapter linear` first"
+                        .to_string(),
+                )
             })?;
 
         if !needs_refresh(expires_at) {
@@ -168,7 +167,7 @@ impl LinearAgentApi {
 
         token_dao
             .upsert_team_token(
-                &self.org_id,
+                "system",
                 PROVIDER,
                 "oauth",
                 &refreshed.access_token,
@@ -182,10 +181,9 @@ impl LinearAgentApi {
         if let Some(at) = new_expires_at {
             sqlx::query(
                 "UPDATE provider_tokens SET expires_at = $1 \
-                 WHERE team_id = $2 AND provider = $3 AND user_id IS NULL",
+                 WHERE team_id = 'system' AND provider = $2 AND user_id IS NULL",
             )
             .bind(at)
-            .bind(&self.org_id)
             .bind(PROVIDER)
             .execute(&self.db)
             .await
