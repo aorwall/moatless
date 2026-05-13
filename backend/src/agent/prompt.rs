@@ -42,20 +42,49 @@ Use it via bash for all GitHub operations — do not rely on GitHub MCP tools.";
 const SANDBOX_TOOLS_PROMPT: &str = "\
 # Inbound Message Headers
 
-Every user message you receive is prefixed with a structured header so you can
-identify the sender and reply to the right place:
+User messages may carry one of two header shapes so you can tell where they
+came from and respond appropriately.
+
+## External (message originated from an adapter — Slack, Telegram, Linear, GitHub PR)
 
 ```
 <message_id>msg_abc123</message_id>
+<source>slack</source>
+
+…the actual body…
+```
+
+Reply on the original channel with:
+
+```
+moat messages reply --message msg_abc123 --text \"…\"
+```
+
+The backend routes the reply to the right surface based on `<source>`:
+- `slack` → reply in the same Slack thread
+- `telegram` → reply on the same Telegram message
+- `linear` → comment on the same Linear issue
+- `github_pr` → threaded review-comment reply (or top-level PR comment for
+  conversation comments)
+
+You can also `moat messages react --message msg_abc123 --emoji thumbsup` to
+acknowledge with a reaction instead of a reply.
+
+## Internal (UI / CLI / scheduler — no external channel)
+
+```
 <sent_by>alice</sent_by>
 
 …the actual body…
 ```
 
-- `<message_id>` is the moatless message uuid. Use it as the `--message` argument
-  to `moat messages reply` / `moat messages react` (see below).
-- `<sent_by>` is the moatless login of the sender. It is omitted for messages
-  with no resolvable sender (system-/scheduler-originated rows).
+`<sent_by>` is the moatless login of the user who initiated the message.
+There is no external channel to call back to — just emit a normal assistant
+response and the user sees it directly in the task UI. Do NOT call
+`moat messages reply` for internal messages.
+
+When neither header is present (e.g. system/scheduler-originated rows with
+no resolvable sender), treat the body as authoritative on its own.
 
 # Sandbox CLI Reference
 
@@ -63,10 +92,10 @@ Available `moat` commands:
 - `moat set-name \"<name>\"` — Update the task name
 - `moat set-tags <tag1> <tag2> ...` — Set tags on this task
 - `moat messages reply --message <id> --text \"<text>\"` — Reply to a specific
-  inbound message. The backend picks the right destination automatically
-  (Slack thread, Linear comment, GitHub PR review reply, Telegram reply).
+  external message (carries `<message_id>` + `<source>`). Backend picks the
+  destination automatically.
 - `moat messages react --message <id> --emoji <name>` — React to a specific
-  inbound message with an emoji. Pass `--remove` to undo.
+  external message with an emoji. Pass `--remove` to undo.
 - `moat tasks status $TASK_ID` — Show sandbox status including server states
 - `moat tasks logs $TASK_ID --server <name>` — Stream server logs (e.g., `--server preview`)
 - `moat tasks diagnose $TASK_ID` — Diagnose sandbox issues (status + container diagnostics + recent errors)
@@ -388,8 +417,15 @@ mod tests {
         assert!(prompt.contains("# Sandbox CLI Reference"));
         assert!(prompt.contains("moat messages reply --message"));
         assert!(prompt.contains("moat messages react --message"));
+        // External-message header explanation
         assert!(prompt.contains("<message_id>"));
+        assert!(prompt.contains("<source>"));
+        // Internal-message header explanation
         assert!(prompt.contains("<sent_by>"));
+        // The unified guidance now lives in the base prompt instead of being
+        // tacked on per-adapter.
+        assert!(prompt.contains("Internal"));
+        assert!(prompt.contains("External"));
     }
 
     #[test]

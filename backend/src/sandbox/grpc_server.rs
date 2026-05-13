@@ -270,14 +270,17 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             None
         };
 
-        // Pre-resolve sent_by user logins. A single pending list often has
-        // multiple messages from the same sender — cache the lookup so we
-        // hit the DB at most once per distinct user.
+        // Pre-resolve sent_by user logins for *internal* rows. External rows
+        // (those with an `external_event_id`) carry `<message_id>`/`<source>`
+        // headers instead and don't need a sender lookup.
         let mut login_cache: std::collections::HashMap<String, String> =
             std::collections::HashMap::new();
         if let Some(ref users) = self.users {
             let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
             for row in &pending {
+                if row.external_event_id.is_some() {
+                    continue;
+                }
                 if let Some(uid) = row.sent_by.as_deref() {
                     if seen.insert(uid) {
                         match users.get_user(uid).await {
@@ -307,8 +310,16 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
                     return None;
                 }
 
-                let header = build_message_header(&row.uuid, row.sent_by.as_deref(), &login_cache);
-                prepend_header(&mut content, &header);
+                let header = build_message_header(
+                    &row.uuid,
+                    row.external_event_id.as_deref(),
+                    row.external_adapter.as_deref(),
+                    row.sent_by.as_deref(),
+                    &login_cache,
+                );
+                if !header.is_empty() {
+                    prepend_header(&mut content, &header);
+                }
 
                 // Per-message override: the user toggled "Start fresh" on
                 // this specific message. Force resume off regardless of the
@@ -835,30 +846,58 @@ fn credential_key_to_provider(key: &str) -> Option<&'static str> {
     }
 }
 
-/// Build the `<message_id>` / `<sent_by>` header for an inbound message.
+/// Build the per-message header rendered into the first text block of a
+/// pending user message.
 ///
-/// Returns a string like:
+/// Two shapes, switched on the message's origin:
+///
+/// **External** (`external_event_id` is set — message came in over an
+/// adapter):
 /// ```text
 /// <message_id>msg_abc</message_id>
-/// <sent_by>alice</sent_by>
+/// <source>slack</source>
+///
 /// ```
-/// or just the `<message_id>` line when no login is available. The header is
-/// always terminated by a blank line so the agent's body remains readable.
+/// `<source>` carries the raw `external_adapter` string (`slack`, `telegram`,
+/// `linear`, `github_pr`). The agent passes `<message_id>` to
+/// `moat messages reply --message <id>` to reply on the original channel.
+///
+/// **Internal** (no `external_event_id`):
+/// ```text
+/// <sent_by>alice</sent_by>
+///
+/// ```
+/// `<sent_by>` names the moatless user who initiated the message. There's no
+/// external channel to call back to — the agent just emits a normal assistant
+/// reply.
+///
+/// Returns an empty string when there's nothing to emit (internal row with no
+/// resolvable `sent_by`). Callers must guard against the empty case before
+/// prepending.
 fn build_message_header(
     uuid: &str,
+    external_event_id: Option<&str>,
+    external_adapter: Option<&str>,
     sent_by: Option<&str>,
     login_cache: &std::collections::HashMap<String, String>,
 ) -> String {
     use std::fmt::Write;
-    let mut header = format!("<message_id>{uuid}</message_id>\n");
+    if external_event_id.is_some() {
+        let mut header = format!("<message_id>{uuid}</message_id>\n");
+        if let Some(source) = external_adapter {
+            // Infallible: writing to String never errors.
+            let _ = writeln!(header, "<source>{source}</source>");
+        }
+        header.push('\n');
+        return header;
+    }
+
     if let Some(uid) = sent_by {
         if let Some(login) = login_cache.get(uid) {
-            // Infallible: writing to String never errors.
-            let _ = writeln!(header, "<sent_by>{login}</sent_by>");
+            return format!("<sent_by>{login}</sent_by>\n\n");
         }
     }
-    header.push('\n');
-    header
+    String::new()
 }
 
 /// Prepend `header` to the first text block in `content`, synthesising one
@@ -986,37 +1025,57 @@ mod tests {
     }
 
     #[test]
-    fn header_with_resolved_sender() {
+    fn external_row_emits_message_id_and_source_only() {
+        // External rows (external_event_id is set) get <message_id> + <source>
+        // and no <sent_by>, even when sent_by would otherwise resolve.
         let mut cache = HashMap::new();
         cache.insert("u1".to_string(), "alice".to_string());
-        let header = build_message_header("msg_abc", Some("u1"), &cache);
+        let header = build_message_header(
+            "msg_abc",
+            Some("slack:ts:1700"),
+            Some("slack"),
+            Some("u1"),
+            &cache,
+        );
         assert_eq!(
             header,
-            "<message_id>msg_abc</message_id>\n<sent_by>alice</sent_by>\n\n"
+            "<message_id>msg_abc</message_id>\n<source>slack</source>\n\n"
         );
     }
 
     #[test]
-    fn header_without_sender_id() {
+    fn external_row_without_adapter_drops_source_tag() {
         let cache = HashMap::new();
-        let header = build_message_header("msg_abc", None, &cache);
+        let header =
+            build_message_header("msg_abc", Some("ext-id"), None, None, &cache);
         assert_eq!(header, "<message_id>msg_abc</message_id>\n\n");
     }
 
     #[test]
-    fn header_with_unknown_user_drops_sent_by_tag() {
+    fn internal_row_with_resolved_sent_by_emits_sent_by_only() {
+        let mut cache = HashMap::new();
+        cache.insert("u1".to_string(), "alice".to_string());
+        let header = build_message_header("msg_abc", None, None, Some("u1"), &cache);
+        assert_eq!(header, "<sent_by>alice</sent_by>\n\n");
+    }
+
+    #[test]
+    fn internal_row_without_resolvable_sent_by_emits_nothing() {
         let cache = HashMap::new();
-        let header = build_message_header("msg_abc", Some("u-missing"), &cache);
-        assert_eq!(header, "<message_id>msg_abc</message_id>\n\n");
+        let header = build_message_header("msg_abc", None, None, Some("u-missing"), &cache);
+        assert_eq!(header, "");
+
+        let header = build_message_header("msg_abc", None, None, None, &cache);
+        assert_eq!(header, "");
     }
 
     #[test]
     fn prepend_header_targets_first_text_block() {
         let mut content = vec![text_block("hello")];
-        prepend_header(&mut content, "<message_id>msg_1</message_id>\n\n");
+        prepend_header(&mut content, "<message_id>msg_1</message_id>\n<source>slack</source>\n\n");
         assert_eq!(
             extract_text(&content[0]),
-            "<message_id>msg_1</message_id>\n\nhello"
+            "<message_id>msg_1</message_id>\n<source>slack</source>\n\nhello"
         );
     }
 
@@ -1030,8 +1089,11 @@ mod tests {
                 },
             )),
         }];
-        prepend_header(&mut content, "<message_id>msg_1</message_id>\n\n");
+        prepend_header(&mut content, "<message_id>msg_1</message_id>\n<source>slack</source>\n\n");
         assert_eq!(content.len(), 2);
-        assert_eq!(extract_text(&content[0]), "<message_id>msg_1</message_id>");
+        assert_eq!(
+            extract_text(&content[0]),
+            "<message_id>msg_1</message_id>\n<source>slack</source>"
+        );
     }
 }

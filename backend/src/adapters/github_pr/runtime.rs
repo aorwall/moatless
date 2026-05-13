@@ -33,25 +33,6 @@ const ADAPTER_LABEL: &str = "github_pr";
 pub(crate) const ORIGIN_ADAPTER_EVENT: &str = ADAPTER_EVENT_BINDING_ORIGIN;
 pub(crate) const ORIGIN_CONNECTED_THREAD: &str = CONNECTED_THREAD_BINDING_ORIGIN;
 
-/// Generic instructions appended to external-source tasks so the agent
-/// knows to reply via the `moat messages reply --message <id>` CLI command.
-/// Mirrors the generic constant in `inbound.rs` for GitHub-specific reply guidance.
-const EXTERNAL_REPLY_INSTRUCTIONS: &str = "\
-# External Reply Instructions
-
-This task was created from a GitHub PR event. Send your responses back to the \
-PR using `moat messages reply --message <id>`, passing the `<message_id>` value \
-from the inbound message header.
-
-- `moat messages reply --message <id> --text \"<your response>\"` — backend routes \
-the reply to the right place: review-comment messages get threaded review replies; \
-issue/PR-conversation comments get top-level PR comments.
-- For the initial message that created this task, always send a reply.
-- For follow-up thread messages, reply if you are mentioned or have useful information. \
-If the message is not directed at you and you have nothing to add, stay silent (do not send a reply).
-- Keep replies concise — the recipient is reading on GitHub.
-- You may send multiple replies for progress updates on long-running tasks.";
-
 /// Build a synthetic `TriggerContext` from an `TaskTriggerRoute` so we can call
 /// trait methods (`fetch_context`) that still take a `TriggerContext`.
 pub(crate) fn trigger_context(rule: &TaskTriggerRoute) -> TriggerContext {
@@ -543,7 +524,7 @@ async fn create_provider_event_task(
             if let Some(ref tpl) = rule.prompt_template {
                 parts.push(tpl.to_string());
             }
-            parts.push(EXTERNAL_REPLY_INSTRUCTIONS.to_string());
+            // Universal reply guidance now lives in the base sandbox-tools prompt.
             if let Some(providers) = state.adapters.as_ref() {
                 if let Some(provider) = providers.get_by_name(ADAPTER_LABEL) {
                     if let Some(extra) = provider.reply_instructions() {
@@ -551,7 +532,11 @@ async fn create_provider_event_task(
                     }
                 }
             }
-            Some(parts.join("\n\n"))
+            if parts.is_empty() {
+                None
+            } else {
+                Some(parts.join("\n\n"))
+            }
         },
         sandbox_started_at: None,
         headless: true,

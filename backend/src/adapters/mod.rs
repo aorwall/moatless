@@ -329,9 +329,10 @@ pub trait Adapter: Send + Sync {
     /// Provider-specific reply instructions appended to the system prompt for
     /// external-source tasks.
     ///
-    /// These are appended after the generic `EXTERNAL_REPLY_INSTRUCTIONS` and the
-    /// optional per-config `prompt_template`. Use this to document provider-specific
-    /// features like mention syntax, file attachments, or formatting.
+    /// Universal `moat messages reply --message <id>` guidance lives in the
+    /// base sandbox-tools prompt (`backend/src/agent/prompt.rs`). Use this
+    /// hook only to document provider-specific extras the base prompt can't
+    /// know about — e.g. Slack mention syntax, file attachments, or formatting.
     ///
     /// Default: no provider-specific instructions.
     fn reply_instructions(&self) -> Option<String> {

@@ -25,38 +25,6 @@ pub struct CommandInfo {
     pub agent_mode: Option<AgentMode>,
 }
 
-/// Generic instructions appended to all external-source tasks so the agent
-/// knows to explicitly reply via the `moat messages reply` CLI command.
-///
-/// Provider-specific instructions (e.g. Slack mention syntax, file attachments)
-/// are appended separately via [`Adapter::reply_instructions`].
-const EXTERNAL_REPLY_INSTRUCTIONS: &str = "\
-# External Reply Instructions
-
-This task was created from an external message. You MUST call \
-`moat messages reply --message <id>` to deliver your response — a plain text \
-assistant reply is NOT sent to the external target.
-
-## Required: Reply via CLI
-Every inbound user message you receive carries a structured header like:
-
-```
-<message_id>msg_abc123</message_id>
-<sent_by>alice</sent_by>
-```
-
-Pass the `<message_id>` value as `--message` so the backend routes the reply
-to the right destination (Slack thread, Linear comment, GitHub PR review reply,
-Telegram reply — figured out automatically):
-
-  `moat messages reply --message <id> --text \"<your response>\"`
-
-- For follow-up thread messages, reply if you are mentioned or have useful \
-information. If the message is not directed at you and you have nothing to \
-add, stay silent.
-- Keep replies concise — the recipient is reading in a messaging app.
-- You may send multiple replies for progress updates on long-running tasks.";
-
 /// Create a new task from a external message.
 pub(crate) async fn create_task_for_external_message(
     state: &AppState,
@@ -116,8 +84,9 @@ pub(crate) async fn create_task_for_external_message(
             if let Some(ref tpl) = config.prompt_template {
                 parts.push(tpl.to_string());
             }
-            parts.push(EXTERNAL_REPLY_INSTRUCTIONS.to_string());
-            // Append provider-specific reply instructions (e.g. Slack mention syntax)
+            // Append provider-specific reply instructions (e.g. Slack mention syntax).
+            // The universal `moat messages reply --message <id>` guidance lives in
+            // the base sandbox-tools prompt — no per-adapter copy needed.
             if let Some(providers) = state.adapters.as_ref() {
                 if let Some(provider) = providers.get_by_name(&config.provider) {
                     if let Some(extra) = provider.reply_instructions() {
@@ -125,7 +94,11 @@ pub(crate) async fn create_task_for_external_message(
                     }
                 }
             }
-            Some(parts.join("\n\n"))
+            if parts.is_empty() {
+                None
+            } else {
+                Some(parts.join("\n\n"))
+            }
         },
         sandbox_started_at: None,
         headless: true,
