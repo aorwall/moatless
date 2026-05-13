@@ -2,14 +2,12 @@
 //! `Issue.update` events.
 //!
 //! Inbound paths:
-//! - `handle_session_created` — mention or assignment. Mention triggers
-//!   immediately; assignment is parked or proceeds based on the issue's
-//!   current workflow state.
+//! - `handle_session_created` — mention or assignment. Always spawns a task;
+//!   issue workflow state is not consulted.
 //! - `handle_session_prompted` — follow-up prompt on an existing session.
 //!   Routes to `send_message_flow` for the bound task.
-//! - `handle_issue_update` — wakes parked sessions when an issue transitions
-//!   INTO `trigger_states`, and closes active tasks when it transitions INTO
-//!   `terminal_states`.
+//! - `handle_issue_update` — closes active tasks when the issue transitions
+//!   INTO `terminal_states`. Non-terminal transitions are ignored.
 
 use std::fmt::Write as _;
 
@@ -28,22 +26,13 @@ use crate::task::dao::TaskPatch;
 use crate::task::models::{Task, TaskStatus, Visibility};
 use crate::triggers::rule_dao::PgTaskTriggerRouteRepository;
 
-use super::agent_api::{ActivityKind, LinearAgentApi};
+use super::agent_api::{default_http_client, ActivityKind, LinearAgentApi};
 use super::config::LinearRuleConfig;
 use super::webhook_payloads::{AgentSession, IssuePayload};
 
 const ADAPTER: &str = "linear";
 const SUBJECT_KIND: &str = "linear_agent_session";
 const ADAPTER_LABEL: &str = "linear";
-
-/// Result of a `handle_session_created` decision — used by the dispatcher to
-/// pick the synchronous Linear activity to emit before returning 200.
-pub enum SessionCreatedAction {
-    /// Mention path or assignment in `trigger_states` — task is being spawned.
-    Proceed,
-    /// Assignment outside `trigger_states` — session is parked.
-    Park,
-}
 
 /// Resolve every active task trigger bound to a given Linear team. Returns
 /// every rule attached to the team — multi-rule support is preserved.
@@ -71,31 +60,25 @@ pub async fn resolve_rules_for_team(
         .collect())
 }
 
-/// Process an `AgentSessionEvent.created` payload. Decides between the
-/// proceed-now path (mention or assignment-with-state-in-trigger-states) and
-/// the park-and-wait path (assignment outside trigger states).
+/// Process an `AgentSessionEvent.created` payload. Always proceeds — mention
+/// and assignment both spawn a task regardless of the issue's workflow state.
 ///
-/// Performs synchronous Linear API calls (`agentActivityCreate` +
-/// `agentSessionUpdate`) before spawning the long-running task creation so
-/// the webhook response stays inside Linear's 10-second window.
+/// Performs synchronous Linear API calls (`agentActivityCreate`) before
+/// spawning the long-running task creation so the webhook response stays
+/// inside Linear's 10-second window.
 pub async fn handle_session_created(
     state: &AppState,
     api: &LinearAgentApi,
     connection: &AdapterConnection,
     rules: &[TaskTriggerRoute],
     session: &AgentSession,
-) -> Result<SessionCreatedAction, AdapterError> {
+) -> Result<(), AdapterError> {
     let issue = session.issue.as_ref().ok_or_else(|| {
         AdapterError::BadRequest("AgentSession missing issue payload".into())
     })?;
 
-    // Mention path: any comment present → proceed regardless of state.
-    let is_mention = session.comment.is_some();
-
-    // Resolve the rule by team. We always proceed even with multiple rules:
-    // the first active one wins for spawning. Multi-listener fan-out is
-    // limited to Issue.update wake/close paths (where state changes drive
-    // routing independently).
+    // Resolve the rule by team. The first active rule wins for spawning;
+    // multi-listener fan-out is limited to Issue.update close paths.
     let team_id = issue
         .team_id
         .clone()
@@ -103,62 +86,9 @@ pub async fn handle_session_created(
         .unwrap_or_default();
     let rule = rules.first().cloned();
 
-    let rule_config = rule.as_ref().map_or_else(
-        || LinearRuleConfig {
-            require_labels: vec![],
-            trigger_states: vec!["In Progress".to_string()],
-            terminal_states: vec![
-                "Done".to_string(),
-                "Cancelled".to_string(),
-                "Canceled".to_string(),
-                "Duplicate".to_string(),
-            ],
-            close_task_on_close: true,
-        },
-        LinearRuleConfig::from_rule,
-    );
-
-    let state_name = issue.state.as_ref().map_or("", |s| s.name.as_str());
-    let in_trigger_state = rule_config
-        .trigger_states
-        .iter()
-        .any(|s| s == state_name);
-
-    let should_proceed = is_mention || in_trigger_state;
-
-    if !should_proceed {
-        // Assignment with state outside trigger_states — park.
-        let states = rule_config.trigger_states.join(", ");
-        let prompt = if states.is_empty() {
-            "I'm assigned. Move the issue to a configured trigger state to begin.".to_string()
-        } else {
-            format!(
-                "I'm assigned. Move the issue to one of `{states}` and I'll start work."
-            )
-        };
-        if let Err(e) = api
-            .agent_activity_create(&session.id, ActivityKind::Elicitation, &prompt)
-            .await
-        {
-            warn!(session_id = %session.id, error = %e, "Failed to emit Linear elicitation activity");
-        }
-        if let Some(rule) = rule.as_ref() {
-            if let Err(e) =
-                upsert_pending_binding(state, connection, rule, issue, &session.id).await
-            {
-                warn!(
-                    session_id = %session.id,
-                    error = %e,
-                    "Failed to upsert pending Linear binding"
-                );
-            }
-        }
-        return Ok(SessionCreatedAction::Park);
-    }
-
-    // Proceed: emit a heartbeat thought synchronously so Linear sees activity
-    // within the 10s window. The actual sandbox provisioning happens in a
-    // spawned task.
+    // Emit a heartbeat thought synchronously so Linear sees activity within
+    // the 10s window. The actual sandbox provisioning happens in a spawned
+    // task.
     if let Err(e) = api
         .agent_activity_create(
             &session.id,
@@ -175,7 +105,7 @@ pub async fn handle_session_created(
             team_id = %team_id,
             "Linear session created but no active rule found for team — emitting heartbeat only"
         );
-        return Ok(SessionCreatedAction::Proceed);
+        return Ok(());
     };
 
     let state_clone = state.clone();
@@ -201,7 +131,7 @@ pub async fn handle_session_created(
         }
     });
 
-    Ok(SessionCreatedAction::Proceed)
+    Ok(())
 }
 
 /// Route an `AgentSessionEvent.prompted` payload to the bound task.
@@ -277,9 +207,13 @@ pub async fn handle_session_prompted(
     Ok(())
 }
 
-/// Handle an `Issue.update` payload. Two distinct flows:
-/// - State INTO `trigger_states` AND a pending binding exists → wake.
-/// - State INTO `terminal_states` AND an active binding exists → close.
+/// Handle an `Issue.update` payload.
+///
+/// Only the terminal-state close path is acted on: when an issue transitions
+/// INTO a configured `terminal_states` value and `close_task_on_close` is
+/// true, every active binding for the issue is closed. All other state
+/// transitions are ignored — assignment alone is the trigger, so there is
+/// nothing to wake.
 pub async fn handle_issue_update(
     state: &AppState,
     api: &LinearAgentApi,
@@ -308,106 +242,10 @@ pub async fn handle_issue_update(
     };
     let rule_config = LinearRuleConfig::from_rule(rule);
 
-    if rule_config.trigger_states.iter().any(|s| s == state_name) {
-        wake_pending_bindings_for_issue(state, api, connection, rule, issue).await?;
-    }
-
     if rule_config.close_task_on_close
         && rule_config.terminal_states.iter().any(|s| s == state_name)
     {
         close_active_bindings_for_issue(state, api, connection, rule, issue).await?;
-    }
-
-    Ok(())
-}
-
-async fn wake_pending_bindings_for_issue(
-    state: &AppState,
-    api: &LinearAgentApi,
-    connection: &AdapterConnection,
-    rule: &TaskTriggerRoute,
-    issue: &IssuePayload,
-) -> Result<(), AdapterError> {
-    // Pending bindings are keyed by session_id (subject_key), so we look them
-    // up via the issue_id stored in destination_config.
-    let rows = sqlx::query_as::<_, TaskBinding>(
-        "SELECT id, task_id, provider, subject_kind, subject_key, connection_id, \
-                trigger_id, destination_config, metadata, last_external_event_id, \
-                origin, created_at, last_event_at \
-         FROM task_bindings \
-         WHERE provider = $1 \
-           AND subject_kind = $2 \
-           AND destination_config->>'issue_id' = $3 \
-           AND destination_config->>'pending' = 'true'",
-    )
-    .bind(ADAPTER)
-    .bind(SUBJECT_KIND)
-    .bind(&issue.id)
-    .fetch_all(&state.db)
-    .await
-    .map_err(AdapterError::Db)?;
-
-    if rows.is_empty() {
-        return Ok(());
-    }
-
-    for binding in rows {
-        let session_id = binding
-            .destination_config
-            .get("session_id")
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_string);
-
-        // Clear the pending flag and synthesize a task.
-        let mut new_config = binding.destination_config.clone();
-        if let Some(obj) = new_config.as_object_mut() {
-            obj.remove("pending");
-        }
-
-        if let Some(ref sid) = session_id {
-            if let Err(e) = api
-                .agent_activity_create(sid, ActivityKind::Thought, "Spinning up sandbox…")
-                .await
-            {
-                warn!(session_id = %sid, error = %e, "Failed to emit wake thought");
-            }
-        }
-
-        // Create the task now that we're unblocked.
-        let synthetic_session = AgentSession {
-            id: session_id.clone().unwrap_or_default(),
-            issue: Some(super::webhook_payloads::AgentSessionIssue {
-                id: issue.id.clone(),
-                identifier: issue.identifier.clone(),
-                title: issue.title.clone(),
-                description: None,
-                url: issue.url.clone(),
-                team_id: issue.team_id.clone(),
-                team: issue.team.clone(),
-                state: issue.state.clone(),
-            }),
-            comment: None,
-            creator: None,
-            prompt_context: None,
-        };
-
-        if let Err(e) = provision_session_task_with_existing_binding(
-            state,
-            api,
-            connection,
-            rule,
-            &synthetic_session,
-            &binding.id,
-            &new_config,
-        )
-        .await
-        {
-            warn!(
-                binding_id = %binding.id,
-                error = %e,
-                "Failed to provision Linear task from woken binding"
-            );
-        }
     }
 
     Ok(())
@@ -560,63 +398,6 @@ async fn close_active_bindings_for_issue(
     Ok(())
 }
 
-/// Upsert a "pending" binding that records a parked session.
-async fn upsert_pending_binding(
-    state: &AppState,
-    connection: &AdapterConnection,
-    rule: &TaskTriggerRoute,
-    issue: &super::webhook_payloads::AgentSessionIssue,
-    session_id: &str,
-) -> Result<(), AdapterError> {
-    // Pending bindings have no task yet — use a placeholder task_id that
-    // we'll overwrite when the session wakes. Encode session_id so the wake
-    // path can find this row by `destination_config->>'issue_id'`.
-    let team_id = issue
-        .team_id
-        .clone()
-        .or_else(|| issue.team.as_ref().map(|t| t.id.clone()))
-        .unwrap_or_default();
-    let destination_config = serde_json::json!({
-        "session_id": session_id,
-        "issue_id": issue.id,
-        "identifier": issue.identifier,
-        "team_id": team_id,
-        "issue_url": issue.url,
-        "pending": true,
-    });
-
-    let now = Utc::now();
-    let placeholder_task_id = format!("pending-linear-{session_id}");
-
-    sqlx::query(
-        r#"INSERT INTO task_bindings
-           (id, task_id, provider, subject_kind, subject_key, connection_id,
-            trigger_id, destination_config, metadata, last_external_event_id,
-            origin, created_at, last_event_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, $10, $11, $11)
-           ON CONFLICT (provider, subject_kind, subject_key) DO UPDATE SET
-               destination_config = EXCLUDED.destination_config,
-               trigger_id = EXCLUDED.trigger_id,
-               connection_id = EXCLUDED.connection_id,
-               last_event_at = EXCLUDED.last_event_at"#,
-    )
-    .bind(format!("ts_{}", uuid::Uuid::new_v4()))
-    .bind(placeholder_task_id)
-    .bind(ADAPTER)
-    .bind(SUBJECT_KIND)
-    .bind(session_id)
-    .bind(&connection.id)
-    .bind(&rule.id)
-    .bind(&destination_config)
-    .bind(serde_json::json!({}))
-    .bind(ADAPTER_EVENT_BINDING_ORIGIN)
-    .bind(now)
-    .execute(&state.db)
-    .await
-    .map_err(AdapterError::Db)?;
-    Ok(())
-}
-
 async fn provision_session_task(
     state: &AppState,
     api: &LinearAgentApi,
@@ -742,85 +523,6 @@ async fn provision_session_task(
             "Failed to forward Linear prompt to task"
         );
     }
-    Ok(())
-}
-
-async fn provision_session_task_with_existing_binding(
-    state: &AppState,
-    api: &LinearAgentApi,
-    connection: &AdapterConnection,
-    rule: &TaskTriggerRoute,
-    session: &AgentSession,
-    binding_id: &str,
-    cleared_config: &serde_json::Value,
-) -> Result<(), AdapterError> {
-    let task_id = create_provider_event_task(state, rule, session).await?;
-    provision_task(state, &task_id).await;
-
-    let now = Utc::now();
-    sqlx::query(
-        "UPDATE task_bindings \
-         SET task_id = $1, destination_config = $2, last_event_at = $3 \
-         WHERE id = $4",
-    )
-    .bind(&task_id)
-    .bind(cleared_config)
-    .bind(now)
-    .bind(binding_id)
-    .execute(&state.db)
-    .await
-    .map_err(AdapterError::Db)?;
-
-    let task_url = task_url(state, &task_id);
-    if let Err(e) = api
-        .agent_session_update_external_urls(&session.id, "Moatless task", &task_url)
-        .await
-    {
-        warn!(session_id = %session.id, error = %e, "Failed to update Linear externalUrls");
-    }
-    if let Some(ref issue) = session.issue {
-        if let Err(e) = api
-            .attachment_link_url(&issue.id, &task_url, "Moatless task")
-            .await
-        {
-            warn!(
-                session_id = %session.id,
-                issue_id = %issue.id,
-                error = %e,
-                "Failed to attach Moatless task URL to Linear issue"
-            );
-        }
-    }
-
-    let inbound_text = build_inbound_text(session, &[]);
-    let external_event_id = format!("linear:session:wake:{}", session.id);
-    if let Err(e) = crate::message::send::send_message_flow(
-        state,
-        &task_id,
-        &inbound_text,
-        None,
-        None,
-        &[],
-        &[],
-        false,
-        Some(&external_event_id),
-        Some(ADAPTER_LABEL),
-        Some(rule.source_matcher.as_str()),
-        None,
-        None,
-        false,
-        None,
-    )
-    .await
-    {
-        warn!(
-            task_id = %task_id,
-            session_id = %session.id,
-            error = %e,
-            "Failed to forward Linear wake prompt to task"
-        );
-    }
-    let _ = connection;
     Ok(())
 }
 
@@ -1054,6 +756,93 @@ async fn rule_for_binding(
             .await?)
     } else {
         Ok(None)
+    }
+}
+
+/// Best-effort emit a Linear activity on every active Linear session bound to
+/// `task_id`. Fire-and-forget: any failure (no binding, missing connection,
+/// network error, GraphQL rejection) is logged and swallowed — callers in the
+/// event-consumer hot path must not be affected.
+pub async fn notify_linear_status(
+    state: AppState,
+    task_id: String,
+    kind: ActivityKind,
+    body: String,
+) {
+    let rows = match sqlx::query_as::<_, TaskBinding>(
+        "SELECT id, task_id, provider, subject_kind, subject_key, connection_id, \
+                trigger_id, destination_config, metadata, last_external_event_id, \
+                origin, created_at, last_event_at \
+         FROM task_bindings \
+         WHERE provider = $1 \
+           AND subject_kind = $2 \
+           AND task_id = $3 \
+           AND COALESCE(destination_config->>'pending', 'false') <> 'true'",
+    )
+    .bind(ADAPTER)
+    .bind(SUBJECT_KIND)
+    .bind(&task_id)
+    .fetch_all(&state.db)
+    .await
+    {
+        Ok(rows) => rows,
+        Err(e) => {
+            warn!(task_id, error = %e, "notify_linear_status: binding lookup failed");
+            return;
+        }
+    };
+
+    if rows.is_empty() {
+        return;
+    }
+
+    for binding in rows {
+        let Some(session_id) = binding
+            .destination_config
+            .get("session_id")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string)
+        else {
+            continue;
+        };
+
+        let scope_value: Option<String> = match sqlx::query_scalar(
+            "SELECT scope_value FROM integration_connections WHERE id = $1",
+        )
+        .bind(&binding.connection_id)
+        .fetch_optional(&state.db)
+        .await
+        {
+            Ok(v) => v,
+            Err(e) => {
+                warn!(
+                    task_id,
+                    connection_id = %binding.connection_id,
+                    error = %e,
+                    "notify_linear_status: connection lookup failed"
+                );
+                continue;
+            }
+        };
+        let Some(scope_value) = scope_value else {
+            continue;
+        };
+
+        let api = LinearAgentApi::new(
+            default_http_client(),
+            state.db.clone(),
+            scope_value,
+            state.config.linear.oauth_client_id.clone(),
+            state.config.linear.oauth_client_secret.clone(),
+        );
+        if let Err(e) = api.agent_activity_create(&session_id, kind, &body).await {
+            warn!(
+                task_id,
+                session_id,
+                error = %e,
+                "notify_linear_status: agent_activity_create failed"
+            );
+        }
     }
 }
 

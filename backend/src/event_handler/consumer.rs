@@ -290,17 +290,50 @@ impl EventHandlerConsumer {
             EventKey::Task(TaskSubType::MetadataUpdated) => {
                 agent_handlers::handle_task_metadata_updated(&self.state, event).await;
             }
-            // Sandbox error — pod watcher detected a fatal crash; transcript-only,
-            // do not auto-notify external targets.
+            // Sandbox error — pod watcher detected a fatal crash; transcript-only
+            // for the agent (auto-error reply), and a Linear `error` activity
+            // for any active Linear binding.
             EventKey::Sandbox(SandboxSubType::Error) => {
+                let body = event
+                    .payload
+                    .get("message")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("Sandbox error")
+                    .to_string();
+                tokio::spawn(crate::adapters::linear::agent_runtime::notify_linear_status(
+                    self.state.clone(),
+                    event.task_id.clone(),
+                    crate::adapters::linear::agent_api::ActivityKind::Error,
+                    body,
+                ));
                 agent_handlers::handle_sandbox_fatal(&self.state, event).await;
+            }
+            // Sandbox became ready — surface as a Linear `Thought` so the
+            // session shows progress between "Spinning up sandbox…" and the
+            // agent's first message.
+            EventKey::Sandbox(SandboxSubType::Ready) => {
+                tokio::spawn(crate::adapters::linear::agent_runtime::notify_linear_status(
+                    self.state.clone(),
+                    event.task_id.clone(),
+                    crate::adapters::linear::agent_api::ActivityKind::Thought,
+                    "Sandbox ready".to_string(),
+                ));
+            }
+            // Agent process started inside the sandbox — also surfaced as a
+            // Linear `Thought` for the same reason.
+            EventKey::Agent(AgentSubType::Started) => {
+                tokio::spawn(crate::adapters::linear::agent_runtime::notify_linear_status(
+                    self.state.clone(),
+                    event.task_id.clone(),
+                    crate::adapters::linear::agent_api::ActivityKind::Thought,
+                    "Agent started".to_string(),
+                ));
             }
             // Known SSE-only event types — forwarded to frontend but not processed here
             EventKey::Sandbox(_)
             | EventKey::Server(_)
             | EventKey::Agent(
-                AgentSubType::Started
-                | AgentSubType::PendingResponse
+                AgentSubType::PendingResponse
                 | AgentSubType::Retrying
                 | AgentSubType::Scheduled
                 | AgentSubType::RecoveryStarted
