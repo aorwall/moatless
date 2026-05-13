@@ -4,19 +4,28 @@ use chrono::Utc;
 use moatless_api_schemas::bindings::{
     CreateTaskBindingRequest, SendTaskReplyRequest, SendTaskReplyResponse, TaskBindingResponse,
 };
-use moatless_api_schemas::message::{AddMessageReactionRequest, MessageReactionResponse};
+use moatless_api_schemas::message::{
+    AddMessageReactionRequest, MessageReactionResponse, ReplyToMessageRequest,
+    ReplyToMessageResponse,
+};
 
 use crate::adapters::common::{
     ensure_task_access, load_adapter_connection_for_auth, load_trigger_for_auth,
     task_binding_response,
 };
+use crate::adapters::dao::PgAdapterConnectionRepository;
 use crate::adapters::error::AdapterError;
-use crate::adapters::models::TaskBinding;
+use crate::adapters::models::{OutboundReply, TaskBinding};
 use crate::bindings::dao::PgTaskBindingRepository;
+use crate::bindings::outbound::resolve_files;
 use crate::bindings::reply::ReplyService;
 use crate::extractors::AuthUser;
+use crate::message::models::{
+    ContentBlockType, MessageRole, MessageType, TaskMessage, TaskMessageContentBlock,
+};
 use crate::scope::ScopeContext;
 use crate::state::AppState;
+use crate::triggers::rule_dao::PgTaskTriggerRouteRepository;
 
 #[utoipa::path(
     get,
@@ -150,7 +159,7 @@ pub async fn add_message_reaction(
 ) -> Result<Json<MessageReactionResponse>, AdapterError> {
     let ctx = auth.scope_context();
     let (binding, ext_id, provider_key) =
-        resolve_reaction_target(&state, &ctx, &message_id).await?;
+        resolve_message_target(&state, &ctx, &message_id).await?;
     let providers = state
         .adapters
         .as_ref()
@@ -183,7 +192,7 @@ pub async fn remove_message_reaction(
 ) -> Result<Json<MessageReactionResponse>, AdapterError> {
     let ctx = auth.scope_context();
     let (binding, ext_id, provider_key) =
-        resolve_reaction_target(&state, &ctx, &message_id).await?;
+        resolve_message_target(&state, &ctx, &message_id).await?;
     let providers = state
         .adapters
         .as_ref()
@@ -199,9 +208,147 @@ pub async fn remove_message_reaction(
     }))
 }
 
-/// Resolve a message id into the adapter context needed for reaction calls:
-/// the task binding, the message's external id, and the provider key.
-async fn resolve_reaction_target(
+#[utoipa::path(
+    post,
+    path = "/api/v1/messages/{message_id}/reply",
+    tag = "task-bindings",
+    request_body = ReplyToMessageRequest,
+    responses(
+        (status = 200, description = "Reply sent", body = ReplyToMessageResponse),
+        (status = 400, description = "Bad request", body = crate::error::ErrorBody),
+        (status = 404, description = "Not found", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn reply_to_message(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(message_id): Path<String>,
+    Json(req): Json<ReplyToMessageRequest>,
+) -> Result<Json<ReplyToMessageResponse>, AdapterError> {
+    let ctx = auth.scope_context();
+    let msg = state
+        .messages
+        .find_by_uuid(&message_id)
+        .await?
+        .ok_or_else(|| AdapterError::NotFound(format!("message {message_id}")))?;
+    ensure_task_access(&state, &ctx, &msg.task_id).await?;
+
+    // Internal-only branch: the message wasn't sourced from an external
+    // adapter, so there's no provider thread to reply to. Persist the reply
+    // as a normal assistant turn on the same task and call it a day.
+    let Some(ext_id) = msg.external_event_id.clone() else {
+        append_internal_assistant_reply(&state, &msg.task_id, &req.text).await?;
+        return Ok(Json(ReplyToMessageResponse {
+            ok: true,
+            external_id: None,
+        }));
+    };
+    let provider_key = msg
+        .external_adapter
+        .clone()
+        .ok_or_else(|| AdapterError::BadRequest("Message has no external_adapter".into()))?;
+    let binding = load_binding_for_message_and_adapter(&state, &msg.task_id, &provider_key).await?;
+
+    let providers = state
+        .adapters
+        .as_ref()
+        .ok_or_else(|| AdapterError::AdapterNotConfigured("No adapters configured".into()))?;
+    let adapter = providers
+        .get_by_name(&provider_key)
+        .ok_or_else(|| AdapterError::BadRequest(format!("Unknown adapter `{provider_key}`")))?;
+
+    let connection = PgAdapterConnectionRepository(state.db.clone())
+        .find_by_id(&binding.connection_id)
+        .await?
+        .ok_or_else(|| {
+            AdapterError::ConfigNotFound(format!(
+                "Provider connection {} not found",
+                binding.connection_id
+            ))
+        })?;
+    let rule = if let Some(ref rule_id) = binding.trigger_id {
+        PgTaskTriggerRouteRepository(state.db.clone())
+            .find_by_id(rule_id)
+            .await?
+    } else {
+        None
+    };
+
+    let files = resolve_files(&state, &req.file_ids).await;
+    if !files.is_empty() && !adapter.supports_files() {
+        return Err(AdapterError::BadRequest(format!(
+            "Provider {:?} does not support file attachments",
+            adapter.adapter_kind()
+        )));
+    }
+
+    let outbound = OutboundReply {
+        text: req.text,
+        task_url: None,
+        is_error: false,
+        files,
+    };
+    let external_id = adapter
+        .reply_to_message(&binding, &connection, rule.as_ref(), &ext_id, &outbound)
+        .await?;
+
+    Ok(Json(ReplyToMessageResponse {
+        ok: true,
+        external_id,
+    }))
+}
+
+/// Persist a synthetic assistant reply into the task timeline when a message
+/// has no `external_event_id`. The reply shows up like any other agent turn —
+/// no adapter call, no event publishing beyond what `messages.append` already
+/// emits.
+async fn append_internal_assistant_reply(
+    state: &AppState,
+    task_id: &str,
+    text: &str,
+) -> Result<(), AdapterError> {
+    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    let uuid = uuid::Uuid::new_v4().to_string();
+    let turn_number = state
+        .messages
+        .current_turn_number(task_id)
+        .await
+        .map_err(|e| AdapterError::Internal(format!("Failed to read turn number: {e}")))?;
+    let content = serde_json::json!([{ "type": "text", "text": text }]);
+    let mut msg =
+        TaskMessage::new_user_message(task_id.to_string(), uuid, content, now);
+    msg.message_type = MessageType::Assistant;
+    msg.message_role = MessageRole::Assistant;
+    msg.user_type = "assistant".to_string();
+    msg.turn_number = Some(turn_number);
+
+    let block = TaskMessageContentBlock {
+        id: 0,
+        task_message_id: 0,
+        sort_order: 0,
+        block_type: ContentBlockType::Text,
+        show_in_ui: true,
+        text_content: Some(text.to_string()),
+        tool_use_id: None,
+        tool_result_content: None,
+        tool_result_is_error: None,
+        image_media_type: None,
+        image_data: None,
+        created_at: None,
+    };
+
+    state
+        .messages
+        .append(&msg, &[], &[block])
+        .await
+        .map_err(|e| AdapterError::Internal(format!("Failed to append assistant reply: {e}")))?;
+    Ok(())
+}
+
+/// Resolve a message id into the adapter context needed for binding-scoped
+/// calls (reactions, replies): the task binding, the message's external id,
+/// and the provider key.
+async fn resolve_message_target(
     state: &AppState,
     ctx: &ScopeContext,
     message_id: &str,

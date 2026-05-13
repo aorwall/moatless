@@ -47,22 +47,21 @@ and when in doubt stay silent rather than replying to your own prior messages.\n
     s.push_str(
         "\n\
 ### Mentioning users
-The message includes the sender's identity (e.g. \"Name (login, Slack: U12345): ...\"). \
-To mention them in your reply, use their Slack user ID with the format `<@U12345>`.
+Inbound messages carry the sender's moatless login in a `<sent_by>...</sent_by>` \
+header. To @-mention a Slack user in your reply, use their Slack user id with the \
+format `<@U12345>`.
+
+### Replying to a specific message
+Every inbound message has a `<message_id>...</message_id>` header. Pass that id \
+to `moat messages reply` so the reply lands in the right Slack thread:
+- `moat messages reply --message <id> --text \"Here are the results\"`
 
 ### Attaching files
-To include files (screenshots, logs, generated artifacts) in your reply, use the `--file` flag:
-- `moat reply --text \"Here are the results\" --file screenshot.png`
-- `moat reply --text \"Logs attached\" --file output.log --file error.log`
+Add `--file` flags to attach screenshots, logs, or generated artifacts to the reply:
+- `moat messages reply --message <id> --text \"Here are the results\" --file screenshot.png`
+- `moat messages reply --message <id> --text \"Logs attached\" --file output.log --file error.log`
 - Multiple `--file` flags can be used to attach several files at once.
-- Images will render inline in the Slack thread.
-
-### Replying to the same Slack thread next turn
-After your first `moat reply` succeeds, the CLI prints a \
-`--ts <binding_id>` hint. Use it on follow-ups so your reply lands in the same \
-thread instead of fanning out:
-- `moat reply --ts <binding_id> --text \"...\"`
-- `moat bindings --task $TASK_ID` lists active targets if you lost the id.",
+- Images will render inline in the Slack thread.",
     );
 
     if let Some(bot_id) = bot_user_id {
@@ -726,7 +725,10 @@ impl Adapter for SlackAdapter {
             .get("is_bot_mentioned")
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false)
-            .then(|| "[You were @mentioned - a reply via `moat reply` is required]".to_string())
+            .then(|| {
+                "[You were @mentioned - a reply via `moat messages reply --message <id>` is required]"
+                    .to_string()
+            })
     }
 
     fn thread_reply_hint(&self, msg: &InboundMessage) -> Option<String> {

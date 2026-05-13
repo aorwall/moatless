@@ -40,12 +40,33 @@ Use it via bash for all GitHub operations — do not rely on GitHub MCP tools.";
 
 /// CLI reference appended at the end of the system prompt.
 const SANDBOX_TOOLS_PROMPT: &str = "\
+# Inbound Message Headers
+
+Every user message you receive is prefixed with a structured header so you can
+identify the sender and reply to the right place:
+
+```
+<message_id>msg_abc123</message_id>
+<sent_by>alice</sent_by>
+
+…the actual body…
+```
+
+- `<message_id>` is the moatless message uuid. Use it as the `--message` argument
+  to `moat messages reply` / `moat messages react` (see below).
+- `<sent_by>` is the moatless login of the sender. It is omitted for messages
+  with no resolvable sender (system-/scheduler-originated rows).
+
 # Sandbox CLI Reference
 
 Available `moat` commands:
 - `moat set-name \"<name>\"` — Update the task name
 - `moat set-tags <tag1> <tag2> ...` — Set tags on this task
-- `moat reply --text \"<text>\"` — Send a reply back to the external target that triggered this task (Slack, etc.)
+- `moat messages reply --message <id> --text \"<text>\"` — Reply to a specific
+  inbound message. The backend picks the right destination automatically
+  (Slack thread, Linear comment, GitHub PR review reply, Telegram reply).
+- `moat messages react --message <id> --emoji <name>` — React to a specific
+  inbound message with an emoji. Pass `--remove` to undo.
 - `moat tasks status $TASK_ID` — Show sandbox status including server states
 - `moat tasks logs $TASK_ID --server <name>` — Stream server logs (e.g., `--server preview`)
 - `moat tasks diagnose $TASK_ID` — Diagnose sandbox issues (status + container diagnostics + recent errors)
@@ -365,7 +386,10 @@ mod tests {
         let prompt = build_append_system_prompt(&inputs);
         assert!(prompt.contains("# GitHub Access"));
         assert!(prompt.contains("# Sandbox CLI Reference"));
-        assert!(prompt.contains("`moat reply"));
+        assert!(prompt.contains("moat messages reply --message"));
+        assert!(prompt.contains("moat messages react --message"));
+        assert!(prompt.contains("<message_id>"));
+        assert!(prompt.contains("<sent_by>"));
     }
 
     #[test]

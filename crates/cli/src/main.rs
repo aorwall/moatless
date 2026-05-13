@@ -116,12 +116,15 @@ enum SharedCommands {
         #[command(subcommand)]
         action: commands::users::UserAction,
     },
-    /// Send a message — drive a task, reply to bindings, DM a user, or
-    /// pass through an adapter destination (Slack channel/DM/thread, Linear issue, ...).
+    /// Send a message — drive a task, DM a user, or pass through an adapter
+    /// destination (Slack channel/DM/thread, Linear issue, ...). Replies and
+    /// emoji reactions to specific messages live under `moat messages`.
     Send(Box<commands::send::SendArgs>),
-    /// React to an existing adapter message with an emoji (Slack, GitHub PR,
-    /// Linear, Telegram).
-    React(Box<commands::react::ReactArgs>),
+    /// Message management — list, reply, react.
+    Messages {
+        #[command(subcommand)]
+        action: commands::messages::MessageAction,
+    },
     /// Task template management
     Templates {
         #[command(subcommand)]
@@ -158,12 +161,6 @@ enum SandboxCommands {
     SetTags {
         /// Tag names (space-separated)
         tags: Vec<String>,
-    },
-
-    /// Message management
-    Messages {
-        #[command(subcommand)]
-        action: commands::messages::MessageAction,
     },
 
     /// Record feedback about this task to be used for improving moatless
@@ -216,11 +213,6 @@ enum StandaloneCommands {
     },
     /// Remove saved credentials
     Logout,
-    /// Message management
-    Messages {
-        #[command(subcommand)]
-        action: commands::messages::MessageAction,
-    },
 }
 
 // ---------------------------------------------------------------------------
@@ -283,9 +275,6 @@ async fn run_sandbox(cli: SandboxCli) -> Result<(), Box<dyn std::error::Error>> 
                 println!("Tags set: {}", tags.join(", "));
             }
         }
-        SandboxCommands::Messages { action } => {
-            commands::messages::run(&moat, action, cli.opts.json).await?;
-        }
         SandboxCommands::Feedback {
             comment,
             message,
@@ -340,9 +329,6 @@ async fn run_standalone(cli: StandaloneCli) -> Result<(), Box<dyn std::error::Er
                 Ok(false) => println!("No credentials found for {host}."),
                 Err(e) => eprintln!("Error: {e}"),
             }
-        }
-        StandaloneCommands::Messages { action } => {
-            commands::messages::run(&moat, action, cli.opts.json).await?;
         }
     }
 
@@ -427,8 +413,8 @@ async fn run_shared(
         SharedCommands::Send(args) => {
             commands::send::run(moat, *args, cfg, json).await?;
         }
-        SharedCommands::React(args) => {
-            commands::react::run(moat, *args, cfg, json).await?;
+        SharedCommands::Messages { action } => {
+            commands::messages::run(moat, action, json).await?;
         }
     }
 

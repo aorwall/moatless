@@ -459,17 +459,6 @@ async fn deliver_to_binding(
     };
 
     let mut message_text = base_text;
-    if let Ok(Some(user)) = state.users.get_user(&msg.user_id).await {
-        let display = user.name.as_deref().unwrap_or(&user.login);
-        let suffix = state
-            .adapters
-            .as_ref()
-            .and_then(|providers| providers.get_by_name(provider_label))
-            .and_then(|provider| provider.sender_label_suffix(msg))
-            .unwrap_or_default();
-        let label = format!("{display} ({login}{suffix})", login = user.login);
-        message_text = format!("{label}: {message_text}");
-    }
 
     if let Some(prefix) = state
         .adapters
@@ -520,7 +509,7 @@ async fn deliver_to_binding(
         cmd_name,
         None,
         false,
-        None,
+        Some(msg.user_id.as_str()),
     )
     .await
     .map_err(|e| AdapterError::Internal(format!("Failed to send message: {e}")))?;

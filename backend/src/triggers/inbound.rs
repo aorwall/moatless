@@ -26,26 +26,34 @@ pub struct CommandInfo {
 }
 
 /// Generic instructions appended to all external-source tasks so the agent
-/// knows to explicitly reply via the `moat reply` CLI command.
+/// knows to explicitly reply via the `moat messages reply` CLI command.
 ///
 /// Provider-specific instructions (e.g. Slack mention syntax, file attachments)
 /// are appended separately via [`Adapter::reply_instructions`].
 const EXTERNAL_REPLY_INSTRUCTIONS: &str = "\
 # External Reply Instructions
 
-This task was created from an external message. You MUST call `moat reply` to deliver \
-your response — a plain text assistant reply is NOT sent to the external target.
+This task was created from an external message. You MUST call \
+`moat messages reply --message <id>` to deliver your response — a plain text \
+assistant reply is NOT sent to the external target.
 
 ## Required: Reply via CLI
-For the initial message that created this task, **always** run:
-  `moat reply --text \"<your response>\"`
+Every inbound user message you receive carries a structured header like:
 
-- When this task has exactly one reply target, `moat reply --text \"...\"` is sufficient.
-- If `moat reply` reports multiple targets, list them with \
-`moat bindings --task $TASK_ID` and pick one with \
-`moat reply --binding <id> --text \"...\"`.
-- For follow-up thread messages, reply if you are mentioned or have useful information. \
-If the message is not directed at you and you have nothing to add, stay silent.
+```
+<message_id>msg_abc123</message_id>
+<sent_by>alice</sent_by>
+```
+
+Pass the `<message_id>` value as `--message` so the backend routes the reply
+to the right destination (Slack thread, Linear comment, GitHub PR review reply,
+Telegram reply — figured out automatically):
+
+  `moat messages reply --message <id> --text \"<your response>\"`
+
+- For follow-up thread messages, reply if you are mentioned or have useful \
+information. If the message is not directed at you and you have nothing to \
+add, stay silent.
 - Keep replies concise — the recipient is reading in a messaging app.
 - You may send multiple replies for progress updates on long-running tasks.";
 

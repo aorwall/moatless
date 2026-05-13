@@ -191,6 +191,23 @@ pub trait Adapter: Send + Sync {
         self.send_reply(&thread, &config, message).await
     }
 
+    /// Reply specifically to the message identified by `target_external_id`.
+    ///
+    /// Default delegates to `send_reply_for_binding`: providers without a notion
+    /// of per-message reply (Slack threads already collapse to the binding's
+    /// thread; Linear has no per-comment threading) inherit the current behaviour.
+    async fn reply_to_message(
+        &self,
+        binding: &TaskBinding,
+        connection: &AdapterConnection,
+        rule: Option<&TaskTriggerRoute>,
+        _target_external_id: &str,
+        message: &OutboundReply,
+    ) -> Result<Option<String>, AdapterError> {
+        self.send_reply_for_binding(binding, connection, rule, message)
+            .await
+    }
+
     /// Post to a provider-specific destination by raw ID.
     ///
     /// Used for ad-hoc sends and to bootstrap a `task_binding` without a

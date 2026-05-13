@@ -1149,6 +1149,54 @@ impl Adapter for GithubPrAdapter {
         Ok(Some(super::external_id::issue_comment(comment_id)))
     }
 
+    async fn reply_to_message(
+        &self,
+        binding: &TaskBinding,
+        connection: &AdapterConnection,
+        rule: Option<&TaskTriggerRoute>,
+        target_external_id: &str,
+        message: &OutboundReply,
+    ) -> Result<Option<String>, AdapterError> {
+        // Only PR review comments support threaded replies. Top-level issue
+        // comments fall back to the binding-level reply (a new top-level
+        // PR comment).
+        match super::external_id::comment_target_from_id(target_external_id) {
+            Some(super::external_id::CommentTarget::Review(comment_id)) => {
+                let (owner, repo, pr_number) = Self::parse_binding_target(binding)?;
+                let user_id = match rule {
+                    Some(r) => r.effective_user_id().to_string(),
+                    None => binding
+                        .metadata
+                        .get("filter_user_id")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("")
+                        .to_string(),
+                };
+                if user_id.is_empty() {
+                    return Err(AdapterError::AdapterApi(
+                        "Cannot resolve GitHub token: no task trigger attached to binding".into(),
+                    ));
+                }
+                let token = self.resolve_token_for_user(&user_id).await?;
+                let api = GithubPrApi::new(&token);
+
+                let mut body = format!("{AGENT_MARKER}\n{}", message.text);
+                if let Some(ref url) = message.task_url {
+                    let _ = write!(body, "\n\n---\n[View task]({url})");
+                }
+
+                let new_id = api
+                    .reply_to_review_comment(&owner, &repo, pr_number, comment_id, &body)
+                    .await?;
+                Ok(Some(super::external_id::review_comment(new_id)))
+            }
+            _ => {
+                self.send_reply_for_binding(binding, connection, rule, message)
+                    .await
+            }
+        }
+    }
+
     async fn add_reaction(
         &self,
         binding: &BindingContext,

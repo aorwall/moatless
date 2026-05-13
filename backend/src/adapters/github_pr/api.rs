@@ -142,6 +142,57 @@ impl GithubPrApi {
         Ok(comment_id)
     }
 
+    /// Reply to a PR review comment (threaded review reply).
+    ///
+    /// Calls `POST /repos/{owner}/{repo}/pulls/{pr}/comments/{cid}/replies` and
+    /// returns the new review comment id.
+    pub async fn reply_to_review_comment(
+        &self,
+        owner: &str,
+        repo: &str,
+        pull_number: u64,
+        comment_id: u64,
+        body: &str,
+    ) -> Result<u64, AdapterError> {
+        let url = format!(
+            "https://api.github.com/repos/{owner}/{repo}/pulls/{pull_number}/comments/{comment_id}/replies"
+        );
+
+        let body = if body.len() > MAX_COMMENT_LENGTH {
+            &body[..MAX_COMMENT_LENGTH]
+        } else {
+            body
+        };
+
+        let resp = self
+            .request(reqwest::Method::POST, &url)
+            .json(&serde_json::json!({ "body": body }))
+            .send()
+            .await
+            .map_err(|e| {
+                AdapterError::AdapterApi(format!("GitHub reply_to_review_comment failed: {e}"))
+            })?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            warn!(status = %status, body = %text, "GitHub reply_to_review_comment error");
+            return Err(AdapterError::AdapterApi(format!(
+                "GitHub reply_to_review_comment returned {status}: {text}"
+            )));
+        }
+
+        let data: serde_json::Value = resp.json().await.map_err(|e| {
+            AdapterError::AdapterApi(format!("GitHub reply_to_review_comment parse error: {e}"))
+        })?;
+
+        data.get("id")
+            .and_then(serde_json::Value::as_u64)
+            .ok_or_else(|| {
+                AdapterError::AdapterApi("GitHub reply_to_review_comment: missing id".into())
+            })
+    }
+
     /// List recent comments on a PR.
     pub async fn list_comments(
         &self,

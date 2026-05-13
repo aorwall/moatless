@@ -16,6 +16,7 @@ use tracing_subscriber::EnvFilter;
 use crate::auth::github_app_service::GitHubAppService;
 use crate::auth::provider_token_dao::{PgProviderTokenRepository, ProviderTokenRepository};
 use crate::auth::provider_tokens::{PgProviderTokenAuthRepository, ProviderTokenAuthRepository};
+use crate::auth::users::{PgUserRepository, UserRepository};
 use crate::command::dao::{CommandRepository, PgCommandRepository};
 use crate::config::Config;
 use crate::credentials::{BroadcastContext, CredentialService};
@@ -198,6 +199,8 @@ pub fn spawn_grpc_server(
         db_pool.map(|pool| Arc::new(PgTaskRepository(pool.clone())) as _);
     let repositories: Option<Arc<dyn RepoRepository>> =
         db_pool.map(|pool| Arc::new(PgRepoRepository(pool.clone())) as _);
+    let users: Option<Arc<dyn UserRepository>> =
+        db_pool.map(|pool| Arc::new(PgUserRepository(pool.clone())) as _);
     let backend_config = Arc::new(config.clone());
     let port = config.server.grpc_port;
     let token_secret = config.sandbox.task_token_secret.clone();
@@ -249,6 +252,7 @@ pub fn spawn_grpc_server(
             files,
             s3_bucket,
             s3_key_prefix,
+            users,
         };
         let addr = SocketAddr::from(([0, 0, 0, 0], port));
         info!(port, "Starting backend gRPC server");

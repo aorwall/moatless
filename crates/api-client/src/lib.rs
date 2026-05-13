@@ -696,6 +696,16 @@ impl ApiClient {
         .await
     }
 
+    /// POST /api/v1/messages/{message_id}/reply
+    pub async fn reply_to_message(
+        &self,
+        message_id: &str,
+        req: &moatless_api_schemas::message::ReplyToMessageRequest,
+    ) -> Result<moatless_api_schemas::message::ReplyToMessageResponse, ApiError> {
+        self.post(&format!("/api/v1/messages/{message_id}/reply"), req)
+            .await
+    }
+
     /// POST /api/v1/tasks/{task_id}/reply
     pub async fn send_task_reply(
         &self,

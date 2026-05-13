@@ -1,9 +1,9 @@
-//! Unified `moat send` command — drives a task, replies to its bindings,
-//! DMs a user, or pass-through-sends through any adapter destination.
+//! Unified `moat send` command — drives a task, DMs a user, or pass-through-sends
+//! through any adapter destination. Replies to specific inbound messages live
+//! under `moat messages reply --message <id>`.
 
 use clap::{ArgGroup, Args};
 use moatless_api_schemas::adapters::AdapterSendRequest;
-use moatless_api_schemas::bindings::SendTaskReplyRequest;
 use moatless_api_schemas::enums::AdapterKind;
 use moatless_api_schemas::message::SendMessageRequest;
 use moatless_api_schemas::shared::AgentMode;
@@ -18,7 +18,7 @@ use crate::output;
 #[command(group(
     ArgGroup::new("send_target")
         .required(true)
-        .args(["task", "reply", "user", "to"])
+        .args(["task", "user", "to"])
 ))]
 pub struct SendArgs {
     /// Drive the agent on a task by ID
@@ -27,13 +27,6 @@ pub struct SendArgs {
     /// Agent mode for `--task`: "edit" or "plan"
     #[arg(long, requires = "task")]
     pub mode: Option<String>,
-
-    /// Fan out to the task's existing bindings (uses $TASK_ID by default)
-    #[arg(long, group = "send_target")]
-    pub reply: bool,
-    /// Exact task binding ID to target when using `--reply`
-    #[arg(long, requires = "reply")]
-    pub binding: Option<String>,
 
     /// DM a moatless user by login
     #[arg(long, group = "send_target")]
@@ -62,8 +55,8 @@ pub struct SendArgs {
     #[arg(long = "file")]
     pub files: Vec<String>,
 
-    /// Task ID to bind the send to. Defaults to $TASK_ID for `--reply`
-    /// and `--user`/`--to`. Required for `--reply`.
+    /// Task ID to bind the send to. Defaults to $TASK_ID for
+    /// `--user`/`--to`.
     #[arg(long)]
     pub task_id: Option<String>,
 }
@@ -104,27 +97,6 @@ pub async fn run(
             output::print_json_typed(&resp);
         } else {
             println!("Message sent to task {id}.");
-        }
-        return Ok(());
-    }
-
-    if args.reply {
-        let task_id = task_id_ctx
-            .clone()
-            .ok_or("--task-id or $TASK_ID is required for --reply")?;
-        let req = SendTaskReplyRequest {
-            text,
-            file_ids,
-            binding_id: args.binding,
-        };
-        let resp = moat.api().send_task_reply(&task_id, &req).await?;
-        if json {
-            output::print_json_typed(&resp);
-        } else {
-            println!("Sent to {} binding(s).", resp.sent_count);
-            for err in &resp.errors {
-                eprintln!("Warning: {err}");
-            }
         }
         return Ok(());
     }
@@ -185,5 +157,5 @@ pub async fn run(
         return Ok(());
     }
 
-    Err("No target specified. Pass one of --task, --reply, --user, --to".into())
+    Err("No target specified. Pass one of --task, --user, --to".into())
 }

@@ -1,30 +1,105 @@
-//! Message commands: list.
+//! Message commands: list, reply, react.
 
 use clap::Subcommand;
-use moatless_api_schemas::message::UiMessage;
+use moatless_api_schemas::message::{
+    AddMessageReactionRequest, ReplyToMessageRequest, UiMessage,
+};
 
-use crate::client::{ClientError, MoatClient};
+use crate::client::MoatClient;
+use crate::commands::misc::{read_text_or_stdin, upload_files};
 use crate::output;
 
 #[derive(Subcommand)]
 pub enum MessageAction {
     /// List messages for a task
     List { task_id: String },
+
+    /// Reply to a specific message. The backend picks the right destination
+    /// (Slack thread, Linear comment, GitHub PR review reply, Telegram reply).
+    Reply {
+        /// Internal message id (uuid from `task_messages`).
+        #[arg(long)]
+        message: String,
+        /// Reply text. Reads stdin if omitted and stdin is piped.
+        #[arg(long)]
+        text: Option<String>,
+        /// File(s) to attach. Repeatable.
+        #[arg(long = "file")]
+        files: Vec<String>,
+    },
+
+    /// React to a specific message with an emoji.
+    React {
+        /// Internal message id (uuid from `task_messages`).
+        #[arg(long)]
+        message: String,
+        /// Emoji shortcode (e.g. "thumbsup", "+1", "rocket").
+        #[arg(long, short = 'e')]
+        emoji: String,
+        /// Remove a previously added reaction instead of adding one.
+        #[arg(long)]
+        remove: bool,
+    },
 }
 
 pub async fn run(
-    client: &MoatClient,
+    moat: &MoatClient,
     action: MessageAction,
     json: bool,
-) -> Result<(), ClientError> {
+) -> Result<(), Box<dyn std::error::Error>> {
     match action {
         MessageAction::List { task_id } => {
             if json {
-                let messages = client.api().get_messages(&task_id).await?;
+                let messages = moat.api().get_messages(&task_id).await?;
                 output::print_json_typed(&messages);
             } else {
-                let messages = client.api().get_messages_summary(&task_id).await?;
+                let messages = moat.api().get_messages_summary(&task_id).await?;
                 format_messages(&messages.messages);
+            }
+        }
+        MessageAction::Reply {
+            message,
+            text,
+            files,
+        } => {
+            let text = read_text_or_stdin(text)?;
+            let file_ids = upload_files(moat, &files).await?;
+            let req = ReplyToMessageRequest { text, file_ids };
+            let resp = moat.api().reply_to_message(&message, &req).await?;
+            if json {
+                output::print_json_typed(&resp);
+            } else {
+                match resp.external_id {
+                    Some(ext) => println!("Reply sent to message {message} (external id: {ext})."),
+                    None => println!("Reply sent to message {message}."),
+                }
+            }
+        }
+        MessageAction::React {
+            message,
+            emoji,
+            remove,
+        } => {
+            if remove {
+                moat.api().remove_message_reaction(&message, &emoji).await?;
+                if json {
+                    output::print_json_typed(&serde_json::json!({
+                        "ok": true,
+                        "removed": true,
+                    }));
+                } else {
+                    println!("Removed reaction {emoji} from message {message}.");
+                }
+            } else {
+                let req = AddMessageReactionRequest {
+                    emoji: emoji.clone(),
+                };
+                let resp = moat.api().add_message_reaction(&message, &req).await?;
+                if json {
+                    output::print_json_typed(&resp);
+                } else {
+                    println!("Reacted with {emoji} to message {message}.");
+                }
             }
         }
     }
@@ -42,11 +117,11 @@ fn format_messages(messages: &[UiMessage]) {
                 |s| s.chars().take(8).collect::<String>(),
             );
             let created = m.timestamp.clone();
-            vec![role, preview, session, created]
+            vec![m.uuid.clone(), role, preview, session, created]
         })
         .collect();
 
-    output::print_table(&["ROLE", "CONTENT", "SESSION", "TIMESTAMP"], &rows);
+    output::print_table(&["ID", "ROLE", "CONTENT", "SESSION", "TIMESTAMP"], &rows);
 }
 
 /// Build a short preview string for a message.

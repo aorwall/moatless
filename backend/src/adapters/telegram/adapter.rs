@@ -469,6 +469,47 @@ impl Adapter for TelegramAdapter {
         })
     }
 
+    async fn reply_to_message(
+        &self,
+        binding: &TaskBinding,
+        _connection: &AdapterConnection,
+        _rule: Option<&TaskTriggerRoute>,
+        target_external_id: &str,
+        message: &OutboundReply,
+    ) -> Result<Option<String>, AdapterError> {
+        let target = super::external_id::message_id_from(target_external_id).ok_or_else(|| {
+            AdapterError::BadRequest(format!(
+                "Telegram reply target `{target_external_id}` is not a tg:m:<id> id"
+            ))
+        })?;
+        let chat_id = binding
+            .destination_config
+            .get("chat_id")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| {
+                AdapterError::BadRequest(
+                    "Telegram binding destination_config has no `chat_id` field".into(),
+                )
+            })?
+            .to_string();
+        let forum_topic_id = binding
+            .destination_config
+            .get("forum_topic_id")
+            .and_then(serde_json::Value::as_i64);
+
+        let mut text = message.text.clone();
+        if let Some(ref url) = message.task_url {
+            use std::fmt::Write;
+            let _ = write!(text, "\n\n[View task]({url})");
+        }
+
+        let new_id = self
+            .api
+            .send_message_returning_id(&chat_id, &text, Some(target), forum_topic_id)
+            .await?;
+        Ok(Some(super::external_id::message(new_id)))
+    }
+
     async fn add_reaction(
         &self,
         binding: &BindingContext,

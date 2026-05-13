@@ -24,6 +24,7 @@ use crate::agent::prompt;
 use crate::auth::github_app_service::GitHubAppService;
 use crate::auth::provider_token_dao::ProviderTokenRepository;
 use crate::auth::provider_tokens::ProviderTokenAuthRepository;
+use crate::auth::users::UserRepository;
 use crate::command::dao::CommandRepository;
 use crate::config::Config;
 use crate::credentials::{CredentialService, WriteSource};
@@ -90,6 +91,9 @@ pub struct BackendSandboxServiceImpl {
     pub s3_bucket: Option<String>,
     /// S3 key prefix for uploaded files (`config.s3.key_prefix`).
     pub s3_key_prefix: String,
+    /// User repository — used to render `<sent_by>` headers on pending
+    /// messages so the agent sees the inbound sender's moatless login.
+    pub users: Option<Arc<dyn UserRepository>>,
 }
 
 impl BackendSandboxServiceImpl {
@@ -266,16 +270,45 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             None
         };
 
+        // Pre-resolve sent_by user logins. A single pending list often has
+        // multiple messages from the same sender — cache the lookup so we
+        // hit the DB at most once per distinct user.
+        let mut login_cache: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+        if let Some(ref users) = self.users {
+            let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+            for row in &pending {
+                if let Some(uid) = row.sent_by.as_deref() {
+                    if seen.insert(uid) {
+                        match users.get_user(uid).await {
+                            Ok(Some(user)) => {
+                                login_cache.insert(uid.to_string(), user.login);
+                            }
+                            Ok(None) => {
+                                debug!(user_id = %uid, "sent_by user not found, omitting <sent_by> tag");
+                            }
+                            Err(e) => {
+                                warn!(user_id = %uid, error = %e, "user lookup failed, omitting <sent_by> tag");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Convert DB rows to proto messages.
         // message_content is a JSON array: [{"type":"text","text":"..."}, ...]
         let messages: Vec<sandbox_proto::PendingMessage> = pending
             .iter()
             .filter_map(|row| {
-                let content = parse_content_blocks(&row.message_content);
+                let mut content = parse_content_blocks(&row.message_content);
                 if content.is_empty() {
                     warn!(task_id = %req.task_id, "Pending message has no parseable content blocks");
                     return None;
                 }
+
+                let header = build_message_header(&row.uuid, row.sent_by.as_deref(), &login_cache);
+                prepend_header(&mut content, &header);
 
                 // Per-message override: the user toggled "Start fresh" on
                 // this specific message. Force resume off regardless of the
@@ -802,6 +835,53 @@ fn credential_key_to_provider(key: &str) -> Option<&'static str> {
     }
 }
 
+/// Build the `<message_id>` / `<sent_by>` header for an inbound message.
+///
+/// Returns a string like:
+/// ```text
+/// <message_id>msg_abc</message_id>
+/// <sent_by>alice</sent_by>
+/// ```
+/// or just the `<message_id>` line when no login is available. The header is
+/// always terminated by a blank line so the agent's body remains readable.
+fn build_message_header(
+    uuid: &str,
+    sent_by: Option<&str>,
+    login_cache: &std::collections::HashMap<String, String>,
+) -> String {
+    use std::fmt::Write;
+    let mut header = format!("<message_id>{uuid}</message_id>\n");
+    if let Some(uid) = sent_by {
+        if let Some(login) = login_cache.get(uid) {
+            // Infallible: writing to String never errors.
+            let _ = writeln!(header, "<sent_by>{login}</sent_by>");
+        }
+    }
+    header.push('\n');
+    header
+}
+
+/// Prepend `header` to the first text block in `content`, synthesising one
+/// when none exists. Image/tool-result blocks are left untouched.
+fn prepend_header(content: &mut Vec<sandbox_proto::ContentBlock>, header: &str) {
+    for block in content.iter_mut() {
+        if let Some(sandbox_proto::content_block::Block::Text(ref mut text_block)) = block.block {
+            text_block.text = format!("{header}{}", text_block.text);
+            return;
+        }
+    }
+    // No text block in the message — synthesise one at the front carrying just
+    // the header so the agent still sees the message id / sender.
+    let head = sandbox_proto::ContentBlock {
+        block: Some(sandbox_proto::content_block::Block::Text(
+            sandbox_proto::TextBlock {
+                text: header.trim_end().to_string(),
+            },
+        )),
+    };
+    content.insert(0, head);
+}
+
 /// Typed representation of a content block stored in the DB.
 #[derive(serde::Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -880,5 +960,78 @@ fn parse_content_blocks(value: &Value) -> Vec<sandbox_proto::ContentBlock> {
             }]
         }
         _ => vec![],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    fn text_block(text: &str) -> sandbox_proto::ContentBlock {
+        sandbox_proto::ContentBlock {
+            block: Some(sandbox_proto::content_block::Block::Text(
+                sandbox_proto::TextBlock {
+                    text: text.to_string(),
+                },
+            )),
+        }
+    }
+
+    fn extract_text(block: &sandbox_proto::ContentBlock) -> &str {
+        match block.block {
+            Some(sandbox_proto::content_block::Block::Text(ref t)) => &t.text,
+            _ => panic!("expected text block"),
+        }
+    }
+
+    #[test]
+    fn header_with_resolved_sender() {
+        let mut cache = HashMap::new();
+        cache.insert("u1".to_string(), "alice".to_string());
+        let header = build_message_header("msg_abc", Some("u1"), &cache);
+        assert_eq!(
+            header,
+            "<message_id>msg_abc</message_id>\n<sent_by>alice</sent_by>\n\n"
+        );
+    }
+
+    #[test]
+    fn header_without_sender_id() {
+        let cache = HashMap::new();
+        let header = build_message_header("msg_abc", None, &cache);
+        assert_eq!(header, "<message_id>msg_abc</message_id>\n\n");
+    }
+
+    #[test]
+    fn header_with_unknown_user_drops_sent_by_tag() {
+        let cache = HashMap::new();
+        let header = build_message_header("msg_abc", Some("u-missing"), &cache);
+        assert_eq!(header, "<message_id>msg_abc</message_id>\n\n");
+    }
+
+    #[test]
+    fn prepend_header_targets_first_text_block() {
+        let mut content = vec![text_block("hello")];
+        prepend_header(&mut content, "<message_id>msg_1</message_id>\n\n");
+        assert_eq!(
+            extract_text(&content[0]),
+            "<message_id>msg_1</message_id>\n\nhello"
+        );
+    }
+
+    #[test]
+    fn prepend_header_synthesises_text_block_when_none_exists() {
+        let mut content = vec![sandbox_proto::ContentBlock {
+            block: Some(sandbox_proto::content_block::Block::Image(
+                sandbox_proto::ImageBlock {
+                    url: "https://example/img".to_string(),
+                    media_type: "image/png".to_string(),
+                },
+            )),
+        }];
+        prepend_header(&mut content, "<message_id>msg_1</message_id>\n\n");
+        assert_eq!(content.len(), 2);
+        assert_eq!(extract_text(&content[0]), "<message_id>msg_1</message_id>");
     }
 }

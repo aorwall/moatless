@@ -31,23 +31,22 @@ const ORIGIN_ADAPTER_EVENT: &str = ADAPTER_EVENT_BINDING_ORIGIN;
 const ORIGIN_CONNECTED_THREAD: &str = CONNECTED_THREAD_BINDING_ORIGIN;
 
 /// Generic instructions appended to external-source tasks so the agent
-/// knows how to reply via `moat reply`. Identical to the GitHub PR copy —
-/// kept verbatim so behavior matches what users already see for other
-/// providers.
+/// knows how to reply via `moat messages reply --message <id>`. Identical
+/// to the GitHub PR copy — kept aligned so behaviour matches what users
+/// already see for other providers.
 const EXTERNAL_REPLY_INSTRUCTIONS: &str = "\
 # External Reply Instructions
 
-This task was created from an external message. Send your responses back \
-to the external target using the `moat reply` command.
+This task was created from a Linear comment. Send your responses back to the \
+Linear issue using `moat messages reply --message <id>`, passing the \
+`<message_id>` value from the inbound message header.
 
-- Use `moat reply --text \"<your response>\"` when this task has exactly one reply target.
-- If `moat reply` reports multiple targets, list them with \
-`moat bindings --task $TASK_ID` and target one with \
-`moat reply --binding <id> --text \"...\"` (or `--issue <ENG-42>`).
+- `moat messages reply --message <id> --text \"<your response>\"` — backend posts \
+the reply as a comment on the same Linear issue.
 - For the initial message that created this task, always send a reply.
 - For follow-up thread messages, reply if you are mentioned or have useful information. \
 If the message is not directed at you and you have nothing to add, stay silent (do not send a reply).
-- Keep replies concise — the recipient is reading in a messaging app.
+- Keep replies concise — the recipient is reading on Linear.
 - You may send multiple replies for progress updates on long-running tasks.";
 
 /// Build a synthetic `TriggerContext` from an `TaskTriggerRoute` so we can call
@@ -624,16 +623,6 @@ async fn deliver_to_binding(
     let has_cursor = binding.last_external_event_id.is_some();
 
     let mut message_text = msg.text.clone();
-    let sender_label = match state.users.get_user(&msg.user_id).await {
-        Ok(Some(user)) => {
-            let display = user.name.as_deref().unwrap_or(&user.login);
-            Some(format!("{display} ({login})", login = user.login))
-        }
-        _ => None,
-    };
-    if let Some(label) = sender_label {
-        message_text = format!("{label}: {message_text}");
-    }
 
     if msg.thread_id.is_some() {
         if let Some(providers) = state.adapters.as_ref() {
@@ -670,7 +659,7 @@ async fn deliver_to_binding(
         None,
         None,
         false,
-        None,
+        Some(msg.user_id.as_str()),
     )
     .await
     {

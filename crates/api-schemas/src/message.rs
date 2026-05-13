@@ -336,3 +336,28 @@ pub struct MessageReactionResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub external_id: Option<String>,
 }
+
+// =========================================================================
+// Replies to individual messages
+// =========================================================================
+
+/// Request body for POST /api/v1/messages/{message_id}/reply.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ReplyToMessageRequest {
+    pub text: String,
+    #[serde(default)]
+    pub file_ids: Vec<String>,
+}
+
+/// Response from the reply endpoint.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ReplyToMessageResponse {
+    pub ok: bool,
+    /// Provider-specific external id of the reply we posted, when the API returns one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub external_id: Option<String>,
+}
