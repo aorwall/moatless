@@ -338,6 +338,37 @@ impl LinearAgentApi {
         Ok(id.to_string())
     }
 
+    /// Flip the session state back to `awaitingInput` after emitting a
+    /// `response` activity, so Linear continues routing follow-up comments
+    /// as `AgentSessionEvent.prompted` webhooks instead of marking the
+    /// session complete.
+    pub async fn agent_session_set_awaiting_input(
+        &self,
+        session_id: &str,
+    ) -> Result<(), AdapterError> {
+        let value = self
+            .graphql(serde_json::json!({
+                "query": "mutation($id: String!, $input: AgentSessionUpdateInput!) { \
+                    agentSessionUpdate(id: $id, input: $input) { success } \
+                }",
+                "variables": {
+                    "id": session_id,
+                    "input": { "state": "awaitingInput" }
+                }
+            }))
+            .await?;
+        let success = value
+            .pointer("/data/agentSessionUpdate/success")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        if !success {
+            return Err(AdapterError::AdapterApi(
+                "Linear agentSessionUpdate(state=awaitingInput) returned success=false".into(),
+            ));
+        }
+        Ok(())
+    }
+
     /// Update the session's `externalUrls` so the moatless task is linked
     /// from the Linear Agent UI.
     pub async fn agent_session_update_external_urls(
