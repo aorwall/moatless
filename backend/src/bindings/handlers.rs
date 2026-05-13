@@ -372,17 +372,36 @@ async fn resolve_message_target(
 }
 
 /// Look up a `TaskBinding` matching `(task_id, adapter_key)`. The adapter key
-/// is matched against `task_bindings.provider`.
+/// arrives via `task_messages.external_adapter`, which carries the adapter's
+/// `provider_key` (e.g. `"github_pr"`). Bindings are written with whichever
+/// of `provider_key` / `connection_provider_key` the inbound runtime chose
+/// (GitHub PR uses `"github"` on bindings; all others use a single shared
+/// name). Resolve through the adapter registry and match against either
+/// key so callers can pass the message column verbatim.
 async fn load_binding_for_message_and_adapter(
     state: &AppState,
     task_id: &str,
     adapter_key: &str,
 ) -> Result<TaskBinding, AdapterError> {
+    let mut candidates: Vec<String> = vec![adapter_key.to_string()];
+    if let Some(providers) = state.adapters.as_ref() {
+        if let Some(provider) = providers.get_by_name(adapter_key) {
+            let provider_key = provider.provider_key().to_string();
+            let connection_key = provider.connection_provider_key().to_string();
+            if !candidates.contains(&provider_key) {
+                candidates.push(provider_key);
+            }
+            if !candidates.contains(&connection_key) {
+                candidates.push(connection_key);
+            }
+        }
+    }
+
     let rows = PgTaskBindingRepository(state.db.clone())
         .find_by_task_id(task_id)
         .await?;
     rows.into_iter()
-        .find(|b| b.provider == adapter_key)
+        .find(|b| candidates.contains(&b.provider))
         .ok_or_else(|| {
             AdapterError::NotFound(format!("No {adapter_key} binding for task {task_id}"))
         })
