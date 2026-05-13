@@ -170,6 +170,24 @@ pub struct LinearLookupParams {
     pub name: String,
 }
 
+/// A comment on a Linear issue, fetched via GraphQL. Used both by the CLI
+/// surface and the Agents runtime when assembling inbound context.
+#[derive(Debug, Clone, Deserialize)]
+pub struct LinearIssueComment {
+    pub id: String,
+    pub body: String,
+    #[serde(rename = "createdAt")]
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    #[serde(default)]
+    pub user: Option<LinearCommentUser>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct LinearCommentUser {
+    pub id: String,
+    pub name: String,
+}
+
 /// Query params for `GET /api/v1/linear/issues/:id`.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[cfg_attr(feature = "openapi", derive(utoipa::IntoParams))]
