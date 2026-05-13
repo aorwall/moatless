@@ -379,6 +379,7 @@ mod tests {
             &self,
             _team_id: &str,
             _provider: &str,
+            _auth_method: &str,
             _access_token: &str,
             _refresh_token: Option<&str>,
             _token_type: Option<&str>,

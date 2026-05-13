@@ -64,6 +64,10 @@ fn personal_team_slug(user_id: &str) -> String {
 /// Note: `automock` is intentionally omitted — mockall cannot synthesise
 /// correct lifetimes for `Option<&str>` / `Option<&Value>` in async-trait
 /// methods.  Tests use `PgProviderTokenRepository` via `#[sqlx::test]`.
+// reason: provider-token upserts already pass 7+ atomic columns; wrapping
+// into a struct would require touching every call-site and impl for no real
+// readability gain.
+#[allow(clippy::too_many_arguments)]
 #[async_trait]
 pub trait ProviderTokenRepository: Send + Sync {
     /// Find a provider token (access_token only) by user_id and provider name.
@@ -103,11 +107,13 @@ pub trait ProviderTokenRepository: Send + Sync {
         provider: &str,
     ) -> Result<Option<ProviderAccessToken>, sqlx::Error>;
 
-    /// Upsert a team-level provider token.
+    /// Upsert a team-level provider token. `auth_method` is typically
+    /// `"manual"` for admin-supplied PATs and `"oauth"` for workspace OAuth.
     async fn upsert_team_token(
         &self,
         team_id: &str,
         provider: &str,
+        auth_method: &str,
         access_token: &str,
         refresh_token: Option<&str>,
         token_type: Option<&str>,
@@ -213,6 +219,7 @@ impl ProviderTokenRepository for PgProviderTokenRepository {
         &self,
         team_id: &str,
         provider: &str,
+        auth_method: &str,
         access_token: &str,
         refresh_token: Option<&str>,
         token_type: Option<&str>,
@@ -220,16 +227,17 @@ impl ProviderTokenRepository for PgProviderTokenRepository {
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"INSERT INTO provider_tokens (
-                   team_id, provider, access_token, refresh_token, token_type,
-                   metadata, updated_at, scope, owner_user_id
+                   team_id, provider, auth_method, access_token, refresh_token, token_type,
+                   metadata, connected_at, updated_at, scope, owner_user_id
                )
-               VALUES ($1, $2, $3, $4, $5, $6, NOW(), 'team', NULL)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW(), 'team', NULL)
                ON CONFLICT ON CONSTRAINT provider_tokens_scope_uq
-               DO UPDATE SET access_token = $3, refresh_token = $4, token_type = $5, metadata = $6,
-                             scope = 'team', owner_user_id = NULL, updated_at = NOW()"#,
+               DO UPDATE SET access_token = $4, refresh_token = $5, token_type = $6, metadata = $7,
+                             auth_method = $3, scope = 'team', owner_user_id = NULL, updated_at = NOW()"#,
         )
         .bind(team_id)
         .bind(provider)
+        .bind(auth_method)
         .bind(access_token)
         .bind(refresh_token)
         .bind(token_type)

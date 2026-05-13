@@ -554,7 +554,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
                 .as_deref()
                 .ok_or_else(|| Status::internal("team_id missing after team_row_exists check"))?;
             provider_tokens
-                .upsert_team_token(tid, provider, &req.value, None, None, None)
+                .upsert_team_token(tid, provider, "manual", &req.value, None, None, None)
                 .await
         } else {
             provider_tokens

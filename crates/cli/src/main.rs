@@ -55,6 +55,11 @@ enum SharedCommands {
         #[command(subcommand)]
         action: commands::adapters::AdaptersAction,
     },
+    /// Linear issue and comment operations via the workspace OAuth token
+    Linear {
+        #[command(subcommand)]
+        action: Box<commands::linear::LinearAction>,
+    },
     /// Trigger management
     Triggers {
         #[command(subcommand)]
@@ -365,6 +370,9 @@ async fn run_shared(
         }
         SharedCommands::Adapters { action } => {
             commands::adapters::run_adapters(moat, action, json).await?;
+        }
+        SharedCommands::Linear { action } => {
+            commands::linear::run(moat, cfg, *action, json).await?;
         }
         SharedCommands::Triggers { action } => {
             commands::adapters::run_triggers(moat, *action, json).await?;

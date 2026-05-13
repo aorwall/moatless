@@ -16,6 +16,7 @@ use crate::adapters::{Adapter, AdapterKind};
 use crate::db::DbPool;
 
 use super::agent_api::{default_http_client, ActivityKind, LinearAgentApi};
+use super::SUBJECT_KIND_ISSUE;
 
 /// Linear adapter.
 pub struct LinearAdapter {
@@ -61,6 +62,33 @@ impl LinearAdapter {
             self.oauth_client_id.clone(),
             self.oauth_client_secret.clone(),
         )
+    }
+
+    /// Build a [`LinearAgentApi`] for the single Linear connection in
+    /// `integration_connections`. Used by [`Adapter::post_to_destination`],
+    /// which takes no connection parameter. Errors if there is no Linear
+    /// connection installed, or more than one — multi-org callers must go
+    /// through the typed `/api/v1/linear/*` endpoints with an explicit
+    /// `connectionId`.
+    async fn api_for_single_workspace(&self) -> Result<LinearAgentApi, AdapterError> {
+        let rows = sqlx::query_scalar::<_, String>(
+            "SELECT scope_value FROM integration_connections \
+             WHERE provider = 'linear' LIMIT 2",
+        )
+        .fetch_all(&self.db)
+        .await
+        .map_err(AdapterError::Db)?;
+        match rows.len() {
+            0 => Err(AdapterError::AdapterNotConfigured(
+                "No Linear workspace installed — run the Linear OAuth install first".into(),
+            )),
+            1 => Ok(self.agent_api_for_org(&rows[0])),
+            _ => Err(AdapterError::BadRequest(
+                "Multiple Linear workspaces installed — use the /api/v1/linear/* \
+                 endpoints with an explicit connectionId"
+                    .into(),
+            )),
+        }
     }
 
     /// Exposed accessor for the new dispatcher in `handlers.rs`.
@@ -127,22 +155,70 @@ impl Adapter for LinearAdapter {
         ))
     }
 
-    /// Direct send-to-destination is not supported in the Agents flow —
-    /// Linear sessions are webhook-driven and outbound activities require a
-    /// known session id.
+    /// Post a comment on a Linear issue. Destination format:
+    /// `issue:<identifier-or-uuid>` (e.g. `issue:SP-123` or
+    /// `issue:bf0e…`). The single Linear connection in `integration_connections`
+    /// is used as the workspace context — multi-org callers must use the
+    /// typed `/api/v1/linear/*` endpoints instead.
     async fn post_to_destination(
         &self,
-        _destination: &str,
-        _message: &OutboundReply,
+        destination: &str,
+        message: &OutboundReply,
     ) -> Result<crate::adapters::DestinationPostResult, AdapterError> {
-        Err(AdapterError::BadRequest(
-            "Linear destination sends are not supported — use the Agents \
-             session-bound reply path"
-                .into(),
-        ))
+        let id_or_key = destination.strip_prefix("issue:").unwrap_or(destination);
+        if id_or_key.is_empty() {
+            return Err(AdapterError::BadRequest(
+                "Linear destination must be `issue:<SP-N>` or `issue:<uuid>`".into(),
+            ));
+        }
+
+        let api = self.api_for_single_workspace().await?;
+        let issue = api.get_issue(id_or_key).await?;
+        let issue_uuid = issue
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| {
+                AdapterError::AdapterApi("Linear issue payload missing id".into())
+            })?
+            .to_string();
+        let identifier = issue
+            .get("identifier")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or(id_or_key)
+            .to_string();
+        let url = issue
+            .get("url")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string);
+
+        let comment = api.create_comment(&issue_uuid, &message.text).await?;
+        let comment_id = comment
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| {
+                AdapterError::AdapterApi("Linear commentCreate missing comment.id".into())
+            })?
+            .to_string();
+
+        let mut destination_config = serde_json::json!({
+            "issue_id": issue_uuid,
+            "issue_identifier": identifier,
+        });
+        if let Some(u) = url {
+            destination_config["url"] = serde_json::Value::String(u);
+        }
+
+        Ok(crate::adapters::DestinationPostResult {
+            message_external_id: format!("linear:comment:{comment_id}"),
+            subject_kind: SUBJECT_KIND_ISSUE,
+            subject_key: issue_uuid,
+            destination_config,
+        })
     }
 
-    /// Emit a `response` activity on the bound Linear AgentSession.
+    /// Reply to a bound Linear destination. Routes by `subject_kind`:
+    /// - `linear_agent_session` → `agentActivityCreate` (mention/assignment flow)
+    /// - `linear_issue` → `commentCreate` (CLI-created or operator-bound issue)
     async fn send_reply_for_binding(
         &self,
         binding: &TaskBinding,
@@ -150,6 +226,24 @@ impl Adapter for LinearAdapter {
         _rule: Option<&TaskTriggerRoute>,
         message: &OutboundReply,
     ) -> Result<Option<String>, AdapterError> {
+        let api = self.agent_api_for_org(&connection.scope_value);
+
+        if binding.subject_kind == SUBJECT_KIND_ISSUE {
+            let issue_uuid = binding
+                .destination_config
+                .get("issue_id")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or(&binding.subject_key);
+            let comment = api.create_comment(issue_uuid, &message.text).await?;
+            let comment_id = comment
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| {
+                    AdapterError::AdapterApi("Linear commentCreate missing comment.id".into())
+                })?;
+            return Ok(Some(format!("linear:comment:{comment_id}")));
+        }
+
         let session_id = binding
             .destination_config
             .get("session_id")
@@ -160,7 +254,6 @@ impl Adapter for LinearAdapter {
                 )
             })?;
 
-        let api = self.agent_api_for_org(&connection.scope_value);
         let activity_id = api
             .agent_activity_create(session_id, ActivityKind::Response, &message.text)
             .await?;

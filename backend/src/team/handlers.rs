@@ -321,6 +321,7 @@ pub async fn upsert_credential(
         .upsert_team_token(
             &team_id,
             &provider,
+            "manual",
             &req.access_token,
             req.refresh_token.as_deref(),
             req.token_type.as_deref(),

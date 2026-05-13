@@ -5,6 +5,7 @@ pub mod events;
 pub mod feedback;
 pub mod info;
 pub mod k8s;
+pub mod linear;
 pub mod messages;
 pub mod misc;
 pub mod plugins;

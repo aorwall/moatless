@@ -1618,6 +1618,7 @@ async fn linear_callback_handler(
         .upsert_team_token(
             &identity.organization_id,
             "linear",
+            "oauth",
             &tokens.access_token,
             tokens.refresh_token.as_deref(),
             Some(tokens.token_type.as_str()),

@@ -16,6 +16,7 @@ use crate::{bindings, triggers};
         (name = "triggers", description = "Work triggers"),
         (name = "task-bindings", description = "Task-to-external-subject bindings"),
         (name = "users", description = "Users"),
+        (name = "linear", description = "Linear issue/comment CRUD via workspace OAuth"),
     ),
     paths(
         handlers::list_adapters,
@@ -40,6 +41,13 @@ use crate::{bindings, triggers};
         telegram::handlers::telegram_webhook,
         github_pr::handlers::github_webhook,
         linear::handlers::linear_webhook,
+        linear::api_routes::get_issue,
+        linear::api_routes::create_issue,
+        linear::api_routes::update_issue,
+        linear::api_routes::create_comment,
+        linear::api_routes::mutate_label,
+        linear::api_routes::graphql_passthrough,
+        linear::api_routes::lookup,
         webhook::handlers::webhook_inbound,
     )
 )]
@@ -78,6 +86,13 @@ pub fn adapter_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenAp
         .routes(routes!(telegram::handlers::telegram_webhook))
         .routes(routes!(github_pr::handlers::github_webhook))
         .routes(routes!(linear::handlers::linear_webhook))
+        .routes(routes!(linear::api_routes::get_issue))
+        .routes(routes!(linear::api_routes::create_issue))
+        .routes(routes!(linear::api_routes::update_issue))
+        .routes(routes!(linear::api_routes::create_comment))
+        .routes(routes!(linear::api_routes::mutate_label))
+        .routes(routes!(linear::api_routes::graphql_passthrough))
+        .routes(routes!(linear::api_routes::lookup))
         .routes(routes!(webhook::handlers::webhook_inbound))
         .with_state(state.clone())
         .split_for_parts();

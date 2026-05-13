@@ -19,6 +19,7 @@ pub mod enums;
 pub mod feedback;
 pub mod figma;
 pub mod file_storage;
+pub mod linear;
 pub mod message;
 pub mod plugin_repo;
 pub mod provider_settings;

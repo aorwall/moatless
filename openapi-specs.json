@@ -1,3 +1,6 @@
+   Compiling moatless-vibe-backend v0.1.0 (/Users/albert/repos/soap/moatless-vibe/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 15.49s
+     Running `target/debug/moatless-vibe-backend --dump-openapi`
 {
   "openapi": "3.1.0",
   "info": {
@@ -1830,6 +1833,583 @@
           },
           "403": {
             "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/linear/graphql": {
+      "post": {
+        "tags": [
+          "linear"
+        ],
+        "operationId": "graphql_passthrough",
+        "parameters": [
+          {
+            "name": "connectionId",
+            "in": "query",
+            "description": "Override the default Linear connection. Required when the caller has\naccess to more than one Linear workspace.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LinearGraphqlRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Raw GraphQL response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/linear/issues": {
+      "post": {
+        "tags": [
+          "linear"
+        ],
+        "operationId": "create_issue",
+        "parameters": [
+          {
+            "name": "connectionId",
+            "in": "query",
+            "description": "Override the default Linear connection. Required when the caller has\naccess to more than one Linear workspace.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LinearIssueCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Issue created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LinearIssueResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/linear/issues/{id}": {
+      "get": {
+        "tags": [
+          "linear"
+        ],
+        "operationId": "get_issue",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Issue identifier (SP-123) or UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "connectionId",
+            "in": "query",
+            "description": "Override the default Linear connection. Required when the caller has\naccess to more than one Linear workspace.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Issue",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LinearIssueResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "linear"
+        ],
+        "operationId": "update_issue",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Issue identifier or UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "connectionId",
+            "in": "query",
+            "description": "Override the default Linear connection. Required when the caller has\naccess to more than one Linear workspace.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LinearIssueUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Issue updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LinearIssueResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/linear/issues/{id}/comments": {
+      "post": {
+        "tags": [
+          "linear"
+        ],
+        "operationId": "create_comment",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Issue identifier or UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "connectionId",
+            "in": "query",
+            "description": "Override the default Linear connection. Required when the caller has\naccess to more than one Linear workspace.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LinearCommentCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Comment posted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LinearIssueResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/linear/issues/{id}/labels": {
+      "post": {
+        "tags": [
+          "linear"
+        ],
+        "operationId": "mutate_label",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Issue identifier or UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "connectionId",
+            "in": "query",
+            "description": "Override the default Linear connection. Required when the caller has\naccess to more than one Linear workspace.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LinearLabelMutationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Label mutated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LinearOkResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/linear/lookup": {
+      "get": {
+        "tags": [
+          "linear"
+        ],
+        "operationId": "lookup",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "query",
+            "description": "One of: `state`, `label`, `project`, `user`, `team`.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "connectionId",
+            "in": "query",
+            "description": "Override the default Linear connection. Required when the caller has\naccess to more than one Linear workspace.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lookup result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LinearLookupResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad kind",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/messages/{message_id}/reactions": {
+      "post": {
+        "tags": [
+          "task-bindings"
+        ],
+        "operationId": "add_message_reaction",
+        "parameters": [
+          {
+            "name": "message_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddMessageReactionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Reaction added",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageReactionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/messages/{message_id}/reactions/{emoji}": {
+      "delete": {
+        "tags": [
+          "task-bindings"
+        ],
+        "operationId": "remove_message_reaction",
+        "parameters": [
+          {
+            "name": "message_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "emoji",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Reaction removed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageReactionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/messages/{message_id}/reply": {
+      "post": {
+        "tags": [
+          "task-bindings"
+        ],
+        "operationId": "reply_to_message",
+        "parameters": [
+          {
+            "name": "message_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReplyToMessageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Reply sent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReplyToMessageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -5637,6 +6217,19 @@
           }
         }
       },
+      "AddMessageReactionRequest": {
+        "type": "object",
+        "description": "Request body for POST /api/v1/messages/{message_id}/reactions.",
+        "required": [
+          "emoji"
+        ],
+        "properties": {
+          "emoji": {
+            "type": "string",
+            "description": "Emoji name (e.g. \"thumbsup\", \"+1\", \"rocket\"). Platform-native names accepted."
+          }
+        }
+      },
       "AddTeamMemberRequest": {
         "type": "object",
         "required": [
@@ -8068,6 +8661,295 @@
           }
         }
       },
+      "LinearCommentCreateRequest": {
+        "type": "object",
+        "description": "`POST /api/v1/linear/issues/:id/comments` — post a comment.",
+        "required": [
+          "body"
+        ],
+        "properties": {
+          "body": {
+            "type": "string"
+          },
+          "taskId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Task to bind the parent issue to. See [`LinearIssueCreateRequest::task_id`]."
+          }
+        }
+      },
+      "LinearGraphqlRequest": {
+        "type": "object",
+        "description": "`POST /api/v1/linear/graphql` — raw passthrough.",
+        "required": [
+          "query"
+        ],
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "variables": {
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        }
+      },
+      "LinearIssueCreateRequest": {
+        "type": "object",
+        "description": "`POST /api/v1/linear/issues` — create an issue.",
+        "required": [
+          "title"
+        ],
+        "properties": {
+          "assignee": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Assignee email, display name, or UUID. `\"me\"` resolves to the\nauthenticated agent (the workspace OAuth viewer)."
+          },
+          "cycle": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Cycle number (`42`) or `\"active\"`."
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dueDate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Due date in `YYYY-MM-DD` format."
+          },
+          "estimate": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "T-shirt estimate: 1 (XS), 2 (S), 3 (M), 5 (L), 8 (XL)."
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Label names or UUIDs."
+          },
+          "parent": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Parent issue identifier (`SP-123`) or UUID."
+          },
+          "priority": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Linear priority: 0 No-priority, 1 Urgent, 2 High, 3 Normal, 4 Low."
+          },
+          "project": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Project name or UUID."
+          },
+          "state": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "State name (e.g. `Ready`) or UUID."
+          },
+          "taskId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Task to bind the created issue to. When provided, a `task_bindings`\nrow is inserted with `subject_kind = \"linear_issue\"` so subsequent\n`POST /tasks/{id}/reply` posts a comment on this issue."
+          },
+          "team": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Team key (e.g. `SP`) or UUID. Optional — defaults to the only team\nthe connection's user can see when omitted."
+          },
+          "templateId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional template UUID applied before the explicit fields."
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
+      "LinearIssueResponse": {
+        "type": "object",
+        "description": "Common envelope for all typed responses. `data` is the raw Linear\nsubobject (e.g. issue, comment); `binding_id` is set only when the\nrequest included a `task_id` and a `task_bindings` row was inserted.",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "bindingId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "data": {
+            "type": "object"
+          }
+        }
+      },
+      "LinearIssueUpdateRequest": {
+        "type": "object",
+        "description": "`PATCH /api/v1/linear/issues/:id` — update an issue.",
+        "properties": {
+          "assignee": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "cycle": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dueDate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "estimate": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "parent": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Parent issue identifier or UUID. Pass `\"null\"` (literal string) or\nthe JSON `null` value to clear the parent."
+          },
+          "priority": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "project": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "LinearLabelMutationRequest": {
+        "type": "object",
+        "description": "`POST /api/v1/linear/issues/:id/labels` — non-destructive add/remove.",
+        "required": [
+          "label",
+          "op"
+        ],
+        "properties": {
+          "label": {
+            "type": "string",
+            "description": "Label name or UUID."
+          },
+          "op": {
+            "$ref": "#/components/schemas/LinearLabelOp",
+            "description": "`add` or `remove`."
+          }
+        }
+      },
+      "LinearLabelOp": {
+        "type": "string",
+        "enum": [
+          "add",
+          "remove"
+        ]
+      },
+      "LinearLookupResponse": {
+        "type": "object",
+        "description": "Response for `/lookup`. Returns at most one match (the first\ncase-insensitive name hit).",
+        "properties": {
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "raw": {
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        }
+      },
+      "LinearOkResponse": {
+        "type": "object",
+        "description": "Response for label add/remove (no body content).",
+        "required": [
+          "ok"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          }
+        }
+      },
       "ListAgentsResponse": {
         "type": "object",
         "required": [
@@ -8260,6 +9142,25 @@
           }
         ],
         "description": "A context attached to a message, discriminated by `type`."
+      },
+      "MessageReactionResponse": {
+        "type": "object",
+        "description": "Response from reaction add/remove endpoints.",
+        "required": [
+          "ok"
+        ],
+        "properties": {
+          "externalId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Provider-specific reaction id, when the API returns one\n(e.g. GitHub reaction id, Linear reaction UUID)."
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        }
       },
       "MessageResponse": {
         "type": "object",
@@ -8710,6 +9611,43 @@
           "label": {
             "type": "string",
             "description": "Human-readable label such as `\"slack source:C123\"` or `\"github pr:owner/repo#42\"`."
+          }
+        }
+      },
+      "ReplyToMessageRequest": {
+        "type": "object",
+        "description": "Request body for POST /api/v1/messages/{message_id}/reply.",
+        "required": [
+          "text"
+        ],
+        "properties": {
+          "fileIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      },
+      "ReplyToMessageResponse": {
+        "type": "object",
+        "description": "Response from the reply endpoint.",
+        "required": [
+          "ok"
+        ],
+        "properties": {
+          "externalId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Provider-specific external id of the reply we posted, when the API returns one."
+          },
+          "ok": {
+            "type": "boolean"
           }
         }
       },
@@ -12394,6 +13332,10 @@
     {
       "name": "users",
       "description": "Users"
+    },
+    {
+      "name": "linear",
+      "description": "Linear issue/comment CRUD via workspace OAuth"
     },
     {
       "name": "teams",

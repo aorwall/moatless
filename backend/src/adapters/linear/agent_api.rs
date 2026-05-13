@@ -170,6 +170,7 @@ impl LinearAgentApi {
             .upsert_team_token(
                 &self.org_id,
                 PROVIDER,
+                "oauth",
                 &refreshed.access_token,
                 new_refresh.as_deref(),
                 refreshed.token_type.as_deref(),
@@ -241,7 +242,10 @@ impl LinearAgentApi {
 
     /// Send a GraphQL request with a fresh access token. Surface errors via
     /// `AdapterError::AdapterApi`.
-    async fn graphql(&self, body: serde_json::Value) -> Result<serde_json::Value, AdapterError> {
+    pub async fn graphql(
+        &self,
+        body: serde_json::Value,
+    ) -> Result<serde_json::Value, AdapterError> {
         let token = self.resolve_access_token().await?;
         self.graphql_with_token(&token, body).await
     }
@@ -393,6 +397,256 @@ impl LinearAgentApi {
             .await?;
         parse_viewer(&value)
     }
+
+    // ------------------------------------------------------------------
+    // Issue CRUD + lookup operations
+    //
+    // Thin wrappers around the Linear GraphQL API. Inputs are passed
+    // through as `Value` so callers (HTTP handlers) own DTO shape and
+    // name-to-UUID resolution. Each operation returns the relevant
+    // subobject — never the full GraphQL envelope.
+    // ------------------------------------------------------------------
+
+    /// Fetch one issue by identifier (`SP-123`) or UUID. Returns the issue
+    /// subobject.
+    pub async fn get_issue(&self, id_or_key: &str) -> Result<serde_json::Value, AdapterError> {
+        let value = self
+            .graphql(serde_json::json!({
+                "query": format!(
+                    "query($id: String!) {{ issue(id: $id) {{ {ISSUE_FIELDS} }} }}"
+                ),
+                "variables": { "id": id_or_key }
+            }))
+            .await?;
+        value
+            .pointer("/data/issue")
+            .cloned()
+            .ok_or_else(|| AdapterError::NotFound(format!("Linear issue {id_or_key} not found")))
+    }
+
+    /// Run `issueCreate` and return the created issue. Caller is
+    /// responsible for resolving names to UUIDs in `input`.
+    pub async fn create_issue(
+        &self,
+        input: serde_json::Value,
+    ) -> Result<serde_json::Value, AdapterError> {
+        let value = self
+            .graphql(serde_json::json!({
+                "query": format!(
+                    "mutation($input: IssueCreateInput!) {{ \
+                        issueCreate(input: $input) {{ success issue {{ {ISSUE_FIELDS} }} }} \
+                    }}"
+                ),
+                "variables": { "input": input }
+            }))
+            .await?;
+        require_mutation_success(&value, "/data/issueCreate", "issueCreate")?;
+        value
+            .pointer("/data/issueCreate/issue")
+            .cloned()
+            .ok_or_else(|| AdapterError::AdapterApi("issueCreate missing issue subobject".into()))
+    }
+
+    /// Run `issueUpdate` and return the updated issue.
+    pub async fn update_issue(
+        &self,
+        id: &str,
+        input: serde_json::Value,
+    ) -> Result<serde_json::Value, AdapterError> {
+        let value = self
+            .graphql(serde_json::json!({
+                "query": format!(
+                    "mutation($id: String!, $input: IssueUpdateInput!) {{ \
+                        issueUpdate(id: $id, input: $input) {{ success issue {{ {ISSUE_FIELDS} }} }} \
+                    }}"
+                ),
+                "variables": { "id": id, "input": input }
+            }))
+            .await?;
+        require_mutation_success(&value, "/data/issueUpdate", "issueUpdate")?;
+        value
+            .pointer("/data/issueUpdate/issue")
+            .cloned()
+            .ok_or_else(|| AdapterError::AdapterApi("issueUpdate missing issue subobject".into()))
+    }
+
+    /// Post a comment on an issue. Returns the created comment subobject
+    /// (`id`, `url`, `body`).
+    pub async fn create_comment(
+        &self,
+        issue_id: &str,
+        body: &str,
+    ) -> Result<serde_json::Value, AdapterError> {
+        let value = self
+            .graphql(serde_json::json!({
+                "query": "mutation($input: CommentCreateInput!) { \
+                    commentCreate(input: $input) { success comment { id url body createdAt } } \
+                }",
+                "variables": {
+                    "input": { "issueId": issue_id, "body": body }
+                }
+            }))
+            .await?;
+        require_mutation_success(&value, "/data/commentCreate", "commentCreate")?;
+        value
+            .pointer("/data/commentCreate/comment")
+            .cloned()
+            .ok_or_else(|| {
+                AdapterError::AdapterApi("commentCreate missing comment subobject".into())
+            })
+    }
+
+    /// Non-destructive label add.
+    pub async fn issue_add_label(
+        &self,
+        issue_id: &str,
+        label_id: &str,
+    ) -> Result<(), AdapterError> {
+        let value = self
+            .graphql(serde_json::json!({
+                "query": "mutation($id: String!, $labelId: String!) { \
+                    issueAddLabel(id: $id, labelId: $labelId) { success } \
+                }",
+                "variables": { "id": issue_id, "labelId": label_id }
+            }))
+            .await?;
+        require_mutation_success(&value, "/data/issueAddLabel", "issueAddLabel")
+    }
+
+    /// Non-destructive label remove.
+    pub async fn issue_remove_label(
+        &self,
+        issue_id: &str,
+        label_id: &str,
+    ) -> Result<(), AdapterError> {
+        let value = self
+            .graphql(serde_json::json!({
+                "query": "mutation($id: String!, $labelId: String!) { \
+                    issueRemoveLabel(id: $id, labelId: $labelId) { success } \
+                }",
+                "variables": { "id": issue_id, "labelId": label_id }
+            }))
+            .await?;
+        require_mutation_success(&value, "/data/issueRemoveLabel", "issueRemoveLabel")
+    }
+
+    /// Resolve a human name to a Linear entity UUID. Returns the first
+    /// match (case-insensitive); `None` if nothing matches.
+    pub async fn lookup(
+        &self,
+        kind: LookupKind,
+        name: &str,
+    ) -> Result<Option<LookupResult>, AdapterError> {
+        let (collection, fields) = match kind {
+            LookupKind::State => ("workflowStates", "id name type"),
+            LookupKind::Label => ("issueLabels", "id name color"),
+            LookupKind::Project => ("projects", "id name state"),
+            LookupKind::User => ("users", "id name displayName email"),
+            LookupKind::Team => ("teams", "id name key"),
+        };
+        let query = format!(
+            "query($name: String!) {{ \
+                {collection}(filter: {{ name: {{ eqIgnoreCase: $name }} }}, first: 5) {{ \
+                    nodes {{ {fields} }} \
+                }} \
+            }}"
+        );
+        let value = self
+            .graphql(serde_json::json!({
+                "query": query,
+                "variables": { "name": name }
+            }))
+            .await?;
+        let nodes = value
+            .pointer(&format!("/data/{collection}/nodes"))
+            .and_then(serde_json::Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let Some(first) = nodes.into_iter().next() else {
+            return Ok(None);
+        };
+        let id = first
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| AdapterError::AdapterApi(format!("Linear {collection} missing id")))?
+            .to_string();
+        let resolved_name = first
+            .get("name")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or(name)
+            .to_string();
+        Ok(Some(LookupResult {
+            id,
+            name: resolved_name,
+            raw: first,
+        }))
+    }
+}
+
+/// Kind of Linear entity name being looked up.
+#[derive(Debug, Clone, Copy)]
+pub enum LookupKind {
+    State,
+    Label,
+    Project,
+    User,
+    Team,
+}
+
+impl LookupKind {
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.to_ascii_lowercase().as_str() {
+            "state" | "workflow_state" => Some(Self::State),
+            "label" => Some(Self::Label),
+            "project" => Some(Self::Project),
+            "user" => Some(Self::User),
+            "team" => Some(Self::Team),
+            _ => None,
+        }
+    }
+}
+
+/// Resolved entity returned by [`LinearAgentApi::lookup`].
+#[derive(Debug, Clone)]
+pub struct LookupResult {
+    pub id: String,
+    pub name: String,
+    pub raw: serde_json::Value,
+}
+
+/// Standard issue field selection used by `get_issue`, `create_issue`,
+/// `update_issue`. Kept compact to stay well under Linear's per-query
+/// complexity budget.
+const ISSUE_FIELDS: &str = "id identifier number title description priority \
+estimate dueDate url \
+state { id name type } \
+assignee { id name displayName email } \
+creator { id name displayName email } \
+project { id name state } \
+cycle { id number startsAt endsAt } \
+parent { id identifier } \
+labels { nodes { id name color } } \
+team { id key name } \
+createdAt updatedAt";
+
+/// Verify a mutation returned `success: true` and propagate a clean error
+/// otherwise. `op_name` is used in the error message; `pointer` is the
+/// JSON-pointer prefix to the mutation result (e.g. `/data/issueCreate`).
+fn require_mutation_success(
+    value: &serde_json::Value,
+    pointer: &str,
+    op_name: &str,
+) -> Result<(), AdapterError> {
+    let success = value
+        .pointer(&format!("{pointer}/success"))
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+    if !success {
+        return Err(AdapterError::AdapterApi(format!(
+            "Linear {op_name} returned success=false"
+        )));
+    }
+    Ok(())
 }
 
 fn parse_viewer(value: &serde_json::Value) -> Result<ViewerInfo, AdapterError> {

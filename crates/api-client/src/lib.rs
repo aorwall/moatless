@@ -958,6 +958,98 @@ impl ApiClient {
         ))
         .await
     }
+
+    // ========================================================================
+    // Linear
+    // ========================================================================
+
+    /// GET /api/v1/linear/issues/{id}
+    pub async fn linear_get_issue(
+        &self,
+        id: &str,
+        connection_id: Option<&str>,
+    ) -> Result<moatless_api_schemas::linear::LinearIssueResponse, ApiError> {
+        let qs = linear_connection_qs(connection_id);
+        self.get(&format!("/api/v1/linear/issues/{id}{qs}")).await
+    }
+
+    /// POST /api/v1/linear/issues
+    pub async fn linear_create_issue(
+        &self,
+        req: &moatless_api_schemas::linear::LinearIssueCreateRequest,
+        connection_id: Option<&str>,
+    ) -> Result<moatless_api_schemas::linear::LinearIssueResponse, ApiError> {
+        let qs = linear_connection_qs(connection_id);
+        self.post(&format!("/api/v1/linear/issues{qs}"), req).await
+    }
+
+    /// PATCH /api/v1/linear/issues/{id}
+    pub async fn linear_update_issue(
+        &self,
+        id: &str,
+        req: &moatless_api_schemas::linear::LinearIssueUpdateRequest,
+        connection_id: Option<&str>,
+    ) -> Result<moatless_api_schemas::linear::LinearIssueResponse, ApiError> {
+        let qs = linear_connection_qs(connection_id);
+        self.patch(&format!("/api/v1/linear/issues/{id}{qs}"), req)
+            .await
+    }
+
+    /// POST /api/v1/linear/issues/{id}/comments
+    pub async fn linear_create_comment(
+        &self,
+        id: &str,
+        req: &moatless_api_schemas::linear::LinearCommentCreateRequest,
+        connection_id: Option<&str>,
+    ) -> Result<moatless_api_schemas::linear::LinearIssueResponse, ApiError> {
+        let qs = linear_connection_qs(connection_id);
+        self.post(&format!("/api/v1/linear/issues/{id}/comments{qs}"), req)
+            .await
+    }
+
+    /// POST /api/v1/linear/issues/{id}/labels
+    pub async fn linear_mutate_label(
+        &self,
+        id: &str,
+        req: &moatless_api_schemas::linear::LinearLabelMutationRequest,
+        connection_id: Option<&str>,
+    ) -> Result<moatless_api_schemas::linear::LinearOkResponse, ApiError> {
+        let qs = linear_connection_qs(connection_id);
+        self.post(&format!("/api/v1/linear/issues/{id}/labels{qs}"), req)
+            .await
+    }
+
+    /// POST /api/v1/linear/graphql
+    pub async fn linear_graphql(
+        &self,
+        req: &moatless_api_schemas::linear::LinearGraphqlRequest,
+        connection_id: Option<&str>,
+    ) -> Result<serde_json::Value, ApiError> {
+        let qs = linear_connection_qs(connection_id);
+        self.post(&format!("/api/v1/linear/graphql{qs}"), req).await
+    }
+
+    /// GET /api/v1/linear/lookup
+    pub async fn linear_lookup(
+        &self,
+        kind: &str,
+        name: &str,
+        connection_id: Option<&str>,
+    ) -> Result<moatless_api_schemas::linear::LinearLookupResponse, ApiError> {
+        let mut qs = format!("?kind={}&name={}", urlenc(kind), urlenc(name));
+        if let Some(id) = connection_id {
+            qs.push_str("&connectionId=");
+            qs.push_str(&urlenc(id));
+        }
+        self.get(&format!("/api/v1/linear/lookup{qs}")).await
+    }
+}
+
+/// Build the `?connectionId=...` query string fragment (or empty).
+fn linear_connection_qs(connection_id: Option<&str>) -> String {
+    connection_id
+        .map(|id| format!("?connectionId={}", urlenc(id)))
+        .unwrap_or_default()
 }
 
 /// Percent-encode a value for use in a query string.
