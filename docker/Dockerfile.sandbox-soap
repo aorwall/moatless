@@ -2,8 +2,8 @@
 #
 # Combines the binary-injection from Dockerfile.sandbox with the soap overlay
 # that previously lived in soaplabs/soap-platform-ci/docker/moatless/Dockerfile.
-# A single image, built and published in one workflow, replaces the prior
-# two-step pipeline (publish moatless-sandbox → rebuild as soap-moatless).
+# A single image, built and published in one workflow as moatless-sandbox in
+# platform ECR, replaces the prior two-step pipeline.
 #
 # Layer order is volatile-last so a Rust-binary edit only invalidates the
 # final COPY layer, not the JDK / jira / kubectl / go-task layers above it.

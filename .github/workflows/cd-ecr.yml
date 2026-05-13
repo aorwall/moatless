@@ -256,7 +256,7 @@ jobs:
     uses: soaplabs/soap-platform-ci/.github/workflows/build-push-ecr.yml@main
     with:
       service-name: moatless
-      ecr-repository: soap-moatless
+      ecr-repository: moatless-sandbox
       image-tag: ${{ needs.setup.outputs.tag }}
       dockerfile: docker/Dockerfile.sandbox-soap
       tag-latest: true
@@ -372,7 +372,6 @@ jobs:
           client-payload: |
             {
               "app": "moatless-vibe",
-              "environment": "staging",
               "version": "${{ needs.setup.outputs.tag }}",
               "tag": "${{ needs.setup.outputs.tag }}",
               "sourceRepository": "${{ github.repository }}",

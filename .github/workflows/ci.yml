@@ -67,8 +67,13 @@ jobs:
   build-backend:
     name: Build backend
     needs: detect-changes
+    # Fork (soaplabs/moatless-vibe) push-to-main: skipped — cd-ecr.yml's
+    # build-binaries is the sole Rust compile. PRs (any repo) and upstream
+    # pushes still run the full validation chain.
     if: >-
-      always() && (
+      always() &&
+      (github.event_name == 'pull_request' || github.repository == 'aorwall/moatless-vibe') &&
+      (
         needs.detect-changes.outputs.rust == 'true' ||
         needs.detect-changes.outputs.docker-backend == 'true' ||
         github.event_name == 'pull_request' ||
@@ -106,7 +111,11 @@ jobs:
   generate-spec:
     name: Generate OpenAPI spec
     needs: [detect-changes, build-backend]
-    if: always() && needs.build-backend.result == 'success'
+    # Fork push-to-main: skipped (build-backend skipped, nothing to dump).
+    if: >-
+      always() &&
+      (github.event_name == 'pull_request' || github.repository == 'aorwall/moatless-vibe') &&
+      needs.build-backend.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - name: Download backend binary
@@ -130,7 +139,11 @@ jobs:
   generate-ts-client:
     name: Generate TS client
     needs: [detect-changes, generate-spec]
-    if: always() && needs.generate-spec.result == 'success'
+    # Fork push-to-main: skipped (no spec was generated).
+    if: >-
+      always() &&
+      (github.event_name == 'pull_request' || github.repository == 'aorwall/moatless-vibe') &&
+      needs.generate-spec.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

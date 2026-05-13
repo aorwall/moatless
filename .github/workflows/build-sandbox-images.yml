@@ -36,7 +36,10 @@ jobs:
   detect-changes:
     name: Detect changes
     runs-on: ubuntu-latest
-    if: github.event_name == 'push'
+    # Fork (soaplabs/moatless-vibe) doesn't publish any sandbox-* images
+    # from this workflow — see the publish jobs below. Skip the whole
+    # chain on the fork to avoid building Rust binaries we throw away.
+    if: github.event_name == 'push' && github.repository == 'aorwall/moatless-vibe'
     outputs:
       sandbox: ${{ steps.filter.outputs.sandbox }}
     steps:
@@ -59,8 +62,12 @@ jobs:
   build-binaries:
     name: Build sandbox + CLI binaries
     needs: detect-changes
+    # Fork-side: not published anywhere from this workflow (cd-ecr.yml owns
+    # the sandbox build). Gate avoids compiling Rust we'd throw away.
     if: >-
-      always() && (
+      always() &&
+      github.repository == 'aorwall/moatless-vibe' &&
+      (
         needs.detect-changes.outputs.sandbox == 'true' ||
         github.event_name == 'pull_request' ||
         github.event_name == 'workflow_dispatch'
