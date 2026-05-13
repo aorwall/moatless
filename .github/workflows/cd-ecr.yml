@@ -72,8 +72,8 @@ jobs:
 
           # Chart version: explicit input → semver from tag (fp-v0.0.1 → 0.0.1)
           # → semver pre-release from sha (0.0.0-<sha>) on main / dispatch.
-          # GitOps consumes this in soap-k8s-nonprod's ArgoCD Application
-          # `targetRevision`; must be a valid semver string.
+          # GitOps consumes this in soap-platform-gitops's umbrella chart
+          # `dependencies[0].version`; must be a valid semver string.
           if [ -n "$INPUT_CHART_VERSION" ]; then
             CHART_VERSION="$INPUT_CHART_VERSION"
           elif [[ "$GITHUB_REF" == refs/tags/fp-v* ]]; then
@@ -99,9 +99,10 @@ jobs:
           done
 
           # Helm: publish on every push to main + fp-v* tag pushes.
-          # The chart is consumed by soaplabs/soap-k8s-nonprod's ArgoCD
-          # Application via `oci://629…/helm-charts/moatless`; SHA-pinned
-          # promotion is wired in promote-to-staging.yml on that side.
+          # The chart is consumed by soaplabs/soap-platform-gitops via the
+          # umbrella chart at apps/moatless-vibe/ which depends on
+          # `oci://629…/helm-charts/moatless`. SHA-pinned promotion is
+          # wired in promote-to-gitops.yml on that side.
           if [[ "$GITHUB_REF" == refs/heads/main || "$GITHUB_REF" == refs/tags/fp-v* ]]; then
             echo "helm=true" >> "$GITHUB_OUTPUT"
           else
@@ -334,13 +335,13 @@ jobs:
               "sourceRepository": "${{ github.repository }}"
             }
 
-  # ── Trigger GitOps promotion in soap-k8s-nonprod ──
-  # Fires `repository_dispatch` to soap-k8s-nonprod (the App-of-Apps
-  # source repo). The receiver workflow there (.github/workflows/
-  # promote-to-staging.yml) yq-bumps:
-  #   - envs/staging/apps/moatless-vibe/values-version.yaml (4 image tags
-  #     + chartVersion), via the `imageTagPaths[]` payload field
-  #   - argocd/applications/moatless-vibe-staging.yaml (targetRevision)
+  # ── Trigger GitOps promotion in soap-platform-gitops ──
+  # Fires `repository_dispatch` to soap-platform-gitops (the ArgoCD
+  # ApplicationSet source repo). The receiver workflow there
+  # (.github/workflows/promote-to-gitops.yml) yq-bumps:
+  #   - apps/moatless-vibe/Chart.yaml (dependencies[0].version)
+  #   - apps/moatless-vibe/values-nonprod.yaml (image tags, prefixed with
+  #     `.moatless` per the umbrella subchart key in `umbrellaKey`)
   # …and opens an auto-merged PR (`autoMerge: true`). On merge, ArgoCD
   # picks up the new chart version within ~30 s and rolls out.
   #
@@ -351,7 +352,7 @@ jobs:
   #
   # Requires the GITOPS_PAT repo secret: a fine-scoped PAT with
   # contents:write + actions:write + pull-requests:write on
-  # soaplabs/soap-k8s-nonprod only.
+  # soaplabs/soap-platform-gitops only.
   trigger-promotion:
     needs:
       - setup
@@ -366,7 +367,7 @@ jobs:
         uses: peter-evans/repository-dispatch@v3
         with:
           token: ${{ secrets.GITOPS_PAT }}
-          repository: soaplabs/soap-k8s-nonprod
+          repository: soaplabs/soap-platform-gitops
           event-type: promote-to-staging
           client-payload: |
             {
@@ -379,6 +380,7 @@ jobs:
               "fullSha": "${{ github.sha }}",
               "chartVersion": "${{ needs.setup.outputs.chart-version }}",
               "autoMerge": true,
+              "umbrellaKey": "moatless",
               "imageTagPaths": [
                 ".image.tag",
                 ".backend.image.tag",
