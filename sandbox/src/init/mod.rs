@@ -133,10 +133,28 @@ pub async fn run_init(state: SandboxState) {
 
     info!(task_id = %state.config.task_id, "Core init complete — health is now ready");
 
-    // Auto-resume any agent run that was interrupted by a prior pod restart.
-    // Must run before `dispatch_pending_messages` so the recovery turn lands
-    // in `queued_sends` ahead of any newly arrived messages, preserving order.
-    recover_interrupted_run(&state).await;
+    // Fetch pending messages first so a new user message supersedes any
+    // interrupted-turn replay. When pending messages exist we skip recovery and
+    // let the dispatcher resume the prior session via `--resume <session_id>`
+    // with the new user text as the prompt. When none exist we fall back to
+    // replaying the interrupted turn.
+    let task_id = state.config.task_id.clone();
+    let has_pending_messages = match state.backend_client.get_pending_messages(&task_id).await {
+        Ok(msgs) => !msgs.is_empty(),
+        Err(e) => {
+            warn!(error = %e, task_id = %task_id, "Failed to probe pending messages on startup");
+            false
+        }
+    };
+
+    if has_pending_messages {
+        info!(
+            task_id = %task_id,
+            "Pending messages present on startup; skipping interrupted-run replay"
+        );
+    } else {
+        recover_interrupted_run(&state).await;
+    }
 
     // Fetch any messages that arrived during initialization.
     // Spawned (not awaited) so it doesn't block Phase 2 workspace setup.
@@ -179,7 +197,9 @@ pub async fn run_init(state: SandboxState) {
 }
 
 /// Detect any interrupted agent run via the backend RPC and queue a resume on
-/// the agent actor. Runs once on startup, before `dispatch_pending_messages`.
+/// the agent actor. Runs once on startup, **only when there are no new pending
+/// user messages** — a fresh message supersedes the interrupted turn and
+/// `dispatch_pending_messages` carries it forward instead.
 ///
 /// The backend handler does the heavy lifting (looks up the unfinished
 /// user-turn, increments `recovery_attempts`, publishes the
