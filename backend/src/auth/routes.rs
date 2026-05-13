@@ -47,6 +47,10 @@ pub struct OAuthProviders {
     pub github: Option<Arc<dyn OAuthProvider>>,
     pub github_app: Option<Arc<dyn OAuthProvider>>,
     pub auth0: Option<Arc<dyn OAuthProvider>>,
+    /// Linear workspace install. Not used for user login — issued tokens are
+    /// stored at the workspace level (`provider_tokens.team_id = <org uuid>`)
+    /// and consumed by the Linear Agents API client.
+    pub linear: Option<Arc<super::oauth::linear::LinearOAuthProvider>>,
 }
 
 impl OAuthProviders {
@@ -73,10 +77,15 @@ impl OAuthProviders {
             tracing::info!("Auth0 OAuth provider configured");
             Arc::new(p) as Arc<dyn OAuthProvider>
         });
+        let linear = super::oauth::linear::LinearOAuthProvider::from_config(config).map(|p| {
+            tracing::info!("Linear OAuth provider configured");
+            Arc::new(p)
+        });
         Self {
             github,
             github_app,
             auth0,
+            linear,
         }
     }
 
@@ -201,6 +210,11 @@ pub fn auth_router(state: AuthState) -> (axum::Router, utoipa::openapi::OpenApi)
         )
         .route("/api/v1/auth/auth0", get(auth0_init_handler))
         .route("/api/v1/auth/auth0/callback", get(auth0_callback_handler))
+        .route("/api/v1/auth/linear/install", get(linear_install_handler))
+        .route(
+            "/api/v1/auth/linear/callback",
+            get(linear_callback_handler),
+        )
         .route("/api/v1/auth/logout", get(logout_get_handler))
         .with_state(state);
 
@@ -1474,4 +1488,176 @@ async fn resolve_team_ids_on_login(
     }
 
     team_ids
+}
+
+// ============================================================================
+// Linear workspace OAuth install
+// ============================================================================
+
+/// Initiate the Linear workspace install flow.
+///
+/// Returns 302 to Linear's authorization URL with `actor=app` and the
+/// workspace agent scopes. Sets an `oauth_state` cookie for CSRF.
+/// Returns 503 when Linear OAuth credentials aren't configured.
+async fn linear_install_handler(
+    State(state): State<AuthState>,
+) -> Result<Response, AuthError> {
+    let Some(provider) = state.providers.linear.as_ref() else {
+        return Err(AuthError::Config(
+            "Linear OAuth not configured (set LINEAR_OAUTH_CLIENT_ID, \
+             LINEAR_OAUTH_CLIENT_SECRET, LINEAR_OAUTH_CALLBACK_URL)"
+                .into(),
+        ));
+    };
+
+    let csrf_state = generate_csrf_state();
+    let auth_url = provider.generate_auth_url(&csrf_state).ok_or_else(|| {
+        AuthError::Config("Failed to generate Linear OAuth URL".to_string())
+    })?;
+
+    let state_cookie = cookie::build_oauth_state_cookie(&state.config, &csrf_state);
+    let mut headers = HeaderMap::new();
+    if let Ok(v) = state_cookie.parse() {
+        headers.insert(header::SET_COOKIE, v);
+    }
+
+    Ok((
+        StatusCode::FOUND,
+        headers,
+        [("Location", auth_url.as_str())],
+    )
+        .into_response())
+}
+
+/// Handle the Linear workspace install callback.
+///
+/// 1. CSRF check via cookie.
+/// 2. Exchange code → workspace token (form-encoded).
+/// 3. Fetch viewer + organization to identify the agent + workspace.
+/// 4. Upsert `integration_connections(provider="linear", external_account_id=org_id)`.
+/// 5. Upsert `provider_tokens(team_id=org_id, provider="linear")`.
+async fn linear_callback_handler(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    axum::extract::Query(query): axum::extract::Query<super::schemas::OAuthCallbackQuery>,
+) -> Result<Response, AuthError> {
+    let provider = state.providers.linear.as_ref().ok_or_else(|| {
+        AuthError::Config("Linear OAuth not configured".into())
+    })?;
+
+    let stored_state = cookie::get_cookie_value(&headers, "oauth_state");
+    match (stored_state.as_deref(), query.state.as_deref()) {
+        (Some(stored), Some(qs)) if stored == qs => { /* CSRF check passed */ }
+        _ => {
+            warn!("Linear OAuth state mismatch or missing — possible CSRF attack");
+            return Err(AuthError::InvalidState);
+        }
+    }
+
+    let tokens = provider.exchange_code_for_tokens(&query.code).await?;
+    let identity = provider
+        .fetch_install_identity(&tokens.access_token)
+        .await?;
+
+    // Upsert the workspace-level integration_connections row.
+    use crate::adapters::dao::PgAdapterConnectionRepository;
+    use crate::adapters::models::AdapterConnection;
+    let conn_repo = PgAdapterConnectionRepository(state.db.clone());
+
+    let now = chrono::Utc::now();
+    let transport_config = serde_json::json!({
+        "source": "oauth",
+        "agent_viewer_id": identity.agent_viewer_id,
+        "agent_viewer_name": identity.agent_viewer_name,
+        "organization_name": identity.organization_name,
+    });
+
+    let existing = conn_repo
+        .find_by_external_account("linear", &identity.organization_id)
+        .await
+        .map_err(AuthError::Database)?;
+
+    let connection_row = AdapterConnection {
+        id: existing
+            .as_ref()
+            .map_or_else(|| format!("pc_{}", uuid::Uuid::new_v4()), |c| c.id.clone()),
+        provider: "linear".to_string(),
+        connection_kind: "workspace".to_string(),
+        scope_value: identity.organization_id.clone(),
+        credential_ref: None,
+        webhook_secret: existing.as_ref().and_then(|c| c.webhook_secret.clone()),
+        transport_config,
+        created_by: existing
+            .as_ref()
+            .map_or_else(|| "system".to_string(), |c| c.created_by.clone()),
+        scope: existing
+            .as_ref()
+            .map_or(crate::scope::Scope::Global, |c| c.scope),
+        team_id: existing.as_ref().and_then(|c| c.team_id.clone()),
+        owner_user_id: existing.as_ref().and_then(|c| c.owner_user_id.clone()),
+        created_at: existing.as_ref().map_or(now, |c| c.created_at),
+        updated_at: now,
+    };
+    conn_repo
+        .upsert(&connection_row)
+        .await
+        .map_err(AuthError::Database)?;
+
+    // Upsert the workspace token row.
+    let expires_at = tokens
+        .expires_in
+        .map(|secs| now + chrono::Duration::seconds(secs as i64));
+    let metadata = serde_json::json!({
+        "agent_viewer_id": identity.agent_viewer_id,
+        "agent_viewer_name": identity.agent_viewer_name,
+        "agent_viewer_email": identity.agent_viewer_email,
+        "scope": tokens.scope,
+    });
+    state
+        .provider_tokens_dao
+        .upsert_team_token(
+            &identity.organization_id,
+            "linear",
+            &tokens.access_token,
+            tokens.refresh_token.as_deref(),
+            Some(tokens.token_type.as_str()),
+            Some(&metadata),
+        )
+        .await
+        .map_err(AuthError::Database)?;
+
+    if let Some(expires) = expires_at {
+        sqlx::query(
+            "UPDATE provider_tokens SET expires_at = $1 \
+             WHERE team_id = $2 AND provider = 'linear' AND user_id IS NULL",
+        )
+        .bind(expires)
+        .bind(&identity.organization_id)
+        .execute(&state.db)
+        .await
+        .map_err(AuthError::Database)?;
+    }
+
+    info!(
+        org_id = %identity.organization_id,
+        agent_id = %identity.agent_viewer_id,
+        "Linear workspace installed"
+    );
+
+    let clear_state_cookie = cookie::build_clear_oauth_state_cookie(&state.config);
+    let mut resp_headers = HeaderMap::new();
+    if let Ok(v) = clear_state_cookie.parse() {
+        resp_headers.append(header::SET_COOKIE, v);
+    }
+    let redirect = format!(
+        "{}?linear_installed={}",
+        state.config.auth.frontend_url,
+        urlencoding::encode(&identity.organization_id)
+    );
+    Ok((
+        StatusCode::FOUND,
+        resp_headers,
+        [("Location", redirect.as_str())],
+    )
+        .into_response())
 }

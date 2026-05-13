@@ -410,8 +410,12 @@ impl fmt::Debug for GithubPrConfig {
 pub struct LinearConfig {
     /// Global webhook secret for verifying Linear webhook signatures.
     pub webhook_secret: Option<String>,
-    /// Global Linear API token used to comment back on issues.
-    pub api_token: Option<String>,
+    /// OAuth client_id from the Linear OAuth2 app registration.
+    pub oauth_client_id: Option<String>,
+    /// OAuth client_secret from the Linear OAuth2 app registration.
+    pub oauth_client_secret: Option<String>,
+    /// OAuth redirect_uri registered on the Linear OAuth2 app.
+    pub oauth_callback_url: Option<String>,
 }
 
 #[allow(clippy::missing_fields_in_debug)]
@@ -422,7 +426,12 @@ impl fmt::Debug for LinearConfig {
                 "webhook_secret",
                 &self.webhook_secret.as_ref().map(|_| "[REDACTED]"),
             )
-            .field("api_token", &self.api_token.as_ref().map(|_| "[REDACTED]"))
+            .field("oauth_client_id", &self.oauth_client_id)
+            .field(
+                "oauth_client_secret",
+                &self.oauth_client_secret.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field("oauth_callback_url", &self.oauth_callback_url)
             .finish()
     }
 }
@@ -703,7 +712,9 @@ impl Config {
 
             linear: LinearConfig {
                 webhook_secret: env_opt("LINEAR_CHANNEL_WEBHOOK_SECRET"),
-                api_token: env_opt("LINEAR_CHANNEL_TOKEN"),
+                oauth_client_id: env_opt("LINEAR_OAUTH_CLIENT_ID"),
+                oauth_client_secret: env_opt("LINEAR_OAUTH_CLIENT_SECRET"),
+                oauth_callback_url: env_opt("LINEAR_OAUTH_CALLBACK_URL"),
             },
 
             skill: SkillConfig {
@@ -1046,7 +1057,9 @@ mod tests {
             },
             linear: LinearConfig {
                 webhook_secret: None,
-                api_token: None,
+                oauth_client_id: None,
+                oauth_client_secret: None,
+                oauth_callback_url: None,
             },
             skill: SkillConfig { cache_ttl_secs: 60 },
             secrets: SecretsConfig {

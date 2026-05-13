@@ -24,6 +24,17 @@ pub enum AdaptersAction {
     },
     /// List supported adapters configured on the backend
     List,
+    /// Launch the OAuth install flow for an adapter.
+    ///
+    /// Builds the backend install URL and opens it in your browser
+    /// (use `--print` to copy/paste instead). Currently supports `linear`.
+    Install {
+        #[arg(long)]
+        adapter: String,
+        /// Print the install URL instead of trying to open it in a browser.
+        #[arg(long, default_value_t = false)]
+        print: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -243,7 +254,33 @@ pub async fn run_adapters(
             }
             Ok(())
         }
+        AdaptersAction::Install { adapter, print } => run_install(client, &adapter, print),
     }
+}
+
+fn run_install(client: &MoatClient, adapter: &str, print_only: bool) -> Result<(), ClientError> {
+    let kind = parse_adapter_kind(adapter)?;
+    let path = match kind {
+        AdapterKind::Linear => "/api/v1/auth/linear/install",
+        other => {
+            return Err(ClientError::Other(format!(
+                "Install flow not supported for adapter '{}'",
+                other.as_str()
+            )));
+        }
+    };
+    let url = format!("{}{path}", client.base_url().trim_end_matches('/'));
+    if print_only {
+        println!("{url}");
+        return Ok(());
+    }
+    println!("Opening {url} in your browser…");
+    if let Err(e) = open::that(&url) {
+        println!(
+            "Could not open browser automatically ({e}). Visit this URL manually:\n  {url}"
+        );
+    }
+    Ok(())
 }
 
 async fn run_connections(

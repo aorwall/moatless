@@ -1,9 +1,11 @@
-//! Linear adapter — maps workspaces to adapter connections, teams to
-//! task triggers (multiple per team allowed), issues to task bindings.
+//! Linear adapter — Agents-first integration (mention / assignment driven
+//! `AgentSessionEvent` webhooks). Maps Linear workspaces to integration
+//! connections and sessions to task bindings.
 
 pub mod adapter;
-pub mod api;
+pub mod agent_api;
+pub mod agent_runtime;
 pub mod config;
 pub mod handlers;
-pub mod runtime;
 pub mod signature;
+pub mod webhook_payloads;

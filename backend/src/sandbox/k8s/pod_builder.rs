@@ -728,7 +728,9 @@ mod tests {
             },
             linear: crate::config::LinearConfig {
                 webhook_secret: None,
-                api_token: None,
+                oauth_client_id: None,
+                oauth_client_secret: None,
+                oauth_callback_url: None,
             },
             skill: crate::config::SkillConfig { cache_ttl_secs: 60 },
             secrets: crate::config::SecretsConfig {

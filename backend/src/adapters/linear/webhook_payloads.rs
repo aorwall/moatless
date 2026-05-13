@@ -1,0 +1,302 @@
+//! Deserialization structs for Linear webhooks.
+//!
+//! Covers two payload kinds:
+//! - `AgentSessionEvent`: emitted on `@mention` of the agent or on assignment
+//!   to the agent (sub-actions `created` / `prompted`). Carries
+//!   `agentSession` (with optional `comment` for mentions) and `agentActivity`
+//!   (the prompt body).
+//! - `Issue`: classic Linear issue events (action `create` / `update`). We
+//!   only care about `update` events to wake parked sessions on state change
+//!   and to close active tasks on terminal state entry.
+//!
+//! Reference: <https://linear.app/developers/agents>
+
+use serde::Deserialize;
+
+// =============================================================================
+// Envelope
+// =============================================================================
+
+/// Top-level Linear webhook envelope. Many fields are common across payload
+/// types; only the most-relevant pieces are parsed eagerly here. Payload-
+/// specific fields are deserialised on demand from `data` / `agentSession` /
+/// `agentActivity`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct LinearWebhookEnvelope {
+    /// `"create"` | `"update"` | `"remove"` for Issue payloads.
+    /// `"created"` | `"prompted"` for AgentSessionEvent payloads.
+    #[serde(default)]
+    pub action: String,
+
+    /// `"Issue"` | `"Comment"` | `"AgentSessionEvent"` | …
+    #[serde(rename = "type", default)]
+    pub event_type: String,
+
+    /// Workspace identifier — used to route webhooks to the right
+    /// integration_connections row.
+    #[serde(default, rename = "organizationId")]
+    pub organization_id: Option<String>,
+
+    /// Webhook delivery id — keyed for 5-minute dedup.
+    #[serde(default, rename = "webhookId")]
+    pub webhook_id: Option<String>,
+
+    /// Issue payloads embed the issue here.
+    #[serde(default)]
+    pub data: Option<serde_json::Value>,
+
+    /// Captured for state-change diffing on `Issue.update`.
+    #[serde(default, rename = "updatedFrom")]
+    pub updated_from: Option<serde_json::Value>,
+
+    /// Actor who triggered the event (best-effort; many payloads omit it).
+    #[serde(default)]
+    pub actor: Option<LinearActor>,
+
+    // ---- AgentSessionEvent-only ----
+    /// Session metadata. Present on `AgentSessionEvent`.
+    #[serde(default, rename = "agentSession")]
+    pub agent_session: Option<AgentSession>,
+
+    /// Prompt body. Present on `AgentSessionEvent.prompted`.
+    #[serde(default, rename = "agentActivity")]
+    pub agent_activity: Option<AgentActivityPayload>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct LinearActor {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub email: Option<String>,
+}
+
+// =============================================================================
+// AgentSessionEvent
+// =============================================================================
+
+/// Linear `AgentSession` snapshot delivered with `AgentSessionEvent` payloads.
+#[derive(Debug, Clone, Deserialize)]
+pub struct AgentSession {
+    pub id: String,
+
+    /// Linear issue this session is attached to.
+    #[serde(default)]
+    pub issue: Option<AgentSessionIssue>,
+
+    /// Comment that triggered the session (mention). When `None` and the
+    /// session was created, this is an assignment-initiated session.
+    #[serde(default)]
+    pub comment: Option<AgentSessionComment>,
+
+    /// Workspace user who created the session.
+    #[serde(default, rename = "creator")]
+    pub creator: Option<LinearActor>,
+
+    /// Inbound prompt context the webhook carries — a pre-built XML blob with
+    /// surrounding issue context. When present, we forward it verbatim to the
+    /// agent instead of doing a `fetch_context` round-trip.
+    #[serde(default, rename = "promptContext")]
+    pub prompt_context: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AgentSessionIssue {
+    pub id: String,
+    #[serde(default)]
+    pub identifier: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default, rename = "teamId")]
+    pub team_id: Option<String>,
+    #[serde(default)]
+    pub team: Option<LinearTeamRef>,
+    #[serde(default)]
+    pub state: Option<LinearWorkflowState>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct LinearTeamRef {
+    pub id: String,
+    #[serde(default)]
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct LinearWorkflowState {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    /// `"unstarted"`, `"started"`, `"completed"`, `"canceled"`, etc.
+    #[serde(default, rename = "type")]
+    pub kind: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AgentSessionComment {
+    pub id: String,
+    #[serde(default)]
+    pub body: String,
+    #[serde(default)]
+    pub user: Option<LinearActor>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AgentActivityPayload {
+    pub id: String,
+    /// `prompt` | `response` | `thought` | `elicitation` | `action` | `error`.
+    #[serde(default, rename = "type")]
+    pub kind: String,
+    #[serde(default)]
+    pub body: String,
+}
+
+// =============================================================================
+// Classic Issue payload (slim — we only need state + identity for wake/close)
+// =============================================================================
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct IssuePayload {
+    pub id: String,
+    #[serde(default)]
+    pub identifier: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default, rename = "teamId")]
+    pub team_id: Option<String>,
+    #[serde(default)]
+    pub team: Option<LinearTeamRef>,
+    #[serde(default)]
+    pub state: Option<LinearWorkflowState>,
+}
+
+impl IssuePayload {
+    /// Resolve the team uuid from either `teamId` or the nested `team.id`.
+    pub fn resolved_team_id(&self) -> Option<&str> {
+        if let Some(id) = self.team_id.as_deref() {
+            return Some(id);
+        }
+        self.team.as_ref().map(|t| t.id.as_str())
+    }
+
+    /// Resolve the state name (empty string when missing).
+    pub fn state_name(&self) -> &str {
+        self.state.as_ref().map_or("", |s| s.name.as_str())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_agent_session_created_with_mention() {
+        let raw = serde_json::json!({
+            "action": "created",
+            "type": "AgentSessionEvent",
+            "organizationId": "org-uuid",
+            "webhookId": "wh-1",
+            "agentSession": {
+                "id": "session-1",
+                "issue": {
+                    "id": "issue-1",
+                    "identifier": "ENG-1",
+                    "title": "Bug",
+                    "teamId": "team-1",
+                    "state": {"id": "st-1", "name": "Todo", "type": "unstarted"},
+                    "url": "https://linear.app/acme/issue/ENG-1"
+                },
+                "comment": {
+                    "id": "comment-1",
+                    "body": "@agent please investigate",
+                    "user": {"id": "user-1", "name": "Alice"}
+                },
+                "promptContext": "<context></context>"
+            }
+        });
+        let env: LinearWebhookEnvelope = serde_json::from_value(raw).expect("parse");
+        assert_eq!(env.event_type, "AgentSessionEvent");
+        assert_eq!(env.action, "created");
+        let session = env.agent_session.expect("session present");
+        assert_eq!(session.id, "session-1");
+        let comment = session.comment.expect("comment present");
+        assert_eq!(comment.body, "@agent please investigate");
+        let issue = session.issue.expect("issue present");
+        assert_eq!(issue.identifier, "ENG-1");
+        assert_eq!(issue.state.expect("state").name, "Todo");
+    }
+
+    #[test]
+    fn parses_agent_session_created_from_assignment() {
+        let raw = serde_json::json!({
+            "action": "created",
+            "type": "AgentSessionEvent",
+            "organizationId": "org-uuid",
+            "agentSession": {
+                "id": "session-2",
+                "issue": {
+                    "id": "issue-2",
+                    "identifier": "ENG-2",
+                    "title": "Feature",
+                    "teamId": "team-1",
+                    "state": {"id": "st-2", "name": "Backlog", "type": "backlog"}
+                }
+            }
+        });
+        let env: LinearWebhookEnvelope = serde_json::from_value(raw).expect("parse");
+        let session = env.agent_session.expect("session present");
+        assert!(session.comment.is_none(), "assignment-initiated session has no comment");
+    }
+
+    #[test]
+    fn parses_agent_session_prompted() {
+        let raw = serde_json::json!({
+            "action": "prompted",
+            "type": "AgentSessionEvent",
+            "organizationId": "org-uuid",
+            "agentSession": {"id": "session-3"},
+            "agentActivity": {
+                "id": "act-1",
+                "type": "prompt",
+                "body": "follow up message"
+            }
+        });
+        let env: LinearWebhookEnvelope = serde_json::from_value(raw).expect("parse");
+        assert_eq!(env.action, "prompted");
+        let activity = env.agent_activity.expect("activity present");
+        assert_eq!(activity.kind, "prompt");
+        assert_eq!(activity.body, "follow up message");
+    }
+
+    #[test]
+    fn parses_issue_update_with_state_change() {
+        let raw = serde_json::json!({
+            "action": "update",
+            "type": "Issue",
+            "organizationId": "org-uuid",
+            "updatedFrom": {"stateId": "st-old"},
+            "data": {
+                "id": "issue-3",
+                "identifier": "ENG-3",
+                "title": "Refactor",
+                "teamId": "team-1",
+                "state": {"id": "st-new", "name": "In Progress", "type": "started"}
+            }
+        });
+        let env: LinearWebhookEnvelope = serde_json::from_value(raw).expect("parse");
+        assert_eq!(env.event_type, "Issue");
+        let data = env.data.expect("data present");
+        let issue: IssuePayload = serde_json::from_value(data).expect("parse issue");
+        assert_eq!(issue.resolved_team_id(), Some("team-1"));
+        assert_eq!(issue.state_name(), "In Progress");
+    }
+}

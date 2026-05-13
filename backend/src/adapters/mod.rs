@@ -423,12 +423,14 @@ impl Adapters {
             tracing::info!("GitHub PR adapter configured");
         }
 
-        // Linear provider (always available — per-team auth resolves via
-        // provider_tokens; env-level token is the fallback)
+        // Linear adapter — workspace tokens come from the OAuth install
+        // flow (provider_tokens, team_id=<linear org uuid>). OAuth client
+        // credentials are needed to refresh expired access tokens.
         {
             let linear = self::linear::adapter::LinearAdapter::new(
                 config.linear.webhook_secret.clone(),
-                config.linear.api_token.clone(),
+                config.linear.oauth_client_id.clone(),
+                config.linear.oauth_client_secret.clone(),
                 db,
             );
             providers.register(Arc::new(linear));
