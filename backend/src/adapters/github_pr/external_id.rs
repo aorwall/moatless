@@ -41,6 +41,24 @@ pub fn check_suite(id: u64) -> String {
     format!("github:cs:{id}")
 }
 
+/// Kind + numeric id of a GitHub comment reaction target.
+pub enum CommentTarget {
+    Issue(u64),
+    Review(u64),
+}
+
+/// Parse an external id into a comment kind + id usable by the reactions API.
+/// Only `github:ic:<id>` and `github:rc:<id>` are valid reaction targets.
+pub fn comment_target_from_id(external_id: &str) -> Option<CommentTarget> {
+    if let Some(rest) = external_id.strip_prefix("github:ic:") {
+        return rest.parse::<u64>().ok().map(CommentTarget::Issue);
+    }
+    if let Some(rest) = external_id.strip_prefix("github:rc:") {
+        return rest.parse::<u64>().ok().map(CommentTarget::Review);
+    }
+    None
+}
+
 pub fn aliases(external_id: &str) -> Vec<String> {
     let tail = external_id.rsplit(':').next().unwrap_or("");
     if tail.is_empty() || !tail.chars().all(|c| c.is_ascii_digit()) {
@@ -95,6 +113,21 @@ mod tests {
             aliases("github:rc:99"),
             vec!["github:rc:99".to_string(), "99".to_string()]
         );
+    }
+
+    #[test]
+    fn comment_target_parses_issue_and_review_ids() {
+        assert!(matches!(
+            comment_target_from_id("github:ic:42"),
+            Some(CommentTarget::Issue(42))
+        ));
+        assert!(matches!(
+            comment_target_from_id("github:rc:99"),
+            Some(CommentTarget::Review(99))
+        ));
+        assert!(comment_target_from_id("github:pr:opened:7").is_none());
+        assert!(comment_target_from_id("github:ic:abc").is_none());
+        assert!(comment_target_from_id("nonsense").is_none());
     }
 
     #[test]

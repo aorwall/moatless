@@ -67,6 +67,10 @@ pub trait MessageRepository: Send + Sync {
         content_blocks: &[TaskMessageContentBlock],
     ) -> Result<i32, sqlx::Error>;
 
+    /// Look up a single message by its public uuid. Returns `None` when no
+    /// row matches.
+    async fn find_by_uuid(&self, uuid: &str) -> Result<Option<TaskMessage>, sqlx::Error>;
+
     async fn get_pending_user(&self, task_id: &str) -> Result<Vec<TaskMessage>, sqlx::Error>;
     async fn get_last_result(&self, task_id: &str) -> Result<Option<TaskMessage>, sqlx::Error>;
     async fn get_last_user_message(
@@ -371,6 +375,13 @@ impl MessageRepository for PgMessageRepository {
 
         tx.commit().await?;
         Ok(message_id)
+    }
+
+    async fn find_by_uuid(&self, uuid: &str) -> Result<Option<TaskMessage>, sqlx::Error> {
+        sqlx::query_as::<_, TaskMessage>(r#"SELECT * FROM task_messages WHERE uuid = $1"#)
+            .bind(uuid)
+            .fetch_optional(&self.0)
+            .await
     }
 
     async fn get_pending_user(&self, task_id: &str) -> Result<Vec<TaskMessage>, sqlx::Error> {

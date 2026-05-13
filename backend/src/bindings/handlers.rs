@@ -4,6 +4,7 @@ use chrono::Utc;
 use moatless_api_schemas::bindings::{
     CreateTaskBindingRequest, SendTaskReplyRequest, SendTaskReplyResponse, TaskBindingResponse,
 };
+use moatless_api_schemas::message::{AddMessageReactionRequest, MessageReactionResponse};
 
 use crate::adapters::common::{
     ensure_task_access, load_adapter_connection_for_auth, load_trigger_for_auth,
@@ -14,6 +15,7 @@ use crate::adapters::models::TaskBinding;
 use crate::bindings::dao::PgTaskBindingRepository;
 use crate::bindings::reply::ReplyService;
 use crate::extractors::AuthUser;
+use crate::scope::ScopeContext;
 use crate::state::AppState;
 
 #[utoipa::path(
@@ -127,4 +129,114 @@ pub async fn send_task_reply(
         )
         .await?;
     Ok(Json(response))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/messages/{message_id}/reactions",
+    tag = "task-bindings",
+    request_body = AddMessageReactionRequest,
+    responses(
+        (status = 200, description = "Reaction added", body = MessageReactionResponse),
+        (status = 400, description = "Bad request", body = crate::error::ErrorBody),
+        (status = 404, description = "Not found", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn add_message_reaction(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(message_id): Path<String>,
+    Json(req): Json<AddMessageReactionRequest>,
+) -> Result<Json<MessageReactionResponse>, AdapterError> {
+    let ctx = auth.scope_context();
+    let (binding, ext_id, provider_key) =
+        resolve_reaction_target(&state, &ctx, &message_id).await?;
+    let providers = state
+        .adapters
+        .as_ref()
+        .ok_or_else(|| AdapterError::AdapterNotConfigured("No adapters configured".into()))?;
+    let adapter = providers
+        .get_by_name(&provider_key)
+        .ok_or_else(|| AdapterError::BadRequest(format!("Unknown adapter `{provider_key}`")))?;
+    let binding_ctx = crate::bindings::runtime::binding_context(&binding);
+    let external_id = adapter.add_reaction(&binding_ctx, &ext_id, &req.emoji).await?;
+    Ok(Json(MessageReactionResponse {
+        ok: true,
+        external_id,
+    }))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/v1/messages/{message_id}/reactions/{emoji}",
+    tag = "task-bindings",
+    responses(
+        (status = 200, description = "Reaction removed", body = MessageReactionResponse),
+        (status = 400, description = "Bad request", body = crate::error::ErrorBody),
+        (status = 404, description = "Not found", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn remove_message_reaction(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path((message_id, emoji)): Path<(String, String)>,
+) -> Result<Json<MessageReactionResponse>, AdapterError> {
+    let ctx = auth.scope_context();
+    let (binding, ext_id, provider_key) =
+        resolve_reaction_target(&state, &ctx, &message_id).await?;
+    let providers = state
+        .adapters
+        .as_ref()
+        .ok_or_else(|| AdapterError::AdapterNotConfigured("No adapters configured".into()))?;
+    let adapter = providers
+        .get_by_name(&provider_key)
+        .ok_or_else(|| AdapterError::BadRequest(format!("Unknown adapter `{provider_key}`")))?;
+    let binding_ctx = crate::bindings::runtime::binding_context(&binding);
+    adapter.remove_reaction(&binding_ctx, &ext_id, &emoji).await?;
+    Ok(Json(MessageReactionResponse {
+        ok: true,
+        external_id: None,
+    }))
+}
+
+/// Resolve a message id into the adapter context needed for reaction calls:
+/// the task binding, the message's external id, and the provider key.
+async fn resolve_reaction_target(
+    state: &AppState,
+    ctx: &ScopeContext,
+    message_id: &str,
+) -> Result<(TaskBinding, String, String), AdapterError> {
+    let msg = state
+        .messages
+        .find_by_uuid(message_id)
+        .await?
+        .ok_or_else(|| AdapterError::NotFound(format!("message {message_id}")))?;
+    ensure_task_access(state, ctx, &msg.task_id).await?;
+    let ext_id = msg
+        .external_event_id
+        .clone()
+        .ok_or_else(|| AdapterError::BadRequest("Message has no external_event_id".into()))?;
+    let provider_key = msg
+        .external_adapter
+        .clone()
+        .ok_or_else(|| AdapterError::BadRequest("Message has no external_adapter".into()))?;
+    let binding = load_binding_for_message_and_adapter(state, &msg.task_id, &provider_key).await?;
+    Ok((binding, ext_id, provider_key))
+}
+
+/// Look up a `TaskBinding` matching `(task_id, adapter_key)`. The adapter key
+/// is matched against `task_bindings.provider`.
+async fn load_binding_for_message_and_adapter(
+    state: &AppState,
+    task_id: &str,
+    adapter_key: &str,
+) -> Result<TaskBinding, AdapterError> {
+    let rows = PgTaskBindingRepository(state.db.clone())
+        .find_by_task_id(task_id)
+        .await?;
+    rows.into_iter()
+        .find(|b| b.provider == adapter_key)
+        .ok_or_else(|| {
+            AdapterError::NotFound(format!("No {adapter_key} binding for task {task_id}"))
+        })
 }

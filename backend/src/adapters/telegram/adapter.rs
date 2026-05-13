@@ -469,7 +469,65 @@ impl Adapter for TelegramAdapter {
         })
     }
 
+    async fn add_reaction(
+        &self,
+        binding: &BindingContext,
+        target_external_id: &str,
+        emoji: &str,
+    ) -> Result<Option<String>, AdapterError> {
+        let (chat_id, message_id) = parse_telegram_reaction_target(binding, target_external_id)?;
+        let trimmed = emoji.trim();
+        if trimmed.is_empty() {
+            return Err(AdapterError::BadRequest("Empty emoji".into()));
+        }
+        self.api
+            .set_message_reaction(&chat_id, message_id, Some(trimmed))
+            .await?;
+        Ok(None)
+    }
+
+    async fn remove_reaction(
+        &self,
+        binding: &BindingContext,
+        target_external_id: &str,
+        _emoji: &str,
+    ) -> Result<(), AdapterError> {
+        // Telegram's API is an idempotent set: clearing means setting an empty list.
+        // The `_emoji` argument is accepted for parity with other providers but
+        // ignored — Telegram replaces the bot's full reaction list either way.
+        let (chat_id, message_id) = parse_telegram_reaction_target(binding, target_external_id)?;
+        self.api
+            .set_message_reaction(&chat_id, message_id, None)
+            .await
+    }
+
     // fetch_context: default no-op (Bot API doesn't support fetching chat history)
+}
+
+/// Resolve the `(chat_id, message_id)` pair for a Telegram reaction call.
+///
+/// `target_external_id` carries the message id (`tg:m:<id>`); `chat_id` comes
+/// from the binding's `destination_config`.
+fn parse_telegram_reaction_target(
+    binding: &BindingContext,
+    target_external_id: &str,
+) -> Result<(String, i64), AdapterError> {
+    let message_id = super::external_id::message_id_from(target_external_id).ok_or_else(|| {
+        AdapterError::BadRequest(format!(
+            "Telegram reaction target `{target_external_id}` is not a tg:m:<id> id"
+        ))
+    })?;
+    let chat_id = binding
+        .destination_config
+        .get("chat_id")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| {
+            AdapterError::BadRequest(
+                "Telegram binding destination_config has no `chat_id` field".into(),
+            )
+        })?
+        .to_string();
+    Ok((chat_id, message_id))
 }
 
 /// Resolve the trigger source for a raw Telegram update and route it through

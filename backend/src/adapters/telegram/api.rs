@@ -242,6 +242,46 @@ impl TelegramApi {
         Ok(())
     }
 
+    /// Set (or clear) a reaction on a Telegram message via `setMessageReaction`.
+    ///
+    /// Telegram's API is an **idempotent set**, not an add/remove pair: it
+    /// replaces the entire reaction list. Passing `Some(emoji)` sets that
+    /// single reaction; passing `None` clears all of them.
+    pub async fn set_message_reaction(
+        &self,
+        chat_id: &str,
+        message_id: i64,
+        emoji: Option<&str>,
+    ) -> Result<(), AdapterError> {
+        let reaction = match emoji {
+            Some(e) => serde_json::json!([{ "type": "emoji", "emoji": e }]),
+            None => serde_json::json!([]),
+        };
+        let body = serde_json::json!({
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "reaction": reaction,
+        });
+        let resp = self
+            .client
+            .post(format!("{}/setMessageReaction", self.base_url))
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| {
+                AdapterError::AdapterApi(format!("Telegram setMessageReaction failed: {e}"))
+            })?;
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            warn!(status = %status, body = %text, "Telegram setMessageReaction error");
+            return Err(AdapterError::AdapterApi(format!(
+                "Telegram setMessageReaction returned {status}: {text}"
+            )));
+        }
+        Ok(())
+    }
+
     /// Get chat info (for validation/discovery).
     pub async fn get_chat(&self, chat_id: &str) -> Result<serde_json::Value, AdapterError> {
         let resp = self

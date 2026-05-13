@@ -101,6 +101,25 @@ impl LinearAdapter {
         )))
     }
 
+    /// Resolve a token for reactions: prefer the binding's `filter_user_id`,
+    /// then global env. Distinct from `resolve_token_for_user` which always
+    /// requires a user id.
+    pub(crate) async fn resolve_reaction_token(
+        &self,
+        user_id: &str,
+    ) -> Result<String, AdapterError> {
+        if !user_id.is_empty() {
+            return self.resolve_token_for_user(user_id).await;
+        }
+        self.global_api_token.clone().ok_or_else(|| {
+            AdapterError::AdapterApi(
+                "No Linear token available for reactions: binding has no filter_user_id and \
+                 LINEAR_CHANNEL_TOKEN env is not set"
+                    .into(),
+            )
+        })
+    }
+
     /// Mark a `webhookId` as processed; returns `true` if this is the first
     /// time we see it (caller should proceed), or `false` if it's a dup.
     pub(crate) async fn mark_seen(&self, webhook_id: &str) -> bool {
@@ -591,6 +610,81 @@ impl Adapter for LinearAdapter {
     fn thread_reply_hint(&self, _msg: &InboundMessage) -> Option<String> {
         Some("[New comment on Linear issue]".to_string())
     }
+
+    async fn add_reaction(
+        &self,
+        binding: &BindingContext,
+        target_external_id: &str,
+        emoji: &str,
+    ) -> Result<Option<String>, AdapterError> {
+        let comment_id = parse_linear_comment_id(target_external_id)?;
+        let emoji = normalize_linear_emoji(emoji)?;
+        let user_id = binding
+            .destination_config
+            .get("filter_user_id")
+            .or_else(|| binding.metadata.get("filter_user_id"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        let token = self.resolve_reaction_token(user_id).await?;
+        let api = LinearApi::new(&token);
+        let id = api.comment_reaction_create(comment_id, emoji).await?;
+        Ok(Some(id))
+    }
+
+    async fn remove_reaction(
+        &self,
+        binding: &BindingContext,
+        target_external_id: &str,
+        emoji: &str,
+    ) -> Result<(), AdapterError> {
+        let comment_id = parse_linear_comment_id(target_external_id)?;
+        let emoji = normalize_linear_emoji(emoji)?;
+        let user_id = binding
+            .destination_config
+            .get("filter_user_id")
+            .or_else(|| binding.metadata.get("filter_user_id"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        let token = self.resolve_reaction_token(user_id).await?;
+        let api = LinearApi::new(&token);
+        let viewer = api.viewer().await?;
+        let reactions = api.list_comment_reactions(comment_id).await?;
+        let target = reactions
+            .into_iter()
+            .find(|r| {
+                r.emoji == emoji
+                    && r.user.as_ref().is_some_and(|u| u.id == viewer.id)
+            })
+            .ok_or_else(|| {
+                AdapterError::NotFound(format!(
+                    "Linear: no `{emoji}` reaction by viewer `{}` on comment {comment_id}",
+                    viewer.id
+                ))
+            })?;
+        api.reaction_delete(&target.id).await
+    }
+}
+
+/// Extract a Linear comment UUID from a `linear:comment:<uuid>` external id.
+fn parse_linear_comment_id(external_id: &str) -> Result<&str, AdapterError> {
+    external_id
+        .strip_prefix("linear:comment:")
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            AdapterError::BadRequest(format!(
+                "Linear reaction target `{external_id}` is not a linear:comment:<id> id"
+            ))
+        })
+}
+
+/// Strip leading/trailing `:` and fail on empty input. Linear accepts emoji
+/// shortcodes (e.g. `thumbsup`) directly.
+fn normalize_linear_emoji(emoji: &str) -> Result<&str, AdapterError> {
+    let trimmed = emoji.trim().trim_matches(':');
+    if trimmed.is_empty() {
+        return Err(AdapterError::BadRequest("Empty emoji name".into()));
+    }
+    Ok(trimmed)
 }
 
 /// Parse a Linear destination string into the issue identifier.

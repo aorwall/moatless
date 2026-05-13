@@ -499,6 +499,77 @@ impl SlackApi {
         Ok(channel.id)
     }
 
+    /// Add an emoji reaction to a Slack message.
+    ///
+    /// `name` is a bare reaction name (e.g. `thumbsup`, not `:thumbsup:`).
+    pub async fn add_reaction(
+        &self,
+        channel: &str,
+        name: &str,
+        timestamp: &str,
+    ) -> Result<(), AdapterError> {
+        self.reaction_op("reactions.add", channel, name, timestamp)
+            .await
+    }
+
+    /// Remove an emoji reaction from a Slack message.
+    pub async fn remove_reaction(
+        &self,
+        channel: &str,
+        name: &str,
+        timestamp: &str,
+    ) -> Result<(), AdapterError> {
+        self.reaction_op("reactions.remove", channel, name, timestamp)
+            .await
+    }
+
+    async fn reaction_op(
+        &self,
+        method: &str,
+        channel: &str,
+        name: &str,
+        timestamp: &str,
+    ) -> Result<(), AdapterError> {
+        let body = serde_json::json!({
+            "channel": channel,
+            "name": name,
+            "timestamp": timestamp,
+        });
+
+        let resp: SimpleOkResponse = self
+            .client
+            .post(format!("https://slack.com/api/{method}"))
+            .bearer_auth(&self.token)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| AdapterError::AdapterApi(format!("{method} failed: {e}")))?
+            .json()
+            .await
+            .map_err(|e| AdapterError::AdapterApi(format!("{method} parse failed: {e}")))?;
+
+        if !resp.ok {
+            let err = resp.error.unwrap_or_default();
+            // Slack signals "no-op" cases (already_reacted, no_reaction) we want
+            // to surface but not break the caller. Map them to a BadRequest so
+            // the user gets a clear message.
+            return Err(match err.as_str() {
+                "already_reacted" => AdapterError::BadRequest(
+                    "Slack: reaction already exists on this message".into(),
+                ),
+                "no_reaction" => AdapterError::BadRequest(
+                    "Slack: no matching reaction to remove on this message".into(),
+                ),
+                "invalid_name" => {
+                    AdapterError::BadRequest(format!("Slack: invalid reaction name `{name}`"))
+                }
+                _ => AdapterError::AdapterApi(format!("{method}: {err}")),
+            });
+        }
+
+        Ok(())
+    }
+
     /// Fetch info for a single Slack channel by ID.
     ///
     /// Returns `Ok(None)` when the API call fails (best-effort name resolution).
@@ -529,6 +600,12 @@ impl SlackApi {
             name: ch.name.unwrap_or_default(),
         }))
     }
+}
+
+#[derive(Deserialize)]
+struct SimpleOkResponse {
+    ok: bool,
+    error: Option<String>,
 }
 
 #[derive(Deserialize)]

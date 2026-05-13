@@ -601,6 +601,45 @@ fn parse_slack_destination(destination: &str) -> Result<(String, Option<String>)
     Ok((raw.to_string(), None))
 }
 
+/// Strip leading/trailing `:` characters and validate that the result is a
+/// non-empty Slack-compatible bare reaction name.
+///
+/// Slack expects bare names (`thumbsup`), not `:thumbsup:`. Returns
+/// `BadRequest` for empty input so the caller surfaces a clear error before
+/// hitting the API.
+fn normalize_slack_emoji(emoji: &str) -> Result<&str, AdapterError> {
+    let trimmed = emoji.trim().trim_matches(':');
+    if trimmed.is_empty() {
+        return Err(AdapterError::BadRequest("Empty emoji name".into()));
+    }
+    Ok(trimmed)
+}
+
+/// Resolve the `(channel, ts)` pair needed by Slack's reactions API from the
+/// target message's external id, falling back to the binding's
+/// `destination_config` for `channel`.
+fn parse_slack_reaction_target<'a>(
+    binding: &'a BindingContext,
+    target_external_id: &'a str,
+) -> Result<(String, &'a str), AdapterError> {
+    let ts = super::external_id::ts_from_message_id(target_external_id).ok_or_else(|| {
+        AdapterError::BadRequest(format!(
+            "Slack reaction target `{target_external_id}` is not a valid slack:ts:<ts> id"
+        ))
+    })?;
+    let channel = binding
+        .destination_config
+        .get("channel")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| {
+            AdapterError::BadRequest(
+                "Slack binding destination_config has no `channel` field".into(),
+            )
+        })?
+        .to_string();
+    Ok((channel, ts))
+}
+
 #[async_trait::async_trait]
 impl Adapter for SlackAdapter {
     fn adapter_kind(&self) -> AdapterKind {
@@ -914,6 +953,29 @@ impl Adapter for SlackAdapter {
                 "thread_ts": ts,
             }),
         })
+    }
+
+    async fn add_reaction(
+        &self,
+        binding: &BindingContext,
+        target_external_id: &str,
+        emoji: &str,
+    ) -> Result<Option<String>, AdapterError> {
+        let (channel, ts) = parse_slack_reaction_target(binding, target_external_id)?;
+        let name = normalize_slack_emoji(emoji)?;
+        self.api.add_reaction(&channel, name, ts).await?;
+        Ok(None)
+    }
+
+    async fn remove_reaction(
+        &self,
+        binding: &BindingContext,
+        target_external_id: &str,
+        emoji: &str,
+    ) -> Result<(), AdapterError> {
+        let (channel, ts) = parse_slack_reaction_target(binding, target_external_id)?;
+        let name = normalize_slack_emoji(emoji)?;
+        self.api.remove_reaction(&channel, name, ts).await
     }
 
     async fn fetch_context(

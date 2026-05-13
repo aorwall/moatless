@@ -8,6 +8,7 @@ pub mod k8s;
 pub mod messages;
 pub mod misc;
 pub mod plugins;
+pub mod react;
 pub mod repos;
 pub mod secrets;
 pub mod send;

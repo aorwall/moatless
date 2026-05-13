@@ -673,6 +673,29 @@ impl ApiClient {
             .await
     }
 
+    /// POST /api/v1/messages/{message_id}/reactions
+    pub async fn add_message_reaction(
+        &self,
+        message_id: &str,
+        req: &moatless_api_schemas::message::AddMessageReactionRequest,
+    ) -> Result<moatless_api_schemas::message::MessageReactionResponse, ApiError> {
+        self.post(&format!("/api/v1/messages/{message_id}/reactions"), req)
+            .await
+    }
+
+    /// DELETE /api/v1/messages/{message_id}/reactions/{emoji}
+    pub async fn remove_message_reaction(
+        &self,
+        message_id: &str,
+        emoji: &str,
+    ) -> Result<(), ApiError> {
+        self.delete_request(&format!(
+            "/api/v1/messages/{message_id}/reactions/{}",
+            urlenc(emoji)
+        ))
+        .await
+    }
+
     /// POST /api/v1/tasks/{task_id}/reply
     pub async fn send_task_reply(
         &self,

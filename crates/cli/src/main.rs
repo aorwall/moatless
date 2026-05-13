@@ -119,6 +119,9 @@ enum SharedCommands {
     /// Send a message — drive a task, reply to bindings, DM a user, or
     /// pass through an adapter destination (Slack channel/DM/thread, Linear issue, ...).
     Send(Box<commands::send::SendArgs>),
+    /// React to an existing adapter message with an emoji (Slack, GitHub PR,
+    /// Linear, Telegram).
+    React(Box<commands::react::ReactArgs>),
     /// Task template management
     Templates {
         #[command(subcommand)]
@@ -423,6 +426,9 @@ async fn run_shared(
         }
         SharedCommands::Send(args) => {
             commands::send::run(moat, *args, cfg, json).await?;
+        }
+        SharedCommands::React(args) => {
+            commands::react::run(moat, *args, cfg, json).await?;
         }
     }
 

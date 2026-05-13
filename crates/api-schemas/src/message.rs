@@ -311,3 +311,28 @@ pub struct SendMessageResponse {
     pub status: String,
     pub timestamp: String,
 }
+
+// =========================================================================
+// Reactions
+// =========================================================================
+
+/// Request body for POST /api/v1/messages/{message_id}/reactions.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct AddMessageReactionRequest {
+    /// Emoji name (e.g. "thumbsup", "+1", "rocket"). Platform-native names accepted.
+    pub emoji: String,
+}
+
+/// Response from reaction add/remove endpoints.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct MessageReactionResponse {
+    pub ok: bool,
+    /// Provider-specific reaction id, when the API returns one
+    /// (e.g. GitHub reaction id, Linear reaction UUID).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub external_id: Option<String>,
+}

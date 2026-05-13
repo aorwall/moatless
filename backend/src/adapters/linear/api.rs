@@ -46,6 +46,15 @@ pub struct IssueData {
     pub url: Option<String>,
 }
 
+/// A reaction on a Linear comment as returned by the GraphQL API.
+#[derive(Debug, Clone, Deserialize)]
+pub struct CommentReaction {
+    pub id: String,
+    pub emoji: String,
+    #[serde(default)]
+    pub user: Option<LinearUser>,
+}
+
 /// Authenticated bot identity (used at registration time for log lines).
 #[derive(Debug, Clone, Deserialize)]
 pub struct ViewerInfo {
@@ -149,6 +158,89 @@ impl LinearApi {
             })?;
 
         Ok(id.to_string())
+    }
+
+    /// Create a reaction on a Linear comment. Returns the new reaction id.
+    pub async fn comment_reaction_create(
+        &self,
+        comment_id: &str,
+        emoji: &str,
+    ) -> Result<String, AdapterError> {
+        let value = self
+            .graphql(serde_json::json!({
+                "query": "mutation($input: ReactionCreateInput!) { \
+                    reactionCreate(input: $input) { success reaction { id } } \
+                }",
+                "variables": {
+                    "input": {
+                        "commentId": comment_id,
+                        "emoji": emoji,
+                    }
+                }
+            }))
+            .await?;
+
+        let success = value
+            .pointer("/data/reactionCreate/success")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        if !success {
+            return Err(AdapterError::AdapterApi(
+                "Linear reactionCreate returned success=false".to_string(),
+            ));
+        }
+        let id = value
+            .pointer("/data/reactionCreate/reaction/id")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| {
+                AdapterError::AdapterApi("Linear reactionCreate missing reaction.id".to_string())
+            })?;
+        Ok(id.to_string())
+    }
+
+    /// Delete a Linear reaction by its id.
+    pub async fn reaction_delete(&self, reaction_id: &str) -> Result<(), AdapterError> {
+        let value = self
+            .graphql(serde_json::json!({
+                "query": "mutation($id: String!) { reactionDelete(id: $id) { success } }",
+                "variables": { "id": reaction_id }
+            }))
+            .await?;
+        let success = value
+            .pointer("/data/reactionDelete/success")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        if !success {
+            return Err(AdapterError::AdapterApi(
+                "Linear reactionDelete returned success=false".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// List reactions on a Linear comment. Returns id + user + emoji shortcode
+    /// so callers can find the one they want to delete.
+    pub async fn list_comment_reactions(
+        &self,
+        comment_id: &str,
+    ) -> Result<Vec<CommentReaction>, AdapterError> {
+        let value = self
+            .graphql(serde_json::json!({
+                "query": "query($id: String!) { \
+                    comment(id: $id) { \
+                        reactions { id emoji user { id name } } \
+                    } \
+                }",
+                "variables": { "id": comment_id }
+            }))
+            .await?;
+        let nodes = value
+            .pointer("/data/comment/reactions")
+            .cloned()
+            .unwrap_or_else(|| serde_json::Value::Array(vec![]));
+        serde_json::from_value(nodes).map_err(|e| {
+            AdapterError::AdapterApi(format!("Linear list_comment_reactions parse error: {e}"))
+        })
     }
 
     /// Get the authenticated viewer (used at registration time to log identity).

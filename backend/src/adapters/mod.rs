@@ -255,6 +255,44 @@ pub trait Adapter: Send + Sync {
         )))
     }
 
+    /// Add a reaction (e.g. emoji) to an existing external message.
+    ///
+    /// `target_external_id` is the provider-namespaced id stored on
+    /// `task_messages.external_event_id` (e.g. `slack:ts:…`,
+    /// `github:ic:…`, `linear:comment:…`, `tg:m:…`).
+    ///
+    /// Returns the provider-specific reaction id when one is available
+    /// (e.g. GitHub returns a numeric reaction id), otherwise `None`.
+    ///
+    /// Default: returns a `BadRequest` so providers that don't implement
+    /// reactions surface a clear error.
+    async fn add_reaction(
+        &self,
+        _binding: &BindingContext,
+        _target_external_id: &str,
+        _emoji: &str,
+    ) -> Result<Option<String>, AdapterError> {
+        Err(AdapterError::BadRequest(format!(
+            "Provider {} does not support reactions",
+            self.provider_key()
+        )))
+    }
+
+    /// Remove a previously added reaction from an external message.
+    ///
+    /// Default: returns a `BadRequest` (see [`Adapter::add_reaction`]).
+    async fn remove_reaction(
+        &self,
+        _binding: &BindingContext,
+        _target_external_id: &str,
+        _emoji: &str,
+    ) -> Result<(), AdapterError> {
+        Err(AdapterError::BadRequest(format!(
+            "Provider {} does not support reactions",
+            self.provider_key()
+        )))
+    }
+
     /// Expand an external event id into all ids that should be considered
     /// equivalent for idempotency checks.
     fn external_id_aliases(&self, external_id: &str) -> Vec<String> {

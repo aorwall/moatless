@@ -21,6 +21,31 @@ use super::config::GithubPrRuleConfig;
 /// Agent comment marker to filter self-replies.
 const AGENT_MARKER: &str = "<!-- moatless-agent -->";
 
+/// Map a user-supplied emoji name to GitHub's reaction content enum.
+///
+/// GitHub accepts only these eight values:
+/// `+1`, `-1`, `laugh`, `confused`, `heart`, `hooray`, `rocket`, `eyes`.
+/// We accept the canonical names plus a few common aliases.
+pub(crate) fn to_github_content(emoji: &str) -> Result<&'static str, AdapterError> {
+    let normalized = emoji.trim().trim_matches(':').to_ascii_lowercase();
+    let mapped = match normalized.as_str() {
+        "+1" | "thumbsup" | "thumbs_up" => "+1",
+        "-1" | "thumbsdown" | "thumbs_down" => "-1",
+        "laugh" | "laughing" | "smile" => "laugh",
+        "confused" | "thinking" | "thinking_face" => "confused",
+        "heart" | "love" | "red_heart" => "heart",
+        "hooray" | "tada" | "party" => "hooray",
+        "rocket" => "rocket",
+        "eyes" | "looking" => "eyes",
+        other => {
+            return Err(AdapterError::BadRequest(format!(
+                "GitHub does not accept emoji `{other}` (allowed: +1, -1, laugh, confused, heart, hooray, rocket, eyes)"
+            )));
+        }
+    };
+    Ok(mapped)
+}
+
 /// Result of parsing a GitHub webhook.
 pub enum GithubPrWebhookResult {
     /// Parsed message ready for routing.
@@ -129,6 +154,53 @@ impl GithubPrAdapter {
                 AdapterError::Internal("Missing pr_number in thread properties".into())
             })?;
         Ok((owner, repo, pr_number))
+    }
+
+    /// Extract owner, repo from a `BindingContext` (ignores pr_number — used by
+    /// reaction routes where the comment id alone determines the target URL).
+    fn parse_owner_repo(thread: &BindingContext) -> Result<(String, String), AdapterError> {
+        let owner = thread
+            .destination_config
+            .get("owner")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| {
+                AdapterError::BadRequest("Missing owner in binding destination_config".into())
+            })?
+            .to_string();
+        let repo = thread
+            .destination_config
+            .get("repo")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| {
+                AdapterError::BadRequest("Missing repo in binding destination_config".into())
+            })?
+            .to_string();
+        Ok((owner, repo))
+    }
+
+    /// Resolve a GitHub token for reactions: prefer the binding's
+    /// `filter_user_id` (the task owner), then global env. Returns the resolved
+    /// token plus the user id used (for logging).
+    async fn resolve_reaction_token(
+        &self,
+        binding: &BindingContext,
+    ) -> Result<String, AdapterError> {
+        let user_id = binding
+            .destination_config
+            .get("filter_user_id")
+            .or_else(|| binding.metadata.get("filter_user_id"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        if !user_id.is_empty() {
+            return self.resolve_token_for_user(user_id).await;
+        }
+        self.global_bot_token.clone().ok_or_else(|| {
+            AdapterError::AdapterApi(
+                "No GitHub token available for reactions: binding has no filter_user_id and \
+                 GITHUB_CHANNEL_TOKEN env is not set"
+                    .into(),
+            )
+        })
     }
 
     /// Extract owner, repo, pr_number from a `TaskBinding`'s `destination_config`.
@@ -1077,6 +1149,87 @@ impl Adapter for GithubPrAdapter {
         Ok(Some(super::external_id::issue_comment(comment_id)))
     }
 
+    async fn add_reaction(
+        &self,
+        binding: &BindingContext,
+        target_external_id: &str,
+        emoji: &str,
+    ) -> Result<Option<String>, AdapterError> {
+        let target = super::external_id::comment_target_from_id(target_external_id).ok_or_else(
+            || {
+                AdapterError::BadRequest(format!(
+                    "GitHub reaction target `{target_external_id}` must be a github:ic:<id> or github:rc:<id> id"
+                ))
+            },
+        )?;
+        let content = to_github_content(emoji)?;
+        let (owner, repo) = Self::parse_owner_repo(binding)?;
+        let token = self.resolve_reaction_token(binding).await?;
+        let api = GithubPrApi::new(&token);
+        let reaction_id = match target {
+            super::external_id::CommentTarget::Issue(id) => {
+                api.create_issue_comment_reaction(&owner, &repo, id, content)
+                    .await?
+            }
+            super::external_id::CommentTarget::Review(id) => {
+                api.create_review_comment_reaction(&owner, &repo, id, content)
+                    .await?
+            }
+        };
+        Ok(Some(reaction_id.to_string()))
+    }
+
+    async fn remove_reaction(
+        &self,
+        binding: &BindingContext,
+        target_external_id: &str,
+        emoji: &str,
+    ) -> Result<(), AdapterError> {
+        let target = super::external_id::comment_target_from_id(target_external_id).ok_or_else(
+            || {
+                AdapterError::BadRequest(format!(
+                    "GitHub reaction target `{target_external_id}` must be a github:ic:<id> or github:rc:<id> id"
+                ))
+            },
+        )?;
+        let content = to_github_content(emoji)?;
+        let (owner, repo) = Self::parse_owner_repo(binding)?;
+        let token = self.resolve_reaction_token(binding).await?;
+        let api = GithubPrApi::new(&token);
+        let bot_login = api.authenticated_login().await?;
+        let (reactions, comment_id, is_review) = match target {
+            super::external_id::CommentTarget::Issue(id) => (
+                api.list_issue_comment_reactions(&owner, &repo, id).await?,
+                id,
+                false,
+            ),
+            super::external_id::CommentTarget::Review(id) => (
+                api.list_review_comment_reactions(&owner, &repo, id).await?,
+                id,
+                true,
+            ),
+        };
+        let reaction = reactions
+            .into_iter()
+            .find(|r| {
+                r.content == content
+                    && r.user.as_ref().is_some_and(|u| u.login == bot_login)
+            })
+            .ok_or_else(|| {
+                AdapterError::NotFound(format!(
+                    "GitHub: no `{content}` reaction by `{bot_login}` to remove on comment {comment_id}"
+                ))
+            })?;
+        if is_review {
+            api.delete_review_comment_reaction(&owner, &repo, comment_id, reaction.id)
+                .await?;
+        } else {
+            api.delete_issue_comment_reaction(&owner, &repo, comment_id, reaction.id)
+                .await?;
+        }
+        Ok(())
+    }
+
     async fn fetch_context(
         &self,
         thread: &BindingContext,
@@ -1284,6 +1437,23 @@ mod tests {
         assert_eq!(destination.destination_config["pr_number"], 42);
         assert_eq!(destination.destination_config["filter_user_id"], "user-1");
         assert_eq!(destination.last_external_event_id, None);
+    }
+
+    #[test]
+    fn to_github_content_accepts_canonical_and_aliases() {
+        assert_eq!(to_github_content("+1").unwrap(), "+1");
+        assert_eq!(to_github_content("thumbsup").unwrap(), "+1");
+        assert_eq!(to_github_content(":thumbsup:").unwrap(), "+1");
+        assert_eq!(to_github_content("THUMBSDOWN").unwrap(), "-1");
+        assert_eq!(to_github_content("rocket").unwrap(), "rocket");
+        assert_eq!(to_github_content("tada").unwrap(), "hooray");
+        assert_eq!(to_github_content("eyes").unwrap(), "eyes");
+    }
+
+    #[test]
+    fn to_github_content_rejects_unknown_names() {
+        let err = to_github_content("celebration").unwrap_err();
+        assert!(matches!(err, AdapterError::BadRequest(_)));
     }
 
     #[tokio::test]
