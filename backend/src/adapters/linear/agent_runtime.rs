@@ -672,6 +672,19 @@ async fn provision_session_task(
     {
         warn!(session_id = %session.id, error = %e, "Failed to update Linear externalUrls");
     }
+    if let Some(ref issue) = session.issue {
+        if let Err(e) = api
+            .attachment_link_url(&issue.id, &task_url, "Moatless task")
+            .await
+        {
+            warn!(
+                session_id = %session.id,
+                issue_id = %issue.id,
+                error = %e,
+                "Failed to attach Moatless task URL to Linear issue"
+            );
+        }
+    }
 
     // Forward the inbound prompt (the comment body for mentions; the issue
     // description for assignments).
@@ -741,6 +754,19 @@ async fn provision_session_task_with_existing_binding(
         .await
     {
         warn!(session_id = %session.id, error = %e, "Failed to update Linear externalUrls");
+    }
+    if let Some(ref issue) = session.issue {
+        if let Err(e) = api
+            .attachment_link_url(&issue.id, &task_url, "Moatless task")
+            .await
+        {
+            warn!(
+                session_id = %session.id,
+                issue_id = %issue.id,
+                error = %e,
+                "Failed to attach Moatless task URL to Linear issue"
+            );
+        }
     }
 
     let inbound_text = build_inbound_text(session);
@@ -950,7 +976,7 @@ fn truncate(s: &str, max: usize) -> String {
     }
 }
 
-fn task_url(state: &AppState, task_id: &str) -> String {
+pub(crate) fn task_url(state: &AppState, task_id: &str) -> String {
     let base = state
         .config
         .auth

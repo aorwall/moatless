@@ -1,5 +1,6 @@
+   Compiling moatless-api-schemas v0.1.0 (/Users/albert/repos/soap/moatless-vibe/crates/api-schemas)
    Compiling moatless-vibe-backend v0.1.0 (/Users/albert/repos/soap/moatless-vibe/backend)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 15.49s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 41.55s
      Running `target/debug/moatless-vibe-backend --dump-openapi`
 {
   "openapi": "3.1.0",

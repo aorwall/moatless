@@ -34,6 +34,7 @@ use crate::state::AppState;
 
 use super::adapter::LinearAdapter;
 use super::agent_api::{LinearAgentApi, LookupKind};
+use super::agent_runtime::task_url;
 use super::SUBJECT_KIND_ISSUE;
 
 /// Origin recorded on `task_bindings.origin` for bindings created by these
@@ -310,7 +311,9 @@ pub async fn create_comment(
     let comment = api.create_comment(&issue_uuid, &req.body).await?;
 
     let binding_id = if let Some(task_id) = req.task_id.as_deref() {
-        Some(create_issue_binding(&state, &connection, task_id, &issue).await?)
+        let bid = create_issue_binding(&state, &connection, task_id, &issue).await?;
+        attach_moatless_task(&state, &api, &issue, task_id).await;
+        Some(bid)
     } else {
         None
     };
@@ -691,4 +694,29 @@ async fn create_issue_binding(
         );
     })?;
     Ok(binding.id)
+}
+
+/// Attach the moatless task URL to the Linear issue as a "source" pill.
+/// Idempotent on (issue_id, url) — safe to call multiple times. Failures
+/// are logged and swallowed so they don't block the surrounding mutation
+/// (the issue is already created / commented on).
+pub(crate) async fn attach_moatless_task(
+    state: &AppState,
+    api: &LinearAgentApi,
+    issue: &Value,
+    task_id: &str,
+) {
+    let Some(issue_uuid) = issue.get("id").and_then(Value::as_str) else {
+        warn!(task_id = %task_id, "attach_moatless_task: issue missing id");
+        return;
+    };
+    let url = task_url(state, task_id);
+    if let Err(e) = api.attachment_link_url(issue_uuid, &url, "Moatless task").await {
+        warn!(
+            error = %e,
+            task_id = %task_id,
+            issue = %issue_uuid,
+            "Failed to attach Moatless task URL to Linear issue"
+        );
+    }
 }

@@ -189,6 +189,18 @@ pub async fn adapter_send(
             Some(result.message_external_id.clone()),
         )
         .await?;
+        if req.adapter == AdapterKind::Linear
+            && result.subject_kind == crate::adapters::linear::SUBJECT_KIND_ISSUE
+        {
+            link_moatless_task_to_linear_issue(
+                &state,
+                provider.as_ref(),
+                &connection,
+                &result.subject_key,
+                task_id,
+            )
+            .await;
+        }
         Some(binding.id)
     } else {
         None
@@ -199,6 +211,36 @@ pub async fn adapter_send(
         subject_kind: result.subject_kind.to_string(),
         binding_id,
     }))
+}
+
+/// Fire the moatless-task attachment after a Linear destination send has
+/// bound to a task. Looks up the issue UUID in the binding result and
+/// calls `attachmentLinkURL` via the `LinearAdapter`. Failures are logged
+/// and swallowed so they don't unwind the surrounding send.
+async fn link_moatless_task_to_linear_issue(
+    state: &AppState,
+    provider: &dyn crate::adapters::Adapter,
+    connection: &crate::adapters::models::AdapterConnection,
+    issue_uuid: &str,
+    task_id: &str,
+) {
+    let Some(linear) = provider
+        .as_any()
+        .downcast_ref::<crate::adapters::linear::adapter::LinearAdapter>()
+    else {
+        tracing::warn!("Linear adapter downcast failed in adapter_send attachment hook");
+        return;
+    };
+    let api = linear.agent_api_for_org(&connection.scope_value);
+    let url = crate::adapters::linear::agent_runtime::task_url(state, task_id);
+    if let Err(e) = api.attachment_link_url(issue_uuid, &url, "Moatless task").await {
+        tracing::warn!(
+            error = %e,
+            task_id = %task_id,
+            issue = %issue_uuid,
+            "Failed to attach Moatless task URL to Linear issue"
+        );
+    }
 }
 
 #[utoipa::path(

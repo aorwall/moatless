@@ -496,6 +496,31 @@ impl LinearAgentApi {
             })
     }
 
+    /// Attach an external URL to a Linear issue as a "source" pill. Used
+    /// to link a moatless task to the Linear ticket it works on (visible
+    /// directly under the issue, not just inside the agent panel).
+    ///
+    /// Idempotent on `(issueId, url)` — Linear upserts by URL, so calling
+    /// this twice with the same arguments is safe.
+    pub async fn attachment_link_url(
+        &self,
+        issue_id: &str,
+        url: &str,
+        title: &str,
+    ) -> Result<(), AdapterError> {
+        let value = self
+            .graphql(serde_json::json!({
+                "query": "mutation($issueId: String!, $url: String!, $title: String!) { \
+                    attachmentLinkURL(issueId: $issueId, url: $url, title: $title) { \
+                        success attachment { id url } \
+                    } \
+                }",
+                "variables": { "issueId": issue_id, "url": url, "title": title }
+            }))
+            .await?;
+        require_mutation_success(&value, "/data/attachmentLinkURL", "attachmentLinkURL")
+    }
+
     /// Non-destructive label add.
     pub async fn issue_add_label(
         &self,
