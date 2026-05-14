@@ -305,28 +305,34 @@ impl EventHandlerConsumer {
                     event.task_id.clone(),
                     crate::adapters::linear::agent_api::ActivityKind::Error,
                     body,
+                    false,
                 ));
                 agent_handlers::handle_sandbox_fatal(&self.state, event).await;
             }
-            // Sandbox became ready — surface as a Linear `Thought` so the
-            // session shows progress between "Spinning up sandbox…" and the
-            // agent's first message.
+            // Sandbox became ready — emit a non-ephemeral `action` so the
+            // ephemeral "Spinning up sandbox…" heartbeat is replaced by a
+            // persistent record of the completed step.
             EventKey::Sandbox(SandboxSubType::Ready) => {
-                tokio::spawn(crate::adapters::linear::agent_runtime::notify_linear_status(
+                tokio::spawn(crate::adapters::linear::agent_runtime::notify_linear_action(
                     self.state.clone(),
                     event.task_id.clone(),
-                    crate::adapters::linear::agent_api::ActivityKind::Thought,
-                    "Sandbox ready".to_string(),
+                    "Provisioned sandbox".to_string(),
+                    event.task_id.clone(),
+                    Some("ready".to_string()),
+                    false,
                 ));
             }
-            // Agent process started inside the sandbox — also surfaced as a
-            // Linear `Thought` for the same reason.
+            // Agent process started inside the sandbox — emit as an `action`
+            // for the same reason. No `result` yet; the eventual agent reply
+            // is the result-bearing follow-up.
             EventKey::Agent(AgentSubType::Started) => {
-                tokio::spawn(crate::adapters::linear::agent_runtime::notify_linear_status(
+                tokio::spawn(crate::adapters::linear::agent_runtime::notify_linear_action(
                     self.state.clone(),
                     event.task_id.clone(),
-                    crate::adapters::linear::agent_api::ActivityKind::Thought,
-                    "Agent started".to_string(),
+                    "Started agent".to_string(),
+                    event.task_id.clone(),
+                    None,
+                    false,
                 ));
             }
             // Known SSE-only event types — forwarded to frontend but not processed here

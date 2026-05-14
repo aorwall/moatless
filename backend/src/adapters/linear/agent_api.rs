@@ -45,6 +45,7 @@ pub struct ViewerInfo {
 #[derive(Debug, Clone, Copy)]
 pub enum ActivityKind {
     Thought,
+    Action,
     Response,
     Elicitation,
     Error,
@@ -54,6 +55,7 @@ impl ActivityKind {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Thought => "thought",
+            Self::Action => "action",
             Self::Response => "response",
             Self::Elicitation => "elicitation",
             Self::Error => "error",
@@ -298,11 +300,16 @@ impl LinearAgentApi {
     /// Emit an activity on a session. Linear infers the session state from
     /// emitted activity kinds (e.g. `response` → completed, `elicitation` →
     /// awaiting input).
+    ///
+    /// Per the Linear Agent Interaction spec, only `thought` or `action`
+    /// activities can be marked `ephemeral`; ephemeral activities are
+    /// displayed temporarily and replaced when the next activity arrives.
     pub async fn agent_activity_create(
         &self,
         session_id: &str,
         kind: ActivityKind,
         body: &str,
+        ephemeral: bool,
     ) -> Result<String, AdapterError> {
         let value = self
             .graphql(serde_json::json!({
@@ -312,6 +319,7 @@ impl LinearAgentApi {
                 "variables": {
                     "input": {
                         "agentSessionId": session_id,
+                        "ephemeral": ephemeral,
                         "content": { "type": kind.as_str(), "body": body },
                     }
                 }
@@ -333,6 +341,63 @@ impl LinearAgentApi {
             .ok_or_else(|| {
                 AdapterError::AdapterApi(
                     "Linear agentActivityCreate missing agentActivity.id".into(),
+                )
+            })?;
+        Ok(id.to_string())
+    }
+
+    /// Emit an `action` activity. Spec shape:
+    /// `{ "type": "action", "action": "...", "parameter": "...", "result": "..." }`.
+    /// `result` is omitted when `None`. The canonical pattern is to emit an
+    /// ephemeral start (`result=None`) and then a non-ephemeral completion
+    /// with the same verb (past tense) and `result=Some(...)`.
+    pub async fn agent_activity_create_action(
+        &self,
+        session_id: &str,
+        action: &str,
+        parameter: &str,
+        result: Option<&str>,
+        ephemeral: bool,
+    ) -> Result<String, AdapterError> {
+        let mut content = serde_json::json!({
+            "type": ActivityKind::Action.as_str(),
+            "action": action,
+            "parameter": parameter,
+        });
+        if let Some(r) = result {
+            content["result"] = serde_json::Value::String(r.to_string());
+        }
+
+        let value = self
+            .graphql(serde_json::json!({
+                "query": "mutation($input: AgentActivityCreateInput!) { \
+                    agentActivityCreate(input: $input) { success agentActivity { id } } \
+                }",
+                "variables": {
+                    "input": {
+                        "agentSessionId": session_id,
+                        "ephemeral": ephemeral,
+                        "content": content,
+                    }
+                }
+            }))
+            .await?;
+
+        let success = value
+            .pointer("/data/agentActivityCreate/success")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        if !success {
+            return Err(AdapterError::AdapterApi(
+                "Linear agentActivityCreate(action) returned success=false".into(),
+            ));
+        }
+        let id = value
+            .pointer("/data/agentActivityCreate/agentActivity/id")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| {
+                AdapterError::AdapterApi(
+                    "Linear agentActivityCreate(action) missing agentActivity.id".into(),
                 )
             })?;
         Ok(id.to_string())

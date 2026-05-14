@@ -255,7 +255,7 @@ impl Adapter for LinearAdapter {
             })?;
 
         let activity_id = api
-            .agent_activity_create(session_id, ActivityKind::Response, &message.text)
+            .agent_activity_create(session_id, ActivityKind::Response, &message.text, false)
             .await?;
 
         if let Err(e) = api.agent_session_set_awaiting_input(session_id).await {

@@ -86,14 +86,16 @@ pub async fn handle_session_created(
         .unwrap_or_default();
     let rule = rules.first().cloned();
 
-    // Emit a heartbeat thought synchronously so Linear sees activity within
-    // the 10s window. The actual sandbox provisioning happens in a spawned
-    // task.
+    // Emit an ephemeral heartbeat thought synchronously so Linear sees
+    // activity within the 10s window. Marked ephemeral so the next
+    // activity (e.g. the `Provisioned sandbox` action) replaces it in
+    // the Linear UI rather than piling up.
     if let Err(e) = api
         .agent_activity_create(
             &session.id,
             ActivityKind::Thought,
             "Spinning up sandbox…",
+            true,
         )
         .await
     {
@@ -152,10 +154,11 @@ pub async fn handle_session_prompted(
         return Ok(());
     }
 
-    // Optimistically ack receipt with a thought heartbeat so Linear doesn't
-    // hang on a slow `send_message_flow`.
+    // Optimistically ack receipt with an ephemeral thought heartbeat so
+    // Linear doesn't hang on a slow `send_message_flow`. Ephemeral so the
+    // agent's next activity replaces it in the UI.
     if let Err(e) = api
-        .agent_activity_create(session_id, ActivityKind::Thought, "Working on it…")
+        .agent_activity_create(session_id, ActivityKind::Thought, "Working on it…", true)
         .await
     {
         warn!(session_id, error = %e, "Failed to emit Linear prompted heartbeat");
@@ -346,7 +349,7 @@ async fn close_active_bindings_for_issue(
 
         if !session_id.is_empty() {
             if let Err(e) = api
-                .agent_activity_create(session_id, ActivityKind::Response, &text)
+                .agent_activity_create(session_id, ActivityKind::Response, &text, false)
                 .await
             {
                 warn!(session_id, error = %e, "Failed to emit close response activity");
@@ -768,6 +771,7 @@ pub async fn notify_linear_status(
     task_id: String,
     kind: ActivityKind,
     body: String,
+    ephemeral: bool,
 ) {
     let rows = match sqlx::query_as::<_, TaskBinding>(
         "SELECT id, task_id, provider, subject_kind, subject_key, connection_id, \
@@ -835,12 +839,113 @@ pub async fn notify_linear_status(
             state.config.linear.oauth_client_id.clone(),
             state.config.linear.oauth_client_secret.clone(),
         );
-        if let Err(e) = api.agent_activity_create(&session_id, kind, &body).await {
+        if let Err(e) = api
+            .agent_activity_create(&session_id, kind, &body, ephemeral)
+            .await
+        {
             warn!(
                 task_id,
                 session_id,
                 error = %e,
                 "notify_linear_status: agent_activity_create failed"
+            );
+        }
+    }
+}
+
+/// Sibling of [`notify_linear_status`] that emits an `action` activity (with
+/// optional `result`) on every active Linear session bound to `task_id`.
+/// Same best-effort semantics: failures are logged and swallowed so callers
+/// in the event-consumer hot path are unaffected.
+pub async fn notify_linear_action(
+    state: AppState,
+    task_id: String,
+    action: String,
+    parameter: String,
+    result: Option<String>,
+    ephemeral: bool,
+) {
+    let rows = match sqlx::query_as::<_, TaskBinding>(
+        "SELECT id, task_id, provider, subject_kind, subject_key, connection_id, \
+                trigger_id, destination_config, metadata, last_external_event_id, \
+                origin, created_at, last_event_at \
+         FROM task_bindings \
+         WHERE provider = $1 \
+           AND subject_kind = $2 \
+           AND task_id = $3 \
+           AND COALESCE(destination_config->>'pending', 'false') <> 'true'",
+    )
+    .bind(ADAPTER)
+    .bind(SUBJECT_KIND)
+    .bind(&task_id)
+    .fetch_all(&state.db)
+    .await
+    {
+        Ok(rows) => rows,
+        Err(e) => {
+            warn!(task_id, error = %e, "notify_linear_action: binding lookup failed");
+            return;
+        }
+    };
+
+    if rows.is_empty() {
+        return;
+    }
+
+    for binding in rows {
+        let Some(session_id) = binding
+            .destination_config
+            .get("session_id")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string)
+        else {
+            continue;
+        };
+
+        let scope_value: Option<String> = match sqlx::query_scalar(
+            "SELECT scope_value FROM integration_connections WHERE id = $1",
+        )
+        .bind(&binding.connection_id)
+        .fetch_optional(&state.db)
+        .await
+        {
+            Ok(v) => v,
+            Err(e) => {
+                warn!(
+                    task_id,
+                    connection_id = %binding.connection_id,
+                    error = %e,
+                    "notify_linear_action: connection lookup failed"
+                );
+                continue;
+            }
+        };
+        let Some(scope_value) = scope_value else {
+            continue;
+        };
+
+        let api = LinearAgentApi::new(
+            default_http_client(),
+            state.db.clone(),
+            scope_value,
+            state.config.linear.oauth_client_id.clone(),
+            state.config.linear.oauth_client_secret.clone(),
+        );
+        if let Err(e) = api
+            .agent_activity_create_action(
+                &session_id,
+                &action,
+                &parameter,
+                result.as_deref(),
+                ephemeral,
+            )
+            .await
+        {
+            warn!(
+                task_id,
+                session_id,
+                error = %e,
+                "notify_linear_action: agent_activity_create_action failed"
             );
         }
     }
