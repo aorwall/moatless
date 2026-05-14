@@ -213,8 +213,11 @@ pub async fn handle_session_prompted(
 
 /// Route a `Comment.create` payload to a task that already has an agent-
 /// session binding for the comment's issue. No binding → no-op; we only
-/// forward comments to issues with an active Moatless task. The agent posts
-/// `agentActivity` (not `comment`) outbound, so there is no echo loop.
+/// forward comments to issues with an active Moatless task.
+///
+/// Filters out comments authored by our own OAuth bot (matched against
+/// `connection.transport_config["agent_viewer_id"]`) so the agent's outbound
+/// reply doesn't loop back as a new inbound prompt.
 pub async fn handle_comment_created(
     state: &AppState,
     api: &LinearAgentApi,
@@ -225,6 +228,23 @@ pub async fn handle_comment_created(
     if comment.body.trim().is_empty() {
         debug!(comment_id = %comment.id, "Empty Comment.create body — ignoring");
         return Ok(());
+    }
+
+    if let (Some(actor_id), Some(bot_id)) = (
+        comment.user.as_ref().map(|u| u.id.as_str()),
+        connection
+            .transport_config
+            .get("agent_viewer_id")
+            .and_then(serde_json::Value::as_str),
+    ) {
+        if actor_id == bot_id {
+            debug!(
+                comment_id = %comment.id,
+                bot_id,
+                "Comment.create authored by our own bot — ignoring to avoid loop"
+            );
+            return Ok(());
+        }
     }
 
     let binding_repo = PgTaskBindingRepository(state.db.clone());

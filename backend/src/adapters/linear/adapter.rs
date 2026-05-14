@@ -6,6 +6,7 @@
 use std::time::Duration;
 
 use moka::future::Cache;
+use tracing::warn;
 
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{
@@ -244,6 +245,9 @@ impl Adapter for LinearAdapter {
             return Ok(Some(format!("linear:comment:{comment_id}")));
         }
 
+        // AgentSession binding: post the reply as a comment on the bound
+        // Linear issue (where conversation actually happens) and emit a
+        // `response` activity to close the session per Linear's spec.
         let session_id = binding
             .destination_config
             .get("session_id")
@@ -254,11 +258,40 @@ impl Adapter for LinearAdapter {
                 )
             })?;
 
+        let issue_uuid = binding
+            .destination_config
+            .get("issue_id")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| {
+                AdapterError::BadRequest(
+                    "Linear binding missing issue_id in destination_config".into(),
+                )
+            })?;
+
+        let comment_id = match api.create_comment(issue_uuid, &message.text).await {
+            Ok(comment) => comment
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string),
+            Err(e) => {
+                warn!(
+                    issue_id = issue_uuid,
+                    session_id,
+                    error = %e,
+                    "Linear issue comment failed; continuing with session response"
+                );
+                None
+            }
+        };
+
         let activity_id = api
-            .agent_activity_create(session_id, ActivityKind::Elicitation, &message.text, false)
+            .agent_activity_create(session_id, ActivityKind::Response, &message.text, false)
             .await?;
 
-        Ok(Some(format!("linear:activity:{activity_id}")))
+        Ok(Some(match comment_id {
+            Some(cid) => format!("linear:comment:{cid}"),
+            None => format!("linear:activity:{activity_id}"),
+        }))
     }
 
     fn reply_instructions(&self) -> Option<String> {
@@ -267,8 +300,9 @@ impl Adapter for LinearAdapter {
              - Intermediate progress (text + tool calls) is emitted automatically \
                as ephemeral `thought` / `action` activities — you do not need to \
                post status updates by hand.\n\
-             - Your final reply is emitted as a Linear Agent `elicitation` activity \
-               on the session. Use `moat messages reply` to post.\n\
+             - Your final reply is posted as a comment on the Linear issue AND \
+               emitted as a `response` activity on the agent session (which \
+               closes the session). Use `moat messages reply` once to post.\n\
              - Markdown is supported. Linear URLs auto-render as mentions.\n\
              - The Moatless task URL is already linked via the session's \
                external URLs — no need to include it in the reply body."
