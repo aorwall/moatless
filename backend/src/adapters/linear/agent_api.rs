@@ -481,6 +481,41 @@ impl LinearAgentApi {
         Ok(())
     }
 
+    /// Create a Linear `AgentSession` for the given issue. Used by the
+    /// `AppUserNotification` path so the OAuth-app "Inbox notifications"
+    /// flow gets the same Linear-side surface (agent panel entry,
+    /// `agentActivity` heartbeat, `externalUrls`) as the
+    /// `AgentSessionEvent` path.
+    ///
+    /// `external_url` is set inline on the create (Linear accepts an
+    /// `externalUrls` list at create time), saving a follow-up
+    /// `agentSessionUpdate` round trip. Pass `Some((label, url))` to attach
+    /// the Moatless task URL.
+    ///
+    /// "Already exists for this issue" is tolerated when Linear's error
+    /// response carries a usable id — see [`parse_agent_session_create_response`].
+    pub async fn agent_session_create_for_issue(
+        &self,
+        issue_id: &str,
+        external_url: Option<(&str, &str)>,
+    ) -> Result<String, AdapterError> {
+        let mut input = serde_json::json!({ "issueId": issue_id });
+        if let Some((label, url)) = external_url {
+            input["externalUrls"] = serde_json::json!([{ "label": label, "url": url }]);
+        }
+        let value = self
+            .graphql_raw(serde_json::json!({
+                "query": "mutation($input: AgentSessionCreateOnIssue!) { \
+                    agentSessionCreateOnIssue(input: $input) { \
+                        success agentSession { id } \
+                    } \
+                }",
+                "variables": { "input": input }
+            }))
+            .await?;
+        parse_agent_session_create_response(&value)
+    }
+
     /// Fetch comments on a Linear issue (oldest first). Used to assemble
     /// prior conversation context when the agent is mentioned on an issue
     /// that already has a thread.
@@ -827,6 +862,90 @@ fn check_graphql_errors(value: &serde_json::Value) -> Result<(), AdapterError> {
     )))
 }
 
+/// Parse the response of `agentSessionCreateOnIssue` into a session id.
+///
+/// Tolerates Linear's "session already exists for this issue" rejection
+/// when the error response carries a usable id under
+/// `extensions.meta.agentSessionId` (best-effort, in case Linear surfaces
+/// the existing id). Other errors propagate as `AdapterError::AdapterApi`.
+fn parse_agent_session_create_response(
+    value: &serde_json::Value,
+) -> Result<String, AdapterError> {
+    if let Some(errors) = value.get("errors").and_then(serde_json::Value::as_array) {
+        if errors.iter().any(is_agent_session_already_exists_error) {
+            if let Some(existing) = errors
+                .iter()
+                .find_map(extract_existing_agent_session_id_from_error)
+            {
+                info!(
+                    session_id = %existing,
+                    "Linear agentSessionCreateOnIssue: session already exists; reusing"
+                );
+                return Ok(existing);
+            }
+            warn!(
+                errors = %serde_json::Value::Array(errors.clone()),
+                "Linear agentSessionCreateOnIssue: session already exists but id not returned"
+            );
+            return Err(AdapterError::AdapterApi(
+                "Linear agentSessionCreateOnIssue: session already exists for issue but no id in error response".into(),
+            ));
+        }
+    }
+    check_graphql_errors(value)?;
+    require_mutation_success(
+        value,
+        "/data/agentSessionCreateOnIssue",
+        "agentSessionCreateOnIssue",
+    )?;
+    let id = value
+        .pointer("/data/agentSessionCreateOnIssue/agentSession/id")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| {
+            AdapterError::AdapterApi(
+                "Linear agentSessionCreateOnIssue missing agentSession.id".into(),
+            )
+        })?;
+    Ok(id.to_string())
+}
+
+/// Recognise Linear's "session already exists for this issue" rejection
+/// from `agentSessionCreateOnIssue`. Heuristic: structured `INPUT_ERROR`
+/// scoped to the agent-session-create path whose user-facing message
+/// mentions an existing session.
+fn is_agent_session_already_exists_error(error: &serde_json::Value) -> bool {
+    let code = error
+        .pointer("/extensions/code")
+        .and_then(serde_json::Value::as_str);
+    let path_matches = error
+        .get("path")
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|p| p.iter().any(|s| s.as_str() == Some("agentSessionCreateOnIssue")));
+    let msg = error
+        .pointer("/extensions/userPresentableMessage")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    code == Some("INPUT_ERROR") && path_matches && msg.contains("already")
+}
+
+/// Pull a Linear session id out of an `agentSessionCreateOnIssue`
+/// "already exists" error payload, if present. The exact field name is
+/// not documented, so try a few plausible locations.
+fn extract_existing_agent_session_id_from_error(error: &serde_json::Value) -> Option<String> {
+    for ptr in [
+        "/extensions/meta/agentSessionId",
+        "/extensions/meta/sessionId",
+        "/extensions/agentSessionId",
+        "/extensions/sessionId",
+    ] {
+        if let Some(id) = error.pointer(ptr).and_then(serde_json::Value::as_str) {
+            return Some(id.to_string());
+        }
+    }
+    None
+}
+
 /// Recognise Linear's "URL already linked with <issue>" response from
 /// `attachmentLinkURL`. Linear enforces workspace-wide URL uniqueness; the
 /// rejection is a structured `INPUT_ERROR` with `userError: true`.
@@ -962,5 +1081,81 @@ mod tests {
             "path": ["someOtherMutation"],
         });
         assert!(!is_attachment_already_linked_error(&err));
+    }
+
+    #[test]
+    fn agent_session_create_for_issue_parses_session_id() {
+        let value = serde_json::json!({
+            "data": {
+                "agentSessionCreateOnIssue": {
+                    "success": true,
+                    "agentSession": { "id": "sess-123" }
+                }
+            }
+        });
+        let id = parse_agent_session_create_response(&value).expect("ok");
+        assert_eq!(id, "sess-123");
+    }
+
+    #[test]
+    fn agent_session_create_for_issue_surface_input_error() {
+        // Unrelated INPUT_ERROR on the create path — surface as
+        // AdapterApi, do NOT silently treat as "already exists".
+        let value = serde_json::json!({
+            "errors": [{
+                "extensions": {
+                    "code": "INPUT_ERROR",
+                    "userPresentableMessage": "Issue not found."
+                },
+                "path": ["agentSessionCreateOnIssue"],
+            }]
+        });
+        let err = parse_agent_session_create_response(&value).expect_err("must error");
+        assert!(matches!(err, AdapterError::AdapterApi(_)));
+    }
+
+    #[test]
+    fn agent_session_create_already_exists_with_id_returns_ok() {
+        let value = serde_json::json!({
+            "errors": [{
+                "extensions": {
+                    "code": "INPUT_ERROR",
+                    "userPresentableMessage": "An agent session already exists for this issue.",
+                    "meta": { "agentSessionId": "sess-existing" }
+                },
+                "path": ["agentSessionCreateOnIssue"],
+            }]
+        });
+        let id = parse_agent_session_create_response(&value).expect("ok");
+        assert_eq!(id, "sess-existing");
+    }
+
+    #[test]
+    fn agent_session_create_already_exists_without_id_surfaces_error() {
+        let value = serde_json::json!({
+            "errors": [{
+                "extensions": {
+                    "code": "INPUT_ERROR",
+                    "userPresentableMessage": "An agent session already exists for this issue."
+                },
+                "path": ["agentSessionCreateOnIssue"],
+            }]
+        });
+        let err = parse_agent_session_create_response(&value).expect_err("must error");
+        assert!(matches!(err, AdapterError::AdapterApi(_)));
+    }
+
+    #[test]
+    fn agent_session_create_success_false_surfaces_error() {
+        let value = serde_json::json!({
+            "data": {
+                "agentSessionCreateOnIssue": {
+                    "success": false,
+                    "agentSession": { "id": "ignored" }
+                }
+            }
+        });
+        let err = parse_agent_session_create_response(&value).expect_err("must error");
+        assert!(matches!(err, AdapterError::AdapterApi(_)));
     }
 }

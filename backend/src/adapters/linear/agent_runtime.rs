@@ -332,6 +332,78 @@ pub async fn handle_app_user_notification(
         .upsert(&binding)
         .await?;
 
+    // Best-effort: create a Linear AgentSession so the user sees an entry in
+    // Linear's agent panel (heartbeat, response activities, externalUrls).
+    // Failure (mutation missing, permissions, network) is logged and ignored
+    // — task and binding remain valid; the user-facing surface degrades to
+    // the `attachment_link_url` pill below.
+    let task_url_str = task_url(state, &task_id);
+    let session_id = match api
+        .agent_session_create_for_issue(
+            &issue.id,
+            Some(("Moatless task", task_url_str.as_str())),
+        )
+        .await
+    {
+        Ok(id) => {
+            info!(
+                task_id = %task_id,
+                issue_id = %issue.id,
+                session_id = %id,
+                "Linear agent session created"
+            );
+            Some(id)
+        }
+        Err(e) => {
+            warn!(
+                task_id = %task_id,
+                issue_id = %issue.id,
+                error = %e,
+                "Failed to create Linear agent session — proceeding without"
+            );
+            None
+        }
+    };
+
+    if let Some(ref sid) = session_id {
+        // Patch session_id into destination_config so notify_linear_* and
+        // outbound replies can find it. Cheaper than a second find+upsert
+        // round trip since we still own the binding object.
+        let mut dc = binding.destination_config.clone();
+        if let Some(obj) = dc.as_object_mut() {
+            obj.insert("session_id".into(), serde_json::json!(sid));
+        }
+        let updated = TaskBinding {
+            destination_config: dc,
+            ..binding.clone()
+        };
+        if let Err(e) = PgTaskBindingRepository(state.db.clone())
+            .upsert(&updated)
+            .await
+        {
+            warn!(
+                task_id = %task_id,
+                session_id = %sid,
+                error = %e,
+                "Failed to write session_id back to binding"
+            );
+        }
+
+        // Opening "Spinning up sandbox…" thought so the agent panel isn't
+        // empty while the workspace provisions.
+        if let Err(e) = api
+            .agent_activity_create(sid, ActivityKind::Thought, "Spinning up sandbox…", true)
+            .await
+        {
+            warn!(
+                task_id = %task_id,
+                session_id = %sid,
+                error = %e,
+                "Failed to emit opening Linear thought"
+            );
+        }
+    }
+
     let prior_comments = match api.fetch_issue_comments(&issue.id, 50).await {
         Ok(c) => c,
         Err(e) => {
@@ -381,7 +453,7 @@ pub async fn handle_app_user_notification(
     }
 
     if let Err(e) = api
-        .attachment_link_url(&issue.id, &task_url(state, &task_id), "Moatless task")
+        .attachment_link_url(&issue.id, &task_url_str, "Moatless task")
         .await
     {
         warn!(
@@ -483,6 +555,12 @@ pub async fn handle_comment_created(
 /// given issue id. Used by the AppUserNotification + Comment paths to avoid
 /// double-firing when the OAuth app later subscribes to "Agent session
 /// events" alongside "Inbox notifications".
+///
+/// Matches both `linear_agent_session` bindings (event-driven path) and
+/// `linear_issue` bindings carrying a non-null `session_id` (notification
+/// path where our `agentSessionCreateOnIssue` call succeeded) — otherwise
+/// an AgentSessionEvent.created webhook for our own session would race
+/// against the AppUserNotification binding.
 async fn has_active_session_binding_for_issue(
     state: &AppState,
     issue_id: &str,
@@ -493,13 +571,21 @@ async fn has_active_session_binding_for_issue(
                 last_external_event_id, origin, created_at, last_event_at \
          FROM task_bindings \
          WHERE adapter_kind = $1 \
-           AND subject_kind = $2 \
-           AND destination_config->>'issue_id' = $3 \
+           AND ( \
+               subject_kind = $2 \
+               OR ( \
+                   subject_kind = $3 \
+                   AND destination_config ? 'session_id' \
+                   AND destination_config->>'session_id' <> '' \
+               ) \
+           ) \
+           AND destination_config->>'issue_id' = $4 \
            AND COALESCE(destination_config->>'pending', 'false') <> 'true' \
          LIMIT 1",
     )
     .bind(ADAPTER)
     .bind(SUBJECT_KIND)
+    .bind(SUBJECT_KIND_ISSUE)
     .bind(issue_id)
     .fetch_all(&state.db)
     .await
@@ -1174,18 +1260,19 @@ pub async fn notify_linear_status(
     body: String,
     ephemeral: bool,
 ) {
+    let subject_kinds: Vec<&str> = vec![SUBJECT_KIND, SUBJECT_KIND_ISSUE];
     let rows = match sqlx::query_as::<_, TaskBinding>(
-        "SELECT id, task_id, provider, subject_kind, subject_key, connection_id, \
-                trigger_id, destination_config, metadata, last_external_event_id, \
-                origin, created_at, last_event_at \
+        "SELECT id, task_id, adapter_kind AS provider, subject_kind, subject_key, \
+                connection_id, trigger_id, destination_config, metadata, \
+                last_external_event_id, origin, created_at, last_event_at \
          FROM task_bindings \
-         WHERE provider = $1 \
-           AND subject_kind = $2 \
+         WHERE adapter_kind = $1 \
+           AND subject_kind = ANY($2) \
            AND task_id = $3 \
            AND COALESCE(destination_config->>'pending', 'false') <> 'true'",
     )
     .bind(ADAPTER)
-    .bind(SUBJECT_KIND)
+    .bind(&subject_kinds)
     .bind(&task_id)
     .fetch_all(&state.db)
     .await
@@ -1266,18 +1353,19 @@ pub async fn notify_linear_action(
     result: Option<String>,
     ephemeral: bool,
 ) {
+    let subject_kinds: Vec<&str> = vec![SUBJECT_KIND, SUBJECT_KIND_ISSUE];
     let rows = match sqlx::query_as::<_, TaskBinding>(
-        "SELECT id, task_id, provider, subject_kind, subject_key, connection_id, \
-                trigger_id, destination_config, metadata, last_external_event_id, \
-                origin, created_at, last_event_at \
+        "SELECT id, task_id, adapter_kind AS provider, subject_kind, subject_key, \
+                connection_id, trigger_id, destination_config, metadata, \
+                last_external_event_id, origin, created_at, last_event_at \
          FROM task_bindings \
-         WHERE provider = $1 \
-           AND subject_kind = $2 \
+         WHERE adapter_kind = $1 \
+           AND subject_kind = ANY($2) \
            AND task_id = $3 \
            AND COALESCE(destination_config->>'pending', 'false') <> 'true'",
     )
     .bind(ADAPTER)
-    .bind(SUBJECT_KIND)
+    .bind(&subject_kinds)
     .bind(&task_id)
     .fetch_all(&state.db)
     .await
