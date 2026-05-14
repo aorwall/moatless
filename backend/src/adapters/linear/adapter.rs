@@ -255,17 +255,8 @@ impl Adapter for LinearAdapter {
             })?;
 
         let activity_id = api
-            .agent_activity_create(session_id, ActivityKind::Response, &message.text, false)
+            .agent_activity_create(session_id, ActivityKind::Elicitation, &message.text, false)
             .await?;
-
-        if let Err(e) = api.agent_session_set_awaiting_input(session_id).await {
-            tracing::warn!(
-                session_id,
-                error = %e,
-                "Failed to set Linear session state back to awaitingInput \
-                 — follow-up Linear comments may not reach the agent"
-            );
-        }
 
         Ok(Some(format!("linear:activity:{activity_id}")))
     }
