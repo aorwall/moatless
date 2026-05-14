@@ -42,6 +42,19 @@ pub trait TaskBindingRepository: Send + Sync {
         subject_key: &str,
     ) -> Result<Option<TaskBinding>, sqlx::Error>;
 
+    /// Look up active bindings whose `destination_config->>field_name` equals
+    /// `field_value`. Used to route inbound events that carry a destination-
+    /// scoped identifier (e.g. Linear `issue_id`) rather than the binding's
+    /// `subject_key`. `field_name` is whitelisted to prevent SQL injection
+    /// through the JSONB path expression.
+    async fn find_active_by_destination_field(
+        &self,
+        provider: &str,
+        subject_kind: &str,
+        field_name: &str,
+        field_value: &str,
+    ) -> Result<Vec<TaskBinding>, sqlx::Error>;
+
     async fn upsert(&self, row: &TaskBinding) -> Result<TaskBinding, sqlx::Error>;
 
     async fn delete(&self, id: &str) -> Result<u64, sqlx::Error>;
@@ -152,6 +165,23 @@ impl TaskBindingRepository for PgTaskBindingRepository {
             provider,
             subject_kind,
             subject_key,
+        )
+        .await
+    }
+
+    async fn find_active_by_destination_field(
+        &self,
+        provider: &str,
+        subject_kind: &str,
+        field_name: &str,
+        field_value: &str,
+    ) -> Result<Vec<TaskBinding>, sqlx::Error> {
+        PgTaskBindingRepository::find_active_by_destination_field(
+            self,
+            provider,
+            subject_kind,
+            field_name,
+            field_value,
         )
         .await
     }
@@ -301,6 +331,39 @@ impl PgTaskBindingRepository {
         .bind(ADAPTER_EVENT_BINDING_ORIGIN)
         .fetch_optional(&self.0)
         .await
+    }
+
+    /// Whitelist of allowed `destination_config` keys for
+    /// [`Self::find_active_by_destination_field`]. The field name is
+    /// interpolated into the SQL, so untrusted values would be a SQL
+    /// injection vector.
+    const ALLOWED_DESTINATION_FIELDS: &'static [&'static str] = &["issue_id"];
+
+    pub async fn find_active_by_destination_field(
+        &self,
+        provider: &str,
+        subject_kind: &str,
+        field_name: &str,
+        field_value: &str,
+    ) -> Result<Vec<TaskBinding>, sqlx::Error> {
+        if !Self::ALLOWED_DESTINATION_FIELDS.contains(&field_name) {
+            return Err(sqlx::Error::Protocol(format!(
+                "find_active_by_destination_field: field_name '{field_name}' not allowed"
+            )));
+        }
+        let sql = format!(
+            "{TASK_BINDING_SELECT} WHERE adapter_kind = $1 \
+               AND subject_kind = $2 \
+               AND destination_config->>'{field_name}' = $3 \
+               AND COALESCE(destination_config->>'pending', 'false') <> 'true' \
+             ORDER BY created_at ASC"
+        );
+        sqlx::query_as::<_, TaskBinding>(&sql)
+            .bind(provider)
+            .bind(subject_kind)
+            .bind(field_value)
+            .fetch_all(&self.0)
+            .await
     }
 
     pub async fn upsert(&self, row: &TaskBinding) -> Result<TaskBinding, sqlx::Error> {

@@ -159,57 +159,9 @@ pub struct AgentActivityPayload {
 }
 
 // =============================================================================
-// AppUserNotification — Linear's "Inbox notifications" event for OAuth apps.
-//
-// Delivered when "Inbox notifications" is subscribed (but "Agent session
-// events" is not). Field names follow Linear's webhook docs; we use
-// conservative `Option` types so we don't break on schema drift.
-// =============================================================================
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct AppUserNotificationData {
-    #[serde(default)]
-    pub id: Option<String>,
-    /// `issueMention` | `issueCommentMention` | `issueAssignedToYou` |
-    /// `issueNewComment` | `issueStatusChanged` | ...
-    #[serde(default, rename = "type")]
-    pub kind: Option<String>,
-    #[serde(default)]
-    pub issue: Option<AppUserNotificationIssue>,
-    #[serde(default)]
-    pub comment: Option<AppUserNotificationComment>,
-    #[serde(default)]
-    pub actor: Option<LinearActor>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct AppUserNotificationIssue {
-    pub id: String,
-    #[serde(default)]
-    pub identifier: String,
-    #[serde(default)]
-    pub title: String,
-    #[serde(default)]
-    pub description: Option<String>,
-    #[serde(default)]
-    pub url: Option<String>,
-    #[serde(default, rename = "teamId")]
-    pub team_id: Option<String>,
-    #[serde(default)]
-    pub team: Option<LinearTeamRef>,
-    #[serde(default)]
-    pub state: Option<LinearWorkflowState>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct AppUserNotificationComment {
-    pub id: String,
-    #[serde(default)]
-    pub body: String,
-}
-
-// =============================================================================
-// Comment.create — generic comment event (works for user-scope webhook).
+// Comment.create — Linear's classic issue-comment event. Used by the dispatcher
+// to forward follow-up comments to a task that already has an agent-session
+// binding for the comment's issue.
 // =============================================================================
 
 #[derive(Debug, Clone, Deserialize)]
@@ -232,6 +184,16 @@ pub struct CommentIssueRef {
     pub id: String,
     #[serde(default)]
     pub identifier: String,
+}
+
+impl CommentPayloadData {
+    /// Resolve the issue uuid from either `issueId` or the nested `issue.id`.
+    pub fn resolved_issue_id(&self) -> Option<&str> {
+        if let Some(id) = self.issue_id.as_deref() {
+            return Some(id);
+        }
+        self.issue.as_ref().map(|i| i.id.as_str())
+    }
 }
 
 // =============================================================================
@@ -354,66 +316,26 @@ mod tests {
     }
 
     #[test]
-    fn parses_app_user_notification_issue_mention() {
+    fn parses_issue_update_with_state_change() {
         let raw = serde_json::json!({
-            "action": "issueMention",
-            "type": "AppUserNotification",
+            "action": "update",
+            "type": "Issue",
             "organizationId": "org-uuid",
-            "webhookId": "wh-2",
+            "updatedFrom": {"stateId": "st-old"},
             "data": {
-                "id": "notif-1",
-                "type": "issueMention",
-                "issue": {
-                    "id": "issue-10",
-                    "identifier": "ENG-10",
-                    "title": "Investigate flake",
-                    "description": "Tests fail intermittently",
-                    "url": "https://linear.app/acme/issue/ENG-10",
-                    "teamId": "team-1",
-                    "state": {"id": "st-1", "name": "Todo", "type": "unstarted"}
-                },
-                "actor": {"id": "user-1", "name": "Alice"}
+                "id": "issue-3",
+                "identifier": "ENG-3",
+                "title": "Refactor",
+                "teamId": "team-1",
+                "state": {"id": "st-new", "name": "In Progress", "type": "started"}
             }
         });
         let env: LinearWebhookEnvelope = serde_json::from_value(raw).expect("parse");
-        assert_eq!(env.event_type, "AppUserNotification");
+        assert_eq!(env.event_type, "Issue");
         let data = env.data.expect("data present");
-        let notif: AppUserNotificationData = serde_json::from_value(data).expect("parse notif");
-        assert_eq!(notif.kind.as_deref(), Some("issueMention"));
-        let issue = notif.issue.expect("issue present");
-        assert_eq!(issue.identifier, "ENG-10");
-        assert_eq!(issue.team_id.as_deref(), Some("team-1"));
-        assert!(notif.comment.is_none());
-    }
-
-    #[test]
-    fn parses_app_user_notification_issue_comment_mention() {
-        let raw = serde_json::json!({
-            "action": "issueCommentMention",
-            "type": "AppUserNotification",
-            "organizationId": "org-uuid",
-            "data": {
-                "id": "notif-2",
-                "type": "issueCommentMention",
-                "issue": {
-                    "id": "issue-11",
-                    "identifier": "ENG-11",
-                    "title": "Follow up",
-                    "teamId": "team-1"
-                },
-                "comment": {
-                    "id": "comment-9",
-                    "body": "@moatless can you help?"
-                }
-            }
-        });
-        let env: LinearWebhookEnvelope = serde_json::from_value(raw).expect("parse");
-        let data = env.data.expect("data present");
-        let notif: AppUserNotificationData = serde_json::from_value(data).expect("parse notif");
-        assert_eq!(notif.kind.as_deref(), Some("issueCommentMention"));
-        let comment = notif.comment.expect("comment present");
-        assert_eq!(comment.id, "comment-9");
-        assert_eq!(comment.body, "@moatless can you help?");
+        let issue: IssuePayload = serde_json::from_value(data).expect("parse issue");
+        assert_eq!(issue.resolved_team_id(), Some("team-1"));
+        assert_eq!(issue.state_name(), "In Progress");
     }
 
     #[test]
@@ -437,7 +359,7 @@ mod tests {
             serde_json::from_value(data).expect("parse comment");
         assert_eq!(comment.id, "comment-100");
         assert_eq!(comment.body, "any update here?");
-        assert_eq!(comment.issue_id.as_deref(), Some("issue-12"));
+        assert_eq!(comment.resolved_issue_id(), Some("issue-12"));
         assert!(comment.parent_id.is_none());
     }
 
@@ -459,32 +381,10 @@ mod tests {
         let comment: CommentPayloadData =
             serde_json::from_value(data).expect("parse comment");
         assert!(comment.issue_id.is_none());
+        assert_eq!(comment.resolved_issue_id(), Some("issue-13"));
         let issue = comment.issue.expect("nested issue");
         assert_eq!(issue.id, "issue-13");
         assert_eq!(issue.identifier, "ENG-13");
         assert_eq!(comment.parent_id.as_deref(), Some("comment-100"));
-    }
-
-    #[test]
-    fn parses_issue_update_with_state_change() {
-        let raw = serde_json::json!({
-            "action": "update",
-            "type": "Issue",
-            "organizationId": "org-uuid",
-            "updatedFrom": {"stateId": "st-old"},
-            "data": {
-                "id": "issue-3",
-                "identifier": "ENG-3",
-                "title": "Refactor",
-                "teamId": "team-1",
-                "state": {"id": "st-new", "name": "In Progress", "type": "started"}
-            }
-        });
-        let env: LinearWebhookEnvelope = serde_json::from_value(raw).expect("parse");
-        assert_eq!(env.event_type, "Issue");
-        let data = env.data.expect("data present");
-        let issue: IssuePayload = serde_json::from_value(data).expect("parse issue");
-        assert_eq!(issue.resolved_team_id(), Some("team-1"));
-        assert_eq!(issue.state_name(), "In Progress");
     }
 }
