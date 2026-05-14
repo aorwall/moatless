@@ -264,8 +264,11 @@ impl Adapter for LinearAdapter {
     fn reply_instructions(&self) -> Option<String> {
         Some(
             "## Linear Agent Notes\n\
-             - Replies are emitted as Linear Agent `response` activities on the \
-               session. Use `moat messages reply` to post.\n\
+             - Intermediate progress (text + tool calls) is emitted automatically \
+               as ephemeral `thought` / `action` activities — you do not need to \
+               post status updates by hand.\n\
+             - Your final reply is emitted as a Linear Agent `elicitation` activity \
+               on the session. Use `moat messages reply` to post.\n\
              - Markdown is supported. Linear URLs auto-render as mentions.\n\
              - The Moatless task URL is already linked via the session's \
                external URLs — no need to include it in the reply body."

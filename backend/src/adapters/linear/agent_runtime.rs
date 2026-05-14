@@ -942,17 +942,16 @@ async fn rule_for_binding(
     }
 }
 
-/// Best-effort emit a Linear activity on every active Linear session bound to
-/// `task_id`. Fire-and-forget: any failure (no binding, missing connection,
-/// network error, GraphQL rejection) is logged and swallowed — callers in the
-/// event-consumer hot path must not be affected.
-pub async fn notify_linear_status(
-    state: AppState,
-    task_id: String,
-    kind: ActivityKind,
-    body: String,
-    ephemeral: bool,
-) {
+/// Resolve every active Linear `(api, session_id)` pair bound to `task_id`.
+/// Internal helper used by every fire-and-forget activity emitter — keeps the
+/// task-binding + workspace-OAuth lookup in one place.
+///
+/// Returns an empty vec on any DB error (logged) so callers can skip emission
+/// silently without bubbling errors into the event-handler hot path.
+async fn resolve_linear_sessions_for_task(
+    state: &AppState,
+    task_id: &str,
+) -> Vec<(LinearAgentApi, String)> {
     let rows = match sqlx::query_as::<_, TaskBinding>(
         "SELECT id, task_id, adapter_kind AS provider, subject_kind, subject_key, connection_id, \
                 trigger_id, destination_config, metadata, last_external_event_id, \
@@ -965,21 +964,18 @@ pub async fn notify_linear_status(
     )
     .bind(ADAPTER)
     .bind(SUBJECT_KIND)
-    .bind(&task_id)
+    .bind(task_id)
     .fetch_all(&state.db)
     .await
     {
         Ok(rows) => rows,
         Err(e) => {
-            warn!(task_id, error = %e, "notify_linear_status: binding lookup failed");
-            return;
+            warn!(task_id, error = %e, "linear sessions: binding lookup failed");
+            return Vec::new();
         }
     };
 
-    if rows.is_empty() {
-        return;
-    }
-
+    let mut sessions = Vec::with_capacity(rows.len());
     for binding in rows {
         let Some(session_id) = binding
             .destination_config
@@ -1003,7 +999,7 @@ pub async fn notify_linear_status(
                     task_id,
                     connection_id = %binding.connection_id,
                     error = %e,
-                    "notify_linear_status: connection lookup failed"
+                    "linear sessions: connection lookup failed"
                 );
                 continue;
             }
@@ -1019,6 +1015,23 @@ pub async fn notify_linear_status(
             state.config.linear.oauth_client_id.clone(),
             state.config.linear.oauth_client_secret.clone(),
         );
+        sessions.push((api, session_id));
+    }
+    sessions
+}
+
+/// Best-effort emit a Linear activity on every active Linear session bound to
+/// `task_id`. Fire-and-forget: any failure (no binding, missing connection,
+/// network error, GraphQL rejection) is logged and swallowed — callers in the
+/// event-consumer hot path must not be affected.
+pub async fn notify_linear_status(
+    state: AppState,
+    task_id: String,
+    kind: ActivityKind,
+    body: String,
+    ephemeral: bool,
+) {
+    for (api, session_id) in resolve_linear_sessions_for_task(&state, &task_id).await {
         if let Err(e) = api
             .agent_activity_create(&session_id, kind, &body, ephemeral)
             .await
@@ -1045,72 +1058,7 @@ pub async fn notify_linear_action(
     result: Option<String>,
     ephemeral: bool,
 ) {
-    let rows = match sqlx::query_as::<_, TaskBinding>(
-        "SELECT id, task_id, adapter_kind AS provider, subject_kind, subject_key, connection_id, \
-                trigger_id, destination_config, metadata, last_external_event_id, \
-                origin, created_at, last_event_at \
-         FROM task_bindings \
-         WHERE adapter_kind = $1 \
-           AND subject_kind = $2 \
-           AND task_id = $3 \
-           AND COALESCE(destination_config->>'pending', 'false') <> 'true'",
-    )
-    .bind(ADAPTER)
-    .bind(SUBJECT_KIND)
-    .bind(&task_id)
-    .fetch_all(&state.db)
-    .await
-    {
-        Ok(rows) => rows,
-        Err(e) => {
-            warn!(task_id, error = %e, "notify_linear_action: binding lookup failed");
-            return;
-        }
-    };
-
-    if rows.is_empty() {
-        return;
-    }
-
-    for binding in rows {
-        let Some(session_id) = binding
-            .destination_config
-            .get("session_id")
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_string)
-        else {
-            continue;
-        };
-
-        let scope_value: Option<String> = match sqlx::query_scalar(
-            "SELECT scope_value FROM integration_connections WHERE id = $1",
-        )
-        .bind(&binding.connection_id)
-        .fetch_optional(&state.db)
-        .await
-        {
-            Ok(v) => v,
-            Err(e) => {
-                warn!(
-                    task_id,
-                    connection_id = %binding.connection_id,
-                    error = %e,
-                    "notify_linear_action: connection lookup failed"
-                );
-                continue;
-            }
-        };
-        let Some(scope_value) = scope_value else {
-            continue;
-        };
-
-        let api = LinearAgentApi::new(
-            default_http_client(),
-            state.db.clone(),
-            scope_value,
-            state.config.linear.oauth_client_id.clone(),
-            state.config.linear.oauth_client_secret.clone(),
-        );
+    for (api, session_id) in resolve_linear_sessions_for_task(&state, &task_id).await {
         if let Err(e) = api
             .agent_activity_create_action(
                 &session_id,
@@ -1129,6 +1077,154 @@ pub async fn notify_linear_action(
             );
         }
     }
+}
+
+/// Best-effort: walk an assistant message's `content` block array and emit one
+/// Linear activity per block — `text` blocks become ephemeral `thought`s, and
+/// `tool_use` blocks become ephemeral `action`s with a one-line parameter
+/// summary derived from `tool_input`.
+///
+/// Caller is responsible for guarding on `payload.type == "assistant"`; this
+/// function will silently no-op on non-assistant content shapes.
+///
+/// Skips:
+/// - `tool_result` blocks (system/user role messages).
+/// - `text` blocks shorter than 4 chars after trim (Claude connector tokens).
+pub async fn notify_linear_message_activities(
+    state: AppState,
+    task_id: String,
+    message: serde_json::Value,
+) {
+    let Some(blocks) = message.get("content").and_then(serde_json::Value::as_array) else {
+        return;
+    };
+    if blocks.is_empty() {
+        return;
+    }
+
+    let sessions = resolve_linear_sessions_for_task(&state, &task_id).await;
+    if sessions.is_empty() {
+        return;
+    }
+
+    for block in blocks {
+        let block_type = block
+            .get("type")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+
+        match block_type {
+            "text" => {
+                let text = block
+                    .get("text")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("")
+                    .trim();
+                if text.chars().count() < 4 {
+                    continue;
+                }
+                for (api, session_id) in &sessions {
+                    if let Err(e) = api
+                        .agent_activity_create(session_id, ActivityKind::Thought, text, true)
+                        .await
+                    {
+                        warn!(
+                            task_id,
+                            session_id,
+                            error = %e,
+                            "notify_linear_message_activities: thought failed"
+                        );
+                    }
+                }
+            }
+            "tool_use" => {
+                let Some(tool_name) = block.get("name").and_then(serde_json::Value::as_str) else {
+                    continue;
+                };
+                let empty = serde_json::Value::Null;
+                let input = block.get("input").unwrap_or(&empty);
+                let parameter = summarize_tool_input(tool_name, input);
+                for (api, session_id) in &sessions {
+                    if let Err(e) = api
+                        .agent_activity_create_action(
+                            session_id,
+                            tool_name,
+                            &parameter,
+                            None,
+                            true,
+                        )
+                        .await
+                    {
+                        warn!(
+                            task_id,
+                            session_id,
+                            tool_name,
+                            error = %e,
+                            "notify_linear_message_activities: action failed"
+                        );
+                    }
+                }
+            }
+            _ => {
+                // tool_result and any future block kinds — Linear has no way
+                // to attach a result to a previously-emitted action, so skip.
+            }
+        }
+    }
+}
+
+/// Maximum length of the `parameter` field in a Linear `action` activity.
+/// Linear's UI renders activities in a narrow row, so longer strings get
+/// truncated visually anyway.
+const PARAMETER_MAX_LEN: usize = 200;
+
+/// One-line summary of a Claude tool-use input suitable for Linear's
+/// `action.parameter` slot. Falls through to a JSON dump for unknown tools.
+fn summarize_tool_input(tool_name: &str, input: &serde_json::Value) -> String {
+    fn s(v: &serde_json::Value, key: &str) -> Option<String> {
+        v.get(key)
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string)
+    }
+
+    let raw = match tool_name {
+        "Bash" => s(input, "command").unwrap_or_default(),
+        "Edit" | "Write" | "Read" | "NotebookEdit" => s(input, "file_path").unwrap_or_default(),
+        "Grep" => {
+            let pattern = s(input, "pattern").unwrap_or_default();
+            match s(input, "path") {
+                Some(p) if !p.is_empty() => format!("{pattern} in {p}"),
+                _ => pattern,
+            }
+        }
+        "Glob" => s(input, "pattern").unwrap_or_default(),
+        "WebFetch" | "WebSearch" => s(input, "url")
+            .or_else(|| s(input, "query"))
+            .unwrap_or_default(),
+        "Task" | "Agent" => s(input, "description").unwrap_or_default(),
+        name if name.starts_with("mcp__") => {
+            let suffix = name.rsplit("__").next().unwrap_or(name);
+            let detail = s(input, "query").or_else(|| s(input, "name"));
+            match detail {
+                Some(d) if !d.is_empty() => format!("{suffix}: {d}"),
+                _ => suffix.to_string(),
+            }
+        }
+        _ => serde_json::to_string(input).unwrap_or_default(),
+    };
+
+    truncate_chars(&raw, PARAMETER_MAX_LEN)
+}
+
+/// Truncate `s` to at most `max_chars` Unicode scalar values, appending an
+/// ellipsis (`…`) when truncation occurs.
+fn truncate_chars(s: &str, max_chars: usize) -> String {
+    if s.chars().count() <= max_chars {
+        return s.to_string();
+    }
+    let mut out: String = s.chars().take(max_chars.saturating_sub(1)).collect();
+    out.push('…');
+    out
 }
 
 #[cfg(test)]
@@ -1255,6 +1351,65 @@ mod tests {
         let trigger_idx = text.find("just mentioned the agent").unwrap();
         assert!(prev_idx < trigger_idx);
         assert!(text.contains("\n\n---\n\n**@Alice just mentioned the agent:**\n\nplease fix this"));
+    }
+
+    #[test]
+    fn summarize_tool_input_bash_command() {
+        let input = serde_json::json!({ "command": "cargo check" });
+        assert_eq!(summarize_tool_input("Bash", &input), "cargo check");
+    }
+
+    #[test]
+    fn summarize_tool_input_edit_path() {
+        let input = serde_json::json!({
+            "file_path": "/repo/src/main.rs",
+            "old_string": "x",
+            "new_string": "y"
+        });
+        assert_eq!(summarize_tool_input("Edit", &input), "/repo/src/main.rs");
+        assert_eq!(summarize_tool_input("Read", &input), "/repo/src/main.rs");
+        assert_eq!(summarize_tool_input("Write", &input), "/repo/src/main.rs");
+    }
+
+    #[test]
+    fn summarize_tool_input_grep_with_path() {
+        let input = serde_json::json!({ "pattern": "TODO", "path": "backend/src" });
+        assert_eq!(
+            summarize_tool_input("Grep", &input),
+            "TODO in backend/src"
+        );
+    }
+
+    #[test]
+    fn summarize_tool_input_grep_without_path() {
+        let input = serde_json::json!({ "pattern": "TODO" });
+        assert_eq!(summarize_tool_input("Grep", &input), "TODO");
+    }
+
+    #[test]
+    fn summarize_tool_input_mcp_tool() {
+        let input = serde_json::json!({ "query": "rust async" });
+        assert_eq!(
+            summarize_tool_input("mcp__context7__search", &input),
+            "search: rust async"
+        );
+    }
+
+    #[test]
+    fn summarize_tool_input_unknown_falls_back_to_json() {
+        let input = serde_json::json!({ "foo": "bar" });
+        let out = summarize_tool_input("Mystery", &input);
+        assert!(out.contains("\"foo\""));
+        assert!(out.contains("\"bar\""));
+    }
+
+    #[test]
+    fn summarize_tool_input_truncates_oversized() {
+        let long = "x".repeat(500);
+        let input = serde_json::json!({ "command": long });
+        let out = summarize_tool_input("Bash", &input);
+        assert_eq!(out.chars().count(), PARAMETER_MAX_LEN);
+        assert!(out.ends_with('…'));
     }
 
     #[test]

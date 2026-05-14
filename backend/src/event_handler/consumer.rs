@@ -267,6 +267,27 @@ impl EventHandlerConsumer {
             }
             EventKey::Agent(AgentSubType::Message) => {
                 agent_handlers::handle_agent_message(&self.state, event).await;
+                // Forward assistant message content blocks to Linear as
+                // intermediate `thought` / `action` activities. Tool results
+                // (system/user-role messages) are skipped — Linear can't
+                // attach a result to a previously-emitted action.
+                let role = event
+                    .payload
+                    .get("message")
+                    .and_then(|m| m.get("role"))
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("assistant");
+                if role == "assistant" {
+                    if let Some(message) = event.payload.get("message").cloned() {
+                        tokio::spawn(
+                            crate::adapters::linear::agent_runtime::notify_linear_message_activities(
+                                self.state.clone(),
+                                event.task_id.clone(),
+                                message,
+                            ),
+                        );
+                    }
+                }
             }
             EventKey::Agent(AgentSubType::SessionInit) => {
                 agent_handlers::handle_agent_session_init(&self.state, event).await;
@@ -283,6 +304,27 @@ impl EventHandlerConsumer {
                 // handle_agent_error publishes task_turn.error; external
                 // notification is handled by the agent via `moat reply`.
                 agent_handlers::handle_agent_error(&self.state, event).await;
+                // Also emit a persistent `error` activity on any active
+                // Linear session so the failure is visible mid-flight.
+                let body = event
+                    .payload
+                    .get("error")
+                    .and_then(serde_json::Value::as_str)
+                    .or_else(|| {
+                        event
+                            .payload
+                            .get("message")
+                            .and_then(serde_json::Value::as_str)
+                    })
+                    .unwrap_or("Agent error")
+                    .to_string();
+                tokio::spawn(crate::adapters::linear::agent_runtime::notify_linear_status(
+                    self.state.clone(),
+                    event.task_id.clone(),
+                    crate::adapters::linear::agent_api::ActivityKind::Error,
+                    body,
+                    false,
+                ));
             }
             EventKey::TaskTurn(TaskTurnSubType::Error) => {
                 // External notification is handled by the agent via `moat reply`.
