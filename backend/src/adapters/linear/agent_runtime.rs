@@ -444,11 +444,11 @@ async fn close_active_bindings_for_issue(
     let binding_repo = PgTaskBindingRepository(state.db.clone());
     // Look up every active binding tied to this issue.
     let rows = sqlx::query_as::<_, TaskBinding>(
-        "SELECT id, task_id, provider, subject_kind, subject_key, connection_id, \
+        "SELECT id, task_id, adapter_kind AS provider, subject_kind, subject_key, connection_id, \
                 trigger_id, destination_config, metadata, last_external_event_id, \
                 origin, created_at, last_event_at \
          FROM task_bindings \
-         WHERE provider = $1 \
+         WHERE adapter_kind = $1 \
            AND subject_kind = $2 \
            AND destination_config->>'issue_id' = $3 \
            AND COALESCE(destination_config->>'pending', 'false') <> 'true'",
@@ -954,11 +954,11 @@ pub async fn notify_linear_status(
     ephemeral: bool,
 ) {
     let rows = match sqlx::query_as::<_, TaskBinding>(
-        "SELECT id, task_id, provider, subject_kind, subject_key, connection_id, \
+        "SELECT id, task_id, adapter_kind AS provider, subject_kind, subject_key, connection_id, \
                 trigger_id, destination_config, metadata, last_external_event_id, \
                 origin, created_at, last_event_at \
          FROM task_bindings \
-         WHERE provider = $1 \
+         WHERE adapter_kind = $1 \
            AND subject_kind = $2 \
            AND task_id = $3 \
            AND COALESCE(destination_config->>'pending', 'false') <> 'true'",
@@ -1046,11 +1046,11 @@ pub async fn notify_linear_action(
     ephemeral: bool,
 ) {
     let rows = match sqlx::query_as::<_, TaskBinding>(
-        "SELECT id, task_id, provider, subject_kind, subject_key, connection_id, \
+        "SELECT id, task_id, adapter_kind AS provider, subject_kind, subject_key, connection_id, \
                 trigger_id, destination_config, metadata, last_external_event_id, \
                 origin, created_at, last_event_at \
          FROM task_bindings \
-         WHERE provider = $1 \
+         WHERE adapter_kind = $1 \
            AND subject_kind = $2 \
            AND task_id = $3 \
            AND COALESCE(destination_config->>'pending', 'false') <> 'true'",
