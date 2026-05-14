@@ -75,17 +75,35 @@ async fn dispatch_webhook(
         .get("linear-signature")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
-    if signature.is_empty() {
-        debug!("Linear webhook missing Linear-Signature header — ignoring");
-        return Ok(());
-    }
+    let signature_present = !signature.is_empty();
 
     let envelope: LinearWebhookEnvelope = serde_json::from_slice(body).map_err(|e| {
+        info!(
+            error = %e,
+            body_len = body.len(),
+            signature_present,
+            "Linear webhook: failed to parse envelope"
+        );
         AdapterError::BadRequest(format!("Invalid Linear webhook payload: {e}"))
     })?;
 
+    info!(
+        event_type = %envelope.event_type,
+        action = %envelope.action,
+        org_id = envelope.organization_id.as_deref().unwrap_or(""),
+        webhook_id = envelope.webhook_id.as_deref().unwrap_or(""),
+        body_len = body.len(),
+        signature_present,
+        "Linear webhook received"
+    );
+
+    if !signature_present {
+        info!("Linear webhook ignored: missing Linear-Signature header");
+        return Ok(());
+    }
+
     let Some(org_id) = envelope.organization_id.as_deref() else {
-        debug!("Linear webhook missing organizationId — ignoring");
+        info!("Linear webhook ignored: missing organizationId in envelope");
         return Ok(());
     };
 
@@ -101,19 +119,29 @@ async fn dispatch_webhook(
         .webhook_secret
         .as_deref()
         .or(provider.global_webhook_secret_for_dispatch());
-    if let Some(secret) = secret {
-        super::signature::verify_signature(secret, body, signature)?;
-    } else {
+    let Some(secret) = secret else {
         warn!(
             org_id,
-            "Linear webhook arrived but no webhook secret configured on connection or env — refusing"
+            "Linear webhook rejected: no webhook secret configured on connection or env"
         );
         return Err(AdapterError::SignatureInvalid);
+    };
+
+    if let Err(e) = super::signature::verify_signature(secret, body, signature) {
+        warn!(
+            org_id,
+            event_type = %envelope.event_type,
+            webhook_id = envelope.webhook_id.as_deref().unwrap_or(""),
+            secret_source = if connection.webhook_secret.is_some() { "connection" } else { "env" },
+            signature_len = signature.len(),
+            "Linear webhook rejected: signature verification failed"
+        );
+        return Err(e);
     }
 
     if let Some(ref webhook_id) = envelope.webhook_id {
         if !provider.mark_seen_for_dispatch(webhook_id).await {
-            debug!(webhook_id, "Linear webhook deduplicated");
+            info!(webhook_id, org_id, "Linear webhook deduplicated");
             return Ok(());
         }
     }
@@ -129,7 +157,7 @@ async fn dispatch_webhook(
             handle_issue_event(state, &api, &connection, &envelope).await
         }
         other => {
-            debug!(event_type = other, "Unsupported Linear event type");
+            info!(event_type = other, org_id, "Linear webhook: unsupported event type");
             Ok(())
         }
     }
