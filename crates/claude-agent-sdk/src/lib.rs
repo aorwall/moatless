@@ -47,6 +47,7 @@ pub mod client;
 pub mod error;
 pub mod mcp;
 pub mod query;
+pub mod tmux;
 pub mod types;
 
 mod protocol;
@@ -56,6 +57,7 @@ mod transport;
 pub use client::ClaudeClient;
 pub use error::{Result, SdkError};
 pub use query::{query, query_streaming, QueryHandle};
+pub use tmux::{query_tmux, query_tmux_streaming};
 pub use types::agents::AgentDefinition;
 pub use types::content::{ApiMessage, ContentBlock};
 pub use types::hooks::{HookDefinition, HookEvent, HookHandler, HookOutput, SyncHookOutput};

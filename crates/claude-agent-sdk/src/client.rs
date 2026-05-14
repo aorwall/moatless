@@ -1,5 +1,6 @@
 use crate::error::Result;
 use crate::query::{query_streaming, QueryHandle};
+use crate::tmux::query_tmux_streaming;
 use crate::types::content::{ApiMessage, ContentBlock};
 use crate::types::messages::{MessagePriority, SdkMessage, UserMessage};
 use crate::types::options::ClaudeOptions;
@@ -19,6 +20,15 @@ impl ClaudeClient {
     /// This spawns the Claude CLI subprocess and initializes the session.
     pub async fn new(options: ClaudeOptions) -> Result<Self> {
         let handle = query_streaming(options).await?;
+        Ok(Self { handle })
+    }
+
+    /// Create a new client backed by an interactive `claude` TUI running in
+    /// a detached tmux session. See [`crate::tmux`] for caveats — most
+    /// importantly, `options.can_use_tool` is ignored and permissions are
+    /// always bypassed.
+    pub async fn new_tmux(options: ClaudeOptions) -> Result<Self> {
+        let handle = query_tmux_streaming(options).await?;
         Ok(Self { handle })
     }
 

@@ -158,6 +158,27 @@ impl QueryHandle {
     }
 }
 
+impl QueryHandle {
+    /// Construct a `QueryHandle` from raw parts. Used by the tmux backend, which
+    /// does not go through the subprocess orchestrator. The `background_task`
+    /// slot stores whichever long-running task represents the session — for the
+    /// subprocess path this is the orchestrator, for tmux it is the JSONL tailer.
+    pub(crate) fn from_parts(
+        messages: mpsc::Receiver<Result<SdkMessage>>,
+        background_task: JoinHandle<()>,
+        stdin_writer: Arc<dyn StdinWriter>,
+        cancellation_token: CancellationToken,
+    ) -> Self {
+        Self {
+            messages,
+            orchestrator_handle: background_task,
+            stdin_writer,
+            request_tracker: Arc::new(Mutex::new(RequestTracker::new())),
+            cancellation_token,
+        }
+    }
+}
+
 impl Drop for QueryHandle {
     fn drop(&mut self) {
         // Cancel the token to ensure the orchestrator exits and the subprocess

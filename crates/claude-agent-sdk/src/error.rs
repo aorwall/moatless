@@ -39,6 +39,18 @@ pub enum SdkError {
     #[error("Invalid configuration: {message}")]
     InvalidConfig { message: String },
 
+    #[error("tmux binary not found — is tmux installed?")]
+    TmuxNotFound,
+
+    #[error("JSONL session file not found in {project_dir} within {timeout_ms}ms")]
+    JsonlNotFound {
+        project_dir: String,
+        timeout_ms: u64,
+    },
+
+    #[error("tmux session died unexpectedly")]
+    TmuxSessionDied,
+
     #[error("Internal error: {0}")]
     Internal(String),
 }
