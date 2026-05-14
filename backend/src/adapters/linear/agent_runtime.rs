@@ -15,6 +15,7 @@ use chrono::Utc;
 use moatless_api_schemas::linear::LinearIssueComment;
 use tracing::{debug, info, warn};
 
+use crate::adapters::dao::PgAdapterConnectionRepository;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{
     AdapterConnection, TaskBinding, TaskTriggerRoute, ADAPTER_EVENT_BINDING_ORIGIN,
@@ -986,14 +987,14 @@ async fn resolve_linear_sessions_for_task(
             continue;
         };
 
-        let scope_value: Option<String> = match sqlx::query_scalar(
-            "SELECT scope_value FROM integration_connections WHERE id = $1",
-        )
-        .bind(&binding.connection_id)
-        .fetch_optional(&state.db)
-        .await
+        // Column is `external_account_id` on disk; the rest of the codebase
+        // reads it via `external_account_id AS scope_value`. Use the DAO so
+        // we stay in sync with future schema changes.
+        let connection = match PgAdapterConnectionRepository(state.db.clone())
+            .find_by_id(&binding.connection_id)
+            .await
         {
-            Ok(v) => v,
+            Ok(c) => c,
             Err(e) => {
                 warn!(
                     task_id,
@@ -1004,7 +1005,7 @@ async fn resolve_linear_sessions_for_task(
                 continue;
             }
         };
-        let Some(scope_value) = scope_value else {
+        let Some(scope_value) = connection.map(|c| c.scope_value) else {
             continue;
         };
 
