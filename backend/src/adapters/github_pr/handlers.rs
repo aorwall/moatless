@@ -42,11 +42,21 @@ pub async fn github_webhook(
     )
     .await
     {
-        Ok(()) => {
-            record_webhook("github_pr", "success", "", "", "");
+        Ok(super::adapter::GithubWebhookOutcome::Processed { event_type }) => {
+            record_webhook("github_pr", "success", "", &event_type, "", "");
+        }
+        Ok(super::adapter::GithubWebhookOutcome::Ignored { event_type, reason }) => {
+            record_webhook("github_pr", "ignored", reason, &event_type, "", "");
         }
         Err(e) => {
-            record_webhook("github_pr", "error", "delivery_failed", "", "");
+            // `event_type` may have been unset (e.g. missing header); fall back
+            // to whatever the request advertised so the metric still has a
+            // useful label.
+            let event_type = headers
+                .get("x-github-event")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("");
+            record_webhook("github_pr", "error", "delivery_failed", event_type, "", "");
             warn!(error = %e, "GitHub PR webhook processing error");
         }
     }

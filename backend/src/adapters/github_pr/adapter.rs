@@ -56,6 +56,16 @@ pub enum GithubPrWebhookResult {
     Ignore,
 }
 
+/// Outcome of `resolve_and_process_github_webhook`, surfaced so the HTTP
+/// handler can emit accurate metrics per outcome / reason / event_type.
+pub enum GithubWebhookOutcome {
+    Processed { event_type: String },
+    Ignored {
+        event_type: String,
+        reason: &'static str,
+    },
+}
+
 /// Metadata about a closed PR, captured at parse time and used downstream
 /// to compose the auto-close chat notice.
 #[derive(Debug, Clone)]
@@ -1329,7 +1339,7 @@ pub async fn resolve_and_process_github_webhook(
     github_provider: &GithubPrAdapter,
     headers: &axum::http::HeaderMap,
     body: &[u8],
-) -> Result<(), AdapterError> {
+) -> Result<GithubWebhookOutcome, AdapterError> {
     let delivery_id = headers
         .get("x-github-delivery")
         .and_then(|v| v.to_str().ok())
@@ -1354,7 +1364,7 @@ pub async fn resolve_and_process_github_webhook(
         .and_then(serde_json::Value::as_str)
         .ok_or_else(|| AdapterError::BadRequest("Missing repository.full_name".into()))?;
 
-    info!(
+    debug!(
         event_type,
         repo = repo_full_name,
         delivery_id,
@@ -1370,20 +1380,26 @@ pub async fn resolve_and_process_github_webhook(
     let resolved =
         super::runtime::resolve_provider_event(state, owner_login, repo_full_name).await?;
     let Some((connection, rule)) = resolved else {
-        info!(
+        debug!(
             repo = repo_full_name,
             owner = owner_login,
             "GitHub webhook ignored: no provider_connection / task_trigger"
         );
-        return Ok(());
+        return Ok(GithubWebhookOutcome::Ignored {
+            event_type: event_type.to_string(),
+            reason: "no_trigger",
+        });
     };
 
     if !rule.active {
-        info!(
+        debug!(
             repo = repo_full_name,
             "GitHub webhook ignored: task trigger inactive"
         );
-        return Ok(());
+        return Ok(GithubWebhookOutcome::Ignored {
+            event_type: event_type.to_string(),
+            reason: "inactive",
+        });
     }
 
     // Verify webhook signature against the org connection's secret.
@@ -1445,7 +1461,9 @@ pub async fn resolve_and_process_github_webhook(
         }
     }
 
-    Ok(())
+    Ok(GithubWebhookOutcome::Processed {
+        event_type: event_type.to_string(),
+    })
 }
 
 #[cfg(test)]

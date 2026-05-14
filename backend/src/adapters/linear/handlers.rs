@@ -50,10 +50,10 @@ pub async fn linear_webhook(
 
     match dispatch_webhook(&state, linear_provider, &headers, &body).await {
         Ok(()) => {
-            record_webhook("linear", "success", "", "", "");
+            record_webhook("linear", "success", "", "", "", "");
         }
         Err(e) => {
-            record_webhook("linear", "error", "delivery_failed", "", "");
+            record_webhook("linear", "error", "delivery_failed", "", "", "");
             warn!(error = %e, "Linear webhook processing error");
         }
     }

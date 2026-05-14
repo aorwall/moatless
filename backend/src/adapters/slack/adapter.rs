@@ -90,8 +90,9 @@ pub enum SlackWebhookResult {
     Challenge(String),
     /// Parsed message ready for routing.
     Message(Box<InboundMessage>),
-    /// Event should be ignored (bot's own message, unsupported event, etc.).
-    Ignore,
+    /// Event should be ignored. The carried `reason` is a fixed-vocabulary
+    /// label that gets emitted as a Prometheus label by the HTTP handler.
+    Ignore(&'static str),
 }
 
 /// Slack adapter.
@@ -277,8 +278,8 @@ impl SlackAdapter {
         let event = if let Some(e) = payload.get("event") {
             e
         } else {
-            info!(reason = "no_event_field", "Slack event ignored");
-            return Ok(SlackWebhookResult::Ignore);
+            debug!(reason = "no_event_field", "Slack event ignored");
+            return Ok(SlackWebhookResult::Ignore("no_event"));
         };
 
         let event_type = event.get("type").and_then(|v| v.as_str()).unwrap_or("");
@@ -291,13 +292,13 @@ impl SlackAdapter {
         // 5. Deduplication
         if !event_id.is_empty() {
             if self.dedup_cache.get(event_id).await.is_some() {
-                info!(
+                debug!(
                     reason = "duplicate_event_id",
                     event_id = %event_id,
                     event_type = %event_type,
                     "Slack event ignored"
                 );
-                return Ok(SlackWebhookResult::Ignore);
+                return Ok(SlackWebhookResult::Ignore("duplicate"));
             }
             self.dedup_cache.insert(event_id.to_string(), ()).await;
         }
@@ -309,19 +310,19 @@ impl SlackAdapter {
         // 7. Ignore bot's own messages
         if let Some(ref bot_id) = self.bot_user_id {
             if user == bot_id {
-                info!(
+                debug!(
                     reason = "user_is_own_bot",
                     event_type = %event_type,
                     user = %user,
                     source_id = %channel,
                     "Slack event ignored"
                 );
-                return Ok(SlackWebhookResult::Ignore);
+                return Ok(SlackWebhookResult::Ignore("own_bot"));
             }
         }
         // Also check for bot_id field (different from user field)
         if let Some(bot_id_value) = event.get("bot_id") {
-            info!(
+            debug!(
                 reason = "bot_id_field_present",
                 event_type = %event_type,
                 event_subtype = %event_subtype,
@@ -330,7 +331,7 @@ impl SlackAdapter {
                 source_id = %channel,
                 "Slack event ignored"
             );
-            return Ok(SlackWebhookResult::Ignore);
+            return Ok(SlackWebhookResult::Ignore("bot_account"));
         }
 
         // 8. Parse typed provider config and apply trigger filter
@@ -353,7 +354,7 @@ impl SlackAdapter {
                 debug!(event_id = %event_id, channel = %channel, "Processing DM (trigger bypass)");
             }
             _ => {
-                info!(
+                debug!(
                     reason = "trigger_filter",
                     event_type = %event_type,
                     event_subtype = %event_subtype,
@@ -364,7 +365,7 @@ impl SlackAdapter {
                     source_id = %channel,
                     "Slack event ignored"
                 );
-                return Ok(SlackWebhookResult::Ignore);
+                return Ok(SlackWebhookResult::Ignore("trigger_filter"));
             }
         }
 
@@ -372,14 +373,14 @@ impl SlackAdapter {
         match enforce_slack_access(&slack_config, channel, user) {
             AccessDecision::Allowed => {}
             AccessDecision::Blocked | AccessDecision::PairingSent => {
-                info!(
+                debug!(
                     reason = "access_policy",
                     event_type = %event_type,
                     user = %user,
                     source_id = %channel,
                     "Slack event ignored"
                 );
-                return Ok(SlackWebhookResult::Ignore);
+                return Ok(SlackWebhookResult::Ignore("access_policy"));
             }
         }
 
@@ -389,7 +390,7 @@ impl SlackAdapter {
         let thread_ts = event.get("thread_ts").and_then(|v| v.as_str());
 
         if text.is_empty() || ts.is_empty() {
-            info!(
+            debug!(
                 reason = "empty_text_or_ts",
                 event_type = %event_type,
                 text_empty = text.is_empty(),
@@ -398,7 +399,7 @@ impl SlackAdapter {
                 source_id = %channel,
                 "Slack event ignored"
             );
-            return Ok(SlackWebhookResult::Ignore);
+            return Ok(SlackWebhookResult::Ignore("empty_message"));
         }
 
         // 9. Detect bot mention BEFORE stripping (needed for selective reply logic)
@@ -416,7 +417,7 @@ impl SlackAdapter {
         let clean_text = super::format::format_slack_text(text);
 
         if clean_text.trim().is_empty() {
-            info!(
+            debug!(
                 reason = "empty_text_after_format",
                 event_type = %event_type,
                 raw_text_len = text.len(),
@@ -425,7 +426,7 @@ impl SlackAdapter {
                 source_id = %channel,
                 "Slack event ignored"
             );
-            return Ok(SlackWebhookResult::Ignore);
+            return Ok(SlackWebhookResult::Ignore("empty_after_format"));
         }
 
         // 10. Fetch user info once (bot flags + email) and resolve Slack user → system user.
@@ -438,14 +439,14 @@ impl SlackAdapter {
         if let Some(ref info) = slack_user_info {
             if info.is_bot || info.is_app_user {
                 let is_own_bot = self.bot_user_id.as_deref() == Some(user);
-                info!(
+                debug!(
                     slack_user = %user,
                     source_id = %channel,
                     is_own_bot,
                     handle = %info.handle.as_deref().unwrap_or(""),
                     "Ignoring Slack message from bot/app account"
                 );
-                return Ok(SlackWebhookResult::Ignore);
+                return Ok(SlackWebhookResult::Ignore("bot_account"));
             }
         }
 
@@ -516,7 +517,7 @@ impl SlackAdapter {
                     .api
                     .post_message(channel, &error_msg, Some(reply_ts))
                     .await;
-                return Ok(SlackWebhookResult::Ignore);
+                return Ok(SlackWebhookResult::Ignore("user_not_mapped"));
             }
         };
 

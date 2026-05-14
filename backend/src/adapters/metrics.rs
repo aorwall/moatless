@@ -4,9 +4,16 @@
 //! can render per-trigger and per-connection counts. Pass empty strings
 //! at call sites where the IDs aren't yet known (e.g. before rule lookup).
 //!
+//! `event_type` is the provider's own event name — for GitHub it's the
+//! `X-GitHub-Event` header (`check_run`, `pull_request`, ...); for Slack
+//! it's the outer payload `type` (`event_callback`, `url_verification`)
+//! plus the synthetic `"slash_command"` for slash-command deliveries. The
+//! vocabulary is bounded by each provider's API so cardinality is safe.
+//!
 //! Cardinality note: number of active triggers × connections × adapters ×
-//! outcomes × reasons. Keep the `reason` vocabulary small and prune unused
-//! triggers/connections to avoid runaway series in Prometheus.
+//! outcomes × reasons × event_types. Keep the `reason` vocabulary small
+//! and prune unused triggers/connections to avoid runaway series in
+//! Prometheus.
 
 pub(crate) const ADAPTER_WEBHOOK_TOTAL: &str = "moatless_adapter_webhook_total";
 
@@ -16,7 +23,7 @@ pub(crate) const ADAPTER_WEBHOOK_TOTAL: &str = "moatless_adapter_webhook_total";
 pub fn describe_adapter_metrics() {
     metrics::describe_counter!(
         ADAPTER_WEBHOOK_TOTAL,
-        "Adapter webhook outcomes (success | ignored | error) by adapter, trigger, connection, and reason"
+        "Adapter webhook outcomes (success | ignored | error) by adapter, trigger, connection, reason, and event_type"
     );
 }
 
@@ -25,12 +32,15 @@ pub fn describe_adapter_metrics() {
 /// `outcome` must be one of `"success"`, `"ignored"`, `"error"`.
 /// `reason` is a fixed-vocabulary label (e.g. `"inactive"`, `"no_trigger"`,
 /// `"delivery_failed"`); pass `""` when not applicable.
+/// `event_type` is the provider's event name (see module doc); pass `""`
+/// when the request errored before the type could be determined.
 /// `trigger_id` / `connection_id` are passed as empty strings when not
 /// resolved yet (e.g. early validation failures).
 pub(crate) fn record_webhook(
     adapter: &'static str,
     outcome: &'static str,
     reason: &'static str,
+    event_type: &str,
     trigger_id: &str,
     connection_id: &str,
 ) {
@@ -39,6 +49,7 @@ pub(crate) fn record_webhook(
         "adapter" => adapter,
         "outcome" => outcome,
         "reason" => reason,
+        "event_type" => event_type.to_string(),
         "trigger_id" => trigger_id.to_string(),
         "connection_id" => connection_id.to_string(),
     )
