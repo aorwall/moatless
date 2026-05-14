@@ -386,12 +386,37 @@ pub async fn graphql_passthrough(
     let (_connection, api) =
         resolve_linear_api(&state, &ctx, params.connection_id.as_deref()).await?;
 
-    let mut body = json!({ "query": req.query });
-    if let Some(vars) = req.variables {
+    // Callers (esp. agents) sometimes pass the full `{"query": ..., "variables": ...}`
+    // envelope as the `query` field. Peel one layer so Linear doesn't see the
+    // envelope text as the GraphQL document.
+    let (query_text, inner_vars) = unwrap_graphql_envelope(&req.query);
+
+    let mut body = json!({ "query": query_text });
+    if let Some(vars) = req.variables.or(inner_vars) {
         body["variables"] = vars;
     }
     let value = api.graphql(body).await?;
     Ok(Json(value))
+}
+
+/// Tolerate callers that wrap a full `{query, variables}` envelope inside the
+/// `query` field. Returns the inner GraphQL text and any inner variables.
+fn unwrap_graphql_envelope(raw: &str) -> (String, Option<Value>) {
+    let trimmed = raw.trim_start();
+    if !trimmed.starts_with('{') {
+        return (raw.to_string(), None);
+    }
+    let Ok(Value::Object(map)) = serde_json::from_str::<Value>(trimmed) else {
+        return (raw.to_string(), None);
+    };
+    let Some(inner) = map.get("query").and_then(Value::as_str) else {
+        return (raw.to_string(), None);
+    };
+    warn!(
+        "linear graphql passthrough: caller wrapped a JSON envelope inside `query`; \
+         unwrapping. Fix the caller to send raw GraphQL text in `query`."
+    );
+    (inner.to_string(), map.get("variables").cloned())
 }
 
 #[utoipa::path(
@@ -718,5 +743,58 @@ pub(crate) async fn attach_moatless_task(
             issue = %issue_uuid,
             "Failed to attach Moatless task URL to Linear issue"
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unwrap_envelope_passes_through_bare_graphql() {
+        let (q, vars) = unwrap_graphql_envelope("query { viewer { name email } }");
+        assert_eq!(q, "query { viewer { name email } }");
+        assert!(vars.is_none());
+    }
+
+    #[test]
+    fn unwrap_envelope_passes_through_mutation_with_braces() {
+        let raw = "mutation { issueAddLabel(id: \"x\", labelId: \"y\") { success } }";
+        let (q, vars) = unwrap_graphql_envelope(raw);
+        assert_eq!(q, raw);
+        assert!(vars.is_none());
+    }
+
+    #[test]
+    fn unwrap_envelope_extracts_inner_query() {
+        let raw = r#"{"query": "query { viewer { name } }"}"#;
+        let (q, vars) = unwrap_graphql_envelope(raw);
+        assert_eq!(q, "query { viewer { name } }");
+        assert!(vars.is_none());
+    }
+
+    #[test]
+    fn unwrap_envelope_extracts_inner_query_and_variables() {
+        let raw = r#"{"query": "query($id: String!) { issue(id: $id) { id } }", "variables": {"id": "SP-1138"}}"#;
+        let (q, vars) = unwrap_graphql_envelope(raw);
+        assert_eq!(q, "query($id: String!) { issue(id: $id) { id } }");
+        assert_eq!(vars.unwrap(), json!({ "id": "SP-1138" }));
+    }
+
+    #[test]
+    fn unwrap_envelope_tolerates_leading_whitespace() {
+        let raw = "  \n  {\"query\": \"query { viewer { id } }\"}";
+        let (q, vars) = unwrap_graphql_envelope(raw);
+        assert_eq!(q, "query { viewer { id } }");
+        assert!(vars.is_none());
+    }
+
+    #[test]
+    fn unwrap_envelope_leaves_non_envelope_object_alone() {
+        // Looks like JSON but has no `query` field — not an envelope.
+        let raw = r#"{"foo": "bar"}"#;
+        let (q, vars) = unwrap_graphql_envelope(raw);
+        assert_eq!(q, raw);
+        assert!(vars.is_none());
     }
 }
