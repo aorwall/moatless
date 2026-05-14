@@ -115,8 +115,13 @@ jobs:
   # Uses rust:1.91-bookworm to link against GLIBC 2.36, matching distroless/cc
   # in Dockerfile.backend-cross and the sandbox-base bookworm baseline.
   #
-  # Always builds with --release so cache hits actually reuse target/release/
-  # (a separate target dir per profile would defeat Swatinem/rust-cache).
+  # Always builds with --release so cache hits reuse target/release/. For
+  # non-tag builds (PR + push-to-main + dispatch) the release profile is
+  # overridden via env vars to drop LTO and bump codegen-units — much faster
+  # to compile, ~5–10% slower at runtime. fp-v* tag builds keep full release
+  # optimization (lto=thin, codegen-units=8) and use a separate cache scope
+  # so the two profile flavors don't fight each other in the same cache.
+  #
   # PR runs build only the backend — just enough for --dump-openapi so the
   # frontend type-check downstream has fresh types. Push/tag/dispatch builds
   # all three crates for shipping.
@@ -126,21 +131,35 @@ jobs:
       github.event_name == 'pull_request' ||
       needs.setup.outputs.build-backend == 'true' ||
       needs.setup.outputs.build-sandbox == 'true'
-    runs-on: ubuntu-latest
+    runs-on: staging-runners-large
     container:
       image: rust:1.91-bookworm
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install protoc
-        run: apt-get update && apt-get install -y --no-install-recommends protobuf-compiler
+      - name: Install protoc + mold
+        run: apt-get update && apt-get install -y --no-install-recommends protobuf-compiler mold
+
+      - name: Determine cache scope + profile flavor
+        id: build
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/fp-v* ]]; then
+            # Tag release: full release optimization, separate cache.
+            echo "cache_key=rust-cd-release" >> "$GITHUB_OUTPUT"
+            echo "fast=false" >> "$GITHUB_OUTPUT"
+          else
+            # PR / push-to-main / dispatch: faster compile via env-var
+            # overrides on the release profile. Same target/release/ dir.
+            echo "cache_key=rust-cd-fast" >> "$GITHUB_OUTPUT"
+            echo "fast=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: ". -> target"
-          shared-key: rust-cd
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          shared-key: ${{ steps.build.outputs.cache_key }}
+          save-if: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/fp-v') }}
 
       - name: Determine crate set
         id: crates
@@ -153,7 +172,16 @@ jobs:
             echo "packages=-p moatless-vibe-backend -p moatless-sandbox -p moatless-cli" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Apply release-fast profile overrides (non-tag builds)
+        if: steps.build.outputs.fast == 'true'
+        run: |
+          echo "CARGO_PROFILE_RELEASE_LTO=false" >> "$GITHUB_ENV"
+          echo "CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16" >> "$GITHUB_ENV"
+
       - name: Build binaries
+        env:
+          # Use mold as the linker (much faster than ld for big crates).
+          RUSTFLAGS: "-C link-arg=-fuse-ld=mold"
         run: |
           cargo build --release ${{ steps.crates.outputs.packages }}
 

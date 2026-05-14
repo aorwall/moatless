@@ -156,8 +156,18 @@ async fn dispatch_webhook(
             let api = build_agent_api(state, &connection.scope_value);
             handle_issue_event(state, &api, &connection, &envelope).await
         }
+        "AppUserNotification" => {
+            let api = build_agent_api(state, &connection.scope_value);
+            handle_app_user_notification_event(state, &api, &connection, &envelope).await
+        }
+        "Comment" => handle_comment_event(state, &connection, &envelope).await,
         other => {
-            info!(event_type = other, org_id, "Linear webhook: unsupported event type");
+            warn!(
+                event_type = other,
+                org_id,
+                action = %envelope.action,
+                "Linear webhook: unknown event type — ignoring"
+            );
             Ok(())
         }
     }
@@ -208,6 +218,134 @@ async fn handle_issue_event(
         &issue,
     )
     .await
+}
+
+async fn handle_app_user_notification_event(
+    state: &AppState,
+    api: &LinearAgentApi,
+    connection: &crate::adapters::models::AdapterConnection,
+    envelope: &LinearWebhookEnvelope,
+) -> Result<(), AdapterError> {
+    let Some(data) = envelope.data.as_ref() else {
+        warn!(
+            org_id = %connection.scope_value,
+            action = %envelope.action,
+            "AppUserNotification missing data — ignoring"
+        );
+        return Ok(());
+    };
+
+    let notif: super::webhook_payloads::AppUserNotificationData =
+        match serde_json::from_value(data.clone()) {
+            Ok(n) => n,
+            Err(e) => {
+                warn!(
+                    error = %e,
+                    body_len = data.to_string().len(),
+                    raw = %data,
+                    "Failed to parse AppUserNotificationData — ignoring"
+                );
+                return Ok(());
+            }
+        };
+
+    let kind = notif.kind.as_deref().unwrap_or("");
+    debug!(
+        kind,
+        notification_id = notif.id.as_deref().unwrap_or(""),
+        "Linear AppUserNotification received"
+    );
+
+    match kind {
+        "issueMention" | "issueCommentMention" => {
+            let Some(issue) = notif.issue.as_ref() else {
+                warn!(
+                    kind,
+                    notification_id = notif.id.as_deref().unwrap_or(""),
+                    raw = %data,
+                    "AppUserNotification mention missing issue — ignoring"
+                );
+                return Ok(());
+            };
+
+            let team_id = issue
+                .team_id
+                .clone()
+                .or_else(|| issue.team.as_ref().map(|t| t.id.clone()))
+                .unwrap_or_default();
+            let rules =
+                agent_runtime::resolve_rules_for_team(state, connection, &team_id).await?;
+
+            agent_runtime::handle_app_user_notification(
+                state, api, connection, &rules, &notif,
+            )
+            .await
+        }
+        "" => {
+            warn!(
+                notification_id = notif.id.as_deref().unwrap_or(""),
+                raw = %data,
+                "AppUserNotification missing kind — ignoring"
+            );
+            Ok(())
+        }
+        other => {
+            info!(
+                kind = other,
+                notification_id = notif.id.as_deref().unwrap_or(""),
+                "Linear AppUserNotification: ignoring sub-type"
+            );
+            Ok(())
+        }
+    }
+}
+
+async fn handle_comment_event(
+    state: &AppState,
+    connection: &crate::adapters::models::AdapterConnection,
+    envelope: &LinearWebhookEnvelope,
+) -> Result<(), AdapterError> {
+    if envelope.action != "create" {
+        debug!(action = %envelope.action, "Comment event with non-create action — ignoring");
+        return Ok(());
+    }
+
+    let Some(data) = envelope.data.as_ref() else {
+        warn!(
+            org_id = %connection.scope_value,
+            "Comment.create missing data — ignoring"
+        );
+        return Ok(());
+    };
+
+    let comment: super::webhook_payloads::CommentPayloadData =
+        match serde_json::from_value(data.clone()) {
+            Ok(c) => c,
+            Err(e) => {
+                warn!(
+                    error = %e,
+                    body_len = data.to_string().len(),
+                    raw = %data,
+                    "Failed to parse CommentPayloadData — ignoring"
+                );
+                return Ok(());
+            }
+        };
+
+    let issue_id = comment
+        .issue_id
+        .clone()
+        .or_else(|| comment.issue.as_ref().map(|i| i.id.clone()));
+    let Some(issue_id) = issue_id else {
+        warn!(
+            comment_id = %comment.id,
+            raw = %data,
+            "Comment.create missing issueId — ignoring"
+        );
+        return Ok(());
+    };
+
+    agent_runtime::handle_comment_created(state, connection, &issue_id, &comment).await
 }
 
 async fn handle_agent_session_event(

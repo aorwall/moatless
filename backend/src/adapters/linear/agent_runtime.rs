@@ -28,7 +28,11 @@ use crate::triggers::rule_dao::PgTaskTriggerRouteRepository;
 
 use super::agent_api::{default_http_client, ActivityKind, LinearAgentApi};
 use super::config::LinearRuleConfig;
-use super::webhook_payloads::{AgentSession, IssuePayload};
+use super::webhook_payloads::{
+    AgentSession, AppUserNotificationData, AppUserNotificationIssue, CommentPayloadData,
+    IssuePayload,
+};
+use super::SUBJECT_KIND_ISSUE;
 
 const ADAPTER: &str = "linear";
 const SUBJECT_KIND: &str = "linear_agent_session";
@@ -252,6 +256,255 @@ pub async fn handle_issue_update(
     }
 
     Ok(())
+}
+
+/// Process an `AppUserNotification` mention event (issueMention or
+/// issueCommentMention). Mirrors `handle_session_created`'s "create task +
+/// bind + seed with issue context" flow, but for the OAuth-app "Inbox
+/// notifications" path that fires when "Agent session events" is NOT
+/// subscribed.
+///
+/// Dedup guard: skips if an active `linear_agent_session` binding already
+/// exists for the issue (the AgentSessionEvent path will handle it).
+pub async fn handle_app_user_notification(
+    state: &AppState,
+    api: &LinearAgentApi,
+    connection: &AdapterConnection,
+    rules: &[TaskTriggerRoute],
+    notif: &AppUserNotificationData,
+) -> Result<(), AdapterError> {
+    let issue = notif
+        .issue
+        .as_ref()
+        .ok_or_else(|| AdapterError::BadRequest("AppUserNotification missing issue".into()))?;
+
+    // Dedup vs AgentSessionEvent: if any active agent-session binding already
+    // points at this issue, the AgentSessionEvent path is handling it.
+    if has_active_session_binding_for_issue(state, &issue.id).await? {
+        info!(
+            issue_id = %issue.id,
+            "AppUserNotification skipped: AgentSessionEvent already handles this issue"
+        );
+        return Ok(());
+    }
+
+    let Some(rule) = rules.first().cloned() else {
+        warn!(
+            issue_id = %issue.id,
+            "no active rule for team — ignoring AppUserNotification"
+        );
+        return Ok(());
+    };
+
+    let task_id = create_notification_task(state, &rule, issue, notif).await?;
+    provision_task(state, &task_id).await;
+
+    let team_id = issue
+        .team_id
+        .clone()
+        .or_else(|| issue.team.as_ref().map(|t| t.id.clone()))
+        .unwrap_or_default();
+    let destination_config = serde_json::json!({
+        "issue_id": issue.id,
+        "identifier": issue.identifier,
+        "team_id": team_id,
+        "notification_id": notif.id,
+        "issue_url": issue.url,
+    });
+    let now = Utc::now();
+    let binding = TaskBinding {
+        id: format!("ts_{}", uuid::Uuid::new_v4()),
+        task_id: task_id.clone(),
+        provider: ADAPTER.to_string(),
+        subject_kind: SUBJECT_KIND_ISSUE.to_string(),
+        subject_key: issue.id.clone(),
+        connection_id: connection.id.clone(),
+        trigger_id: Some(rule.id.clone()),
+        destination_config,
+        metadata: serde_json::json!({}),
+        last_external_event_id: None,
+        origin: ADAPTER_EVENT_BINDING_ORIGIN.to_string(),
+        created_at: now,
+        last_event_at: now,
+    };
+
+    PgTaskBindingRepository(state.db.clone())
+        .upsert(&binding)
+        .await?;
+
+    let prior_comments = match api.fetch_issue_comments(&issue.id, 50).await {
+        Ok(c) => c,
+        Err(e) => {
+            warn!(
+                error = %e,
+                issue_id = %issue.id,
+                "Failed to fetch prior Linear comments — proceeding without"
+            );
+            Vec::new()
+        }
+    };
+
+    let inbound_text = build_notification_inbound_text(
+        issue,
+        notif.comment.as_ref().map(|c| c.body.as_str()),
+        &prior_comments,
+    );
+    let external_event_id = format!(
+        "linear:notification:{}",
+        notif.id.as_deref().unwrap_or("")
+    );
+    if let Err(e) = crate::message::send::send_message_flow(
+        state,
+        &task_id,
+        &inbound_text,
+        None,
+        None,
+        &[],
+        &[],
+        false,
+        Some(&external_event_id),
+        Some(ADAPTER_LABEL),
+        Some(rule.source_matcher.as_str()),
+        None,
+        None,
+        false,
+        notif.actor.as_ref().map(|a| a.id.as_str()),
+    )
+    .await
+    {
+        warn!(
+            task_id = %task_id,
+            issue_id = %issue.id,
+            error = %e,
+            "Failed to forward Linear AppUserNotification prompt to task"
+        );
+    }
+
+    if let Err(e) = api
+        .attachment_link_url(&issue.id, &task_url(state, &task_id), "Moatless task")
+        .await
+    {
+        warn!(
+            task_id = %task_id,
+            issue_id = %issue.id,
+            error = %e,
+            "Failed to attach Moatless task URL to Linear issue"
+        );
+    }
+
+    info!(
+        task_id = %task_id,
+        rule_id = %rule.id,
+        notification_id = notif.id.as_deref().unwrap_or(""),
+        "Created task from Linear AppUserNotification"
+    );
+    Ok(())
+}
+
+/// Process a `Comment.create` event for an issue that already has an active
+/// `linear_issue` binding. Forwards the comment body to every bound task via
+/// `send_message_flow`. Dedup-via-AgentSessionEvent first; no-op when no
+/// binding exists.
+pub async fn handle_comment_created(
+    state: &AppState,
+    _connection: &AdapterConnection,
+    issue_id: &str,
+    comment: &CommentPayloadData,
+) -> Result<(), AdapterError> {
+    if has_active_session_binding_for_issue(state, issue_id).await? {
+        debug!(
+            issue_id,
+            comment_id = %comment.id,
+            "Comment.create skipped: AgentSessionEvent.prompted will handle this comment"
+        );
+        return Ok(());
+    }
+
+    let binding_repo = PgTaskBindingRepository(state.db.clone());
+    let bindings = binding_repo
+        .find_by_subject(ADAPTER, SUBJECT_KIND_ISSUE, issue_id)
+        .await?;
+
+    if bindings.is_empty() {
+        debug!(
+            issue_id,
+            comment_id = %comment.id,
+            "No linear_issue binding for comment — ignoring"
+        );
+        return Ok(());
+    }
+
+    for binding in bindings {
+        let external_event_id = format!("linear:comment:{}", comment.id);
+        if let Err(e) = crate::message::send::send_message_flow(
+            state,
+            &binding.task_id,
+            &comment.body,
+            None,
+            None,
+            &[],
+            &[],
+            true,
+            Some(&external_event_id),
+            Some(ADAPTER_LABEL),
+            None,
+            None,
+            None,
+            false,
+            comment.user.as_ref().map(|u| u.id.as_str()),
+        )
+        .await
+        {
+            warn!(
+                task_id = %binding.task_id,
+                issue_id,
+                comment_id = %comment.id,
+                error = %e,
+                "Failed to forward Linear comment to task"
+            );
+            continue;
+        }
+
+        if let Err(e) =
+            crate::sandbox::notify::ensure_sandbox_and_notify(state, &binding.task_id).await
+        {
+            warn!(
+                task_id = %binding.task_id,
+                error = %e,
+                "Failed to ensure sandbox for Linear comment"
+            );
+        }
+    }
+
+    Ok(())
+}
+
+/// Check whether any active `linear_agent_session` binding exists for the
+/// given issue id. Used by the AppUserNotification + Comment paths to avoid
+/// double-firing when the OAuth app later subscribes to "Agent session
+/// events" alongside "Inbox notifications".
+async fn has_active_session_binding_for_issue(
+    state: &AppState,
+    issue_id: &str,
+) -> Result<bool, AdapterError> {
+    let rows = sqlx::query_as::<_, TaskBinding>(
+        "SELECT id, task_id, adapter_kind AS provider, subject_kind, subject_key, \
+                connection_id, trigger_id, destination_config, metadata, \
+                last_external_event_id, origin, created_at, last_event_at \
+         FROM task_bindings \
+         WHERE adapter_kind = $1 \
+           AND subject_kind = $2 \
+           AND destination_config->>'issue_id' = $3 \
+           AND COALESCE(destination_config->>'pending', 'false') <> 'true' \
+         LIMIT 1",
+    )
+    .bind(ADAPTER)
+    .bind(SUBJECT_KIND)
+    .bind(issue_id)
+    .fetch_all(&state.db)
+    .await
+    .map_err(AdapterError::Db)?;
+    Ok(!rows.is_empty())
 }
 
 async fn close_active_bindings_for_issue(
@@ -589,6 +842,154 @@ fn build_inbound_text(
     }
 
     text
+}
+
+/// Render the inbound text seeded into a task created from an
+/// `AppUserNotification`. Same shape as `build_inbound_text` (issue block →
+/// prior comments → triggering mention), but accepts the notification
+/// payload's types directly.
+fn build_notification_inbound_text(
+    issue: &AppUserNotificationIssue,
+    mention_body: Option<&str>,
+    prior: &[LinearIssueComment],
+) -> String {
+    let mut text = String::new();
+
+    // 1. Issue block.
+    let _ = write!(text, "## Linear issue {} — {}", issue.identifier, issue.title);
+    if let Some(desc) = issue.description.as_deref().filter(|s| !s.is_empty()) {
+        let _ = write!(text, "\n\n{desc}");
+    }
+    if let Some(url) = issue.url.as_deref().filter(|s| !s.is_empty()) {
+        let _ = write!(text, "\n\n{url}");
+    }
+
+    // 2. Prior comments — render as a thread. The mention itself is appended
+    //    last (step 3), so skip any prior-comment whose body matches the
+    //    triggering mention body to avoid duplication.
+    let trigger_body = mention_body.unwrap_or("");
+    let prior_filtered: Vec<&LinearIssueComment> = if trigger_body.is_empty() {
+        prior.iter().collect()
+    } else {
+        prior.iter().filter(|c| c.body != trigger_body).collect()
+    };
+    if !prior_filtered.is_empty() {
+        text.push_str("\n\n### Previous comments\n");
+        for c in &prior_filtered {
+            let name = c.user.as_ref().map_or("user", |u| u.name.as_str());
+            let _ = write!(text, "\n**@{name}:**\n\n{}\n", c.body);
+        }
+    }
+
+    // 3. Triggering @mention (if the notification carried a comment body).
+    if let Some(body) = mention_body.filter(|s| !s.is_empty()) {
+        if !text.is_empty() {
+            text.push_str("\n\n---\n\n");
+        }
+        let _ = write!(text, "**Mention:**\n\n{body}");
+    }
+
+    text
+}
+
+async fn create_notification_task(
+    state: &AppState,
+    rule: &TaskTriggerRoute,
+    issue: &AppUserNotificationIssue,
+    notif: &AppUserNotificationData,
+) -> Result<String, AdapterError> {
+    let task_id = uuid::Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    let short_id = generate_short_id(state).await?;
+
+    let preview = build_notification_inbound_text(
+        issue,
+        notif.comment.as_ref().map(|c| c.body.as_str()),
+        &[],
+    );
+
+    let row = Task {
+        task_id: task_id.clone(),
+        short_id: Some(short_id),
+        created_at: now.clone(),
+        last_message_at: now,
+        agent_type: AgentType(rule.agent_type.clone()),
+        repository_id: rule.repository_id.clone(),
+        status: TaskStatus::Open,
+        total_cost_usd: 0.0,
+        site_url: None,
+        template_id: None,
+        vibe: None,
+        name: rule
+            .task_name
+            .clone()
+            .or_else(|| Some(format!("{} — {}", issue.identifier, issue.title))),
+        description: Some(truncate(&preview, 200)),
+        site_id: None,
+        site_provider: None,
+        branch: None,
+        created_by: Some(rule.effective_user_id().to_string()),
+        visibility: Visibility::Private,
+        scope: rule.scope,
+        team_id: rule.team_id.clone(),
+        owner_user_id: (rule.scope == crate::scope::Scope::User)
+            .then(|| rule.effective_user_id().to_string()),
+        created_at_db: None,
+        updated_at: None,
+        parent_task_id: None,
+        append_system_prompt: {
+            let mut parts = Vec::new();
+            if let Some(ref tpl) = rule.prompt_template {
+                parts.push(tpl.to_string());
+            }
+            if let Some(providers) = state.adapters.as_ref() {
+                if let Some(provider) = providers.get_by_name(ADAPTER_LABEL) {
+                    if let Some(extra) = provider.reply_instructions() {
+                        parts.push(extra);
+                    }
+                }
+            }
+            if parts.is_empty() {
+                None
+            } else {
+                Some(parts.join("\n\n"))
+            }
+        },
+        sandbox_started_at: None,
+        headless: true,
+        ttl_minutes: crate::task::models::DEFAULT_TTL_MINUTES,
+        inactive_ttl_days: crate::task::models::DEFAULT_INACTIVE_TTL_DAYS,
+        task_template_id: None,
+        trigger_id: Some(rule.id.clone()),
+    };
+
+    state
+        .tasks
+        .insert_task(&row)
+        .await
+        .map_err(|e| AdapterError::Internal(format!("Failed to create task: {e}")))?;
+
+    if !rule.tag_ids.is_empty() {
+        if let Err(e) = state.tags.add_task_tags(&task_id, &rule.tag_ids).await {
+            warn!(task_id = %task_id, error = %e, "Failed to assign trigger tags");
+        }
+    }
+
+    if let Some(ref events) = state.events {
+        events
+            .publish_task_event(
+                &task_id,
+                moatless_events::TaskSubType::Open,
+                Some("claude-code"),
+                serde_json::json!({
+                    "adapter": ADAPTER_LABEL,
+                    "source_matcher": rule.source_matcher,
+                }),
+            )
+            .await;
+    }
+
+    Ok(task_id)
 }
 
 async fn create_provider_event_task(
@@ -1075,6 +1476,63 @@ mod tests {
         let trigger_idx = text.find("just mentioned the agent").unwrap();
         assert!(prev_idx < trigger_idx);
         assert!(text.contains("\n\n---\n\n**@Alice just mentioned the agent:**\n\nplease fix this"));
+    }
+
+    fn notification_issue() -> AppUserNotificationIssue {
+        AppUserNotificationIssue {
+            id: "issue-1".into(),
+            identifier: "SP-1".into(),
+            title: "Bug".into(),
+            description: Some("Long description here.".into()),
+            url: Some("https://linear.app/acme/issue/SP-1".into()),
+            team_id: Some("team-1".into()),
+            team: None,
+            state: None,
+        }
+    }
+
+    #[test]
+    fn build_notification_inbound_text_without_mention() {
+        let issue = notification_issue();
+        let text = build_notification_inbound_text(&issue, None, &[]);
+        assert!(text.contains("## Linear issue SP-1 — Bug"));
+        assert!(text.contains("Long description here."));
+        assert!(text.contains("https://linear.app/acme/issue/SP-1"));
+        assert!(!text.contains("### Previous comments"));
+        assert!(!text.contains("**Mention:**"));
+    }
+
+    #[test]
+    fn build_notification_inbound_text_with_mention() {
+        let issue = notification_issue();
+        let text = build_notification_inbound_text(&issue, Some("@moatless please help"), &[]);
+        assert!(text.contains("## Linear issue SP-1 — Bug"));
+        assert!(text.contains("\n\n---\n\n**Mention:**\n\n@moatless please help"));
+        assert!(!text.contains("### Previous comments"));
+    }
+
+    #[test]
+    fn build_notification_inbound_text_with_prior_comments() {
+        let issue = notification_issue();
+        let priors = vec![
+            prior("c-1", "first thought", "Bob"),
+            prior("c-2", "@moatless please help", "Alice"),
+            prior("c-3", "second thought", "Carol"),
+        ];
+        let text =
+            build_notification_inbound_text(&issue, Some("@moatless please help"), &priors);
+
+        assert!(text.contains("### Previous comments"));
+        assert!(text.contains("**@Bob:**\n\nfirst thought"));
+        assert!(text.contains("**@Carol:**\n\nsecond thought"));
+        // Triggering comment body excluded from prior comments block.
+        assert_eq!(text.matches("@moatless please help").count(), 1);
+        assert!(text.contains("\n\n---\n\n**Mention:**\n\n@moatless please help"));
+
+        // Order: prior comments → mention.
+        let prev_idx = text.find("### Previous comments").unwrap();
+        let mention_idx = text.find("**Mention:**").unwrap();
+        assert!(prev_idx < mention_idx);
     }
 
     #[test]
