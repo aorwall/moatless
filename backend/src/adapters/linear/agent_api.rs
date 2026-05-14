@@ -247,13 +247,37 @@ impl LinearAgentApi {
         &self,
         body: serde_json::Value,
     ) -> Result<serde_json::Value, AdapterError> {
-        let token = self.resolve_access_token().await?;
-        self.graphql_with_token(&token, body).await
+        let value = self.graphql_raw(body).await?;
+        check_graphql_errors(&value)?;
+        Ok(value)
     }
 
     /// Variant for the OAuth-install code path: the access token is in hand
     /// from a token-exchange response but hasn't been persisted yet.
     pub async fn graphql_with_token(
+        &self,
+        access_token: &str,
+        body: serde_json::Value,
+    ) -> Result<serde_json::Value, AdapterError> {
+        let value = self.graphql_raw_with_token(access_token, body).await?;
+        check_graphql_errors(&value)?;
+        Ok(value)
+    }
+
+    /// Send a GraphQL request and return the raw response value *without*
+    /// converting a non-empty `errors` array into `AdapterError`. Use this
+    /// when you need to inspect Linear's structured error codes (e.g. to
+    /// tolerate "already exists" on an upsert). Most callers should prefer
+    /// [`graphql`].
+    async fn graphql_raw(
+        &self,
+        body: serde_json::Value,
+    ) -> Result<serde_json::Value, AdapterError> {
+        let token = self.resolve_access_token().await?;
+        self.graphql_raw_with_token(&token, body).await
+    }
+
+    async fn graphql_raw_with_token(
         &self,
         access_token: &str,
         body: serde_json::Value,
@@ -282,19 +306,8 @@ impl LinearAgentApi {
             )));
         }
 
-        let value: serde_json::Value = serde_json::from_str(&text)
-            .map_err(|e| AdapterError::AdapterApi(format!("Linear JSON parse error: {e}")))?;
-
-        if let Some(errors) = value.get("errors").and_then(serde_json::Value::as_array) {
-            if !errors.is_empty() {
-                warn!(errors = %serde_json::Value::Array(errors.clone()), "Linear GraphQL returned errors");
-                return Err(AdapterError::AdapterApi(format!(
-                    "Linear GraphQL errors: {errors:?}"
-                )));
-            }
-        }
-
-        Ok(value)
+        serde_json::from_str(&text)
+            .map_err(|e| AdapterError::AdapterApi(format!("Linear JSON parse error: {e}")))
     }
 
     /// Emit an activity on a session. Linear infers the session state from
@@ -624,8 +637,12 @@ impl LinearAgentApi {
     /// to link a moatless task to the Linear ticket it works on (visible
     /// directly under the issue, not just inside the agent panel).
     ///
-    /// Idempotent on `(issueId, url)` — Linear upserts by URL, so calling
-    /// this twice with the same arguments is safe.
+    /// Linear enforces URL-uniqueness across the entire workspace, so this
+    /// is idempotent on `(issueId, url)` but *not* across issues. If the
+    /// URL is already linked to a different issue (e.g. an earlier Linear
+    /// binding for the same Moatless task), Linear returns an
+    /// `INPUT_ERROR`. We treat that as success — the link is still visible
+    /// on the original issue, which is what the caller wanted.
     pub async fn attachment_link_url(
         &self,
         issue_id: &str,
@@ -633,7 +650,7 @@ impl LinearAgentApi {
         title: &str,
     ) -> Result<(), AdapterError> {
         let value = self
-            .graphql(serde_json::json!({
+            .graphql_raw(serde_json::json!({
                 "query": "mutation($issueId: String!, $url: String!, $title: String!) { \
                     attachmentLinkURL(issueId: $issueId, url: $url, title: $title) { \
                         success attachment { id url } \
@@ -642,6 +659,18 @@ impl LinearAgentApi {
                 "variables": { "issueId": issue_id, "url": url, "title": title }
             }))
             .await?;
+
+        if let Some(errors) = value.get("errors").and_then(serde_json::Value::as_array) {
+            if errors.iter().any(is_attachment_already_linked_error) {
+                info!(
+                    issue = %issue_id,
+                    url = %url,
+                    "Linear attachmentLinkURL: URL already linked to a different issue; treating as success"
+                );
+                return Ok(());
+            }
+        }
+        check_graphql_errors(&value)?;
         require_mutation_success(&value, "/data/attachmentLinkURL", "attachmentLinkURL")
     }
 
@@ -778,6 +807,44 @@ labels { nodes { id name color } } \
 team { id key name } \
 createdAt updatedAt";
 
+/// Convert a non-empty top-level `errors` array into `AdapterError`.
+/// Shared by [`LinearAgentApi::graphql`] and callers (like
+/// `attachment_link_url`) that need to peek at errors first before
+/// surfacing the standard adapter error.
+fn check_graphql_errors(value: &serde_json::Value) -> Result<(), AdapterError> {
+    let Some(errors) = value.get("errors").and_then(serde_json::Value::as_array) else {
+        return Ok(());
+    };
+    if errors.is_empty() {
+        return Ok(());
+    }
+    warn!(
+        errors = %serde_json::Value::Array(errors.clone()),
+        "Linear GraphQL returned errors"
+    );
+    Err(AdapterError::AdapterApi(format!(
+        "Linear GraphQL errors: {errors:?}"
+    )))
+}
+
+/// Recognise Linear's "URL already linked with <issue>" response from
+/// `attachmentLinkURL`. Linear enforces workspace-wide URL uniqueness; the
+/// rejection is a structured `INPUT_ERROR` with `userError: true`.
+fn is_attachment_already_linked_error(error: &serde_json::Value) -> bool {
+    let code = error
+        .pointer("/extensions/code")
+        .and_then(serde_json::Value::as_str);
+    let path_matches = error
+        .get("path")
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|p| p.iter().any(|s| s.as_str() == Some("attachmentLinkURL")));
+    let msg = error
+        .pointer("/extensions/userPresentableMessage")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    code == Some("INPUT_ERROR") && path_matches && msg.contains("already been linked")
+}
+
 /// Verify a mutation returned `success: true` and propagate a clean error
 /// otherwise. `op_name` is used in the error message; `pointer` is the
 /// JSON-pointer prefix to the mutation result (e.g. `/data/issueCreate`).
@@ -855,5 +922,45 @@ mod tests {
     #[test]
     fn does_not_refresh_when_no_expiry() {
         assert!(!needs_refresh(None));
+    }
+
+    #[test]
+    fn detects_attachment_already_linked_error() {
+        let err = serde_json::json!({
+            "extensions": {
+                "code": "INPUT_ERROR",
+                "userError": true,
+                "userPresentableMessage": "This URL has already been linked with OP-3."
+            },
+            "message": "Unable to create issue attachment",
+            "path": ["attachmentLinkURL"],
+        });
+        assert!(is_attachment_already_linked_error(&err));
+    }
+
+    #[test]
+    fn does_not_match_unrelated_input_error() {
+        let err = serde_json::json!({
+            "extensions": {
+                "code": "INPUT_ERROR",
+                "userPresentableMessage": "Some other validation problem"
+            },
+            "path": ["attachmentLinkURL"],
+        });
+        assert!(!is_attachment_already_linked_error(&err));
+    }
+
+    #[test]
+    fn does_not_match_already_linked_on_other_mutation() {
+        // Defensive: same wording but a different mutation path — don't
+        // silently swallow.
+        let err = serde_json::json!({
+            "extensions": {
+                "code": "INPUT_ERROR",
+                "userPresentableMessage": "This URL has already been linked with OP-3."
+            },
+            "path": ["someOtherMutation"],
+        });
+        assert!(!is_attachment_already_linked_error(&err));
     }
 }
