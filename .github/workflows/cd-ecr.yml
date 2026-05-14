@@ -21,6 +21,8 @@ on:
   push:
     branches: [main]
     tags: ['fp-v*']
+  pull_request:
+    branches: [main]
   workflow_dispatch:
     inputs:
       images:
@@ -109,12 +111,21 @@ jobs:
             echo "helm=false" >> "$GITHUB_OUTPUT"
           fi
 
-  # ── Build Rust binaries once, share across backend + sandbox publish ──
+  # ── Build Rust binaries + dump OpenAPI spec ──
   # Uses rust:1.91-bookworm to link against GLIBC 2.36, matching distroless/cc
   # in Dockerfile.backend-cross and the sandbox-base bookworm baseline.
+  #
+  # Always builds with --release so cache hits actually reuse target/release/
+  # (a separate target dir per profile would defeat Swatinem/rust-cache).
+  # PR runs build only the backend — just enough for --dump-openapi so the
+  # frontend type-check downstream has fresh types. Push/tag/dispatch builds
+  # all three crates for shipping.
   build-binaries:
     needs: setup
-    if: needs.setup.outputs.build-backend == 'true' || needs.setup.outputs.build-sandbox == 'true'
+    if: >-
+      github.event_name == 'pull_request' ||
+      needs.setup.outputs.build-backend == 'true' ||
+      needs.setup.outputs.build-sandbox == 'true'
     runs-on: ubuntu-latest
     container:
       image: rust:1.91-bookworm
@@ -131,21 +142,41 @@ jobs:
           shared-key: rust-cd
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
-      - name: Build release binaries
+      - name: Determine crate set
+        id: crates
         run: |
-          cargo build --release \
-            -p moatless-vibe-backend \
-            -p moatless-sandbox \
-            -p moatless-cli
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            # PR validation: backend-only — just need the binary for
+            # --dump-openapi. Skips the slow sandbox + cli compile entirely.
+            echo "packages=-p moatless-vibe-backend" >> "$GITHUB_OUTPUT"
+          else
+            echo "packages=-p moatless-vibe-backend -p moatless-sandbox -p moatless-cli" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build binaries
+        run: |
+          cargo build --release ${{ steps.crates.outputs.packages }}
+
+      - name: Generate OpenAPI spec
+        run: |
+          ./target/release/moatless-vibe-backend --dump-openapi > openapi-specs.json
+
+      - name: Upload OpenAPI spec
+        uses: actions/upload-artifact@v4
+        with:
+          name: openapi-spec
+          path: openapi-specs.json
+          retention-days: 1
+          if-no-files-found: error
 
       - name: Stage backend artifact (root-level binary)
-        if: needs.setup.outputs.build-backend == 'true'
+        if: github.event_name != 'pull_request' && needs.setup.outputs.build-backend == 'true'
         run: |
           mkdir -p dist/backend
           cp target/release/moatless-vibe-backend dist/backend/
 
       - name: Upload backend artifact
-        if: needs.setup.outputs.build-backend == 'true'
+        if: github.event_name != 'pull_request' && needs.setup.outputs.build-backend == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: backend-binary
@@ -154,7 +185,7 @@ jobs:
           if-no-files-found: error
 
       - name: Stage sandbox artifact (TARGETARCH-nested)
-        if: needs.setup.outputs.build-sandbox == 'true'
+        if: github.event_name != 'pull_request' && needs.setup.outputs.build-sandbox == 'true'
         run: |
           # Dockerfile.sandbox does: COPY --from=binaries ${TARGETARCH}/sandbox
           # Linux/amd64 → amd64/. Add arm64 here if the runner cross-compiles.
@@ -163,7 +194,7 @@ jobs:
           cp target/release/moat dist/sandbox/amd64/
 
       - name: Upload sandbox artifact
-        if: needs.setup.outputs.build-sandbox == 'true'
+        if: github.event_name != 'pull_request' && needs.setup.outputs.build-sandbox == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: sandbox-binaries
@@ -172,13 +203,13 @@ jobs:
           if-no-files-found: error
 
       - name: Stage moat release asset
-        if: needs.setup.outputs.build-sandbox == 'true'
+        if: github.event_name != 'pull_request' && needs.setup.outputs.build-sandbox == 'true'
         run: |
           mkdir -p dist/moat
           cp target/release/moat dist/moat/moat-linux-amd64
 
       - name: Upload moat release asset
-        if: needs.setup.outputs.build-sandbox == 'true'
+        if: github.event_name != 'pull_request' && needs.setup.outputs.build-sandbox == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: moat-cli
@@ -186,13 +217,9 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
-  # ── Build frontend dist for the nginx image ──
-  # Dockerfile.app does `COPY apps/frontend/dist /usr/share/nginx/html`,
-  # so we materialize the dist as an artifact and download it back into
-  # apps/frontend/dist inside the reusable workflow's checkout.
-  build-frontend-dist:
+  # ── Lint frontend (parallel, no Rust dependency) ──
+  lint-frontend:
     needs: setup
-    if: needs.setup.outputs.build-frontend == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -204,6 +231,74 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Lint check
+        run: bun run biome:check
+
+  # ── Generate TypeScript API client from the freshly-dumped OpenAPI spec ──
+  generate-ts-client:
+    needs: build-binaries
+    if: needs.build-binaries.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Download OpenAPI spec
+        uses: actions/download-artifact@v4
+        with:
+          name: openapi-spec
+
+      - name: Generate TypeScript API client
+        run: cd packages/api-client && bun run generate:client
+
+      - name: Upload generated client
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-client
+          path: |
+            openapi-specs.json
+            packages/api-client/src/
+          retention-days: 1
+          if-no-files-found: error
+
+  # ── Build frontend dist (with type-check against generated client) ──
+  # Dockerfile.app does `COPY apps/frontend/dist /usr/share/nginx/html`,
+  # so we materialize the dist as an artifact and download it back into
+  # apps/frontend/dist inside the reusable workflow's checkout.
+  build-frontend:
+    needs: [setup, generate-ts-client]
+    if: >-
+      always() &&
+      needs.setup.outputs.build-frontend == 'true' &&
+      needs.generate-ts-client.result != 'failure'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Download generated client
+        if: needs.generate-ts-client.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: generated-client
+
+      - name: Type check
+        run: bun run type:check
 
       - name: Build frontend
         run: bun run build
@@ -222,8 +317,13 @@ jobs:
   # workflow generates (`dist=apps/frontend/dist`) is harmless because
   # Dockerfile.app doesn't reference any --from contexts.
   publish-frontend:
-    needs: [setup, build-frontend-dist]
-    if: needs.setup.outputs.build-frontend == 'true'
+    needs: [setup, build-frontend, lint-frontend]
+    if: >-
+      always() &&
+      github.event_name != 'pull_request' &&
+      needs.setup.outputs.build-frontend == 'true' &&
+      needs.build-frontend.result == 'success' &&
+      (needs.lint-frontend.result == 'success' || needs.lint-frontend.result == 'skipped')
     uses: soaplabs/soap-platform-ci/.github/workflows/build-push-ecr.yml@main
     with:
       service-name: moatless
@@ -238,7 +338,7 @@ jobs:
   # ── Publish: backend ──
   publish-backend:
     needs: [setup, build-binaries]
-    if: needs.setup.outputs.build-backend == 'true'
+    if: github.event_name != 'pull_request' && needs.setup.outputs.build-backend == 'true'
     uses: soaplabs/soap-platform-ci/.github/workflows/build-push-ecr.yml@main
     with:
       service-name: moatless
@@ -252,7 +352,7 @@ jobs:
   # ── Publish: sandbox ──
   publish-sandbox:
     needs: [setup, build-binaries]
-    if: needs.setup.outputs.build-sandbox == 'true'
+    if: github.event_name != 'pull_request' && needs.setup.outputs.build-sandbox == 'true'
     uses: soaplabs/soap-platform-ci/.github/workflows/build-push-ecr.yml@main
     with:
       service-name: moatless
@@ -269,7 +369,7 @@ jobs:
   # fp-v* tags), not the raw image tag.
   publish-helm:
     needs: setup
-    if: needs.setup.outputs.publish-helm == 'true'
+    if: github.event_name != 'pull_request' && needs.setup.outputs.publish-helm == 'true'
     uses: soaplabs/soap-platform-ci/.github/workflows/publish-helm-ecr.yml@main
     with:
       service-name: moatless

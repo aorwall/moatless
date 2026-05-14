@@ -67,12 +67,12 @@ jobs:
   build-backend:
     name: Build backend
     needs: detect-changes
-    # Fork (soaplabs/moatless-vibe) push-to-main: skipped — cd-ecr.yml's
-    # build-binaries is the sole Rust compile. PRs (any repo) and upstream
-    # pushes still run the full validation chain.
+    # Upstream-only. On the fork (soaplabs/moatless-vibe), cd-ecr.yml owns the
+    # entire validate-and-ship chain for both PRs and pushes — see cd-ecr.yml's
+    # build-binaries job.
     if: >-
       always() &&
-      (github.event_name == 'pull_request' || github.repository == 'aorwall/moatless-vibe') &&
+      github.repository == 'aorwall/moatless-vibe' &&
       (
         needs.detect-changes.outputs.rust == 'true' ||
         needs.detect-changes.outputs.docker-backend == 'true' ||
@@ -111,10 +111,10 @@ jobs:
   generate-spec:
     name: Generate OpenAPI spec
     needs: [detect-changes, build-backend]
-    # Fork push-to-main: skipped (build-backend skipped, nothing to dump).
+    # Upstream-only (cascades from build-backend gate).
     if: >-
       always() &&
-      (github.event_name == 'pull_request' || github.repository == 'aorwall/moatless-vibe') &&
+      github.repository == 'aorwall/moatless-vibe' &&
       needs.build-backend.result == 'success'
     runs-on: ubuntu-latest
     steps:
@@ -139,10 +139,10 @@ jobs:
   generate-ts-client:
     name: Generate TS client
     needs: [detect-changes, generate-spec]
-    # Fork push-to-main: skipped (no spec was generated).
+    # Upstream-only (cascades from generate-spec gate).
     if: >-
       always() &&
-      (github.event_name == 'pull_request' || github.repository == 'aorwall/moatless-vibe') &&
+      github.repository == 'aorwall/moatless-vibe' &&
       needs.generate-spec.result == 'success'
     runs-on: ubuntu-latest
     steps:
@@ -177,8 +177,11 @@ jobs:
   lint-frontend:
     name: Lint frontend
     needs: detect-changes
+    # Upstream-only. On the fork, cd-ecr.yml runs lint-frontend.
     if: >-
-      always() && (
+      always() &&
+      github.repository == 'aorwall/moatless-vibe' &&
+      (
         needs.detect-changes.outputs.frontend == 'true' ||
         needs.detect-changes.outputs.docker-frontend == 'true' ||
         github.event_name == 'pull_request' ||
@@ -203,8 +206,10 @@ jobs:
   build-frontend:
     name: Build frontend
     needs: [detect-changes, generate-ts-client]
+    # Upstream-only. On the fork, cd-ecr.yml runs build-frontend.
     if: >-
       always() &&
+      github.repository == 'aorwall/moatless-vibe' &&
       needs.generate-ts-client.result != 'failure' &&
       (
         needs.detect-changes.outputs.frontend == 'true' ||
