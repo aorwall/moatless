@@ -9,9 +9,24 @@ cargo build -p claude-agent-sdk
 cargo clippy -p claude-agent-sdk -- -D warnings
 cargo test -p claude-agent-sdk
 
-# E2E tests (requires `claude` CLI + API key, costs ~$0.01-0.05 per test)
+# E2E tests — subprocess backend (requires `claude` CLI + API key, costs ~$0.01-0.05 per test)
 CLAUDE_SDK_E2E=1 cargo test -p claude-agent-sdk -- --ignored --nocapture
+
+# E2E tests — tmux backend (additionally requires `tmux` binary on PATH)
+CLAUDE_TMUX_E2E=1 cargo test -p claude-agent-sdk -- --ignored --nocapture
+
+# Both backends in one run
+CLAUDE_SDK_E2E=1 CLAUDE_TMUX_E2E=1 cargo test -p claude-agent-sdk -- --ignored --nocapture
 ```
+
+E2E test naming convention (`tests/e2e.rs`):
+- `test_<name>_subprocess` / `test_<name>_tmux` — paired tests that share a
+  `run_<name>(Backend)` body; capability differences are gated on
+  `Backend::has_cost_data()`, `has_real_system_init()`, and
+  `channel_stays_open_after_result()`.
+- `test_<name>` (no suffix) — subprocess-only because the test exercises a
+  capability the tmux backend doesn't support (permission handler, hook
+  handler, SDK MCP servers, real System init, real cost data).
 
 ## Architecture
 
