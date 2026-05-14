@@ -14,7 +14,6 @@
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 use tracing::{debug, info, warn};
 
@@ -39,14 +38,20 @@ pub(crate) struct TmuxSession {
 impl TmuxSession {
     /// Spawn a detached tmux session running `claude` with the given options.
     /// Does not wait for the JSONL transcript — see [`discover_new_jsonl`].
-    pub(crate) async fn spawn(options: &ClaudeOptions) -> Result<Self> {
+    ///
+    /// `settings_json` is the harness-owned inline `--settings` JSON (or
+    /// `None` to skip the `--settings` flag entirely).
+    pub(crate) async fn spawn(
+        options: &ClaudeOptions,
+        settings_json: Option<&str>,
+    ) -> Result<Self> {
         let cli_path = resolve_cli_path(options);
 
         let session_name = format!(
             "claude-sdk-{}",
             &uuid::Uuid::new_v4().simple().to_string()[..8]
         );
-        let args = build_tmux_cli_args(options);
+        let args = build_tmux_cli_args(options, settings_json);
         info!(
             session_name = %session_name,
             cli_path = %cli_path,
@@ -99,8 +104,18 @@ impl TmuxSession {
     }
 
     /// Kill the tmux session (and the claude process inside).
+    ///
+    /// Escalation, mirroring `claude-p`'s sequence:
+    /// 1. `tmux kill-session` (graceful — sends SIGHUP via tmux's pane reaper).
+    /// 2. Poll `tmux has-session` every 50ms for up to 200ms.
+    /// 3. If still alive, grab the pane PID and send SIGKILL directly.
     pub(crate) async fn kill(&self) {
         debug!(session_name = %self.session_name, "Killing tmux session");
+
+        // Capture the pane PID BEFORE killing the session — once tmux exits,
+        // `display-message` returns nothing.
+        let pane_pid = self.pane_pid().await;
+
         let result = tokio::process::Command::new("tmux")
             .args(["kill-session", "-t", &self.session_name])
             .stdout(std::process::Stdio::null())
@@ -110,6 +125,57 @@ impl TmuxSession {
         if let Err(e) = result {
             warn!(error = %e, session_name = %self.session_name, "tmux kill-session failed");
         }
+
+        // Wait up to 200ms (4 × 50ms) for the session to actually go away.
+        for _ in 0..4 {
+            if !self.is_alive().await {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+
+        // Still alive — escalate. Send SIGKILL to the pane's pid (the claude
+        // process). `kill -KILL` is POSIX-standard; no `unsafe` required.
+        if let Some(pid) = pane_pid {
+            debug!(pid, session_name = %self.session_name, "Escalating to SIGKILL on pane PID");
+            let kill_result = tokio::process::Command::new("kill")
+                .args(["-KILL", &pid.to_string()])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .await;
+            if let Err(e) = kill_result {
+                warn!(error = %e, pid, "kill -KILL failed");
+            }
+        } else {
+            warn!(
+                session_name = %self.session_name,
+                "tmux session still alive after kill-session but no pane PID captured"
+            );
+        }
+    }
+
+    /// Capture the pane PID of the tmux session, used by [`Self::kill`] for
+    /// the SIGKILL escalation step. Returns `None` if the session has already
+    /// exited or the PID couldn't be parsed.
+    async fn pane_pid(&self) -> Option<u32> {
+        let out = tokio::process::Command::new("tmux")
+            .args([
+                "display-message",
+                "-p",
+                "-t",
+                &self.session_name,
+                "#{pane_pid}",
+            ])
+            .stderr(std::process::Stdio::null())
+            .output()
+            .await
+            .ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        let s = std::str::from_utf8(&out.stdout).ok()?.trim();
+        s.parse::<u32>().ok()
     }
 
     /// Return true if the tmux session is still alive.
@@ -211,53 +277,6 @@ pub(crate) async fn list_jsonl_stems(dir: &Path) -> Result<HashSet<String>> {
         }
     }
     Ok(set)
-}
-
-pub(crate) async fn discover_new_jsonl(
-    dir: &Path,
-    before: &HashSet<String>,
-    timeout: Duration,
-) -> Result<PathBuf> {
-    let deadline = tokio::time::Instant::now() + timeout;
-    let poll_interval = Duration::from_millis(200);
-
-    loop {
-        let current = list_jsonl_stems(dir).await?;
-        let new_stems: Vec<String> = current.difference(before).cloned().collect();
-
-        if !new_stems.is_empty() {
-            if new_stems.len() > 1 {
-                warn!(
-                    count = new_stems.len(),
-                    "Multiple new JSONL files appeared concurrently — picking newest by mtime"
-                );
-            }
-            // Pick the newest by mtime
-            let mut best: Option<(PathBuf, std::time::SystemTime)> = None;
-            for stem in new_stems {
-                let path = dir.join(format!("{stem}.jsonl"));
-                if let Ok(meta) = tokio::fs::metadata(&path).await {
-                    if let Ok(mtime) = meta.modified() {
-                        match &best {
-                            Some((_, t)) if *t > mtime => {}
-                            _ => best = Some((path, mtime)),
-                        }
-                    }
-                }
-            }
-            if let Some((path, _)) = best {
-                return Ok(path);
-            }
-        }
-
-        if tokio::time::Instant::now() >= deadline {
-            return Err(SdkError::JsonlNotFound {
-                project_dir: dir.display().to_string(),
-                timeout_ms: timeout.as_millis() as u64,
-            });
-        }
-        tokio::time::sleep(poll_interval).await;
-    }
 }
 
 #[cfg(test)]

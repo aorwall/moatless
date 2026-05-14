@@ -51,6 +51,15 @@ pub enum SdkError {
     #[error("tmux session died unexpectedly")]
     TmuxSessionDied,
 
+    #[error("Hook FIFO setup failed: {0}")]
+    HookFifoFailed(std::io::Error),
+
+    #[error("Session did not start within {timeout_ms}ms (no SessionStart hook fired)")]
+    SessionStartTimeout { timeout_ms: u64 },
+
+    #[error("Hook harness setup failed: {0}")]
+    HookHarnessFailed(String),
+
     #[error("Internal error: {0}")]
     Internal(String),
 }

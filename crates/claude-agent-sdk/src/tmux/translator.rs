@@ -276,6 +276,43 @@ fn translate_compact_boundary(value: Value) -> Translated {
     )))
 }
 
+/// Synthesize a [`SdkMessage::Result`] from a `Stop` hook payload when the
+/// JSONL transcript hasn't yielded a `turn_duration` system record within
+/// the supervisor's retry budget.
+///
+/// Returns `None` if the payload has no usable `last_assistant_message`.
+///
+/// `total_cost_usd` is `0.0` (already a documented tmux limitation). The
+/// usage block is zeroed since we can't recover token counts from the
+/// hook payload.
+pub(crate) fn translate_stop_payload_fallback(
+    payload_json: &str,
+    fallback_session_id: &str,
+) -> Option<SdkMessage> {
+    let last_text = super::hooks::extract_last_assistant_message(payload_json)?;
+    if last_text.is_empty() {
+        return None;
+    }
+    let session_id = super::hooks::extract_session_id(payload_json)
+        .unwrap_or_else(|| fallback_session_id.to_string());
+
+    let result = ResultSuccess {
+        uuid: format!("tmux-fallback-{}", uuid::Uuid::new_v4().simple()),
+        session_id,
+        duration_ms: 0,
+        duration_api_ms: 0,
+        is_error: false,
+        num_turns: 1,
+        result: last_text,
+        total_cost_usd: 0.0,
+        usage: zero_usage(),
+        model_usage: std::collections::HashMap::new(),
+        permission_denials: Vec::new(),
+        structured_output: None,
+    };
+    Some(SdkMessage::Result(ResultMessage::Success(result)))
+}
+
 fn translate_turn_duration(value: &Value, acc: &mut TurnAccumulator) -> Translated {
     let obj = match value.as_object() {
         Some(o) => o,
@@ -645,6 +682,40 @@ mod tests {
                 matches!(translate_record(value, &mut a), Translated::Skip),
                 "expected Skip for system.{st}"
             );
+        }
+    }
+
+    #[test]
+    fn stop_payload_fallback_emits_result_from_last_assistant_message() {
+        let payload =
+            r#"{"last_assistant_message":"final answer","session_id":"sess-9"}"#;
+        let msg = translate_stop_payload_fallback(payload, "default-sid")
+            .expect("expected Some");
+        match msg {
+            SdkMessage::Result(ResultMessage::Success(r)) => {
+                assert_eq!(r.result, "final answer");
+                assert_eq!(r.session_id, "sess-9");
+                assert!((r.total_cost_usd - 0.0).abs() < f64::EPSILON);
+                assert_eq!(r.num_turns, 1);
+            }
+            other => panic!("Expected Result::Success, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn stop_payload_fallback_returns_none_when_no_last_assistant_message() {
+        assert!(translate_stop_payload_fallback(r#"{"session_id":"x"}"#, "x").is_none());
+    }
+
+    #[test]
+    fn stop_payload_fallback_uses_fallback_session_id_when_missing() {
+        let payload = r#"{"last_assistant_message":"hi"}"#;
+        let msg = translate_stop_payload_fallback(payload, "fallback-sid")
+            .expect("expected Some");
+        if let SdkMessage::Result(ResultMessage::Success(r)) = msg {
+            assert_eq!(r.session_id, "fallback-sid");
+        } else {
+            panic!("Expected Result::Success");
         }
     }
 

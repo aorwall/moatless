@@ -6,11 +6,12 @@
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::io::{AsyncBufReadExt, AsyncSeekExt, BufReader, SeekFrom};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
@@ -18,8 +19,46 @@ use crate::error::{Result, SdkError};
 use crate::types::messages::{ApiKeySource, SdkMessage, SystemInitMessage};
 use crate::types::options::ClaudeOptions;
 
-use super::session::{discover_new_jsonl, TmuxSession};
-use super::translator::{translate_record, Translated, TurnAccumulator};
+use super::hooks::{
+    extract_last_assistant_message, extract_session_id, extract_transcript_path, HookEvent,
+    HookLine,
+};
+use super::session::{list_jsonl_stems, TmuxSession};
+use super::translator::{
+    translate_record, translate_stop_payload_fallback, Translated, TurnAccumulator,
+};
+
+/// Retry budget for the Stop fallback: wait up to 40 × 50ms = 2s for the
+/// tail_loop to emit a `Result` from the JSONL `turn_duration` record before
+/// synthesizing one from the Stop payload's `last_assistant_message`.
+const STOP_FALLBACK_RETRIES: u32 = 40;
+const STOP_FALLBACK_POLL: Duration = Duration::from_millis(50);
+
+/// State the hook listener publishes via [`tokio::sync::watch`]. Consumers
+/// (mod.rs wait-for-SessionStart; transcript discovery race) clone the
+/// receiver and await updates.
+//
+// reason: the `session_id` payload on `SessionStarted` and the
+// `last_assistant_message` field on `TurnEnded` are consumed in step 7
+// (Result fallback). Until then they're staged.
+#[allow(dead_code)]
+#[derive(Debug, Clone, Default)]
+pub(crate) enum HookState {
+    /// No hooks fired yet.
+    #[default]
+    Pending,
+    /// `SessionStart` hook fired — the TUI is up and accepting input.
+    SessionStarted {
+        session_id: Option<String>,
+    },
+    /// `Stop` hook fired — turn finished. May fire multiple times for a
+    /// streaming session; each update overwrites the previous one.
+    TurnEnded {
+        transcript_path: Option<PathBuf>,
+        last_assistant_message: Option<String>,
+        session_id: Option<String>,
+    },
+}
 
 /// Inputs needed to start tailing once we know the JSONL path + session id.
 pub(crate) struct TailTarget {
@@ -28,25 +67,140 @@ pub(crate) struct TailTarget {
     pub(crate) start_at_end: bool,
 }
 
+/// Race the hook-driven `Stop.transcript_path` against snapshot-diff against
+/// `before`. Returns the first of:
+///
+/// - The most recent `transcript_path` reported by a `Stop` hook (newer
+///   Claude versions);
+/// - A newly-appeared `*.jsonl` in `project_dir` (legacy fallback);
+/// - Timeout → [`SdkError::JsonlNotFound`].
+///
+/// Stop is preferred (it's authoritative; works under `--continue` where
+/// claude appends to an existing transcript file and snapshot-diff sees no
+/// new file). Snapshot-diff stays as a defensive fallback for older Claude
+/// versions whose Stop payload doesn't carry `transcript_path`.
+pub(crate) async fn discover_transcript_path(
+    mut state_rx: watch::Receiver<HookState>,
+    project_dir: PathBuf,
+    before: HashSet<String>,
+    timeout: Duration,
+) -> Result<PathBuf> {
+    let deadline = tokio::time::Instant::now() + timeout;
+    let poll_interval = Duration::from_millis(200);
+
+    loop {
+        // Check the current watch state — Stop may have fired before we
+        // started awaiting changes.
+        if let HookState::TurnEnded {
+            transcript_path: Some(p),
+            ..
+        } = &*state_rx.borrow()
+        {
+            return Ok(p.clone());
+        }
+
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            return Err(SdkError::JsonlNotFound {
+                project_dir: project_dir.display().to_string(),
+                timeout_ms: u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX),
+            });
+        }
+
+        let sleep = tokio::time::sleep(poll_interval.min(remaining));
+        tokio::pin!(sleep);
+
+        tokio::select! {
+            biased;
+            res = state_rx.changed() => {
+                if res.is_err() {
+                    // Listener exited — fall through to fallback snapshot-diff
+                    // until deadline.
+                    continue;
+                }
+                // Loop back: re-check state for transcript_path.
+            }
+            () = &mut sleep => {
+                // Fallback: snapshot-diff to catch the new JSONL even when
+                // Stop hasn't fired yet (typical first-turn case).
+                if let Some(path) = snapshot_diff_for_new(&project_dir, &before).await? {
+                    return Ok(path);
+                }
+            }
+        }
+    }
+}
+
+async fn snapshot_diff_for_new(
+    project_dir: &Path,
+    before: &HashSet<String>,
+) -> Result<Option<PathBuf>> {
+    let current = list_jsonl_stems(project_dir).await?;
+    let new_stems: Vec<String> = current.difference(before).cloned().collect();
+    if new_stems.is_empty() {
+        return Ok(None);
+    }
+    let mut best: Option<(PathBuf, std::time::SystemTime)> = None;
+    for stem in new_stems {
+        let path = project_dir.join(format!("{stem}.jsonl"));
+        if let Ok(meta) = tokio::fs::metadata(&path).await {
+            if let Ok(mtime) = meta.modified() {
+                match &best {
+                    Some((_, t)) if *t > mtime => {}
+                    _ => best = Some((path, mtime)),
+                }
+            }
+        }
+    }
+    Ok(best.map(|(p, _)| p))
+}
+
+/// Spawn the hook listener task. The listener drains parsed hook lines from
+/// `hook_rx` and republishes higher-level [`HookState`] via the returned
+/// `watch::Receiver`. Exits on cancellation or when the FIFO reader closes.
+///
+/// Lives outside [`run_supervisor`] so [`super::query_tmux`] can await
+/// `SessionStart` before pasting the first prompt (mod.rs needs the receiver
+/// before the supervisor's `TailTarget` is known).
+pub(crate) fn spawn_hook_listener(
+    hook_rx: mpsc::UnboundedReceiver<HookLine>,
+    cancellation_token: CancellationToken,
+) -> (
+    tokio::task::JoinHandle<()>,
+    watch::Receiver<HookState>,
+) {
+    let (state_tx, state_rx) = watch::channel(HookState::Pending);
+    let handle = tokio::spawn(async move {
+        hook_listener(hook_rx, state_tx, cancellation_token).await;
+    });
+    (handle, state_rx)
+}
+
 /// Spawn the supervisor task that owns the tmux session, runs the tailer and
 /// liveness monitor, and kills the session on cancellation.
 ///
 /// `target` is the already-discovered JSONL file (one-shot path: paste prompt,
 /// wait for file to appear, then spawn this).
+///
+/// `state_rx` is the watch receiver returned by [`spawn_hook_listener`]; the
+/// supervisor reads ongoing `Stop` events from it (consumer wires in at
+/// step 6 — Stop's `transcript_path` overrides snapshot-diff discovery).
 pub(crate) fn spawn_supervisor(
     session: Arc<TmuxSession>,
     target: TailTarget,
     tx: mpsc::Sender<Result<SdkMessage>>,
     cancellation_token: CancellationToken,
+    state_rx: watch::Receiver<HookState>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        run_supervisor(session, target, tx, cancellation_token).await;
+        run_supervisor(session, target, tx, cancellation_token, state_rx).await;
     })
 }
 
 /// Lazy variant — used by `query_tmux_streaming` where we don't yet know the
-/// session id (no prompt has been pasted yet). The supervisor polls the
-/// project dir until a new JSONL appears, then transitions to tailing.
+/// session id (no prompt has been pasted yet). The supervisor waits for the
+/// first `Stop` hook to report `transcript_path` (or falls back to
+/// snapshot-diff against `before`).
 pub(crate) fn spawn_lazy_supervisor(
     session: Arc<TmuxSession>,
     project_dir: PathBuf,
@@ -54,6 +208,7 @@ pub(crate) fn spawn_lazy_supervisor(
     options: ClaudeOptions,
     tx: mpsc::Sender<Result<SdkMessage>>,
     cancellation_token: CancellationToken,
+    state_rx: watch::Receiver<HookState>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         // Honor options.init_timeout as an upper bound, but if the user never
@@ -62,13 +217,15 @@ pub(crate) fn spawn_lazy_supervisor(
             .init_timeout
             .unwrap_or(Duration::from_secs(3600));
 
+        let discover_rx = state_rx.clone();
+        let before_for_discover = before.clone();
         let discover = tokio::select! {
             () = cancellation_token.cancelled() => {
                 debug!("lazy supervisor cancelled before JSONL discovery");
                 session.kill().await;
                 return;
             }
-            res = discover_new_jsonl(&project_dir, &before, timeout) => res,
+            res = discover_transcript_path(discover_rx, project_dir.clone(), before_for_discover, timeout) => res,
         };
 
         let jsonl_path = match discover {
@@ -103,12 +260,23 @@ pub(crate) fn spawn_lazy_supervisor(
             return;
         }
 
+        // Resume / --continue cases mean the JSONL already contains prior
+        // turns. Seek to EOF before tailing — otherwise we'd replay every
+        // old record and synth a Result for an old turn_duration.
+        //
+        // We can't rely on `before` here because Claude's project-dir
+        // encoding doesn't always match ours (it replaces underscores in
+        // path components too), so the file may exist on disk under a name
+        // our snapshot-diff didn't see.
+        let start_at_end = options.resume.is_some()
+            || options.continue_conversation == Some(true);
+
         let target = TailTarget {
             path: jsonl_path,
             session_id,
-            start_at_end: false,
+            start_at_end,
         };
-        run_supervisor(session, target, tx, cancellation_token).await;
+        run_supervisor(session, target, tx, cancellation_token, state_rx).await;
     })
 }
 
@@ -117,7 +285,16 @@ async fn run_supervisor(
     target: TailTarget,
     tx: mpsc::Sender<Result<SdkMessage>>,
     cancellation_token: CancellationToken,
+    state_rx: watch::Receiver<HookState>,
 ) {
+    // Shared counter incremented by the tail_loop each time it forwards a
+    // `SdkMessage::Result`. The stop_fallback_loop reads it to decide
+    // whether the JSONL produced a Result for the current Stop event or
+    // whether to synthesize one from the Stop payload.
+    let results_emitted = Arc::new(AtomicU32::new(0));
+
+    let session_id_hint = target.session_id.clone();
+
     let tailer_tx = tx.clone();
     let tailer_token = cancellation_token.clone();
     let tailer_session = Arc::clone(&session);
@@ -126,8 +303,16 @@ async fn run_supervisor(
         session_id: target.session_id.clone(),
         start_at_end: target.start_at_end,
     };
+    let tailer_results = Arc::clone(&results_emitted);
     let tailer_task = tokio::spawn(async move {
-        tail_loop(tailer_session, tailer_target, tailer_tx, tailer_token).await;
+        tail_loop(
+            tailer_session,
+            tailer_target,
+            tailer_tx,
+            tailer_token,
+            tailer_results,
+        )
+        .await;
     });
 
     let liveness_tx = tx.clone();
@@ -137,7 +322,23 @@ async fn run_supervisor(
         liveness_loop(liveness_session, liveness_tx, liveness_token).await;
     });
 
-    // Wait for cancellation OR for both child tasks to exit on their own.
+    let fallback_tx = tx.clone();
+    let fallback_token = cancellation_token.clone();
+    let fallback_results = Arc::clone(&results_emitted);
+    let fallback_state_rx = state_rx.clone();
+    let fallback_task = tokio::spawn(async move {
+        stop_fallback_loop(
+            fallback_state_rx,
+            fallback_results,
+            fallback_tx,
+            session_id_hint,
+            fallback_token,
+        )
+        .await;
+    });
+
+    // Wait for cancellation OR for the tailer + liveness tasks to exit.
+    // The fallback task is detached — it exits on cancellation.
     tokio::select! {
         () = cancellation_token.cancelled() => {
             debug!("Supervisor: cancellation received");
@@ -146,12 +347,13 @@ async fn run_supervisor(
             let _ = tailer_task.await;
             let _ = liveness_task.await;
         } => {
-            debug!("Supervisor: both child tasks exited");
+            debug!("Supervisor: tailer + liveness tasks exited");
             cancellation_token.cancel();
         }
     }
 
     cancellation_token.cancel();
+    let _ = fallback_task.await;
     session.kill().await;
     info!(
         session_name = %session.session_name,
@@ -159,11 +361,146 @@ async fn run_supervisor(
     );
 }
 
+/// On each `Stop` hook event, wait up to ~2s for the tail loop to emit a
+/// `Result` for that turn. If the budget elapses without one, synthesize a
+/// `Result` from the Stop payload's `last_assistant_message` and forward it
+/// through `tx`. Cost is `0.0` (already a documented tmux limitation).
+async fn stop_fallback_loop(
+    mut state_rx: watch::Receiver<HookState>,
+    results_emitted: Arc<AtomicU32>,
+    tx: mpsc::Sender<Result<SdkMessage>>,
+    session_id_hint: String,
+    cancellation_token: CancellationToken,
+) {
+    loop {
+        let changed = tokio::select! {
+            () = cancellation_token.cancelled() => return,
+            r = state_rx.changed() => r,
+        };
+        if changed.is_err() {
+            debug!("stop_fallback_loop: hook listener exited");
+            return;
+        }
+
+        // Snapshot the latest state before borrowing it.
+        let snapshot = state_rx.borrow().clone();
+        let HookState::TurnEnded {
+            last_assistant_message,
+            session_id,
+            ..
+        } = snapshot
+        else {
+            continue;
+        };
+
+        let baseline = results_emitted.load(Ordering::SeqCst);
+
+        let mut attempt: u32 = 0;
+        let satisfied = loop {
+            if cancellation_token.is_cancelled() {
+                return;
+            }
+            if results_emitted.load(Ordering::SeqCst) > baseline {
+                break true;
+            }
+            if attempt >= STOP_FALLBACK_RETRIES {
+                break false;
+            }
+            tokio::select! {
+                () = cancellation_token.cancelled() => return,
+                () = tokio::time::sleep(STOP_FALLBACK_POLL) => {}
+            }
+            attempt += 1;
+        };
+
+        if satisfied {
+            continue;
+        }
+
+        // Tail loop didn't emit. Try to synthesize from the Stop payload.
+        let Some(last_text) = last_assistant_message else {
+            debug!(
+                "stop_fallback_loop: tail_loop didn't emit Result and payload \
+                 has no last_assistant_message — giving up on this turn"
+            );
+            continue;
+        };
+        let payload_json = serde_json::json!({
+            "last_assistant_message": last_text,
+            "session_id": session_id.unwrap_or_else(|| session_id_hint.clone()),
+        })
+        .to_string();
+        if let Some(msg) = translate_stop_payload_fallback(&payload_json, &session_id_hint) {
+            debug!("stop_fallback_loop: emitting payload-derived Result");
+            if tx.send(Ok(msg)).await.is_err() {
+                debug!("stop_fallback_loop: consumer dropped");
+                return;
+            }
+            // Count our own emission so a back-to-back Stop event doesn't
+            // double-fire.
+            results_emitted.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+}
+
+/// Drain hook lines from the FIFO reader, parse payloads, and update the
+/// `watch::Sender<HookState>` so consumers can react. Exits on cancellation
+/// or when the upstream sender (the FIFO reader thread) closes.
+async fn hook_listener(
+    mut hook_rx: mpsc::UnboundedReceiver<HookLine>,
+    state_tx: watch::Sender<HookState>,
+    cancellation_token: CancellationToken,
+) {
+    loop {
+        let line = tokio::select! {
+            () = cancellation_token.cancelled() => {
+                debug!("hook_listener: cancellation received");
+                return;
+            }
+            recv = hook_rx.recv() => {
+                if let Some(l) = recv {
+                    l
+                } else {
+                    debug!("hook_listener: FIFO sender closed");
+                    return;
+                }
+            },
+        };
+
+        match line.event {
+            HookEvent::SessionStart => {
+                let session_id = extract_session_id(&line.payload);
+                debug!(?session_id, "hook_listener: SessionStart");
+                let _ = state_tx.send(HookState::SessionStarted { session_id });
+            }
+            HookEvent::Stop => {
+                let transcript_path = extract_transcript_path(&line.payload).map(PathBuf::from);
+                let last_assistant_message = extract_last_assistant_message(&line.payload);
+                let session_id = extract_session_id(&line.payload);
+                debug!(
+                    transcript_path = ?transcript_path,
+                    has_last_msg = last_assistant_message.is_some(),
+                    "hook_listener: Stop"
+                );
+                let _ = state_tx.send(HookState::TurnEnded {
+                    transcript_path,
+                    last_assistant_message,
+                    session_id,
+                });
+            }
+            HookEvent::Unknown => {
+                debug!(payload_len = line.payload.len(), "hook_listener: unknown event");
+            }
+        }
+    }
+}
+
 async fn tail_loop(
     _session: Arc<TmuxSession>,
     target: TailTarget,
     tx: mpsc::Sender<Result<SdkMessage>>,
     cancellation_token: CancellationToken,
+    results_emitted: Arc<AtomicU32>,
 ) {
     let path = target.path;
     let session_id = target.session_id;
@@ -237,9 +574,13 @@ async fn tail_loop(
         match translate_record(value, &mut acc) {
             Translated::Skip => {}
             Translated::One(msg) => {
+                let is_result = matches!(*msg, SdkMessage::Result(_));
                 if tx.send(Ok(*msg)).await.is_err() {
                     debug!("Consumer dropped — tailer exiting");
                     return;
+                }
+                if is_result {
+                    results_emitted.fetch_add(1, Ordering::SeqCst);
                 }
             }
         }

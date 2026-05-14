@@ -225,26 +225,15 @@ fn e2e_options_with_cwd(cwd: Option<&Path>) -> ClaudeOptions {
 }
 
 /// Allocate a fresh, empty directory for use as the test's `cwd`. Each call
-/// returns a unique path.
+/// returns a unique path under `std::env::temp_dir()`.
 ///
-/// We deliberately do NOT use `std::env::temp_dir()` (`/var/folders/...` on
-/// macOS) because the `claude` TUI routes JSONL transcripts for those paths
-/// to the launching process's ancestor `.claude/projects/` (whichever it
-/// finds walking up from cargo's cwd) instead of `$HOME/.claude/projects/`,
-/// breaking the SDK's snapshot-diff discovery. Allocating under
-/// `$CARGO_TARGET_DIR/e2e-cwd/` (a stable, persistent path) keeps claude in
-/// the expected `$HOME/.claude/projects/<dashed>/` layout.
+/// The tmux backend now handles unfamiliar cwds: a watcher dismisses the
+/// workspace-trust dialog and the Stop hook reports the actual transcript
+/// path (snapshot-diff is a fallback). No need for a stable
+/// `$CARGO_TARGET_DIR/e2e-cwd/` layout.
 fn fresh_test_cwd(name: &str) -> PathBuf {
-    let target = std::env::var("CARGO_TARGET_DIR").map_or_else(
-        |_| {
-            std::env::var("CARGO_MANIFEST_DIR")
-                .map(|m| PathBuf::from(m).join("target"))
-                .unwrap_or_else(|_| PathBuf::from("target"))
-        },
-        PathBuf::from,
-    );
-    let root = target.join("e2e-cwd");
-    std::fs::create_dir_all(&root).expect("create e2e-cwd root");
+    let root = std::env::temp_dir().join("claude-sdk-e2e");
+    std::fs::create_dir_all(&root).expect("create e2e root");
     let cwd = root.join(format!("{name}-{}", uuid::Uuid::new_v4().simple()));
     let _ = std::fs::remove_dir_all(&cwd);
     std::fs::create_dir_all(&cwd).expect("create fresh test cwd");
@@ -1248,15 +1237,12 @@ async fn test_session_continue_recalls_context_subprocess() {
 async fn test_session_continue_recalls_context_tmux() {
     skip_unless_tmux_e2e!();
     init_tracing();
-    // TODO: re-enable once tmux `--continue` JSONL discovery is reliable.
-    // With `--continue`, the TUI doesn't append to the previous turn's JSONL
-    // (and may not create a new file before the discovery timeout fires),
-    // so `query_tmux` returns `JsonlNotFound`. The subprocess variant works
-    // because `--print` mode doesn't depend on JSONL tail discovery.
-    eprintln!(
-        "Skipping test_session_continue_recalls_context_tmux: tmux --continue \
-         JSONL discovery is unreliable (see TODO)"
-    );
+    timeout(
+        LONG_TEST_TIMEOUT,
+        run_session_continue_recalls_context(Backend::Tmux),
+    )
+    .await
+    .expect("Test timed out");
 }
 
 // ===========================================================================
@@ -1660,3 +1646,322 @@ async fn test_diagnose_cost_fields() {
 
     result.expect("Test timed out");
 }
+
+// ===========================================================================
+// Test 13: Long-running TUI — many turns over the same tmux session
+// ===========================================================================
+//
+// Mirrors how `moatless-sandbox` should drive the tmux backend: spawn one
+// `ClaudeClient::new_tmux` for the lifetime of the pod, then `send` repeated
+// user turns into the same TUI. Each turn must:
+// - Share the same `session_id` (one underlying Claude process)
+// - Recall facts from earlier turns
+// - Land back in idle (Result emitted) so the next turn can fire
+
+#[tokio::test]
+#[ignore = "tmux + claude CLI required; gated on CLAUDE_TMUX_E2E=1"]
+async fn test_long_running_tmux_three_turns() {
+    skip_unless_tmux_e2e!();
+    init_tracing();
+
+    let cwd = fresh_test_cwd("long-running");
+    let options = ClaudeOptions {
+        model: Some(TEST_MODEL.to_string()),
+        max_turns: Some(1),
+        allow_dangerously_skip_permissions: Some(true),
+        cwd: Some(cwd.to_string_lossy().into_owned()),
+        env: auth_env(),
+        ..Default::default()
+    };
+
+    let test_body = async {
+        let mut client = ClaudeClient::new_tmux(options)
+            .await
+            .expect("Failed to create tmux ClaudeClient");
+
+        let mut session_id = String::new();
+
+        // ── Turn 1: establish a fact ───────────────────────────────
+        client
+            .send(
+                "Remember: my favorite color is teal. Confirm in <=5 words.",
+                "",
+            )
+            .await
+            .expect("turn 1 send");
+
+        let mut turn1 = Vec::new();
+        while let Some(msg) = client.recv().await {
+            let msg = msg.expect("turn 1 recv");
+            if let SdkMessage::System(ref init) = msg {
+                session_id = init.session_id.clone();
+            }
+            let is_result = matches!(&msg, SdkMessage::Result(_));
+            turn1.push(msg);
+            if is_result {
+                break;
+            }
+        }
+        assert!(!session_id.is_empty(), "turn 1 must yield session_id");
+        eprintln!(
+            "[turn 1] session_id={session_id} result={:?}",
+            extract_result_text(&turn1).unwrap_or_default()
+        );
+
+        // ── Turn 2: second fact and verify recall ─────────────────
+        client
+            .send(
+                "Also remember: my favorite number is 17. What color did I tell you?",
+                &session_id,
+            )
+            .await
+            .expect("turn 2 send");
+
+        let mut turn2 = Vec::new();
+        while let Some(msg) = client.recv().await {
+            let msg = msg.expect("turn 2 recv");
+            let is_result = matches!(&msg, SdkMessage::Result(_));
+            turn2.push(msg);
+            if is_result {
+                break;
+            }
+        }
+        let turn2_combined = format!(
+            "{} {}",
+            extract_assistant_text(&turn2),
+            extract_result_text(&turn2).unwrap_or_default()
+        );
+        eprintln!("[turn 2] combined={turn2_combined}");
+        assert!(
+            turn2_combined.to_lowercase().contains("teal"),
+            "turn 2 should recall 'teal' from turn 1, got: {turn2_combined}"
+        );
+
+        // ── Turn 3: verify BOTH earlier facts ─────────────────────
+        client
+            .send(
+                "Repeat both: my color and my number. Just the two values.",
+                &session_id,
+            )
+            .await
+            .expect("turn 3 send");
+
+        let mut turn3 = Vec::new();
+        while let Some(msg) = client.recv().await {
+            let msg = msg.expect("turn 3 recv");
+            let is_result = matches!(&msg, SdkMessage::Result(_));
+            turn3.push(msg);
+            if is_result {
+                break;
+            }
+        }
+        let turn3_combined = format!(
+            "{} {}",
+            extract_assistant_text(&turn3),
+            extract_result_text(&turn3).unwrap_or_default()
+        );
+        eprintln!("[turn 3] combined={turn3_combined}");
+        let lower = turn3_combined.to_lowercase();
+        assert!(
+            lower.contains("teal"),
+            "turn 3 should recall 'teal', got: {turn3_combined}"
+        );
+        assert!(
+            lower.contains("17"),
+            "turn 3 should recall '17', got: {turn3_combined}"
+        );
+
+        // ── All three turns share the same session_id ─────────────
+        let session_ids: Vec<&str> = turn1
+            .iter()
+            .chain(turn2.iter())
+            .chain(turn3.iter())
+            .filter_map(|m| match m {
+                SdkMessage::Result(ResultMessage::Success(s)) => Some(s.session_id.as_str()),
+                SdkMessage::Result(ResultMessage::Error(e)) => Some(e.session_id.as_str()),
+                _ => None,
+            })
+            .collect();
+        for sid in &session_ids {
+            assert_eq!(
+                *sid, session_id,
+                "all turns must share the same session_id (proves single TUI)"
+            );
+        }
+        eprintln!(
+            "All 3 turns landed on the same session_id ({} Result messages observed)",
+            session_ids.len()
+        );
+
+        client.close();
+    };
+
+    timeout(TMUX_LONG_TEST_TIMEOUT, test_body)
+        .await
+        .expect("Test timed out");
+}
+
+// ===========================================================================
+// Test 14: Sandbox-restart scenario — kill the tmux TUI mid-conversation
+// and resume it in a fresh tmux client; the new TUI must recall context.
+// ===========================================================================
+//
+// This is the verification path the moatless-sandbox needs: a pod (or just
+// the in-pod claude TUI) restarts, the sandbox comes back up with the
+// previous `session_id`, and a fresh `query_tmux_streaming(opts {resume: …})`
+// continues the conversation seamlessly.
+//
+// Steps:
+//   1. Start a tmux ClaudeClient and run 2 turns establishing two facts.
+//   2. `close()` the client (drops the QueryHandle → cancels supervisor →
+//      tmux kill-session → SIGKILL escalation if needed).
+//   3. Build a *new* ClaudeClient with `options.resume = Some(session_id)`
+//      and use the SAME `cwd` (so the JSONL path resolves to the same file).
+//   4. Send a 3rd turn that references facts from turn 1 + turn 2.
+//   5. Assert the 3rd turn recalls both facts → session continuity preserved
+//      across the simulated restart.
+
+#[tokio::test]
+#[ignore = "tmux + claude CLI required; gated on CLAUDE_TMUX_E2E=1"]
+async fn test_sandbox_restart_resume_tmux() {
+    skip_unless_tmux_e2e!();
+    init_tracing();
+
+    let cwd = fresh_test_cwd("sandbox-restart");
+    let cwd_str = cwd.to_string_lossy().into_owned();
+    let base_options = || ClaudeOptions {
+        model: Some(TEST_MODEL.to_string()),
+        max_turns: Some(1),
+        allow_dangerously_skip_permissions: Some(true),
+        cwd: Some(cwd_str.clone()),
+        env: auth_env(),
+        ..Default::default()
+    };
+
+    let test_body = async {
+        // ── Pre-restart: 2 turns through one TUI ──────────────────
+        let mut client = ClaudeClient::new_tmux(base_options())
+            .await
+            .expect("Failed to create initial tmux ClaudeClient");
+
+        let mut session_id = String::new();
+
+        client
+            .send(
+                "Remember: my favorite color is teal. Confirm in <=5 words.",
+                "",
+            )
+            .await
+            .expect("turn 1 send");
+        let mut turn1 = Vec::new();
+        while let Some(msg) = client.recv().await {
+            let msg = msg.expect("turn 1 recv");
+            if let SdkMessage::System(ref init) = msg {
+                session_id = init.session_id.clone();
+            }
+            let is_result = matches!(&msg, SdkMessage::Result(_));
+            turn1.push(msg);
+            if is_result {
+                break;
+            }
+        }
+        assert!(!session_id.is_empty(), "must have session_id after turn 1");
+        eprintln!("[pre-restart turn 1] session_id={session_id}");
+
+        client
+            .send(
+                "Also remember: my favorite number is 17. Confirm in <=5 words.",
+                &session_id,
+            )
+            .await
+            .expect("turn 2 send");
+        let mut turn2 = Vec::new();
+        while let Some(msg) = client.recv().await {
+            let msg = msg.expect("turn 2 recv");
+            let is_result = matches!(&msg, SdkMessage::Result(_));
+            turn2.push(msg);
+            if is_result {
+                break;
+            }
+        }
+        eprintln!("[pre-restart turn 2] done");
+
+        // ── Simulated restart: tear down the TUI ──────────────────
+        // Dropping the client cancels the supervisor's CancellationToken,
+        // which kills the tmux session and escalates to SIGKILL if needed.
+        client.close();
+        drop(client);
+        eprintln!("[restart] TUI torn down — sleeping 500ms to let kill settle");
+        tokio::time::sleep(Duration::from_millis(500)).await;
+
+        // ── Post-restart: fresh tmux client with --resume ─────────
+        // Same cwd so the project_dir / JSONL filename resolves identically.
+        let resume_options = ClaudeOptions {
+            resume: Some(session_id.clone()),
+            ..base_options()
+        };
+        let mut resumed = ClaudeClient::new_tmux(resume_options)
+            .await
+            .expect("Failed to create resumed tmux ClaudeClient");
+
+        resumed
+            .send(
+                "Repeat my color and my number. Just those two values, comma-separated.",
+                &session_id,
+            )
+            .await
+            .expect("resumed send");
+
+        let mut turn3 = Vec::new();
+        while let Some(msg) = resumed.recv().await {
+            let msg = msg.expect("resumed recv");
+            let is_result = matches!(&msg, SdkMessage::Result(_));
+            turn3.push(msg);
+            if is_result {
+                break;
+            }
+        }
+
+        let combined = format!(
+            "{} {}",
+            extract_assistant_text(&turn3),
+            extract_result_text(&turn3).unwrap_or_default()
+        );
+        eprintln!("[post-restart] combined={combined}");
+        let lower = combined.to_lowercase();
+        assert!(
+            lower.contains("teal"),
+            "resumed session must recall 'teal' from pre-restart turn 1; got: {combined}"
+        );
+        assert!(
+            lower.contains("17"),
+            "resumed session must recall '17' from pre-restart turn 2; got: {combined}"
+        );
+
+        // Confirm session_id is preserved across restart.
+        let post_restart_session_ids: Vec<&str> = turn3
+            .iter()
+            .filter_map(|m| match m {
+                SdkMessage::Result(ResultMessage::Success(s)) => Some(s.session_id.as_str()),
+                SdkMessage::Result(ResultMessage::Error(e)) => Some(e.session_id.as_str()),
+                _ => None,
+            })
+            .collect();
+        for sid in &post_restart_session_ids {
+            assert_eq!(
+                *sid, session_id,
+                "post-restart turn must keep the same session_id"
+            );
+        }
+        eprintln!(
+            "Resume across restart preserved session_id {session_id}, recalled all facts."
+        );
+
+        resumed.close();
+    };
+
+    timeout(TMUX_LONG_TEST_TIMEOUT, test_body)
+        .await
+        .expect("Test timed out");
+}
+

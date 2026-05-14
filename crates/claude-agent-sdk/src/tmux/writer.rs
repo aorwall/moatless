@@ -26,6 +26,24 @@ pub(crate) struct TmuxPasteWriter {
 }
 
 impl TmuxPasteWriter {
+    /// Send a bare Enter keypress to the tmux pane. Used to dismiss the
+    /// workspace-trust dialog and to submit a previously pasted prompt.
+    pub(crate) async fn send_enter(&self) -> Result<()> {
+        let status = Command::new("tmux")
+            .args(["send-keys", "-t", self.session_name.as_str(), "Enter"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .await
+            .map_err(SdkError::SpawnError)?;
+        if !status.success() {
+            return Err(SdkError::Internal(format!(
+                "tmux send-keys Enter exited with status {status:?}"
+            )));
+        }
+        Ok(())
+    }
+
     /// Paste `text` into the tmux session and press Enter.
     pub(crate) async fn send_text(&self, text: &str) -> Result<()> {
         let buffer_name = format!("sdk-{}", uuid::Uuid::new_v4().simple());
@@ -84,8 +102,11 @@ impl TmuxPasteWriter {
             )));
         }
 
-        // Small delay so the TUI registers the bracket-paste before we submit.
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        // Small gap before submit. Ink applies a bracketed-paste / burst-input
+        // heuristic: if Enter arrives in the same burst as the prompt body it
+        // lands in the input buffer instead of triggering submit. 120ms is
+        // enough for Ink to separate the events (claude-p uses the same gap).
+        tokio::time::sleep(std::time::Duration::from_millis(120)).await;
 
         // 3. Send Enter to submit.
         let status = Command::new("tmux")

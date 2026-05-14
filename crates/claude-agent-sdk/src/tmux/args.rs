@@ -12,7 +12,15 @@ use crate::types::options::{ClaudeOptions, SystemPrompt};
 
 /// Build CLI args appropriate for running `claude` inside a tmux session
 /// (interactive TUI, no stream-json plumbing).
-pub(crate) fn build_tmux_cli_args(options: &ClaudeOptions) -> Vec<String> {
+///
+/// `settings_json` is the inline JSON produced by [`crate::tmux::hooks::HookHarness`].
+/// When `Some`, an `--settings <json>` pair is added so claude registers the
+/// SessionStart + Stop hooks for the supervisor's FIFO. The JSON is harness-
+/// owned, not caller-supplied (no field on [`ClaudeOptions`] for it).
+pub(crate) fn build_tmux_cli_args(
+    options: &ClaudeOptions,
+    settings_json: Option<&str>,
+) -> Vec<String> {
     let mut args = Vec::with_capacity(24);
 
     // Always bypass permissions in tmux mode — there is no SDK-side
@@ -21,6 +29,11 @@ pub(crate) fn build_tmux_cli_args(options: &ClaudeOptions) -> Vec<String> {
 
     // `--verbose` is accepted in interactive mode (it just overrides config).
     args.push("--verbose".to_string());
+
+    if let Some(json) = settings_json {
+        args.push("--settings".to_string());
+        args.push(json.to_string());
+    }
 
     if options.can_use_tool.is_some() {
         warn!(
@@ -190,7 +203,7 @@ mod tests {
 
     #[test]
     fn always_includes_skip_permissions_and_verbose() {
-        let args = build_tmux_cli_args(&ClaudeOptions::default());
+        let args = build_tmux_cli_args(&ClaudeOptions::default(), None);
         assert!(args.contains(&"--dangerously-skip-permissions".to_string()));
         assert!(args.contains(&"--verbose".to_string()));
     }
@@ -204,7 +217,7 @@ mod tests {
             persist_session: Some(false),
             ..Default::default()
         };
-        let args = build_tmux_cli_args(&options);
+        let args = build_tmux_cli_args(&options, None);
         assert!(!args.contains(&"--print".to_string()));
         assert!(!args.contains(&"--output-format".to_string()));
         assert!(!args.contains(&"--input-format".to_string()));
@@ -222,7 +235,7 @@ mod tests {
             model: Some("claude-sonnet-4-5".to_string()),
             ..Default::default()
         };
-        let args = build_tmux_cli_args(&options);
+        let args = build_tmux_cli_args(&options, None);
         let resume_idx = args.iter().position(|a| a == "--resume").unwrap();
         assert_eq!(args[resume_idx + 1], "sess-xyz");
         assert!(args.contains(&"--continue".to_string()));
@@ -240,11 +253,33 @@ mod tests {
             }),
             ..Default::default()
         };
-        let args = build_tmux_cli_args(&options);
+        let args = build_tmux_cli_args(&options, None);
         let idx = args
             .iter()
             .position(|a| a == "--append-system-prompt")
             .unwrap();
         assert_eq!(args[idx + 1], "Always be brief.");
+    }
+
+    #[test]
+    fn settings_json_threaded_after_skip_permissions() {
+        let args = build_tmux_cli_args(&ClaudeOptions::default(), Some(r#"{"hooks":{}}"#));
+        let idx = args
+            .iter()
+            .position(|a| a == "--settings")
+            .expect("--settings present");
+        assert_eq!(args[idx + 1], r#"{"hooks":{}}"#);
+        // --settings appears after --dangerously-skip-permissions and --verbose.
+        let skip_idx = args
+            .iter()
+            .position(|a| a == "--dangerously-skip-permissions")
+            .unwrap();
+        assert!(skip_idx < idx);
+    }
+
+    #[test]
+    fn settings_json_omitted_when_none() {
+        let args = build_tmux_cli_args(&ClaudeOptions::default(), None);
+        assert!(!args.iter().any(|a| a == "--settings"));
     }
 }

@@ -33,7 +33,7 @@ E2E test naming convention (`tests/e2e.rs`):
 ```
 src/
 ├── lib.rs                  # Public re-exports
-├── error.rs                # SdkError enum (11 variants)
+├── error.rs                # SdkError enum (incl. tmux-specific: TmuxNotFound, TmuxSessionDied, HookFifoFailed, HookHarnessFailed, SessionStartTimeout, JsonlNotFound)
 ├── query.rs                # query() + query_streaming() + QueryHandle
 ├── client.rs               # ClaudeClient (multi-turn sessions)
 ├── mcp/
@@ -52,11 +52,50 @@ src/
 ├── transport/
 │   ├── mod.rs              # Transport + StdinWriter traits, ChildStdinWriter, mock impls
 │   └── subprocess.rs       # SubprocessTransport: spawn, NDJSON read/write, lifecycle
-└── protocol/
-    ├── orchestrator.rs     # Background reader task, message/MCP routing, permission/hook dispatch
-    ├── orchestrator_tests.rs # 28 orchestrator tests (permissions, hooks, MCP, control, EOF)
-    └── request_tracker.rs  # Control request ID correlation with oneshot channels
+├── protocol/
+│   ├── orchestrator.rs     # Background reader task, message/MCP routing, permission/hook dispatch
+│   ├── orchestrator_tests.rs # 28 orchestrator tests (permissions, hooks, MCP, control, EOF)
+│   └── request_tracker.rs  # Control request ID correlation with oneshot channels
+└── tmux/
+    ├── mod.rs              # query_tmux + query_tmux_streaming entry points; SessionStart wait
+    ├── hooks.rs            # HookHarness: per-run FIFO + relay script + inline --settings JSON
+    ├── session.rs          # TmuxSession spawn/kill (with SIGTERM→200ms→SIGKILL escalation)
+    ├── tailer.rs           # Hook listener, JSONL tail loop, liveness loop, Stop fallback loop
+    ├── translator.rs       # JSONL record → SdkMessage; turn_duration → ResultSuccess
+    ├── trust.rs            # CSI stripping + workspace-trust dialog detection
+    ├── writer.rs           # tmux paste-buffer + send-keys for prompt delivery
+    └── args.rs             # `claude` CLI argv for TUI mode (no --print/--output-format)
 ```
+
+## Tmux backend lifecycle (hook-driven)
+
+The TUI lives behind a [tmux] detached session. We use Claude's hook system
+to know when the TUI is ready and when each turn finishes — replacing the
+older 500ms-sleep + snapshot-diff approach.
+
+1. [`HookHarness::create`] mkfifos `$TMPDIR/claude-sdk-tmux-<pid>-<uuid>/events.fifo`
+   and writes a tiny relay shell script.
+2. `--settings '<json>'` registers `SessionStart` + `Stop` hooks that pipe their
+   payloads into the FIFO (one line each: `"<event>\t<payload>\n"`).
+3. A `spawn_blocking` reader opens the FIFO `O_RDWR | O_NONBLOCK` (so it never
+   sees EOF when the relay script disconnects between events) and forwards
+   parsed lines via an unbounded mpsc channel.
+4. `spawn_hook_listener` drains that channel and republishes higher-level
+   [`HookState`] (Pending / SessionStarted / TurnEnded) on a `tokio::sync::watch`.
+5. `mod.rs` awaits `SessionStarted` (with `init_timeout`, default 60s) before
+   pasting the prompt — no hard-coded sleeps. A `trust_dialog_watcher` runs in
+   parallel during this wait window; it polls `tmux capture-pane`, strips CSI,
+   and presses Enter if both "trust" and "folder" appear.
+6. The supervisor's `stop_fallback_loop` watches for `Stop` events. Each Stop
+   gives up to 2s (40 × 50ms) for the tail loop to emit a `Result` from the
+   JSONL `turn_duration` record; if the budget elapses, it synthesizes a
+   `ResultSuccess` from the Stop payload's `last_assistant_message`.
+
+`Stop`'s `transcript_path` also drives JSONL discovery — important for
+`--continue`, where claude appends to the existing transcript and snapshot-diff
+would see no new file. Snapshot-diff against the pre-spawn JSONL listing stays
+as a defensive fallback for older Claude versions whose Stop payload omits the
+path.
 
 ## Key Design Decisions
 
