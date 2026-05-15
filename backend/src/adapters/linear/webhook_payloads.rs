@@ -230,6 +230,14 @@ impl IssuePayload {
     pub fn state_name(&self) -> &str {
         self.state.as_ref().map_or("", |s| s.name.as_str())
     }
+
+    /// Resolve the state type — Linear's stable enum
+    /// (`"backlog" | "unstarted" | "started" | "completed" | "canceled" | "triage"`).
+    /// Empty string when missing. Prefer this over `state_name` for matching,
+    /// since names are user-editable per workspace.
+    pub fn state_kind(&self) -> &str {
+        self.state.as_ref().map_or("", |s| s.kind.as_str())
+    }
 }
 
 #[cfg(test)]
@@ -336,6 +344,20 @@ mod tests {
         let issue: IssuePayload = serde_json::from_value(data).expect("parse issue");
         assert_eq!(issue.resolved_team_id(), Some("team-1"));
         assert_eq!(issue.state_name(), "In Progress");
+        assert_eq!(issue.state_kind(), "started");
+    }
+
+    #[test]
+    fn state_kind_missing_returns_empty() {
+        let issue: IssuePayload = serde_json::from_value(serde_json::json!({
+            "id": "issue-x",
+            "identifier": "ENG-X",
+            "title": "Untyped",
+            "teamId": "team-1"
+        }))
+        .expect("parse");
+        assert_eq!(issue.state_kind(), "");
+        assert_eq!(issue.state_name(), "");
     }
 
     #[test]

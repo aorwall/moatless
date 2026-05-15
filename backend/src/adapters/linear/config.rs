@@ -9,9 +9,11 @@ use crate::adapters::models::TaskTriggerRoute;
 /// Default workflow state names whose ENTRY fires task creation.
 const DEFAULT_TRIGGER_STATES: &[&str] = &["Todo", "In Progress"];
 
-/// Default workflow state names whose ENTRY closes associated tasks
-/// (when `close_task_on_close` is set on the rule).
-const DEFAULT_TERMINAL_STATES: &[&str] = &["Done", "Cancelled", "Canceled", "Duplicate"];
+/// Default workflow state TYPES whose ENTRY closes associated tasks
+/// (when `close_task_on_close` is set on the rule). These are matched against
+/// Linear's stable `state.type` enum, not the user-facing state name — so a
+/// workspace that renames "Done" to "Shipped" still closes correctly.
+const DEFAULT_TERMINAL_STATES: &[&str] = &["completed", "canceled"];
 
 /// Extracted Linear-specific knobs from an `TaskTriggerRoute`.
 #[derive(Debug, Clone)]
@@ -23,8 +25,10 @@ pub struct LinearRuleConfig {
     /// each task trigger can configure different trigger states (e.g. one rule
     /// fires on "Todo", another on "In Progress").
     pub trigger_states: Vec<String>,
-    /// States whose ENTRY closes tasks owned by this listener (gated by
-    /// `close_task_on_close`).
+    /// State TYPES (Linear's `state.type` enum, e.g. `"completed"`,
+    /// `"canceled"`) whose ENTRY closes tasks owned by this listener
+    /// (gated by `close_task_on_close`). Matched against `state.type` rather
+    /// than `state.name` so renamed workspace states still trigger close.
     pub terminal_states: Vec<String>,
     /// Mirror of the rule's scalar `close_task_on_close` column.
     pub close_task_on_close: bool,
@@ -126,10 +130,7 @@ mod tests {
         let cfg = LinearRuleConfig::from_rule(&rule_with(serde_json::json!({}), true));
         assert!(cfg.require_labels.is_empty());
         assert_eq!(cfg.trigger_states, vec!["Todo", "In Progress"]);
-        assert_eq!(
-            cfg.terminal_states,
-            vec!["Done", "Cancelled", "Canceled", "Duplicate"]
-        );
+        assert_eq!(cfg.terminal_states, vec!["completed", "canceled"]);
         assert!(cfg.close_task_on_close);
     }
 
@@ -184,10 +185,7 @@ mod tests {
         rule.provider_config = None;
         let cfg = LinearRuleConfig::from_rule(&rule);
         assert_eq!(cfg.trigger_states, vec!["Todo", "In Progress"]);
-        assert_eq!(
-            cfg.terminal_states,
-            vec!["Done", "Cancelled", "Canceled", "Duplicate"]
-        );
+        assert_eq!(cfg.terminal_states, vec!["completed", "canceled"]);
         assert!(cfg.require_labels.is_empty());
     }
 

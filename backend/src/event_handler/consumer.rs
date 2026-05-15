@@ -267,10 +267,12 @@ impl EventHandlerConsumer {
             }
             EventKey::Agent(AgentSubType::Message) => {
                 agent_handlers::handle_agent_message(&self.state, event).await;
-                // Forward assistant message content blocks to Linear as
-                // intermediate `thought` / `action` activities. Tool results
-                // (system/user-role messages) are skipped — Linear can't
-                // attach a result to a previously-emitted action.
+                // Forward content blocks to Linear:
+                // - assistant role → persistent `thought` text + ephemeral
+                //   pending `action` per tool_use.
+                // - user role → non-ephemeral completed `action` per
+                //   tool_result, looked up against the persisted tool_use row
+                //   to recover the original tool name and input summary.
                 let role = event
                     .payload
                     .get("message")
@@ -281,6 +283,16 @@ impl EventHandlerConsumer {
                     if let Some(message) = event.payload.get("message").cloned() {
                         tokio::spawn(
                             crate::adapters::linear::agent_runtime::notify_linear_message_activities(
+                                self.state.clone(),
+                                event.task_id.clone(),
+                                message,
+                            ),
+                        );
+                    }
+                } else if role == "user" {
+                    if let Some(message) = event.payload.get("message").cloned() {
+                        tokio::spawn(
+                            crate::adapters::linear::agent_runtime::notify_linear_tool_results(
                                 self.state.clone(),
                                 event.task_id.clone(),
                                 message,
@@ -351,30 +363,34 @@ impl EventHandlerConsumer {
                 ));
                 agent_handlers::handle_sandbox_fatal(&self.state, event).await;
             }
-            // Sandbox became ready — emit a non-ephemeral `action` so the
-            // ephemeral "Spinning up sandbox…" heartbeat is replaced by a
-            // persistent record of the completed step.
-            EventKey::Sandbox(SandboxSubType::Ready) => {
+            // Sandbox lifecycle transitions — surface as ephemeral `action`
+            // activities so each new status replaces the previous one in
+            // Linear's UI (no UUIDs leak, no historical pile-up). The full
+            // history still lives in Moatless and in the linked task URL.
+            EventKey::Sandbox(
+                status @ (SandboxSubType::Initializing
+                | SandboxSubType::Ready
+                | SandboxSubType::Stopped),
+            ) => {
                 tokio::spawn(crate::adapters::linear::agent_runtime::notify_linear_action(
                     self.state.clone(),
                     event.task_id.clone(),
-                    "Provisioned sandbox".to_string(),
-                    event.task_id.clone(),
-                    Some("ready".to_string()),
-                    false,
+                    "Sandbox".to_string(),
+                    status.as_str().to_string(),
+                    None,
+                    true,
                 ));
             }
-            // Agent process started inside the sandbox — emit as an `action`
-            // for the same reason. No `result` yet; the eventual agent reply
-            // is the result-bearing follow-up.
+            // Agent process started inside the sandbox — same ephemeral
+            // status-marker treatment.
             EventKey::Agent(AgentSubType::Started) => {
                 tokio::spawn(crate::adapters::linear::agent_runtime::notify_linear_action(
                     self.state.clone(),
                     event.task_id.clone(),
-                    "Started agent".to_string(),
-                    event.task_id.clone(),
+                    "Agent".to_string(),
+                    AgentSubType::Started.as_str().to_string(),
                     None,
-                    false,
+                    true,
                 ));
             }
             // Known SSE-only event types — forwarded to frontend but not processed here

@@ -249,17 +249,22 @@ pub async fn handle_comment_created(
 
     let binding_repo = PgTaskBindingRepository(state.db.clone());
     let bindings: Vec<TaskBinding> = binding_repo
-        .find_active_by_destination_field(ADAPTER, SUBJECT_KIND, "issue_id", issue_id)
+        .find_active_by_destination_field(
+            ADAPTER,
+            super::SUBJECT_KIND_ISSUE,
+            "issue_id",
+            issue_id,
+        )
         .await?
         .into_iter()
         .filter(|b| b.connection_id == connection.id)
         .collect();
 
     if bindings.is_empty() {
-        debug!(
+        info!(
             issue_id,
             comment_id = %comment.id,
-            "Comment.create with no active agent-session binding — ignoring"
+            "Comment.create with no linear_issue binding for this issue — ignoring"
         );
         return Ok(());
     }
@@ -349,7 +354,7 @@ pub async fn handle_issue_update(
     envelope_updated_from: Option<&serde_json::Value>,
     issue: &IssuePayload,
 ) -> Result<(), AdapterError> {
-    let state_name = issue.state_name();
+    let state_kind = issue.state_kind();
     let prev_state_id = envelope_updated_from
         .and_then(|v| v.get("stateId"))
         .and_then(serde_json::Value::as_str);
@@ -379,7 +384,7 @@ pub async fn handle_issue_update(
     .await;
 
     if rule_config.close_task_on_close
-        && rule_config.terminal_states.iter().any(|s| s == state_name)
+        && rule_config.terminal_states.iter().any(|s| s == state_kind)
     {
         close_active_bindings_for_issue(state, api, connection, rule, issue).await?;
     }
@@ -652,15 +657,16 @@ async fn provision_session_task(
 
     // Update the session with an externalUrl pointing at the moatless task.
     let task_url = task_url(state, &task_id);
+    let attachment_title = task_attachment_title(state, &task_id).await;
     if let Err(e) = api
-        .agent_session_update_external_urls(&session.id, "Moatless task", &task_url)
+        .agent_session_update_external_urls(&session.id, &attachment_title, &task_url)
         .await
     {
         warn!(session_id = %session.id, error = %e, "Failed to update Linear externalUrls");
     }
     if let Some(ref issue) = session.issue {
         if let Err(e) = api
-            .attachment_link_url(&issue.id, &task_url, "Moatless task")
+            .attachment_link_url(&issue.id, &task_url, &attachment_title)
             .await
         {
             warn!(
@@ -949,6 +955,25 @@ pub(crate) fn task_url(state: &AppState, task_id: &str) -> String {
     format!("{base}/tasks/{task_id}")
 }
 
+pub(crate) async fn task_attachment_title(state: &AppState, task_id: &str) -> String {
+    const FALLBACK: &str = "Moatless parent task";
+    match state.tasks.find_by_id_internal(task_id).await {
+        Ok(Some(task)) => match task.name.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            Some(name) => format!("{FALLBACK}: {name}"),
+            None => FALLBACK.to_string(),
+        },
+        Ok(None) => FALLBACK.to_string(),
+        Err(e) => {
+            tracing::warn!(
+                error = %e,
+                task_id,
+                "Failed to load task name for Linear attachment title"
+            );
+            FALLBACK.to_string()
+        }
+    }
+}
+
 async fn rule_for_binding(
     state: &AppState,
     _connection: &AdapterConnection,
@@ -1146,7 +1171,7 @@ pub async fn notify_linear_message_activities(
                 }
                 for (api, session_id) in &sessions {
                     if let Err(e) = api
-                        .agent_activity_create(session_id, ActivityKind::Thought, text, true)
+                        .agent_activity_create(session_id, ActivityKind::Thought, text, false)
                         .await
                     {
                         warn!(
@@ -1187,8 +1212,104 @@ pub async fn notify_linear_message_activities(
                 }
             }
             _ => {
-                // tool_result and any future block kinds — Linear has no way
-                // to attach a result to a previously-emitted action, so skip.
+                // tool_result blocks are handled by notify_linear_tool_results
+                // on the user-role agent.message sibling; any other block kinds
+                // are intentionally ignored.
+            }
+        }
+    }
+}
+
+/// Walk a user-role agent message and, for every `tool_result` block, emit a
+/// non-ephemeral `action` activity carrying the tool's result. Pairs with the
+/// ephemeral pending `action` emitted at `tool_use` time so a Linear viewer
+/// sees both the call and its outcome.
+///
+/// Fire-and-forget: any DB or GraphQL failure is logged and swallowed.
+pub async fn notify_linear_tool_results(
+    state: AppState,
+    task_id: String,
+    message: serde_json::Value,
+) {
+    let Some(blocks) = message.get("content").and_then(serde_json::Value::as_array) else {
+        return;
+    };
+    if blocks.is_empty() {
+        return;
+    }
+
+    // Collect tool_use_ids up-front so we can skip the sessions lookup when the
+    // user message carries no tool_result blocks (e.g. plain text follow-ups).
+    let tool_use_ids: Vec<String> = blocks
+        .iter()
+        .filter_map(|b| {
+            let kind = b.get("type").and_then(serde_json::Value::as_str)?;
+            if kind != "tool_result" {
+                return None;
+            }
+            b.get("tool_use_id")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+        })
+        .collect();
+    if tool_use_ids.is_empty() {
+        return;
+    }
+
+    let sessions = resolve_linear_sessions_for_task(&state, &task_id).await;
+    if sessions.is_empty() {
+        return;
+    }
+
+    for tool_use_id in tool_use_ids {
+        let row = match state.messages.find_tool_call(&task_id, &tool_use_id).await {
+            Ok(Some(row)) => row,
+            Ok(None) => {
+                debug!(
+                    task_id,
+                    tool_use_id,
+                    "notify_linear_tool_results: tool_use lookup returned no row"
+                );
+                continue;
+            }
+            Err(e) => {
+                debug!(
+                    task_id,
+                    tool_use_id,
+                    error = %e,
+                    "notify_linear_tool_results: tool_use lookup failed"
+                );
+                continue;
+            }
+        };
+
+        // Race guard: pending ephemeral stays in place until the result row
+        // exists. Without truncated result content there is nothing to surface.
+        let Some(result_text) = row.result_content.as_deref() else {
+            continue;
+        };
+
+        let parameter = summarize_tool_input(&row.tool_name, &row.tool_input);
+        let result = truncate_result_for_linear(result_text, row.is_error.unwrap_or(false));
+
+        for (api, session_id) in &sessions {
+            if let Err(e) = api
+                .agent_activity_create_action(
+                    session_id,
+                    &row.tool_name,
+                    &parameter,
+                    Some(&result),
+                    false,
+                )
+                .await
+            {
+                warn!(
+                    task_id,
+                    session_id,
+                    tool_name = %row.tool_name,
+                    error = %e,
+                    "notify_linear_tool_results: action failed"
+                );
             }
         }
     }
@@ -1198,6 +1319,11 @@ pub async fn notify_linear_message_activities(
 /// Linear's UI renders activities in a narrow row, so longer strings get
 /// truncated visually anyway.
 const PARAMETER_MAX_LEN: usize = 200;
+
+/// Maximum length of the `result` field in a Linear `action` activity.
+/// Tool results (file contents, command output) are often multi-KB; cap to
+/// keep Linear's UI legible.
+const RESULT_MAX_LEN: usize = 500;
 
 /// One-line summary of a Claude tool-use input suitable for Linear's
 /// `action.parameter` slot. Falls through to a JSON dump for unknown tools.
@@ -1246,6 +1372,20 @@ fn truncate_chars(s: &str, max_chars: usize) -> String {
     let mut out: String = s.chars().take(max_chars.saturating_sub(1)).collect();
     out.push('…');
     out
+}
+
+/// Build the `result` field for a completed Linear `action` activity from a
+/// raw tool result string. Truncates to [`RESULT_MAX_LEN`] Unicode scalars
+/// and prefixes `"❌ "` when the tool reported an error so the failure is
+/// obvious at a glance in Linear's UI.
+fn truncate_result_for_linear(text: &str, is_error: bool) -> String {
+    let trimmed = text.trim();
+    let body = truncate_chars(trimmed, RESULT_MAX_LEN);
+    if is_error {
+        format!("❌ {body}")
+    } else {
+        body
+    }
 }
 
 #[cfg(test)]
@@ -1431,6 +1571,43 @@ mod tests {
         let out = summarize_tool_input("Bash", &input);
         assert_eq!(out.chars().count(), PARAMETER_MAX_LEN);
         assert!(out.ends_with('…'));
+    }
+
+    #[test]
+    fn truncate_result_for_linear_short_ok() {
+        let out = truncate_result_for_linear("hello world", false);
+        assert_eq!(out, "hello world");
+    }
+
+    #[test]
+    fn truncate_result_for_linear_trims_whitespace() {
+        let out = truncate_result_for_linear("  hello  \n", false);
+        assert_eq!(out, "hello");
+    }
+
+    #[test]
+    fn truncate_result_for_linear_prefixes_error() {
+        let out = truncate_result_for_linear("file not found", true);
+        assert_eq!(out, "❌ file not found");
+    }
+
+    #[test]
+    fn truncate_result_for_linear_caps_length() {
+        let long = "x".repeat(RESULT_MAX_LEN + 50);
+        let out = truncate_result_for_linear(&long, false);
+        assert_eq!(out.chars().count(), RESULT_MAX_LEN);
+        assert!(out.ends_with('…'));
+    }
+
+    #[test]
+    fn truncate_result_for_linear_caps_then_prefixes_error() {
+        let long = "x".repeat(RESULT_MAX_LEN + 50);
+        let out = truncate_result_for_linear(&long, true);
+        // "❌ " prefix added after truncation, so the visible body stays at the cap.
+        assert!(out.starts_with("❌ "));
+        assert!(out.ends_with('…'));
+        // 2 chars ("❌ ") + RESULT_MAX_LEN body — but "❌" is a single char, plus space = 2 chars total prefix.
+        assert_eq!(out.chars().count(), RESULT_MAX_LEN + 2);
     }
 
     #[test]

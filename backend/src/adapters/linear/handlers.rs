@@ -171,7 +171,23 @@ async fn dispatch_webhook(
             handle_comment_event(state, &api, &connection, &envelope).await
         }
         other => {
-            info!(event_type = other, org_id, "Linear webhook: unsupported event type");
+            let data_keys: Vec<&str> = envelope
+                .data
+                .as_ref()
+                .and_then(|v| v.as_object())
+                .map(|m| m.keys().map(String::as_str).collect())
+                .unwrap_or_default();
+            info!(
+                event_type = other,
+                action = %envelope.action,
+                org_id,
+                webhook_id = envelope.webhook_id.as_deref().unwrap_or(""),
+                actor_id = envelope.actor.as_ref().map_or("", |a| a.id.as_str()),
+                actor_name = envelope.actor.as_ref().map_or("", |a| a.name.as_str()),
+                data_keys = ?data_keys,
+                body_len = body.len(),
+                "Linear webhook: unsupported event type"
+            );
             Ok(())
         }
     }
