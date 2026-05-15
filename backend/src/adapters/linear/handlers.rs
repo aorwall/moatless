@@ -49,12 +49,12 @@ pub async fn linear_webhook(
         .ok_or_else(|| AdapterError::Internal("Provider type mismatch".into()))?;
 
     match dispatch_webhook(&state, linear_provider, &headers, &body).await {
-        Ok(()) => {
-            record_webhook("linear", "success", "", "", "", "");
+        Ok(event_type) => {
+            record_webhook("linear", "success", "", &event_type, "", "");
         }
         Err(e) => {
-            record_webhook("linear", "error", "delivery_failed", "", "", "");
             warn!(error = %e, "Linear webhook processing error");
+            record_webhook("linear", "error", "delivery_failed", "", "", "");
         }
     }
 
@@ -63,14 +63,15 @@ pub async fn linear_webhook(
 
 /// Verify the webhook, parse the envelope, and route based on `type`.
 ///
-/// Always returns `Ok(())` so the caller can ack quickly even on benign
-/// rejections (unknown org, dedup hit, unsupported event).
+/// Returns the parsed `event_type` (empty string when the envelope failed to
+/// parse) so the caller can label the success-path metric. Always returns
+/// `Ok(_)` on benign rejections (unknown org, dedup hit, unsupported event).
 async fn dispatch_webhook(
     state: &AppState,
     provider: &LinearAdapter,
     headers: &HeaderMap,
     body: &[u8],
-) -> Result<(), AdapterError> {
+) -> Result<String, AdapterError> {
     let signature = headers
         .get("linear-signature")
         .and_then(|v| v.to_str().ok())
@@ -99,12 +100,12 @@ async fn dispatch_webhook(
 
     if !signature_present {
         info!("Linear webhook ignored: missing Linear-Signature header");
-        return Ok(());
+        return Ok(envelope.event_type.clone());
     }
 
     let Some(org_id) = envelope.organization_id.as_deref() else {
         info!("Linear webhook ignored: missing organizationId in envelope");
-        return Ok(());
+        return Ok(envelope.event_type.clone());
     };
 
     let connection = PgAdapterConnectionRepository(state.db.clone())
@@ -112,7 +113,7 @@ async fn dispatch_webhook(
         .await?;
     let Some(connection) = connection else {
         info!(org_id, "Linear webhook ignored: no integration_connection registered");
-        return Ok(());
+        return Ok(envelope.event_type.clone());
     };
 
     let secret = connection
@@ -152,12 +153,12 @@ async fn dispatch_webhook(
                 org_id,
                 "Linear webhook deduplicated"
             );
-            return Ok(());
+            return Ok(envelope.event_type.clone());
         }
     }
 
-    let event_type = envelope.event_type.as_str();
-    match event_type {
+    let event_type = envelope.event_type.clone();
+    let result = match event_type.as_str() {
         "AgentSessionEvent" => {
             let api = build_agent_api(state, &connection.scope_value);
             handle_agent_session_event(state, &api, &connection, &envelope).await
@@ -170,6 +171,10 @@ async fn dispatch_webhook(
             let api = build_agent_api(state, &connection.scope_value);
             handle_comment_event(state, &api, &connection, &envelope).await
         }
+        "AppUserNotification" => {
+            let api = build_agent_api(state, &connection.scope_value);
+            handle_app_user_notification(state, &api, &connection, &envelope).await
+        }
         other => {
             let data_keys: Vec<&str> = envelope
                 .data
@@ -177,7 +182,7 @@ async fn dispatch_webhook(
                 .and_then(|v| v.as_object())
                 .map(|m| m.keys().map(String::as_str).collect())
                 .unwrap_or_default();
-            info!(
+            warn!(
                 event_type = other,
                 action = %envelope.action,
                 org_id,
@@ -190,7 +195,8 @@ async fn dispatch_webhook(
             );
             Ok(())
         }
-    }
+    };
+    result.map(|()| event_type)
 }
 
 async fn handle_issue_event(
@@ -273,6 +279,43 @@ async fn handle_comment_event(
     agent_runtime::handle_comment_created(state, api, connection, &issue_id, &comment).await
 }
 
+async fn handle_app_user_notification(
+    state: &AppState,
+    api: &LinearAgentApi,
+    connection: &crate::adapters::models::AdapterConnection,
+    envelope: &LinearWebhookEnvelope,
+) -> Result<(), AdapterError> {
+    let Some(raw) = envelope.notification.as_ref() else {
+        debug!("AppUserNotification missing notification payload — ignoring");
+        return Ok(());
+    };
+
+    let notif: super::webhook_payloads::AppUserNotificationData =
+        match serde_json::from_value(raw.clone()) {
+            Ok(n) => n,
+            Err(e) => {
+                debug!(error = %e, "Failed to parse AppUserNotificationData — ignoring");
+                return Ok(());
+            }
+        };
+
+    match envelope.action.as_str() {
+        "issueStatusChanged" => {
+            agent_runtime::handle_issue_status_notification(state, api, connection, &notif).await
+        }
+        other => {
+            warn!(
+                action = other,
+                org_id = connection.scope_value.as_str(),
+                notification_id = notif.id.as_deref().unwrap_or(""),
+                notification_kind = notif.kind.as_str(),
+                "Linear AppUserNotification: action not handled, ignoring"
+            );
+            Ok(())
+        }
+    }
+}
+
 async fn handle_agent_session_event(
     state: &AppState,
     api: &LinearAgentApi,
@@ -321,7 +364,11 @@ async fn handle_agent_session_event(
             }
         }
         other => {
-            debug!(action = other, "Unsupported AgentSessionEvent action");
+            warn!(
+                action = other,
+                session_id = %session.id,
+                "Unsupported AgentSessionEvent action"
+            );
         }
     }
 

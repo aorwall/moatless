@@ -61,6 +61,11 @@ pub struct LinearWebhookEnvelope {
     /// Prompt body. Present on `AgentSessionEvent.prompted`.
     #[serde(default, rename = "agentActivity")]
     pub agent_activity: Option<AgentActivityPayload>,
+
+    /// AppUserNotification payload (Linear OAuth-app inbox stream). Not under
+    /// `data` — Linear places it at the envelope's top level.
+    #[serde(default)]
+    pub notification: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -240,6 +245,37 @@ impl IssuePayload {
     }
 }
 
+// =============================================================================
+// AppUserNotification — Linear's OAuth-app inbox stream. The notification body
+// is at the envelope's top-level `notification` field. We only act on
+// `issueStatusChanged` (close-on-terminal); other sub-actions are routed but
+// no-op'd at the handler layer.
+// =============================================================================
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AppUserNotificationData {
+    #[serde(default)]
+    pub id: Option<String>,
+    /// `issueStatusChanged` | `issueMention` | `issueCommentMention`
+    /// | `issueAssignedToYou` | `issueNewComment` | ...
+    #[serde(default, rename = "type")]
+    pub kind: String,
+    #[serde(default, rename = "issueId")]
+    pub issue_id: Option<String>,
+    #[serde(default)]
+    pub issue: Option<IssuePayload>,
+    #[serde(default)]
+    pub actor: Option<LinearActor>,
+}
+
+impl AppUserNotificationData {
+    /// Resolve the carried issue payload (only present on issue-scoped
+    /// notification kinds).
+    pub fn resolved_issue(&self) -> Option<&IssuePayload> {
+        self.issue.as_ref()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -383,6 +419,68 @@ mod tests {
         assert_eq!(comment.body, "any update here?");
         assert_eq!(comment.resolved_issue_id(), Some("issue-12"));
         assert!(comment.parent_id.is_none());
+    }
+
+    #[test]
+    fn parses_app_user_notification_issue_status_changed() {
+        let raw = serde_json::json!({
+            "action": "issueStatusChanged",
+            "type": "AppUserNotification",
+            "organizationId": "org-uuid",
+            "webhookId": "wh-aun-1",
+            "notification": {
+                "id": "notif-1",
+                "type": "issueStatusChanged",
+                "issueId": "issue-9",
+                "issue": {
+                    "id": "issue-9",
+                    "identifier": "ENG-9",
+                    "title": "Done thing",
+                    "teamId": "team-1",
+                    "state": {"id": "st-done", "name": "Done", "type": "completed"},
+                    "url": "https://linear.app/acme/issue/ENG-9"
+                },
+                "actor": {"id": "user-1", "name": "Alice"}
+            }
+        });
+        let env: LinearWebhookEnvelope = serde_json::from_value(raw).expect("parse");
+        assert_eq!(env.event_type, "AppUserNotification");
+        assert_eq!(env.action, "issueStatusChanged");
+        let raw_notif = env.notification.expect("notification present");
+        let notif: AppUserNotificationData =
+            serde_json::from_value(raw_notif).expect("parse notification");
+        assert_eq!(notif.kind, "issueStatusChanged");
+        assert_eq!(notif.id.as_deref(), Some("notif-1"));
+        assert_eq!(notif.issue_id.as_deref(), Some("issue-9"));
+        let issue = notif.resolved_issue().expect("issue present");
+        assert_eq!(issue.identifier, "ENG-9");
+        assert_eq!(issue.state_kind(), "completed");
+        assert_eq!(issue.resolved_team_id(), Some("team-1"));
+        assert_eq!(
+            notif.actor.expect("actor").id,
+            "user-1"
+        );
+    }
+
+    #[test]
+    fn parses_app_user_notification_unknown_action_payload() {
+        // Sub-actions like `issueAssignedToYou` are routed but not acted on —
+        // the handler logs and returns Ok. Make sure the payload still parses.
+        let raw = serde_json::json!({
+            "action": "issueAssignedToYou",
+            "type": "AppUserNotification",
+            "organizationId": "org-uuid",
+            "notification": {
+                "id": "notif-2",
+                "type": "issueAssignedToYou",
+                "issueId": "issue-10"
+            }
+        });
+        let env: LinearWebhookEnvelope = serde_json::from_value(raw).expect("parse");
+        let notif: AppUserNotificationData =
+            serde_json::from_value(env.notification.expect("notif")).expect("parse");
+        assert_eq!(notif.kind, "issueAssignedToYou");
+        assert!(notif.resolved_issue().is_none());
     }
 
     #[test]
