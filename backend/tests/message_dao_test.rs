@@ -225,6 +225,55 @@ async fn get_last_result(pool: PgPool) {
 }
 
 #[sqlx::test]
+async fn get_last_assistant_message_picks_latest_assistant(pool: PgPool) {
+    seed_task(&pool, "task-1", "user-1").await;
+
+    // Earlier assistant row.
+    let mut asst1 = make_message_row("task-1", "asst-1");
+    asst1.message_type = MessageType::Assistant;
+    asst1.message_role = MessageRole::Assistant;
+    asst1.timestamp = "2024-01-01T00:00:00.000Z".to_string();
+    asst1.message_content = serde_json::json!([{"type": "text", "text": "first"}]);
+    message_dao::append(&pool, &asst1, &[], &[]).await.unwrap();
+
+    // Result row in between — must NOT be selected.
+    let mut result = make_message_row("task-1", "result-1");
+    result.message_type = MessageType::Result;
+    result.timestamp = "2024-01-02T00:00:00.000Z".to_string();
+    message_dao::append(&pool, &result, &[], &[]).await.unwrap();
+
+    // Most recent assistant row.
+    let mut asst2 = make_message_row("task-1", "asst-2");
+    asst2.message_type = MessageType::Assistant;
+    asst2.message_role = MessageRole::Assistant;
+    asst2.timestamp = "2024-01-03T00:00:00.000Z".to_string();
+    asst2.message_content = serde_json::json!([{"type": "text", "text": "latest"}]);
+    message_dao::append(&pool, &asst2, &[], &[]).await.unwrap();
+
+    let last = message_dao::get_last_assistant_message(&pool, "task-1")
+        .await
+        .unwrap();
+    let last = last.expect("expected an assistant row");
+    assert_eq!(last.uuid, "asst-2");
+    assert_eq!(last.message_type, MessageType::Assistant);
+}
+
+#[sqlx::test]
+async fn get_last_assistant_message_returns_none_when_absent(pool: PgPool) {
+    seed_task(&pool, "task-1", "user-1").await;
+
+    // Only a non-assistant row exists.
+    let mut result = make_message_row("task-1", "result-1");
+    result.message_type = MessageType::Result;
+    message_dao::append(&pool, &result, &[], &[]).await.unwrap();
+
+    let last = message_dao::get_last_assistant_message(&pool, "task-1")
+        .await
+        .unwrap();
+    assert!(last.is_none());
+}
+
+#[sqlx::test]
 async fn set_channel_metadata_writes_all_columns_and_is_idempotent(pool: PgPool) {
     seed_task(&pool, "task-1", "user-1").await;
 

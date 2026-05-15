@@ -73,6 +73,13 @@ pub trait MessageRepository: Send + Sync {
 
     async fn get_pending_user(&self, task_id: &str) -> Result<Vec<TaskMessage>, sqlx::Error>;
     async fn get_last_result(&self, task_id: &str) -> Result<Option<TaskMessage>, sqlx::Error>;
+    /// Most recent `assistant` row for the task — the agent's final reply when
+    /// called from a terminal hook. Used to source the body of the Linear
+    /// `response` activity on `agent.completed`.
+    async fn get_last_assistant_message(
+        &self,
+        task_id: &str,
+    ) -> Result<Option<TaskMessage>, sqlx::Error>;
     async fn get_last_user_message(
         &self,
         task_id: &str,
@@ -402,6 +409,21 @@ impl MessageRepository for PgMessageRepository {
             r#"SELECT * FROM task_messages
             WHERE task_id = $1 AND message_type IN ('result', 'error')
             ORDER BY timestamp DESC
+            LIMIT 1"#,
+        )
+        .bind(task_id)
+        .fetch_optional(&self.0)
+        .await
+    }
+
+    async fn get_last_assistant_message(
+        &self,
+        task_id: &str,
+    ) -> Result<Option<TaskMessage>, sqlx::Error> {
+        sqlx::query_as::<_, TaskMessage>(
+            r#"SELECT * FROM task_messages
+            WHERE task_id = $1 AND message_type = 'assistant'
+            ORDER BY timestamp DESC, id DESC
             LIMIT 1"#,
         )
         .bind(task_id)
@@ -1071,6 +1093,16 @@ pub async fn get_last_result(
 ) -> Result<Option<TaskMessage>, sqlx::Error> {
     PgMessageRepository(pool.clone())
         .get_last_result(task_id)
+        .await
+}
+
+/// Get the last assistant message (convenience wrapper).
+pub async fn get_last_assistant_message(
+    pool: &DbPool,
+    task_id: &str,
+) -> Result<Option<TaskMessage>, sqlx::Error> {
+    PgMessageRepository(pool.clone())
+        .get_last_assistant_message(task_id)
         .await
 }
 
