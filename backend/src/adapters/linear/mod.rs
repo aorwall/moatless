@@ -2,6 +2,7 @@
 //! `AgentSessionEvent` webhooks). Maps Linear workspaces to integration
 //! connections and sessions to task bindings.
 
+pub mod active_turns;
 pub mod adapter;
 pub mod agent_api;
 pub mod agent_runtime;

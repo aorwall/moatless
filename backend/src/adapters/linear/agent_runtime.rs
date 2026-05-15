@@ -168,6 +168,9 @@ pub async fn handle_session_prompted(
     let rule = rule_for_binding(state, connection, &bindings[0]).await?;
 
     for binding in bindings {
+        // Re-open the Linear turn gate for this follow-up prompt so the
+        // next agent run's events flow through to Linear's UI.
+        state.linear_active_turns.open(&binding.task_id);
         let external_event_id = format!("linear:prompt:{session_id}:{}", Utc::now().timestamp_millis());
         if let Err(e) = crate::message::send::send_message_flow(
             state,
@@ -605,6 +608,9 @@ async fn provision_session_task(
 
     // Create the task first, then the binding.
     let task_id = create_provider_event_task(state, rule, session).await?;
+    // Open the Linear turn gate before provisioning so subsequent sandbox
+    // lifecycle / agent events on this task surface in Linear's UI.
+    state.linear_active_turns.open(&task_id);
     provision_task(state, &task_id).await;
 
     let team_id = issue

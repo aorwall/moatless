@@ -5,6 +5,7 @@
 
 use std::sync::Arc;
 
+use crate::adapters::linear::active_turns::ActiveLinearTurns;
 use crate::adapters::Adapters;
 use crate::auth::github_app_service::GitHubAppService;
 use crate::auth::provider_token_dao::{PgProviderTokenRepository, ProviderTokenRepository};
@@ -62,6 +63,9 @@ pub struct AppState {
     /// just sent outbound — closes the race where the inbound webhook lands
     /// before `set_external_event_id` commits. See [`RecentlySent`].
     pub recently_sent: Arc<RecentlySent>,
+    /// Per-task gate that suppresses stray Linear activity emission after a
+    /// turn has terminated. See [`ActiveLinearTurns`].
+    pub linear_active_turns: Arc<ActiveLinearTurns>,
 
     // =========================================================================
     // Repository trait objects
@@ -184,6 +188,7 @@ impl AppState {
             github_app_service,
             credentials_svc,
             recently_sent: Arc::new(RecentlySent::new()),
+            linear_active_turns: Arc::new(ActiveLinearTurns::new()),
         }
     }
 }

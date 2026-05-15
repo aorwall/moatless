@@ -281,23 +281,27 @@ impl EventHandlerConsumer {
                     .unwrap_or("assistant");
                 if role == "assistant" {
                     if let Some(message) = event.payload.get("message").cloned() {
-                        tokio::spawn(
-                            crate::adapters::linear::agent_runtime::notify_linear_message_activities(
-                                self.state.clone(),
-                                event.task_id.clone(),
-                                message,
-                            ),
-                        );
+                        if self.state.linear_active_turns.is_open(&event.task_id) {
+                            tokio::spawn(
+                                crate::adapters::linear::agent_runtime::notify_linear_message_activities(
+                                    self.state.clone(),
+                                    event.task_id.clone(),
+                                    message,
+                                ),
+                            );
+                        }
                     }
                 } else if role == "user" {
                     if let Some(message) = event.payload.get("message").cloned() {
-                        tokio::spawn(
-                            crate::adapters::linear::agent_runtime::notify_linear_tool_results(
-                                self.state.clone(),
-                                event.task_id.clone(),
-                                message,
-                            ),
-                        );
+                        if self.state.linear_active_turns.is_open(&event.task_id) {
+                            tokio::spawn(
+                                crate::adapters::linear::agent_runtime::notify_linear_tool_results(
+                                    self.state.clone(),
+                                    event.task_id.clone(),
+                                    message,
+                                ),
+                            );
+                        }
                     }
                 }
             }
@@ -330,13 +334,15 @@ impl EventHandlerConsumer {
                     })
                     .unwrap_or("Agent error")
                     .to_string();
-                tokio::spawn(crate::adapters::linear::agent_runtime::notify_linear_status(
-                    self.state.clone(),
-                    event.task_id.clone(),
-                    crate::adapters::linear::agent_api::ActivityKind::Error,
-                    body,
-                    false,
-                ));
+                if self.state.linear_active_turns.is_open(&event.task_id) {
+                    tokio::spawn(crate::adapters::linear::agent_runtime::notify_linear_status(
+                        self.state.clone(),
+                        event.task_id.clone(),
+                        crate::adapters::linear::agent_api::ActivityKind::Error,
+                        body,
+                        false,
+                    ));
+                }
             }
             EventKey::TaskTurn(TaskTurnSubType::Error) => {
                 // External notification is handled by the agent via `moat reply`.
@@ -354,13 +360,15 @@ impl EventHandlerConsumer {
                     .and_then(serde_json::Value::as_str)
                     .unwrap_or("Sandbox error")
                     .to_string();
-                tokio::spawn(crate::adapters::linear::agent_runtime::notify_linear_status(
-                    self.state.clone(),
-                    event.task_id.clone(),
-                    crate::adapters::linear::agent_api::ActivityKind::Error,
-                    body,
-                    false,
-                ));
+                if self.state.linear_active_turns.is_open(&event.task_id) {
+                    tokio::spawn(crate::adapters::linear::agent_runtime::notify_linear_status(
+                        self.state.clone(),
+                        event.task_id.clone(),
+                        crate::adapters::linear::agent_api::ActivityKind::Error,
+                        body,
+                        false,
+                    ));
+                }
                 agent_handlers::handle_sandbox_fatal(&self.state, event).await;
             }
             // Sandbox lifecycle transitions — surface as ephemeral `action`
@@ -372,18 +380,24 @@ impl EventHandlerConsumer {
                 | SandboxSubType::Ready
                 | SandboxSubType::Stopped),
             ) => {
-                tokio::spawn(crate::adapters::linear::agent_runtime::notify_linear_action(
-                    self.state.clone(),
-                    event.task_id.clone(),
-                    "Sandbox".to_string(),
-                    status.as_str().to_string(),
-                    None,
-                    true,
-                ));
+                if self.state.linear_active_turns.is_open(&event.task_id) {
+                    tokio::spawn(crate::adapters::linear::agent_runtime::notify_linear_action(
+                        self.state.clone(),
+                        event.task_id.clone(),
+                        "Sandbox".to_string(),
+                        status.as_str().to_string(),
+                        None,
+                        true,
+                    ));
+                }
             }
             // Agent process started inside the sandbox — same ephemeral
-            // status-marker treatment.
+            // status-marker treatment. Re-opens the Linear turn gate so a
+            // manual `moat send` against a Linear-bound task re-surfaces
+            // events in Linear (covers the second/third turn after the
+            // agent restarts mid-session).
             EventKey::Agent(AgentSubType::Started) => {
+                self.state.linear_active_turns.open(&event.task_id);
                 tokio::spawn(crate::adapters::linear::agent_runtime::notify_linear_action(
                     self.state.clone(),
                     event.task_id.clone(),

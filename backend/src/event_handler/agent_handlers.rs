@@ -87,6 +87,10 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
     // `error` activity, so this branch is success-only.
     notify_linear_response_for_completion(state, &event.task_id).await;
 
+    // Close the Linear turn gate as the last step so post-turn stragglers
+    // (Sandbox(Stopped), late tool_results) don't pile up in Linear.
+    state.linear_active_turns.close(&event.task_id);
+
     // Emit events. Error completions short-circuit through `handle_agent_error`
     // above, so this path is success-only.
     if let Some(ref events) = state.events {
@@ -296,6 +300,10 @@ pub async fn handle_agent_stopped(state: &AppState, event: &AgentEvent) {
             )
             .await;
     }
+
+    // Close the Linear turn gate — user-initiated stops don't emit a final
+    // activity, so this just prevents post-stop stragglers from leaking.
+    state.linear_active_turns.close(&event.task_id);
 }
 
 /// Handle `agent.error` or `sandbox.fatal` event.
@@ -388,6 +396,11 @@ pub async fn handle_agent_error(state: &AppState, event: &AgentEvent) {
             )
             .await;
     }
+
+    // Close the Linear turn gate after the consumer's adjacent
+    // notify_linear_status(Error) spawn has been issued. Also covers
+    // `handle_sandbox_fatal` transitively.
+    state.linear_active_turns.close(&event.task_id);
 }
 
 /// Handle `sandbox.fatal` event — delegates to `handle_agent_error` to create
