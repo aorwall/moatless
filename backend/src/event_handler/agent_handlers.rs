@@ -23,9 +23,12 @@ fn message_uuid_for_event(event_id: &str) -> String {
 /// Handle `agent.completed` event.
 ///
 /// The final assistant message already carries the response text and usage,
-/// so we no longer persist a separate result row here. We just update task
-/// status / cost from the SDK result and emit follow-up events. If the
-/// payload fails to parse there's nothing to act on — skip.
+/// so we no longer persist a separate result row here. We update task status /
+/// cost from the SDK result, emit follow-up events, and finalize any active
+/// Linear agent session by posting a `response` activity carrying the body of
+/// the last assistant message (per
+/// <https://linear.app/developers/agent-interaction#activity-content-payload>).
+/// If the payload fails to parse there's nothing to act on — skip.
 pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
     let sdk_result: SdkResultMessage = match serde_json::from_value(event.payload.clone()) {
         Ok(r) => r,
@@ -78,6 +81,12 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
         tracing::warn!(task_id = %event.task_id, error = %e, "Failed to update task after completion");
     }
 
+    // Finalize any active Linear agent session bound to this task by posting a
+    // terminal `response` activity with the last assistant message body. The
+    // error path is handled by `handle_agent_error`, which already emits an
+    // `error` activity, so this branch is success-only.
+    notify_linear_response_for_completion(state, &event.task_id).await;
+
     // Emit events. Error completions short-circuit through `handle_agent_error`
     // above, so this path is success-only.
     if let Some(ref events) = state.events {
@@ -105,6 +114,71 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
             )
             .await;
     }
+}
+
+/// Resolve the last assistant message for `task_id` and emit it as a Linear
+/// `response` activity. Fire-and-forget — any failure is logged and swallowed
+/// so the event-handler hot path stays unblocked.
+async fn notify_linear_response_for_completion(state: &AppState, task_id: &str) {
+    let msg = match state.messages.get_last_assistant_message(task_id).await {
+        Ok(Some(m)) => m,
+        Ok(None) => {
+            tracing::warn!(
+                task_id,
+                "agent.completed: no assistant message found; skipping Linear response activity"
+            );
+            return;
+        }
+        Err(e) => {
+            tracing::warn!(
+                task_id,
+                error = %e,
+                "agent.completed: failed to fetch last assistant message; skipping Linear response activity"
+            );
+            return;
+        }
+    };
+
+    let body = collect_assistant_text(&msg.message_content);
+    if body.trim().is_empty() {
+        tracing::warn!(
+            task_id,
+            message_uuid = %msg.uuid,
+            "agent.completed: last assistant message has no text content; skipping Linear response activity"
+        );
+        return;
+    }
+
+    tokio::spawn(crate::adapters::linear::agent_runtime::notify_linear_status(
+        state.clone(),
+        task_id.to_string(),
+        crate::adapters::linear::agent_api::ActivityKind::Response,
+        body,
+        false,
+    ));
+}
+
+/// Concatenate every `text` block from a `message_content` JSON array into a
+/// single string separated by blank lines. Returns an empty string when the
+/// shape is unexpected or no text blocks are present.
+fn collect_assistant_text(content: &serde_json::Value) -> String {
+    let Some(arr) = content.as_array() else {
+        return String::new();
+    };
+    let mut out = String::new();
+    for block in arr {
+        if block.get("type").and_then(|v| v.as_str()) != Some("text") {
+            continue;
+        }
+        let Some(text) = block.get("text").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        if !out.is_empty() {
+            out.push_str("\n\n");
+        }
+        out.push_str(text);
+    }
+    out
 }
 
 /// Handle `agent.session_init` event — Claude Code session started.
@@ -910,5 +984,31 @@ mod tests {
         let a = message_uuid_for_event("1700000000-0");
         let b = message_uuid_for_event("1700000000-1");
         assert_ne!(a, b);
+    }
+
+    // ── collect_assistant_text ───────────────────────────────────────
+
+    #[test]
+    fn collect_assistant_text_concatenates_text_blocks() {
+        let content = json!([
+            { "type": "text", "text": "first" },
+            { "type": "tool_use", "name": "Read", "input": {} },
+            { "type": "text", "text": "second" }
+        ]);
+        assert_eq!(collect_assistant_text(&content), "first\n\nsecond");
+    }
+
+    #[test]
+    fn collect_assistant_text_empty_when_no_text_blocks() {
+        let content = json!([
+            { "type": "tool_use", "name": "Read", "input": {} }
+        ]);
+        assert!(collect_assistant_text(&content).is_empty());
+    }
+
+    #[test]
+    fn collect_assistant_text_empty_on_unexpected_shape() {
+        let content = json!({ "not": "an array" });
+        assert!(collect_assistant_text(&content).is_empty());
     }
 }

@@ -16,7 +16,7 @@ use crate::adapters::models::{
 use crate::adapters::{Adapter, AdapterKind};
 use crate::db::DbPool;
 
-use super::agent_api::{default_http_client, ActivityKind, LinearAgentApi};
+use super::agent_api::{default_http_client, LinearAgentApi};
 use super::SUBJECT_KIND_ISSUE;
 
 /// Linear adapter.
@@ -218,8 +218,13 @@ impl Adapter for LinearAdapter {
     }
 
     /// Reply to a bound Linear destination. Routes by `subject_kind`:
-    /// - `linear_agent_session` → `agentActivityCreate` (mention/assignment flow)
+    /// - `linear_agent_session` → `commentCreate` on the session's bound issue
     /// - `linear_issue` → `commentCreate` (CLI-created or operator-bound issue)
+    ///
+    /// The terminal `response` activity that closes the Linear agent session is
+    /// no longer emitted here — it is posted by `handle_agent_completed` once
+    /// the task finishes, using the last assistant message body. This keeps
+    /// the agent-session lifecycle owned by a single emission point.
     async fn send_reply_for_binding(
         &self,
         binding: &TaskBinding,
@@ -246,8 +251,9 @@ impl Adapter for LinearAdapter {
         }
 
         // AgentSession binding: post the reply as a comment on the bound
-        // Linear issue (where conversation actually happens) and emit a
-        // `response` activity to close the session per Linear's spec.
+        // Linear issue (where conversation actually happens). The session is
+        // finalized later by `handle_agent_completed` posting a `response`
+        // activity with the last assistant message body.
         let session_id = binding
             .destination_config
             .get("session_id")
@@ -268,30 +274,24 @@ impl Adapter for LinearAdapter {
                 )
             })?;
 
-        let comment_id = match api.create_comment(issue_uuid, &message.text).await {
-            Ok(comment) => comment
-                .get("id")
-                .and_then(serde_json::Value::as_str)
-                .map(str::to_string),
+        match api.create_comment(issue_uuid, &message.text).await {
+            Ok(comment) => {
+                let comment_id = comment
+                    .get("id")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string);
+                Ok(comment_id.map(|cid| format!("linear:comment:{cid}")))
+            }
             Err(e) => {
                 warn!(
                     issue_id = issue_uuid,
                     session_id,
                     error = %e,
-                    "Linear issue comment failed; continuing with session response"
+                    "Linear issue comment failed; the session will still be finalized on agent.completed"
                 );
-                None
+                Ok(None)
             }
-        };
-
-        let activity_id = api
-            .agent_activity_create(session_id, ActivityKind::Response, &message.text, false)
-            .await?;
-
-        Ok(Some(match comment_id {
-            Some(cid) => format!("linear:comment:{cid}"),
-            None => format!("linear:activity:{activity_id}"),
-        }))
+        }
     }
 
     fn reply_instructions(&self) -> Option<String> {
@@ -300,9 +300,11 @@ impl Adapter for LinearAdapter {
              - Intermediate progress (text + tool calls) is emitted automatically \
                as ephemeral `thought` / `action` activities — you do not need to \
                post status updates by hand.\n\
-             - Your final reply is posted as a comment on the Linear issue AND \
-               emitted as a `response` activity on the agent session (which \
-               closes the session). Use `moat messages reply` once to post.\n\
+             - Your final reply is posted as a comment on the Linear issue. The \
+               agent session is finalized automatically when the task completes, \
+               by emitting a `response` activity carrying your last assistant \
+               message — you do not need to do this by hand. Use \
+               `moat messages reply` once to post.\n\
              - Markdown is supported. Linear URLs auto-render as mentions.\n\
              - The Moatless task URL is already linked via the session's \
                external URLs — no need to include it in the reply body."
