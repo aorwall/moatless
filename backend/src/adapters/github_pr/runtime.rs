@@ -189,6 +189,13 @@ pub async fn route_inbound_message(
         }
     }
 
+    // Capture the earliest binding (if any) so we can wire a `created_by`
+    // relation when a brand-new task is spawned from this PR event. Must
+    // happen before the loop below consumes `bindings`.
+    let originator_binding_summary: Option<(String, String)> = bindings
+        .first()
+        .map(|b| (b.task_id.clone(), b.id.clone()));
+
     let mut delivery_targets: Vec<(TaskBinding, bool)> = Vec::new();
     for binding in bindings {
         if origin_task_id.as_deref() == Some(binding.task_id.as_str()) {
@@ -216,7 +223,28 @@ pub async fn route_inbound_message(
     });
 
     if is_pr_open_event && !has_provider_event_task {
+        // The eager `gh pr create` hook (see backend/src/message/hooks.rs)
+        // upserts a connected_thread binding for the originating task at the
+        // moment the agent created the PR — so by the time pr_opened fires,
+        // the earliest binding is the originating task. Link the new review
+        // task back to it as `created_by`.
+        let parent = originator_binding_summary.as_ref().map(|(task_id, binding_id)| {
+            crate::task::relations::CreatedByParent {
+                parent_task_id: task_id.clone(),
+                context: serde_json::json!({
+                    "via": "github_pr_webhook",
+                    "adapter": ADAPTER,
+                    "subject_kind": SUBJECT_KIND,
+                    "subject_key": subject_key,
+                    "origin_binding_id": binding_id,
+                }),
+            }
+        });
         let task_id = create_provider_event_task(state, rule, &msg).await?;
+        if let Some(ref p) = parent {
+            crate::task::relations::record_created_by(state.task_relations.as_ref(), &task_id, p)
+                .await;
+        }
         provision_task(state, &task_id).await;
 
         let binding = upsert_binding(
@@ -518,7 +546,6 @@ async fn create_provider_event_task(
             .then(|| rule.effective_user_id().to_string()),
         created_at_db: None,
         updated_at: None,
-        parent_task_id: None,
         append_system_prompt: {
             let mut parts = Vec::new();
             if let Some(ref tpl) = rule.prompt_template {

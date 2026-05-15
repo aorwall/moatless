@@ -80,7 +80,6 @@ async fn agent_plan_mode() {
         ),
         name: Some("Agent Plan Mode E2E".into()),
         branch: None,
-        parent_task_id: None,
         description: None,
         agent_mode: Some(AgentMode("plan".into())),
         agent_type: None,
@@ -90,6 +89,7 @@ async fn agent_plan_mode() {
         command_name: None,
         headless: None,
         task_template_id: None,
+        parent_task_id: None,
     };
     let created = client.api().create_task(&req).await.unwrap();
     let task_id = &created.task_id;

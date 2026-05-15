@@ -13,6 +13,7 @@ use crate::sandbox::models::AgentState;
 
 use super::dao::{TaskFilter, TaskPatch};
 use super::models::Task;
+use super::relations::{CreatedByParent, TaskRelationType};
 use crate::extractors::AuthUser;
 use crate::scope::{Scope, ScopedResource};
 use crate::shared_models::{AgentMode, AgentType};
@@ -172,7 +173,6 @@ pub async fn create_task(
         owner_user_id: task_owner_user_id,
         created_at_db: None,
         updated_at: None,
-        parent_task_id: req.parent_task_id.clone(),
         append_system_prompt: None,
         sandbox_started_at: None,
         headless: req.headless.unwrap_or(false),
@@ -181,6 +181,11 @@ pub async fn create_task(
         task_template_id: req.task_template_id.clone(),
         trigger_id: None,
     };
+
+    let parent = req.parent_task_id.as_deref().map(|p| CreatedByParent {
+        parent_task_id: p.to_string(),
+        context: serde_json::json!({ "via": "create_task_request" }),
+    });
 
     insert_and_provision_task(
         &state,
@@ -192,6 +197,7 @@ pub async fn create_task(
         &req.file_ids,
         &req.contexts,
         req.command_name.as_deref(),
+        parent.as_ref(),
     )
     .await
 }
@@ -208,11 +214,21 @@ async fn insert_and_provision_task(
     file_ids: &[String],
     contexts: &[MessageContextInput],
     command_name: Option<&str>,
+    parent: Option<&CreatedByParent>,
 ) -> Result<Json<CreateTaskResponse>, TaskError> {
     let task_id = &row.task_id;
 
     state.tasks.insert_task(row).await?;
     tracing::info!(task_id = %task_id, user_id = %auth.user_id, repository_id = %row.repository_id, "Task created");
+
+    if let Some(parent) = parent {
+        crate::task::relations::record_created_by(
+            state.task_relations.as_ref(),
+            task_id,
+            parent,
+        )
+        .await;
+    }
 
     // Emit task event
     if let Some(ref events) = state.events {
@@ -415,6 +431,9 @@ pub async fn list_tasks(
         .collect();
     let repo_names = resolve_repo_names_batch(&state, &repo_ids).await;
 
+    // Batch resolve outgoing relations for tasks (single query instead of N+1).
+    let all_relations = load_outgoing_relations_batch(&state, &task_ids).await;
+
     // Batch resolve external bindings for tasks (single query instead of N+1)
     let all_bindings = get_bindings_for_tasks(&state.db, &task_ids)
         .await
@@ -466,7 +485,12 @@ pub async fn list_tasks(
                 })
                 .collect();
 
-            build_task_response(row, tags, display_name, repo_name, bindings)
+            let relations = all_relations
+                .get(&row.task_id)
+                .cloned()
+                .unwrap_or_default();
+
+            build_task_response(row, tags, display_name, repo_name, bindings, relations)
         })
         .collect();
 
@@ -1046,7 +1070,23 @@ async fn enrich_task(
     // Resolve external bindings for this task.
     let bindings = resolve_task_bindings(state, &row.task_id).await;
 
-    let mut resp = build_task_response(row, tag_responses, display_name, repo_name, bindings);
+    // Resolve outgoing relations for this task (best-effort — empty on error).
+    let relations = match state.task_relations.list_outgoing(&row.task_id).await {
+        Ok(rows) => relations_to_dtos(rows),
+        Err(e) => {
+            tracing::warn!(error = %e, task_id = %row.task_id, "Failed to load task relations");
+            Vec::new()
+        }
+    };
+
+    let mut resp = build_task_response(
+        row,
+        tag_responses,
+        display_name,
+        repo_name,
+        bindings,
+        relations,
+    );
 
     // Resolve live sandbox status (best-effort — leave None on failure)
     let server_configs = get_server_configs_for_task(
@@ -1075,15 +1115,24 @@ async fn enrich_task(
     Ok(resp)
 }
 
-/// Build a TaskResponse from a row plus pre-resolved tags, names, and bindings.
+/// Build a TaskResponse from a row plus pre-resolved tags, names, bindings,
+/// and outgoing relations. `parent_task_id` is derived from the first
+/// `created_by` relation in `relations` for backward compatibility with
+/// clients that pre-date the relations field.
 fn build_task_response(
     row: &Task,
     tags: Vec<TagResponse>,
     display_name: Option<String>,
     repo_name: Option<String>,
     bindings: Vec<TaskBindingSummary>,
+    relations: Vec<TaskRelationDto>,
 ) -> TaskResponse {
     let title = derive_title(row);
+
+    let parent_task_id = relations
+        .iter()
+        .find(|r| matches!(r.relation_type, TaskRelationType::CreatedBy))
+        .map(|r| r.to_task_id.clone());
 
     TaskResponse {
         task_id: row.task_id.clone(),
@@ -1108,7 +1157,8 @@ fn build_task_response(
         scope: row.scope,
         team_id: row.team_id.clone(),
         owner_user_id: row.owner_user_id.clone(),
-        parent_task_id: row.parent_task_id.clone(),
+        parent_task_id,
+        relations,
         append_system_prompt: row.append_system_prompt.clone(),
         tags,
         bindings,
@@ -1119,6 +1169,47 @@ fn build_task_response(
         inactive_ttl_days: row.inactive_ttl_days,
         sandbox_started_at: row.sandbox_started_at.map(|t| t.to_rfc3339()),
     }
+}
+
+/// Best-effort batch load of outgoing relations for many task ids, grouped
+/// into a `task_id -> Vec<TaskRelationDto>` map. Failures are logged and
+/// produce an empty map (callers fall back to empty `relations`).
+async fn load_outgoing_relations_batch(
+    state: &AppState,
+    task_ids: &[String],
+) -> std::collections::HashMap<String, Vec<TaskRelationDto>> {
+    use std::collections::HashMap;
+    if task_ids.is_empty() {
+        return HashMap::new();
+    }
+    let mut out: HashMap<String, Vec<TaskRelationDto>> = HashMap::new();
+    for tid in task_ids {
+        match state.task_relations.list_outgoing(tid).await {
+            Ok(rows) => {
+                if !rows.is_empty() {
+                    out.insert(tid.clone(), relations_to_dtos(rows));
+                }
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, task_id = %tid, "Failed to load relations for task");
+            }
+        }
+    }
+    out
+}
+
+/// Translate domain TaskRelation rows into wire DTOs.
+fn relations_to_dtos(rows: Vec<crate::task::relations::TaskRelation>) -> Vec<TaskRelationDto> {
+    rows.into_iter()
+        .map(|r| TaskRelationDto {
+            id: r.id,
+            from_task_id: r.from_task_id,
+            to_task_id: r.to_task_id,
+            relation_type: r.relation_type,
+            context: r.context,
+            created_at: r.created_at.to_rfc3339(),
+        })
+        .collect()
 }
 
 fn task_resource(row: &Task) -> ScopedResource {

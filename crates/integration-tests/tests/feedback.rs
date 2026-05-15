@@ -14,7 +14,6 @@ fn create_request(repo_id: String) -> CreateTaskRequest {
         message: None,
         name: None,
         branch: None,
-        parent_task_id: None,
         description: None,
         agent_mode: None,
         agent_type: None,
@@ -24,6 +23,7 @@ fn create_request(repo_id: String) -> CreateTaskRequest {
         command_name: None,
         headless: None,
         task_template_id: None,
+        parent_task_id: None,
     }
 }
 

@@ -50,7 +50,6 @@ pub struct Task {
     pub owner_user_id: Option<String>,
     pub created_at_db: Option<DateTime<Utc>>,
     pub updated_at: Option<DateTime<Utc>>,
-    pub parent_task_id: Option<String>,
     pub append_system_prompt: Option<String>,
     pub sandbox_started_at: Option<DateTime<Utc>>,
     pub headless: bool,

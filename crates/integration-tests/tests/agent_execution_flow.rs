@@ -41,7 +41,6 @@ async fn agent_execution_and_multi_turn() {
         ),
         name: Some("Agent Execution E2E".into()),
         branch: None,
-        parent_task_id: None,
         description: None,
         agent_mode: None,
         agent_type: None,
@@ -51,6 +50,7 @@ async fn agent_execution_and_multi_turn() {
         command_name: None,
         headless: None,
         task_template_id: None,
+        parent_task_id: None,
     };
     let created = client.api().create_task(&req).await.unwrap();
     let task_id = &created.task_id;

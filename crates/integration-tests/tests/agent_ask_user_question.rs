@@ -86,7 +86,6 @@ async fn agent_ask_user_question() {
         ),
         name: Some("Agent AskUserQuestion E2E".into()),
         branch: None,
-        parent_task_id: None,
         description: None,
         agent_mode: None,
         agent_type: None,
@@ -96,6 +95,7 @@ async fn agent_ask_user_question() {
         command_name: None,
         headless: None,
         task_template_id: None,
+        parent_task_id: None,
     };
     let created = client.api().create_task(&req).await.unwrap();
     let task_id = &created.task_id;

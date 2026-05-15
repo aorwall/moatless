@@ -416,6 +416,18 @@ fn format_task_detail(t: &TaskResponse) {
     println!("Created: {}", t.created_at);
     println!("Cost:    ${:.4}", t.total_cost_usd);
     println!("Parent:  {}", t.parent_task_id.as_deref().unwrap_or("none"));
+    if !t.relations.is_empty() {
+        println!("Relations:");
+        for r in &t.relations {
+            let via = r
+                .context
+                .get("via")
+                .and_then(|v| v.as_str())
+                .map(|s| format!(" (via {s})"))
+                .unwrap_or_default();
+            println!("  {} → {}{}", r.relation_type.as_str(), r.to_task_id, via);
+        }
+    }
 }
 
 fn format_sandbox_status(status: &SandboxStatusFullResponse) {

@@ -78,7 +78,6 @@ pub(crate) async fn create_task_for_external_message(
             .then(|| config.effective_user_id().to_string()),
         created_at_db: None,
         updated_at: None,
-        parent_task_id: None,
         append_system_prompt: {
             let mut parts = Vec::new();
             if let Some(ref tpl) = config.prompt_template {

@@ -268,7 +268,6 @@ pub fn make_task_row(task_id: &str, user_id: &str) -> Task {
         owner_user_id: Some(user_id.to_string()),
         created_at_db: None,
         updated_at: None,
-        parent_task_id: None,
         append_system_prompt: None,
         sandbox_started_at: None,
         headless: false,

@@ -27,7 +27,6 @@ async fn create_bare_task(client: &MoatClient, repo_id: &str) -> String {
             message: Some("Reply-routing fixture task".into()),
             name: Some("reply-routing-test".into()),
             branch: None,
-            parent_task_id: None,
             description: None,
             agent_mode: None,
             agent_type: None,
@@ -37,6 +36,7 @@ async fn create_bare_task(client: &MoatClient, repo_id: &str) -> String {
             command_name: None,
             headless: None,
             task_template_id: None,
+            parent_task_id: None,
         })
         .await
         .unwrap()

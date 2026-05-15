@@ -31,6 +31,7 @@ use crate::skill::fetcher::{GitHubSkillFetcher, SkillFetcher};
 use crate::skill::service::SkillService;
 use crate::tag::dao::{PgTagRepository, TagRepository};
 use crate::task::dao::{PgTaskRepository, TaskRepository};
+use crate::task::relations::{PgTaskRelationRepository, TaskRelationRepository};
 use crate::task_event::dao::{PgTaskEventRepository, TaskEventRepository};
 use crate::task_template::dao::{PgTaskTemplateRepository, TaskTemplateRepository};
 use crate::team::dao::{PgTeamRepository, TeamRepository};
@@ -71,6 +72,7 @@ pub struct AppState {
     // Repository trait objects
     // =========================================================================
     pub tasks: Arc<dyn TaskRepository>,
+    pub task_relations: Arc<dyn TaskRelationRepository>,
     pub messages: Arc<dyn MessageRepository>,
     pub feedback: Arc<dyn FeedbackRepository>,
     pub repositories: Arc<dyn RepoRepository>,
@@ -161,6 +163,7 @@ impl AppState {
 
         Self {
             tasks: Arc::new(PgTaskRepository(pool.clone())),
+            task_relations: Arc::new(PgTaskRelationRepository(pool.clone())),
             messages: Arc::new(PgMessageRepository(pool.clone())),
             feedback: Arc::new(PgFeedbackRepository(pool.clone())),
             repositories,

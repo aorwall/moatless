@@ -167,7 +167,6 @@ async fn task_scope_inheritance() {
             message: Some("Test task for scope inheritance".into()),
             name: Some(format!("Scoped Task {suffix}")),
             branch: None,
-            parent_task_id: None,
             description: None,
             agent_mode: None,
             agent_type: None,
@@ -177,6 +176,7 @@ async fn task_scope_inheritance() {
             command_name: None,
             headless: None,
             task_template_id: None,
+            parent_task_id: None,
         })
         .await
         .unwrap();
@@ -369,7 +369,6 @@ async fn listing_tasks_filters_by_scope() {
             message: Some("Scoped task test".into()),
             name: Some(format!("Scoped Task {suffix}")),
             branch: None,
-            parent_task_id: None,
             description: None,
             agent_mode: None,
             agent_type: None,
@@ -379,6 +378,7 @@ async fn listing_tasks_filters_by_scope() {
             command_name: None,
             headless: None,
             task_template_id: None,
+            parent_task_id: None,
         })
         .await
         .unwrap();

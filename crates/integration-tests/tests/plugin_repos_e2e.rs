@@ -87,7 +87,6 @@ async fn plugin_repos_e2e_chain() {
         message: Some("What skills do you have available? List them briefly.".into()),
         name: Some("Plugin E2E Test".into()),
         branch: None,
-        parent_task_id: None,
         description: None,
         agent_mode: None,
         agent_type: None,
@@ -97,6 +96,7 @@ async fn plugin_repos_e2e_chain() {
         command_name: None,
         headless: None,
         task_template_id: None,
+        parent_task_id: None,
     };
     let created = client.api().create_task(&task_req).await.unwrap();
     let task_id = &created.task_id;

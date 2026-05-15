@@ -12,6 +12,7 @@ use crate::config::Config;
 use crate::repository::dao::RepoRepository;
 use crate::sandbox::models::ServerConfig;
 use crate::task::models::Task;
+use crate::task::relations::TaskRelationRepository;
 
 /// Inputs needed to build the append-system-prompt for one task.
 pub struct PromptInputs<'a> {
@@ -111,6 +112,7 @@ pub async fn build_for_task(
     task_id: &str,
     task: Option<&Task>,
     repositories: Option<&Arc<dyn RepoRepository>>,
+    task_relations: Option<&Arc<dyn TaskRelationRepository>>,
     config: Option<&Arc<Config>>,
 ) -> String {
     let repo = match (task, repositories) {
@@ -120,6 +122,18 @@ pub async fn build_for_task(
             .ok()
             .flatten(),
         _ => None,
+    };
+
+    let parent_task_id: Option<String> = match task_relations {
+        Some(repo) => match repo.find_created_by(task_id).await {
+            Ok(Some(r)) => Some(r.to_task_id),
+            Ok(None) => None,
+            Err(e) => {
+                warn!(error = %e, task_id, "Failed to load created_by relation for prompt");
+                None
+            }
+        },
+        None => None,
     };
 
     let servers: Vec<ServerConfig> = repo
@@ -144,7 +158,7 @@ pub async fn build_for_task(
     build_append_system_prompt(&PromptInputs {
         task_id,
         task_name: task.and_then(|t| t.name.as_deref()),
-        parent_task_id: task.and_then(|t| t.parent_task_id.as_deref()),
+        parent_task_id: parent_task_id.as_deref(),
         task_append_system_prompt: task.and_then(|t| t.append_system_prompt.as_deref()),
         repo_system_prompt: repo.as_ref().and_then(|r| r.system_prompt.as_deref()),
         servers: &servers,

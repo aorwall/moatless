@@ -216,10 +216,28 @@ pub async fn route_inbound_message(
 
     let mut is_new_task = false;
     if should_create_binding_task(state, rule, &bindings).await? {
+        // The earliest binding for this subject (if any) belongs to the task
+        // that originated it — typically a `connected_thread` binding placed
+        // when an earlier task produced the resource. We link the new task
+        // back to it as `created_by`.
+        let parent = bindings.first().map(|b| crate::task::relations::CreatedByParent {
+            parent_task_id: b.task_id.clone(),
+            context: serde_json::json!({
+                "via": "binding_webhook",
+                "adapter": provider_label,
+                "subject_kind": subject_kind,
+                "subject_key": subject_key,
+                "origin_binding_id": b.id,
+            }),
+        });
         let config = trigger_context(rule, provider_label);
         let task_id =
             inbound::create_task_for_external_message(state, &config, &msg, command.as_ref())
                 .await?;
+        if let Some(ref p) = parent {
+            crate::task::relations::record_created_by(state.task_relations.as_ref(), &task_id, p)
+                .await;
+        }
         provision_task(state, &task_id).await;
         if rule.routing_mode == RoutingMode::Ongoing {
             update_rule_ongoing_task(state, &rule.id, &task_id).await?;

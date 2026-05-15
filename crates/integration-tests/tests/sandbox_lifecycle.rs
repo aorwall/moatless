@@ -37,7 +37,6 @@ async fn sandbox_lifecycle_chain() {
         message: None,
         name: Some("Sandbox Lifecycle E2E".into()),
         branch: None,
-        parent_task_id: None,
         description: None,
         agent_mode: None,
         agent_type: None,
@@ -47,6 +46,7 @@ async fn sandbox_lifecycle_chain() {
         command_name: None,
         headless: None,
         task_template_id: None,
+        parent_task_id: None,
     };
     let created = client.api().create_task(&req).await.unwrap();
     let task_id = &created.task_id;

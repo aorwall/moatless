@@ -46,7 +46,6 @@ async fn sandbox_provision_failure_invalid_image() {
         message: None,
         name: Some("Invalid Image Error E2E".into()),
         branch: None,
-        parent_task_id: None,
         description: None,
         agent_mode: None,
         agent_type: None,
@@ -56,6 +55,7 @@ async fn sandbox_provision_failure_invalid_image() {
         command_name: None,
         headless: None,
         task_template_id: None,
+        parent_task_id: None,
     };
     let created = client.api().create_task(&task_req).await.unwrap();
     let task_id = &created.task_id;

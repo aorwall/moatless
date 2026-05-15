@@ -41,6 +41,7 @@ use crate::sandbox::secrets::{
 use crate::secret::service::SecretService;
 use crate::shared_models::AgentType;
 use crate::task::dao::TaskRepository;
+use crate::task::relations::TaskRelationRepository;
 
 /// Known credential env var names.
 ///
@@ -63,6 +64,7 @@ pub struct BackendSandboxServiceImpl {
     pub messages: Option<Arc<dyn MessageRepository>>,
     pub provider_tokens: Option<Arc<dyn ProviderTokenRepository>>,
     pub tasks: Option<Arc<dyn TaskRepository>>,
+    pub task_relations: Option<Arc<dyn TaskRelationRepository>>,
     pub commands: Option<Arc<dyn CommandRepository>>,
     /// JWT signing key for verifying sandbox auth tokens.
     pub task_token_secret: Option<String>,
@@ -607,6 +609,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             &req.task_id,
             task.as_ref(),
             self.repositories.as_ref(),
+            self.task_relations.as_ref(),
             self.backend_config.as_ref(),
         )
         .await;

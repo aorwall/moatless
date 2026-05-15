@@ -19,6 +19,8 @@ pub struct TaskFilter {
     pub repository_id: Option<String>,
     pub created_by: Option<String>,
     pub tag: Option<String>,
+    /// When set, restrict results to tasks that have a `created_by` relation
+    /// pointing at this task id (i.e. children of this parent).
     pub parent_task_id: Option<String>,
 }
 
@@ -100,13 +102,13 @@ impl TaskRepository for PgTaskRepository {
                 task_id, short_id, created_at, last_message_at, agent_type,
                 repository_id, status, total_cost_usd, site_url, template_id,
                 vibe, name, description, site_id, site_provider, branch,
-                created_by, visibility, scope, team_id, owner_user_id, parent_task_id,
+                created_by, visibility, scope, team_id, owner_user_id,
                 append_system_prompt, updated_at, sandbox_started_at, headless,
                 ttl_minutes, task_template_id, inactive_ttl_days, trigger_id
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-                $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22,
-                $23, NOW(), $24, $25, $26, $27, $28, $29
+                $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21,
+                $22, NOW(), $23, $24, $25, $26, $27, $28
             )"#,
         )
         .bind(&row.task_id)
@@ -130,7 +132,6 @@ impl TaskRepository for PgTaskRepository {
         .bind(row.scope)
         .bind(&row.team_id)
         .bind(&row.owner_user_id)
-        .bind(&row.parent_task_id)
         .bind(&row.append_system_prompt)
         .bind(row.sandbox_started_at)
         .bind(row.headless)
@@ -170,7 +171,6 @@ impl TaskRepository for PgTaskRepository {
             owner_user_id: Option<String>,
             created_at_db: Option<DateTime<Utc>>,
             updated_at: Option<DateTime<Utc>>,
-            parent_task_id: Option<String>,
             append_system_prompt: Option<String>,
             sandbox_started_at: Option<DateTime<Utc>>,
             headless: bool,
@@ -182,13 +182,16 @@ impl TaskRepository for PgTaskRepository {
         }
 
         let access = filter.scope.access_filter(ScopedEntity::Task, "t.", 1);
+        // The parent_task_id filter joins against task_relations rather than
+        // reading a column off `tasks`. When unset, the EXISTS clause is a
+        // no-op (`$8 IS NULL`).
         let sql = format!(
             r#"SELECT DISTINCT
                 t.task_id, t.short_id, t.created_at, t.last_message_at, t.agent_type,
                 t.repository_id, t.status, t.total_cost_usd, t.site_url, t.template_id,
                 t.vibe, t.name, t.description, t.site_id, t.site_provider, t.branch,
                 t.created_by, t.visibility, t.scope, t.team_id, t.owner_user_id,
-                t.created_at_db, t.updated_at, t.parent_task_id, t.append_system_prompt,
+                t.created_at_db, t.updated_at, t.append_system_prompt,
                 t.sandbox_started_at, t.headless, t.ttl_minutes, t.inactive_ttl_days,
                 t.task_template_id, t.trigger_id,
                 COUNT(*) OVER() AS total_count
@@ -200,7 +203,12 @@ impl TaskRepository for PgTaskRepository {
               AND ($5::text IS NULL OR t.repository_id = $5)
               AND ($6::text IS NULL OR t.created_by = $6)
               AND ($7::text IS NULL OR tg.name = $7)
-              AND ($8::text IS NULL OR t.parent_task_id = $8)
+              AND ($8::text IS NULL OR EXISTS (
+                  SELECT 1 FROM task_relations tr
+                  WHERE tr.from_task_id = t.task_id
+                    AND tr.relation_type = 'created_by'
+                    AND tr.to_task_id = $8
+              ))
             ORDER BY t.updated_at DESC NULLS LAST
             LIMIT $9 OFFSET $10"#,
             access.sql(),
@@ -247,7 +255,6 @@ impl TaskRepository for PgTaskRepository {
                 owner_user_id: r.owner_user_id,
                 created_at_db: r.created_at_db,
                 updated_at: r.updated_at,
-                parent_task_id: r.parent_task_id,
                 append_system_prompt: r.append_system_prompt,
                 sandbox_started_at: r.sandbox_started_at,
                 headless: r.headless,

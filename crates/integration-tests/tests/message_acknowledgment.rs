@@ -41,7 +41,6 @@ async fn same_session_multi_message() {
         ),
         name: Some("Multi-Message Same Session E2E".into()),
         branch: None,
-        parent_task_id: None,
         description: None,
         agent_mode: None,
         agent_type: None,
@@ -51,6 +50,7 @@ async fn same_session_multi_message() {
         command_name: None,
         headless: None,
         task_template_id: None,
+        parent_task_id: None,
     };
     let created = client.api().create_task(&task_req).await.unwrap();
     let task_id = &created.task_id;

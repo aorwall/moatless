@@ -3,8 +3,23 @@
 use serde::{Deserialize, Serialize};
 
 use crate::bindings::TaskBindingSummary;
-use crate::enums::{Scope, TaskStatus, Visibility};
+use crate::enums::{Scope, TaskRelationType, TaskStatus, Visibility};
 use crate::shared::{AgentMode, AgentType};
+
+/// A typed link from one task to another, with optional JSON context.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct TaskRelationDto {
+    pub id: String,
+    pub from_task_id: String,
+    pub to_task_id: String,
+    pub relation_type: TaskRelationType,
+    /// Free-form metadata describing why/how the relation was created.
+    #[cfg_attr(feature = "openapi", schema(value_type = Object))]
+    pub context: serde_json::Value,
+    pub created_at: String,
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
@@ -177,7 +192,12 @@ pub struct TaskResponse {
     pub scope: Scope,
     pub team_id: Option<String>,
     pub owner_user_id: Option<String>,
+    /// Derived from the `created_by` relation in `relations`. Kept for
+    /// backward compatibility with clients that pre-date the relations field.
     pub parent_task_id: Option<String>,
+    /// Typed relations this task has to other tasks (currently `created_by`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub relations: Vec<TaskRelationDto>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub append_system_prompt: Option<String>,
     pub tags: Vec<TagResponse>,
