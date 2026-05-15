@@ -1,0 +1,71 @@
+# Slack app manifest for Moatless.
+#
+# To install:
+#   1. Replace every `YOUR_DOMAIN` below with the public host of your Moatless
+#      backend (e.g. `moatless.example.com`).
+#   2. Go to https://api.slack.com/apps → "Create New App" → "From a manifest",
+#      pick your workspace, and paste this file.
+#   3. After the app is created, click "Install to Workspace" and approve scopes.
+#   4. Copy the credentials into the backend env vars (see backend/src/config.rs
+#      `SlackConfig`):
+#        - "Bot User OAuth Token" (xoxb-...)  -> SLACK_BOT_TOKEN
+#        - "Signing Secret"                   -> SLACK_SIGNING_SECRET
+#
+# The scopes and bot events below match what the SlackAdapter in
+# backend/src/adapters/slack/ uses. When that adapter starts calling a new
+# Slack API method or subscribing to a new event type, update this file too.
+
+display_information:
+  name: Moatless
+  description: Run tasks in Moatless Vibe
+  background_color: "#b216d9"
+
+features:
+  app_home:
+    home_tab_enabled: true
+    messages_tab_enabled: false
+    messages_tab_read_only_enabled: false
+  bot_user:
+    display_name: Moatless
+    always_online: true
+  slash_commands:
+    - command: /moat
+      url: https://YOUR_DOMAIN/api/v1/adapters/slack/slash
+      description: Run a Moatless system command
+      usage_hint: <command> [context]
+      should_escape: false
+
+oauth_config:
+  scopes:
+    bot:
+      - app_mentions:read
+      - channels:history
+      - channels:read
+      - chat:write
+      - commands
+      - files:read
+      - files:write
+      - groups:history
+      - groups:read
+      - im:history
+      - im:read
+      - im:write
+      - mpim:history
+      - reactions:write
+      - users:read
+      - users:read.email
+  pkce_enabled: false
+
+settings:
+  event_subscriptions:
+    request_url: https://YOUR_DOMAIN/api/v1/adapters/slack/webhook
+    bot_events:
+      - app_mention
+      - message.channels
+      - message.groups
+      - message.im
+      - message.mpim
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false
+  is_mcp_enabled: false
