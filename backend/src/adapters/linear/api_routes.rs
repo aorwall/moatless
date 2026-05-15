@@ -736,7 +736,12 @@ pub(crate) async fn attach_moatless_task(
         return;
     };
     let url = task_url(state, task_id);
-    let title = super::agent_runtime::task_attachment_title(state, task_id).await;
+    let title = super::agent_runtime::task_attachment_title(
+        state,
+        task_id,
+        super::agent_runtime::ATTACHMENT_TITLE_PARENT,
+    )
+    .await;
     if let Err(e) = api.attachment_link_url(issue_uuid, &url, &title).await {
         warn!(
             error = %e,

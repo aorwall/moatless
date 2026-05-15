@@ -233,7 +233,12 @@ async fn link_moatless_task_to_linear_issue(
     };
     let api = linear.agent_api_for_org(&connection.scope_value);
     let url = crate::adapters::linear::agent_runtime::task_url(state, task_id);
-    let title = crate::adapters::linear::agent_runtime::task_attachment_title(state, task_id).await;
+    let title = crate::adapters::linear::agent_runtime::task_attachment_title(
+        state,
+        task_id,
+        crate::adapters::linear::agent_runtime::ATTACHMENT_TITLE_PARENT,
+    )
+    .await;
     if let Err(e) = api.attachment_link_url(issue_uuid, &url, &title).await {
         tracing::warn!(
             error = %e,

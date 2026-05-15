@@ -211,13 +211,15 @@ pub async fn handle_session_prompted(
     Ok(())
 }
 
-/// Route a `Comment.create` payload to a task that already has an agent-
-/// session binding for the comment's issue. No binding → no-op; we only
-/// forward comments to issues with an active Moatless task.
+/// Route a `Comment.create` payload to a task bound to the comment's issue
+/// via a `linear_issue` binding. No binding → no-op.
 ///
-/// Filters out comments authored by our own OAuth bot (matched against
-/// `connection.transport_config["agent_viewer_id"]`) so the agent's outbound
-/// reply doesn't loop back as a new inbound prompt.
+/// The agent's own outbound replies are filtered downstream: every reply
+/// posted via `LinearAdapter::send_reply_for_binding` is recorded in
+/// `AppState::recently_sent` and persisted to `task_messages.external_event_id`
+/// under the key `linear:comment:<uuid>`. The inbound forward below builds the
+/// same key, so `send_message_flow` recognises and drops the echo by comment
+/// id rather than by author.
 pub async fn handle_comment_created(
     state: &AppState,
     api: &LinearAgentApi,
@@ -228,23 +230,6 @@ pub async fn handle_comment_created(
     if comment.body.trim().is_empty() {
         debug!(comment_id = %comment.id, "Empty Comment.create body — ignoring");
         return Ok(());
-    }
-
-    if let (Some(actor_id), Some(bot_id)) = (
-        comment.user.as_ref().map(|u| u.id.as_str()),
-        connection
-            .transport_config
-            .get("agent_viewer_id")
-            .and_then(serde_json::Value::as_str),
-    ) {
-        if actor_id == bot_id {
-            debug!(
-                comment_id = %comment.id,
-                bot_id,
-                "Comment.create authored by our own bot — ignoring to avoid loop"
-            );
-            return Ok(());
-        }
     }
 
     let binding_repo = PgTaskBindingRepository(state.db.clone());
@@ -657,7 +642,7 @@ async fn provision_session_task(
 
     // Update the session with an externalUrl pointing at the moatless task.
     let task_url = task_url(state, &task_id);
-    let attachment_title = task_attachment_title(state, &task_id).await;
+    let attachment_title = task_attachment_title(state, &task_id, ATTACHMENT_TITLE_CHILD).await;
     if let Err(e) = api
         .agent_session_update_external_urls(&session.id, &attachment_title, &task_url)
         .await
@@ -955,21 +940,36 @@ pub(crate) fn task_url(state: &AppState, task_id: &str) -> String {
     format!("{base}/tasks/{task_id}")
 }
 
-pub(crate) async fn task_attachment_title(state: &AppState, task_id: &str) -> String {
-    const FALLBACK: &str = "Moatless parent task";
+/// Label prefix for the Linear ↔ Moatless link when the Linear side is the
+/// parent (Moatless task spawned from a `@mention` / assignment).
+pub(crate) const ATTACHMENT_TITLE_CHILD: &str = "Moatless task";
+
+/// Label prefix for the Linear ↔ Moatless link when the Moatless side is the
+/// parent (Linear issue created by the CLI or adapter_send on behalf of a task).
+pub(crate) const ATTACHMENT_TITLE_PARENT: &str = "Moatless parent task";
+
+fn format_attachment_title(prefix: &str, name: Option<&str>) -> String {
+    match name.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(n) => format!("{prefix}: {n}"),
+        None => prefix.to_string(),
+    }
+}
+
+pub(crate) async fn task_attachment_title(
+    state: &AppState,
+    task_id: &str,
+    prefix: &str,
+) -> String {
     match state.tasks.find_by_id_internal(task_id).await {
-        Ok(Some(task)) => match task.name.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-            Some(name) => format!("{FALLBACK}: {name}"),
-            None => FALLBACK.to_string(),
-        },
-        Ok(None) => FALLBACK.to_string(),
+        Ok(Some(task)) => format_attachment_title(prefix, task.name.as_deref()),
+        Ok(None) => prefix.to_string(),
         Err(e) => {
             tracing::warn!(
                 error = %e,
                 task_id,
                 "Failed to load task name for Linear attachment title"
             );
-            FALLBACK.to_string()
+            prefix.to_string()
         }
     }
 }
@@ -1624,6 +1624,46 @@ mod tests {
         assert_eq!(
             text,
             "**@Alice just mentioned the agent:**\n\nhey"
+        );
+    }
+
+    #[test]
+    fn format_attachment_title_with_name() {
+        assert_eq!(
+            format_attachment_title(ATTACHMENT_TITLE_CHILD, Some("Fix login bug")),
+            "Moatless task: Fix login bug"
+        );
+        assert_eq!(
+            format_attachment_title(ATTACHMENT_TITLE_PARENT, Some("Fix login bug")),
+            "Moatless parent task: Fix login bug"
+        );
+    }
+
+    #[test]
+    fn format_attachment_title_falls_back_when_name_missing() {
+        assert_eq!(
+            format_attachment_title(ATTACHMENT_TITLE_CHILD, None),
+            "Moatless task"
+        );
+        assert_eq!(
+            format_attachment_title(ATTACHMENT_TITLE_PARENT, None),
+            "Moatless parent task"
+        );
+    }
+
+    #[test]
+    fn format_attachment_title_treats_whitespace_only_as_empty() {
+        assert_eq!(
+            format_attachment_title(ATTACHMENT_TITLE_CHILD, Some("   ")),
+            "Moatless task"
+        );
+    }
+
+    #[test]
+    fn format_attachment_title_trims_surrounding_whitespace() {
+        assert_eq!(
+            format_attachment_title(ATTACHMENT_TITLE_CHILD, Some("  Hi  ")),
+            "Moatless task: Hi"
         );
     }
 }
