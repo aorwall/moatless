@@ -83,6 +83,9 @@ pub fn build_container_config(
     if let Some(ref model) = config.sandbox.default_model {
         env.push(format!("DEFAULT_CLAUDE_CODE_MODEL={model}"));
     }
+    if let Some(ref model) = config.sandbox.default_codex_model {
+        env.push(format!("DEFAULT_CODEX_MODEL={model}"));
+    }
 
     // Custom env vars from repo config
     if let Some(ref env_vars) = plan.env_vars {
@@ -458,6 +461,7 @@ mod tests {
                 tolerations_json: None,
                 service_account_name: None,
                 default_model: None,
+                default_codex_model: None,
             },
             proxy: ProxyConfig {
                 domain: None,

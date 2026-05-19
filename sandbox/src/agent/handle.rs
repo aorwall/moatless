@@ -2502,6 +2502,7 @@ mod tests {
             servers: vec![],
             frontend_url: None,
             default_model: None,
+            default_codex_model: None,
             home_dir: "/tmp/home".to_string(),
             codex_home_dir,
             claude_config_dir: "/tmp/home/.claude".to_string(),
