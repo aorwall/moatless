@@ -35,6 +35,14 @@ RUN git clone --depth 1 --branch ${TASK_VERSION} https://github.com/go-task/task
 
 FROM ${SANDBOX_BASE}
 
+# Override the Codex CLI version baked into the upstream sandbox-base.
+# Bump this when newer Codex models (e.g. gpt-5.5) need a CLI past what
+# upstream has shipped — avoids waiting on an upstream base rebuild.
+ARG CODEX_CLI_VERSION=0.131.0
+RUN npm install -g "@openai/codex@${CODEX_CLI_VERSION}" \
+    && ln -sf "$(which codex)" /usr/local/bin/codex \
+    && (codex --version 2>/dev/null || echo "unknown") > /opt/moatless/.codex-cli-version
+
 # Entrypoint scripts come from the sandbox-tools image so script edits don't
 # invalidate the binary COPY layer below (and vice versa).
 COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/docker-entrypoint-sandbox.sh /usr/local/bin/docker-entrypoint-sandbox.sh
