@@ -129,6 +129,7 @@ pub fn test_config() -> Config {
             tolerations_json: None,
             service_account_name: None,
             default_model: None,
+            default_codex_model: None,
         },
         docker: DockerConfig {
             network: "moatless".into(),

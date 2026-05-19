@@ -189,6 +189,7 @@ mod tests {
             servers: vec![],
             frontend_url: None,
             default_model: None,
+            default_codex_model: None,
             home_dir: home.display().to_string(),
             codex_home_dir: home.join(".codex").display().to_string(),
             claude_config_dir: home.join(".claude").display().to_string(),

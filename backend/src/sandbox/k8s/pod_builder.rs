@@ -233,6 +233,9 @@ fn build_sandbox_container(
     if let Some(ref model) = config.sandbox.default_model {
         env.push(env_var("DEFAULT_CLAUDE_CODE_MODEL", model));
     }
+    if let Some(ref model) = config.sandbox.default_codex_model {
+        env.push(env_var("DEFAULT_CODEX_MODEL", model));
+    }
 
     if let Some(token) = user_auth_token {
         env.push(env_var("USER_AUTH_TOKEN", token));
@@ -648,6 +651,7 @@ mod tests {
                 tolerations_json: None,
                 service_account_name: None,
                 default_model: None,
+                default_codex_model: None,
             },
             proxy: ProxyConfig {
                 domain: None,

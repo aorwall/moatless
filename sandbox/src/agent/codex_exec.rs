@@ -372,6 +372,27 @@ pub struct TodoListEntry {
     pub completed: bool,
 }
 
+/// Hardcoded final fallback model for Codex sessions.
+///
+/// Used when neither the request, the repo `agent_config.model`, nor the
+/// `DEFAULT_CODEX_MODEL` env var supplies a model. Picked deliberately over
+/// the CLI's own auto-default: at the time of writing, the CLI's default
+/// (`gpt-5.2-codex`) is the only model in the 5.x family rejected by the
+/// ChatGPT-account Codex backend with HTTP 400 "model not supported",
+/// which silently breaks every ChatGPT-auth task.
+pub const DEFAULT_CODEX_MODEL: &str = "gpt-5.5";
+
+/// Resolve the Codex model with the same priority as Claude:
+/// request > repo `agent_config.model` > `DEFAULT_CODEX_MODEL` env > hardcoded default.
+pub fn resolve_codex_model(config: &Config, request: &AgentRunRequest) -> String {
+    request
+        .model
+        .clone()
+        .or_else(|| config.agent_config.model.clone())
+        .or_else(|| config.default_codex_model.clone())
+        .unwrap_or_else(|| DEFAULT_CODEX_MODEL.to_string())
+}
+
 pub async fn start(
     prompt: &str,
     config: &Config,
@@ -398,10 +419,10 @@ pub async fn start(
     command.arg("--cd");
     command.arg(&config.workspace_dir);
 
-    if let Some(ref model) = request.model {
-        command.arg("--model");
-        command.arg(model);
-    }
+    let model = resolve_codex_model(config, request);
+    info!(model = %model, "Codex model resolved");
+    command.arg("--model");
+    command.arg(&model);
 
     let developer_instructions = build_prompt_append(config, request);
     command.arg("-c");
@@ -799,5 +820,86 @@ mod tests {
             panic!("wrong details");
         };
         assert_eq!(c.status, CommandExecutionStatus::Unknown);
+    }
+
+    fn model_test_config(
+        repo_model: Option<&str>,
+        default_codex_model: Option<&str>,
+    ) -> Config {
+        use crate::config::{AgentConfig, ProxyConfig};
+        Config {
+            port: 0,
+            grpc_port: 0,
+            task_id: "task-test".to_string(),
+            workspace_dir: "/tmp/workspace".to_string(),
+            data_dir: "/tmp/data".to_string(),
+            upload_dir: "/tmp/uploads".to_string(),
+            log_level: "info".to_string(),
+            backend_grpc_url: "http://localhost:50051".to_string(),
+            backend_api_url: None,
+            user_auth_token: None,
+            agent_config: AgentConfig {
+                model: repo_model.map(String::from),
+                ..AgentConfig::default()
+            },
+            claude_cli_path: "/usr/bin/claude".to_string(),
+            codex_cli_path: "/usr/bin/codex".to_string(),
+            proxy: ProxyConfig::default(),
+            servers: vec![],
+            frontend_url: None,
+            default_model: None,
+            default_codex_model: default_codex_model.map(String::from),
+            home_dir: "/tmp/home".to_string(),
+            codex_home_dir: "/tmp/home/.codex".to_string(),
+            claude_config_dir: "/tmp/home/.claude".to_string(),
+            git_clone_url: None,
+            git_branch: None,
+            git_provider: "github".to_string(),
+            repo_config_raw: None,
+            setup_commands: vec![],
+            plugin_ids: vec![],
+            plugin_repos: vec![],
+        }
+    }
+
+    fn model_test_request(req_model: Option<&str>) -> AgentRunRequest {
+        AgentRunRequest {
+            content: vec![],
+            model: req_model.map(String::from),
+            system_prompt: None,
+            resume: None,
+            agent_type: None,
+            agent_mode: None,
+        }
+    }
+
+    #[test]
+    fn model_request_wins_over_repo_and_env_and_default() {
+        let cfg = model_test_config(Some("repo-model"), Some("env-model"));
+        let req = model_test_request(Some("req-model"));
+        assert_eq!(resolve_codex_model(&cfg, &req), "req-model");
+    }
+
+    #[test]
+    fn model_repo_wins_over_env_and_default() {
+        let cfg = model_test_config(Some("repo-model"), Some("env-model"));
+        let req = model_test_request(None);
+        assert_eq!(resolve_codex_model(&cfg, &req), "repo-model");
+    }
+
+    #[test]
+    fn model_env_wins_over_default() {
+        let cfg = model_test_config(None, Some("env-model"));
+        let req = model_test_request(None);
+        assert_eq!(resolve_codex_model(&cfg, &req), "env-model");
+    }
+
+    #[test]
+    fn model_falls_back_to_hardcoded_default_when_all_unset() {
+        let cfg = model_test_config(None, None);
+        let req = model_test_request(None);
+        assert_eq!(resolve_codex_model(&cfg, &req), DEFAULT_CODEX_MODEL);
+        // Sanity-check the chosen default is not the broken one.
+        assert_ne!(DEFAULT_CODEX_MODEL, "gpt-5.2-codex");
     }
 }
