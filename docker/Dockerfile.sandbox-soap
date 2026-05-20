@@ -38,9 +38,15 @@ FROM ${SANDBOX_BASE}
 # Override the Codex CLI version baked into the upstream sandbox-base.
 # Bump this when newer Codex models (e.g. gpt-5.5) need a CLI past what
 # upstream has shipped — avoids waiting on an upstream base rebuild.
+#
+# Do NOT re-run `ln -sf "$(which codex)" /usr/local/bin/codex` here: the base
+# layer already established that symlink to npm's bin path (`/usr/bin/codex`),
+# and `npm install -g` replaces the binary at that target path. Re-resolving
+# `which codex` at this layer's build time would find the existing
+# `/usr/local/bin/codex` symlink first (PATH order), producing a self-loop
+# and ELOOP at runtime ("Too many levels of symbolic links").
 ARG CODEX_CLI_VERSION=0.131.0
 RUN npm install -g "@openai/codex@${CODEX_CLI_VERSION}" \
-    && ln -sf "$(which codex)" /usr/local/bin/codex \
     && (codex --version 2>/dev/null || echo "unknown") > /opt/moatless/.codex-cli-version
 
 # Entrypoint scripts come from the sandbox-tools image so script edits don't
