@@ -455,9 +455,17 @@ jobs:
     if: needs.release-moat.outputs.moat-version != ''
     runs-on: ubuntu-latest
     steps:
+      - name: Generate App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.GITOPS_APP_ID }}
+          private-key: ${{ secrets.GITOPS_APP_PRIVATE_KEY }}
+          owner: soaplabs
+
       - uses: peter-evans/repository-dispatch@v3
         with:
-          token: ${{ secrets.GITOPS_PAT }}
+          token: ${{ steps.app-token.outputs.token }}
           repository: soaplabs/soap-platform-ci
           event-type: rebuild-runners
           client-payload: |
@@ -482,9 +490,8 @@ jobs:
   # an explicit promote can be triggered manually by re-running with
   # workflow_dispatch.
   #
-  # Requires the GITOPS_PAT repo secret: a fine-scoped PAT with
-  # contents:write + actions:write + pull-requests:write on
-  # soaplabs/soap-platform-gitops only.
+  # Uses the soapgitops GitHub App installation token (org secrets
+  # GITOPS_APP_ID + GITOPS_APP_PRIVATE_KEY) — minted per run, short-lived.
   trigger-promotion:
     needs:
       - setup
@@ -495,10 +502,18 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
+      - name: Generate App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.GITOPS_APP_ID }}
+          private-key: ${{ secrets.GITOPS_APP_PRIVATE_KEY }}
+          owner: soaplabs
+
       - name: Dispatch promote-to-staging
         uses: peter-evans/repository-dispatch@v3
         with:
-          token: ${{ secrets.GITOPS_PAT }}
+          token: ${{ steps.app-token.outputs.token }}
           repository: soaplabs/soap-platform-gitops
           event-type: promote-to-staging
           client-payload: |
