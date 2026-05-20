@@ -79,6 +79,7 @@ impl QueryHandle {
                         text: input.to_string(),
                         text_elements: Vec::new(),
                     }],
+                    responsesapi_client_metadata: None,
                     expected_turn_id: String::new(),
                 },
             })

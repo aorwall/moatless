@@ -94,6 +94,9 @@ CODEX_SDK_E2E=1 cargo test --ignored -- --nocapture
 
 # Single E2E test
 CODEX_SDK_E2E=1 cargo test --ignored test_simple_query -- --nocapture
+
+# Smoke test — three scenarios (simple roundtrip + multi-turn + resume), ~30s, ~$0.02
+CODEX_SDK_E2E=1 cargo test --test smoke -- --ignored --nocapture
 ```
 
 ### Unit tests (no runtime)
@@ -112,6 +115,12 @@ All gated behind `CODEX_SDK_E2E=1` + `#[ignore]`:
 - `test_deny_handler_blocks_execution` — DenyAllHandler prevents file writes
 - `test_hook_observer_receives_events` — CapturingHookObserver wiring validation
 - `test_ephemeral_thread` — Ephemeral thread flag propagation
+
+Smoke test (`tests/smoke.rs`) is a separate integration binary covering
+`query()`, `CodexClient` multi-turn, and `resume_thread_id` end-to-end.
+Use as a fast pre-release check. The resume test uses a custom 8MB-stack
+tokio runtime because the in-process app-server has deep call chains that
+overflow the default 2MB stack in debug builds.
 
 ## Examples
 

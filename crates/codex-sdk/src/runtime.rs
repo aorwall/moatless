@@ -13,12 +13,12 @@ use codex_app_server_protocol::ThreadStartParams;
 use codex_app_server_protocol::ThreadStartResponse;
 use codex_arg0::Arg0DispatchPaths;
 use codex_cloud_requirements::cloud_requirements_loader_for_storage;
+use codex_config::LoaderOverrides;
 use codex_core::config::Config;
 use codex_core::config::ConfigBuilder;
 use codex_core::config::ConfigOverrides;
 use codex_core::config::find_codex_home;
 use codex_core::config::load_config_as_toml_with_cli_overrides;
-use codex_core::config_loader::LoaderOverrides;
 use codex_feedback::CodexFeedback;
 use codex_protocol::protocol::SessionSource;
 use codex_utils_absolute_path::AbsolutePathBuf;
@@ -61,11 +61,12 @@ pub(crate) async fn start_runtime(options: &CodexOptions) -> Result<RuntimeState
         .clone()
         .unwrap_or_else(|| "https://chatgpt.com/backend-api/".to_string());
     let cloud_requirements = cloud_requirements_loader_for_storage(
-        codex_home,
+        codex_home.to_path_buf(),
         true,
         config_toml.cli_auth_credentials_store.unwrap_or_default(),
         chatgpt_base_url,
-    );
+    )
+    .await;
 
     // Convert v2 types to core types for ConfigOverrides.
     let core_approval_policy = options
@@ -120,7 +121,8 @@ pub(crate) async fn start_runtime(options: &CodexOptions) -> Result<RuntimeState
         loader_overrides: LoaderOverrides::default(),
         cloud_requirements,
         feedback: CodexFeedback::new(),
-        environment_manager: Arc::new(EnvironmentManager::from_env()),
+        log_db: None,
+        environment_manager: Arc::new(EnvironmentManager::default_for_tests()),
         config_warnings,
         session_source: SessionSource::Custom("sdk".to_string()),
         enable_codex_api_key_env: true,

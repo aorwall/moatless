@@ -20,10 +20,11 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Claude Code CLI (as root, then copy to /usr/local/bin)
-RUN curl -fsSL https://claude.ai/install.sh | bash \
-    && cp /root/.local/bin/claude /usr/local/bin/claude \
-    && chmod 755 /usr/local/bin/claude
+# Install Claude Code CLI at the pinned npm version.
+# Must match CLAUDE_CLI_VERSION in docker/Dockerfile.sandbox-base and
+# EXPECTED_CLAUDE_CLI_VERSION in crates/claude-agent-sdk/tests/smoke.rs.
+ARG CLAUDE_CLI_VERSION=2.1.145
+RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CLI_VERSION}"
 
 # Create non-root user (Claude CLI rejects --dangerously-skip-permissions as root)
 RUN groupadd --gid 1000 testuser \

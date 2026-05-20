@@ -7,6 +7,7 @@
 #   ./crates/claude-agent-sdk/scripts/test-docker.sh                        # Run SDK E2E tests (default)
 #   ./crates/claude-agent-sdk/scripts/test-docker.sh sdk-e2e                # Run claude-agent-sdk E2E tests
 #   ./crates/claude-agent-sdk/scripts/test-docker.sh sdk-e2e test_simple_query  # Run a single SDK test
+#   ./crates/claude-agent-sdk/scripts/test-docker.sh smoke                  # Run claude-agent-sdk smoke tests
 #   ./crates/claude-agent-sdk/scripts/test-docker.sh sandbox-e2e            # Run moatless-sandbox E2E tests
 #   ./crates/claude-agent-sdk/scripts/test-docker.sh all                    # Run all E2E tests
 #   ./crates/claude-agent-sdk/scripts/test-docker.sh build                  # Build image only
@@ -14,6 +15,7 @@
 # Environment:
 #   CLAUDE_CODE_OAUTH_TOKEN  - OAuth token for Claude API (preferred)
 #   ANTHROPIC_API_KEY        - API key for Claude API (alternative)
+#   CLAUDE_CLI_VERSION       - Override the pinned Claude CLI version (default: 2.1.145)
 #   SKIP_BUILD=1             - Skip Docker image build step
 #   SKIP_COMPILE=1           - Skip Rust cross-compilation step
 
@@ -83,6 +85,15 @@ if [ "${SKIP_BUILD:-0}" != "1" ]; then
             echo "Warning: SDK E2E test binary not found"
         fi
 
+        # Find and copy the SDK smoke test binary (exclude .d dep-info files)
+        SDK_SMOKE_BIN=$(find "$TARGET_DIR/$RUST_TARGET/debug/deps" -name "smoke-*" -type f ! -name "*.d" 2>/dev/null | head -1)
+        if [ -n "$SDK_SMOKE_BIN" ]; then
+            cp "$SDK_SMOKE_BIN" "$BINARIES_DIR/$ARCH_DIR/smoke"
+            echo "  -> smoke"
+        else
+            echo "Warning: SDK smoke test binary not found"
+        fi
+
         # Build sandbox E2E test binary
         echo "Compiling moatless-sandbox tests..."
         cargo zigbuild --tests -p moatless-sandbox --target "$RUST_TARGET" 2>&1
@@ -112,6 +123,7 @@ if [ "${SKIP_BUILD:-0}" != "1" ]; then
     echo "=== Building Docker test image: $IMAGE_NAME ==="
     docker build \
         -f "$CRATE_DIR/Dockerfile.test" \
+        --build-arg "CLAUDE_CLI_VERSION=${CLAUDE_CLI_VERSION:-2.1.145}" \
         --build-context "binaries=$BINARIES_DIR" \
         -t "$IMAGE_NAME" \
         "$ROOT_DIR"
@@ -133,6 +145,13 @@ case "$MODE" in
             TEST_CMD="CLAUDE_SDK_E2E=1 /test-bins/sdk-e2e --ignored --nocapture"
         fi
         ;;
+    smoke)
+        if [ -n "$TEST_FILTER" ]; then
+            TEST_CMD="CLAUDE_SDK_E2E=1 /test-bins/smoke --ignored --nocapture $TEST_FILTER"
+        else
+            TEST_CMD="CLAUDE_SDK_E2E=1 /test-bins/smoke --ignored --nocapture"
+        fi
+        ;;
     sandbox-e2e)
         if [ -n "$TEST_FILTER" ]; then
             TEST_CMD="CLAUDE_SDK_E2E=1 /test-bins/sandbox-e2e --ignored --nocapture $TEST_FILTER"
@@ -146,17 +165,19 @@ case "$MODE" in
     *)
         echo "Unknown mode: $MODE"
         echo ""
-        echo "Usage: $0 {sdk-e2e|sandbox-e2e|all|build} [test_filter]"
+        echo "Usage: $0 {sdk-e2e|smoke|sandbox-e2e|all|build} [test_filter]"
         echo ""
         echo "Modes:"
         echo "  sdk-e2e      Run claude-agent-sdk E2E tests (default)"
+        echo "  smoke        Run claude-agent-sdk smoke tests (version check + roundtrip + --resume)"
         echo "  sandbox-e2e  Run moatless-sandbox E2E tests"
         echo "  all          Run all E2E tests"
         echo "  build        Build Docker image only"
         echo ""
         echo "Examples:"
-        echo "  $0 sdk-e2e test_simple_query    # Run a single test"
-        echo "  SKIP_BUILD=1 $0 sdk-e2e         # Skip image rebuild"
+        echo "  $0 smoke                          # Run smoke tests against the pinned CLI"
+        echo "  $0 sdk-e2e test_simple_query      # Run a single test"
+        echo "  SKIP_BUILD=1 $0 sdk-e2e           # Skip image rebuild"
         exit 1
         ;;
 esac

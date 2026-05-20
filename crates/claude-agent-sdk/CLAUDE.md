@@ -17,6 +17,12 @@ CLAUDE_TMUX_E2E=1 cargo test -p claude-agent-sdk -- --ignored --nocapture
 
 # Both backends in one run
 CLAUDE_SDK_E2E=1 CLAUDE_TMUX_E2E=1 cargo test -p claude-agent-sdk -- --ignored --nocapture
+
+# Smoke test — version assertion + single roundtrip + per-turn --resume (~$0.005, ~30s)
+CLAUDE_SDK_E2E=1 cargo test -p claude-agent-sdk --test smoke -- --ignored --nocapture
+
+# Smoke test in Docker against the pinned Claude CLI (catches version pin drift)
+./crates/claude-agent-sdk/scripts/test-docker.sh smoke
 ```
 
 E2E test naming convention (`tests/e2e.rs`):
@@ -27,6 +33,12 @@ E2E test naming convention (`tests/e2e.rs`):
 - `test_<name>` (no suffix) — subprocess-only because the test exercises a
   capability the tmux backend doesn't support (permission handler, hook
   handler, SDK MCP servers, real System init, real cost data).
+
+Smoke test (`tests/smoke.rs`) is a separate integration binary that asserts the
+on-PATH `claude --version` matches the pin in `docker/Dockerfile.sandbox-base`,
+then runs a single roundtrip and a 2-turn `--resume <session_id>` (mirroring the
+sandbox's per-turn dispatch model in `sandbox/src/agent/options.rs:151-163`).
+Use it as a fast pre-release check.
 
 ## Architecture
 
