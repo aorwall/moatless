@@ -219,9 +219,10 @@ pub async fn route_inbound_message(
         // The earliest binding for this subject (if any) belongs to the task
         // that originated it — typically a `connected_thread` binding placed
         // when an earlier task produced the resource. We link the new task
-        // back to it as `created_by`.
-        let parent = bindings.first().map(|b| crate::task::relations::CreatedByParent {
-            parent_task_id: b.task_id.clone(),
+        // to it as `related_to` (peer sharing the same external artifact),
+        // not as a parent.
+        let related = bindings.first().map(|b| crate::task::relations::RelatedTask {
+            related_task_id: b.task_id.clone(),
             context: serde_json::json!({
                 "via": "binding_webhook",
                 "adapter": provider_label,
@@ -234,8 +235,8 @@ pub async fn route_inbound_message(
         let task_id =
             inbound::create_task_for_external_message(state, &config, &msg, command.as_ref())
                 .await?;
-        if let Some(ref p) = parent {
-            crate::task::relations::record_created_by(state.task_relations.as_ref(), &task_id, p)
+        if let Some(ref r) = related {
+            crate::task::relations::record_related_to(state.task_relations.as_ref(), &task_id, r)
                 .await;
         }
         provision_task(state, &task_id).await;

@@ -79,16 +79,23 @@ impl sqlx::Encode<'_, sqlx::Postgres> for TaskStatus {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum TaskRelationType {
-    /// `from` was created by `to` — typically because `to` produced an
-    /// external resource (PR, issue) and a webhook for that resource spawned
-    /// `from`.
+    /// `from` was created during the execution of `to` — i.e. `to`'s agent (or
+    /// a human caller acting on behalf of `to`) explicitly spawned `from` as a
+    /// child task. Currently produced only by `POST /tasks` with an explicit
+    /// `parent_task_id` body field.
     CreatedBy,
+    /// `from` and `to` are peers that share an external artifact (PR, issue,
+    /// thread). Produced when an inbound webhook spawns `from` and discovers
+    /// an earlier task `to` on the same `task_bindings` subject_key. Not a
+    /// parent-child relationship.
+    RelatedTo,
 }
 
 impl TaskRelationType {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::CreatedBy => "created_by",
+            Self::RelatedTo => "related_to",
         }
     }
 }
@@ -104,6 +111,7 @@ impl TryFrom<&str> for TaskRelationType {
     fn try_from(s: &str) -> Result<Self, String> {
         match s {
             "created_by" => Ok(Self::CreatedBy),
+            "related_to" => Ok(Self::RelatedTo),
             other => Err(format!("unknown TaskRelationType: {other:?}")),
         }
     }
@@ -749,6 +757,35 @@ mod tests {
     fn task_status_try_from() {
         assert_eq!(TaskStatus::try_from("open"), Ok(TaskStatus::Open));
         assert!(TaskStatus::try_from("invalid").is_err());
+    }
+
+    #[test]
+    fn task_relation_type_serde_roundtrip() {
+        assert_eq!(
+            serde_json::to_string(&TaskRelationType::CreatedBy).expect("serialize"),
+            "\"created_by\""
+        );
+        assert_eq!(
+            serde_json::to_string(&TaskRelationType::RelatedTo).expect("serialize"),
+            "\"related_to\""
+        );
+
+        let parsed: TaskRelationType =
+            serde_json::from_str("\"related_to\"").expect("deserialize");
+        assert_eq!(parsed, TaskRelationType::RelatedTo);
+    }
+
+    #[test]
+    fn task_relation_type_try_from() {
+        assert_eq!(
+            TaskRelationType::try_from("created_by"),
+            Ok(TaskRelationType::CreatedBy)
+        );
+        assert_eq!(
+            TaskRelationType::try_from("related_to"),
+            Ok(TaskRelationType::RelatedTo)
+        );
+        assert!(TaskRelationType::try_from("invalid").is_err());
     }
 
     #[test]

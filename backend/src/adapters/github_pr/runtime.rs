@@ -189,7 +189,7 @@ pub async fn route_inbound_message(
         }
     }
 
-    // Capture the earliest binding (if any) so we can wire a `created_by`
+    // Capture the earliest binding (if any) so we can wire a `related_to`
     // relation when a brand-new task is spawned from this PR event. Must
     // happen before the loop below consumes `bindings`.
     let originator_binding_summary: Option<(String, String)> = bindings
@@ -227,10 +227,11 @@ pub async fn route_inbound_message(
         // upserts a connected_thread binding for the originating task at the
         // moment the agent created the PR — so by the time pr_opened fires,
         // the earliest binding is the originating task. Link the new review
-        // task back to it as `created_by`.
-        let parent = originator_binding_summary.as_ref().map(|(task_id, binding_id)| {
-            crate::task::relations::CreatedByParent {
-                parent_task_id: task_id.clone(),
+        // task to it as a `related_to` peer (it shares the PR subject_key,
+        // it isn't a child of the originator).
+        let related = originator_binding_summary.as_ref().map(|(task_id, binding_id)| {
+            crate::task::relations::RelatedTask {
+                related_task_id: task_id.clone(),
                 context: serde_json::json!({
                     "via": "github_pr_webhook",
                     "adapter": ADAPTER,
@@ -241,8 +242,8 @@ pub async fn route_inbound_message(
             }
         });
         let task_id = create_provider_event_task(state, rule, &msg).await?;
-        if let Some(ref p) = parent {
-            crate::task::relations::record_created_by(state.task_relations.as_ref(), &task_id, p)
+        if let Some(ref r) = related {
+            crate::task::relations::record_related_to(state.task_relations.as_ref(), &task_id, r)
                 .await;
         }
         provision_task(state, &task_id).await;

@@ -22,6 +22,16 @@ pub struct CreatedByParent {
     pub context: serde_json::Value,
 }
 
+/// Directive carried from a task-creation site to record a `related_to`
+/// relation immediately after the new task is inserted. Use this when a
+/// webhook spawned the new task and we discovered a peer task that shares the
+/// same external artifact (binding subject_key) — the peer is not a parent.
+#[derive(Debug, Clone)]
+pub struct RelatedTask {
+    pub related_task_id: String,
+    pub context: serde_json::Value,
+}
+
 /// A row from the `task_relations` table.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct TaskRelation {
@@ -189,6 +199,31 @@ pub async fn record_created_by(
             parent_task_id = %parent.parent_task_id,
             error = %e,
             "Failed to record created_by relation"
+        );
+    }
+}
+
+/// Fire-and-forget helper to record a `related_to` peer relation. Same
+/// swallow-and-log semantics as `record_created_by`. Used by webhook paths
+/// that discover a peer task via shared bindings, where the peer is not a
+/// parent.
+pub async fn record_related_to(
+    repo: &dyn TaskRelationRepository,
+    from_task_id: &str,
+    related: &RelatedTask,
+) {
+    let row = TaskRelation::new(
+        from_task_id,
+        &related.related_task_id,
+        TaskRelationType::RelatedTo,
+        related.context.clone(),
+    );
+    if let Err(e) = repo.insert(&row).await {
+        warn!(
+            from_task_id,
+            related_task_id = %related.related_task_id,
+            error = %e,
+            "Failed to record related_to relation"
         );
     }
 }

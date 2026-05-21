@@ -657,18 +657,19 @@ async fn provision_session_task(
     })?;
 
     // Find an earlier task already bound to this Linear issue, if any. The
-    // first row by created_at is the originator (e.g. a task that opened
-    // this issue earlier). The lookup uses destination_config.issue_id so
-    // it matches both `linear_agent_session` and `linear_issue` bindings.
-    let parent = match PgTaskBindingRepository(state.db.clone())
+    // first row by created_at is the peer that touched this issue earlier.
+    // The lookup uses destination_config.issue_id so it matches both
+    // `linear_agent_session` and `linear_issue` bindings. The new task is
+    // linked as `related_to` — a peer sharing the issue, not a child.
+    let related = match PgTaskBindingRepository(state.db.clone())
         .find_active_by_destination_field(ADAPTER, SUBJECT_KIND, "issue_id", &issue.id)
         .await
     {
         Ok(bindings) => bindings
             .into_iter()
             .next()
-            .map(|b| crate::task::relations::CreatedByParent {
-                parent_task_id: b.task_id.clone(),
+            .map(|b| crate::task::relations::RelatedTask {
+                related_task_id: b.task_id.clone(),
                 context: serde_json::json!({
                     "via": "linear_session_created",
                     "adapter": ADAPTER,
@@ -678,15 +679,15 @@ async fn provision_session_task(
                 }),
             }),
         Err(e) => {
-            warn!(error = %e, issue_id = %issue.id, "Failed to look up originating Linear task");
+            warn!(error = %e, issue_id = %issue.id, "Failed to look up peer Linear task");
             None
         }
     };
 
     // Create the task first, then the binding.
     let task_id = create_provider_event_task(state, rule, session).await?;
-    if let Some(ref p) = parent {
-        crate::task::relations::record_created_by(state.task_relations.as_ref(), &task_id, p)
+    if let Some(ref r) = related {
+        crate::task::relations::record_related_to(state.task_relations.as_ref(), &task_id, r)
             .await;
     }
     // Open the Linear turn gate before provisioning so subsequent sandbox
