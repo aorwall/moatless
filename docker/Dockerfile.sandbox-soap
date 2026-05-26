@@ -61,7 +61,7 @@ RUN chmod +x /usr/local/bin/docker-entrypoint-sandbox.sh /usr/local/bin/sync-plu
 # image (notably gh, docker-ce-cli — Go binaries that age out of CVE compliance).
 RUN apt-get update && \
     apt-get upgrade -y && \
-    apt-get install -y --no-install-recommends wget apt-transport-https gpg maven postgresql-client && \
+    apt-get install -y --no-install-recommends wget apt-transport-https gpg maven postgresql-client unzip && \
     wget -qO - https://packages.adoptium.net/artifactory/api/gpg/key/public | gpg --dearmor -o /etc/apt/keyrings/adoptium.gpg && \
     echo "deb [signed-by=/etc/apt/keyrings/adoptium.gpg] https://packages.adoptium.net/artifactory/deb $(. /etc/os-release && echo $VERSION_CODENAME) main" > /etc/apt/sources.list.d/adoptium.list && \
     apt-get update && \
@@ -87,6 +87,16 @@ RUN ARCH=$(dpkg --print-architecture) && \
 # go-task — rebuilt from source in task-builder stage above.
 COPY --from=task-builder /go/bin/task /usr/local/bin/task
 RUN chmod +x /usr/local/bin/task
+
+# AWS CLI v2 — used by the security-incident-triage skill in soap-agent-ops
+# for read-only investigation (guardduty get-findings, ec2 describe-instances,
+# cloudtrail lookup-events, logs start-query). The IRSA role attached to the
+# workspace pod determines what those calls can actually do.
+RUN ARCH=$(dpkg --print-architecture | sed 's/amd64/x86_64/;s/arm64/aarch64/') && \
+    curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${ARCH}.zip" -o /tmp/awscliv2.zip && \
+    unzip -q /tmp/awscliv2.zip -d /tmp && \
+    /tmp/aws/install --bin-dir /usr/local/bin --install-dir /usr/local/aws-cli && \
+    rm -rf /tmp/aws /tmp/awscliv2.zip
 
 # Volatile layers last — our Rust binaries change on every code edit.
 # The K8s pod spec calls `sandbox` directly (bypassing ENTRYPOINT), so we
