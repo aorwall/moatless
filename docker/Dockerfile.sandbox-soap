@@ -13,23 +13,24 @@ ARG SANDBOX_BASE=aorwall/moatless-vibe-sandbox-base:latest
 
 # Stage 1: rebuild jira-cli from source against current Go to clear stale
 # stdlib CVEs flagged by AWS Inspector on upstream binary releases.
-# Pin patch version to ensure reproducible builds and clear go/stdlib CVEs.
+# Go 1.26.3 fixes CVE-2026-42499, CVE-2026-39823, CVE-2026-39825.
 FROM golang:1.26.3-bookworm AS jira-builder
 ARG JIRA_VERSION=v1.7.0
 ENV CGO_ENABLED=0
 RUN git clone --depth 1 --branch ${JIRA_VERSION} https://github.com/ankitpokhrel/jira-cli.git /src && \
     cd /src && \
-    go get golang.org/x/net@v0.54.0 && \
+    go get golang.org/x/net@v0.55.0 && \
     go mod tidy && \
     go build -o /go/bin/jira ./cmd/jira
 
-# Stage 2: rebuild go-task from source to clear golang.org/x/net CVE-2026-33814.
+# Stage 2: rebuild go-task from source to clear golang.org/x/net CVE-2026-33814
+# and go/stdlib CVEs (CVE-2026-42499, CVE-2026-39823, CVE-2026-39825).
 FROM golang:1.26.3-bookworm AS task-builder
 ARG TASK_VERSION=v3.50.0
 ENV CGO_ENABLED=0
 RUN git clone --depth 1 --branch ${TASK_VERSION} https://github.com/go-task/task.git /src && \
     cd /src && \
-    go get golang.org/x/net@v0.54.0 && \
+    go get golang.org/x/net@v0.55.0 && \
     go mod tidy && \
     go build -o /go/bin/task ./cmd/task
 
