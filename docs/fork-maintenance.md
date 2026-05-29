@@ -118,7 +118,7 @@ Avoid the next collision:
 
 - `k8s/helm/moatless-vibe/values.yaml` is **upstream's defaults**. Don't edit
   it for fork-specific values.
-- The **fork's nonprod overlay** lives in `soaplabs/soap-k8s-nonprod` at
+- The **fork's nonprod overlay** lives in `soaplabs/soap-app-gitops` at
   `envs/staging/apps/moatless-vibe/values-{env,settings,replicas,version}.yaml`,
   consumed by `argocd/applications/moatless-vibe-staging.yaml`. Edit that
   repo for environment-specific overrides — never the upstream chart.
