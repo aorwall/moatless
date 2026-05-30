@@ -8,6 +8,13 @@ use chrono::{DateTime, Utc};
 use super::models::{TaskMessage, TaskMessageContentBlock, TaskMessageContext};
 use crate::db::DbPool;
 
+/// A page of messages with their associated context rows and content blocks.
+type MessagePage = (
+    Vec<TaskMessage>,
+    Vec<TaskMessageContext>,
+    Vec<TaskMessageContentBlock>,
+);
+
 /// Raw tool-call row assembled from the assistant tool_use block plus any
 /// matching tool_result row(s). Keeps JSON values un-transformed so the handler
 /// can decide which schema to apply.
@@ -51,14 +58,7 @@ pub trait MessageRepository: Send + Sync {
     async fn get_all(
         &self,
         task_id: &str,
-    ) -> Result<
-        (
-            Vec<TaskMessage>,
-            Vec<TaskMessageContext>,
-            Vec<TaskMessageContentBlock>,
-        ),
-        sqlx::Error,
-    >;
+    ) -> Result<MessagePage, sqlx::Error>;
 
     async fn append(
         &self,
@@ -165,14 +165,7 @@ pub trait MessageRepository: Send + Sync {
         task_id: &str,
         before_id: Option<i32>,
         limit: i32,
-    ) -> Result<
-        (
-            Vec<TaskMessage>,
-            Vec<TaskMessageContext>,
-            Vec<TaskMessageContentBlock>,
-        ),
-        sqlx::Error,
-    >;
+    ) -> Result<MessagePage, sqlx::Error>;
 
     /// Look up a single tool call by its `tool_use_id` within a task. Returns
     /// the assistant's tool_use input plus the matching tool_result content
@@ -220,14 +213,7 @@ impl MessageRepository for PgMessageRepository {
     async fn get_all(
         &self,
         task_id: &str,
-    ) -> Result<
-        (
-            Vec<TaskMessage>,
-            Vec<TaskMessageContext>,
-            Vec<TaskMessageContentBlock>,
-        ),
-        sqlx::Error,
-    > {
+    ) -> Result<MessagePage, sqlx::Error> {
         let (messages, contexts, blocks) = tokio::try_join!(
             sqlx::query_as::<_, TaskMessage>(
                 r#"SELECT * FROM task_messages
@@ -717,14 +703,7 @@ impl MessageRepository for PgMessageRepository {
         task_id: &str,
         before_id: Option<i32>,
         limit: i32,
-    ) -> Result<
-        (
-            Vec<TaskMessage>,
-            Vec<TaskMessageContext>,
-            Vec<TaskMessageContentBlock>,
-        ),
-        sqlx::Error,
-    > {
+    ) -> Result<MessagePage, sqlx::Error> {
         let mut messages = sqlx::query_as::<_, TaskMessage>(
             r#"SELECT * FROM task_messages
                WHERE task_id = $1

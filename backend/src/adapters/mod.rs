@@ -494,6 +494,41 @@ impl Adapters {
     }
 }
 
+/// Resolve the bot's Slack user ID.
+///
+/// Prefers the explicit env-var value; when absent, calls `auth.test` so the
+/// agent's system prompt always has the bot's identity available.
+async fn resolve_slack_bot_user_id(bot_token: &str, configured: Option<&str>) -> Option<String> {
+    if let Some(id) = configured {
+        let id = id.trim();
+        if !id.is_empty() {
+            tracing::info!(bot_user_id = %id, "Slack bot identity from env var");
+            return Some(id.to_string());
+        }
+    }
+
+    let api = self::slack::api::SlackApi::new(bot_token);
+    match api.auth_test().await {
+        Ok(info) => {
+            tracing::info!(
+                bot_user_id = %info.user_id,
+                handle = %info.user.as_deref().unwrap_or(""),
+                team = %info.team.as_deref().unwrap_or(""),
+                "Slack bot identity resolved via auth.test"
+            );
+            Some(info.user_id)
+        }
+        Err(e) => {
+            tracing::warn!(
+                error = %e,
+                "Could not resolve Slack bot identity — set SLACK_BOT_USER_ID explicitly; \
+                 agent system prompt will fall back to an unknown-identity message"
+            );
+            None
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -551,41 +586,6 @@ mod tests {
                 );
             }
             other => panic!("expected BadRequest, got: {other:?}"),
-        }
-    }
-}
-
-/// Resolve the bot's Slack user ID.
-///
-/// Prefers the explicit env-var value; when absent, calls `auth.test` so the
-/// agent's system prompt always has the bot's identity available.
-async fn resolve_slack_bot_user_id(bot_token: &str, configured: Option<&str>) -> Option<String> {
-    if let Some(id) = configured {
-        let id = id.trim();
-        if !id.is_empty() {
-            tracing::info!(bot_user_id = %id, "Slack bot identity from env var");
-            return Some(id.to_string());
-        }
-    }
-
-    let api = self::slack::api::SlackApi::new(bot_token);
-    match api.auth_test().await {
-        Ok(info) => {
-            tracing::info!(
-                bot_user_id = %info.user_id,
-                handle = %info.user.as_deref().unwrap_or(""),
-                team = %info.team.as_deref().unwrap_or(""),
-                "Slack bot identity resolved via auth.test"
-            );
-            Some(info.user_id)
-        }
-        Err(e) => {
-            tracing::warn!(
-                error = %e,
-                "Could not resolve Slack bot identity — set SLACK_BOT_USER_ID explicitly; \
-                 agent system prompt will fall back to an unknown-identity message"
-            );
-            None
         }
     }
 }

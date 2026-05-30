@@ -1720,6 +1720,8 @@ mod tests {
 
     fn fake_github_apps() -> Arc<GitHubAppRegistry> {
         Arc::new(GitHubAppRegistry::default())
+    }
+
     fn fake_rule() -> TaskTriggerRoute {
         use crate::adapters::models::RoutingMode;
         use crate::scope::Scope;
@@ -1805,7 +1807,15 @@ mod tests {
 
     #[tokio::test]
     async fn issue_comment_with_legacy_bare_marker_is_ignored() {
-        let provider = GithubPrAdapter::new(None, None, fake_db_pool());
+        let provider = GithubPrAdapter::new(
+            None,
+            None,
+            fake_db_pool(),
+            fake_provider_tokens(),
+            None,
+            None,
+            fake_github_apps(),
+        );
         let rule = fake_rule();
         let db = fake_db_pool();
         let ctx = EventContext {
@@ -1837,7 +1847,15 @@ mod tests {
 
     #[tokio::test]
     async fn issue_comment_with_tagged_marker_delivers_with_source_task_id() {
-        let provider = GithubPrAdapter::new(None, None, fake_db_pool());
+        let provider = GithubPrAdapter::new(
+            None,
+            None,
+            fake_db_pool(),
+            fake_provider_tokens(),
+            None,
+            None,
+            fake_github_apps(),
+        );
         let rule = fake_rule();
         let db = fake_db_pool();
         let ctx = EventContext {
@@ -1873,7 +1891,15 @@ mod tests {
 
     #[tokio::test]
     async fn issue_comment_from_human_is_delivered() {
-        let provider = GithubPrAdapter::new(None, None, fake_db_pool());
+        let provider = GithubPrAdapter::new(
+            None,
+            None,
+            fake_db_pool(),
+            fake_provider_tokens(),
+            None,
+            None,
+            fake_github_apps(),
+        );
         let rule = fake_rule();
         let db = fake_db_pool();
         let ctx = EventContext {
@@ -1909,7 +1935,15 @@ mod tests {
 
     #[tokio::test]
     async fn review_comment_with_legacy_bare_marker_is_ignored() {
-        let provider = GithubPrAdapter::new(None, None, fake_db_pool());
+        let provider = GithubPrAdapter::new(
+            None,
+            None,
+            fake_db_pool(),
+            fake_provider_tokens(),
+            None,
+            None,
+            fake_github_apps(),
+        );
         let rule = fake_rule();
         let db = fake_db_pool();
         let ctx = EventContext {
@@ -1941,7 +1975,15 @@ mod tests {
 
     #[tokio::test]
     async fn review_comment_with_tagged_marker_delivers_with_source_task_id() {
-        let provider = GithubPrAdapter::new(None, None, fake_db_pool());
+        let provider = GithubPrAdapter::new(
+            None,
+            None,
+            fake_db_pool(),
+            fake_provider_tokens(),
+            None,
+            None,
+            fake_github_apps(),
+        );
         let rule = fake_rule();
         let db = fake_db_pool();
         let ctx = EventContext {
