@@ -107,6 +107,7 @@ impl WebhookAdapter {
             thread_properties,
             provider_context: serde_json::json!({}),
             external_event_id: None,
+            source_task_id: None,
         })
     }
 }
@@ -221,6 +222,7 @@ mod tests {
             tag_ids: vec![],
             run_as_user_id: None,
             agent_type: "claude-code".into(),
+            inactive_ttl_days: None,
             created_by: "default-user".into(),
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),

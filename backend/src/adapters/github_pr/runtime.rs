@@ -57,6 +57,7 @@ pub(crate) fn trigger_context(rule: &TaskTriggerRoute) -> TriggerContext {
         tag_ids: rule.tag_ids.clone(),
         run_as_user_id: rule.run_as_user_id.clone(),
         agent_type: rule.agent_type.clone(),
+        inactive_ttl_days: rule.inactive_ttl_days,
         created_by: rule.created_by.clone(),
         created_at: rule.created_at,
         updated_at: rule.updated_at,
@@ -144,16 +145,24 @@ pub async fn route_inbound_message(
     let subject_key = subject_key_from_thread_properties(&msg.thread_properties)?;
     let binding_repo = PgTaskBindingRepository(state.db.clone());
 
-    let origin_task_id = match msg.external_event_id.as_deref() {
-        Some(ext_id) => {
-            let candidates =
-                crate::bindings::runtime::external_id_aliases(state, ADAPTER_LABEL, ext_id);
-            state
-                .messages
-                .find_task_id_by_any_external_event_id(&candidates)
-                .await?
-        }
-        None => None,
+    // Prefer the source task id carried on the inbound message (parsed from
+    // the `<!-- moatless-agent:TASK_ID -->` marker on the comment body) — it
+    // is authoritative and avoids a DB round-trip. Fall back to the
+    // external_event_id lookup for paths that don't carry the marker
+    // (e.g. legacy comments, PR opened events).
+    let origin_task_id = match msg.source_task_id.clone() {
+        Some(task_id) => Some(task_id),
+        None => match msg.external_event_id.as_deref() {
+            Some(ext_id) => {
+                let candidates =
+                    crate::bindings::runtime::external_id_aliases(state, ADAPTER_LABEL, ext_id);
+                state
+                    .messages
+                    .find_task_id_by_any_external_event_id(&candidates)
+                    .await?
+            }
+            None => None,
+        },
     };
 
     let mut bindings = binding_repo
@@ -466,6 +475,7 @@ async fn build_close_inbound_message(
         }),
         provider_context: serde_json::json!({}),
         external_event_id: Some(super::external_id::pr_event("closed", info.pr_number, None)),
+        source_task_id: None,
     }
 }
 
@@ -569,7 +579,9 @@ async fn create_provider_event_task(
         sandbox_started_at: None,
         headless: true,
         ttl_minutes: crate::task::models::DEFAULT_TTL_MINUTES,
-        inactive_ttl_days: crate::task::models::DEFAULT_INACTIVE_TTL_DAYS,
+        inactive_ttl_days: rule
+            .inactive_ttl_days
+            .unwrap_or(crate::task::models::DEFAULT_INACTIVE_TTL_DAYS),
         task_template_id: None,
         trigger_id: Some(rule.id.clone()),
     };

@@ -276,6 +276,7 @@ impl TelegramAdapter {
             thread_properties,
             provider_context: serde_json::json!({}),
             external_event_id: Some(super::external_id::message(message_id)),
+            source_task_id: None,
         })))
     }
 }
@@ -433,6 +434,7 @@ impl Adapter for TelegramAdapter {
                 tag_ids: vec![],
                 run_as_user_id: None,
                 agent_type: "claude-code".to_string(),
+                inactive_ttl_days: None,
                 created_by: "system".to_string(),
                 created_at: binding.created_at,
                 updated_at: binding.last_event_at,
@@ -924,6 +926,7 @@ mod tests {
             tag_ids: vec![],
             run_as_user_id: None,
             agent_type: "claude-code".into(),
+            inactive_ttl_days: None,
             created_by: "system".into(),
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
@@ -946,6 +949,7 @@ mod tests {
             tag_ids: vec![],
             run_as_user_id: None,
             agent_type: "claude-code".into(),
+            inactive_ttl_days: None,
             allow_direct_send: true,
             provider_config: None,
             ongoing_task_id: None,

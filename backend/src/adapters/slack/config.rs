@@ -119,6 +119,7 @@ mod tests {
             tag_ids: vec![],
             run_as_user_id: None,
             agent_type: "claude-code".into(),
+            inactive_ttl_days: None,
             created_by: "owner".into(),
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),

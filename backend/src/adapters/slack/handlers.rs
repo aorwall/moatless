@@ -434,6 +434,7 @@ async fn process_slash_command_background(
             "slash_command": true,
         }),
         external_event_id: Some(prefixed_ext_id),
+        source_task_id: None,
     };
 
     let destination = slack_arc.binding_destination_from_existing_thread(

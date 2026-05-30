@@ -49,6 +49,10 @@ pub struct TriggerRule {
     pub tag_ids: Vec<String>,
     pub run_as_user_id: Option<String>,
     pub agent_type: String,
+    /// Per-trigger inactivity TTL in days. `None` means "inherit the global
+    /// default" (`TASK_INACTIVE_TIMEOUT_DAYS`). Flows into `tasks.inactive_ttl_days`
+    /// when this trigger spawns a task.
+    pub inactive_ttl_days: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -63,6 +67,7 @@ pub struct CreateTriggerRule {
     pub tag_ids: Option<Vec<String>>,
     pub run_as_user_id: Option<String>,
     pub agent_type: Option<String>,
+    pub inactive_ttl_days: Option<i32>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -77,6 +82,7 @@ pub struct UpdateTriggerRule {
     pub tag_ids: Option<Vec<String>>,
     pub run_as_user_id: Option<Option<String>>,
     pub agent_type: Option<String>,
+    pub inactive_ttl_days: Option<Option<i32>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

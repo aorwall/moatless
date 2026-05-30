@@ -198,8 +198,8 @@ pub async fn create_trigger(
     sqlx::query(
         r#"INSERT INTO trigger_rules
            (trigger_id, repository_id, routing_mode, ongoing_task_id, prompt,
-            task_name, tag_ids, run_as_user_id, agent_type)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"#,
+            task_name, tag_ids, run_as_user_id, agent_type, inactive_ttl_days)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"#,
     )
     .bind(&id)
     .bind(&req.rule.repository_id)
@@ -214,6 +214,7 @@ pub async fn create_trigger(
             .agent_type
             .unwrap_or_else(|| "claude-code".to_string()),
     )
+    .bind(req.rule.inactive_ttl_days)
     .execute(&mut *tx)
     .await?;
 
@@ -394,7 +395,8 @@ pub async fn update_trigger(
                    task_name = $6,
                    tag_ids = $7,
                    run_as_user_id = $8,
-                   agent_type = $9
+                   agent_type = $9,
+                   inactive_ttl_days = $10
                WHERE trigger_id = $1"#,
         )
         .bind(&id)
@@ -420,6 +422,10 @@ pub async fn update_trigger(
         .bind(
             rule.agent_type
                 .unwrap_or_else(|| current.rule.agent_type.clone()),
+        )
+        .bind(
+            rule.inactive_ttl_days
+                .unwrap_or(current.rule.inactive_ttl_days),
         )
         .execute(&mut *tx)
         .await?;

@@ -63,6 +63,7 @@ mod tests {
             tag_ids: vec![],
             run_as_user_id: None,
             agent_type: "claude-code".into(),
+            inactive_ttl_days: None,
             allow_direct_send: false,
             provider_config: None,
             ongoing_task_id: None,

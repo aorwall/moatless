@@ -50,6 +50,7 @@ const TASK_TRIGGER_ROUTE_SELECT: &str = r#"
            r.tag_ids,
            r.run_as_user_id,
            r.agent_type,
+           r.inactive_ttl_days,
            aes.allow_direct_send,
            aes.adapter_config AS provider_config,
            r.ongoing_task_id,
@@ -176,17 +177,18 @@ impl PgTaskTriggerRouteRepository {
         sqlx::query(
             r#"INSERT INTO trigger_rules
                (trigger_id, repository_id, routing_mode, ongoing_task_id, prompt,
-                task_name, tag_ids, run_as_user_id, agent_type)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                task_name, tag_ids, run_as_user_id, agent_type, inactive_ttl_days)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                ON CONFLICT (trigger_id) DO UPDATE
-               SET repository_id   = EXCLUDED.repository_id,
-                   routing_mode    = EXCLUDED.routing_mode,
-                   ongoing_task_id = EXCLUDED.ongoing_task_id,
-                   prompt          = EXCLUDED.prompt,
-                   task_name       = EXCLUDED.task_name,
-                   tag_ids         = EXCLUDED.tag_ids,
-                   run_as_user_id  = EXCLUDED.run_as_user_id,
-                   agent_type      = EXCLUDED.agent_type"#,
+               SET repository_id     = EXCLUDED.repository_id,
+                   routing_mode      = EXCLUDED.routing_mode,
+                   ongoing_task_id   = EXCLUDED.ongoing_task_id,
+                   prompt            = EXCLUDED.prompt,
+                   task_name         = EXCLUDED.task_name,
+                   tag_ids           = EXCLUDED.tag_ids,
+                   run_as_user_id    = EXCLUDED.run_as_user_id,
+                   agent_type        = EXCLUDED.agent_type,
+                   inactive_ttl_days = EXCLUDED.inactive_ttl_days"#,
         )
         .bind(&row.id)
         .bind(&row.repository_id)
@@ -197,6 +199,7 @@ impl PgTaskTriggerRouteRepository {
         .bind(&row.tag_ids)
         .bind(&row.run_as_user_id)
         .bind(&row.agent_type)
+        .bind(row.inactive_ttl_days)
         .execute(&mut *tx)
         .await?;
 

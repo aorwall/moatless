@@ -43,6 +43,7 @@ pub fn trigger_context(rule: &TaskTriggerRoute, provider_label: &str) -> Trigger
         tag_ids: rule.tag_ids.clone(),
         run_as_user_id: rule.run_as_user_id.clone(),
         agent_type: rule.agent_type.clone(),
+        inactive_ttl_days: rule.inactive_ttl_days,
         created_by: rule.created_by.clone(),
         created_at: rule.created_at,
         updated_at: rule.updated_at,

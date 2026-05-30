@@ -549,6 +549,7 @@ impl SlackAdapter {
                 "is_bot_mentioned": is_bot_mentioned,
             }),
             external_event_id: Some(super::external_id::message_ts(ts)),
+            source_task_id: None,
         })))
     }
 }
@@ -853,6 +854,7 @@ impl Adapter for SlackAdapter {
                 tag_ids: vec![],
                 run_as_user_id: None,
                 agent_type: "claude-code".to_string(),
+                inactive_ttl_days: None,
                 created_by: "system".to_string(),
                 created_at: binding.created_at,
                 updated_at: binding.last_event_at,
@@ -1174,6 +1176,7 @@ mod tests {
             tag_ids: vec![],
             run_as_user_id: None,
             agent_type: "claude-code".into(),
+            inactive_ttl_days: None,
             allow_direct_send: true,
             provider_config: None,
             ongoing_task_id: None,

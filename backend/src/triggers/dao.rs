@@ -32,6 +32,7 @@ pub struct TriggerRuleRow {
     pub tag_ids: Vec<String>,
     pub run_as_user_id: Option<String>,
     pub agent_type: String,
+    pub inactive_ttl_days: Option<i32>,
 }
 
 #[derive(Debug, Clone)]
@@ -94,6 +95,7 @@ struct JoinedTriggerRecordRow {
     tag_ids: Vec<String>,
     run_as_user_id: Option<String>,
     agent_type: String,
+    inactive_ttl_days: Option<i32>,
     adapter_kind: Option<String>,
     connection_id: Option<String>,
     source_matcher: Option<String>,
@@ -136,6 +138,7 @@ impl JoinedTriggerRecordRow {
             tag_ids: self.tag_ids,
             run_as_user_id: self.run_as_user_id,
             agent_type: self.agent_type,
+            inactive_ttl_days: self.inactive_ttl_days,
         };
         let source = match self.kind.as_str() {
             "adapter_event" => TriggerSourceRow::AdapterEvent(AdapterEventTriggerSourceRow {
@@ -198,6 +201,7 @@ const TRIGGER_RECORD_SELECT: &str = r#"
            r.tag_ids,
            r.run_as_user_id,
            r.agent_type,
+           r.inactive_ttl_days,
            aes.adapter_kind,
            aes.connection_id,
            aes.source_matcher,

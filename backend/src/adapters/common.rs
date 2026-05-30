@@ -107,6 +107,7 @@ pub(crate) fn trigger_response(record: &TriggerRecord) -> TriggerResponse {
             tag_ids: record.rule.tag_ids.clone(),
             run_as_user_id: record.rule.run_as_user_id.clone(),
             agent_type: record.rule.agent_type.clone(),
+            inactive_ttl_days: record.rule.inactive_ttl_days,
         },
         source,
     }

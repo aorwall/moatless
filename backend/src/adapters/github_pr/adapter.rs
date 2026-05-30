@@ -18,8 +18,53 @@ use crate::state::AppState;
 use super::api::GithubPrApi;
 use super::config::GithubPrRuleConfig;
 
-/// Agent comment marker to filter self-replies.
-const AGENT_MARKER: &str = "<!-- moatless-agent -->";
+/// Agent comment marker prefix. Outbound bodies are tagged with the source
+/// task id (`<!-- moatless-agent:TASK_ID -->`) so we can drop only the
+/// authoring task's own echoes on the way back in, while letting other tasks
+/// on the same PR receive the comment as a user message.
+const MARKER_PREFIX: &str = "<!-- moatless-agent";
+
+/// Build the outbound agent marker for a given task id.
+fn agent_marker(task_id: &str) -> String {
+    format!("<!-- moatless-agent:{task_id} -->")
+}
+
+/// Classification of a leading agent marker on a comment body.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum AgentMarker {
+    /// Legacy bare marker `<!-- moatless-agent -->` — no task id embedded.
+    /// Predates per-task tagging; still ignored on inbound for backward compat.
+    Bare,
+    /// New tagged marker `<!-- moatless-agent:TASK_ID -->`.
+    Tagged(String),
+}
+
+/// Parse the leading agent marker (if any) from a comment body.
+///
+/// Matches only at `body.trim_start()`. Returns `None` when the body does not
+/// begin with the marker prefix; `Some(Bare)` for legacy bare markers or any
+/// malformed tagged form (e.g. empty id) — these are treated as
+/// "agent-authored, source unknown" and dropped on inbound; `Some(Tagged(id))`
+/// when an id is present.
+pub(crate) fn parse_agent_marker(body: &str) -> Option<AgentMarker> {
+    let trimmed = body.trim_start();
+    let rest = trimmed.strip_prefix(MARKER_PREFIX)?;
+    // `rest` now begins with either ` -->` (bare) or `:<id> -->` (tagged).
+    if let Some(after_colon) = rest.strip_prefix(':') {
+        if let Some(end) = after_colon.find("-->") {
+            let id = after_colon[..end].trim();
+            if id.is_empty() {
+                return Some(AgentMarker::Bare);
+            }
+            return Some(AgentMarker::Tagged(id.to_string()));
+        }
+        return Some(AgentMarker::Bare);
+    }
+    if rest.trim_start().starts_with("-->") {
+        return Some(AgentMarker::Bare);
+    }
+    None
+}
 
 /// Map a user-supplied emoji name to GitHub's reaction content enum.
 ///
@@ -431,6 +476,7 @@ impl GithubPrAdapter {
             }),
             provider_context: serde_json::json!({}),
             external_event_id: Some(super::external_id::pr_event(action, pr_number, None)),
+            source_task_id: None,
         })))
     }
 
@@ -504,6 +550,7 @@ impl GithubPrAdapter {
                 pr_number,
                 sync_sha,
             )),
+            source_task_id: None,
         })))
     }
 
@@ -543,6 +590,18 @@ impl GithubPrAdapter {
             .and_then(serde_json::Value::as_u64)
             .unwrap_or(0);
 
+        let source_task_id = match parse_agent_marker(comment_body) {
+            Some(AgentMarker::Bare) => {
+                debug!(
+                    comment_id,
+                    "Ignoring self-authored agent comment (legacy bare marker)"
+                );
+                return Ok(GithubPrWebhookResult::Ignore);
+            }
+            Some(AgentMarker::Tagged(task_id)) => Some(task_id),
+            None => None,
+        };
+
         let user_id = self
             .resolve_user_or_fallback(ctx.sender_login, ctx.rule, ctx.db)
             .await;
@@ -563,6 +622,7 @@ impl GithubPrAdapter {
             }),
             provider_context: serde_json::json!({}),
             external_event_id: Some(super::external_id::issue_comment(comment_id)),
+            source_task_id,
         })))
     }
 
@@ -597,6 +657,19 @@ impl GithubPrAdapter {
             .get("id")
             .and_then(serde_json::Value::as_u64)
             .unwrap_or(0);
+
+        let source_task_id = match parse_agent_marker(comment_body) {
+            Some(AgentMarker::Bare) => {
+                debug!(
+                    comment_id,
+                    "Ignoring self-authored agent review comment (legacy bare marker)"
+                );
+                return Ok(GithubPrWebhookResult::Ignore);
+            }
+            Some(AgentMarker::Tagged(task_id)) => Some(task_id),
+            None => None,
+        };
+
         let diff_hunk = comment
             .get("diff_hunk")
             .and_then(serde_json::Value::as_str)
@@ -665,6 +738,7 @@ impl GithubPrAdapter {
             }),
             provider_context: serde_json::json!({}),
             external_event_id: Some(super::external_id::review_comment(comment_id)),
+            source_task_id,
         })))
     }
 
@@ -739,6 +813,7 @@ impl GithubPrAdapter {
             }),
             provider_context: serde_json::json!({}),
             external_event_id: Some(super::external_id::review(review_id)),
+            source_task_id: None,
         })))
     }
 
@@ -866,6 +941,7 @@ impl GithubPrAdapter {
             }),
             provider_context: serde_json::json!({}),
             external_event_id: Some(super::external_id::check_run(check_run_id)),
+            source_task_id: None,
         })))
     }
 
@@ -955,6 +1031,7 @@ impl GithubPrAdapter {
             }),
             provider_context: serde_json::json!({}),
             external_event_id: Some(super::external_id::check_suite(check_suite_id)),
+            source_task_id: None,
         })))
     }
 
@@ -1150,7 +1227,7 @@ impl Adapter for GithubPrAdapter {
         let token = self.resolve_token_for_user(&user_id).await?;
         let api = GithubPrApi::new(&token);
 
-        let mut body = format!("{AGENT_MARKER}\n{}", message.text);
+        let mut body = format!("{}\n{}", agent_marker(&binding.task_id), message.text);
         if let Some(ref url) = message.task_url {
             let _ = write!(body, "\n\n---\n[View task]({url})");
         }
@@ -1190,7 +1267,7 @@ impl Adapter for GithubPrAdapter {
                 let token = self.resolve_token_for_user(&user_id).await?;
                 let api = GithubPrApi::new(&token);
 
-                let mut body = format!("{AGENT_MARKER}\n{}", message.text);
+                let mut body = format!("{}\n{}", agent_marker(&binding.task_id), message.text);
                 if let Some(ref url) = message.task_url {
                     let _ = write!(body, "\n\n---\n[View task]({url})");
                 }
@@ -1313,7 +1390,15 @@ impl Adapter for GithubPrAdapter {
 
         let context = comments
             .iter()
-            .filter(|c| c.body.as_deref().is_none_or(|b| !b.contains(AGENT_MARKER)))
+            .filter(|c| match c.body.as_deref().and_then(parse_agent_marker) {
+                // Hide this task's own outbound comments — they're already in
+                // its message log and would only echo back as context.
+                Some(AgentMarker::Tagged(ref tid)) => tid != &thread.task_id,
+                // Legacy bare markers: source task unknown, drop to match
+                // pre-tagged behavior.
+                Some(AgentMarker::Bare) => false,
+                None => true,
+            })
             .filter(|c| {
                 let prefixed = super::external_id::issue_comment(c.id);
                 let bare = c.id.to_string();
@@ -1544,5 +1629,260 @@ mod tests {
             .max_connections(1)
             .connect_lazy("postgres://fake:fake@localhost:1/fake")
             .unwrap()
+    }
+
+    fn fake_rule() -> TaskTriggerRoute {
+        use crate::adapters::models::RoutingMode;
+        use crate::scope::Scope;
+        use chrono::Utc;
+        TaskTriggerRoute {
+            id: "ir_test".into(),
+            provider: "github".into(),
+            connection_id: "pc_test".into(),
+            source_matcher: "soaplabs/repo".into(),
+            source_name: None,
+            routing_mode: RoutingMode::BySubject,
+            event_filter: serde_json::json!([]),
+            repository_id: "repo-1".into(),
+            prompt_template: None,
+            task_name: None,
+            tag_ids: vec![],
+            run_as_user_id: None,
+            agent_type: "claude-code".into(),
+            inactive_ttl_days: None,
+            allow_direct_send: false,
+            provider_config: None,
+            ongoing_task_id: None,
+            close_task_on_close: false,
+            notify_on_success: false,
+            active: true,
+            created_by: "alice".into(),
+            scope: Scope::User,
+            team_id: None,
+            owner_user_id: Some("alice".into()),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn parse_agent_marker_classifies_bodies() {
+        // No marker.
+        assert!(parse_agent_marker("hello world").is_none());
+        assert!(parse_agent_marker("").is_none());
+
+        // Legacy bare marker (still emitted by old deployments).
+        assert_eq!(
+            parse_agent_marker("<!-- moatless-agent -->\nbody"),
+            Some(AgentMarker::Bare)
+        );
+
+        // Leading whitespace is allowed.
+        assert_eq!(
+            parse_agent_marker("   \n<!-- moatless-agent -->\nbody"),
+            Some(AgentMarker::Bare)
+        );
+
+        // Tagged.
+        assert_eq!(
+            parse_agent_marker("<!-- moatless-agent:task-abc -->\nbody"),
+            Some(AgentMarker::Tagged("task-abc".to_string()))
+        );
+
+        // Tagged with surrounding whitespace around the id (defensive trim).
+        assert_eq!(
+            parse_agent_marker("<!-- moatless-agent: task-abc  -->\nbody"),
+            Some(AgentMarker::Tagged("task-abc".to_string()))
+        );
+
+        // Malformed: empty id falls back to Bare so we still drop legacy-style.
+        assert_eq!(
+            parse_agent_marker("<!-- moatless-agent: -->\nbody"),
+            Some(AgentMarker::Bare)
+        );
+
+        // Marker that does not actually begin at start-after-trim is not matched.
+        assert!(parse_agent_marker("real comment\n<!-- moatless-agent:x -->").is_none());
+    }
+
+    #[test]
+    fn agent_marker_round_trips_through_parser() {
+        let body = format!("{}\nhello", agent_marker("task-42"));
+        assert_eq!(
+            parse_agent_marker(&body),
+            Some(AgentMarker::Tagged("task-42".to_string()))
+        );
+    }
+
+    #[tokio::test]
+    async fn issue_comment_with_legacy_bare_marker_is_ignored() {
+        let provider = GithubPrAdapter::new(None, None, fake_db_pool());
+        let rule = fake_rule();
+        let db = fake_db_pool();
+        let ctx = EventContext {
+            rule: &rule,
+            owner: "soaplabs",
+            repo: "repo",
+            sender_login: "SoapLabBot",
+            db: &db,
+        };
+        let payload = serde_json::json!({
+            "action": "created",
+            "issue": {
+                "number": 42,
+                "pull_request": { "url": "https://api.github.com/repos/soaplabs/repo/pulls/42" }
+            },
+            "comment": {
+                "id": 123_456_u64,
+                "body": "<!-- moatless-agent -->\nAcknowledged. Waiting for a fix commit.",
+            }
+        });
+
+        let result = provider
+            .handle_issue_comment_event(&payload, &ctx)
+            .await
+            .unwrap();
+
+        assert!(matches!(result, GithubPrWebhookResult::Ignore));
+    }
+
+    #[tokio::test]
+    async fn issue_comment_with_tagged_marker_delivers_with_source_task_id() {
+        let provider = GithubPrAdapter::new(None, None, fake_db_pool());
+        let rule = fake_rule();
+        let db = fake_db_pool();
+        let ctx = EventContext {
+            rule: &rule,
+            owner: "soaplabs",
+            repo: "repo",
+            sender_login: "SoapLabBot",
+            db: &db,
+        };
+        let payload = serde_json::json!({
+            "action": "created",
+            "issue": {
+                "number": 42,
+                "pull_request": { "url": "https://api.github.com/repos/soaplabs/repo/pulls/42" }
+            },
+            "comment": {
+                "id": 123_456_u64,
+                "body": format!("{}\nAcknowledged. Waiting for a fix commit.", agent_marker("task-A")),
+            }
+        });
+
+        let result = provider
+            .handle_issue_comment_event(&payload, &ctx)
+            .await
+            .unwrap();
+
+        let msg = match result {
+            GithubPrWebhookResult::Message(m) => m,
+            _ => panic!("expected Message"),
+        };
+        assert_eq!(msg.source_task_id.as_deref(), Some("task-A"));
+    }
+
+    #[tokio::test]
+    async fn issue_comment_from_human_is_delivered() {
+        let provider = GithubPrAdapter::new(None, None, fake_db_pool());
+        let rule = fake_rule();
+        let db = fake_db_pool();
+        let ctx = EventContext {
+            rule: &rule,
+            owner: "soaplabs",
+            repo: "repo",
+            sender_login: "alice",
+            db: &db,
+        };
+        let payload = serde_json::json!({
+            "action": "created",
+            "issue": {
+                "number": 42,
+                "pull_request": { "url": "https://api.github.com/repos/soaplabs/repo/pulls/42" }
+            },
+            "comment": {
+                "id": 123_456_u64,
+                "body": "Please re-check line 42 after the fix commit.",
+            }
+        });
+
+        let result = provider
+            .handle_issue_comment_event(&payload, &ctx)
+            .await
+            .unwrap();
+
+        let msg = match result {
+            GithubPrWebhookResult::Message(m) => m,
+            _ => panic!("expected Message"),
+        };
+        assert_eq!(msg.source_task_id, None);
+    }
+
+    #[tokio::test]
+    async fn review_comment_with_legacy_bare_marker_is_ignored() {
+        let provider = GithubPrAdapter::new(None, None, fake_db_pool());
+        let rule = fake_rule();
+        let db = fake_db_pool();
+        let ctx = EventContext {
+            rule: &rule,
+            owner: "soaplabs",
+            repo: "repo",
+            sender_login: "SoapLabBot",
+            db: &db,
+        };
+        let payload = serde_json::json!({
+            "action": "created",
+            "pull_request": { "number": 42 },
+            "comment": {
+                "id": 999_u64,
+                "body": "   \n<!-- moatless-agent -->\nAcknowledged on the inline thread.",
+                "path": "src/foo.rs",
+                "diff_hunk": "@@ -1 +1 @@",
+                "html_url": "https://github.com/soaplabs/repo/pull/42#discussion_r999",
+            }
+        });
+
+        let result = provider
+            .handle_review_comment_event(&payload, &ctx)
+            .await
+            .unwrap();
+
+        assert!(matches!(result, GithubPrWebhookResult::Ignore));
+    }
+
+    #[tokio::test]
+    async fn review_comment_with_tagged_marker_delivers_with_source_task_id() {
+        let provider = GithubPrAdapter::new(None, None, fake_db_pool());
+        let rule = fake_rule();
+        let db = fake_db_pool();
+        let ctx = EventContext {
+            rule: &rule,
+            owner: "soaplabs",
+            repo: "repo",
+            sender_login: "SoapLabBot",
+            db: &db,
+        };
+        let payload = serde_json::json!({
+            "action": "created",
+            "pull_request": { "number": 42 },
+            "comment": {
+                "id": 999_u64,
+                "body": format!("{}\nAcknowledged on the inline thread.", agent_marker("task-B")),
+                "path": "src/foo.rs",
+                "diff_hunk": "@@ -1 +1 @@",
+                "html_url": "https://github.com/soaplabs/repo/pull/42#discussion_r999",
+            }
+        });
+
+        let result = provider
+            .handle_review_comment_event(&payload, &ctx)
+            .await
+            .unwrap();
+
+        let msg = match result {
+            GithubPrWebhookResult::Message(m) => m,
+            _ => panic!("expected Message"),
+        };
+        assert_eq!(msg.source_task_id.as_deref(), Some("task-B"));
     }
 }

@@ -38,6 +38,10 @@ pub struct TriggerContext {
     pub tag_ids: Vec<String>,
     pub run_as_user_id: Option<String>,
     pub agent_type: String,
+    /// Per-trigger inactivity TTL override (days). `None` means the reaper
+    /// falls back to the platform-wide default (`TASK_INACTIVE_TIMEOUT_DAYS`).
+    /// Flows into `tasks.inactive_ttl_days` at task creation time.
+    pub inactive_ttl_days: Option<i32>,
     pub created_by: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -113,6 +117,7 @@ pub struct TaskRoute {
     pub tag_ids: Vec<String>,
     pub run_as_user_id: Option<String>,
     pub agent_type: String,
+    pub inactive_ttl_days: Option<i32>,
     pub scope: Scope,
     pub team_id: Option<String>,
     pub owner_user_id: Option<String>,
@@ -168,6 +173,7 @@ pub struct TaskTriggerRoute {
     pub tag_ids: Vec<String>,
     pub run_as_user_id: Option<String>,
     pub agent_type: String,
+    pub inactive_ttl_days: Option<i32>,
     pub allow_direct_send: bool,
     pub provider_config: Option<serde_json::Value>,
     pub ongoing_task_id: Option<String>,
@@ -260,6 +266,12 @@ pub struct InboundMessage {
     /// External message ID for dedup (e.g., Slack `ts`, Telegram `message_id`).
     /// Must be unique per message — NOT the thread ID.
     pub external_event_id: Option<String>,
+    /// Source task id when the inbound event was authored by a moatless task
+    /// (e.g. GitHub PR adapter parses this from the `<!-- moatless-agent:ID -->`
+    /// marker on the comment body). Routing uses this to skip delivery back to
+    /// the authoring task while still fanning out to other bindings on the same
+    /// subject.
+    pub source_task_id: Option<String>,
 }
 
 /// Resolved file attachment for outbound adapter messages.

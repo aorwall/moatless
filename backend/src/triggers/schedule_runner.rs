@@ -193,6 +193,7 @@ async fn execute_job(
                   r.tag_ids,
                   r.run_as_user_id,
                   r.agent_type,
+                  r.inactive_ttl_days,
                   t.scope,
                   t.team_id,
                   t.owner_user_id,
@@ -223,6 +224,7 @@ async fn execute_job(
         thread_properties: serde_json::json!({"scheduled_job_id": job.id}),
         provider_context: serde_json::json!({"scheduled_job_id": job.id}),
         external_event_id: Some(format!("scheduled:{}:{}", job.id, Utc::now().timestamp())),
+        source_task_id: None,
     };
 
     let mut is_new_task = false;
@@ -347,6 +349,7 @@ fn route_to_config(route: &TaskRoute, job: &ScheduledJob) -> TriggerContext {
             .clone()
             .or_else(|| route.run_as_user_id.clone()),
         agent_type: route.agent_type.clone(),
+        inactive_ttl_days: route.inactive_ttl_days,
         created_by: route.created_by.clone(),
         created_at: route.created_at,
         updated_at: route.updated_at,

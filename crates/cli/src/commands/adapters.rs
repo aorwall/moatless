@@ -148,6 +148,10 @@ pub enum TriggerAction {
         clear_run_as_user_id: bool,
         #[arg(long)]
         agent_type: Option<String>,
+        #[arg(long, value_name = "DAYS")]
+        inactive_ttl_days: Option<i32>,
+        #[arg(long)]
+        clear_inactive_ttl_days: bool,
         #[arg(long)]
         connection_id: Option<String>,
         #[arg(long)]
@@ -206,6 +210,11 @@ pub struct CreateRuleArgs {
     agent_type: String,
     #[arg(long = "tag")]
     tag_ids: Vec<String>,
+    /// Per-trigger inactivity TTL in days. Tasks spawned by this trigger
+    /// auto-close after this many days of inactivity (0 = never close).
+    /// Omit to inherit the platform-wide default (TASK_INACTIVE_TIMEOUT_DAYS).
+    #[arg(long)]
+    inactive_ttl_days: Option<i32>,
 }
 
 #[derive(Subcommand)]
@@ -430,6 +439,8 @@ pub async fn run_triggers(
             run_as_user_id,
             clear_run_as_user_id,
             agent_type,
+            inactive_ttl_days,
+            clear_inactive_ttl_days,
             connection_id,
             source_matcher,
             source_name,
@@ -466,6 +477,8 @@ pub async fn run_triggers(
                 run_as_user_id,
                 clear_run_as_user_id,
                 agent_type,
+                inactive_ttl_days,
+                clear_inactive_ttl_days,
             )?;
             let source = update_source(
                 connection_id,
@@ -558,6 +571,7 @@ fn create_rule(args: CreateRuleArgs) -> Result<CreateTriggerRule, ClientError> {
         tag_ids: Some(args.tag_ids),
         run_as_user_id: args.run_as_user_id,
         agent_type: Some(args.agent_type),
+        inactive_ttl_days: args.inactive_ttl_days,
     })
 }
 
@@ -578,6 +592,8 @@ fn update_rule(
     run_as_user_id: Option<String>,
     clear_run_as_user_id: bool,
     agent_type: Option<String>,
+    inactive_ttl_days: Option<i32>,
+    clear_inactive_ttl_days: bool,
 ) -> Result<Option<UpdateTriggerRule>, ClientError> {
     let tag_ids = fold_tag_ids(tag_ids, clear_tags)?;
     let rule = UpdateTriggerRule {
@@ -589,6 +605,11 @@ fn update_rule(
         tag_ids,
         run_as_user_id: fold_clearable(run_as_user_id, clear_run_as_user_id, "run-as-user-id")?,
         agent_type,
+        inactive_ttl_days: fold_clearable(
+            inactive_ttl_days,
+            clear_inactive_ttl_days,
+            "inactive-ttl-days",
+        )?,
     };
     if rule.repository_id.is_none()
         && rule.routing_mode.is_none()
@@ -598,6 +619,7 @@ fn update_rule(
         && rule.tag_ids.is_none()
         && rule.run_as_user_id.is_none()
         && rule.agent_type.is_none()
+        && rule.inactive_ttl_days.is_none()
     {
         Ok(None)
     } else {
