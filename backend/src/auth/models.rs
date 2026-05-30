@@ -45,6 +45,12 @@ pub struct ProviderToken {
     pub metadata: Option<serde_json::Value>,
     pub created_at: Option<DateTime<Utc>>,
     pub updated_at: Option<DateTime<Utc>>,
+    /// Provider-side identifier. For bot users (`auth_method =
+    /// 'github_app_installation'`) this stores the `GitHubAppRegistry` key
+    /// of the App backing the bot. For regular OAuth users it's the
+    /// provider's user id (e.g. GitHub user id).
+    pub provider_user_id: Option<String>,
+    pub provider_login: Option<String>,
 }
 
 impl std::fmt::Debug for ProviderToken {
@@ -63,6 +69,8 @@ impl std::fmt::Debug for ProviderToken {
             .field("metadata", &self.metadata)
             .field("created_at", &self.created_at)
             .field("updated_at", &self.updated_at)
+            .field("provider_user_id", &self.provider_user_id)
+            .field("provider_login", &self.provider_login)
             .finish()
     }
 }

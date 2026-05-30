@@ -236,7 +236,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Domain routes (need DB)
     if let Some(pool) = db_pool {
-        let adapter_registry = adapters::Adapters::from_config(&config, pool.clone()).await;
+        // Build the GitHub App registry once and share it between AppState and
+        // the adapter layer so they hit the same token cache.
+        let github_apps = Arc::new(
+            crate::auth::github_app_registry::GitHubAppRegistry::from_config(&config),
+        );
+        let adapter_registry =
+            adapters::Adapters::from_config(&config, pool.clone(), github_apps.clone()).await;
         let app_state = AppState::new(
             pool,
             Arc::new(config.clone()),
@@ -244,6 +250,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             event_publisher,
             s3_client,
             adapter_registry.map(Arc::new),
+            github_apps,
         );
 
         let modules = vec![

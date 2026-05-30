@@ -39,6 +39,7 @@ pub async fn ensure_local_user(users: &dyn UserRepository) {
         created_at: now,
         last_login_at: now,
         settings: serde_json::json!({}),
+        is_bot: false,
     };
 
     if let Err(e) = users.upsert_user(&user).await {

@@ -18,6 +18,11 @@ pub struct User {
     pub created_at: DateTime<Utc>,
     pub last_login_at: DateTime<Utc>,
     pub settings: serde_json::Value,
+    /// `true` when this user row represents a GitHub App bot identity
+    /// (`{slug}[bot]`). The App key + token-source is stored in the user's
+    /// `provider_tokens` row (`auth_method = 'github_app_installation'`,
+    /// `provider_user_id = <app_key>`).
+    pub is_bot: bool,
 }
 
 /// A provider-specific identity linked to a moatless user.
@@ -94,14 +99,15 @@ impl UserRepository for PgUserRepository {
     async fn upsert_user(&self, user: &User) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"
-            INSERT INTO users (id, login, email, name, avatar_url, provider, role, created_at, last_login_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            INSERT INTO users (id, login, email, name, avatar_url, provider, role, created_at, last_login_at, is_bot)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             ON CONFLICT (id) DO UPDATE SET
                 login = EXCLUDED.login,
                 email = COALESCE(users.email, EXCLUDED.email),
                 name = EXCLUDED.name,
                 avatar_url = EXCLUDED.avatar_url,
-                last_login_at = EXCLUDED.last_login_at
+                last_login_at = EXCLUDED.last_login_at,
+                is_bot = EXCLUDED.is_bot
             "#,
         )
         .bind(&user.id)
@@ -113,6 +119,7 @@ impl UserRepository for PgUserRepository {
         .bind(user.role)
         .bind(user.created_at)
         .bind(user.last_login_at)
+        .bind(user.is_bot)
         .execute(&self.0)
         .await?;
         Ok(())

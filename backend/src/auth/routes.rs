@@ -23,6 +23,7 @@ use super::api_keys::ApiKeyRepository;
 use super::cache::AuthCache;
 use super::cookie;
 use super::error::AuthError;
+use super::github_app_registry::GitHubAppRegistry;
 use super::github_app_service::GitHubAppService;
 use super::identity::AuthIdentity;
 use super::jwt::{self, SessionClaims};
@@ -34,8 +35,9 @@ use moatless_api_schemas::user::{SetProviderIdRequest, UserProviderIdItem};
 
 use super::schemas::{
     format_datetime, format_datetime_opt, ApiKeyCreateResponse, ApiKeyListItem, CliLoginQuery,
-    CreateApiKeyRequest, MessageResponse, OAuthCallbackQuery, ProviderConnection, SessionResponse,
-    TokenSessionResponse, UpdateUserRequest, UserInfo, UserListItem, UserListResponse,
+    CreateApiKeyRequest, CreateUserRequest, CreateUserResponse, MessageResponse,
+    OAuthCallbackQuery, ProviderConnection, SessionResponse, TokenSessionResponse,
+    UpdateUserRequest, UserInfo, UserListItem, UserListResponse,
 };
 use super::session;
 use super::sessions::SessionRepository;
@@ -114,8 +116,11 @@ pub struct AuthState {
     /// Separate from `provider_tokens` (which handles upsert/metadata paths).
     pub provider_tokens_dao: Arc<dyn ProviderTokenRepository>,
     /// Optional GitHub App service used to refresh expiring user tokens when
-    /// reporting provider connection status on `/me`.
+    /// reporting provider connection status on `/me`. Convenience handle to
+    /// `github_apps.default_service()`.
     pub github_app_service: Option<Arc<GitHubAppService>>,
+    /// Registry of all configured GitHub Apps.
+    pub github_apps: Arc<GitHubAppRegistry>,
     pub teams: Option<Arc<dyn crate::team::dao::TeamRepository>>,
     pub tasks: Option<Arc<dyn crate::task::dao::TaskRepository>>,
 }
@@ -134,7 +139,8 @@ impl AuthState {
             Some(Arc::new(crate::team::dao::PgTeamRepository(pool.clone())));
         let tasks: Option<Arc<dyn crate::task::dao::TaskRepository>> =
             Some(Arc::new(crate::task::dao::PgTaskRepository(pool.clone())));
-        let github_app_service = GitHubAppService::from_config(&config).map(Arc::new);
+        let github_apps = Arc::new(GitHubAppRegistry::from_config(&config));
+        let github_app_service = github_apps.default_service();
         Self {
             sessions: Arc::new(PgSessionRepository(pool.clone())),
             api_keys: Arc::new(PgApiKeyRepository(pool.clone())),
@@ -142,6 +148,7 @@ impl AuthState {
             provider_tokens: Arc::new(PgProviderTokenAuthRepository(pool.clone())),
             provider_tokens_dao: Arc::new(PgProviderTokenRepository(pool.clone())),
             github_app_service,
+            github_apps,
             providers: Arc::new(providers),
             cache,
             teams,
@@ -170,6 +177,7 @@ impl AuthState {
         list_api_keys_handler,
         revoke_api_key_handler,
         list_users_handler,
+        create_user_handler,
         set_user_provider_id_handler,
         delete_user_provider_id_handler,
         list_user_provider_ids_handler,
@@ -188,7 +196,7 @@ pub fn auth_router(state: AuthState) -> (axum::Router, utoipa::openapi::OpenApi)
         .routes(routes!(exchange_token_handler))
         .routes(routes!(create_api_key_handler, list_api_keys_handler))
         .routes(routes!(revoke_api_key_handler))
-        .routes(routes!(list_users_handler))
+        .routes(routes!(list_users_handler, create_user_handler))
         .routes(routes!(
             set_user_provider_id_handler,
             delete_user_provider_id_handler
@@ -1270,6 +1278,186 @@ async fn revoke_api_key_handler(
 // ============================================================================
 // User listing
 // ============================================================================
+
+/// Create a bot user backed by a configured GitHub App.
+///
+/// Resolves the App's `{slug}[bot]` identity via `GitHubAppRegistry`, then
+/// inserts both the `users` row and a matching `provider_tokens` row with
+/// `auth_method = 'github_app_installation'` so credential resolution
+/// transparently mints installation tokens for tasks that
+/// `run_as_user_id = <bot id>`.
+#[utoipa::path(
+    post,
+    path = "/api/v1/users",
+    tag = "users",
+    request_body = CreateUserRequest,
+    responses(
+        (status = 201, description = "Bot user created", body = CreateUserResponse),
+        (status = 400, description = "Unknown app key or human user request", body = ErrorBody),
+        (status = 401, description = "Unauthorized", body = ErrorBody),
+        (status = 403, description = "Admin only", body = ErrorBody),
+        (status = 500, description = "Internal error", body = ErrorBody),
+    )
+)]
+async fn create_user_handler(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    Json(req): Json<CreateUserRequest>,
+) -> Result<(axum::http::StatusCode, Json<CreateUserResponse>), AuthError> {
+    let identity = authenticate_request(&state, &headers).await?;
+    if identity.role != UserRole::Admin {
+        return Err(AuthError::Forbidden);
+    }
+    if !req.is_bot {
+        return Err(AuthError::BadRequest(
+            "POST /api/v1/users currently only supports `is_bot: true`; human users are \
+             created via the OAuth callback"
+                .into(),
+        ));
+    }
+    let app = state.github_apps.get(&req.github_app_key).ok_or_else(|| {
+        AuthError::BadRequest(format!(
+            "Unknown github_app key '{}'. Configured keys: {:?}",
+            req.github_app_key,
+            state.github_apps.keys()
+        ))
+    })?;
+    let bot_identity = app
+        .get_bot_identity()
+        .await
+        .map_err(|e| AuthError::Internal(format!("Failed to resolve bot identity: {e}")))?;
+
+    let now = chrono::Utc::now();
+    let user_id = format!("bot:{}", req.github_app_key);
+    let team_id = format!("personal-{user_id}");
+
+    // Atomic: users + personal team scaffolding + provider_tokens row succeed
+    // together. A failure of the provider_tokens insert must not leave a
+    // half-bot row in `users` that silently falls back to "user with no creds".
+    // Re-running the endpoint with the same app key refreshes the bot's
+    // login/email from the GitHub App metadata via the ON CONFLICT clauses.
+    let mut tx = state.db.begin().await.map_err(AuthError::Database)?;
+
+    sqlx::query(
+        r#"
+        INSERT INTO users (id, login, email, name, avatar_url, provider, role, created_at, last_login_at, is_bot)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        ON CONFLICT (id) DO UPDATE SET
+            login = EXCLUDED.login,
+            email = COALESCE(users.email, EXCLUDED.email),
+            name = EXCLUDED.name,
+            avatar_url = EXCLUDED.avatar_url,
+            last_login_at = EXCLUDED.last_login_at,
+            is_bot = EXCLUDED.is_bot
+        "#,
+    )
+    .bind(&user_id)
+    .bind(&bot_identity.login)
+    .bind(Some(&bot_identity.email))
+    .bind(Some(&bot_identity.login))
+    .bind::<Option<String>>(None)
+    .bind("github_app")
+    .bind(UserRole::User)
+    .bind(now)
+    .bind(now)
+    .bind(true)
+    .execute(&mut *tx)
+    .await?;
+
+    // Personal team scaffolding (mirrors `provider_token_dao::ensure_personal_team`)
+    // so the FK on `provider_tokens.team_id` resolves inside this transaction.
+    sqlx::query(
+        r#"INSERT INTO teams (id, name, slug, description, is_default, settings, created_at, updated_at)
+           VALUES ($1, $2, $3, 'Personal workspace', false, '{}'::jsonb, NOW(), NOW())
+           ON CONFLICT (id) DO NOTHING"#,
+    )
+    .bind(&team_id)
+    .bind(format!("{user_id} Personal"))
+    .bind(personal_team_slug(&user_id))
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query(
+        r#"INSERT INTO team_members (team_id, user_id, role, created_at)
+           VALUES ($1, $2, 'owner', NOW())
+           ON CONFLICT (team_id, user_id) DO UPDATE SET role = EXCLUDED.role"#,
+    )
+    .bind(&team_id)
+    .bind(&user_id)
+    .execute(&mut *tx)
+    .await?;
+
+    // Bot's provider_tokens row. `provider_user_id` carries the App key so
+    // the canonical resolver can pick the right App when minting installation
+    // tokens. `access_token` holds the documented sentinel — any code path that
+    // bypasses the resolver and reads the column directly hits a clear 401
+    // instead of silently sending an empty Bearer token.
+    sqlx::query(
+        r#"
+        INSERT INTO provider_tokens (
+            user_id, provider, auth_method, access_token, refresh_token,
+            token_type, oauth_scope, provider_user_id, provider_login,
+            connected_at, expires_at, scope, team_id, owner_user_id
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'user', $12, $1)
+        ON CONFLICT (user_id, provider, team_id) DO UPDATE SET
+            auth_method = EXCLUDED.auth_method,
+            access_token = EXCLUDED.access_token,
+            refresh_token = EXCLUDED.refresh_token,
+            token_type = EXCLUDED.token_type,
+            oauth_scope = EXCLUDED.oauth_scope,
+            scope = EXCLUDED.scope,
+            owner_user_id = EXCLUDED.owner_user_id,
+            provider_user_id = COALESCE(EXCLUDED.provider_user_id, provider_tokens.provider_user_id),
+            provider_login = COALESCE(EXCLUDED.provider_login, provider_tokens.provider_login),
+            connected_at = EXCLUDED.connected_at,
+            expires_at = EXCLUDED.expires_at
+        "#,
+    )
+    .bind(&user_id)
+    .bind("github")
+    .bind(super::provider_tokens::AUTH_METHOD_APP_INSTALLATION)
+    .bind(super::provider_tokens::APP_INSTALLATION_TOKEN_PLACEHOLDER)
+    .bind::<Option<String>>(None) // refresh_token
+    .bind::<Option<String>>(None) // token_type
+    .bind::<Option<String>>(None) // oauth_scope
+    .bind(Some(&req.github_app_key))
+    .bind(Some(&bot_identity.login))
+    .bind(now)
+    .bind::<Option<chrono::DateTime<chrono::Utc>>>(None)
+    .bind(&team_id)
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await.map_err(AuthError::Database)?;
+
+    Ok((
+        axum::http::StatusCode::CREATED,
+        Json(CreateUserResponse {
+            id: user_id,
+            login: bot_identity.login,
+            email: Some(bot_identity.email),
+            is_bot: true,
+            provider: "github_app".to_string(),
+            role: "user".to_string(),
+        }),
+    ))
+}
+
+/// Mirror of `provider_token_dao::personal_team_slug` — the slug formula must
+/// match because the create-bot-user handler scaffolds the team itself.
+fn personal_team_slug(user_id: &str) -> String {
+    let mut slug = String::with_capacity(user_id.len() + "personal-".len());
+    slug.push_str("personal-");
+    for ch in user_id.chars() {
+        if ch.is_ascii_alphanumeric() {
+            slug.push(ch.to_ascii_lowercase());
+        } else if !slug.ends_with('-') {
+            slug.push('-');
+        }
+    }
+    slug.trim_end_matches('-').to_string()
+}
 
 /// List all registered users.
 #[utoipa::path(

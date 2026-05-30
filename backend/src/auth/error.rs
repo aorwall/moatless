@@ -32,6 +32,12 @@ pub enum AuthError {
     #[error("Not found: {0}")]
     NotFound(String),
 
+    #[error("Bad request: {0}")]
+    BadRequest(String),
+
+    #[error("Internal error: {0}")]
+    Internal(String),
+
     #[error("Database error: {0}")]
     Database(#[from] sqlx::Error),
 }
@@ -44,7 +50,15 @@ impl IntoResponse for AuthError {
             }
             Self::Forbidden => (StatusCode::FORBIDDEN, self.to_string()),
             Self::InvalidState => (StatusCode::BAD_REQUEST, self.to_string()),
+            Self::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
             Self::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone()),
+            Self::Internal(msg) => {
+                error!(error = %msg, "Internal auth error");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal server error".to_string(),
+                )
+            }
             Self::OAuth(_) | Self::Config(_) | Self::Database(_) => {
                 // Log the full error server-side, return generic message to client
                 error!(error = %self, "Internal auth error");

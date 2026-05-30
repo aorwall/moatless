@@ -6,6 +6,18 @@ use chrono::{DateTime, Utc};
 use super::provider_token_dao::ensure_personal_team;
 use crate::db::DbPool;
 
+/// `provider_tokens.auth_method` value used on bot-user rows. Switches the
+/// canonical GitHub-token resolver from "refresh OAuth token" to "mint a fresh
+/// installation token from `GitHubAppRegistry`".
+pub const AUTH_METHOD_APP_INSTALLATION: &str = "github_app_installation";
+
+/// Documented sentinel written into `provider_tokens.access_token` for
+/// installation-backed rows. The real token is minted on demand by the
+/// canonical resolver, but any code path that reads this column directly will
+/// see this string instead of an empty/blank token — sending it to GitHub
+/// yields a clear 401 instead of silently dropping the Authorization header.
+pub const APP_INSTALLATION_TOKEN_PLACEHOLDER: &str = "<github-app-installation>";
+
 #[derive(sqlx::FromRow, Debug)]
 pub struct ProviderToken {
     pub user_id: String,

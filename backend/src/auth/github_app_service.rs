@@ -1,8 +1,10 @@
 //! GitHub App server-side authentication service.
 //!
-//! Provides two capabilities:
+//! Provides three capabilities:
 //! 1. **Installation tokens** — server-to-server API calls as the App itself.
 //! 2. **User token refresh** — refresh expired GitHub App user access tokens.
+//! 3. **Bot identity discovery** — resolve `{slug}[bot]` login and noreply email
+//!    for use as git author / committer when running "act-as-App" mode.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -15,7 +17,7 @@ use tracing::{debug, info, warn};
 
 use crate::auth::error::AuthError;
 use crate::auth::models::OAuthTokens;
-use crate::config::Config;
+use crate::config::{Config, GitHubAppConfig};
 
 /// Cached installation access token.
 struct CachedToken {
@@ -23,8 +25,23 @@ struct CachedToken {
     expires_at: DateTime<Utc>,
 }
 
+/// Resolved bot identity for a configured GitHub App.
+///
+/// Populated lazily on first use via `GET /app` and `GET /users/{slug}[bot]`.
+#[derive(Clone, Debug)]
+pub struct BotIdentity {
+    /// `{app-slug}[bot]` — what git/GitHub display as the author.
+    pub login: String,
+    /// Numeric bot user id (different from `app_id`).
+    pub user_id: u64,
+    /// `{user_id}+{slug}[bot]@users.noreply.github.com`.
+    pub email: String,
+}
+
 /// GitHub App service for installation tokens and user token refresh.
 pub struct GitHubAppService {
+    /// Stable key used by trigger config to select this App (e.g. `"dev-bot"`).
+    key: String,
     app_id: u64,
     private_key: EncodingKey,
     client_id: Option<String>,
@@ -32,6 +49,10 @@ pub struct GitHubAppService {
     default_installation_id: Option<u64>,
     http: reqwest::Client,
     token_cache: RwLock<HashMap<u64, CachedToken>>,
+    /// Cached `installation_id` per `owner` (org or user login).
+    installation_by_owner: RwLock<HashMap<String, u64>>,
+    /// Cached bot identity (populated lazily).
+    bot_identity: RwLock<Option<BotIdentity>>,
 }
 
 /// JWT claims for GitHub App authentication.
@@ -74,16 +95,72 @@ pub struct InstallationAccount {
     pub account_type: Option<String>,
 }
 
+#[derive(Deserialize)]
+struct AppMetadata {
+    slug: String,
+    #[serde(default)]
+    #[allow(dead_code)]
+    name: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct GitHubUserMetadata {
+    id: u64,
+}
+
+#[derive(Deserialize)]
+struct OwnerInstallation {
+    id: u64,
+}
+
 impl GitHubAppService {
-    /// Create from config. Returns None if `github_app_id` or `github_app_private_key` is not set.
+    /// Default registry key used by the implicit single-App config (the
+    /// `GITHUB_APP_*` env vars). Code paths that operate on "the user-auth App"
+    /// resolve via `GitHubAppRegistry::default_service()` which targets this key.
+    pub const DEFAULT_KEY: &'static str = "default";
+
+    /// Create from the legacy single-App env-var config. Returns `None` if
+    /// `github_app_id` or `github_app_private_key` is not set.
     pub fn from_config(config: &Config) -> Option<Self> {
         let app_id = config.auth.github_app_id?;
         let pem = config.auth.github_app_private_key.as_ref()?;
 
+        Self::build(
+            Self::DEFAULT_KEY.to_string(),
+            app_id,
+            pem,
+            config.auth.github_app_client_id.clone(),
+            config.auth.github_app_client_secret.clone(),
+            config.auth.github_app_default_installation_id,
+        )
+    }
+
+    /// Create from a structured `GitHubAppConfig` entry. Returns `None` if the
+    /// PEM private key fails to parse — the caller logs and continues with the
+    /// remaining apps.
+    pub fn from_app_config(entry: &GitHubAppConfig) -> Option<Self> {
+        Self::build(
+            entry.key.clone(),
+            entry.app_id,
+            &entry.private_key,
+            entry.client_id.clone(),
+            entry.client_secret.clone(),
+            entry.default_installation_id,
+        )
+    }
+
+    fn build(
+        key: String,
+        app_id: u64,
+        pem: &str,
+        client_id: Option<String>,
+        client_secret: Option<String>,
+        default_installation_id: Option<u64>,
+    ) -> Option<Self> {
         let private_key = match EncodingKey::from_rsa_pem(pem.as_bytes()) {
-            Ok(key) => key,
+            Ok(k) => k,
             Err(e) => {
-                warn!(error = %e, "Failed to parse GitHub App private key PEM");
+                warn!(app_key = %key, error = %e, "Failed to parse GitHub App private key PEM");
                 return None;
             }
         };
@@ -93,17 +170,25 @@ impl GitHubAppService {
             .build()
             .ok()?;
 
-        info!(app_id = app_id, "GitHub App service configured");
+        info!(app_key = %key, app_id, "GitHub App service configured");
 
         Some(Self {
+            key,
             app_id,
             private_key,
-            client_id: config.auth.github_app_client_id.clone(),
-            client_secret: config.auth.github_app_client_secret.clone(),
-            default_installation_id: config.auth.github_app_default_installation_id,
+            client_id,
+            client_secret,
+            default_installation_id,
             http,
             token_cache: RwLock::new(HashMap::new()),
+            installation_by_owner: RwLock::new(HashMap::new()),
+            bot_identity: RwLock::new(None),
         })
+    }
+
+    /// Stable registry key for this App.
+    pub fn key(&self) -> &str {
+        &self.key
     }
 
     /// Generate a short-lived JWT for authenticating as the GitHub App.
@@ -279,5 +364,151 @@ impl GitHubAppService {
             expires_in: data.expires_in,
             refresh_token_expires_in: data.refresh_token_expires_in,
         })
+    }
+
+    /// Resolve the installation id for an `owner` (org or user), cached.
+    ///
+    /// Calls `GET /orgs/{owner}/installation` first; falls back to
+    /// `GET /users/{owner}/installation` for user-owned repos. Returns
+    /// `Config` error if the App isn't installed on that owner.
+    pub async fn resolve_installation_id(&self, owner: &str) -> Result<u64, AuthError> {
+        {
+            let cache = self.installation_by_owner.read().await;
+            if let Some(id) = cache.get(owner) {
+                return Ok(*id);
+            }
+        }
+
+        if let Some(id) = self.default_installation_id {
+            // When a default is configured we still cache it per-owner so the
+            // lookup path is uniform.
+            self.installation_by_owner
+                .write()
+                .await
+                .insert(owner.to_string(), id);
+            return Ok(id);
+        }
+
+        let app_jwt = self.generate_app_jwt()?;
+
+        for endpoint in [
+            format!("https://api.github.com/orgs/{owner}/installation"),
+            format!("https://api.github.com/users/{owner}/installation"),
+        ] {
+            let resp = self
+                .http
+                .get(&endpoint)
+                .header("Authorization", format!("Bearer {app_jwt}"))
+                .header("Accept", "application/vnd.github+json")
+                .header("User-Agent", "moatless-vibe-backend")
+                .send()
+                .await
+                .map_err(|e| {
+                    AuthError::OAuth(format!("GitHub installation lookup failed: {e}"))
+                })?;
+
+            if resp.status() == reqwest::StatusCode::NOT_FOUND {
+                continue;
+            }
+            if !resp.status().is_success() {
+                let status = resp.status();
+                return Err(AuthError::OAuth(format!(
+                    "GitHub installation lookup returned {status} for {owner}"
+                )));
+            }
+            let parsed: OwnerInstallation = resp.json().await.map_err(|e| {
+                AuthError::OAuth(format!("Failed to parse installation lookup: {e}"))
+            })?;
+            self.installation_by_owner
+                .write()
+                .await
+                .insert(owner.to_string(), parsed.id);
+            return Ok(parsed.id);
+        }
+
+        Err(AuthError::Config(format!(
+            "GitHub App {} is not installed on owner {owner}",
+            self.key
+        )))
+    }
+
+    /// Convenience: resolve installation id for `owner` then mint a token.
+    pub async fn installation_token_for_owner(&self, owner: &str) -> Result<String, AuthError> {
+        let id = self.resolve_installation_id(owner).await?;
+        self.get_installation_token(id).await
+    }
+
+    /// Resolve the bot identity for this App (cached).
+    ///
+    /// Calls `GET /app` (authenticated as the App JWT) to fetch the slug, then
+    /// `GET /users/{slug}[bot]` (public) to fetch the bot user's numeric id.
+    /// The committer/author email follows GitHub's noreply convention:
+    /// `{user_id}+{slug}[bot]@users.noreply.github.com`.
+    pub async fn get_bot_identity(&self) -> Result<BotIdentity, AuthError> {
+        {
+            let cached = self.bot_identity.read().await;
+            if let Some(id) = cached.as_ref() {
+                return Ok(id.clone());
+            }
+        }
+
+        let app_jwt = self.generate_app_jwt()?;
+        let meta_resp = self
+            .http
+            .get("https://api.github.com/app")
+            .header("Authorization", format!("Bearer {app_jwt}"))
+            .header("Accept", "application/vnd.github+json")
+            .header("User-Agent", "moatless-vibe-backend")
+            .send()
+            .await
+            .map_err(|e| AuthError::OAuth(format!("GitHub /app lookup failed: {e}")))?;
+        if !meta_resp.status().is_success() {
+            let status = meta_resp.status();
+            return Err(AuthError::OAuth(format!(
+                "GitHub /app returned {status} for app {}",
+                self.key
+            )));
+        }
+        let meta: AppMetadata = meta_resp
+            .json()
+            .await
+            .map_err(|e| AuthError::OAuth(format!("Failed to parse /app response: {e}")))?;
+
+        let bot_login = format!("{}[bot]", meta.slug);
+        let user_resp = self
+            .http
+            .get(format!("https://api.github.com/users/{bot_login}"))
+            .header("Accept", "application/vnd.github+json")
+            .header("User-Agent", "moatless-vibe-backend")
+            .send()
+            .await
+            .map_err(|e| AuthError::OAuth(format!("GitHub /users/{bot_login} failed: {e}")))?;
+        if !user_resp.status().is_success() {
+            let status = user_resp.status();
+            return Err(AuthError::OAuth(format!(
+                "GitHub /users/{bot_login} returned {status}"
+            )));
+        }
+        let user: GitHubUserMetadata = user_resp
+            .json()
+            .await
+            .map_err(|e| AuthError::OAuth(format!("Failed to parse /users response: {e}")))?;
+
+        let identity = BotIdentity {
+            login: bot_login.clone(),
+            user_id: user.id,
+            email: format!(
+                "{}+{}@users.noreply.github.com",
+                user.id, bot_login
+            ),
+        };
+        info!(
+            app_key = %self.key,
+            login = %identity.login,
+            user_id = identity.user_id,
+            "Resolved GitHub App bot identity"
+        );
+        *self.bot_identity.write().await = Some(identity.clone());
+        Ok(identity)
     }
 }

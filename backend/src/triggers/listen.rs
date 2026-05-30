@@ -181,6 +181,10 @@ pub async fn connect_github_binding(
         state.config.github_pr.webhook_secret.clone(),
         state.config.github_pr.bot_token.clone(),
         state.db.clone(),
+        state.provider_tokens.clone(),
+        Some(state.provider_token_auth.clone()),
+        state.github_app_service.clone(),
+        state.github_apps.clone(),
     );
     connect_binding(
         state,

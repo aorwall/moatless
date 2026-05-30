@@ -1,4 +1,5 @@
 pub mod adapters;
+pub mod bots;
 pub mod command_mgmt;
 pub mod docker;
 pub mod events;

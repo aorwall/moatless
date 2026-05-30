@@ -18,6 +18,7 @@ use std::sync::Arc;
 
 use std::any::Any;
 
+use crate::auth::github_app_registry::GitHubAppRegistry;
 use crate::db::DbPool;
 
 use crate::adapters::error::AdapterError;
@@ -389,8 +390,29 @@ impl Adapters {
     /// Build adapters from application config.
     ///
     /// Returns `None` when no providers are configured.
-    pub async fn from_config(config: &crate::config::Config, db: DbPool) -> Option<Self> {
+    ///
+    /// `github_apps` is the shared App registry — passed in so the
+    /// `GithubPrAdapter` and `AppState` hit the same token cache. The
+    /// `GithubPrAdapter` resolves runtime GitHub tokens through the canonical
+    /// resolver, which needs the registry to mint installation tokens for bot
+    /// users (`auth_method = 'github_app_installation'`).
+    pub async fn from_config(
+        config: &crate::config::Config,
+        db: DbPool,
+        github_apps: Arc<GitHubAppRegistry>,
+    ) -> Option<Self> {
+        use crate::auth::provider_token_dao::{PgProviderTokenRepository, ProviderTokenRepository};
+        use crate::auth::provider_tokens::{
+            PgProviderTokenAuthRepository, ProviderTokenAuthRepository,
+        };
+
         let mut providers = Self::new();
+
+        let provider_tokens: Arc<dyn ProviderTokenRepository> =
+            Arc::new(PgProviderTokenRepository(db.clone()));
+        let provider_token_auth: Arc<dyn ProviderTokenAuthRepository> =
+            Arc::new(PgProviderTokenAuthRepository(db.clone()));
+        let github_app_service = github_apps.default_service();
 
         if let (Some(ref token), Some(ref secret)) =
             (&config.slack.bot_token, &config.slack.signing_secret)
@@ -418,6 +440,10 @@ impl Adapters {
                 config.github_pr.webhook_secret.clone(),
                 config.github_pr.bot_token.clone(),
                 db.clone(),
+                provider_tokens.clone(),
+                Some(provider_token_auth.clone()),
+                github_app_service.clone(),
+                github_apps.clone(),
             );
             providers.register(Arc::new(github_pr));
             tracing::info!("GitHub PR adapter configured");

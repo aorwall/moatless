@@ -21,6 +21,7 @@ use sandbox_proto::{
 };
 
 use crate::agent::prompt;
+use crate::auth::github_app_registry::GitHubAppRegistry;
 use crate::auth::github_app_service::GitHubAppService;
 use crate::auth::provider_token_dao::ProviderTokenRepository;
 use crate::auth::provider_tokens::ProviderTokenAuthRepository;
@@ -36,7 +37,8 @@ use crate::message::send::enrich_pending_with_commands;
 use crate::repository::dao::RepoRepository;
 use crate::sandbox::jwt;
 use crate::sandbox::secrets::{
-    resolve_server_env, resolve_task_credentials, resolve_task_team_id, TaskCredentialInputs,
+    resolve_server_env, resolve_task_credentials, resolve_task_repo_owner, resolve_task_team_id,
+    TaskCredentialInputs,
 };
 use crate::secret::service::SecretService;
 use crate::shared_models::AgentType;
@@ -68,8 +70,13 @@ pub struct BackendSandboxServiceImpl {
     pub commands: Option<Arc<dyn CommandRepository>>,
     /// JWT signing key for verifying sandbox auth tokens.
     pub task_token_secret: Option<String>,
-    /// GitHub App service for refreshing expired user access tokens.
+    /// GitHub App service for refreshing expired user access tokens
+    /// (default user-auth App). Convenience handle to
+    /// `github_apps.default_service()`.
     pub github_app_service: Option<Arc<GitHubAppService>>,
+    /// Registry of all configured GitHub Apps — used to resolve installation
+    /// tokens and bot identities for bot-user `provider_tokens` rows.
+    pub github_apps: Arc<GitHubAppRegistry>,
     /// Provider token auth persistence for persisting refreshed tokens.
     pub provider_token_auth: Option<Arc<dyn ProviderTokenAuthRepository>>,
     /// Scoped secret resolver for global/team/user secrets.
@@ -124,6 +131,7 @@ impl BackendSandboxServiceImpl {
         jwt::verify_user_auth_token(token, secret)
             .map_err(|e| Status::unauthenticated(format!("Invalid token: {e}")))
     }
+
 }
 
 #[tonic::async_trait]
@@ -424,6 +432,12 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         );
 
         let team_id = resolve_task_team_id(self.tasks.as_ref(), &req.task_id).await;
+        let repo_owner = resolve_task_repo_owner(
+            self.tasks.as_ref(),
+            self.repositories.as_ref(),
+            &req.task_id,
+        )
+        .await;
         let credentials = resolve_task_credentials(TaskCredentialInputs {
             task_id: &req.task_id,
             user_id: &claims.user_id,
@@ -432,6 +446,9 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             provider_tokens: self.provider_tokens.as_ref(),
             github_app_service: self.github_app_service.as_ref(),
             provider_token_auth: self.provider_token_auth.as_ref(),
+            github_apps: Some(&self.github_apps),
+            repo_owner: repo_owner.as_deref(),
+            users: self.users.as_ref(),
         })
         .await;
         let server_env =

@@ -1,6 +1,7 @@
 //! GitHub PR adapter — Adapter trait impl + webhook parsing.
 
 use std::fmt::Write;
+use std::sync::Arc;
 use std::time::Duration;
 
 use moka::future::Cache;
@@ -12,6 +13,11 @@ use crate::adapters::models::{
     TaskTriggerRoute, TriggerContext,
 };
 use crate::adapters::{Adapter, AdapterKind, BindingDestination};
+use crate::auth::credentials::resolve_user_github_token;
+use crate::auth::github_app_registry::GitHubAppRegistry;
+use crate::auth::github_app_service::GitHubAppService;
+use crate::auth::provider_token_dao::ProviderTokenRepository;
+use crate::auth::provider_tokens::ProviderTokenAuthRepository;
 use crate::db::DbPool;
 use crate::state::AppState;
 
@@ -138,8 +144,25 @@ pub struct GithubPrAdapter {
     global_webhook_secret: Option<String>,
     /// Global bot token from env (`GITHUB_CHANNEL_TOKEN`).
     global_bot_token: Option<String>,
-    /// Database pool for looking up provider tokens.
+    /// Database pool — currently unused by token resolution (handled by the
+    /// canonical resolver via `provider_tokens`), kept for future per-pool DB
+    /// needs and to remain wire-compatible with the existing public ctor.
+    #[allow(dead_code)] // reason: held for future per-adapter DB needs
     db: DbPool,
+    /// Provider-token repository — consulted by the canonical GitHub-token
+    /// resolver to read the user's `provider_tokens` row.
+    provider_tokens: Arc<dyn ProviderTokenRepository>,
+    /// Provider-token auth repository — needed to persist refreshed GitHub App
+    /// user tokens. `None` is acceptable in tests / minimal wiring.
+    provider_token_auth: Option<Arc<dyn ProviderTokenAuthRepository>>,
+    /// Default GitHub App service handle — used by the resolver to refresh
+    /// expiring `github_app` user tokens. `None` when no default App is
+    /// configured.
+    github_app_service: Option<Arc<GitHubAppService>>,
+    /// Registry of all configured GitHub Apps — consulted by the resolver to
+    /// mint installation tokens for bot users (`auth_method =
+    /// 'github_app_installation'`).
+    github_apps: Arc<GitHubAppRegistry>,
     /// Deduplication cache: delivery_id → () with 5-minute TTL.
     dedup_cache: Cache<String, ()>,
 }
@@ -149,11 +172,19 @@ impl GithubPrAdapter {
         global_webhook_secret: Option<String>,
         global_bot_token: Option<String>,
         db: DbPool,
+        provider_tokens: Arc<dyn ProviderTokenRepository>,
+        provider_token_auth: Option<Arc<dyn ProviderTokenAuthRepository>>,
+        github_app_service: Option<Arc<GitHubAppService>>,
+        github_apps: Arc<GitHubAppRegistry>,
     ) -> Self {
         Self {
             global_webhook_secret,
             global_bot_token,
             db,
+            provider_tokens,
+            provider_token_auth,
+            github_app_service,
+            github_apps,
             dedup_cache: Cache::builder()
                 .time_to_live(Duration::from_secs(300))
                 .max_capacity(10_000)
@@ -161,20 +192,41 @@ impl GithubPrAdapter {
         }
     }
 
-    /// Resolve a GitHub token for API calls keyed by user id.
+    /// Resolve a GitHub token for API calls keyed by user id and repo owner.
     ///
-    /// Order: provider_tokens(user_id) → global env.
-    async fn resolve_token_for_user(&self, user_id: &str) -> Result<String, AdapterError> {
-        let row = sqlx::query_scalar::<_, String>(
-            "SELECT access_token FROM provider_tokens WHERE user_id = $1 AND provider = 'github' LIMIT 1",
+    /// Dispatches through the canonical resolver so bot users
+    /// (`auth_method = 'github_app_installation'`) mint a fresh installation
+    /// token instead of returning the sentinel placeholder. Order:
+    ///
+    /// 1. `provider_tokens(user_id)` via the canonical resolver — branches on
+    ///    `auth_method` and mints / refreshes as needed. Empty tokens are
+    ///    treated as missing.
+    /// 2. Global `GITHUB_CHANNEL_TOKEN` PAT fallback.
+    ///
+    /// `repo_owner` is required to mint installation tokens for bot users
+    /// because installations are scoped per-org.
+    async fn resolve_token_for_user(
+        &self,
+        user_id: &str,
+        repo_owner: Option<&str>,
+    ) -> Result<String, AdapterError> {
+        match resolve_user_github_token(
+            self.provider_tokens.as_ref(),
+            self.provider_token_auth.as_deref(),
+            self.github_app_service.as_deref(),
+            self.github_apps.as_ref(),
+            user_id,
+            repo_owner,
         )
-        .bind(user_id)
-        .fetch_optional(&self.db)
         .await
-        .map_err(|e| AdapterError::AdapterApi(format!("Failed to fetch provider token: {e}")))?;
-
-        if let Some(token) = row {
-            return Ok(token);
+        {
+            Ok(Some(token)) if !token.is_empty() => return Ok(token),
+            Ok(_) => {}
+            Err(e) => {
+                return Err(AdapterError::AdapterApi(format!(
+                    "Failed to resolve GitHub token for user {user_id}: {e}"
+                )));
+            }
         }
 
         if let Some(ref token) = self.global_bot_token {
@@ -233,12 +285,17 @@ impl GithubPrAdapter {
         Ok((owner, repo))
     }
 
-    /// Resolve a GitHub token for reactions: prefer the binding's
-    /// `filter_user_id` (the task owner), then global env. Returns the resolved
-    /// token plus the user id used (for logging).
+    /// Resolve a GitHub token for reactions.
+    ///
+    /// Priority:
+    /// 1. The binding's `filter_user_id` (the task owner) via the canonical
+    ///    resolver — `repo_owner` is required so bot users get a per-org
+    ///    installation token.
+    /// 2. The global `GITHUB_CHANNEL_TOKEN` PAT fallback.
     async fn resolve_reaction_token(
         &self,
         binding: &BindingContext,
+        repo_owner: Option<&str>,
     ) -> Result<String, AdapterError> {
         let user_id = binding
             .destination_config
@@ -247,7 +304,7 @@ impl GithubPrAdapter {
             .and_then(serde_json::Value::as_str)
             .unwrap_or("");
         if !user_id.is_empty() {
-            return self.resolve_token_for_user(user_id).await;
+            return self.resolve_token_for_user(user_id, repo_owner).await;
         }
         self.global_bot_token.clone().ok_or_else(|| {
             AdapterError::AdapterApi(
@@ -1224,7 +1281,7 @@ impl Adapter for GithubPrAdapter {
                 "Cannot resolve GitHub token: no task trigger attached to binding".into(),
             ));
         }
-        let token = self.resolve_token_for_user(&user_id).await?;
+        let token = self.resolve_token_for_user(&user_id, Some(&owner)).await?;
         let api = GithubPrApi::new(&token);
 
         let mut body = format!("{}\n{}", agent_marker(&binding.task_id), message.text);
@@ -1264,7 +1321,7 @@ impl Adapter for GithubPrAdapter {
                         "Cannot resolve GitHub token: no task trigger attached to binding".into(),
                     ));
                 }
-                let token = self.resolve_token_for_user(&user_id).await?;
+                let token = self.resolve_token_for_user(&user_id, Some(&owner)).await?;
                 let api = GithubPrApi::new(&token);
 
                 let mut body = format!("{}\n{}", agent_marker(&binding.task_id), message.text);
@@ -1299,7 +1356,7 @@ impl Adapter for GithubPrAdapter {
         )?;
         let content = to_github_content(emoji)?;
         let (owner, repo) = Self::parse_owner_repo(binding)?;
-        let token = self.resolve_reaction_token(binding).await?;
+        let token = self.resolve_reaction_token(binding, Some(&owner)).await?;
         let api = GithubPrApi::new(&token);
         let reaction_id = match target {
             super::external_id::CommentTarget::Issue(id) => {
@@ -1329,7 +1386,7 @@ impl Adapter for GithubPrAdapter {
         )?;
         let content = to_github_content(emoji)?;
         let (owner, repo) = Self::parse_owner_repo(binding)?;
-        let token = self.resolve_reaction_token(binding).await?;
+        let token = self.resolve_reaction_token(binding, Some(&owner)).await?;
         let api = GithubPrApi::new(&token);
         let bot_login = api.authenticated_login().await?;
         let (reactions, comment_id, is_review) = match target {
@@ -1375,7 +1432,7 @@ impl Adapter for GithubPrAdapter {
         let (owner, repo, pr_number) = Self::parse_thread_props(thread)?;
 
         let user_id = config.effective_user_id();
-        let token = match self.resolve_token_for_user(user_id).await {
+        let token = match self.resolve_token_for_user(user_id, Some(&owner)).await {
             Ok(t) => t,
             Err(_) => return Ok(None),
         };
@@ -1558,7 +1615,15 @@ mod tests {
 
     #[tokio::test]
     async fn provider_keys_separate_channel_and_integration_storage() {
-        let provider = GithubPrAdapter::new(None, None, fake_db_pool());
+        let provider = GithubPrAdapter::new(
+            None,
+            None,
+            fake_db_pool(),
+            fake_provider_tokens(),
+            None,
+            None,
+            fake_github_apps(),
+        );
         assert_eq!(provider.provider_key(), "github_pr");
         assert_eq!(provider.connection_provider_key(), "github");
         assert!(!provider.allow_default_connection_fallback());
@@ -1567,7 +1632,15 @@ mod tests {
 
     #[tokio::test]
     async fn binding_destination_from_existing_thread_builds_pr_subject() {
-        let provider = GithubPrAdapter::new(None, None, fake_db_pool());
+        let provider = GithubPrAdapter::new(
+            None,
+            None,
+            fake_db_pool(),
+            fake_provider_tokens(),
+            None,
+            None,
+            fake_github_apps(),
+        );
         let destination = provider
             .binding_destination_from_existing_thread(
                 "foo/bar",
@@ -1609,7 +1682,15 @@ mod tests {
 
     #[tokio::test]
     async fn external_id_aliases_include_legacy_comment_ids_only() {
-        let provider = GithubPrAdapter::new(None, None, fake_db_pool());
+        let provider = GithubPrAdapter::new(
+            None,
+            None,
+            fake_db_pool(),
+            fake_provider_tokens(),
+            None,
+            None,
+            fake_github_apps(),
+        );
         assert_eq!(
             provider.external_id_aliases("github:ic:42"),
             vec!["github:ic:42".to_string(), "42".to_string()]
@@ -1631,6 +1712,14 @@ mod tests {
             .unwrap()
     }
 
+    fn fake_provider_tokens() -> Arc<dyn ProviderTokenRepository> {
+        Arc::new(crate::auth::provider_token_dao::PgProviderTokenRepository(
+            fake_db_pool(),
+        ))
+    }
+
+    fn fake_github_apps() -> Arc<GitHubAppRegistry> {
+        Arc::new(GitHubAppRegistry::default())
     fn fake_rule() -> TaskTriggerRoute {
         use crate::adapters::models::RoutingMode;
         use crate::scope::Scope;

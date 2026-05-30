@@ -13,7 +13,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
-use crate::auth::github_app_service::GitHubAppService;
+use crate::auth::github_app_registry::GitHubAppRegistry;
 use crate::auth::provider_token_dao::{PgProviderTokenRepository, ProviderTokenRepository};
 use crate::auth::provider_tokens::{PgProviderTokenAuthRepository, ProviderTokenAuthRepository};
 use crate::auth::users::{PgUserRepository, UserRepository};
@@ -209,7 +209,8 @@ pub fn spawn_grpc_server(
     let token_secret = config.sandbox.task_token_secret.clone();
     let s3_bucket = config.s3.bucket_name.clone();
     let s3_key_prefix = config.s3.key_prefix.clone();
-    let github_app_service = GitHubAppService::from_config(config).map(Arc::new);
+    let github_apps = Arc::new(GitHubAppRegistry::from_config(config));
+    let github_app_service = github_apps.default_service();
     let provider_token_auth: Option<Arc<dyn ProviderTokenAuthRepository>> =
         db_pool.map(|pool| Arc::new(PgProviderTokenAuthRepository(pool.clone())) as _);
     let secrets = db_pool.map(|pool| {
@@ -247,6 +248,7 @@ pub fn spawn_grpc_server(
             task_relations,
             task_token_secret: token_secret,
             github_app_service,
+            github_apps,
             provider_token_auth,
             secrets,
             credentials_svc,

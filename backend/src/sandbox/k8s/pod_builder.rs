@@ -711,6 +711,7 @@ mod tests {
                 github_app_id: None,
                 github_app_private_key: None,
                 github_app_default_installation_id: None,
+                github_apps: vec![],
             },
             s3: S3Config {
                 bucket_name: None,

@@ -126,7 +126,7 @@ pub async fn create_trigger(
 ) -> Result<Json<TriggerResponse>, AdapterError> {
     let ctx = auth.scope_context();
     ensure_repository_exists(&state, &ctx, &req.rule.repository_id).await?;
-    ensure_can_run_as(&ctx, req.rule.run_as_user_id.as_deref())?;
+    ensure_can_run_as(&state, &ctx, req.rule.run_as_user_id.as_deref()).await?;
 
     let adapter_source = match (&req.kind, &req.source) {
         (
@@ -316,7 +316,7 @@ pub async fn update_trigger(
             ensure_repository_exists(&state, &ctx, repository_id).await?;
         }
         if let Some(run_as_user_id) = rule.run_as_user_id.as_ref().and_then(|v| v.as_deref()) {
-            ensure_can_run_as(&ctx, Some(run_as_user_id))?;
+            ensure_can_run_as(&state, &ctx, Some(run_as_user_id)).await?;
         }
     }
 

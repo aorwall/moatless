@@ -136,6 +136,36 @@ pub struct UserListResponse {
     pub users: Vec<UserListItem>,
 }
 
+/// POST /api/v1/users request.
+///
+/// Creates a bot user backed by a configured GitHub App. The server resolves
+/// the App's `{slug}[bot]` identity from `GitHubAppRegistry` and writes both
+/// the `users` row and the matching `provider_tokens` row atomically.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct CreateUserRequest {
+    /// Must be `true`. Human users are created via the OAuth callback, not
+    /// this endpoint. (Reserved as a flag so the schema can be extended later
+    /// without a breaking change.)
+    pub is_bot: bool,
+    /// Registry key of a configured GitHub App (e.g. `"dev-bot"`).
+    pub github_app_key: String,
+}
+
+/// POST /api/v1/users response.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct CreateUserResponse {
+    pub id: String,
+    pub login: String,
+    pub email: Option<String>,
+    pub is_bot: bool,
+    pub provider: String,
+    pub role: String,
+}
+
 /// POST /api/v1/auth/token/session response.
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]

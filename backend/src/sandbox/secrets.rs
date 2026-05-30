@@ -5,10 +5,14 @@ use std::sync::Arc;
 
 use tracing::warn;
 
+use crate::auth::credentials::resolve_user_github_token;
+use crate::auth::github_app_registry::GitHubAppRegistry;
 use crate::auth::github_app_service::GitHubAppService;
 use crate::auth::provider_token_dao::ProviderTokenRepository;
 use crate::auth::provider_tokens::ProviderTokenAuthRepository;
-use crate::auth::token_refresh::ensure_fresh_token;
+use crate::auth::users::UserRepository;
+use crate::repository::dao::RepoRepository;
+use crate::repository::handlers::parse_github_owner_repo;
 use crate::secret::models::is_reserved_key;
 use crate::secret::service::SecretService;
 use crate::task::dao::TaskRepository;
@@ -20,6 +24,8 @@ pub const CODEX_AUTH_JSON: &str = "CODEX_AUTH_JSON";
 pub const OPENAI_API_KEY: &str = "OPENAI_API_KEY";
 pub const ANTHROPIC_API_KEY: &str = "ANTHROPIC_API_KEY";
 pub const CLAUDE_CODE_OAUTH_TOKEN: &str = "CLAUDE_CODE_OAUTH_TOKEN";
+pub const GIT_USER_NAME: &str = "GIT_USER_NAME";
+pub const GIT_USER_EMAIL: &str = "GIT_USER_EMAIL";
 
 pub struct TaskCredentialInputs<'a> {
     pub task_id: &'a str,
@@ -29,6 +35,15 @@ pub struct TaskCredentialInputs<'a> {
     pub provider_tokens: Option<&'a Arc<dyn ProviderTokenRepository>>,
     pub github_app_service: Option<&'a Arc<GitHubAppService>>,
     pub provider_token_auth: Option<&'a Arc<dyn ProviderTokenAuthRepository>>,
+    /// Registry consulted when the effective user's `provider_tokens` row has
+    /// `auth_method = 'github_app_installation'`.
+    pub github_apps: Option<&'a Arc<GitHubAppRegistry>>,
+    /// Repo owner (e.g. `"acme"`) for the task's repository. Required for
+    /// installation-token minting because installations are scoped per-org.
+    pub repo_owner: Option<&'a str>,
+    /// User repository — read to source `GIT_USER_NAME` / `GIT_USER_EMAIL`
+    /// from `users.login` / `users.email` for bot identities.
+    pub users: Option<&'a Arc<dyn UserRepository>>,
 }
 
 /// Resolve the credentials a task's sandbox needs.
@@ -56,8 +71,12 @@ pub async fn resolve_task_credentials(input: TaskCredentialInputs<'_>) -> HashMa
         input.user_id,
         input.github_app_service,
         input.provider_token_auth,
+        input.github_apps,
+        input.repo_owner,
     )
     .await;
+
+    fill_bot_identity(&mut credentials, input.users, input.user_id).await;
 
     let scoped =
         resolve_scoped_secrets(input.secrets, input.user_id, input.team_id, input.task_id).await;
@@ -88,6 +107,8 @@ pub async fn resolve_task_github_token(input: TaskCredentialInputs<'_>) -> Optio
             input.user_id,
             input.github_app_service,
             input.provider_token_auth,
+            input.github_apps,
+            input.repo_owner,
         )
         .await;
     }
@@ -132,6 +153,27 @@ pub async fn resolve_server_env(
     }
 }
 
+/// Resolve the GitHub `owner` (org or user namespace) for a task's repository.
+/// Returns `None` when the task or repository isn't found, the repo has no
+/// `remote_url`, or the URL doesn't parse as a GitHub path. Used to mint
+/// per-org installation tokens for bot-user credentials.
+pub(crate) async fn resolve_task_repo_owner(
+    tasks: Option<&Arc<dyn TaskRepository>>,
+    repositories: Option<&Arc<dyn RepoRepository>>,
+    task_id: &str,
+) -> Option<String> {
+    let tasks = tasks?;
+    let repositories = repositories?;
+    let task = tasks.find_by_id_internal(task_id).await.ok().flatten()?;
+    let repo = repositories
+        .find_repository_by_id(&task.repository_id)
+        .await
+        .ok()
+        .flatten()?;
+    let remote_url = repo.remote_url.as_deref()?;
+    parse_github_owner_repo(remote_url).map(|(owner, _)| owner)
+}
+
 pub(crate) async fn resolve_task_team_id(
     tasks: Option<&Arc<dyn TaskRepository>>,
     task_id: &str,
@@ -169,6 +211,7 @@ async fn resolve_scoped_secrets(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn fill_provider_tokens(
     credentials: &mut HashMap<String, String>,
     provider_tokens: Option<&Arc<dyn ProviderTokenRepository>>,
@@ -176,6 +219,8 @@ async fn fill_provider_tokens(
     user_id: &str,
     github_app_service: Option<&Arc<GitHubAppService>>,
     provider_token_auth: Option<&Arc<dyn ProviderTokenAuthRepository>>,
+    github_apps: Option<&Arc<GitHubAppRegistry>>,
+    repo_owner: Option<&str>,
 ) {
     let Some(provider_tokens) = provider_tokens else {
         return;
@@ -190,6 +235,8 @@ async fn fill_provider_tokens(
         user_id,
         github_app_service,
         provider_token_auth,
+        github_apps,
+        repo_owner,
     )
     .await;
 }
@@ -236,51 +283,42 @@ async fn fill_team_provider_tokens(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn fill_user_provider_tokens(
     credentials: &mut HashMap<String, String>,
     provider_tokens: &Arc<dyn ProviderTokenRepository>,
     user_id: &str,
     github_app_service: Option<&Arc<GitHubAppService>>,
     provider_token_auth: Option<&Arc<dyn ProviderTokenAuthRepository>>,
+    github_apps: Option<&Arc<GitHubAppRegistry>>,
+    repo_owner: Option<&str>,
 ) {
     if !credentials.contains_key(GITHUB_TOKEN) {
-        let resolved = if let (Some(github_app), Some(token_auth)) =
-            (github_app_service, provider_token_auth)
-        {
-            match ensure_fresh_token(
+        if let Some(registry) = github_apps {
+            match resolve_user_github_token(
                 provider_tokens.as_ref(),
-                token_auth.as_ref(),
-                github_app,
+                provider_token_auth.map(Arc::as_ref),
+                github_app_service.map(Arc::as_ref),
+                registry.as_ref(),
                 user_id,
+                repo_owner,
             )
             .await
             {
-                Ok(token) => Some(token),
+                Ok(Some(token)) => {
+                    credentials.insert(GITHUB_TOKEN.to_string(), token);
+                }
+                Ok(None) => {}
                 Err(e) => {
-                    warn!(
-                        error = %e,
-                        user_id,
-                        "GitHub App token refresh failed, falling back to raw token"
-                    );
-                    provider_tokens
-                        .find_provider_token(user_id, "github")
-                        .await
-                        .ok()
-                        .flatten()
-                        .map(|row| row.access_token)
+                    warn!(error = %e, user_id, "Failed to resolve GitHub token for sandbox");
                 }
             }
-        } else {
-            provider_tokens
-                .find_provider_token(user_id, "github")
-                .await
-                .ok()
-                .flatten()
-                .map(|row| row.access_token)
-        };
-
-        if let Some(token) = resolved {
-            credentials.insert(GITHUB_TOKEN.to_string(), token);
+        } else if let Ok(Some(row)) =
+            provider_tokens.find_provider_token(user_id, "github").await
+        {
+            // Registry not wired (legacy code paths without GitHubAppRegistry):
+            // fall back to the raw token. We can't refresh or mint here.
+            credentials.insert(GITHUB_TOKEN.to_string(), row.access_token);
         }
     }
 
@@ -317,6 +355,33 @@ async fn fill_user_provider_tokens(
         Err(e) => {
             warn!(error = %e, user_id, "Failed to query claude provider_token");
         }
+    }
+}
+
+/// When the credentialed user is a bot, source git author identity from the
+/// `users` row so commits and pushes attribute to `{slug}[bot]` instead of
+/// whatever `gh api user` would resolve from the installation token (which
+/// has no associated user).
+async fn fill_bot_identity(
+    credentials: &mut HashMap<String, String>,
+    users: Option<&Arc<dyn UserRepository>>,
+    user_id: &str,
+) {
+    let Some(users) = users else { return };
+    let user = match users.get_user(user_id).await {
+        Ok(Some(u)) => u,
+        Ok(None) => return,
+        Err(e) => {
+            warn!(error = %e, user_id, "Failed to look up user for bot identity");
+            return;
+        }
+    };
+    if !user.is_bot {
+        return;
+    }
+    credentials.insert(GIT_USER_NAME.to_string(), user.login);
+    if let Some(email) = user.email {
+        credentials.insert(GIT_USER_EMAIL.to_string(), email);
     }
 }
 

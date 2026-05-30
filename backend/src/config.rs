@@ -8,6 +8,8 @@ use std::env;
 use std::fmt;
 use std::str::FromStr;
 
+use serde::Deserialize;
+
 /// Which sandbox provider implementation to use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SandboxProviderType {
@@ -91,6 +93,35 @@ fn env_opt(key: &str) -> Option<String> {
 /// Read an environment variable with a string default.
 fn env_str(key: &str, default: &str) -> String {
     env::var(key).unwrap_or_else(|_| default.to_string())
+}
+
+/// Parse the `GITHUB_APPS_JSON` env var into a list of `GitHubAppConfig`.
+///
+/// `\\n` sequences in `private_key` are converted to real newlines for
+/// PEM-friendly env-var usage. Returns an empty vec on parse failure with a
+/// warning so a typo in one JSON blob can't take down startup.
+fn parse_github_apps_json(raw: Option<String>) -> Vec<GitHubAppConfig> {
+    let Some(raw) = raw else {
+        return vec![];
+    };
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return vec![];
+    }
+    match serde_json::from_str::<Vec<GitHubAppConfig>>(trimmed) {
+        Ok(mut apps) => {
+            for app in &mut apps {
+                if app.private_key.contains("\\n") {
+                    app.private_key = app.private_key.replace("\\n", "\n");
+                }
+            }
+            apps
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "Failed to parse GITHUB_APPS_JSON — ignoring");
+            vec![]
+        }
+    }
 }
 
 /// Read an environment variable as a boolean (true if "true" or "1").
@@ -271,6 +302,52 @@ pub struct AuthConfig {
     pub github_app_private_key: Option<String>,
     /// Default installation ID for server-to-server operations.
     pub github_app_default_installation_id: Option<u64>,
+
+    /// Additional GitHub Apps registered as bot identities (e.g. `dev-bot`,
+    /// `review-bot`). Loaded from the `GITHUB_APPS_JSON` env var which holds a
+    /// JSON array of [`GitHubAppConfig`] entries. A bot user's
+    /// `provider_tokens` row stores the matching `key` in `provider_user_id`,
+    /// so credential resolution picks the right App.
+    pub github_apps: Vec<GitHubAppConfig>,
+}
+
+/// One GitHub App registration, used by the `GitHubAppRegistry`.
+#[derive(Clone, Deserialize)]
+pub struct GitHubAppConfig {
+    /// Stable key referenced from trigger config (e.g. `"dev-bot"`).
+    pub key: String,
+    /// GitHub App numeric ID.
+    pub app_id: u64,
+    /// PEM-encoded private key for signing App JWTs.
+    pub private_key: String,
+    /// Optional OAuth client id (only required if this App also acts as a
+    /// user-auth provider — bot-only Apps can omit it).
+    #[serde(default)]
+    pub client_id: Option<String>,
+    /// Optional OAuth client secret.
+    #[serde(default)]
+    pub client_secret: Option<String>,
+    /// Optional explicit installation id. When omitted the registry resolves
+    /// the installation per repo owner via the GitHub API.
+    #[serde(default)]
+    pub default_installation_id: Option<u64>,
+}
+
+#[allow(clippy::missing_fields_in_debug)]
+impl fmt::Debug for GitHubAppConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GitHubAppConfig")
+            .field("key", &self.key)
+            .field("app_id", &self.app_id)
+            .field("private_key", &"[REDACTED]")
+            .field("client_id", &self.client_id)
+            .field(
+                "client_secret",
+                &self.client_secret.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field("default_installation_id", &self.default_installation_id)
+            .finish()
+    }
 }
 
 #[allow(clippy::missing_fields_in_debug)]
@@ -318,6 +395,7 @@ impl fmt::Debug for AuthConfig {
                 "github_app_default_installation_id",
                 &self.github_app_default_installation_id,
             )
+            .field("github_apps", &self.github_apps)
             .finish()
     }
 }
@@ -689,6 +767,7 @@ impl Config {
                     .map(|s| s.replace("\\n", "\n")),
                 github_app_default_installation_id: env_opt("GITHUB_APP_DEFAULT_INSTALLATION_ID")
                     .and_then(|v| v.parse().ok()),
+                github_apps: parse_github_apps_json(env_opt("GITHUB_APPS_JSON")),
             },
 
             s3: S3Config {
@@ -1040,6 +1119,7 @@ mod tests {
                 github_app_id: None,
                 github_app_private_key: None,
                 github_app_default_installation_id: None,
+                github_apps: vec![],
             },
             s3: S3Config {
                 bucket_name: None,

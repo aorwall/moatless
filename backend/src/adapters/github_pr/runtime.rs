@@ -496,6 +496,12 @@ pub async fn upsert_binding(
         .cloned()
         .unwrap_or(serde_json::Value::Null);
 
+    let destination_config = serde_json::json!({
+        "owner": owner,
+        "repo": repo,
+        "pr_number": pr_number,
+    });
+
     let binding = TaskBinding {
         id: format!("ts_{}", uuid::Uuid::new_v4()),
         task_id: task_id.to_string(),
@@ -504,11 +510,7 @@ pub async fn upsert_binding(
         subject_key: subject_key.to_string(),
         connection_id: connection.id.clone(),
         trigger_id: rule.map(|r| r.id.clone()),
-        destination_config: serde_json::json!({
-            "owner": owner,
-            "repo": repo,
-            "pr_number": pr_number,
-        }),
+        destination_config,
         metadata: serde_json::json!({
             "filter_user_id": filter_uid,
         }),

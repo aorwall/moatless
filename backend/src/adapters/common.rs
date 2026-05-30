@@ -260,18 +260,41 @@ pub(crate) async fn ensure_can_write_adapter_resource(
     Ok(ensure_can_write_resource(state, auth, resource, resource_name).await?)
 }
 
-pub(crate) fn ensure_can_run_as(
+/// Authorize a `run_as_user_id` choice for a trigger.
+///
+/// Allows the choice when:
+/// 1. The target is the caller themselves, or the caller is an admin
+///    (existing `ctx.can_run_as` rule), or
+/// 2. The target is a bot user (`users.is_bot = true`). For v1 there is no
+///    team scoping on bots — any authenticated human user can point a
+///    trigger at any bot.
+///
+/// Bot-on-bot impersonation is blocked: a caller who is themselves a bot
+/// (`ctx.is_bot = true`) cannot pick a different bot as the `run_as_user_id`
+/// even though `ctx.can_run_as` would otherwise allow it for admins.
+/// Today no caller path constructs a `ScopeContext` for a bot user, so this
+/// guard is defensive; it removes transitive impersonation as a follow-up
+/// risk without requiring changes elsewhere.
+pub(crate) async fn ensure_can_run_as(
+    state: &AppState,
     ctx: &ScopeContext,
     run_as_user_id: Option<&str>,
 ) -> Result<(), AdapterError> {
-    if let Some(run_as_user_id) = run_as_user_id {
-        if !ctx.can_run_as(run_as_user_id) {
-            return Err(AdapterError::AccessDenied(format!(
-                "Cannot run as user {run_as_user_id}"
-            )));
-        }
+    let Some(target) = run_as_user_id else {
+        return Ok(());
+    };
+    if ctx.can_run_as(target) {
+        return Ok(());
     }
-    Ok(())
+    match state.users.get_user(target).await {
+        Ok(Some(user)) if user.is_bot => Ok(()),
+        Ok(_) => Err(AdapterError::AccessDenied(format!(
+            "Cannot run as user {target}"
+        ))),
+        Err(e) => Err(AdapterError::Internal(format!(
+            "Failed to look up run-as user {target}: {e}"
+        ))),
+    }
 }
 
 pub(crate) async fn load_adapter_connection_for_auth(

@@ -107,6 +107,11 @@ pub async fn preflight_validate_github_token(
     }
 
     let user_id = task.created_by.as_deref().unwrap_or("system").to_string();
+    let repo_owner = repo
+        .remote_url
+        .as_deref()
+        .and_then(crate::repository::handlers::parse_github_owner_repo)
+        .map(|(owner, _)| owner);
 
     let token = resolve_task_github_token(TaskCredentialInputs {
         task_id: &task.task_id,
@@ -116,6 +121,9 @@ pub async fn preflight_validate_github_token(
         provider_tokens: Some(&state.provider_tokens),
         github_app_service: state.github_app_service.as_ref(),
         provider_token_auth: Some(&state.provider_token_auth),
+        github_apps: Some(&state.github_apps),
+        repo_owner: repo_owner.as_deref(),
+        users: Some(&state.users),
     })
     .await
     .ok_or_else(|| PreflightError::NoGithubToken {

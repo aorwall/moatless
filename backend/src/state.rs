@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use crate::adapters::linear::active_turns::ActiveLinearTurns;
 use crate::adapters::Adapters;
+use crate::auth::github_app_registry::GitHubAppRegistry;
 use crate::auth::github_app_service::GitHubAppService;
 use crate::auth::provider_token_dao::{PgProviderTokenRepository, ProviderTokenRepository};
 use crate::auth::provider_tokens::{PgProviderTokenAuthRepository, ProviderTokenAuthRepository};
@@ -56,7 +57,16 @@ pub struct AppState {
     /// Optional external adapters.
     pub adapters: Option<Arc<Adapters>>,
     /// Optional GitHub App service for installation tokens and user token refresh.
+    ///
+    /// Convenience handle to the default (user-auth) App. Equivalent to
+    /// `github_apps.default_service()`. Kept for back-compat with existing
+    /// call sites; new code that needs to pick an App by key should go
+    /// through `github_apps` instead.
     pub github_app_service: Option<Arc<GitHubAppService>>,
+    /// Registry of all configured GitHub Apps (the default user-auth App plus
+    /// any additional bot Apps from `GITHUB_APPS_JSON`). Bot users' provider
+    /// tokens reference an App by `key` (stored in `provider_user_id`).
+    pub github_apps: Arc<GitHubAppRegistry>,
     /// Generic credential service — serializes refreshes per `(user, key)` and
     /// broadcasts rotations to running sandboxes.
     pub credentials_svc: Arc<CredentialService>,
@@ -107,8 +117,9 @@ impl AppState {
         events: Option<Arc<dyn EventPublisher>>,
         s3: Option<aws_sdk_s3::Client>,
         adapters: Option<Arc<Adapters>>,
+        github_apps: Arc<GitHubAppRegistry>,
     ) -> Self {
-        let github_app_service = GitHubAppService::from_config(&config).map(Arc::new);
+        let github_app_service = github_apps.default_service();
 
         let repositories: Arc<dyn RepoRepository> = Arc::new(PgRepoRepository(pool.clone()));
         let plugin_repos: Arc<dyn PluginRepoRepository> =
@@ -189,6 +200,7 @@ impl AppState {
             s3,
             adapters,
             github_app_service,
+            github_apps,
             credentials_svc,
             recently_sent: Arc::new(RecentlySent::new()),
             linear_active_turns: Arc::new(ActiveLinearTurns::new()),

@@ -121,6 +121,11 @@ enum SharedCommands {
         #[command(subcommand)]
         action: commands::users::UserAction,
     },
+    /// Bot user management — provision users backed by a configured GitHub App.
+    Bot {
+        #[command(subcommand)]
+        action: commands::bots::BotAction,
+    },
     /// Send a message — drive a task, DM a user, or pass through an adapter
     /// destination (Slack channel/DM/thread, Linear issue, ...). Replies and
     /// emoji reactions to specific messages live under `moat messages`.
@@ -414,6 +419,9 @@ async fn run_shared(
         }
         SharedCommands::User { login, action } => {
             commands::users::run(moat, &login, action, json).await?;
+        }
+        SharedCommands::Bot { action } => {
+            commands::bots::run(moat, action, json).await?;
         }
         SharedCommands::Templates { action } => {
             commands::templates::run(moat, *action, json).await?;

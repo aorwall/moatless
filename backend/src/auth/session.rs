@@ -53,6 +53,7 @@ pub async fn create_session(
         settings: existing_user
             .as_ref()
             .map_or_else(|| serde_json::json!({}), |u| u.settings.clone()),
+        is_bot: existing_user.as_ref().is_some_and(|u| u.is_bot),
     };
     users.upsert_user(&user_row).await?;
 

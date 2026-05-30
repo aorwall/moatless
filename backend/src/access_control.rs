@@ -243,6 +243,7 @@ async fn ensure_user_row(state: &AppState, auth: &AuthUser) -> Result<(), Access
         created_at: now,
         last_login_at: now,
         settings: serde_json::json!({}),
+        is_bot: false,
     };
     state.users.upsert_user(&user).await?;
     Ok(())
