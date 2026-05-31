@@ -217,6 +217,7 @@ pub async fn create_webhook_integration(
                 tag_ids: None,
                 run_as_user_id: None,
                 agent_type: None,
+                inactive_ttl_days: None,
             },
             source: CreateTriggerSource::AdapterEvent(CreateAdapterEventTriggerSource {
                 adapter_kind: AdapterKind::Webhook,

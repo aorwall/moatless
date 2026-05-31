@@ -80,6 +80,7 @@ async fn schedule_trigger_recent_tasks_returns_binding_none() {
                 tag_ids: None,
                 run_as_user_id: None,
                 agent_type: None,
+                inactive_ttl_days: None,
             },
             source: CreateTriggerSource::Schedule(CreateScheduleTriggerSource {
                 cron_expression: "0 0 * * * * *".into(),

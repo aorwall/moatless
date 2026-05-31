@@ -2,7 +2,7 @@
 //!
 //! Verifies `X-Webhook-Signature` header using `HMAC-SHA256(secret, body)`.
 
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
 
 use crate::adapters::error::AdapterError;

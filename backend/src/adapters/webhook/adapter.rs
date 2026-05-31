@@ -297,7 +297,7 @@ mod tests {
 
     #[test]
     fn signature_verified_when_secret_configured() {
-        use hmac::{Hmac, Mac};
+        use hmac::{Hmac, KeyInit, Mac};
         use sha2::Sha256;
 
         let secret = "my-secret";

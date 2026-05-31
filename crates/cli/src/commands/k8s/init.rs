@@ -110,7 +110,7 @@ fn resolve_auth(explicit: Option<String>) -> Result<AuthChoice, ClientError> {
     let choices = ["none", "github", "auth0"];
     let idx = Select::with_theme(&ColorfulTheme::default())
         .with_prompt("Auth provider")
-        .items(&choices)
+        .items(choices)
         .default(0)
         .interact()
         .map_err(|e| ClientError::Other(format!("Prompt failed: {e}")))?;
@@ -130,7 +130,7 @@ async fn resolve_provider(explicit: Option<Provider>) -> Result<Provider, Client
     let choices = ["aks", "eks", "generic"];
     let idx = Select::with_theme(&ColorfulTheme::default())
         .with_prompt("Target provider")
-        .items(&choices)
+        .items(choices)
         .default(2)
         .interact()
         .map_err(|e| ClientError::Other(format!("Prompt failed: {e}")))?;

@@ -5,7 +5,7 @@
 //! GitHub there is no `sha256=` prefix and no timestamp — replay protection
 //! is provided by the `webhookId` dedup cache in the provider.
 
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
 
 use crate::adapters::error::AdapterError;

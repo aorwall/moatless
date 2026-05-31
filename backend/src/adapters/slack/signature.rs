@@ -1,6 +1,6 @@
 //! Slack HMAC-SHA256 webhook signature verification.
 
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
 
 use crate::adapters::error::AdapterError;

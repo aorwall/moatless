@@ -119,6 +119,7 @@ async fn schedule_trigger_crud_and_next_fire_chain() {
                 tag_ids: None,
                 run_as_user_id: None,
                 agent_type: Some("codex".into()),
+                inactive_ttl_days: None,
             },
             source: CreateTriggerSource::Schedule(CreateScheduleTriggerSource {
                 cron_expression: "0/5 * * * * * *".into(),

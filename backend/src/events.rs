@@ -266,7 +266,7 @@ impl RedisEventPublisher {
             {
                 Ok(redis_result) => redis_result,
                 Err(_elapsed) => Err(redis::RedisError::from((
-                    redis::ErrorKind::IoError,
+                    redis::ErrorKind::Io,
                     "publish timed out",
                 ))),
             };

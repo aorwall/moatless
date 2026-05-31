@@ -194,7 +194,7 @@ jobs:
           ./target/release/moatless-vibe-backend --dump-openapi > openapi-specs.json
 
       - name: Upload OpenAPI spec
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: openapi-spec
           path: openapi-specs.json
@@ -209,7 +209,7 @@ jobs:
 
       - name: Upload backend artifact
         if: github.event_name != 'pull_request' && needs.setup.outputs.build-backend == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: backend-binary
           path: dist/backend/
@@ -227,7 +227,7 @@ jobs:
 
       - name: Upload sandbox artifact
         if: github.event_name != 'pull_request' && needs.setup.outputs.build-sandbox == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sandbox-binaries
           path: dist/sandbox/
@@ -242,7 +242,7 @@ jobs:
 
       - name: Upload moat release asset
         if: github.event_name != 'pull_request' && needs.setup.outputs.build-sandbox == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: moat-cli
           path: dist/moat/
@@ -292,7 +292,7 @@ jobs:
         run: cd packages/api-client && bun run generate:client
 
       - name: Upload generated client
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: generated-client
           path: |
@@ -336,7 +336,7 @@ jobs:
         run: bun run build
 
       - name: Upload frontend dist
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: frontend-dist
           path: apps/frontend/dist/
