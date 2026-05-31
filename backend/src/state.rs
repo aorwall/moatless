@@ -138,17 +138,33 @@ impl AppState {
             secret_cipher,
         ));
 
-        let credentials_svc = Arc::new(CredentialService::new(
-            provider_tokens.clone(),
-            Some(provider_token_auth.clone()),
-            github_app_service.clone(),
-            Some(BroadcastContext {
-                provider: config.sandbox_provider,
-                sandbox_namespace: config.sandbox.namespace.clone(),
-                sandbox_grpc_port: config.sandbox.grpc_port,
-                tasks: Arc::new(PgTaskRepository(pool.clone())),
-            }),
-        ));
+        // Shared HTTP client for Codex token refresh — kept warm across calls.
+        let codex_http = Arc::new(
+            reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(15))
+                .build()
+                .unwrap_or_else(|e| {
+                    tracing::warn!(
+                        error = %e,
+                        "Failed to build reqwest client for Codex refresh, falling back to default"
+                    );
+                    reqwest::Client::new()
+                }),
+        );
+        let credentials_svc = Arc::new(
+            CredentialService::new(
+                provider_tokens.clone(),
+                Some(provider_token_auth.clone()),
+                github_app_service.clone(),
+                Some(BroadcastContext {
+                    provider: config.sandbox_provider,
+                    sandbox_namespace: config.sandbox.namespace.clone(),
+                    sandbox_grpc_port: config.sandbox.grpc_port,
+                    tasks: Arc::new(PgTaskRepository(pool.clone())),
+                }),
+            )
+            .with_codex_refresh(pool.clone(), codex_http),
+        );
 
         let skill_http = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))

@@ -13,7 +13,7 @@
 //! UI can show the connected account's email + plan.
 
 use base64::Engine;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use reqwest::StatusCode;
 use serde::Deserialize;
 use tracing::warn;
@@ -22,6 +22,20 @@ const REDIRECT_URI: &str = "https://auth.openai.com/deviceauth/callback";
 const VERIFICATION_URL: &str = "https://auth.openai.com/codex/device";
 const FALLBACK_INTERVAL_SECS: u64 = 5;
 const EXPIRES_IN_SECS: u64 = 900;
+
+/// OpenAI's first-party Codex CLI client_id. Hardcoded to match the upstream
+/// Codex CLI; if OpenAI rotates it, every refresh will start failing and we'll
+/// need to bump this constant.
+pub const CODEX_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
+
+const REFRESH_URL_DEFAULT: &str = "https://auth.openai.com/oauth/token";
+const REFRESH_URL_OVERRIDE_ENV: &str = "CODEX_REFRESH_TOKEN_URL_OVERRIDE";
+
+/// Recognized OAuth error codes that indicate the refresh token will never
+/// succeed again — caller must surface a "reconnect Codex" message.
+const ERROR_CODE_EXPIRED: &str = "refresh_token_expired";
+const ERROR_CODE_EXHAUSTED: &str = "refresh_token_reused";
+const ERROR_CODE_REVOKED: &str = "refresh_token_invalidated";
 
 #[derive(Debug, thiserror::Error)]
 pub enum CodexOAuthError {
@@ -66,6 +80,165 @@ pub struct IdTokenClaims {
     pub chatgpt_plan_type: Option<String>,
     pub chatgpt_account_id: Option<String>,
     pub chatgpt_user_id: Option<String>,
+}
+
+/// Result of a successful `refresh_token` grant — any subset of the three
+/// tokens may be present (upstream only returns rotated values).
+#[derive(Debug, Clone, Default)]
+pub struct RefreshedTokens {
+    pub id_token: Option<String>,
+    pub access_token: Option<String>,
+    pub refresh_token: Option<String>,
+}
+
+/// Why a refresh failed permanently. Caller writes this to
+/// `provider_tokens.metadata.refresh_failure` so the UI can surface a
+/// "reconnect Codex" prompt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PermanentReason {
+    /// Refresh token TTL elapsed — issued long ago, never used again.
+    Expired,
+    /// Refresh token was already used once (rotation race).
+    Exhausted,
+    /// Token was explicitly revoked (manual disconnect upstream).
+    Revoked,
+    /// 401 without a known error code.
+    Unauthorized,
+    /// Other recognized permanent failure.
+    Other,
+}
+
+/// Errors returned by [`refresh_chatgpt_tokens`].
+#[derive(Debug, thiserror::Error)]
+pub enum RefreshTokenError {
+    /// Will never succeed without user re-auth. Caller stops retrying and
+    /// records the failure on the provider_tokens row.
+    #[error("permanent: {reason:?} ({body})")]
+    Permanent {
+        reason: PermanentReason,
+        body: String,
+    },
+    /// Transient error — retry later. Caller can return the stale blob and
+    /// let the sandbox CLI take another shot.
+    #[error("transient ({status}): {body}")]
+    Transient { status: StatusCode, body: String },
+    /// Network / connection failure.
+    #[error(transparent)]
+    Network(#[from] reqwest::Error),
+    /// Refresh succeeded but the response body did not parse.
+    #[error("decode failure: {0}")]
+    Decode(String),
+}
+
+#[derive(Deserialize)]
+#[allow(clippy::struct_field_names)] // reason: matches OAuth wire format
+struct RefreshResponse {
+    #[serde(default)]
+    id_token: Option<String>,
+    #[serde(default)]
+    access_token: Option<String>,
+    #[serde(default)]
+    refresh_token: Option<String>,
+}
+
+fn refresh_endpoint() -> String {
+    std::env::var(REFRESH_URL_OVERRIDE_ENV).unwrap_or_else(|_| REFRESH_URL_DEFAULT.to_string())
+}
+
+/// Extract a normalized lowercase OAuth error code from a response body.
+///
+/// `auth.openai.com` returns the code in a few shapes — preference order
+/// matches upstream Codex CLI (`manager.rs:860-913`):
+///   1. `error.code` (object form)
+///   2. `error` (string form)
+///   3. top-level `code`
+fn extract_refresh_token_error_code(body: &str) -> Option<String> {
+    let parsed: serde_json::Value = serde_json::from_str(body).ok()?;
+
+    if let Some(code) = parsed
+        .get("error")
+        .and_then(|err| err.get("code"))
+        .and_then(serde_json::Value::as_str)
+    {
+        return Some(code.to_ascii_lowercase());
+    }
+    if let Some(code) = parsed.get("error").and_then(serde_json::Value::as_str) {
+        return Some(code.to_ascii_lowercase());
+    }
+    if let Some(code) = parsed.get("code").and_then(serde_json::Value::as_str) {
+        return Some(code.to_ascii_lowercase());
+    }
+    None
+}
+
+/// Classify a non-2xx refresh response.
+fn classify_refresh_error(status: StatusCode, body: String) -> RefreshTokenError {
+    let code = extract_refresh_token_error_code(&body);
+
+    if let Some(ref code) = code {
+        let reason = match code.as_str() {
+            ERROR_CODE_EXPIRED => Some(PermanentReason::Expired),
+            ERROR_CODE_EXHAUSTED => Some(PermanentReason::Exhausted),
+            ERROR_CODE_REVOKED => Some(PermanentReason::Revoked),
+            _ => None,
+        };
+        if let Some(reason) = reason {
+            return RefreshTokenError::Permanent { reason, body };
+        }
+    }
+
+    if status == StatusCode::UNAUTHORIZED {
+        let reason = if code.is_some() {
+            PermanentReason::Other
+        } else {
+            PermanentReason::Unauthorized
+        };
+        return RefreshTokenError::Permanent { reason, body };
+    }
+
+    RefreshTokenError::Transient { status, body }
+}
+
+/// POST `{client_id, grant_type:"refresh_token", refresh_token}` to OpenAI's
+/// OAuth token endpoint and return the (subset of) rotated tokens.
+///
+/// **Important**: a successful refresh rotates the refresh_token server-side;
+/// the old token is dead after this call returns `Ok`. Callers must persist
+/// the new `refresh_token` (when present) before any other code can race them.
+pub async fn refresh_chatgpt_tokens(
+    client: &reqwest::Client,
+    refresh_token: &str,
+) -> Result<RefreshedTokens, RefreshTokenError> {
+    let url = refresh_endpoint();
+    let body = serde_json::json!({
+        "client_id": CODEX_CLIENT_ID,
+        "grant_type": "refresh_token",
+        "refresh_token": refresh_token,
+    });
+
+    let resp = client
+        .post(&url)
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .json(&body)
+        .send()
+        .await?;
+    let status = resp.status();
+
+    if !status.is_success() {
+        let body = resp.text().await.unwrap_or_default();
+        return Err(classify_refresh_error(status, body));
+    }
+
+    let parsed: RefreshResponse = resp
+        .json()
+        .await
+        .map_err(|e| RefreshTokenError::Decode(format!("refresh response: {e}")))?;
+
+    Ok(RefreshedTokens {
+        id_token: parsed.id_token,
+        access_token: parsed.access_token,
+        refresh_token: parsed.refresh_token,
+    })
 }
 
 #[derive(Deserialize)]
@@ -313,19 +486,33 @@ async fn obtain_api_key(
     Ok(parsed.access_token)
 }
 
+/// Decode the body (second segment) of a JWT without verifying the signature.
+/// Shared by [`IdTokenClaims::parse`] and [`parse_jwt_exp`].
+fn decode_jwt_payload(jwt: &str) -> Result<serde_json::Value, String> {
+    let mut parts = jwt.split('.');
+    let _header = parts.next().ok_or("missing JWT header")?;
+    let payload_b64 = parts.next().ok_or("missing JWT payload")?;
+
+    let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(payload_b64)
+        .map_err(|e| format!("base64 decode: {e}"))?;
+    serde_json::from_slice(&decoded).map_err(|e| format!("json parse: {e}"))
+}
+
+/// Extract the `exp` claim from a JWT as a UTC timestamp. Returns `Ok(None)`
+/// when the claim is absent or not a number; returns `Err` only when the JWT
+/// cannot be decoded at all.
+pub fn parse_jwt_exp(jwt: &str) -> Result<Option<DateTime<Utc>>, String> {
+    let payload = decode_jwt_payload(jwt)?;
+    let exp = payload.get("exp").and_then(serde_json::Value::as_i64);
+    Ok(exp.and_then(|secs| DateTime::<Utc>::from_timestamp(secs, 0)))
+}
+
 impl IdTokenClaims {
     /// Decode the JWT body without verifying the signature. Claims under the
     /// `https://api.openai.com/auth` namespace carry the ChatGPT account info.
     pub fn parse(jwt: &str) -> Result<Self, String> {
-        let mut parts = jwt.split('.');
-        let _header = parts.next().ok_or("missing JWT header")?;
-        let payload_b64 = parts.next().ok_or("missing JWT payload")?;
-
-        let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
-            .decode(payload_b64)
-            .map_err(|e| format!("base64 decode: {e}"))?;
-        let payload: serde_json::Value =
-            serde_json::from_slice(&decoded).map_err(|e| format!("json parse: {e}"))?;
+        let payload = decode_jwt_payload(jwt)?;
 
         let email = payload
             .get("email")
@@ -436,5 +623,104 @@ mod tests {
         assert_eq!(parsed.user_code, "CGSR-90ECR");
         assert_eq!(parse_loose_u64(parsed.interval.as_ref().unwrap()), Some(5));
         assert!(duration_until_rfc3339(parsed.expires_at.as_deref().unwrap()).unwrap() > 0);
+    }
+
+    // =========================================================================
+    // JWT `exp` parsing (Slice B)
+    // =========================================================================
+
+    #[test]
+    fn parse_jwt_exp_returns_timestamp() {
+        let exp_secs: i64 = 1_900_000_000; // some future timestamp
+        let payload = serde_json::json!({ "exp": exp_secs });
+        let jwt = make_jwt(&payload);
+        let got = parse_jwt_exp(&jwt).expect("parse").expect("exp present");
+        assert_eq!(got.timestamp(), exp_secs);
+    }
+
+    #[test]
+    fn parse_jwt_exp_returns_none_when_absent() {
+        let payload = serde_json::json!({ "email": "user@example.com" });
+        let jwt = make_jwt(&payload);
+        let got = parse_jwt_exp(&jwt).expect("parse");
+        assert!(got.is_none(), "missing exp claim should yield None");
+    }
+
+    #[test]
+    fn parse_jwt_exp_errors_on_malformed_jwt() {
+        assert!(parse_jwt_exp("not-a-jwt").is_err());
+    }
+
+    // =========================================================================
+    // Refresh error classification (Slice A)
+    // =========================================================================
+
+    #[test]
+    fn classify_refresh_error_extracts_code_from_object_form() {
+        let body = serde_json::json!({ "error": { "code": "refresh_token_reused" } })
+            .to_string();
+        let err = classify_refresh_error(StatusCode::BAD_REQUEST, body);
+        match err {
+            RefreshTokenError::Permanent { reason, .. } => {
+                assert_eq!(reason, PermanentReason::Exhausted);
+            }
+            other => panic!("expected Permanent(Exhausted), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn classify_refresh_error_extracts_code_from_string_form() {
+        let body = serde_json::json!({ "error": "refresh_token_expired" }).to_string();
+        let err = classify_refresh_error(StatusCode::BAD_REQUEST, body);
+        match err {
+            RefreshTokenError::Permanent { reason, .. } => {
+                assert_eq!(reason, PermanentReason::Expired);
+            }
+            other => panic!("expected Permanent(Expired), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn classify_refresh_error_extracts_code_from_top_level() {
+        let body = serde_json::json!({ "code": "refresh_token_invalidated" }).to_string();
+        let err = classify_refresh_error(StatusCode::BAD_REQUEST, body);
+        match err {
+            RefreshTokenError::Permanent { reason, .. } => {
+                assert_eq!(reason, PermanentReason::Revoked);
+            }
+            other => panic!("expected Permanent(Revoked), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn classify_refresh_error_treats_401_without_code_as_unauthorized() {
+        let err = classify_refresh_error(StatusCode::UNAUTHORIZED, "not json".into());
+        match err {
+            RefreshTokenError::Permanent { reason, .. } => {
+                assert_eq!(reason, PermanentReason::Unauthorized);
+            }
+            other => panic!("expected Permanent(Unauthorized), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn classify_refresh_error_classifies_5xx_as_transient() {
+        let err = classify_refresh_error(StatusCode::BAD_GATEWAY, "upstream broke".into());
+        match err {
+            RefreshTokenError::Transient { status, .. } => {
+                assert_eq!(status, StatusCode::BAD_GATEWAY);
+            }
+            other => panic!("expected Transient, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn classify_refresh_error_unrecognized_code_is_transient_when_not_401() {
+        let body = serde_json::json!({ "error": "something_else" }).to_string();
+        let err = classify_refresh_error(StatusCode::BAD_REQUEST, body);
+        assert!(
+            matches!(err, RefreshTokenError::Transient { .. }),
+            "unknown error code at 400 should be Transient, got {err:?}"
+        );
     }
 }

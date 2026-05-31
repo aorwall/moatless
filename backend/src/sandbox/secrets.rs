@@ -11,6 +11,7 @@ use crate::auth::github_app_service::GitHubAppService;
 use crate::auth::provider_token_dao::ProviderTokenRepository;
 use crate::auth::provider_tokens::ProviderTokenAuthRepository;
 use crate::auth::users::UserRepository;
+use crate::credentials::CredentialService;
 use crate::repository::dao::RepoRepository;
 use crate::repository::handlers::parse_github_owner_repo;
 use crate::secret::models::is_reserved_key;
@@ -44,6 +45,10 @@ pub struct TaskCredentialInputs<'a> {
     /// User repository — read to source `GIT_USER_NAME` / `GIT_USER_EMAIL`
     /// from `users.login` / `users.email` for bot identities.
     pub users: Option<&'a Arc<dyn UserRepository>>,
+    /// Credential service used to refresh codex tokens just-in-time before
+    /// handing the blob to the sandbox. When `None`, the codex branch falls
+    /// back to a raw provider_tokens read.
+    pub credentials_svc: Option<&'a Arc<CredentialService>>,
 }
 
 /// Resolve the credentials a task's sandbox needs.
@@ -73,6 +78,8 @@ pub async fn resolve_task_credentials(input: TaskCredentialInputs<'_>) -> HashMa
         input.provider_token_auth,
         input.github_apps,
         input.repo_owner,
+        input.credentials_svc,
+        Some(input.task_id),
     )
     .await;
 
@@ -221,6 +228,8 @@ async fn fill_provider_tokens(
     provider_token_auth: Option<&Arc<dyn ProviderTokenAuthRepository>>,
     github_apps: Option<&Arc<GitHubAppRegistry>>,
     repo_owner: Option<&str>,
+    credentials_svc: Option<&Arc<CredentialService>>,
+    current_task_id: Option<&str>,
 ) {
     let Some(provider_tokens) = provider_tokens else {
         return;
@@ -239,6 +248,75 @@ async fn fill_provider_tokens(
         repo_owner,
     )
     .await;
+    fill_codex(
+        credentials,
+        provider_tokens,
+        credentials_svc,
+        user_id,
+        team_id,
+        current_task_id,
+    )
+    .await;
+}
+
+/// Resolve `CODEX_AUTH_JSON` for this task.
+///
+/// Delegates to [`CredentialService::ensure_fresh_codex_for`] which owns
+/// the `user > team > global` precedence walk; this function is a thin
+/// fallback shim for callers without the credential service wired (tests /
+/// no-DB) — there we walk the same chain via raw DAO reads with no refresh.
+async fn fill_codex(
+    credentials: &mut HashMap<String, String>,
+    provider_tokens: &Arc<dyn ProviderTokenRepository>,
+    credentials_svc: Option<&Arc<CredentialService>>,
+    user_id: &str,
+    team_id: Option<&str>,
+    current_task_id: Option<&str>,
+) {
+    if credentials.contains_key(CODEX_AUTH_JSON) {
+        return;
+    }
+
+    if let Some(svc) = credentials_svc {
+        match svc
+            .ensure_fresh_codex_for(user_id, team_id, current_task_id)
+            .await
+        {
+            Ok(blob) => {
+                credentials.insert(CODEX_AUTH_JSON.to_string(), blob);
+            }
+            Err(crate::credentials::CredentialError::NotFound(_)) => {
+                // No codex row at any scope — leave the slot empty and let
+                // the scoped-secret fallback try the env-var blob.
+            }
+            Err(e) => {
+                warn!(error = %e, user_id, "ensure_fresh_codex_for failed");
+            }
+        }
+        return;
+    }
+
+    // No CredentialService: walk the same precedence with raw DAO reads.
+    use crate::credentials::codex::scope::CodexScope;
+    let mut scopes: Vec<CodexScope> = Vec::with_capacity(3);
+    scopes.push(CodexScope::user(user_id));
+    if let Some(team_id) = team_id {
+        scopes.push(CodexScope::team(team_id));
+    }
+    scopes.push(CodexScope::Global);
+
+    for scope in scopes {
+        match provider_tokens.find_codex_blob(&scope).await {
+            Ok(Some(row)) => {
+                credentials.insert(CODEX_AUTH_JSON.to_string(), row.access_token);
+                return;
+            }
+            Ok(None) => continue,
+            Err(e) => {
+                warn!(error = %e, scope = %scope, "Failed to query codex provider_token");
+            }
+        }
+    }
 }
 
 async fn fill_team_provider_tokens(
@@ -250,7 +328,6 @@ async fn fill_team_provider_tokens(
         ("github", GITHUB_TOKEN),
         ("gitlab", GITLAB_TOKEN),
         ("gitness", GITNESS_TOKEN),
-        ("codex", CODEX_AUTH_JSON),
         ("openai", OPENAI_API_KEY),
     ] {
         if credentials.contains_key(cred_key) {
@@ -266,6 +343,9 @@ async fn fill_team_provider_tokens(
             }
         }
     }
+
+    // Codex is resolved through `fill_codex_with_precedence` which walks
+    // user > team > global in one pass; intentionally not handled here.
 
     if credentials.contains_key(CLAUDE_CODE_OAUTH_TOKEN)
         || credentials.contains_key(ANTHROPIC_API_KEY)
@@ -283,7 +363,6 @@ async fn fill_team_provider_tokens(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn fill_user_provider_tokens(
     credentials: &mut HashMap<String, String>,
     provider_tokens: &Arc<dyn ProviderTokenRepository>,
@@ -325,7 +404,6 @@ async fn fill_user_provider_tokens(
     for (provider, cred_key) in [
         ("gitlab", GITLAB_TOKEN),
         ("gitness", GITNESS_TOKEN),
-        ("codex", CODEX_AUTH_JSON),
         ("openai", OPENAI_API_KEY),
     ] {
         if credentials.contains_key(cred_key) {
@@ -341,6 +419,9 @@ async fn fill_user_provider_tokens(
             }
         }
     }
+
+    // Codex is resolved through `fill_codex_with_precedence` which walks
+    // user > team > global in one pass; intentionally not handled here.
 
     if credentials.contains_key(CLAUDE_CODE_OAUTH_TOKEN)
         || credentials.contains_key(ANTHROPIC_API_KEY)

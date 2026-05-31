@@ -124,6 +124,7 @@ pub async fn preflight_validate_github_token(
         github_apps: Some(&state.github_apps),
         repo_owner: repo_owner.as_deref(),
         users: Some(&state.users),
+        credentials_svc: Some(&state.credentials_svc),
     })
     .await
     .ok_or_else(|| PreflightError::NoGithubToken {

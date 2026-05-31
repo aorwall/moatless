@@ -224,8 +224,20 @@ pub fn spawn_grpc_server(
         ))
     });
 
+    let codex_http = Arc::new(
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(15))
+            .build()
+            .unwrap_or_else(|e| {
+                tracing::warn!(
+                    error = %e,
+                    "Failed to build reqwest client for Codex refresh, falling back to default"
+                );
+                reqwest::Client::new()
+            }),
+    );
     let credentials_svc = provider_tokens.as_ref().map(|tokens| {
-        Arc::new(CredentialService::new(
+        let mut svc = CredentialService::new(
             tokens.clone(),
             provider_token_auth.clone(),
             github_app_service.clone(),
@@ -235,7 +247,11 @@ pub fn spawn_grpc_server(
                 sandbox_grpc_port: config.sandbox.grpc_port,
                 tasks: t.clone(),
             }),
-        ))
+        );
+        if let Some(pool) = db_pool {
+            svc = svc.with_codex_refresh(pool.clone(), codex_http.clone());
+        }
+        Arc::new(svc)
     });
 
     tokio::spawn(async move {

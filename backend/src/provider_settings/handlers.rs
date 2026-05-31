@@ -3,28 +3,16 @@
 use axum::extract::State;
 use axum::Json;
 
+use crate::credentials::codex::oauth::{self as codex_oauth, PollStatus};
+use crate::credentials::codex::{save_codex_auth_for_scope, CodexScope};
 use crate::credentials::WriteSource;
 use crate::extractors::AuthUser;
 use crate::state::AppState;
 
-use super::codex_oauth::{self, PollStatus};
 use super::error::ProviderSettingsError;
 use super::github_client;
 use super::gitness_client;
 use super::schemas::*;
-
-fn parse_codex_auth_json(raw: &str) -> Result<serde_json::Value, ProviderSettingsError> {
-    let parsed: serde_json::Value = serde_json::from_str(raw)
-        .map_err(|e| ProviderSettingsError::BadRequest(format!("Invalid Codex auth JSON: {e}")))?;
-
-    if !parsed.is_object() {
-        return Err(ProviderSettingsError::BadRequest(
-            "Codex auth JSON must be a JSON object".to_string(),
-        ));
-    }
-
-    Ok(parsed)
-}
 
 /// Get current GitHub configuration for the user.
 #[utoipa::path(
@@ -587,46 +575,70 @@ pub async fn save_codex_auth(
     auth: AuthUser,
     Json(req): Json<SaveCodexAuthRequest>,
 ) -> Result<Json<CodexConfigResponse>, ProviderSettingsError> {
-    let parsed = parse_codex_auth_json(&req.auth_json)?;
-    let metadata = serde_json::json!({
-        "auth_method": "auth_json",
-        "has_openai_api_key": parsed.get("OPENAI_API_KEY").and_then(serde_json::Value::as_str).is_some(),
-        "has_tokens": parsed.get("tokens").is_some_and(serde_json::Value::is_object),
-    });
+    let resp = save_codex_auth_for_scope(&state, CodexScope::user(&auth.user_id), req).await?;
+    Ok(Json(resp))
+}
 
-    let serialized = parsed.to_string();
+/// Save the instance-wide (global) Codex blob. Admin only.
+///
+/// Sits at the bottom of the precedence chain: any user with their own row
+/// or a member of a team with a team row will shadow this. Useful for
+/// seeding bots (e.g. `bot:reviewer`) without per-bot upserts.
+#[utoipa::path(
+    post,
+    path = "/api/v1/admin/settings/codex/config",
+    tag = "provider-settings",
+    request_body = SaveCodexAuthRequest,
+    responses(
+        (status = 200, description = "Global codex auth saved", body = CodexConfigResponse),
+        (status = 400, description = "Invalid auth JSON", body = crate::error::ErrorBody),
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorBody),
+        (status = 403, description = "Admin only", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn admin_save_global_codex_auth(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Json(req): Json<SaveCodexAuthRequest>,
+) -> Result<Json<CodexConfigResponse>, ProviderSettingsError> {
+    if auth.role.as_deref() != Some("admin") {
+        return Err(ProviderSettingsError::BadRequest(
+            "Admin role required to set the global Codex blob".to_string(),
+        ));
+    }
+    let resp = save_codex_auth_for_scope(&state, CodexScope::Global, req).await?;
+    Ok(Json(resp))
+}
+
+/// Delete the instance-wide (global) Codex blob. Admin only.
+#[utoipa::path(
+    delete,
+    path = "/api/v1/admin/settings/codex/config",
+    tag = "provider-settings",
+    responses(
+        (status = 200, description = "Global codex disconnected", body = CodexConfigResponse),
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorBody),
+        (status = 403, description = "Admin only", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn admin_delete_global_codex_config(
+    State(state): State<AppState>,
+    auth: AuthUser,
+) -> Result<Json<CodexConfigResponse>, ProviderSettingsError> {
+    if auth.role.as_deref() != Some("admin") {
+        return Err(ProviderSettingsError::BadRequest(
+            "Admin role required to delete the global Codex blob".to_string(),
+        ));
+    }
     state
         .provider_tokens
-        .upsert_token(
-            &auth.user_id,
-            "codex",
-            &serialized,
-            None,
-            Some("auth_json"),
-            Some(&metadata),
-        )
+        .delete_codex_blob(&CodexScope::Global)
         .await?;
 
-    // Also push through CredentialService to broadcast to running sandboxes.
-    // Dedup inside `store` short-circuits since the value just landed in
-    // provider_tokens; only the broadcast fan-out fires.
-    if let Err(e) = state
-        .credentials_svc
-        .store(
-            &auth.user_id,
-            "CODEX_AUTH_JSON",
-            &serialized,
-            WriteSource::UserUiSave,
-        )
-        .await
-    {
-        tracing::warn!(error = %e, "Failed to broadcast Codex auth save to running sandboxes");
-    }
-
     Ok(Json(CodexConfigResponse {
-        connected: true,
-        token_type: Some("auth_json".to_string()),
-        auth_method: Some("auth_json".to_string()),
+        connected: false,
+        token_type: None,
+        auth_method: None,
         email: None,
         plan_type: None,
     }))
@@ -648,7 +660,7 @@ pub async fn delete_codex_config(
 ) -> Result<Json<CodexConfigResponse>, ProviderSettingsError> {
     state
         .provider_tokens
-        .delete_token(&auth.user_id, "codex")
+        .delete_codex_blob(&CodexScope::user(&auth.user_id))
         .await?;
 
     Ok(Json(CodexConfigResponse {

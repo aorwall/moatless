@@ -646,6 +646,7 @@ mod tests {
                 idle_timeout_minutes: 15,
                 idle_check_interval_secs: 300,
                 inactive_task_timeout_days: 0,
+                codex_refresher_interval_secs: 0,
                 max_crash_restart_count: 5,
                 node_selector_json: None,
                 tolerations_json: None,

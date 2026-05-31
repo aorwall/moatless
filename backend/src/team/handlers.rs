@@ -11,8 +11,10 @@ use super::schemas::{
     TeamResponse, UpdateTeamRequest, UpsertTeamCredentialRequest,
 };
 use crate::access_control::ensure_team_manager;
+use crate::credentials::codex::CodexScope;
 use crate::extractors::AuthUser;
 use crate::state::AppState;
+use moatless_api_schemas::provider_settings::{CodexConfigResponse, SaveCodexAuthRequest};
 
 /// List all teams the user belongs to.
 #[utoipa::path(
@@ -357,6 +359,93 @@ pub async fn delete_credential(
         .delete_team_token(&team_id, &provider)
         .await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+// ---- Team codex provider-token endpoints ----
+
+/// Save a team-scoped Codex `auth.json`.
+///
+/// The team blob shadows the global blob but is itself shadowed by any
+/// member's user-scoped row (precedence: user > team > global). Resolution
+/// + just-in-time refresh share one code path with the user / global
+/// endpoints via [`crate::credentials::codex::save_codex_auth_for_scope`].
+#[utoipa::path(
+    put,
+    path = "/api/v1/teams/{team_id}/settings/codex/config",
+    tag = "teams",
+    params(("team_id" = String, Path, description = "Team identifier")),
+    request_body = SaveCodexAuthRequest,
+    responses(
+        (status = 200, description = "Team codex auth saved", body = CodexConfigResponse),
+        (status = 400, description = "Invalid auth JSON", body = crate::error::ErrorBody),
+        (status = 403, description = "Not a team manager", body = crate::error::ErrorBody),
+        (status = 404, description = "Team not found", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn put_team_codex_config(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(team_id): Path<String>,
+    Json(req): Json<SaveCodexAuthRequest>,
+) -> Result<Json<CodexConfigResponse>, TeamError> {
+    let _existing = state
+        .teams
+        .find_by_id(&team_id)
+        .await?
+        .ok_or_else(|| TeamError::NotFound(team_id.clone()))?;
+    ensure_team_manager(&state, &auth, &team_id).await?;
+
+    let resp = crate::credentials::codex::save_codex_auth_for_scope(
+        &state,
+        CodexScope::team(&team_id),
+        req,
+    )
+    .await
+    .map_err(team_error_from_provider_settings)?;
+    Ok(Json(resp))
+}
+
+/// Delete the team's Codex blob.
+#[utoipa::path(
+    delete,
+    path = "/api/v1/teams/{team_id}/settings/codex/config",
+    tag = "teams",
+    params(("team_id" = String, Path, description = "Team identifier")),
+    responses(
+        (status = 204, description = "Team codex disconnected"),
+        (status = 403, description = "Not a team manager", body = crate::error::ErrorBody),
+        (status = 404, description = "Team not found", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn delete_team_codex_config(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(team_id): Path<String>,
+) -> Result<StatusCode, TeamError> {
+    let _existing = state
+        .teams
+        .find_by_id(&team_id)
+        .await?
+        .ok_or_else(|| TeamError::NotFound(team_id.clone()))?;
+    ensure_team_manager(&state, &auth, &team_id).await?;
+
+    state
+        .provider_tokens
+        .delete_codex_blob(&CodexScope::team(&team_id))
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+fn team_error_from_provider_settings(
+    err: crate::provider_settings::error::ProviderSettingsError,
+) -> TeamError {
+    use crate::provider_settings::error::ProviderSettingsError;
+    match err {
+        ProviderSettingsError::BadRequest(m) => TeamError::BadRequest(m),
+        ProviderSettingsError::NotFound(m) => TeamError::NotFound(m),
+        ProviderSettingsError::Db(e) => TeamError::Db(e),
+        ProviderSettingsError::ProviderError(m) => TeamError::BadRequest(m),
+    }
 }
 
 /// Verify the caller is an admin or a member of the team.

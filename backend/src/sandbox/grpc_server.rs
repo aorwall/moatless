@@ -449,6 +449,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             github_apps: Some(&self.github_apps),
             repo_owner: repo_owner.as_deref(),
             users: self.users.as_ref(),
+            credentials_svc: self.credentials_svc.as_ref(),
         })
         .await;
         let server_env =

@@ -14,6 +14,7 @@
 //! - `provider_settings::handlers::*` — user saved a token via the UI.
 //! - `auth::token_refresh::ensure_fresh_token` — internal use, now wrapped here.
 
+pub mod codex;
 pub mod error;
 
 use std::sync::Arc;
@@ -27,10 +28,11 @@ use crate::auth::provider_token_dao::ProviderTokenRepository;
 use crate::auth::provider_tokens::ProviderTokenAuthRepository;
 use crate::auth::token_refresh::ensure_fresh_token_with_dao;
 use crate::config::SandboxProviderType;
+use crate::db::DbPool;
 use crate::sandbox::client::SandboxClient;
-use crate::scope::ScopeContext;
-use crate::task::dao::{TaskFilter, TaskRepository};
+use crate::task::dao::TaskRepository;
 
+pub use self::codex::CodexScope;
 pub use self::error::CredentialError;
 
 /// Where a [`CredentialService::store`] call originated. Used by [`broadcast`]
@@ -85,14 +87,20 @@ pub struct BroadcastContext {
 
 /// Generic credential gating point.
 pub struct CredentialService {
-    provider_tokens: Arc<dyn ProviderTokenRepository>,
+    pub(in crate::credentials) provider_tokens: Arc<dyn ProviderTokenRepository>,
     provider_token_auth: Option<Arc<dyn ProviderTokenAuthRepository>>,
     github_app_service: Option<Arc<GitHubAppService>>,
     /// Per-`(user_id, key)` mutex. The `()` payload is irrelevant — we lock
     /// purely for serialization. Auto-evicted after the TTL so inactive
     /// users' locks don't accumulate forever.
     locks: moka::future::Cache<(String, String), Arc<Mutex<()>>>,
-    broadcast_ctx: Option<BroadcastContext>,
+    pub(in crate::credentials) broadcast_ctx: Option<BroadcastContext>,
+    /// PostgreSQL pool for the Codex refresh path (advisory lock + CAS + raw
+    /// `metadata` updates that don't fit the trait DAO).
+    pub(in crate::credentials) db: Option<DbPool>,
+    /// Shared HTTP client for the Codex refresh path. Reused so connection
+    /// pools are warm across refreshes.
+    pub(in crate::credentials) http: Option<Arc<reqwest::Client>>,
 }
 
 impl CredentialService {
@@ -116,11 +124,28 @@ impl CredentialService {
             github_app_service,
             locks,
             broadcast_ctx,
+            db: None,
+            http: None,
         }
     }
 
+    /// Wire in the Postgres pool + HTTP client used by the Codex refresh path.
+    ///
+    /// Call sites that don't need Codex refresh (e.g. unit tests) can leave
+    /// these unset; `ensure_fresh_codex` then falls back to a raw read.
+    #[must_use]
+    pub fn with_codex_refresh(mut self, db: DbPool, http: Arc<reqwest::Client>) -> Self {
+        self.db = Some(db);
+        self.http = Some(http);
+        self
+    }
+
     /// Acquire the per-`(user, key)` mutex.
-    async fn acquire_lock(&self, user_id: &str, key: &str) -> Arc<Mutex<()>> {
+    pub(in crate::credentials) async fn acquire_lock(
+        &self,
+        user_id: &str,
+        key: &str,
+    ) -> Arc<Mutex<()>> {
         let key = (user_id.to_string(), key.to_string());
         self.locks
             .get_with(key, async { Arc::new(Mutex::new(())) })
@@ -134,6 +159,18 @@ impl CredentialService {
     /// to add Codex / Claude refresh paths later without revisiting the
     /// race-condition story.
     pub async fn ensure_fresh(&self, user_id: &str, key: &str) -> Result<String, CredentialError> {
+        // Codex refresh has its own dedicated entry point that takes a
+        // per-row mutex AND a Postgres advisory lock; it must not run under
+        // the generic `(user, key)` mutex. Default to user scope here for
+        // back-compat with the generic API; callers that want team / global
+        // resolution use the explicit `ensure_fresh_codex(scope, …)` entry
+        // point on the resolver.
+        if key == "CODEX_AUTH_JSON" {
+            return self
+                .ensure_fresh_codex(CodexScope::user(user_id), None)
+                .await;
+        }
+
         let lock = self.acquire_lock(user_id, key).await;
         let _guard = lock.lock().await;
 
@@ -224,62 +261,77 @@ impl CredentialService {
                 WriteSource::SandboxRotation { task_id } => Some(task_id.as_str()),
                 _ => None,
             };
-            self.broadcast(user_id, except_task_id, key, value).await;
+            // `store` is user-scoped (per-user provider_tokens upsert), so
+            // fan out to that user's running sandboxes. Team / global
+            // rotations go through `broadcast_to_scope` directly from
+            // `ensure_fresh_codex`.
+            self.broadcast_to_scope(
+                &CodexScope::user(user_id),
+                except_task_id,
+                key,
+                value,
+            )
+            .await;
         }
 
         Ok(())
     }
 
-    /// Push a freshly stored credential to every running sandbox the user
-    /// owns. Fire-and-forget per sandbox — failures are logged.
-    async fn broadcast(&self, user_id: &str, except_task_id: Option<&str>, key: &str, value: &str) {
+    /// Push a freshly stored credential to every running sandbox whose
+    /// effective user resolves through `scope`. Fire-and-forget per sandbox
+    /// — failures are logged.
+    ///
+    /// v1 fan-out is coarse: for team / global scopes we push to every open
+    /// codex task within the scope, including users who have their own row
+    /// and don't need the push. Harmless because the sandbox watcher applies
+    /// the value only when it differs from the in-memory blob.
+    pub(in crate::credentials) async fn broadcast_to_scope(
+        &self,
+        scope: &CodexScope,
+        except_task_id: Option<&str>,
+        key: &str,
+        value: &str,
+    ) {
         let Some(ref ctx) = self.broadcast_ctx else {
             return;
         };
 
-        // List all open tasks owned by this user. We probe each — sandboxes
-        // that aren't running fail with `Unavailable`, which we drop.
-        let filter = TaskFilter {
-            scope: ScopeContext {
-                user_id: user_id.to_string(),
-                team_ids: vec![],
-                is_admin: true, // bypass scope filter, we already have user_id
-            },
-            limit: 500,
-            offset: 0,
-            status: Some(crate::task::models::TaskStatus::Open),
-            repository_id: None,
-            created_by: Some(user_id.to_string()),
-            tag: None,
-            parent_task_id: None,
+        let scope_kind = scope.scope_kind().to_string();
+        let scope_id = match scope {
+            CodexScope::User(id) | CodexScope::Team(id) => id.clone(),
+            CodexScope::Global => String::new(),
         };
-
-        let tasks = match ctx.tasks.list_tasks(&filter).await {
-            Ok((tasks, _)) => tasks,
+        let except = except_task_id.unwrap_or("").to_string();
+        let task_ids = match ctx
+            .tasks
+            .list_open_codex_tasks_for_scope(scope_kind, scope_id, except)
+            .await
+        {
+            Ok(ids) => ids,
             Err(e) => {
-                warn!(error = %e, user_id, "broadcast: failed to list tasks");
+                warn!(
+                    error = %e,
+                    scope = %scope.display(),
+                    "broadcast_to_scope: failed to list codex tasks"
+                );
                 return;
             }
         };
 
-        for task in tasks {
-            if Some(task.task_id.as_str()) == except_task_id {
-                continue;
-            }
+        for task_id in task_ids {
             let url = match ctx.provider {
                 SandboxProviderType::Kubernetes => format!(
                     "http://{}.{}.svc.cluster.local:{}",
-                    crate::sandbox::k8s::naming::generate_service_name(&task.task_id),
+                    crate::sandbox::k8s::naming::generate_service_name(&task_id),
                     ctx.sandbox_namespace,
                     ctx.sandbox_grpc_port,
                 ),
                 SandboxProviderType::Docker => format!(
                     "http://{}:{}",
-                    crate::sandbox::docker::naming::generate_container_name(&task.task_id),
+                    crate::sandbox::docker::naming::generate_container_name(&task_id),
                     ctx.sandbox_grpc_port,
                 ),
             };
-            let task_id = task.task_id.clone();
             let key = key.to_string();
             let value = value.to_string();
             tokio::spawn(async move {
@@ -398,6 +450,28 @@ mod tests {
 
         async fn list_by_team(&self, _team_id: &str) -> Result<Vec<ProviderToken>, sqlx::Error> {
             Ok(vec![])
+        }
+
+        async fn find_codex_blob(
+            &self,
+            _scope: &CodexScope,
+        ) -> Result<Option<ProviderToken>, sqlx::Error> {
+            Ok(None)
+        }
+
+        async fn upsert_codex_blob(
+            &self,
+            _scope: &CodexScope,
+            _access_token: &str,
+            _refresh_token: Option<&str>,
+            _token_type: Option<&str>,
+            _metadata: Option<&serde_json::Value>,
+        ) -> Result<(), sqlx::Error> {
+            Ok(())
+        }
+
+        async fn delete_codex_blob(&self, _scope: &CodexScope) -> Result<(), sqlx::Error> {
+            Ok(())
         }
     }
 

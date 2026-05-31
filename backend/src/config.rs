@@ -188,6 +188,11 @@ pub struct SandboxConfig {
     /// Auto-close Open tasks inactive for this many days. `0` disables
     /// auto-close. Env: `TASK_INACTIVE_TIMEOUT_DAYS` (default: 7).
     pub inactive_task_timeout_days: u64,
+    /// How often the background Codex refresher sweeps `provider_tokens`.
+    /// Setting this to 0 disables the sweep entirely (env-var fallback
+    /// still works; just no proactive backend refresh). Env:
+    /// `CODEX_REFRESHER_INTERVAL_SECS` (default: 3600 = 1h).
+    pub codex_refresher_interval_secs: u64,
     /// Maximum container restart count before auto-stopping a crash-looping sandbox (default: 5).
     /// Set to 0 to disable crash-loop auto-stop.
     pub max_crash_restart_count: i32,
@@ -670,6 +675,7 @@ impl Config {
                 idle_timeout_minutes: env_or("SANDBOX_IDLE_TIMEOUT_MINUTES", 15),
                 idle_check_interval_secs: env_or("SANDBOX_IDLE_CHECK_INTERVAL_SECS", 300),
                 inactive_task_timeout_days: env_or("TASK_INACTIVE_TIMEOUT_DAYS", 7),
+                codex_refresher_interval_secs: env_or("CODEX_REFRESHER_INTERVAL_SECS", 3600),
                 max_crash_restart_count: env_or("SANDBOX_MAX_CRASH_RESTART_COUNT", 5),
                 tolerations_json: env_opt("K8S_SANDBOX_TOLERATIONS"),
                 node_selector_json: env_opt("K8S_SANDBOX_NODE_SELECTOR"),
@@ -1054,6 +1060,7 @@ mod tests {
                 idle_timeout_minutes: 15,
                 idle_check_interval_secs: 300,
                 inactive_task_timeout_days: 0,
+                codex_refresher_interval_secs: 0,
                 max_crash_restart_count: 5,
                 node_selector_json: None,
                 tolerations_json: None,

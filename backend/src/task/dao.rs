@@ -63,6 +63,23 @@ pub trait TaskRepository: Send + Sync {
     ) -> Result<HashMap<String, i32>, sqlx::Error>;
     /// List task IDs of all tasks currently in `status = 'open'`.
     async fn list_open_task_ids(&self) -> Result<Vec<String>, sqlx::Error>;
+
+    /// List task IDs for currently-open codex tasks under a given codex scope,
+    /// optionally excluding `except_task_id`. Drives both the Codex refresh
+    /// in-flight guard (empty → backend may refresh; non-empty → defer to the
+    /// active sandbox watcher) and the rotation broadcast fan-out.
+    ///
+    /// `scope_kind` is `"user"`, `"team"`, or `"global"`. `scope_id` is the
+    /// user_id or team_id; ignored for global. Pass `""` for `except_task_id`
+    /// to disable the exclusion. Owned `String` params keep `mockall::automock`
+    /// happy — `Option<&str>` and `&str` elide lifetimes the macro can't
+    /// synthesise.
+    async fn list_open_codex_tasks_for_scope(
+        &self,
+        scope_kind: String,
+        scope_id: String,
+        except_task_id: String,
+    ) -> Result<Vec<String>, sqlx::Error>;
 }
 
 /// PostgreSQL implementation of [`TaskRepository`].
@@ -470,6 +487,61 @@ impl TaskRepository for PgTaskRepository {
             sqlx::query_as(r#"SELECT task_id FROM tasks WHERE status = 'open'"#)
                 .fetch_all(&self.0)
                 .await?;
+        Ok(rows.into_iter().map(|(id,)| id).collect())
+    }
+
+    async fn list_open_codex_tasks_for_scope(
+        &self,
+        scope_kind: String,
+        scope_id: String,
+        except_task_id: String,
+    ) -> Result<Vec<String>, sqlx::Error> {
+        let except = if except_task_id.is_empty() {
+            None
+        } else {
+            Some(except_task_id.as_str())
+        };
+        let rows: Vec<(String,)> = match scope_kind.as_str() {
+            "user" => {
+                sqlx::query_as(
+                    r#"SELECT task_id FROM tasks
+                       WHERE status = 'open'
+                         AND agent_type = 'codex'
+                         AND created_by = $1
+                         AND ($2::text IS NULL OR task_id <> $2)"#,
+                )
+                .bind(&scope_id)
+                .bind(except)
+                .fetch_all(&self.0)
+                .await?
+            }
+            "team" => {
+                sqlx::query_as(
+                    r#"SELECT DISTINCT t.task_id FROM tasks t
+                       JOIN team_members tm ON tm.user_id = t.created_by
+                       WHERE t.status = 'open'
+                         AND t.agent_type = 'codex'
+                         AND tm.team_id = $1
+                         AND ($2::text IS NULL OR t.task_id <> $2)"#,
+                )
+                .bind(&scope_id)
+                .bind(except)
+                .fetch_all(&self.0)
+                .await?
+            }
+            "global" => {
+                sqlx::query_as(
+                    r#"SELECT task_id FROM tasks
+                       WHERE status = 'open'
+                         AND agent_type = 'codex'
+                         AND ($1::text IS NULL OR task_id <> $1)"#,
+                )
+                .bind(except)
+                .fetch_all(&self.0)
+                .await?
+            }
+            _ => Vec::new(),
+        };
         Ok(rows.into_iter().map(|(id,)| id).collect())
     }
 }

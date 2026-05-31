@@ -141,3 +141,7 @@ tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
 mockall = "0.13"
 tempfile = "3"
+
+[[example]]
+name = "codex_refresh_smoke"
+path = "examples/codex_refresh_smoke.rs"

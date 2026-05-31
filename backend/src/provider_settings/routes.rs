@@ -24,6 +24,8 @@ use crate::state::AppState;
         handlers::get_codex_config,
         handlers::save_codex_auth,
         handlers::delete_codex_config,
+        handlers::admin_save_global_codex_auth,
+        handlers::admin_delete_global_codex_config,
         handlers::start_codex_device_login,
         handlers::poll_codex_device_login,
     )
@@ -53,6 +55,10 @@ pub fn provider_settings_router(state: AppState) -> (axum::Router, utoipa::opena
             handlers::delete_codex_config
         ))
         .routes(routes!(handlers::save_codex_auth))
+        .routes(routes!(
+            handlers::admin_save_global_codex_auth,
+            handlers::admin_delete_global_codex_config
+        ))
         .routes(routes!(handlers::start_codex_device_login))
         .routes(routes!(handlers::poll_codex_device_login))
         .with_state(state)

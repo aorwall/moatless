@@ -351,7 +351,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
 
         if let Some(k8s) = reaper_k8s {
-            spawn_task_reaper(&app_state, k8s, cancel.clone());
+            spawn_task_reaper(&app_state, k8s.clone(), cancel.clone());
+            spawn_codex_refresher(&app_state, k8s, cancel.clone());
         } else {
             info!("Task reaper disabled (Docker mode — K8s leader election not available)");
         }
@@ -465,5 +466,30 @@ fn spawn_task_reaper(
         check_interval_secs = app_state.config.sandbox.idle_check_interval_secs,
         inactive_task_timeout_days = app_state.config.sandbox.inactive_task_timeout_days,
         "Task reaper spawned"
+    );
+}
+
+/// Spawn the background Codex token refresher if enabled. Leader-elected via
+/// a dedicated K8s Lease (`moatless-codex-refresher`).
+fn spawn_codex_refresher(
+    app_state: &AppState,
+    k8s: sandbox::k8s::client::K8sClient,
+    cancel: CancellationToken,
+) {
+    let interval_secs = app_state.config.sandbox.codex_refresher_interval_secs;
+    if interval_secs == 0 {
+        info!("Codex refresher disabled (CODEX_REFRESHER_INTERVAL_SECS=0)");
+        return;
+    }
+    moatless_vibe_backend::credentials::codex::refresher::spawn_codex_refresher(
+        app_state.db.clone(),
+        Arc::clone(&app_state.credentials_svc),
+        k8s,
+        std::time::Duration::from_secs(interval_secs),
+        cancel,
+    );
+    info!(
+        interval_secs,
+        "Codex refresher spawned"
     );
 }
