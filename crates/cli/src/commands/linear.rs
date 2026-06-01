@@ -76,6 +76,10 @@ pub enum IssueAction {
         /// Assignee email, display name, `me`, or UUID
         #[arg(long)]
         assignee: Option<String>,
+        /// Reporter email, display name, `me`, or UUID. Added as a subscriber
+        /// and mentioned in the description (records who requested the issue).
+        #[arg(long)]
+        reporter: Option<String>,
         /// 0 No-priority, 1 Urgent, 2 High, 3 Normal, 4 Low
         #[arg(long)]
         priority: Option<i32>,
@@ -213,6 +217,7 @@ async fn run_issue(
             project,
             labels,
             assignee,
+            reporter,
             priority,
             estimate,
             due_date,
@@ -231,6 +236,7 @@ async fn run_issue(
                 project,
                 labels,
                 assignee,
+                reporter,
                 priority,
                 estimate,
                 due_date,

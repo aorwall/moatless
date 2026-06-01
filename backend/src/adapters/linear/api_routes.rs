@@ -111,7 +111,17 @@ pub async fn create_issue(
     };
     let state_id = resolve_optional(&api, LookupKind::State, req.state.as_deref()).await?;
     let project_id = resolve_optional(&api, LookupKind::Project, req.project.as_deref()).await?;
-    let assignee_id = resolve_assignee(&api, req.assignee.as_deref()).await?;
+    // Explicit assignee hard-fails on miss; when omitted, default to the
+    // calling user's email (best-effort — never fails issue creation).
+    let assignee_id = match req.assignee.as_deref() {
+        Some(value) => Some(resolve_user_required(&api, value).await?.id),
+        None => default_assignee_from_caller(&state, &api, &auth.user_id).await,
+    };
+    // Reporter (records who requested the issue) hard-fails on an explicit miss.
+    let reporter = match req.reporter.as_deref() {
+        Some(value) => Some(resolve_user_required(&api, value).await?),
+        None => None,
+    };
     let parent_id = resolve_optional_issue(&api, req.parent.as_deref()).await?;
     let cycle_id = resolve_cycle_id(&api, &team_id, req.cycle.as_deref()).await?;
     let mut label_ids: Vec<String> = Vec::with_capacity(req.labels.len());
@@ -123,8 +133,19 @@ pub async fn create_issue(
         "teamId": team_id,
         "title": req.title,
     });
-    if let Some(d) = req.description {
+    // Prepend a `Reported by <profile-url>` line (renders as a real user
+    // mention) whether or not a description was supplied. Also subscribe the
+    // reporter so they get notified and the issue is filterable by them.
+    let description = match (reporter.as_ref(), req.description) {
+        (Some(r), Some(d)) => Some(format!("Reported by {}\n\n{d}", r.url)),
+        (Some(r), None) => Some(format!("Reported by {}", r.url)),
+        (None, d) => d,
+    };
+    if let Some(d) = description {
         input["description"] = json!(d);
+    }
+    if let Some(r) = reporter.as_ref() {
+        input["subscriberIds"] = json!([r.id]);
     }
     if let Some(s) = state_id {
         input["stateId"] = json!(s);
@@ -581,37 +602,130 @@ async fn default_team_id(api: &LinearAgentApi) -> Result<String, AdapterError> {
     }
 }
 
+/// A resolved Linear user with the fields needed to wire it into an issue as
+/// assignee (`id`) or reporter (`id` for the subscriber, `url` for the
+/// description mention).
+struct ResolvedUser {
+    id: String,
+    url: String,
+}
+
+/// Build a [`ResolvedUser`] from a GraphQL user node selecting `id url`.
+fn user_from_node(node: &Value) -> Option<ResolvedUser> {
+    let id = node.get("id").and_then(Value::as_str)?.to_string();
+    let url = node
+        .get("url")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    Some(ResolvedUser { id, url })
+}
+
+/// Resolve a user reference (`me`, UUID, email, or display name) to a Linear
+/// user. Returns `Ok(None)` when no user matches — callers decide whether a
+/// miss is fatal (explicit `--assignee`/`--reporter`) or skippable (the
+/// best-effort assignee default).
+async fn resolve_user_opt(
+    api: &LinearAgentApi,
+    value: &str,
+) -> Result<Option<ResolvedUser>, AdapterError> {
+    if value == "me" {
+        let viewer = api
+            .graphql(json!({ "query": "query { viewer { id url } }" }))
+            .await?;
+        return Ok(viewer.pointer("/data/viewer").and_then(user_from_node));
+    }
+    if looks_like_uuid(value) {
+        let by_id = api
+            .graphql(json!({
+                "query": "query($id: String!) { user(id: $id) { id url } }",
+                "variables": { "id": value }
+            }))
+            .await?;
+        return Ok(by_id.pointer("/data/user").and_then(user_from_node));
+    }
+    // Try email match first, then fall back to display-name lookup.
+    let by_email = api
+        .graphql(json!({
+            "query": "query($email: String!) { users(filter: { email: { eq: $email } }, first: 1) { nodes { id url } } }",
+            "variables": { "email": value }
+        }))
+        .await?;
+    if let Some(user) = by_email
+        .pointer("/data/users/nodes/0")
+        .and_then(user_from_node)
+    {
+        return Ok(Some(user));
+    }
+    let Some(lookup) = api.lookup(LookupKind::User, value).await? else {
+        return Ok(None);
+    };
+    let by_id = api
+        .graphql(json!({
+            "query": "query($id: String!) { user(id: $id) { id url } }",
+            "variables": { "id": lookup.id }
+        }))
+        .await?;
+    Ok(by_id.pointer("/data/user").and_then(user_from_node))
+}
+
+/// Required variant of [`resolve_user_opt`] — hard-fails with `NotFound` when
+/// no user matches.
+async fn resolve_user_required(
+    api: &LinearAgentApi,
+    value: &str,
+) -> Result<ResolvedUser, AdapterError> {
+    resolve_user_opt(api, value)
+        .await?
+        .ok_or_else(|| AdapterError::NotFound(format!("Linear user `{value}` not found")))
+}
+
 /// Resolve assignee: `me` → viewer.id; UUID → passthrough; email or display
-/// name → user lookup.
+/// name → user lookup. Hard-fails on miss (used by issue update and explicit
+/// create assignees).
 async fn resolve_assignee(
     api: &LinearAgentApi,
     value: Option<&str>,
 ) -> Result<Option<String>, AdapterError> {
     let Some(value) = value else { return Ok(None) };
-    if value == "me" {
-        return Ok(Some(api.viewer().await?.id));
+    Ok(Some(resolve_user_required(api, value).await?.id))
+}
+
+/// Best-effort assignee default: resolve the calling moat user's email to a
+/// Linear user. Returns `None` (and warns) when the caller has no email on
+/// file or the email doesn't match a Linear member — never fails issue
+/// creation.
+async fn default_assignee_from_caller(
+    state: &AppState,
+    api: &LinearAgentApi,
+    user_id: &str,
+) -> Option<String> {
+    let user = match state.users.get_user(user_id).await {
+        Ok(Some(u)) => u,
+        Ok(None) => {
+            warn!(user_id, "assignee default: caller not found; leaving issue unassigned");
+            return None;
+        }
+        Err(e) => {
+            warn!(error = %e, user_id, "assignee default: failed to load caller; leaving issue unassigned");
+            return None;
+        }
+    };
+    let Some(email) = user.email else {
+        warn!(user_id, "assignee default: caller has no email; leaving issue unassigned");
+        return None;
+    };
+    match resolve_user_opt(api, &email).await {
+        Ok(Some(u)) => Some(u.id),
+        Ok(None) => {
+            warn!(user_id, email, "assignee default: no Linear user matches caller email; leaving issue unassigned");
+            None
+        }
+        Err(e) => {
+            warn!(error = %e, user_id, email, "assignee default: lookup failed; leaving issue unassigned");
+            None
+        }
     }
-    if looks_like_uuid(value) {
-        return Ok(Some(value.to_string()));
-    }
-    // Try email match first, then fall back to display-name lookup.
-    let by_email = api
-        .graphql(json!({
-            "query": "query($email: String!) { users(filter: { email: { eq: $email } }, first: 1) { nodes { id } } }",
-            "variables": { "email": value }
-        }))
-        .await?;
-    if let Some(id) = by_email
-        .pointer("/data/users/nodes/0/id")
-        .and_then(Value::as_str)
-    {
-        return Ok(Some(id.to_string()));
-    }
-    let lookup = api
-        .lookup(LookupKind::User, value)
-        .await?
-        .ok_or_else(|| AdapterError::NotFound(format!("Linear user `{value}` not found")))?;
-    Ok(Some(lookup.id))
 }
 
 /// Resolve a parent value: UUID → as-is; identifier (SP-123) → fetch the
