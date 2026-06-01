@@ -1,3 +1,6 @@
+// reason: examples print results to stdout/stderr for the reader.
+#![allow(clippy::print_stdout, clippy::print_stderr)]
+
 //! Demonstrates custom permission handling and hooks.
 //!
 //! This example shows how to:

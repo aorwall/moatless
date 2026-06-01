@@ -6,6 +6,9 @@
 //!
 //! All event types serialize to the exact strings the frontend expects.
 
+// reason: test code may unwrap freely; production code keeps the workspace `deny`.
+#![cfg_attr(test, allow(clippy::unwrap_used))]
+
 use serde::{Deserialize, Serialize};
 
 /// Top-level event types.

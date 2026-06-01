@@ -1,3 +1,6 @@
+// reason: examples print results to stdout/stderr for the reader.
+#![allow(clippy::print_stdout, clippy::print_stderr)]
+
 //! Multi-turn streaming conversation using ClaudeClient.
 //!
 //! This example demonstrates the `ClaudeClient` API for interactive

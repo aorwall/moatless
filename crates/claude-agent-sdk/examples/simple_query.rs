@@ -1,3 +1,6 @@
+// reason: examples print results to stdout/stderr for the reader.
+#![allow(clippy::print_stdout, clippy::print_stderr)]
+
 //! Simple one-shot query using the Claude Agent SDK.
 //!
 //! This example sends a single prompt to the Claude CLI and prints the response.

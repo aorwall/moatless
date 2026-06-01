@@ -9,6 +9,9 @@
 //! - `openapi` — enables `utoipa::ToSchema` / `utoipa::IntoParams` derives
 //! - `database` — enables `sqlx` `Type`/`Encode`/`Decode` impls for enums
 
+// reason: test code may unwrap/expect freely; production code keeps the workspace `deny`.
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+
 pub mod adapters;
 pub mod agent;
 pub mod auth;

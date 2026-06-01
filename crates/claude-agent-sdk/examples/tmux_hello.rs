@@ -1,3 +1,6 @@
+// reason: examples print results to stdout/stderr for the reader.
+#![allow(clippy::print_stdout, clippy::print_stderr)]
+
 //! Tmux-mode one-shot query. Spawns the real interactive Claude TUI inside a
 //! detached tmux session, drives it via the paste buffer, and consumes the
 //! JSONL transcript as `SdkMessage` events — same shape as `simple_query.rs`,

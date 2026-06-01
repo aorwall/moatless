@@ -1,4 +1,6 @@
 #![allow(clippy::print_stdout, clippy::print_stderr)]
+// reason: test code may unwrap freely; production code keeps the workspace `deny`.
+#![cfg_attr(test, allow(clippy::unwrap_used))]
 //! `moatless-cli` — library for the Moatless backend API client.
 //!
 //! Exposes [`MoatClient`], [`Config`], and typed command modules so that

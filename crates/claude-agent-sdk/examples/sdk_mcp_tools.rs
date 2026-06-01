@@ -1,3 +1,6 @@
+// reason: examples print results to stdout/stderr for the reader.
+#![allow(clippy::print_stdout, clippy::print_stderr)]
+
 //! Demonstrates in-process SDK MCP tools.
 //!
 //! This example registers custom tools that run in-process (no separate MCP
