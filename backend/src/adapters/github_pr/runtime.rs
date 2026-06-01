@@ -149,7 +149,16 @@ pub async fn route_inbound_message(
     // the `<!-- moatless-agent:TASK_ID -->` marker on the comment body) — it
     // is authoritative and avoids a DB round-trip. Fall back to the
     // external_event_id lookup for paths that don't carry the marker
-    // (e.g. legacy comments, PR opened events).
+    // (e.g. legacy comments, PR opened events). These two signals drive both
+    // the pre-loop binding upsert and the cheap self-echo skip below.
+    //
+    // A third self-echo signal — owner-identity match between `msg.user_id`
+    // and the task's `created_by` / `owner_user_id` — runs per-binding inside
+    // the delivery loop. It catches out-of-band agent comments (e.g. `gh pr
+    // comment` bypassing `moat reply`) that leave no marker and no recorded
+    // external_event_id. It is delivery-only and intentionally does not feed
+    // `origin_task_id`, which must remain task-id authoritative for the
+    // upsert below.
     let origin_task_id = match msg.source_task_id.clone() {
         Some(task_id) => Some(task_id),
         None => match msg.external_event_id.as_deref() {
@@ -207,6 +216,7 @@ pub async fn route_inbound_message(
 
     let mut delivery_targets: Vec<(TaskBinding, bool)> = Vec::new();
     for binding in bindings {
+        // (1) Cheap check: marker / external_event_id resolved the origin task id.
         if origin_task_id.as_deref() == Some(binding.task_id.as_str()) {
             debug!(
                 task_id = %binding.task_id,
@@ -215,6 +225,40 @@ pub async fn route_inbound_message(
             );
             continue;
         }
+
+        // (2) Owner-identity check: catches out-of-band agent comments
+        // (e.g. `gh pr comment` bypassing `moat reply`, which leaves no marker
+        // and no recorded external_event_id). Per-binding DB fetch; typical
+        // PRs have 1-2 bindings.
+        match state.tasks.find_by_id_internal(&binding.task_id).await {
+            Ok(Some(task))
+                if is_authored_by_task_owner(
+                    &msg.user_id,
+                    task.created_by.as_deref(),
+                    task.owner_user_id.as_deref(),
+                ) =>
+            {
+                debug!(
+                    task_id = %binding.task_id,
+                    user_id = %msg.user_id,
+                    subject_key = %subject_key,
+                    "Skipping GitHub event: sender matches task owner (self-echo)"
+                );
+                continue;
+            }
+            // Task gone (Ok(None)) or owner mismatch — deliver. A missing task
+            // will surface more clearly inside send_message_flow.
+            Ok(_) => {}
+            // Fail-open: a DB blip must not silently drop a legitimate event.
+            Err(e) => {
+                warn!(
+                    task_id = %binding.task_id,
+                    error = %e,
+                    "Failed to fetch task for self-echo check; delivering anyway"
+                );
+            }
+        }
+
         delivery_targets.push((binding, false));
     }
 
@@ -819,6 +863,24 @@ async fn generate_short_id(state: &AppState) -> Result<String, AdapterError> {
     ))
 }
 
+/// Returns `true` when `user_id` matches either identity field on the task's
+/// owner, indicating the inbound message was authored by the task's own bot
+/// identity and should not be echoed back to it.
+///
+/// `created_by` covers all trigger-spawned tasks; `owner_user_id` covers
+/// user-scoped tasks. Matching either is sufficient. An empty `user_id`
+/// never matches.
+pub(crate) fn is_authored_by_task_owner(
+    user_id: &str,
+    created_by: Option<&str>,
+    owner_user_id: Option<&str>,
+) -> bool {
+    if user_id.is_empty() {
+        return false;
+    }
+    created_by == Some(user_id) || owner_user_id == Some(user_id)
+}
+
 fn truncate(s: &str, max: usize) -> String {
     if s.len() <= max {
         return s.to_string();
@@ -866,5 +928,59 @@ mod tests {
         let out = truncate(s, 7);
         assert!(out.ends_with("..."));
         assert!(out.len() <= 7);
+    }
+
+    mod self_echo_filter {
+        use super::super::is_authored_by_task_owner;
+
+        #[test]
+        fn matches_created_by() {
+            assert!(is_authored_by_task_owner(
+                "bot:reviewer",
+                Some("bot:reviewer"),
+                None,
+            ));
+        }
+
+        #[test]
+        fn matches_owner_user_id() {
+            assert!(is_authored_by_task_owner(
+                "bot:reviewer",
+                None,
+                Some("bot:reviewer"),
+            ));
+        }
+
+        #[test]
+        fn matches_when_both_set() {
+            assert!(is_authored_by_task_owner(
+                "bot:reviewer",
+                Some("bot:reviewer"),
+                Some("bot:reviewer"),
+            ));
+        }
+
+        #[test]
+        fn mismatched_identity_does_not_match() {
+            assert!(!is_authored_by_task_owner(
+                "human-1",
+                Some("bot:reviewer"),
+                None,
+            ));
+        }
+
+        #[test]
+        fn empty_user_id_never_matches() {
+            assert!(!is_authored_by_task_owner(
+                "",
+                Some("bot:reviewer"),
+                Some("bot:reviewer"),
+            ));
+        }
+
+        #[test]
+        fn both_none_never_matches() {
+            assert!(!is_authored_by_task_owner("bot:reviewer", None, None));
+        }
     }
 }
