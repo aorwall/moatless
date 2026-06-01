@@ -279,6 +279,21 @@ impl MoatClient {
         self.handle_response(resp).await
     }
 
+    /// Raw PATCH with JSON body.
+    pub async fn raw_patch(
+        &self,
+        path: &str,
+        body: &serde_json::Value,
+    ) -> Result<serde_json::Value, ClientError> {
+        let url = format!("{}{path}", self.base_url);
+        if self.verbose {
+            eprintln!("PATCH {url}");
+        }
+        let http = Self::build_http_client(&self.auth_mode);
+        let resp = http.patch(&url).json(body).send().await?;
+        self.handle_response(resp).await
+    }
+
     /// Raw DELETE (no body).
     pub async fn raw_delete(&self, path: &str) -> Result<serde_json::Value, ClientError> {
         let url = format!("{}{path}", self.base_url);

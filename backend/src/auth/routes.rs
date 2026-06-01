@@ -178,6 +178,7 @@ impl AuthState {
         revoke_api_key_handler,
         list_users_handler,
         create_user_handler,
+        update_user_handler,
         set_user_provider_id_handler,
         delete_user_provider_id_handler,
         list_user_provider_ids_handler,
@@ -198,6 +199,7 @@ pub fn auth_router(state: AuthState) -> (axum::Router, utoipa::openapi::OpenApi)
         .routes(routes!(create_api_key_handler, list_api_keys_handler))
         .routes(routes!(revoke_api_key_handler))
         .routes(routes!(list_users_handler, create_user_handler))
+        .routes(routes!(update_user_handler))
         .routes(routes!(
             set_user_provider_id_handler,
             delete_user_provider_id_handler
@@ -1564,6 +1566,61 @@ async fn list_users_handler(
         .collect();
 
     Ok(Json(UserListResponse { users: items }))
+}
+
+/// Update a user's profile (name and/or email).
+///
+/// A user may update their own profile; updating another user requires the
+/// admin role. Backs the `moat user <login> set-email` CLI command so emails
+/// can be corrected without direct DB access. Only the fields present in the
+/// body are changed.
+#[utoipa::path(
+    patch,
+    path = "/api/v1/users/{login}",
+    tag = "users",
+    params(("login" = String, Path, description = "Moatless username")),
+    request_body = UpdateUserRequest,
+    responses(
+        (status = 200, description = "User updated", body = UserInfo),
+        (status = 401, description = "Not authenticated", body = ErrorBody),
+        (status = 403, description = "Access denied", body = ErrorBody),
+        (status = 404, description = "User not found", body = ErrorBody)
+    )
+)]
+async fn update_user_handler(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    Path(login): Path<String>,
+    Json(body): Json<UpdateUserRequest>,
+) -> Result<Json<UserInfo>, AuthError> {
+    let identity = authenticate_request(&state, &headers).await?;
+    let user_id = resolve_login_to_user_id(&state, &login).await?;
+
+    if identity.user_id != user_id && identity.role != UserRole::Admin {
+        return Err(AuthError::Forbidden);
+    }
+
+    let user = state
+        .users
+        .update_user_profile(&user_id, body.name.clone(), body.email.clone())
+        .await?
+        .ok_or_else(|| AuthError::NotFound(format!("User '{login}' not found")))?;
+
+    info!(
+        actor = %identity.user_id,
+        target_user = %user_id,
+        "Updated user profile (name/email)"
+    );
+
+    Ok(Json(UserInfo {
+        id: user.id,
+        login: user.login,
+        email: user.email,
+        name: user.name,
+        avatar_url: user.avatar_url,
+        provider: user.provider,
+        role: user.role,
+    }))
 }
 
 // ============================================================================

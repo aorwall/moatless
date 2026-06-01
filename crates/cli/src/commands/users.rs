@@ -7,6 +7,16 @@ use crate::output;
 
 #[derive(Subcommand)]
 pub enum UserAction {
+    /// Set this user's email address (admin-only when targeting another user)
+    SetEmail {
+        /// New email address
+        email: String,
+    },
+    /// Set this user's display name (admin-only when targeting another user)
+    SetName {
+        /// New display name
+        name: String,
+    },
     /// Associate a provider-specific user ID with this moatless user
     SetProviderId {
         /// Provider name (e.g. "slack")
@@ -33,6 +43,28 @@ pub async fn run(
     json: bool,
 ) -> Result<(), ClientError> {
     match action {
+        UserAction::SetEmail { email } => {
+            let body = serde_json::json!({ "email": email });
+            let resp = moat.raw_patch(&format!("/api/v1/users/{login}"), &body).await?;
+            if json {
+                output::print_json_typed(&resp);
+            } else {
+                let updated = resp.get("email").and_then(|v| v.as_str()).unwrap_or(&email);
+                println!("Updated '{login}' email to {updated}");
+            }
+        }
+
+        UserAction::SetName { name } => {
+            let body = serde_json::json!({ "name": name });
+            let resp = moat.raw_patch(&format!("/api/v1/users/{login}"), &body).await?;
+            if json {
+                output::print_json_typed(&resp);
+            } else {
+                let updated = resp.get("name").and_then(|v| v.as_str()).unwrap_or(&name);
+                println!("Updated '{login}' name to {updated}");
+            }
+        }
+
         UserAction::SetProviderId { provider, id } => {
             let body = serde_json::json!({ "provider_user_id": id });
             let resp = moat
