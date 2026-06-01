@@ -64,6 +64,11 @@ pub struct Task {
     /// Trigger that spawned this task (route + schedule). Independent from any
     /// communication binding — schedule triggers never create a binding.
     pub trigger_id: Option<String>,
+    /// Server names auto-disabled for this task after repeatedly crash-looping.
+    /// JSON array of strings (e.g. `["storybook"]`). `None`/null means none
+    /// disabled. Stored per-task so it survives stop/start and never leaks to
+    /// other tasks sharing the same repository.
+    pub disabled_servers: Option<serde_json::Value>,
 }
 
 #[cfg(test)]

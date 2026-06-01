@@ -303,6 +303,50 @@ fn build_sandbox_container(
         });
     }
 
+    // Resource requests + limits for the agent container. A per-repo override
+    // takes precedence; otherwise the global `K8S_RESOURCE_*` config applies.
+    // Without this the sandbox container is BestEffort and the first OOM/eviction
+    // target on spot nodes — see the `sandbox_resources_*` config fields.
+    let resources = if let Some(ref res) = plan.repo_config.resources {
+        ResourceRequirements {
+            limits: res.limits.as_ref().map(|l| {
+                l.iter()
+                    .map(|(k, v)| (k.clone(), Quantity(v.clone())))
+                    .collect()
+            }),
+            requests: res.requests.as_ref().map(|r| {
+                r.iter()
+                    .map(|(k, v)| (k.clone(), Quantity(v.clone())))
+                    .collect()
+            }),
+            ..Default::default()
+        }
+    } else {
+        ResourceRequirements {
+            limits: Some(BTreeMap::from([
+                (
+                    "cpu".to_string(),
+                    Quantity(config.sandbox.sandbox_resources_cpu_limit.clone()),
+                ),
+                (
+                    "memory".to_string(),
+                    Quantity(config.sandbox.sandbox_resources_memory_limit.clone()),
+                ),
+            ])),
+            requests: Some(BTreeMap::from([
+                (
+                    "cpu".to_string(),
+                    Quantity(config.sandbox.sandbox_resources_cpu_request.clone()),
+                ),
+                (
+                    "memory".to_string(),
+                    Quantity(config.sandbox.sandbox_resources_memory_request.clone()),
+                ),
+            ])),
+            ..Default::default()
+        }
+    };
+
     Ok(Container {
         name: "sandbox".to_string(),
         image: Some(image),
@@ -325,6 +369,7 @@ fn build_sandbox_container(
         env: Some(env),
         startup_probe: Some(startup_probe),
         volume_mounts: Some(volume_mounts),
+        resources: Some(resources),
         security_context: Some(drop_all_security_context()),
         ..Default::default()
     })
@@ -636,6 +681,10 @@ mod tests {
                 resources_memory_limit: "512Mi".into(),
                 resources_cpu_request: "100m".into(),
                 resources_memory_request: "128Mi".into(),
+                sandbox_resources_cpu_request: "1".into(),
+                sandbox_resources_cpu_limit: "4".into(),
+                sandbox_resources_memory_request: "2Gi".into(),
+                sandbox_resources_memory_limit: "8Gi".into(),
                 storage_enabled: false,
                 storage_size: "1Gi".into(),
                 storage_class: None,
@@ -828,5 +877,58 @@ mod tests {
             .find(|container| container.name == "web-server")
             .unwrap();
         assert_eq!(web.image.as_deref(), Some("sandbox:latest"));
+    }
+
+    #[test]
+    fn sandbox_container_has_memory_request_and_limit() {
+        let config = test_config();
+        let plan = test_plan();
+
+        let container =
+            build_sandbox_container(&config, "task-1", &plan, Some("pvc"), None).unwrap();
+        let resources = container
+            .resources
+            .as_ref()
+            .expect("sandbox container must have resources populated");
+
+        let requests = resources.requests.as_ref().expect("requests set");
+        assert_eq!(requests.get("memory").map(|q| q.0.as_str()), Some("2Gi"));
+        assert_eq!(requests.get("cpu").map(|q| q.0.as_str()), Some("1"));
+
+        let limits = resources.limits.as_ref().expect("limits set");
+        assert_eq!(limits.get("memory").map(|q| q.0.as_str()), Some("8Gi"));
+        assert_eq!(limits.get("cpu").map(|q| q.0.as_str()), Some("4"));
+    }
+
+    #[test]
+    fn sandbox_container_honors_per_repo_resource_override() {
+        use crate::repository::models::ResourceConfig;
+
+        let config = test_config();
+        let mut plan = test_plan();
+        plan.repo_config.resources = Some(ResourceConfig {
+            requests: Some(HashMap::from([("memory".to_string(), "4Gi".to_string())])),
+            limits: Some(HashMap::from([("memory".to_string(), "16Gi".to_string())])),
+        });
+
+        let container =
+            build_sandbox_container(&config, "task-1", &plan, Some("pvc"), None).unwrap();
+        let resources = container.resources.as_ref().unwrap();
+        assert_eq!(
+            resources
+                .requests
+                .as_ref()
+                .and_then(|r| r.get("memory"))
+                .map(|q| q.0.as_str()),
+            Some("4Gi")
+        );
+        assert_eq!(
+            resources
+                .limits
+                .as_ref()
+                .and_then(|l| l.get("memory"))
+                .map(|q| q.0.as_str()),
+            Some("16Gi")
+        );
     }
 }

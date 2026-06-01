@@ -630,6 +630,7 @@ async fn create_provider_event_task(
             .unwrap_or(crate::task::models::DEFAULT_INACTIVE_TTL_DAYS),
         task_template_id: None,
         trigger_id: Some(rule.id.clone()),
+        disabled_servers: None,
     };
 
     state

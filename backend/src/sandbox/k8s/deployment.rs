@@ -12,7 +12,10 @@ use tracing::{debug, info, warn};
 
 use super::client::K8sClient;
 use super::naming::generate_service_name;
+use super::{pod_builder, pvc};
+use crate::config::Config;
 use crate::sandbox::error::SandboxError;
+use crate::sandbox::models::ProvisionRequest;
 
 /// Create a Deployment wrapping the given Pod spec.
 ///
@@ -177,6 +180,42 @@ pub async fn restart_deployment(k8s: &K8sClient, task_id: &str) -> Result<(), ku
         }
     }
 
+    Ok(())
+}
+
+/// Rebuild a task's Deployment from a (possibly filtered) provision request.
+///
+/// Unlike [`restart_deployment`] (which only deletes pods, so the Deployment
+/// recreates them from the *same* spec), this deletes the Deployment and
+/// recreates it from a freshly built pod spec. That is what makes a removed
+/// server container actually disappear from the running pod.
+///
+/// The existing workspace PVC is reused so no data is lost.
+pub async fn redeploy_with_plan(
+    k8s: &K8sClient,
+    config: &Config,
+    task_id: &str,
+    request: &ProvisionRequest,
+    token: &str,
+) -> Result<(), SandboxError> {
+    let pvc_name = pvc::find_task_pvc(k8s, task_id).await;
+
+    let pod = pod_builder::build_pod(
+        config,
+        task_id,
+        &request.plan,
+        pvc_name.as_deref(),
+        Some(token),
+    )
+    .map_err(SandboxError::PodBuildError)?;
+
+    // Delete the old Deployment first so create rebuilds from the new spec.
+    delete_deployment(k8s, task_id)
+        .await
+        .map_err(SandboxError::KubeError)?;
+
+    create_sandbox_deployment(k8s, task_id, pod).await?;
+    info!(task_id, "Deployment redeployed with updated pod spec");
     Ok(())
 }
 

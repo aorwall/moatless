@@ -17,7 +17,8 @@ use crate::task::dao::TaskRepository;
 // Re-export the repo-config builders from k8s/auto_provision so existing
 // callers can use the same path.
 pub use crate::sandbox::k8s::auto_provision::{
-    build_repo_config, build_server_configs, get_server_configs,
+    build_repo_config, build_server_configs, filter_disabled_servers, get_server_configs,
+    parse_disabled_servers,
 };
 
 /// Build a `ProvisionRequest` from database state.
@@ -97,6 +98,15 @@ pub async fn build_provision_request(
     if task.headless {
         repo_config.servers = None;
         repo_config.preview_config = None;
+    }
+
+    // Drop servers this task previously auto-disabled (crash-loop remediation).
+    // Persisted per-task so it survives stop/start and never affects sibling
+    // tasks sharing the same repository.
+    let disabled = parse_disabled_servers(&task);
+    if !disabled.is_empty() {
+        info!(task_id = %task_id, ?disabled, "Auto-provision: filtering disabled servers");
+        filter_disabled_servers(&mut repo_config, &disabled);
     }
 
     let plan = crate::sandbox::models::ProvisionPlan {

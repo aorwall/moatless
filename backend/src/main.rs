@@ -107,21 +107,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             sandbox_provider =
                 startup::build_sandbox_provider(&config, k8s.clone(), event_publisher.clone());
 
-            // Spawn pod lifecycle watcher
-            if let Some(ref publisher) = event_publisher {
-                sandbox::k8s::pod_watcher::spawn_pod_lifecycle_watcher(
-                    k8s,
-                    publisher.clone(),
-                    cancel.clone(),
-                    config.sandbox.max_crash_restart_count,
-                );
-                info!(
-                    max_crash_restart_count = config.sandbox.max_crash_restart_count,
-                    "Pod lifecycle watcher spawned"
-                );
-            } else {
-                info!("Pod lifecycle watcher disabled (requires Redis)");
-            }
+            // The K8s pod lifecycle watcher is spawned after the DB repos are
+            // built (it needs them to auto-disable crash-looping servers).
         }
         SandboxProviderType::Docker => {
             let docker_client = sandbox::docker::client::DockerClient::new(
@@ -202,6 +189,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ),
             ))
         });
+
+    // Spawn the K8s pod lifecycle watcher now that the DB repos exist. It needs
+    // task + repo access (plus credentials) to auto-disable crash-looping server
+    // containers and redeploy without them. Only runs in K8s mode (reaper_k8s is
+    // None under Docker) and when an event publisher (Redis) is available.
+    match (reaper_k8s.as_ref(), event_publisher.as_ref()) {
+        (Some(k8s), Some(publisher)) => {
+            sandbox::k8s::pod_watcher::spawn_pod_lifecycle_watcher(
+                k8s.clone(),
+                publisher.clone(),
+                cancel.clone(),
+                config.sandbox.max_crash_restart_count,
+                sandbox_tasks.clone(),
+                sandbox_repos.clone(),
+                sandbox_provider_tokens.clone(),
+                sandbox_plugin_repos.clone(),
+                Arc::new(config.clone()),
+            );
+            info!(
+                max_crash_restart_count = config.sandbox.max_crash_restart_count,
+                "Pod lifecycle watcher spawned"
+            );
+        }
+        (Some(_), None) => info!("Pod lifecycle watcher disabled (requires Redis)"),
+        (None, _) => {} // Docker mode — container watcher already spawned above
+    }
 
     let sandbox_state = sandbox::routes::SandboxApiState {
         provider: Arc::clone(&sandbox_provider),

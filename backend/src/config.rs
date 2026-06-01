@@ -167,6 +167,14 @@ pub struct SandboxConfig {
     pub resources_cpu_request: String,
     /// Memory request for server containers
     pub resources_memory_request: String,
+    /// CPU request for the sandbox (agent) container (env `K8S_RESOURCE_REQUEST_CPU`)
+    pub sandbox_resources_cpu_request: String,
+    /// CPU limit for the sandbox (agent) container (env `K8S_RESOURCE_LIMIT_CPU`)
+    pub sandbox_resources_cpu_limit: String,
+    /// Memory request for the sandbox (agent) container (env `K8S_RESOURCE_REQUEST_MEMORY`)
+    pub sandbox_resources_memory_request: String,
+    /// Memory limit for the sandbox (agent) container (env `K8S_RESOURCE_LIMIT_MEMORY`)
+    pub sandbox_resources_memory_limit: String,
     /// Whether PVC storage is enabled for sandbox pods
     pub storage_enabled: bool,
     /// PVC storage size (e.g., "5Gi")
@@ -665,6 +673,10 @@ impl Config {
                 resources_memory_limit: env_str("SERVER_RESOURCES_MEMORY_LIMIT", "1536Mi"),
                 resources_cpu_request: env_str("SERVER_RESOURCES_CPU_REQUEST", "200m"),
                 resources_memory_request: env_str("SERVER_RESOURCES_MEMORY_REQUEST", "256Mi"),
+                sandbox_resources_cpu_request: env_str("K8S_RESOURCE_REQUEST_CPU", "1"),
+                sandbox_resources_cpu_limit: env_str("K8S_RESOURCE_LIMIT_CPU", "4"),
+                sandbox_resources_memory_request: env_str("K8S_RESOURCE_REQUEST_MEMORY", "2Gi"),
+                sandbox_resources_memory_limit: env_str("K8S_RESOURCE_LIMIT_MEMORY", "8Gi"),
                 storage_enabled: env_bool("K8S_SANDBOX_STORAGE_ENABLED", true),
                 storage_size: env_str("K8S_SANDBOX_STORAGE_SIZE", "5Gi"),
                 storage_class: env_opt("K8S_SANDBOX_STORAGE_CLASS"),
@@ -1050,6 +1062,10 @@ mod tests {
                 resources_memory_limit: "512Mi".into(),
                 resources_cpu_request: "100m".into(),
                 resources_memory_request: "128Mi".into(),
+                sandbox_resources_cpu_request: "1".into(),
+                sandbox_resources_cpu_limit: "4".into(),
+                sandbox_resources_memory_request: "2Gi".into(),
+                sandbox_resources_memory_limit: "8Gi".into(),
                 storage_enabled: false,
                 storage_size: "1Gi".into(),
                 storage_class: None,

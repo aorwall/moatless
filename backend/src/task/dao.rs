@@ -121,11 +121,12 @@ impl TaskRepository for PgTaskRepository {
                 vibe, name, description, site_id, site_provider, branch,
                 created_by, visibility, scope, team_id, owner_user_id,
                 append_system_prompt, updated_at, sandbox_started_at, headless,
-                ttl_minutes, task_template_id, inactive_ttl_days, trigger_id
+                ttl_minutes, task_template_id, inactive_ttl_days, trigger_id,
+                disabled_servers
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
                 $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21,
-                $22, NOW(), $23, $24, $25, $26, $27, $28
+                $22, NOW(), $23, $24, $25, $26, $27, $28, $29
             )"#,
         )
         .bind(&row.task_id)
@@ -156,6 +157,7 @@ impl TaskRepository for PgTaskRepository {
         .bind(&row.task_template_id)
         .bind(row.inactive_ttl_days)
         .bind(&row.trigger_id)
+        .bind(&row.disabled_servers)
         .execute(&self.0)
         .await?;
         Ok(())
@@ -195,6 +197,7 @@ impl TaskRepository for PgTaskRepository {
             inactive_ttl_days: i32,
             task_template_id: Option<String>,
             trigger_id: Option<String>,
+            disabled_servers: Option<serde_json::Value>,
             total_count: i64,
         }
 
@@ -210,7 +213,7 @@ impl TaskRepository for PgTaskRepository {
                 t.created_by, t.visibility, t.scope, t.team_id, t.owner_user_id,
                 t.created_at_db, t.updated_at, t.append_system_prompt,
                 t.sandbox_started_at, t.headless, t.ttl_minutes, t.inactive_ttl_days,
-                t.task_template_id, t.trigger_id,
+                t.task_template_id, t.trigger_id, t.disabled_servers,
                 COUNT(*) OVER() AS total_count
             FROM tasks t
             LEFT JOIN task_tags tt ON t.task_id = tt.task_id
@@ -279,6 +282,7 @@ impl TaskRepository for PgTaskRepository {
                 inactive_ttl_days: r.inactive_ttl_days,
                 task_template_id: r.task_template_id,
                 trigger_id: r.trigger_id,
+                disabled_servers: r.disabled_servers,
             })
             .collect();
 
@@ -386,6 +390,17 @@ impl TaskRepository for PgTaskRepository {
             )
             .bind(task_id)
             .bind(inactive_ttl_days)
+            .execute(&self.0)
+            .await?;
+        }
+        if let Some(ref disabled_servers) = patch.disabled_servers {
+            // Full replace — the column always holds the complete disabled set.
+            let json = serde_json::json!(disabled_servers);
+            sqlx::query(
+                "UPDATE tasks SET disabled_servers = $2, updated_at = NOW() WHERE task_id = $1",
+            )
+            .bind(task_id)
+            .bind(json)
             .execute(&self.0)
             .await?;
         }
@@ -562,6 +577,8 @@ pub struct TaskPatch {
     pub sandbox_started_at: Option<DateTime<Utc>>,
     pub ttl_minutes: Option<i32>,
     pub inactive_ttl_days: Option<i32>,
+    /// Full-replace the per-task auto-disabled server list.
+    pub disabled_servers: Option<Vec<String>>,
 }
 
 // =========================================================================

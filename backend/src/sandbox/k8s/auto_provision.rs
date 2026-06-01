@@ -13,6 +13,7 @@ use crate::repository::models::{Repository, RepositoryProvider, ResourceConfig};
 use crate::sandbox::error::SandboxError;
 use crate::sandbox::models::{ProvisionPlan, ProvisionRequest, RepoConfig, ServerConfig};
 use crate::task::dao::TaskRepository;
+use crate::task::models::Task;
 
 /// Build a `ProvisionRequest` from database state.
 ///
@@ -57,6 +58,8 @@ pub async fn build_provision_request(
     let git_provider = repo.provider.unwrap_or(RepositoryProvider::Github);
 
     let git_clone_url = repo.remote_url.clone().unwrap_or_default();
+    // Read before any partial move of `task` below.
+    let disabled = parse_disabled_servers(&task);
     let git_branch = task.branch.or(repo.default_branch.clone());
 
     let mut repo_config = build_repo_config(&repo);
@@ -86,6 +89,13 @@ pub async fn build_provision_request(
         }
     }
 
+    // Drop servers this task previously auto-disabled (e.g. a crash-looping
+    // preview server). Persisted per-task so it survives stop/start.
+    if !disabled.is_empty() {
+        info!(task_id = %task_id, ?disabled, "Auto-provision: filtering disabled servers");
+        filter_disabled_servers(&mut repo_config, &disabled);
+    }
+
     let plan = ProvisionPlan {
         repo_config,
         git_clone_url,
@@ -97,6 +107,36 @@ pub async fn build_provision_request(
     let user_id = task.created_by.unwrap_or_else(|| "system".to_string());
 
     Ok(ProvisionRequest { plan, user_id })
+}
+
+/// Parse the per-task `disabled_servers` JSONB column into a list of names.
+///
+/// Returns an empty vec when the column is null or not a JSON string array.
+pub fn parse_disabled_servers(task: &Task) -> Vec<String> {
+    task.disabled_servers
+        .as_ref()
+        .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok())
+        .unwrap_or_default()
+}
+
+/// Remove auto-disabled servers from a `RepoConfig` in place.
+///
+/// If filtering would drop the `default` server, a remaining server is
+/// promoted to default so the sandbox still has a primary preview target.
+pub fn filter_disabled_servers(repo_config: &mut RepoConfig, disabled: &[String]) {
+    if disabled.is_empty() {
+        return;
+    }
+    if let Some(servers) = repo_config.servers.as_mut() {
+        servers.retain(|s| !disabled.contains(&s.name));
+        if servers.is_empty() {
+            repo_config.servers = None;
+        } else if !servers.iter().any(|s| s.default) {
+            if let Some(first) = servers.first_mut() {
+                first.default = true;
+            }
+        }
+    }
 }
 
 /// Build a `RepoConfig` from the database repository row.
@@ -329,4 +369,72 @@ fn build_code_execution(repo: &Repository) -> Option<serde_json::Value> {
     }
 
     Some(serde_json::Value::Object(config))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn server(name: &str, default: bool) -> ServerConfig {
+        ServerConfig {
+            name: name.to_string(),
+            default,
+            ..Default::default()
+        }
+    }
+
+    fn repo_config_with(servers: Vec<ServerConfig>) -> RepoConfig {
+        RepoConfig {
+            name: "repo".to_string(),
+            docker_image: None,
+            servers: Some(servers),
+            plugin_ids: None,
+            system_prompt: None,
+            code_execution: None,
+            preview_config: None,
+            resources: None,
+            plugin_repos: None,
+            docker_access: None,
+            docker_networks: None,
+        }
+    }
+
+    #[test]
+    fn filter_drops_disabled_non_default_server() {
+        let mut rc = repo_config_with(vec![server("storybook", false), server("dev", true)]);
+        filter_disabled_servers(&mut rc, &["storybook".to_string()]);
+
+        let servers = rc.servers.unwrap();
+        assert_eq!(servers.len(), 1);
+        assert_eq!(servers[0].name, "dev");
+        assert!(servers[0].default);
+    }
+
+    #[test]
+    fn filter_promotes_new_default_when_default_disabled() {
+        let mut rc = repo_config_with(vec![server("storybook", true), server("dev", false)]);
+        filter_disabled_servers(&mut rc, &["storybook".to_string()]);
+
+        let servers = rc.servers.unwrap();
+        assert_eq!(servers.len(), 1);
+        assert_eq!(servers[0].name, "dev");
+        assert!(
+            servers[0].default,
+            "remaining server should be promoted to default"
+        );
+    }
+
+    #[test]
+    fn filter_clears_servers_when_all_disabled() {
+        let mut rc = repo_config_with(vec![server("only", true)]);
+        filter_disabled_servers(&mut rc, &["only".to_string()]);
+        assert!(rc.servers.is_none());
+    }
+
+    #[test]
+    fn filter_noop_when_disabled_empty() {
+        let mut rc = repo_config_with(vec![server("dev", true)]);
+        filter_disabled_servers(&mut rc, &[]);
+        assert_eq!(rc.servers.unwrap().len(), 1);
+    }
 }

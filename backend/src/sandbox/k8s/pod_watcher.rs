@@ -13,7 +13,7 @@
 //! independently. Delete events for old pods check for surviving siblings
 //! before publishing `pod_deleted` / setting `NotCreated`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use futures::TryStreamExt;
@@ -29,9 +29,29 @@ use super::client::K8sClient;
 use super::deployment;
 use super::leader_election::LeaderElection;
 use super::pod_status::{
-    extract_container_observed_statuses, DEFAULT_SERVER_READINESS_TIMEOUT_SECS,
+    extract_container_observed_statuses, is_sandbox_container_ready,
+    DEFAULT_SERVER_READINESS_TIMEOUT_SECS,
 };
+use crate::auth::provider_token_dao::ProviderTokenRepository;
+use crate::config::Config;
 use crate::events::EventPublisher;
+use crate::plugin_repo::dao::PluginRepoRepository;
+use crate::repository::dao::RepoRepository;
+use crate::sandbox::jwt;
+use crate::task::dao::{TaskPatch, TaskRepository};
+
+/// Optional DB + config dependencies the watcher needs to auto-disable a
+/// crash-looping server container. All repositories are optional because the
+/// watcher also runs in setups without a database (where remediation degrades
+/// to publishing a `Failed` event only).
+#[derive(Clone)]
+struct WatcherDeps {
+    tasks: Option<Arc<dyn TaskRepository>>,
+    repos: Option<Arc<dyn RepoRepository>>,
+    provider_tokens: Option<Arc<dyn ProviderTokenRepository>>,
+    plugin_repos: Option<Arc<dyn PluginRepoRepository>>,
+    config: Arc<Config>,
+}
 
 /// Exit code used by the sandbox to signal a permanent init failure (sysexits EX_CONFIG).
 const PERMANENT_FAILURE_EXIT_CODE: i32 = 78;
@@ -47,6 +67,8 @@ struct ServerContainerState {
     exit_code: Option<i32>,
     memory_limit: Option<String>,
     running_since: Option<chrono::DateTime<chrono::Utc>>,
+    /// Restart count of this server container (used for crash-loop auto-disable).
+    restart_count: i32,
 }
 
 /// Observed state for a single pod, used for transition detection.
@@ -69,6 +91,11 @@ struct PodObservedState {
     /// Whether a fatal event has already been published for this pod.
     /// Suppresses repeated fatal events during CrashLoopBackOff.
     fatal_published: bool,
+    /// Server names already auto-disabled during this pod's lifecycle. Fire-once
+    /// guard so the watcher doesn't repeatedly redeploy while the old pod is
+    /// still reporting the crash-looping container. Cleared naturally when a new
+    /// pod replaces this map entry.
+    auto_disabled_servers: HashSet<String>,
 }
 
 /// Spawn the pod lifecycle watcher as a background tokio task.
@@ -78,13 +105,26 @@ struct PodObservedState {
 /// 2. If leader, start watching pods.
 /// 3. If not leader, sleep and retry.
 /// 4. On watch stream error, re-enter the leadership loop.
+#[allow(clippy::too_many_arguments)]
 pub fn spawn_pod_lifecycle_watcher(
     k8s: K8sClient,
     event_publisher: Arc<dyn EventPublisher>,
     cancel: CancellationToken,
     max_crash_restart_count: i32,
+    tasks: Option<Arc<dyn TaskRepository>>,
+    repos: Option<Arc<dyn RepoRepository>>,
+    provider_tokens: Option<Arc<dyn ProviderTokenRepository>>,
+    plugin_repos: Option<Arc<dyn PluginRepoRepository>>,
+    config: Arc<Config>,
 ) -> JoinHandle<()> {
     let identity = std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".to_string());
+    let deps = WatcherDeps {
+        tasks,
+        repos,
+        provider_tokens,
+        plugin_repos,
+        config,
+    };
 
     tokio::spawn(async move {
         let leader_election = LeaderElection::new(&k8s, identity.clone());
@@ -105,6 +145,7 @@ pub fn spawn_pod_lifecycle_watcher(
                         &leader_election,
                         &cancel,
                         max_crash_restart_count,
+                        &deps,
                     )
                     .await;
                     // Watch ended (stream error or leadership lost) — re-enter loop
@@ -137,6 +178,7 @@ async fn run_pod_watch(
     leader_election: &LeaderElection,
     cancel: &CancellationToken,
     max_crash_restart_count: i32,
+    deps: &WatcherDeps,
 ) {
     let pods_api: Api<Pod> = Api::namespaced(k8s.client.clone(), k8s.namespace());
     let wc = WatcherConfig::default().labels("app.kubernetes.io/managed-by=moatless");
@@ -169,13 +211,16 @@ async fn run_pod_watch(
             event = stream.try_next() => {
                 match event {
                     Ok(Some(watcher_event)) => {
-                        process_watcher_event(
+                        // Boxed: the handler embeds the (large) auto-disable +
+                        // redeploy path; keep this loop's future small.
+                        Box::pin(process_watcher_event(
                             k8s,
                             &watcher_event,
                             &mut pod_states,
                             event_publisher,
                             max_crash_restart_count,
-                        ).await;
+                            deps,
+                        )).await;
                     }
                     Ok(None) => {
                         info!("Pod watch stream ended");
@@ -204,12 +249,14 @@ fn sibling_pods_for_task<'a>(
 }
 
 /// Process a single watcher event and detect state transitions.
+#[allow(clippy::too_many_arguments)]
 async fn process_watcher_event(
     k8s: &K8sClient,
     event: &watcher::Event<Pod>,
     pod_states: &mut HashMap<String, PodObservedState>,
     event_publisher: &dyn EventPublisher,
     max_crash_restart_count: i32,
+    deps: &WatcherDeps,
 ) {
     match event {
         watcher::Event::Apply(pod) | watcher::Event::InitApply(pod) => {
@@ -410,6 +457,7 @@ async fn process_watcher_event(
             // Carry over fatal_published from previous state, then reset on recovery
             if let Some(prev) = prev_state {
                 new_state.fatal_published = prev.fatal_published;
+                new_state.auto_disabled_servers = prev.auto_disabled_servers.clone();
             }
             if transitions.iter().any(|(sub, _)| sub == "pod_ready") {
                 new_state.fatal_published = false;
@@ -572,6 +620,50 @@ async fn process_watcher_event(
                 }
             }
 
+            // Auto-disable a crash-looping *server* container so a single broken
+            // preview server doesn't gate readiness / poison the whole sandbox.
+            // The default server is never disabled (only surfaced as Failed).
+            if max_crash_restart_count > 0 && !is_intentional_stop {
+                // Identify server containers that just crossed the restart
+                // threshold and haven't already been auto-disabled this pod.
+                let candidates: Vec<ServerContainerState> = new_state
+                    .server_containers
+                    .iter()
+                    .filter(|sc| sc.restart_count >= max_crash_restart_count)
+                    .filter(|sc| {
+                        let name = sc.name.strip_suffix("-server").unwrap_or(&sc.name);
+                        !new_state.auto_disabled_servers.contains(name)
+                    })
+                    .filter(|sc| {
+                        // Crossing guard: same container was below threshold before
+                        // (or this is a freshly-observed pod).
+                        prev_state
+                            .and_then(|p| {
+                                p.server_containers.iter().find(|p_sc| p_sc.name == sc.name)
+                            })
+                            .is_none_or(|p_sc| p_sc.restart_count < max_crash_restart_count)
+                    })
+                    .cloned()
+                    .collect();
+
+                for sc in candidates {
+                    let server_name =
+                        sc.name.strip_suffix("-server").unwrap_or(&sc.name).to_string();
+                    auto_disable_server(
+                        k8s,
+                        &task_id,
+                        &server_name,
+                        &sc,
+                        event_publisher,
+                        max_crash_restart_count,
+                        deps,
+                    )
+                    .await;
+                    // Fire-once for this pod regardless of outcome.
+                    new_state.auto_disabled_servers.insert(server_name);
+                }
+            }
+
             pod_states.insert(pod_name, new_state);
         }
         watcher::Event::Delete(pod) => {
@@ -706,6 +798,185 @@ async fn process_watcher_event(
     }
 }
 
+/// Publish a `server` `Failed` event for a named server.
+async fn publish_server_failed(
+    event_publisher: &dyn EventPublisher,
+    task_id: &str,
+    server_name: &str,
+    message: String,
+) {
+    event_publisher
+        .publish_server_event(
+            task_id,
+            ServerSubType::Failed,
+            &ServerEventPayload {
+                server_name: server_name.to_string(),
+                status: ServerSubType::Failed,
+                message,
+            },
+        )
+        .await;
+}
+
+/// Auto-disable a crash-looping server container for a task.
+///
+/// - The **default** server is never disabled — only surfaced as `Failed` —
+///   because removing it would leave the sandbox without a primary preview.
+/// - Without DB access (e.g. Docker mode), this degrades to publishing a
+///   `Failed` event so the UI reflects the broken server.
+/// - Otherwise the server name is persisted into `tasks.disabled_servers`
+///   (so it stays gone across stop/start) and the Deployment is rebuilt
+///   without the container.
+#[allow(clippy::too_many_arguments)]
+async fn auto_disable_server(
+    k8s: &K8sClient,
+    task_id: &str,
+    server_name: &str,
+    sc: &ServerContainerState,
+    event_publisher: &dyn EventPublisher,
+    max_crash_restart_count: i32,
+    deps: &WatcherDeps,
+) {
+    warn!(
+        task_id = %task_id,
+        server = %server_name,
+        restart_count = sc.restart_count,
+        threshold = max_crash_restart_count,
+        "Server container exceeded crash-loop threshold"
+    );
+
+    let failed_message = format!(
+        "Server auto-disabled after {} restarts (threshold: {})",
+        sc.restart_count, max_crash_restart_count
+    );
+
+    // Need full DB access to determine default-ness, persist, and redeploy.
+    let (Some(tasks), Some(repos), Some(provider_tokens), Some(plugin_repos)) = (
+        deps.tasks.as_ref(),
+        deps.repos.as_ref(),
+        deps.provider_tokens.as_ref(),
+        deps.plugin_repos.as_ref(),
+    ) else {
+        debug!(
+            task_id = %task_id,
+            "No DB access in watcher — surfacing server Failed without auto-disable"
+        );
+        publish_server_failed(event_publisher, task_id, server_name, failed_message).await;
+        return;
+    };
+
+    // Never disable the default server — surface Failed and stop.
+    let is_default = crate::sandbox::auto_provision::get_server_configs_for_task(
+        tasks.as_ref(),
+        repos.as_ref(),
+        task_id,
+    )
+    .await
+    .iter()
+    .find(|s| s.name == server_name)
+    .is_some_and(|s| s.default);
+
+    if is_default {
+        info!(
+            task_id = %task_id,
+            server = %server_name,
+            "Crash-looping server is the default — not disabling, surfacing Failed only"
+        );
+        publish_server_failed(
+            event_publisher,
+            task_id,
+            server_name,
+            format!(
+                "Default server crash-looping after {} restarts",
+                sc.restart_count
+            ),
+        )
+        .await;
+        return;
+    }
+
+    // Merge the server into the per-task disabled set and persist.
+    let mut disabled = match tasks.find_by_id_internal(task_id).await {
+        Ok(Some(task)) => crate::sandbox::auto_provision::parse_disabled_servers(&task),
+        Ok(None) => {
+            warn!(task_id = %task_id, "Task not found while auto-disabling server");
+            return;
+        }
+        Err(e) => {
+            warn!(task_id = %task_id, error = %e, "DB error reading task for auto-disable");
+            return;
+        }
+    };
+    if !disabled.iter().any(|s| s == server_name) {
+        disabled.push(server_name.to_string());
+    }
+
+    let patch = TaskPatch {
+        disabled_servers: Some(disabled),
+        ..Default::default()
+    };
+    if let Err(e) = tasks.update_task(task_id, &patch).await {
+        warn!(task_id = %task_id, error = %e, "Failed to persist disabled_servers");
+        return;
+    }
+
+    // Notify the UI: the server is dead and the sandbox is being rebuilt.
+    publish_server_failed(event_publisher, task_id, server_name, failed_message).await;
+    event_publisher
+        .publish_sandbox_event_with_payload(
+            task_id,
+            SandboxStatus::Initializing,
+            &SandboxEventPayload {
+                message: format!("Disabled crash-looping server '{server_name}' and redeploying"),
+                lifecycle_event: Some("server_auto_disabled".to_string()),
+                ..Default::default()
+            },
+        )
+        .await;
+
+    // Rebuild the provision request (now filters the disabled server) and
+    // redeploy from the new pod spec.
+    let request = match crate::sandbox::auto_provision::build_provision_request(
+        tasks.as_ref(),
+        repos.as_ref(),
+        provider_tokens.as_ref(),
+        plugin_repos.as_ref(),
+        task_id,
+    )
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            warn!(task_id = %task_id, error = %e, "Failed to build provision request for redeploy");
+            return;
+        }
+    };
+
+    let Some(secret) = deps.config.sandbox.task_token_secret.as_ref() else {
+        warn!(task_id = %task_id, "TASK_TOKEN_SECRET missing — cannot redeploy after auto-disable");
+        return;
+    };
+    let token = match jwt::generate_user_auth_token(&request.user_id, &request.user_id, secret) {
+        Ok(t) => t,
+        Err(e) => {
+            warn!(task_id = %task_id, error = %e, "Failed to generate auth token for redeploy");
+            return;
+        }
+    };
+
+    if let Err(e) =
+        deployment::redeploy_with_plan(k8s, &deps.config, task_id, &request, &token).await
+    {
+        warn!(task_id = %task_id, error = %e, "Failed to redeploy after auto-disabling server");
+    } else {
+        info!(
+            task_id = %task_id,
+            server = %server_name,
+            "Auto-disabled crash-looping server and redeployed"
+        );
+    }
+}
+
 /// Extract the task ID from a pod's labels.
 fn extract_task_id(pod: &Pod) -> Option<String> {
     pod.metadata
@@ -770,15 +1041,12 @@ fn extract_pod_observed_state(pod: &Pod, pod_name: &str, task_id: &str) -> PodOb
                 .and_then(|w| w.message.clone())
         });
 
-    let ready = pod
-        .status
-        .as_ref()
-        .and_then(|s| s.conditions.as_ref())
-        .is_some_and(|conditions| {
-            conditions
-                .iter()
-                .any(|c| c.type_ == "Ready" && c.status == "True")
-        });
+    // Track readiness from the **sandbox** container specifically, not the
+    // pod-level `Ready` condition. A crash-looping non-default *server*
+    // container keeps the pod-level condition false forever, which would
+    // suppress the `pod_ready` → `Ready` transition even though the agent is
+    // fine. This mirrors `status_resolver`'s use of `is_sandbox_container_ready`.
+    let ready = is_sandbox_container_ready(pod);
 
     // Build a map of container name → memory limit from pod spec
     let memory_limits: HashMap<String, String> = pod
@@ -811,6 +1079,7 @@ fn extract_pod_observed_state(pod: &Pod, pod_name: &str, task_id: &str) -> PodOb
                 exit_code: cs.exit_code,
                 memory_limit,
                 running_since: cs.running_since,
+                restart_count: cs.restart_count,
             }
         })
         .collect();
@@ -827,6 +1096,7 @@ fn extract_pod_observed_state(pod: &Pod, pod_name: &str, task_id: &str) -> PodOb
         failure_detail,
         server_containers,
         fatal_published: false,
+        auto_disabled_servers: HashSet::new(),
     }
 }
 
@@ -1061,5 +1331,96 @@ fn format_sandbox_lifecycle_message(lifecycle_event: &str, error: Option<&str>) 
         "pod_succeeded" | "sandbox_completed" => "Completed".to_string(),
         "pod_deleted" => "Pod deleted".to_string(),
         other => other.replace('_', " "),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sandbox::k8s::pod_status::test_helpers::{
+        pod_with_phase_and_containers, running_container, waiting_container,
+    };
+
+    /// A crash-looping non-default server must NOT keep the watcher from
+    /// observing the sandbox as ready and emitting `pod_ready`.
+    #[test]
+    fn ready_tracks_sandbox_container_not_pod_condition() {
+        let pod = pod_with_phase_and_containers(
+            "Running",
+            vec![
+                running_container("sandbox", true, true),
+                waiting_container("storybook-server", "CrashLoopBackOff"),
+            ],
+        );
+
+        let state = extract_pod_observed_state(&pod, "pod-1", "task-1");
+        assert!(
+            state.ready,
+            "sandbox ready should make observed state ready despite crash-looping server"
+        );
+
+        let transitions = detect_transitions(None, &state);
+        assert!(
+            transitions.iter().any(|(sub, _)| sub == "pod_ready"),
+            "expected pod_ready transition, got: {transitions:?}"
+        );
+    }
+
+    /// When the sandbox container itself is not ready, the state is not ready
+    /// even if other containers are healthy.
+    #[test]
+    fn not_ready_when_sandbox_container_not_ready() {
+        let pod = pod_with_phase_and_containers(
+            "Running",
+            vec![
+                running_container("sandbox", true, false),
+                running_container("dev-server", true, true),
+            ],
+        );
+
+        let state = extract_pod_observed_state(&pod, "pod-1", "task-1");
+        assert!(!state.ready);
+    }
+
+    /// `extract_pod_observed_state` must carry each server container's restart
+    /// count so the crash-loop auto-disable crossing logic can fire.
+    #[test]
+    fn server_container_restart_count_is_populated() {
+        use k8s_openapi::api::core::v1::{
+            ContainerState as K8sState, ContainerStateWaiting, ContainerStatus, Pod, PodStatus,
+        };
+
+        let pod = Pod {
+            status: Some(PodStatus {
+                phase: Some("Running".to_string()),
+                container_statuses: Some(vec![
+                    running_container("sandbox", true, true),
+                    ContainerStatus {
+                        name: "storybook-server".to_string(),
+                        ready: false,
+                        started: Some(false),
+                        restart_count: 7,
+                        state: Some(K8sState {
+                            waiting: Some(ContainerStateWaiting {
+                                reason: Some("CrashLoopBackOff".to_string()),
+                                message: None,
+                            }),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    },
+                ]),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let state = extract_pod_observed_state(&pod, "pod-1", "task-1");
+        let sb = state
+            .server_containers
+            .iter()
+            .find(|s| s.name == "storybook-server")
+            .expect("storybook-server tracked");
+        assert_eq!(sb.restart_count, 7);
     }
 }
