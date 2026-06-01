@@ -519,6 +519,10 @@ kubernetes:
   # Extension hooks for environment-specific sandbox pod customization
   sandboxExtraVolumes: []
   sandboxExtraVolumeMounts: []
+  # -- Extra environment variables injected into sandbox pods.
+  # Example: enable tmux-based Claude SDK transport:
+  #   - name: SANDBOX_USE_TMUX
+  #     value: "true"
   sandboxExtraEnv: []
   # Image pre-pull configuration (reduces pod startup time)
   imagePrepull:
