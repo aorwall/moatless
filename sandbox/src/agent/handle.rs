@@ -1205,6 +1205,7 @@ async fn start_session(
         task_id = %task_id,
         resume = ?request.resume,
         agent_type,
+        use_tmux = config.use_tmux,
         "Starting agent session"
     );
 
@@ -1225,7 +1226,19 @@ async fn start_session(
         env.clone(),
     );
 
-    match claude_agent_sdk::query(prompt, options).await {
+    let sdk_query = |p: &str, o: claude_agent_sdk::ClaudeOptions| {
+        let use_tmux = config.use_tmux;
+        let prompt = p.to_owned();
+        async move {
+            if use_tmux {
+                claude_agent_sdk::query_tmux(&prompt, o).await
+            } else {
+                claude_agent_sdk::query(&prompt, o).await
+            }
+        }
+    };
+
+    match sdk_query(prompt, options).await {
         Ok(handle) => Ok(ActiveHandle::Claude(handle)),
         Err(error) if request.resume == Some(ResumeSession::Last) => {
             warn!(error = %error, "Resume with --continue failed, starting fresh session");
@@ -1240,7 +1253,7 @@ async fn start_session(
                 agent_state,
                 env,
             );
-            claude_agent_sdk::query(prompt, fresh_options)
+            sdk_query(prompt, fresh_options)
                 .await
                 .map(ActiveHandle::Claude)
                 .map_err(AgentRuntimeError::from)

@@ -141,6 +141,8 @@ pub struct Config {
     /// Global default Codex model (env: DEFAULT_CODEX_MODEL), used when neither request nor repo config set one.
     /// Falls through to [`crate::agent::codex_exec::DEFAULT_CODEX_MODEL`] at call time if unset.
     pub default_codex_model: Option<String>,
+    /// Use the tmux-based Claude Code SDK transport instead of subprocess/NDJSON (env: SANDBOX_USE_TMUX).
+    pub use_tmux: bool,
 
     // ── Init-related fields ────────────────────────────────────────
     /// Home directory (default: "/home/moatless")
@@ -226,6 +228,9 @@ impl Config {
             frontend_url: env::var("FRONTEND_URL").ok(),
             default_model: env::var("DEFAULT_CLAUDE_CODE_MODEL").ok(),
             default_codex_model: env::var("DEFAULT_CODEX_MODEL").ok(),
+            use_tmux: env::var("SANDBOX_USE_TMUX")
+                .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                .unwrap_or(false),
 
             home_dir,
             codex_home_dir,

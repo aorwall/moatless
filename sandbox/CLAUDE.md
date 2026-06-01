@@ -77,6 +77,7 @@ tests/
 | REPO_CONFIG | (optional) | JSON repository configuration |
 | SANDBOX_CLAUDE_EXECUTABLE_PATH | /opt/moatless/bin/claude | Claude CLI path |
 | FRONTEND_URL | (optional) | Frontend URL for constructing task URLs in agent system prompt |
+| SANDBOX_USE_TMUX | false | Use tmux-based Claude SDK transport instead of subprocess/NDJSON |
 
 ## Key Patterns
 

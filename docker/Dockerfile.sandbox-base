@@ -22,7 +22,7 @@ RUN apt-get update \
     && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
         curl wget git git-lfs gnupg2 ca-certificates \
-        build-essential jq ripgrep unzip zip \
+        build-essential jq ripgrep unzip zip tmux \
         dnsutils iputils-ping netcat-openbsd openssh-client \
         vim less procps lsof \
     && rm -rf /var/lib/apt/lists/*
