@@ -107,6 +107,10 @@ spec:
             - name: K8S_SANDBOX_NODE_SELECTOR
               value: {{ .Values.kubernetes.sandboxNodeSelector | toJson | quote }}
             {{- end }}
+            {{- if .Values.kubernetes.sandboxExtraEnv }}
+            - name: K8S_SANDBOX_EXTRA_ENV
+              value: {{ .Values.kubernetes.sandboxExtraEnv | toJson | quote }}
+            {{- end }}
             - name: TASK_TOKEN_SECRET
               valueFrom:
                 secretKeyRef:

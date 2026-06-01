@@ -85,6 +85,28 @@ fn env_or<T: FromStr>(key: &str, default: T) -> T {
     }
 }
 
+/// Parse a JSON array of `{"name":"...", "value":"..."}` objects from an env var.
+fn parse_extra_env(key: &str) -> Vec<(String, String)> {
+    let raw = match env::var(key) {
+        Ok(v) if !v.is_empty() => v,
+        _ => return vec![],
+    };
+
+    #[derive(serde::Deserialize)]
+    struct Entry {
+        name: String,
+        value: String,
+    }
+
+    match serde_json::from_str::<Vec<Entry>>(&raw) {
+        Ok(entries) => entries.into_iter().map(|e| (e.name, e.value)).collect(),
+        Err(e) => {
+            tracing::warn!(key, error = %e, "Failed to parse extra env JSON");
+            vec![]
+        }
+    }
+}
+
 /// Read an environment variable as `Option<String>`.
 fn env_opt(key: &str) -> Option<String> {
     env::var(key).ok()
@@ -214,6 +236,8 @@ pub struct SandboxConfig {
     pub default_model: Option<String>,
     /// Default Codex model for sandbox agents (forwarded as DEFAULT_CODEX_MODEL env var)
     pub default_codex_model: Option<String>,
+    /// Extra env vars injected into every sandbox pod (parsed from K8S_SANDBOX_EXTRA_ENV JSON)
+    pub extra_env: Vec<(String, String)>,
 }
 
 /// Proxy / Traefik IngressRoute settings.
@@ -694,6 +718,7 @@ impl Config {
                 service_account_name: env_opt("K8S_SANDBOX_SERVICE_ACCOUNT"),
                 default_model: env_opt("DEFAULT_CLAUDE_CODE_MODEL"),
                 default_codex_model: env_opt("DEFAULT_CODEX_MODEL"),
+                extra_env: parse_extra_env("K8S_SANDBOX_EXTRA_ENV"),
             },
 
             proxy: ProxyConfig {
@@ -1083,6 +1108,7 @@ mod tests {
                 service_account_name: None,
                 default_model: None,
                 default_codex_model: None,
+                extra_env: vec![],
             },
             proxy: ProxyConfig {
                 domain: None,
