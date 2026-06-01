@@ -241,6 +241,11 @@ fn build_sandbox_container(
         env.push(env_var("USER_AUTH_TOKEN", token));
     }
 
+    // Extra env vars from backend config (K8S_SANDBOX_EXTRA_ENV)
+    for (key, value) in &config.sandbox.extra_env {
+        env.push(env_var(key, value));
+    }
+
     // Custom env vars from repo config
     if let Some(ref env_vars) = plan.env_vars {
         for (key, value) in env_vars {
@@ -702,6 +707,7 @@ mod tests {
                 service_account_name: None,
                 default_model: None,
                 default_codex_model: None,
+                extra_env: vec![],
             },
             proxy: ProxyConfig {
                 domain: None,

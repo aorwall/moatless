@@ -455,6 +455,7 @@ mod tests {
                 service_account_name: None,
                 default_model: None,
                 default_codex_model: None,
+                extra_env: vec![],
             },
             proxy: ProxyConfig {
                 domain: None,
