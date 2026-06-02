@@ -24,6 +24,7 @@ use super::dao::{TaskPatch, TaskRepository};
 use super::models::TaskStatus;
 use crate::config::Config;
 use crate::events::EventPublisher;
+use moatless_events::{SandboxEventPayload, SandboxSubType};
 use crate::message::dao::MessageRepository;
 use crate::sandbox::k8s::client::K8sClient;
 use crate::sandbox::k8s::leader_election::LeaderElection;
@@ -254,6 +255,25 @@ async fn run_reap_cycle(
                     Ok(()) => {
                         info!(task_id = %task_id, "Idle sandbox stopped successfully");
                         stopped_count += 1;
+                        // Emit a distinctly-tagged stop so the UI can render
+                        // "Stopped (idle)" instead of the crash-ish lifecycle tag
+                        // the watcher would otherwise downgrade (pod_failed →
+                        // Stopped). `idle_reaped` is the disambiguator.
+                        if let Some(events) = events {
+                            events
+                                .publish_sandbox_event_with_payload(
+                                    task_id,
+                                    SandboxSubType::Stopped,
+                                    &SandboxEventPayload {
+                                        message: format!(
+                                            "Sandbox stopped after {ttl_minutes} min idle"
+                                        ),
+                                        lifecycle_event: Some("idle_reaped".to_string()),
+                                        ..Default::default()
+                                    },
+                                )
+                                .await;
+                        }
                     }
                     Err(e) => {
                         warn!(task_id = %task_id, error = %e, "Failed to stop idle sandbox");

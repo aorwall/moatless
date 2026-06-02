@@ -19,10 +19,24 @@ export interface SandboxEventPayload {
    */
   error?: string | null;
   /**
+   * Exit code of the terminated sandbox container, when known.
+
+Lets consumers distinguish OOM (137) from an application crash (1) or a
+graceful SIGTERM (143). `#[serde(default)]` keeps old events readable.
+   * @nullable
+   */
+  exitCode?: number | null;
+  /**
    * K8s lifecycle event name (e.g. "pod_ready", "container_oom_killed").
    * @nullable
    */
   lifecycleEvent?: string | null;
   /** Human-readable description of the event. */
   message?: string;
+  /**
+   * K8s termination reason of the sandbox container (e.g. "OOMKilled",
+"Error", "Completed"), when known.
+   * @nullable
+   */
+  terminatedReason?: string | null;
 }

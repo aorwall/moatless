@@ -281,13 +281,8 @@ export function useAgentModeSelector(
   )
 }
 
-export type AgentType = 'claude-code' | 'codex'
+export type AgentType = 'claude-code' | 'codex' | 'claude-code-tmux'
 export const DEFAULT_AGENT_TYPE: AgentType = 'claude-code'
-
-const FALLBACK_AGENT_ITEMS: Array<{ id: AgentType; label: string }> = [
-  { id: 'claude-code', label: 'Claude Code' },
-  { id: 'codex', label: 'Codex' },
-]
 
 const DISCONNECTED_DESCRIPTION = 'Not connected — open Settings to add a token'
 
@@ -303,10 +298,7 @@ export function useAgentTypeSelector(
   const currentValue = isControlled ? value : internalValue
 
   const items = useMemo(() => {
-    if (!agents) {
-      return FALLBACK_AGENT_ITEMS
-    }
-    return agents.map((agent) => ({
+    return (agents ?? []).map((agent) => ({
       id: agent.id as AgentType,
       label: agent.label,
       description: agent.installed ? undefined : DISCONNECTED_DESCRIPTION,

@@ -82,8 +82,13 @@ struct PodObservedState {
     waiting_reason: Option<String>,
     ready: bool,
     pod_name: String,
-    /// Exit code from the sandbox container's terminated state.
+    /// Exit code from the sandbox container's *current* terminated state.
     exit_code: Option<i32>,
+    /// Exit code from the sandbox container's *last* terminated state — survives a
+    /// K8s restart so a crash that's already been restarted into Running isn't lost.
+    last_exit_code: Option<i32>,
+    /// Termination reason from the sandbox container's *last* terminated state.
+    last_terminated_reason: Option<String>,
     /// Termination message or waiting message from the sandbox container.
     failure_detail: Option<String>,
     /// Server container snapshots (excludes sandbox container).
@@ -96,6 +101,21 @@ struct PodObservedState {
     /// still reporting the crash-looping container. Cleared naturally when a new
     /// pod replaces this map entry.
     auto_disabled_servers: HashSet<String>,
+}
+
+impl PodObservedState {
+    /// Best-known sandbox-container exit code: the current terminated state if
+    /// present, otherwise the last terminated state (which survives a restart).
+    fn effective_exit_code(&self) -> Option<i32> {
+        self.exit_code.or(self.last_exit_code)
+    }
+
+    /// Best-known sandbox-container termination reason (current, else last).
+    fn effective_terminated_reason(&self) -> Option<String> {
+        self.terminated_reason
+            .clone()
+            .or_else(|| self.last_terminated_reason.clone())
+    }
 }
 
 /// Spawn the pod lifecycle watcher as a background tokio task.
@@ -118,6 +138,10 @@ pub fn spawn_pod_lifecycle_watcher(
     config: Arc<Config>,
 ) -> JoinHandle<()> {
     let identity = std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".to_string());
+    metrics::describe_counter!(
+        "sandbox_container_terminations_total",
+        "Non-intentional sandbox container terminations, labelled by lifecycle_event, K8s reason, and exit_code"
+    );
     let deps = WatcherDeps {
         tasks,
         repos,
@@ -422,17 +446,46 @@ async fn process_watcher_event(
                     lifecycle_sub_type_to_sandbox_status(sub_type)
                 };
 
-                info!(
-                    task_id = %task_id,
-                    pod_name = %pod_name,
-                    lifecycle_event = %sub_type,
-                    sandbox_status = %sandbox_status,
-                    error = ?error_msg,
-                    exit_code = ?new_state.exit_code,
-                    failure_detail = ?new_state.failure_detail,
-                    intentional_stop = is_intentional_stop,
-                    "Pod lifecycle event detected"
-                );
+                let is_error_event = matches!(sandbox_status, SandboxStatus::Error);
+                if is_error_event && !is_intentional_stop {
+                    // A non-intentional error-level termination is a real failure.
+                    // Count it (labelled for OOM-vs-crash slicing) and log at warn!
+                    // so it surfaces in alerting, not buried in info noise.
+                    metrics::counter!(
+                        "sandbox_container_terminations_total",
+                        "lifecycle_event" => sub_type.clone(),
+                        "reason" => new_state
+                            .effective_terminated_reason()
+                            .unwrap_or_else(|| "unknown".to_string()),
+                        "exit_code" => new_state
+                            .effective_exit_code()
+                            .map_or_else(|| "unknown".to_string(), |c| c.to_string()),
+                    )
+                    .increment(1);
+                    warn!(
+                        task_id = %task_id,
+                        pod_name = %pod_name,
+                        lifecycle_event = %sub_type,
+                        sandbox_status = %sandbox_status,
+                        error = ?error_msg,
+                        exit_code = ?new_state.effective_exit_code(),
+                        terminated_reason = ?new_state.effective_terminated_reason(),
+                        failure_detail = ?new_state.failure_detail,
+                        "Sandbox container terminated unexpectedly"
+                    );
+                } else {
+                    info!(
+                        task_id = %task_id,
+                        pod_name = %pod_name,
+                        lifecycle_event = %sub_type,
+                        sandbox_status = %sandbox_status,
+                        error = ?error_msg,
+                        exit_code = ?new_state.exit_code,
+                        failure_detail = ?new_state.failure_detail,
+                        intentional_stop = is_intentional_stop,
+                        "Pod lifecycle event detected"
+                    );
+                }
 
                 event_publisher
                     .publish_sandbox_event_with_payload(
@@ -448,6 +501,18 @@ async fn process_watcher_event(
                                 None
                             } else {
                                 error_msg.clone()
+                            },
+                            // Carry the exit code / K8s reason so consumers can tell
+                            // OOM (137) from a crash (1) without scraping pod state.
+                            exit_code: if is_intentional_stop {
+                                None
+                            } else {
+                                new_state.effective_exit_code()
+                            },
+                            terminated_reason: if is_intentional_stop {
+                                None
+                            } else {
+                                new_state.effective_terminated_reason()
                             },
                         },
                     )
@@ -479,14 +544,56 @@ async fn process_watcher_event(
                     .cloned()
                     .unwrap_or_else(|| "Sandbox terminated unexpectedly".to_string());
 
+                let exit_code = new_state.effective_exit_code();
+                let terminated_reason = new_state.effective_terminated_reason();
+
+                // Fetch container logs for root cause. Previously logs were only
+                // captured for exit-78 and the crash-restart threshold, so a
+                // one-off fatal pod failure (e.g. the agent container terminating
+                // with reason "Error" mid-turn) left no trace.
+                let logs = fetch_sandbox_logs(k8s, &pod_name, 50).await;
+
+                metrics::counter!(
+                    "sandbox_container_terminations_total",
+                    "lifecycle_event" => "fatal".to_string(),
+                    "reason" => terminated_reason
+                        .clone()
+                        .unwrap_or_else(|| "unknown".to_string()),
+                    "exit_code" => exit_code
+                        .map_or_else(|| "unknown".to_string(), |c| c.to_string()),
+                )
+                .increment(1);
+                warn!(
+                    task_id = %task_id,
+                    pod_name = %pod_name,
+                    exit_code = ?exit_code,
+                    terminated_reason = ?terminated_reason,
+                    failure_detail = ?new_state.failure_detail,
+                    "Sandbox pod failed irrecoverably"
+                );
+
+                let mut parts = vec![format!("Sandbox terminated: {error_msg}")];
+                if let Some(code) = exit_code {
+                    parts.push(format!("Exit code: `{code}`"));
+                }
+                if let Some(ref reason) = terminated_reason {
+                    parts.push(format!("Reason: `{reason}`"));
+                }
+                if let Some(ref logs) = logs {
+                    parts.push(format!("Container logs:\n```\n{logs}\n```"));
+                }
+                let detailed_message = parts.join("\n");
+
                 event_publisher
                     .publish_sandbox_event_with_payload(
                         &task_id,
                         SandboxStatus::Error,
                         &SandboxEventPayload {
-                            message: format!("Sandbox terminated: {error_msg}"),
+                            message: detailed_message,
                             lifecycle_event: Some("fatal".to_string()),
                             error: Some(error_msg),
+                            exit_code,
+                            terminated_reason,
                         },
                     )
                     .await;
@@ -531,6 +638,8 @@ async fn process_watcher_event(
                             message: detailed_error.clone(),
                             lifecycle_event: Some("auto_stopped".to_string()),
                             error: Some(detailed_error),
+                            exit_code: new_state.effective_exit_code(),
+                            terminated_reason: new_state.effective_terminated_reason(),
                         },
                     )
                     .await;
@@ -585,6 +694,8 @@ async fn process_watcher_event(
                                 message: detailed_error.clone(),
                                 lifecycle_event: Some("auto_stopped".to_string()),
                                 error: Some(detailed_error),
+                                exit_code: new_state.effective_exit_code(),
+                                terminated_reason: new_state.effective_terminated_reason(),
                             },
                         )
                         .await;
@@ -1024,6 +1135,16 @@ fn extract_pod_observed_state(pod: &Pod, pod_name: &str, task_id: &str) -> PodOb
         .and_then(|s| s.terminated.as_ref())
         .map(|t| t.exit_code);
 
+    // Last-terminated state survives a K8s restart (current state becomes
+    // Running/Waiting after restart). Kept separate from the current-state fields
+    // above so transition detection keeps comparing current-vs-previous, while the
+    // diagnostics payloads can still recover the exit code/reason after a restart.
+    let last_terminated = sandbox_container_status
+        .and_then(|cs| cs.last_state.as_ref())
+        .and_then(|s| s.terminated.as_ref());
+    let last_terminated_reason = last_terminated.and_then(|t| t.reason.clone());
+    let last_exit_code = last_terminated.map(|t| t.exit_code);
+
     let failure_detail = sandbox_container_status
         .and_then(|cs| cs.state.as_ref())
         .and_then(|s| s.terminated.as_ref())
@@ -1093,6 +1214,8 @@ fn extract_pod_observed_state(pod: &Pod, pod_name: &str, task_id: &str) -> PodOb
         ready,
         pod_name: pod_name.to_string(),
         exit_code,
+        last_exit_code,
+        last_terminated_reason,
         failure_detail,
         server_containers,
         fatal_published: false,
@@ -1338,8 +1461,69 @@ fn format_sandbox_lifecycle_message(lifecycle_event: &str, error: Option<&str>) 
 mod tests {
     use super::*;
     use crate::sandbox::k8s::pod_status::test_helpers::{
-        pod_with_phase_and_containers, running_container, waiting_container,
+        pod_with_phase_and_containers, running_container, terminated_container, waiting_container,
     };
+
+    /// A terminated sandbox container exposes its exit code + K8s reason so the
+    /// fatal/termination payloads can distinguish OOM (137) from a crash (1).
+    #[test]
+    fn extract_captures_sandbox_exit_code_and_reason() {
+        let pod = pod_with_phase_and_containers(
+            "Failed",
+            vec![terminated_container("sandbox", "Error", 1)],
+        );
+        let state = extract_pod_observed_state(&pod, "pod-1", "task-1");
+
+        assert_eq!(state.exit_code, Some(1));
+        assert_eq!(state.terminated_reason.as_deref(), Some("Error"));
+        assert_eq!(state.effective_exit_code(), Some(1));
+        assert_eq!(state.effective_terminated_reason().as_deref(), Some("Error"));
+    }
+
+    /// After K8s restarts the container the *current* state is Running, but the
+    /// exit code/reason survive in `last_state` and must still be recoverable.
+    #[test]
+    fn extract_falls_back_to_last_terminated_state() {
+        use k8s_openapi::api::core::v1::{
+            ContainerState as K8sState, ContainerStateRunning, ContainerStateTerminated,
+            ContainerStatus,
+        };
+
+        let sandbox = ContainerStatus {
+            name: "sandbox".to_string(),
+            ready: true,
+            started: Some(true),
+            restart_count: 1,
+            state: Some(K8sState {
+                running: Some(ContainerStateRunning::default()),
+                ..Default::default()
+            }),
+            last_state: Some(K8sState {
+                terminated: Some(ContainerStateTerminated {
+                    reason: Some("OOMKilled".to_string()),
+                    exit_code: 137,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let pod = pod_with_phase_and_containers("Running", vec![sandbox]);
+        let state = extract_pod_observed_state(&pod, "pod-1", "task-1");
+
+        // Current-state fields stay empty (container is Running) so transition
+        // detection still compares current-vs-previous correctly...
+        assert_eq!(state.exit_code, None);
+        assert_eq!(state.terminated_reason, None);
+        // ...but the last-terminated diagnostics are preserved.
+        assert_eq!(state.last_exit_code, Some(137));
+        assert_eq!(state.last_terminated_reason.as_deref(), Some("OOMKilled"));
+        assert_eq!(state.effective_exit_code(), Some(137));
+        assert_eq!(
+            state.effective_terminated_reason().as_deref(),
+            Some("OOMKilled")
+        );
+    }
 
     /// A crash-looping non-default server must NOT keep the watcher from
     /// observing the sandbox as ready and emitting `pod_ready`.
