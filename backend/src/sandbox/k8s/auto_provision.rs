@@ -63,7 +63,16 @@ pub async fn build_provision_request(
     let git_branch = task.branch.or(repo.default_branch.clone());
 
     let mut repo_config = build_repo_config(&repo);
-    let env_vars = parse_env_vars(&repo);
+    let mut env_vars = parse_env_vars(&repo);
+
+    // Select the tmux Claude transport per the catalog when the task's agent
+    // requests it. Each task is its own pod, so the pod-level flag is exactly
+    // the right granularity.
+    if crate::agent::catalog::use_tmux_for(task.agent_type.0.as_str()) {
+        env_vars
+            .get_or_insert_with(HashMap::new)
+            .insert("SANDBOX_USE_TMUX".to_string(), "true".to_string());
+    }
 
     // Resolve plugin git repos from the join table
     match plugin_repos

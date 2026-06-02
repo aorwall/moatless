@@ -285,6 +285,7 @@ async fn insert_and_provision_task(
                         message: msg,
                         error: Some(e.to_string()),
                         lifecycle_event: Some("preflight_failed".to_string()),
+                        ..Default::default()
                     },
                 )
                 .await;
@@ -778,6 +779,7 @@ pub async fn start_task(
                         message: msg.clone(),
                         error: Some(e.to_string()),
                         lifecycle_event: Some("preflight_failed".to_string()),
+                        ..Default::default()
                     },
                 )
                 .await;

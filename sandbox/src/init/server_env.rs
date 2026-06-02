@@ -88,6 +88,7 @@ mod tests {
             proxy: ProxyConfig::default(),
             servers: Vec::new(),
             frontend_url: None,
+            use_tmux: false,
             default_model: None,
             default_codex_model: None,
             home_dir: tmp.path().join("home").display().to_string(),

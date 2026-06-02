@@ -355,6 +355,16 @@ pub struct SandboxEventPayload {
     /// Error detail when applicable.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Exit code of the terminated sandbox container, when known.
+    ///
+    /// Lets consumers distinguish OOM (137) from an application crash (1) or a
+    /// graceful SIGTERM (143). `#[serde(default)]` keeps old events readable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i32>,
+    /// K8s termination reason of the sandbox container (e.g. "OOMKilled",
+    /// "Error", "Completed"), when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminated_reason: Option<String>,
 }
 
 /// Agent event payload — typed shape for `EventType::Agent` events.

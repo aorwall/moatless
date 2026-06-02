@@ -847,6 +847,7 @@ mod tests {
             proxy: ProxyConfig::default(),
             servers: vec![],
             frontend_url: None,
+            use_tmux: false,
             default_model: None,
             default_codex_model: default_codex_model.map(String::from),
             home_dir: "/tmp/home".to_string(),

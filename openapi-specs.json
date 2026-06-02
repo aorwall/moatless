@@ -1,7 +1,3 @@
-   Compiling moatless-api-schemas v0.1.0 (/Users/albert/repos/soap/moatless-vibe/crates/api-schemas)
-   Compiling moatless-vibe-backend v0.1.0 (/Users/albert/repos/soap/moatless-vibe/backend)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 41.55s
-     Running `target/debug/moatless-vibe-backend --dump-openapi`
 {
   "openapi": "3.1.0",
   "info": {
@@ -10159,6 +10155,14 @@
             ],
             "description": "Error detail when applicable."
           },
+          "exitCode": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Exit code of the terminated sandbox container, when known.\n\nLets consumers distinguish OOM (137) from an application crash (1) or a\ngraceful SIGTERM (143). `#[serde(default)]` keeps old events readable."
+          },
           "lifecycleEvent": {
             "type": [
               "string",
@@ -10169,6 +10173,13 @@
           "message": {
             "type": "string",
             "description": "Human-readable description of the event."
+          },
+          "terminatedReason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "K8s termination reason of the sandbox container (e.g. \"OOMKilled\",\n\"Error\", \"Completed\"), when known."
           }
         }
       },

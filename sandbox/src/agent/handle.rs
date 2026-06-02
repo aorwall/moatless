@@ -47,6 +47,10 @@ use super::types::{AgentRunRequest, ResumeSession};
 use super::wakeup_job::WakeupJob;
 
 const AGENT_TYPE_CLAUDE_CODE: &str = "claude-code";
+/// Claude Code running over the tmux transport (interactive TUI) instead of the
+/// subprocess/NDJSON transport. Treated as the claude-code family for everything
+/// except the transport selection in `start_session`.
+const AGENT_TYPE_CLAUDE_CODE_TMUX: &str = "claude-code-tmux";
 const AGENT_TYPE_CODEX: &str = "codex";
 
 enum ActiveHandle {
@@ -489,7 +493,9 @@ fn is_retryable_runtime_error(error: &AgentRuntimeError) -> bool {
 fn normalize_agent_type(agent_type: Option<&str>) -> &'static str {
     match agent_type {
         Some(AGENT_TYPE_CODEX) => AGENT_TYPE_CODEX,
-        Some(AGENT_TYPE_CLAUDE_CODE) | None => AGENT_TYPE_CLAUDE_CODE,
+        Some(AGENT_TYPE_CLAUDE_CODE) | Some(AGENT_TYPE_CLAUDE_CODE_TMUX) | None => {
+            AGENT_TYPE_CLAUDE_CODE
+        }
         Some(other) => {
             warn!(
                 agent_type = other,
@@ -2750,6 +2756,14 @@ mod tests {
     fn normalize_unknown_agent_type_defaults_to_claude() {
         assert_eq!(
             normalize_agent_type(Some("something-else")),
+            AGENT_TYPE_CLAUDE_CODE
+        );
+    }
+
+    #[test]
+    fn normalize_claude_code_tmux_is_claude_family() {
+        assert_eq!(
+            normalize_agent_type(Some(AGENT_TYPE_CLAUDE_CODE_TMUX)),
             AGENT_TYPE_CLAUDE_CODE
         );
     }

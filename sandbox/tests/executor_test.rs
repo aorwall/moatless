@@ -181,6 +181,7 @@ fn test_config() -> Config {
         plugin_ids: vec![],
         plugin_repos: vec![],
         frontend_url: None,
+        use_tmux: false,
         default_model: None,
         default_codex_model: None,
     }
