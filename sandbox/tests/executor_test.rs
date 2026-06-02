@@ -183,6 +183,7 @@ fn test_config() -> Config {
         frontend_url: None,
         default_model: None,
         default_codex_model: None,
+        use_tmux: false,
     }
 }
 

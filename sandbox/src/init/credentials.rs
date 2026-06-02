@@ -338,6 +338,7 @@ mod tests {
             frontend_url: None,
             default_model: None,
             default_codex_model: None,
+            use_tmux: false,
             home_dir: home_dir.display().to_string(),
             codex_home_dir: codex_home_dir.display().to_string(),
             claude_config_dir: claude_config_dir.display().to_string(),

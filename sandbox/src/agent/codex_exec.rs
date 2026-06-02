@@ -849,6 +849,7 @@ mod tests {
             frontend_url: None,
             default_model: None,
             default_codex_model: default_codex_model.map(String::from),
+            use_tmux: false,
             home_dir: "/tmp/home".to_string(),
             codex_home_dir: "/tmp/home/.codex".to_string(),
             claude_config_dir: "/tmp/home/.claude".to_string(),
