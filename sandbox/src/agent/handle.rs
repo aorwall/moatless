@@ -632,6 +632,11 @@ async fn agent_loop(
     let mut retry_state: Option<RetryState> = None;
     let mut last_prompt: Option<String> = None;
     let mut pending_wakeup: Option<WakeupJob> = None;
+    // Stop reason of the most recent assistant message in the current turn. The
+    // CLI `result` message carries no stop_reason, so we capture it here and inject
+    // it into the agent/completed payload (lets the UI tell `end_turn` from
+    // `max_tokens` / `tool_use` without digging into per-message rows).
+    let mut last_stop_reason: Option<String> = None;
     // Tracks per-prompt credential-recovery retries so a stuck-loop credential
     // can't drive infinite re-tries.
     let mut credential_recovery_attempts: u32 = 0;
@@ -744,6 +749,7 @@ async fn agent_loop(
                             &mut handle,
                             &mut consecutive_errors,
                             &mut pending_wakeup,
+                            &mut last_stop_reason,
                         ).await;
 
                         if let Some(ref result) = retry_candidate {
@@ -828,6 +834,21 @@ async fn agent_loop(
                             handle = None;
                         } else {
                             warn!(error = %error, "Claude SDK message error");
+                            // A non-cancel stream error ends the turn. Surface it
+                            // explicitly and clear the handle so the subsequent
+                            // transport-close (`None`) arm doesn't re-report it.
+                            handle = None;
+                            agent_state.set_error(error.to_string()).await;
+                            events
+                                .publish_agent_event(
+                                    &task_id,
+                                    AgentSubType::Error,
+                                    serde_json::json!({
+                                        "error": error.to_string(),
+                                        "reason": "stream_error",
+                                    }),
+                                )
+                                .await;
                         }
                     }
                     Some(ActiveMessage::Codex(Ok(event))) => {
@@ -902,8 +923,34 @@ async fn agent_loop(
                     None => {
                         debug!("Session transport closed");
                         if handle.is_some() {
+                            // The subprocess transport closed while a turn was still
+                            // active — it exited WITHOUT emitting a `result` message
+                            // (crash, SIGKILL, OOM, context overflow). A normal
+                            // completion sets `handle = None` when the Result is
+                            // processed (see `process_claude_message`), and a cancel
+                            // clears it in the `Err(Cancelled)` arm, so reaching here
+                            // with `handle.is_some()` is always an abnormal, otherwise
+                            // -silent stop. Publish an explicit error so the backend
+                            // raises a taskTurn/error instead of the agent going quiet.
+                            warn!(
+                                task_id = %task_id,
+                                "Agent transport closed without a result; turn ended unexpectedly"
+                            );
                             handle = None;
-                            agent_state.set_idle().await;
+                            let error_text = "Agent process exited unexpectedly without \
+                                completing the turn (no result received — likely a crash, \
+                                out-of-memory, or terminated subprocess).";
+                            agent_state.set_error(error_text.to_string()).await;
+                            events
+                                .publish_agent_event(
+                                    &task_id,
+                                    AgentSubType::Error,
+                                    serde_json::json!({
+                                        "error": error_text,
+                                        "reason": "transport_closed",
+                                    }),
+                                )
+                                .await;
                         }
                     }
                 }
@@ -1302,6 +1349,7 @@ async fn process_claude_message(
     handle: &mut Option<ActiveHandle>,
     consecutive_errors: &mut u32,
     pending_wakeup: &mut Option<WakeupJob>,
+    last_stop_reason: &mut Option<String>,
 ) {
     match msg {
         SdkMessage::System(init) => {
@@ -1322,6 +1370,12 @@ async fn process_claude_message(
             .await;
         }
         SdkMessage::Assistant(assistant) => {
+            // Remember this turn's latest stop_reason — the `result` message has
+            // none, so this is the only place it's available for agent/completed.
+            if assistant.message.stop_reason.is_some() {
+                *last_stop_reason = assistant.message.stop_reason.clone();
+            }
+
             // Check for ScheduleWakeup tool call
             if let Some(job) = extract_wakeup_job(&assistant.message.content) {
                 debug!(
@@ -1342,7 +1396,8 @@ async fn process_claude_message(
                 .await;
         }
         SdkMessage::Result(result) => {
-            let (is_error, sid, sub_type, payload) = extract_result_info(&result, task_id);
+            let (is_error, sid, sub_type, payload) =
+                extract_result_info(&result, task_id, last_stop_reason.as_deref());
             *session_id = sid;
             agent_state.set_session_id(session_id.clone()).await;
 
@@ -1357,6 +1412,8 @@ async fn process_claude_message(
 
             events.publish_agent_event(task_id, sub_type, payload).await;
 
+            // Turn is over — clear so the next turn starts without a stale reason.
+            *last_stop_reason = None;
             *handle = None;
         }
         SdkMessage::User(user_msg) => {
@@ -2406,7 +2463,18 @@ fn make_user_message(text: &str, session_id: &str) -> UserMessage {
 fn extract_result_info(
     result: &ResultMessage,
     task_id: &str,
+    stop_reason: Option<&str>,
 ) -> (bool, String, AgentSubType, serde_json::Value) {
+    // Inject the turn's last assistant stop_reason into a result payload object.
+    let with_stop_reason = |mut payload: serde_json::Value| {
+        if let (Some(reason), Some(obj)) = (stop_reason, payload.as_object_mut()) {
+            obj.insert(
+                "stop_reason".to_string(),
+                serde_json::Value::String(reason.to_string()),
+            );
+        }
+        payload
+    };
     match result {
         ResultMessage::Success(success) => {
             if success.is_error {
@@ -2430,7 +2498,7 @@ fn extract_result_info(
                     true,
                     success.session_id.clone(),
                     AgentSubType::Error,
-                    payload,
+                    with_stop_reason(payload),
                 );
             }
             info!(
@@ -2446,7 +2514,7 @@ fn extract_result_info(
                 false,
                 success.session_id.clone(),
                 AgentSubType::Completed,
-                serde_json::to_value(success).unwrap_or_default(),
+                with_stop_reason(serde_json::to_value(success).unwrap_or_default()),
             )
         }
         ResultMessage::Error(error) => {
@@ -2463,7 +2531,7 @@ fn extract_result_info(
                 true,
                 error.session_id.clone(),
                 AgentSubType::Error,
-                serde_json::to_value(error).unwrap_or_default(),
+                with_stop_reason(serde_json::to_value(error).unwrap_or_default()),
             )
         }
     }
@@ -2516,6 +2584,7 @@ mod tests {
             frontend_url: None,
             default_model: None,
             default_codex_model: None,
+            use_tmux: false,
             home_dir: "/tmp/home".to_string(),
             codex_home_dir,
             claude_config_dir: "/tmp/home/.claude".to_string(),
@@ -3072,7 +3141,8 @@ mod tests {
     #[test]
     fn extract_result_info_success_is_error_true_routes_to_error_subtype() {
         let result = make_result_success(true, 1, "Unknown command: /foo");
-        let (is_error, session_id, sub_type, payload) = extract_result_info(&result, "task-1");
+        let (is_error, session_id, sub_type, payload) =
+            extract_result_info(&result, "task-1", None);
         assert!(is_error);
         assert_eq!(session_id, "test-session");
         assert_eq!(sub_type, AgentSubType::Error);
@@ -3084,17 +3154,27 @@ mod tests {
     #[test]
     fn extract_result_info_success_is_error_false_unchanged() {
         let result = make_result_success(false, 1, "All done");
-        let (is_error, _, sub_type, payload) = extract_result_info(&result, "task-1");
+        let (is_error, _, sub_type, payload) = extract_result_info(&result, "task-1", None);
         assert!(!is_error);
         assert_eq!(sub_type, AgentSubType::Completed);
         assert!(payload.get("error").is_none());
         assert_eq!(payload["result"], "All done");
+        // No stop_reason was captured this turn → not injected.
+        assert!(payload.get("stop_reason").is_none());
+    }
+
+    #[test]
+    fn extract_result_info_injects_stop_reason_when_present() {
+        let result = make_result_success(false, 1, "All done");
+        let (_, _, sub_type, payload) = extract_result_info(&result, "task-1", Some("end_turn"));
+        assert_eq!(sub_type, AgentSubType::Completed);
+        assert_eq!(payload["stop_reason"], "end_turn");
     }
 
     #[test]
     fn extract_result_info_explicit_error_variant_unchanged() {
         let result = make_result_error("rate_limit", 1, vec!["429".to_string()]);
-        let (is_error, _, sub_type, payload) = extract_result_info(&result, "task-1");
+        let (is_error, _, sub_type, payload) = extract_result_info(&result, "task-1", None);
         assert!(is_error);
         assert_eq!(sub_type, AgentSubType::Error);
         assert_eq!(payload["subtype"], "rate_limit");
