@@ -390,16 +390,59 @@ redis:
     persistence:
       # -- Enable persistence for Redis master
       enabled: true
-      # -- Storage size for Redis master
-      size: 1Gi
+      # -- Storage size for Redis master (headroom for AOF growth)
+      size: 2Gi
+    # -- Resource requests/limits for the Redis master so scheduling is
+    # predictable and node-level OOM roulette stops killing the pod.
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        memory: 1Gi
+    # -- Runtime flags. `--maxmemory` caps RSS below the pod limit so Redis
+    # bounds itself instead of being OOM-killed. `--maxmemory-policy
+    # noeviction` is deliberate: the event streams hold unconsumed terminal
+    # events, so eviction (e.g. allkeys-lru) could silently drop them. Under
+    # noeviction, XADD instead fails loudly when full — the publisher logs a
+    # warn and the backend's turn reconciliation recovers the lost terminal
+    # event, while Redis stays alive. The TTL the backend sets on
+    # `task-events:*` keys is the real growth bound; maxmemory is the ceiling.
+    extraFlags:
+      - "--maxmemory 768mb"
+      - "--maxmemory-policy noeviction"
+    # -- Give a slow AOF-loading restart time to finish before liveness kicks
+    # in, so recovery isn't killed mid-replay.
+    startupProbe:
+      enabled: true
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      failureThreshold: 30
   replica:
     # -- Number of Redis replicas
     replicaCount: 1
     persistence:
       # -- Enable persistence for Redis replicas
       enabled: true
-      # -- Storage size for Redis replicas
-      size: 1Gi
+      # -- Storage size for Redis replicas (headroom for AOF growth)
+      size: 2Gi
+    # -- Resource requests/limits for Redis replicas (mirror the master).
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        memory: 1Gi
+    # -- Same maxmemory ceiling + noeviction policy as the master.
+    extraFlags:
+      - "--maxmemory 768mb"
+      - "--maxmemory-policy noeviction"
+    # -- Give a slow AOF-loading restart time to finish before liveness kicks in.
+    startupProbe:
+      enabled: true
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      failureThreshold: 30
 
 # Kubernetes execution mode for sandbox pods
 #

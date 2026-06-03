@@ -35,6 +35,32 @@ const PUBLISH_ATTEMPT_TIMEOUT_MS: u64 = 750;
 /// Timeout for the health-check `PING` used by `/ready`.
 const HEALTH_CHECK_TIMEOUT_MS: u64 = 500;
 
+/// TTL (seconds) refreshed on each `task-events:{task_id}` stream key after a
+/// successful publish. Caps the number of *live* stream keys — the real driver
+/// of unbounded Redis memory growth — without touching per-stream `MAXLEN`.
+/// Any active task re-publishes well within this window, so only streams for
+/// long-dead tasks expire and get reclaimed. 72h gives ample slack for a task
+/// that goes quiet overnight before its next turn.
+const STREAM_KEY_TTL_SECS: u64 = 72 * 60 * 60;
+
+/// Capped exponential backoff with full jitter for Redis-consumer reconnects.
+///
+/// `failures` is the count of consecutive failed cycles (1 on the first
+/// failure). The base delay doubles per failure — `500ms → 1s → 2s …` — capped
+/// at 30s, then a full-jitter window `[delay/2, delay]` is applied so reconnects
+/// across replicas decorrelate instead of hammering a struggling Redis in
+/// lockstep.
+pub(crate) fn reconnect_backoff_delay(failures: u32) -> std::time::Duration {
+    use rand::Rng;
+    const BASE_MS: u64 = 500;
+    const CAP_MS: u64 = 30_000;
+    let exp = failures.saturating_sub(1).min(20);
+    let base = BASE_MS.saturating_mul(1u64 << exp).min(CAP_MS);
+    let half = base / 2;
+    let jittered = half + rand::rng().random_range(0..=half);
+    std::time::Duration::from_millis(jittered)
+}
+
 /// Register Prometheus metric descriptions for event publishing counters.
 ///
 /// Call once at startup after the Prometheus recorder is installed.
@@ -244,8 +270,15 @@ impl RedisEventPublisher {
             }
 
             let mut conn = self.conn.clone();
-            let mut cmd = redis::cmd("XADD");
-            cmd.arg(&stream_key)
+            // XADD + EXPIRE travel in one pipelined round-trip. EXPIRE refreshes
+            // the stream key's TTL on every publish (sliding window), so a key
+            // only expires once its task has been silent for the full TTL —
+            // bounding live key count with no extra hot-path round-trip.
+            // `.ignore()` drops the EXPIRE reply so the result decodes as the
+            // XADD id alone.
+            let mut pipe = redis::pipe();
+            pipe.cmd("XADD")
+                .arg(&stream_key)
                 .arg("MAXLEN")
                 .arg("~")
                 .arg(max_len)
@@ -255,16 +288,20 @@ impl RedisEventPublisher {
                 .arg("type")
                 .arg(event_type)
                 .arg("payload")
-                .arg(&event_json);
+                .arg(&event_json)
+                .cmd("EXPIRE")
+                .arg(&stream_key)
+                .arg(STREAM_KEY_TTL_SECS)
+                .ignore();
 
-            let cmd_future = cmd.query_async::<String>(&mut conn);
+            let cmd_future = pipe.query_async::<(String,)>(&mut conn);
             let result: Result<String, redis::RedisError> = match tokio::time::timeout(
                 std::time::Duration::from_millis(PUBLISH_ATTEMPT_TIMEOUT_MS),
                 cmd_future,
             )
             .await
             {
-                Ok(redis_result) => redis_result,
+                Ok(redis_result) => redis_result.map(|(id,)| id),
                 Err(_elapsed) => Err(redis::RedisError::from((
                     redis::ErrorKind::Io,
                     "publish timed out",
@@ -452,6 +489,34 @@ impl EventPublisher for RedisEventPublisher {
             Err(_) => Err(format!(
                 "redis ping timed out after {HEALTH_CHECK_TIMEOUT_MS}ms"
             )),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::reconnect_backoff_delay;
+
+    #[test]
+    fn backoff_first_failure_within_base_jitter_window() {
+        // failures=1 → base 500ms, full-jitter window [250ms, 500ms].
+        for _ in 0..1000 {
+            let ms = reconnect_backoff_delay(1).as_millis() as u64;
+            assert!((250..=500).contains(&ms), "got {ms}ms");
+        }
+    }
+
+    #[test]
+    fn backoff_grows_then_caps() {
+        // failures=3 → base 2000ms → window [1000, 2000].
+        for _ in 0..1000 {
+            let ms = reconnect_backoff_delay(3).as_millis() as u64;
+            assert!((1000..=2000).contains(&ms), "got {ms}ms");
+        }
+        // Large failure count caps the base at 30s → window [15s, 30s].
+        for _ in 0..1000 {
+            let ms = reconnect_backoff_delay(1000).as_millis() as u64;
+            assert!((15_000..=30_000).contains(&ms), "got {ms}ms");
         }
     }
 }

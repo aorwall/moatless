@@ -25,6 +25,20 @@ pub struct EventHandlerConsumer {
     consumer_id: String,
     state: AppState,
     cancel: CancellationToken,
+    /// When set, the next cycle first drains this consumer's Pending Entries
+    /// List (delivered-but-not-ACKed entries) before reading new entries.
+    /// Set on startup and after every connection error so an `agent.completed`
+    /// lost mid-cycle during Redis flapping is recovered rather than orphaned.
+    recover_pending: bool,
+}
+
+/// Which slice of a stream a `XREADGROUP` should read.
+#[derive(Clone, Copy)]
+enum ReadMode {
+    /// New, never-delivered entries (`>`), blocking briefly for arrivals.
+    New,
+    /// This consumer's pending (delivered-but-unacked) entries (`0`).
+    Pending,
 }
 
 impl EventHandlerConsumer {
@@ -39,6 +53,7 @@ impl EventHandlerConsumer {
             consumer_id,
             state,
             cancel,
+            recover_pending: true,
         }
     }
 
@@ -50,20 +65,34 @@ impl EventHandlerConsumer {
             "Event handler consumer started"
         );
 
+        let mut failures: u32 = 0;
         loop {
             if self.cancel.is_cancelled() {
                 info!("Event handler consumer shutting down");
                 break;
             }
 
-            if let Err(e) = self.consume_cycle().await {
-                if self.cancel.is_cancelled() {
-                    break;
-                }
-                warn!(error = %e, "Redis connection lost in event handler consumer, retrying in 2s");
-                tokio::select! {
-                    () = tokio::time::sleep(std::time::Duration::from_secs(2)) => {}
-                    () = self.cancel.cancelled() => { break; }
+            match self.consume_cycle().await {
+                Ok(()) => failures = 0,
+                Err(e) => {
+                    if self.cancel.is_cancelled() {
+                        break;
+                    }
+                    failures = failures.saturating_add(1);
+                    // Recover the PEL on the next successful cycle — entries
+                    // delivered but not ACKed before this drop must be reclaimed.
+                    self.recover_pending = true;
+                    let delay = crate::events::reconnect_backoff_delay(failures);
+                    warn!(
+                        error = %e,
+                        failures,
+                        delay_ms = delay.as_millis() as u64,
+                        "Redis connection lost in event handler consumer, backing off"
+                    );
+                    tokio::select! {
+                        () = tokio::time::sleep(delay) => {}
+                        () = self.cancel.cancelled() => { break; }
+                    }
                 }
             }
         }
@@ -71,7 +100,8 @@ impl EventHandlerConsumer {
         info!("Event handler consumer stopped");
     }
 
-    /// One consume cycle: discover streams, ensure groups, read + process + ACK.
+    /// One consume cycle: discover streams, ensure groups, recover pending,
+    /// then read + process + ACK new entries.
     async fn consume_cycle(&mut self) -> Result<(), redis::RedisError> {
         let streams = self.scan_streams().await?;
 
@@ -87,28 +117,72 @@ impl EventHandlerConsumer {
             self.ensure_group(stream).await;
         }
 
-        // XREADGROUP
-        let mut cmd = redis::cmd("XREADGROUP");
-        cmd.arg("GROUP")
-            .arg(CONSUMER_GROUP)
-            .arg(&self.consumer_id)
-            .arg("BLOCK")
-            .arg(2000_u64)
-            .arg("COUNT")
-            .arg(50_u64)
-            .arg("STREAMS");
-
-        for stream in &streams {
-            cmd.arg(stream);
-        }
-        for _ in &streams {
-            cmd.arg(">");
+        // PEL recovery: drain entries previously delivered to this consumer but
+        // never ACKed (e.g. a connection drop mid-cycle) before reading new ones.
+        if self.recover_pending {
+            self.recover_pending_entries(&streams).await?;
+            self.recover_pending = false;
         }
 
-        let result: Value = cmd.query_async(&mut self.conn).await?;
+        let result = self.read_group(&streams, ReadMode::New).await?;
         self.process_response(&result).await;
 
         Ok(())
+    }
+
+    /// Drain this consumer's Pending Entries List across all streams, processing
+    /// and ACKing until empty. Reading with id `0` returns the PEL from the
+    /// start; since each pass ACKs what it processes, successive reads return
+    /// fewer entries until drained. Capped to avoid an unbounded loop on a
+    /// poison entry (those are ACKed by `process_response` regardless).
+    async fn recover_pending_entries(
+        &mut self,
+        streams: &[String],
+    ) -> Result<(), redis::RedisError> {
+        let mut total = 0usize;
+        for _ in 0..100 {
+            let result = self.read_group(streams, ReadMode::Pending).await?;
+            let count = self.process_response(&result).await;
+            total += count;
+            if count == 0 {
+                break;
+            }
+        }
+        if total > 0 {
+            info!(
+                group = CONSUMER_GROUP,
+                recovered = total,
+                "Recovered pending Redis entries after reconnect"
+            );
+        }
+        Ok(())
+    }
+
+    /// Issue one `XREADGROUP` for the given streams in the given mode.
+    async fn read_group(
+        &mut self,
+        streams: &[String],
+        mode: ReadMode,
+    ) -> Result<Value, redis::RedisError> {
+        let mut cmd = redis::cmd("XREADGROUP");
+        cmd.arg("GROUP").arg(CONSUMER_GROUP).arg(&self.consumer_id);
+        if matches!(mode, ReadMode::New) {
+            cmd.arg("BLOCK").arg(2000_u64);
+        }
+        cmd.arg("COUNT").arg(50_u64).arg("STREAMS");
+
+        for stream in streams {
+            cmd.arg(stream);
+        }
+        let id = match mode {
+            ReadMode::New => ">",
+            ReadMode::Pending => "0",
+        };
+        for _ in streams {
+            cmd.arg(id);
+        }
+
+        cmd.query_async(&mut self.conn).await
     }
 
     /// SCAN for keys matching `task-events:*`.
@@ -156,16 +230,19 @@ impl EventHandlerConsumer {
         }
     }
 
-    /// Parse XREADGROUP response and dispatch events to handlers.
-    async fn process_response(&mut self, value: &Value) {
+    /// Parse XREADGROUP response and dispatch events to handlers. Returns the
+    /// number of entries ACKed, letting the PEL drain loop detect an empty read.
+    async fn process_response(&mut self, value: &Value) -> usize {
         let stream_results = match value {
             Value::Array(arr) => arr,
-            Value::Nil => return,
+            Value::Nil => return 0,
             _ => {
                 warn!("Unexpected XREADGROUP response format");
-                return;
+                return 0;
             }
         };
+
+        let mut processed = 0usize;
 
         for stream_result in stream_results {
             let (stream_name, entries) = match stream_result {
@@ -210,6 +287,7 @@ impl EventHandlerConsumer {
 
             // ACK all processed entries
             if !entry_ids.is_empty() {
+                processed += entry_ids.len();
                 let ack_result: Result<i64, redis::RedisError> = {
                     let mut cmd = redis::cmd("XACK");
                     cmd.arg(&stream_name).arg(CONSUMER_GROUP);
@@ -229,6 +307,8 @@ impl EventHandlerConsumer {
                 }
             }
         }
+
+        processed
     }
 
     /// Persist an event to the database (best-effort, never blocks dispatch).
