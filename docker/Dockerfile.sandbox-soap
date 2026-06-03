@@ -9,7 +9,7 @@
 # final COPY layer, not the JDK / jira / kubectl / go-task layers above it.
 
 # Global ARGs declared before any FROM so they're consumable by all stages.
-ARG SANDBOX_BASE=aorwall/moatless-vibe-sandbox-base:latest
+ARG SANDBOX_BASE=aorwall/moatless-sandbox-base:latest
 
 # Stage 1: rebuild jira-cli from source against current Go to clear stale
 # stdlib CVEs flagged by AWS Inspector on upstream binary releases.
@@ -52,9 +52,9 @@ RUN npm install -g "@openai/codex@${CODEX_CLI_VERSION}" \
 
 # Entrypoint scripts come from the sandbox-tools image so script edits don't
 # invalidate the binary COPY layer below (and vice versa).
-COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/docker-entrypoint-sandbox.sh /usr/local/bin/docker-entrypoint-sandbox.sh
-COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/sync-plugins.sh /usr/local/bin/sync-plugins.sh
-COPY --from=aorwall/moatless-vibe-sandbox-tools:latest /tools/moatless-git-cred /usr/local/bin/moatless-git-cred
+COPY --from=aorwall/moatless-sandbox-tools:latest /tools/docker-entrypoint-sandbox.sh /usr/local/bin/docker-entrypoint-sandbox.sh
+COPY --from=aorwall/moatless-sandbox-tools:latest /tools/sync-plugins.sh /usr/local/bin/sync-plugins.sh
+COPY --from=aorwall/moatless-sandbox-tools:latest /tools/moatless-git-cred /usr/local/bin/moatless-git-cred
 RUN chmod +x /usr/local/bin/docker-entrypoint-sandbox.sh /usr/local/bin/sync-plugins.sh /usr/local/bin/moatless-git-cred
 
 # Eclipse Temurin JDK 25 + Maven + postgresql-client.
