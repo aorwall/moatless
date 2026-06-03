@@ -55,31 +55,45 @@ jobs:
       build-sandbox: ${{ steps.compute.outputs.sandbox }}
       publish-helm: ${{ steps.compute.outputs.helm }}
     steps:
+      # fetch-depth: 0 so `git describe --tags` can see the v* release history
+      # used to compute the next monotonic semver on push-to-main.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - id: compute
         env:
           INPUT_TAG: ${{ inputs.tag }}
           INPUT_CHART_VERSION: ${{ inputs.chart-version }}
           INPUT_IMAGES: ${{ inputs.images }}
         run: |
-          # Image tag: explicit input → tag name (on fp-v*) → short SHA
+          # Image tag:
+          #   explicit input            → as given
+          #   fp-v* tag                 → tag name (legacy manual release)
+          #   push to main              → next monotonic semver (X.Y.Z), bumped
+          #                               off the latest v* tag (soap-config pattern)
+          #   anything else (PRs, …)    → short SHA (never auto-deployed)
           if [ -n "$INPUT_TAG" ]; then
             TAG="$INPUT_TAG"
           elif [[ "$GITHUB_REF" == refs/tags/fp-v* ]]; then
             TAG="${GITHUB_REF_NAME}"
+          elif [[ "$GITHUB_REF" == refs/heads/main ]]; then
+            LATEST=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || echo v0.1.0)
+            IFS=. read -r MA MI PA <<< "${LATEST#v}"
+            TAG="${MA}.${MI}.$((PA + 1))"
           else
             TAG=$(git rev-parse --short HEAD)
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
-          # Chart version: explicit input → semver from tag (fp-v0.0.1 → 0.0.1)
-          # → semver pre-release from sha (0.0.0-<sha>) on main / dispatch.
-          # GitOps consumes this in soap-platform-gitops's umbrella chart
-          # `dependencies[0].version`; must be a valid semver string.
+          # Chart version: explicit input → semver from fp-v* tag → the computed
+          # semver on main → pre-release `0.0.0-<sha>` for PRs. GitOps consumes
+          # this as the umbrella chart `dependencies[0].version` — must be valid semver.
           if [ -n "$INPUT_CHART_VERSION" ]; then
             CHART_VERSION="$INPUT_CHART_VERSION"
           elif [[ "$GITHUB_REF" == refs/tags/fp-v* ]]; then
             CHART_VERSION="${GITHUB_REF_NAME#fp-v}"
+          elif [[ "$GITHUB_REF" == refs/heads/main ]]; then
+            CHART_VERSION="$TAG"
           else
             CHART_VERSION="0.0.0-${TAG}"
           fi
@@ -479,11 +493,12 @@ jobs:
   # Fires `repository_dispatch` to soap-platform-gitops (the ArgoCD
   # ApplicationSet source repo). The receiver workflow there
   # (.github/workflows/promote-to-gitops.yml) yq-bumps:
-  #   - apps/moatless-vibe/Chart.yaml (dependencies[0].version)
-  #   - apps/moatless-vibe/values-nonprod.yaml (image tags, prefixed with
+  #   - apps/nonprod/moatless-vibe/Chart.yaml (dependencies[0].version)
+  #   - apps/nonprod/moatless-vibe/values.yaml (image tags, prefixed with
   #     `.moatless` per the umbrella subchart key in `umbrellaKey`)
   # …and opens an auto-merged PR (`autoMerge: true`). On merge, ArgoCD
-  # picks up the new chart version within ~30 s and rolls out.
+  # picks up the new semver chart version within ~30 s and rolls out. This is
+  # the INSTANT deploy path; the Renovate github-tags watcher is the backstop.
   #
   # Only fires on push-to-main. Tag pushes (fp-v*) skip this — those
   # produce a stable chart version but the deploy mechanism is the same;
@@ -533,3 +548,39 @@ jobs:
                 ".sandboxImage.tag"
               ]
             }
+
+  # ── Tag the release (push to main only) ──
+  # Publishes the `vX.Y.Z` git tag that marks a fully-published release (all
+  # images + helm chart pushed). It is both:
+  #   - the version source for the next `git describe` patch bump, and
+  #   - the signal Renovate (datasource: github-tags) reads in soap-platform-gitops
+  #     to open a backstop bump PR if the instant promote-to-gitops dispatch is missed.
+  # Pushed with GITHUB_TOKEN so it does not retrigger workflows (and cd-ecr only
+  # triggers on fp-v* tags, never v*). Idempotent: skips if the tag already exists.
+  tag-release:
+    needs:
+      - setup
+      - publish-frontend
+      - publish-backend
+      - publish-sandbox
+      - publish-helm
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Create and push vX.Y.Z tag
+        env:
+          TAG: ${{ needs.setup.outputs.tag }}
+        run: |
+          if git rev-parse "v${TAG}" >/dev/null 2>&1; then
+            echo "::notice::Tag v${TAG} already exists — skipping"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "v${TAG}" -m "Release v${TAG} (cd-ecr run ${{ github.run_id }}, commit ${{ github.sha }})"
+          git push origin "v${TAG}"
