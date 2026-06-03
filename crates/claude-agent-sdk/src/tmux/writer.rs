@@ -26,11 +26,12 @@ pub(crate) struct TmuxPasteWriter {
 }
 
 impl TmuxPasteWriter {
-    /// Send a bare Enter keypress to the tmux pane. Used to dismiss the
-    /// workspace-trust dialog and to submit a previously pasted prompt.
-    pub(crate) async fn send_enter(&self) -> Result<()> {
+    /// Send a single named key (tmux key syntax, e.g. `Enter`, `Down`) to the
+    /// pane. Used to drive startup dialogs (trust / bypass-permissions) and to
+    /// submit prompts.
+    pub(crate) async fn send_key(&self, key: &str) -> Result<()> {
         let status = Command::new("tmux")
-            .args(["send-keys", "-t", self.session_name.as_str(), "Enter"])
+            .args(["send-keys", "-t", self.session_name.as_str(), key])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()
@@ -38,10 +39,16 @@ impl TmuxPasteWriter {
             .map_err(SdkError::SpawnError)?;
         if !status.success() {
             return Err(SdkError::Internal(format!(
-                "tmux send-keys Enter exited with status {status:?}"
+                "tmux send-keys {key} exited with status {status:?}"
             )));
         }
         Ok(())
+    }
+
+    /// Send a bare Enter keypress to the tmux pane. Used to dismiss the
+    /// workspace-trust dialog and to submit a previously pasted prompt.
+    pub(crate) async fn send_enter(&self) -> Result<()> {
+        self.send_key("Enter").await
     }
 
     /// Paste `text` into the tmux session and press Enter.

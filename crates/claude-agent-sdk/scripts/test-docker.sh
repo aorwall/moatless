@@ -36,6 +36,28 @@ else
     IMAGE_NAME="claude-sdk-test"
 fi
 
+# ── Target arch / docker platform ───────────────────────────────────────────
+# sandbox-transport runs in the published sandbox base, which is amd64-only, so
+# default to amd64 and run under emulation on arm64 hosts (e.g. Apple Silicon).
+# Override with SANDBOX_E2E_ARCH=arm64 if you've built a local arm64 base via
+# `docker/build-sandbox.sh --local --only base`. Other modes use the multi-arch
+# Dockerfile.test base, so match the host arch.
+if [ "$MODE" = "sandbox-transport" ]; then
+    DEFAULT_ARCH="amd64"
+else
+    case "$(uname -m)" in
+        x86_64|amd64)  DEFAULT_ARCH="amd64" ;;
+        aarch64|arm64) DEFAULT_ARCH="arm64" ;;
+        *) DEFAULT_ARCH="amd64" ;;
+    esac
+fi
+ARCH_DIR="${SANDBOX_E2E_ARCH:-$DEFAULT_ARCH}"
+case "$ARCH_DIR" in
+    amd64) RUST_TARGET="x86_64-unknown-linux-gnu";  DOCKER_PLATFORM="linux/amd64" ;;
+    arm64) RUST_TARGET="aarch64-unknown-linux-gnu"; DOCKER_PLATFORM="linux/arm64" ;;
+    *) echo "Unsupported SANDBOX_E2E_ARCH: $ARCH_DIR (use amd64 or arm64)"; exit 1 ;;
+esac
+
 cd "$ROOT_DIR"
 
 # ── Auth tokens ───────────────────────────────────────────────────────────
@@ -67,13 +89,8 @@ if [ "${SKIP_BUILD:-0}" != "1" ]; then
         TARGET_DIR="$(cargo metadata --format-version 1 --no-deps 2>/dev/null \
             | python3 -c 'import sys,json; print(json.load(sys.stdin)["target_directory"])')"
 
-        # Determine target architecture (Docker runs Linux)
-        case "$(uname -m)" in
-            x86_64|amd64)  RUST_TARGET="x86_64-unknown-linux-gnu"; ARCH_DIR="amd64" ;;
-            aarch64|arm64) RUST_TARGET="aarch64-unknown-linux-gnu"; ARCH_DIR="arm64" ;;
-            *) echo "Unsupported host architecture: $(uname -m)"; exit 1 ;;
-        esac
-
+        # RUST_TARGET / ARCH_DIR resolved above (sandbox-transport forces amd64
+        # to match the amd64-only sandbox base; other modes match the host).
         BINARIES_DIR="$(mktemp -d)"
         mkdir -p "$BINARIES_DIR/$ARCH_DIR"
 
@@ -141,6 +158,7 @@ if [ "${SKIP_BUILD:-0}" != "1" ]; then
         # Requires aorwall/moatless-sandbox-base:latest locally — build it with
         # `docker/build-sandbox.sh --local --only base` or override via SANDBOX_BASE.
         docker build \
+            --platform "$DOCKER_PLATFORM" \
             -f "$ROOT_DIR/docker/Dockerfile.sandbox-e2e" \
             --build-arg "SANDBOX_BASE=${SANDBOX_BASE:-aorwall/moatless-sandbox-base:latest}" \
             --build-context "binaries=$BINARIES_DIR" \
@@ -148,6 +166,7 @@ if [ "${SKIP_BUILD:-0}" != "1" ]; then
             "$ROOT_DIR"
     else
         docker build \
+            --platform "$DOCKER_PLATFORM" \
             -f "$CRATE_DIR/Dockerfile.test" \
             --build-arg "CLAUDE_CLI_VERSION=${CLAUDE_CLI_VERSION:-2.1.145}" \
             --build-context "binaries=$BINARIES_DIR" \
@@ -189,10 +208,13 @@ case "$MODE" in
     sandbox-transport)
         # Drives the production spawn_agent path over BOTH transports inside the
         # sandbox base image. Subprocess + tmux tests self-gate on the env vars.
+        # --test-threads=1 runs them SERIALLY: the tmux TUI is heavy (especially
+        # under amd64 emulation on Apple Silicon) and would otherwise contend
+        # with the subprocess test and miss the SessionStart window.
         if [ -n "$TEST_FILTER" ]; then
-            TEST_CMD="CLAUDE_SDK_E2E=1 CLAUDE_TMUX_E2E=1 /test-bins/agent-transport-e2e --ignored --nocapture $TEST_FILTER"
+            TEST_CMD="CLAUDE_SDK_E2E=1 CLAUDE_TMUX_E2E=1 /test-bins/agent-transport-e2e --ignored --nocapture --test-threads=1 $TEST_FILTER"
         else
-            TEST_CMD="CLAUDE_SDK_E2E=1 CLAUDE_TMUX_E2E=1 /test-bins/agent-transport-e2e --ignored --nocapture"
+            TEST_CMD="CLAUDE_SDK_E2E=1 CLAUDE_TMUX_E2E=1 /test-bins/agent-transport-e2e --ignored --nocapture --test-threads=1"
         fi
         ;;
     all)
@@ -228,6 +250,7 @@ echo "Command: $TEST_CMD"
 echo ""
 
 docker run --rm \
+    --platform "$DOCKER_PLATFORM" \
     -e CLAUDE_CODE_OAUTH_TOKEN \
     -e ANTHROPIC_API_KEY \
     -e CLAUDE_SDK_E2E=1 \

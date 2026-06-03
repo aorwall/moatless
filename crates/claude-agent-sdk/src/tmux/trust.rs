@@ -99,6 +99,26 @@ pub(crate) fn scan_for_trust_dialog(stripped: &[u8]) -> bool {
     contains_lower(stripped, b"trust") && contains_lower(stripped, b"folder")
 }
 
+/// Return true when the stripped pane bytes look like the "Bypass Permissions
+/// mode" acceptance dialog is on screen.
+///
+/// `--dangerously-skip-permissions` (which the tmux transport always passes)
+/// makes Claude render a one-time warning — "WARNING: Claude Code running in
+/// Bypass Permissions mode … you accept all responsibility …" — with a menu
+/// whose DEFAULT is "1. No, exit". A bare Enter would quit, so the watcher must
+/// navigate to "2. Yes, I accept" before confirming. The dialog blocks startup
+/// and is not suppressible via config (Claude rewrites `.claude.json` on launch
+/// and re-prompts each session).
+///
+/// Heuristic: both "bypass" and "accept" appear after CSI stripping. The dialog
+/// title/body carry "Bypass Permissions mode" + "you accept all responsibility"
+/// and the menu carries "Yes, I accept". The post-acceptance status line reads
+/// "bypass permissions on (shift+tab to cycle)" — it has "bypass" but NOT
+/// "accept", so the combo won't re-fire once dismissed.
+pub(crate) fn scan_for_bypass_dialog(stripped: &[u8]) -> bool {
+    contains_lower(stripped, b"bypass") && contains_lower(stripped, b"accept")
+}
+
 /// Case-insensitive `needle in haystack`. Both inputs are ASCII; we only
 /// lowercase ASCII letters.
 fn contains_lower(haystack: &[u8], needle: &[u8]) -> bool {
@@ -205,5 +225,33 @@ mod tests {
         // A typical empty Claude REPL banner — no "trust" or "folder".
         let normal = "╭───────────────────╮\n│ Welcome to Claude │\n╰───────────────────╯\n> ";
         assert!(!scan_for_trust_dialog(normal.as_bytes()));
+    }
+
+    #[test]
+    fn scan_detects_bypass_dialog_text() {
+        let body = b"WARNING: Claude Code running in Bypass Permissions mode. \
+            By proceeding, you accept all responsibility. 1. No, exit  2. Yes, I accept";
+        assert!(scan_for_bypass_dialog(body));
+    }
+
+    #[test]
+    fn scan_detects_bypass_after_csi_strip() {
+        let raw = b"Bypass\x1b[1CPermissions mode \x1b[1Cyou \x1b[1Caccept all responsibility";
+        let stripped = strip_csi(raw);
+        assert!(scan_for_bypass_dialog(&stripped));
+    }
+
+    #[test]
+    fn scan_bypass_negative_on_status_line() {
+        // The post-acceptance status line has "bypass" but not "accept" — must
+        // not re-trigger the watcher once the dialog is dismissed.
+        let status = b"  bypass permissions on (shift+tab to cycle) - left for agents";
+        assert!(!scan_for_bypass_dialog(status));
+    }
+
+    #[test]
+    fn scan_bypass_negative_on_trust_dialog() {
+        let trust = b"Do you trust the files in this folder? 1. Yes, I trust  2. No, exit";
+        assert!(!scan_for_bypass_dialog(trust));
     }
 }

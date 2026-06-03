@@ -22,11 +22,12 @@
 //! - `total_cost_usd` is always `0.0` (synthesized; the TUI doesn't expose
 //!   real cost data).
 //!
-//! Workspace-trust dialog: an unfamiliar cwd causes the TUI to display
-//! "Do you trust the files in this folder?" before SessionStart fires.
-//! [`trust_dialog_watcher`] polls `tmux capture-pane` every 250ms during the
-//! pre-SessionStart window and sends Enter when both "trust" and "folder"
-//! appear in the stripped output — the default selection accepts.
+//! Startup dialogs: before SessionStart fires, the TUI can block on (1) the
+//! workspace-trust prompt ("Do you trust the files in this folder?") and (2)
+//! the bypass-permissions warning shown by `--dangerously-skip-permissions`.
+//! [`startup_dialog_watcher`] polls `tmux capture-pane` every 250ms during the
+//! pre-SessionStart window: it sends Enter to accept trust (default selection),
+//! and Down+Enter to accept the bypass dialog (whose default is "No, exit").
 
 mod args;
 mod hooks;
@@ -55,7 +56,7 @@ use self::tailer::{
     discover_transcript_path, spawn_hook_listener, spawn_lazy_supervisor, spawn_supervisor,
     synth_system_init, HookState, TailTarget,
 };
-use self::trust::{scan_for_trust_dialog, strip_csi};
+use self::trust::{scan_for_bypass_dialog, scan_for_trust_dialog, strip_csi};
 use self::writer::TmuxPasteWriter;
 
 /// Channel capacity for the message stream. Matches the subprocess path.
@@ -125,7 +126,7 @@ pub async fn query_tmux(prompt: &str, mut options: ClaudeOptions) -> Result<Quer
     let trust_token = CancellationToken::new();
     let trust_writer = Arc::clone(&writer);
     let trust_session = Arc::clone(&session);
-    let trust_handle = tokio::spawn(trust_dialog_watcher(
+    let trust_handle = tokio::spawn(startup_dialog_watcher(
         trust_session,
         trust_writer,
         trust_token.clone(),
@@ -257,7 +258,7 @@ pub async fn query_tmux_streaming(mut options: ClaudeOptions) -> Result<QueryHan
     let trust_token = CancellationToken::new();
     let trust_writer = Arc::clone(&writer);
     let trust_session = Arc::clone(&session);
-    let trust_handle = tokio::spawn(trust_dialog_watcher(
+    let trust_handle = tokio::spawn(startup_dialog_watcher(
         trust_session,
         trust_writer,
         trust_token.clone(),
@@ -382,15 +383,27 @@ async fn wait_for_session_start(
 /// Cancels itself when `cancellation_token` fires — the caller cancels right
 /// after `SessionStart` fires, so this task is only active during the brief
 /// pre-SessionStart window.
-async fn trust_dialog_watcher(
+async fn startup_dialog_watcher(
     session: Arc<TmuxSession>,
     writer: Arc<TmuxPasteWriter>,
     cancellation_token: CancellationToken,
 ) {
+    // Two distinct blocking dialogs can appear before SessionStart, in order:
+    //   1. workspace-trust ("…trust the files in this folder?") — default is
+    //      "Yes", a bare Enter accepts.
+    //   2. bypass-permissions warning (from --dangerously-skip-permissions) —
+    //      default is "No, exit", so we must move Down to "Yes, I accept" first.
+    // Each is dismissed at most once; we keep polling until both are handled or
+    // SessionStart cancels us.
+    let mut trust_dismissed = false;
+    let mut bypass_dismissed = false;
     loop {
+        if trust_dismissed && bypass_dismissed {
+            return;
+        }
         tokio::select! {
             () = cancellation_token.cancelled() => {
-                debug!("trust_dialog_watcher: cancelled");
+                debug!("startup_dialog_watcher: cancelled");
                 return;
             }
             () = tokio::time::sleep(TRUST_POLL_INTERVAL) => {}
@@ -409,12 +422,26 @@ async fn trust_dialog_watcher(
             continue;
         }
         let stripped = strip_csi(&out.stdout);
-        if scan_for_trust_dialog(&stripped) {
-            debug!("trust_dialog_watcher: dialog detected — pressing Enter");
+
+        if !trust_dismissed && scan_for_trust_dialog(&stripped) {
+            debug!("startup_dialog_watcher: trust dialog detected — pressing Enter");
             if let Err(e) = writer.send_enter().await {
-                warn!(error = %e, "trust_dialog_watcher: failed to send Enter");
+                warn!(error = %e, "startup_dialog_watcher: failed to send Enter for trust");
             }
-            return;
+            trust_dismissed = true;
+            continue;
+        }
+
+        if !bypass_dismissed && scan_for_bypass_dialog(&stripped) {
+            debug!("startup_dialog_watcher: bypass-permissions dialog detected — selecting accept");
+            // Default selection is "No, exit"; move Down to "Yes, I accept".
+            if let Err(e) = writer.send_key("Down").await {
+                warn!(error = %e, "startup_dialog_watcher: failed to send Down for bypass");
+            } else if let Err(e) = writer.send_enter().await {
+                warn!(error = %e, "startup_dialog_watcher: failed to send Enter for bypass");
+            }
+            bypass_dismissed = true;
+            continue;
         }
     }
 }

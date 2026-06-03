@@ -211,7 +211,7 @@ pub async fn persist_agent_credentials(
         }
     }
 
-    write_onboarding_flag(&config.home_dir).await;
+    write_onboarding_flag(&config.claude_config_dir).await;
 }
 
 /// Write Claude OAuth credentials file.
@@ -293,14 +293,32 @@ async fn write_codex_auth_file(codex_home_dir: &str, auth_json: &str) -> bool {
     }
 }
 
-/// Write the onboarding flag so Claude CLI skips interactive setup.
-async fn write_onboarding_flag(home_dir: &str) {
-    let flag_path = format!("{home_dir}/.claude.json");
+/// Seed Claude's user config so the interactive TUI (tmux transport) skips
+/// first-run onboarding.
+///
+/// Claude reads `$CLAUDE_CONFIG_DIR/.claude.json` — NOT `$HOME/.claude.json`.
+/// Writing the flag to `$HOME` (the prior behavior) had no effect, so the TUI
+/// blocked on the theme picker and `SessionStart` never fired (the subprocess
+/// `-p` transport is unaffected because `--print` skips onboarding entirely).
+/// We seed both `hasCompletedOnboarding` and a default `theme` so the picker is
+/// skipped on a cold config.
+async fn write_onboarding_flag(claude_config_dir: &str) {
+    let flag_path = format!("{claude_config_dir}/.claude.json");
     if fs::metadata(&flag_path).await.is_ok() {
-        return; // Already exists
+        return; // Claude already wrote its config — don't clobber it.
     }
 
-    if let Err(e) = fs::write(&flag_path, r#"{"hasCompletedOnboarding":true}"#).await {
+    if let Err(e) = fs::create_dir_all(claude_config_dir).await {
+        warn!(error = %e, "Failed to create Claude config dir for onboarding flag");
+        return;
+    }
+
+    if let Err(e) = fs::write(
+        &flag_path,
+        r#"{"hasCompletedOnboarding":true,"theme":"dark"}"#,
+    )
+    .await
+    {
         warn!(error = %e, "Failed to write onboarding flag");
     }
 }
