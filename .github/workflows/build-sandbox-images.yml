@@ -28,7 +28,7 @@ env:
   SANDBOX_JAVA_IMAGE: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-sandbox-java
   CARGO_INCREMENTAL: 0
   # Pinned CLI versions baked into sandbox images. Bump to upgrade.
-  CLAUDE_CLI_VERSION: 2.1.114
+  CLAUDE_CLI_VERSION: 2.1.159
   CODEX_CLI_VERSION: 0.121.0
 
 jobs:

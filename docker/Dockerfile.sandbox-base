@@ -22,7 +22,7 @@ RUN apt-get update \
     && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
         curl wget git git-lfs gnupg2 ca-certificates \
-        build-essential jq ripgrep unzip zip \
+        build-essential jq ripgrep unzip zip tmux \
         dnsutils iputils-ping netcat-openbsd openssh-client \
         vim less procps lsof \
     && rm -rf /var/lib/apt/lists/*
@@ -87,7 +87,7 @@ RUN mkdir -p /home/$USERNAME/.cache \
 
 # Claude/Codex CLIs (pinned versions). Bump these args to upgrade the CLIs —
 # this is the only frequent reason this image will rebuild.
-ARG CLAUDE_CLI_VERSION=2.1.121
+ARG CLAUDE_CLI_VERSION=2.1.159
 ARG CODEX_CLI_VERSION=0.124.0
 RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CLI_VERSION}" "@openai/codex@${CODEX_CLI_VERSION}" \
     && ln -sf "$(which claude)" /usr/local/bin/claude \
